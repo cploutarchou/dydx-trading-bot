@@ -1,3 +1,4 @@
+import { useQueries } from '@tanstack/react-query';
 import {
     Activity,
     AlertTriangle,
@@ -10,7 +11,7 @@ import {
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../api';
-import { useBotJobs } from '../api/hooks';
+import { useBotInstances, useBotJobs } from '../api/hooks';
 import type { BotJob } from '../api/types';
 import BotManager from '../components/BotManager';
 import { JobDetailsPanel } from '../components/JobDetailsPanel';
@@ -117,14 +118,62 @@ const formatWinRate = (value: number): string => {
 
 const BotDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
-  const [botList, setBotList] = useState<BotStatsData[]>([]);
   const [selectedBot, setSelectedBot] = useState<string | null>(null);
   const [botPositions, setBotPositions] = useState<PositionData[]>([]);
   const [botAlerts, setBotAlerts] = useState<AlertDataType[]>([]);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [selectedJob, setSelectedJob] = useState<BotJob | null>(null);
+
+  const botInstancesQuery = useBotInstances({}, true);
+  const botInstances = useMemo(
+    () => (botInstancesQuery.data?.data ?? []) as BotListItem[],
+    [botInstancesQuery.data]
+  );
+
+  const botSummaryQueries = useQueries({
+    queries: botInstances.map((bot) => ({
+      queryKey: ['bot-summary-card', bot.instance_id],
+      queryFn: () => api.getBotSummary(bot.instance_id, 'stats', 20),
+      enabled: !!bot.instance_id,
+      refetchInterval: 10_000,
+      staleTime: 10_000,
+    })),
+  });
+
+  const botList = useMemo<BotStatsData[]>(() => {
+    return botInstances.map((bot, index) => {
+      const summaryPayload = botSummaryQueries[index]?.data?.data;
+      const summaryRecord = asRecord(summaryPayload);
+      const rawStats = asRecord(summaryRecord.stats);
+
+      return {
+        instance_id: bot.instance_id,
+        status: bot.status || String(rawStats?.status || 'UNKNOWN'),
+        total_pnl: Number(rawStats?.total_pnl || 0),
+        realized_pnl: Number(rawStats?.realized_pnl || 0),
+        unrealized_pnl: Number(rawStats?.unrealized_pnl || 0),
+        total_positions: Number(rawStats?.total_positions || 0),
+        open_positions: Number(rawStats?.open_positions || 0),
+        total_trades: Number(rawStats?.total_trades || 0),
+        win_rate: Number(rawStats?.win_rate || 0),
+        last_update: String(rawStats?.last_update || new Date().toISOString()),
+      };
+    });
+  }, [botInstances, botSummaryQueries]);
+
+  const loading =
+    botInstancesQuery.isLoading ||
+    botSummaryQueries.some((query) => query.isLoading || query.isFetching);
+
+  const lastUpdated = useMemo(() => {
+    const timestamps = botSummaryQueries
+      .map((query) => query.dataUpdatedAt)
+      .filter((value) => typeof value === 'number' && value > 0);
+    if (timestamps.length === 0) {
+      return null;
+    }
+    return new Date(Math.max(...timestamps));
+  }, [botSummaryQueries]);
 
   const jobsQuery = useBotJobs(selectedBot ?? '', 7, !!selectedBot && activeTab === 'jobs');
 
@@ -132,55 +181,6 @@ const BotDashboard: React.FC = () => {
     () => botList.find((bot) => bot.instance_id === selectedBot) ?? null,
     [botList, selectedBot]
   );
-
-  const loadBots = useCallback(async () => {
-    try {
-      setLoading(true);
-      const response = await api.listBotInstances(0, 100);
-      const rawBotData = response.data as { bots?: unknown } | unknown;
-      const instances = asArray<BotListItem>(
-        (rawBotData as { bots?: unknown })?.bots ?? rawBotData
-      );
-
-      const statsResponses = await Promise.all(
-        instances.map(async (bot) => {
-          try {
-            return await api.getBotSummary(bot.instance_id, 'stats', 20);
-          } catch {
-            return null;
-          }
-        })
-      );
-
-      const statsData: BotStatsData[] = instances.map((bot, index) => {
-        const rawSummary = statsResponses[index]?.data;
-        const summaryRecord = asRecord(rawSummary);
-        const rawStats = asRecord(summaryRecord.stats);
-        return {
-          instance_id: bot.instance_id,
-          status: bot.status || String(rawStats?.status || 'UNKNOWN'),
-          total_pnl: Number(rawStats?.total_pnl || 0),
-          realized_pnl: Number(rawStats?.realized_pnl || 0),
-          unrealized_pnl: Number(rawStats?.unrealized_pnl || 0),
-          total_positions: Number(rawStats?.total_positions || 0),
-          open_positions: Number(rawStats?.open_positions || 0),
-          total_trades: Number(rawStats?.total_trades || 0),
-          win_rate: Number(rawStats?.win_rate || 0),
-          last_update: String(rawStats?.last_update || new Date().toISOString()),
-        };
-      });
-
-      setBotList(statsData);
-      setLastUpdated(new Date());
-      if (statsData.length > 0 && !selectedBot) setSelectedBot(statsData[0].instance_id);
-      setError(null);
-    } catch (err) {
-      console.error('Failed to load bots:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load bots');
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedBot]);
 
   const loadPositions = useCallback(async () => {
     if (!selectedBot) {
@@ -213,16 +213,36 @@ const BotDashboard: React.FC = () => {
   }, [selectedBot]);
 
   useEffect(() => {
-    void loadBots();
-  }, [loadBots]);
+    if (botInstancesQuery.isError) {
+      setError(
+        botInstancesQuery.error instanceof Error
+          ? botInstancesQuery.error.message
+          : 'Failed to load bots'
+      );
+      return;
+    }
+    if (botSummaryQueries.some((query) => query.isError)) {
+      const failedQuery = botSummaryQueries.find((query) => query.isError);
+      setError(
+        failedQuery?.error instanceof Error
+          ? failedQuery.error.message
+          : 'Failed to load bot summary'
+      );
+      return;
+    }
+    setError(null);
+  }, [botInstancesQuery.error, botInstancesQuery.isError, botSummaryQueries]);
+
+  useEffect(() => {
+    if (botList.length > 0 && !selectedBot) {
+      setSelectedBot(botList[0].instance_id);
+    }
+  }, [botList, selectedBot]);
+
   useEffect(() => {
     if (activeTab === 'positions') void loadPositions();
     else if (activeTab === 'alerts') void loadAlerts();
   }, [activeTab, loadAlerts, loadPositions]);
-  useEffect(() => {
-    const interval = window.setInterval(() => void loadBots(), 10000);
-    return () => window.clearInterval(interval);
-  }, [loadBots]);
 
   const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
     { id: 'overview', label: 'Overview', icon: <TrendingUp size={16} /> },
@@ -273,7 +293,12 @@ const BotDashboard: React.FC = () => {
                 </p>
               </div>
               <button
-                onClick={() => void loadBots()}
+                onClick={() => {
+                  void botInstancesQuery.refetch();
+                  botSummaryQueries.forEach((query) => {
+                    void query.refetch();
+                  });
+                }}
                 disabled={loading}
                 className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:text-slate-400 text-white px-4 py-2 rounded-lg transition text-sm font-medium"
               >

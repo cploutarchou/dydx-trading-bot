@@ -14,6 +14,37 @@ Each task is self-contained and safe to implement without touching production tr
 - [x] Updated schema compatibility tests to current realtime compatibility columns.
 - [x] Updated frontend active-run push websocket URL construction to use backend resolver.
 
+## Roadmap Verification Snapshot (2026-05-16)
+
+Status below reflects code-level verification in this repository plus targeted test/lint/build checks.
+Performance SLO numbers in individual tasks are considered implementation-complete but still require
+environment-level benchmarking in deployed infra.
+
+- [x] TASK-001 – Cache `get_markets()` result in-process (60s TTL)
+- [x] TASK-002 – Cache `get_candles_recent()` per market (30s TTL)
+- [x] TASK-003 – Remove duplicate `setInterval` polling from Dashboard
+- [x] TASK-004 – Apply `queryConfigs.static` staleTime to settings/profile queries
+- [x] TASK-005 – Add Redis TTL read-through cache for bot stats delegation
+- [x] TASK-006 – Enable gzip response compression on Gin router
+- [x] TASK-007 – Parallelize `construct_market_prices` candle fetches
+- [x] TASK-008 – Complete `CandleCacheService` warm/prefetch implementation
+- [x] TASK-009 – Consolidate Backtests page polling behavior
+- [x] TASK-010 – Migrate StrategyManager server-state flows to React Query
+- [x] TASK-011 – Add aggregate bot summary endpoint
+- [x] TASK-012 – Add/align compound DB indexes for critical backtest/bot queries
+- [x] TASK-013 – Move inline position/trade handlers to handler layer + tests
+- [x] TASK-014 – Make API throttle configurable
+- [x] TASK-015 – Celery completion events → Redis pub/sub → WebSocket push (WebSocket-first updates with 60s polling safety fallback)
+- [x] TASK-016 – Shared market data background sync (producer + consumer path)
+- [x] TASK-017 – Token-bucket rate limiting with fallback behavior
+- [x] TASK-018 – Redis-backed API rate limiting with graceful fallback
+- [x] TASK-019 – Circuit breaker + open-state Telegram alerting
+- [x] TASK-020 – Pre-aggregation cache invalidation path on backtest delete
+- [x] TASK-021 – Expose bot API stats in admin backend/frontend
+- [x] TASK-022 – Structured cache logging fields for observability
+- [x] TASK-023 – Trace ID logging in Python bot API request flow
+- [x] TASK-024 – Candle fetch latency instrumentation
+
 ---
 
 ## Quick Wins (1–3 days)

@@ -2044,10 +2044,21 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		backtestGroup.DELETE("/:run_id", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)
 			runID := c.Param("run_id")
+			runPrimaryKey := 0
+			if backtestRepo != nil {
+				if run, lookupErr := backtestRepo.GetRunByID(runID); lookupErr == nil && run != nil {
+					runPrimaryKey = run.ID
+				}
+			}
 			result, err := requestClient.DeleteBacktest(runID)
 			if err != nil {
 				respondBotAPIError(c, err)
 				return
+			}
+			if candleCache != nil && runPrimaryKey > 0 {
+				if invalidateErr := candleCache.InvalidateCandleCache(runPrimaryKey); invalidateErr != nil {
+					log.Printf("CandleCache: invalidate error for deleted run %s (pk=%d): %v", runID, runPrimaryKey, invalidateErr)
+				}
 			}
 			respondBacktestEnvelope(c, http.StatusOK, "Backtest deleted successfully", result)
 		})

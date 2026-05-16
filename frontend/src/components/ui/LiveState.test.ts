@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     formatBacktestProgressSourceLabel,
     getFreshnessTone,
-  resolveBacktestStreamBadge,
+    resolveBacktestStreamBadge,
     resolveBacktestStreamHealth,
 } from './LiveState';
 

@@ -2522,6 +2522,9 @@ class BacktestService:
             for idx, (m1, m2) in enumerate(pair_markets):
                 if self._remaining_seconds(deadline_monotonic) <= 0:
                     raise TimeoutError("Backtest timed out while processing pairs")
+                # Yield to event loop so other coroutines (e.g. API health checks)
+                # are not starved during CPU-bound pair processing.
+                await asyncio.sleep(0)
                 run_data = await self._honor_runtime_control(
                     run_id, run_data, deadline_monotonic
                 )
@@ -2555,7 +2558,9 @@ class BacktestService:
                             else 0
                         )
                         await asyncio.wait_for(
-                            progress_callback(run_id, progress, f"{m1}/{m2}", _eta_seconds),
+                            progress_callback(
+                                run_id, progress, f"{m1}/{m2}", _eta_seconds
+                            ),
                             timeout=min(
                                 self._PROGRESS_CALLBACK_TIMEOUT_SECONDS,
                                 max(0.001, self._remaining_seconds(deadline_monotonic)),

@@ -42,6 +42,12 @@ import BacktestPositionsPanel from '../components/BacktestPositionsPanel';
 import { BacktestResultsEnhanced } from '../components/BacktestResultsEnhanced';
 import BacktestTradesPanel from '../components/BacktestTradesPanel';
 import { PageContainer } from '../components/PageContainer';
+import {
+	LiveStateBadge,
+	formatBacktestProgressSourceLabel,
+	resolveBacktestStreamBadge,
+} from '../components/ui/LiveState';
+import { usePersistentPreference } from '../hooks/usePersistentPreference';
 
 interface Candle {
   market: string;
@@ -159,6 +165,23 @@ interface DetailSyncState {
 }
 
 type ChartRange = '7D' | '30D' | '90D' | 'ALL';
+type DetailTab = 'summary' | 'candles' | 'positions' | 'trades' | 'results';
+
+const BACKTEST_DETAIL_TABS: readonly DetailTab[] = [
+  'summary',
+  'candles',
+  'positions',
+  'trades',
+  'results',
+];
+
+const DETAIL_TAB_SHORTCUTS: Record<string, DetailTab> = {
+  '1': 'summary',
+  '2': 'candles',
+  '3': 'positions',
+  '4': 'trades',
+  '5': 'results',
+};
 
 const asRecord = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -225,7 +248,11 @@ const firstFiniteNumber = (...values: unknown[]): number | null => {
   return null;
 };
 
-const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+const withTimeout = async <T,>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> => {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<T>((_, reject) => {
     timeoutId = setTimeout(() => {
@@ -255,7 +282,11 @@ const buildFallbackBacktestFromStatus = (
   const progress =
     firstFiniteNumber(payload.progress_percent, payload.progress_pct, payload.progress) ?? 0;
   const status = firstMeaningfulString(payload.status, payload.state) ?? 'PENDING';
-  const updatedAt = firstMeaningfulString(payload.updated_at, payload.timestamp, payload.started_at);
+  const updatedAt = firstMeaningfulString(
+    payload.updated_at,
+    payload.timestamp,
+    payload.started_at
+  );
 
   return {
     run_id: runId,
@@ -329,6 +360,9 @@ const CHART_RANGE_DAYS: Record<Exclude<ChartRange, 'ALL'>, number> = {
   '30D': 30,
   '90D': 90,
 };
+
+const OPERATOR_DENSITY_STORAGE_KEY = 'operator-ui-density';
+const LEGACY_SUMMARY_DENSITY_STORAGE_KEY = 'backtest-details-summary-density';
 
 const formatSignedCurrency = (value: number): string => {
   const sign = value >= 0 ? '+' : '-';
@@ -480,9 +514,15 @@ export const BacktestDetailsV2: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedMarket, setSelectedMarket] = useState<string | null>(null);
   const [chartRange, setChartRange] = useState<ChartRange>('30D');
-  const [activeTab, setActiveTab] = useState<
-    'summary' | 'candles' | 'positions' | 'trades' | 'results'
-  >('summary');
+  const [activeTab, setActiveTab] = useState<DetailTab>('summary');
+  const [summaryDensity, setSummaryDensity] = usePersistentPreference<'comfortable' | 'dense'>(
+    OPERATOR_DENSITY_STORAGE_KEY,
+    'comfortable',
+    {
+      allowedValues: ['comfortable', 'dense'] as const,
+      legacyKeys: [LEGACY_SUMMARY_DENSITY_STORAGE_KEY],
+    }
+  );
   const [liveLogs, setLiveLogs] = useState<BacktestLogEntry[]>([]);
   const [controlAction, setControlAction] = useState<string | null>(null);
   const [controlError, setControlError] = useState<string | null>(null);
@@ -557,6 +597,40 @@ export const BacktestDetailsV2: React.FC = () => {
   useEffect(() => {
     fetchBacktestMetadata();
   }, [fetchBacktestMetadata]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tagName = target.tagName;
+        const isTypingTarget =
+          target.isContentEditable ||
+          tagName === 'INPUT' ||
+          tagName === 'TEXTAREA' ||
+          tagName === 'SELECT';
+        if (isTypingTarget) {
+          return;
+        }
+      }
+
+      const nextTab = DETAIL_TAB_SHORTCUTS[event.key];
+      if (!nextTab) {
+        return;
+      }
+
+      event.preventDefault();
+      setActiveTab(nextTab);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1208,15 +1282,11 @@ export const BacktestDetailsV2: React.FC = () => {
     typeof progressQuery.etaSeconds === 'number'
       ? formatDurationFromSeconds(progressQuery.etaSeconds)
       : null;
-  const progressSourceLabels: Record<string, string> = {
-    status: 'live status',
-    websocket: 'websocket',
-    polling_recovery: 'polling recovery',
-    polling: 'polling',
-    list_fallback: 'list fallback',
-    details: 'details status',
-  };
-  const progressSourceLabel = progressSourceLabels[progressQuery.progressSource] || 'default';
+  const progressSourceLabel = formatBacktestProgressSourceLabel(progressQuery.progressSource);
+  const streamBadge = resolveBacktestStreamBadge(
+    progressQuery.progressSource,
+    Boolean(progressQuery.isConnected)
+  );
   const totalPnl = liveBacktest.total_pnl_usd ?? liveBacktest.total_pnl ?? 0;
   const maxDrawdown = liveBacktest.max_drawdown ?? liveBacktest.max_drawdown_pct ?? 0;
   const winRatePercent = normalizePercentValue(liveBacktest.win_rate);
@@ -1450,6 +1520,7 @@ export const BacktestDetailsV2: React.FC = () => {
       tone: selectedMarketsForRuntime.length >= 5 ? 'emerald' : 'amber',
     },
   ];
+  const isSummaryDense = summaryDensity === 'dense';
 
   const renderEmptyState = (label: string): React.ReactNode => {
     if (isRunning) {
@@ -1531,7 +1602,59 @@ export const BacktestDetailsV2: React.FC = () => {
       icon: Waves,
       color: progressQuery.isConnected ? 'text-cyan-300' : 'text-amber-300',
     },
+    {
+      label: 'Stats Integrity',
+      value: `${
+        [
+          Number.isFinite(totalPnl),
+          Number.isFinite(winRatePercent),
+          Number.isFinite(liveBacktest.sharpe_ratio),
+          Number.isFinite(maxDrawdown),
+        ].filter(Boolean).length * 25
+      }%`,
+      detail: `${
+        [
+          Number.isFinite(totalPnl),
+          Number.isFinite(winRatePercent),
+          Number.isFinite(liveBacktest.sharpe_ratio),
+          Number.isFinite(maxDrawdown),
+        ].filter(Boolean).length
+      }/4 core signals validated`,
+      icon: ShieldCheck,
+      color:
+        [
+          Number.isFinite(totalPnl),
+          Number.isFinite(winRatePercent),
+          Number.isFinite(liveBacktest.sharpe_ratio),
+          Number.isFinite(maxDrawdown),
+        ].filter(Boolean).length === 4
+          ? 'text-emerald-300'
+          : 'text-amber-300',
+    },
   ];
+
+  const tabMetadata = {
+    summary: {
+      countLabel: 'Overview',
+      isLoading: false,
+    },
+    candles: {
+      countLabel: `${filteredChartPoints.length} bars`,
+      isLoading: analyticsLoading,
+    },
+    positions: {
+      countLabel: `${positions.length} rows`,
+      isLoading: positionsLoading,
+    },
+    trades: {
+      countLabel: `${liveBacktest.total_trades ?? trades.length} trades`,
+      isLoading: tradesLoading,
+    },
+    results: {
+      countLabel: `${pairBreakdown.length} pairs`,
+      isLoading: false,
+    },
+  } as const;
 
   const runControlStatus = normalizeStatus(liveBacktest.control_status);
   const controlBusy = controlAction !== null;
@@ -1550,7 +1673,10 @@ export const BacktestDetailsV2: React.FC = () => {
     !isCompleted &&
     !isFailed &&
     (liveBacktest.cancellable || isRunning || isPaused);
-  const canRestart = Boolean(runId) && !controlBusy;
+  const canRestart =
+    Boolean(runId) &&
+    !controlBusy &&
+    (liveBacktest.restartable || isFailed || isCompleted || isPaused);
   const canRetry = Boolean(runId) && !controlBusy && isFailed;
 
   const handleBacktestControl = async (
@@ -1603,6 +1729,23 @@ export const BacktestDetailsV2: React.FC = () => {
     } catch (err: unknown) {
       const response = asRecord(asRecord(err)?.response);
       const statusCode = toNumber(response?.status, 0);
+      const responseData = asRecord(response?.data);
+      const conflictMessage = firstMeaningfulString(
+        responseData?.message,
+        responseData?.error,
+        responseData?.detail,
+        (err as { message?: unknown } | null)?.message
+      );
+
+      if ((action === 'restart' || action === 'retry') && statusCode === 409) {
+        await fetchBacktestMetadata(false);
+        setControlError(
+          conflictMessage ||
+            `This run changed state while we processed your request. We refreshed the latest status—please retry the same action if needed.`
+        );
+        return;
+      }
+
       if ((action === 'restart' || action === 'retry') && statusCode === 404) {
         try {
           await runFromPersistedRequest();
@@ -1610,13 +1753,16 @@ export const BacktestDetailsV2: React.FC = () => {
         } catch (fallbackErr: unknown) {
           const fallbackMsg =
             fallbackErr instanceof Error
-              ? fallbackErr.message
-              : `Failed to ${action} from saved request`;
+              ? `We couldn't continue with ${action} from the saved request: ${fallbackErr.message}`
+              : `We couldn't continue with ${action} from the saved request right now.`;
           setControlError(fallbackMsg);
           return;
         }
       }
-      const msg = err instanceof Error ? err.message : `Failed to ${action} backtest ${runId}`;
+      const msg =
+        err instanceof Error
+          ? `We couldn't ${action} this backtest right now. ${err.message}`
+          : `We couldn't ${action} this backtest right now.`;
       setControlError(msg);
     } finally {
       setControlAction(null);
@@ -1730,7 +1876,7 @@ export const BacktestDetailsV2: React.FC = () => {
 
   return (
     <PageContainer size="wide" className="space-y-6 text-white">
-      <div className="rounded-[28px] border border-slate-800 bg-[radial-gradient(circle_at_top_left,_rgba(34,197,94,0.10),_transparent_24%),radial-gradient(circle_at_top_right,_rgba(56,189,248,0.14),_transparent_28%),linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.98))] p-5 shadow-[0_20px_80px_rgba(2,6,23,0.45)] sm:p-7">
+      <div className="rounded-[28px] border border-slate-800 bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.10),transparent_24%),radial-gradient(circle_at_top_right,rgba(56,189,248,0.14),transparent_28%),linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.98))] p-5 shadow-[0_20px_80px_rgba(2,6,23,0.45)] sm:p-7">
         <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div className="space-y-3">
@@ -1756,9 +1902,11 @@ export const BacktestDetailsV2: React.FC = () => {
                 >
                   {statusNorm}
                 </span>
-                <span className="rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1 text-[11px] font-medium text-slate-300">
-                  {progressQuery.isConnected ? 'Live websocket' : 'Silent recovery mode'}
-                </span>
+                <LiveStateBadge
+                  tone={streamBadge.tone}
+                  label={streamBadge.label}
+                  className="rounded-full px-3 py-1 normal-case"
+                />
               </div>
               <div>
                 <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-5xl">
@@ -1842,7 +1990,7 @@ export const BacktestDetailsV2: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid min-w-full grid-cols-2 gap-3 sm:min-w-[360px] xl:max-w-[420px]">
+            <div className="grid min-w-full grid-cols-2 gap-3 sm:min-w-90 xl:max-w-105">
               <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
                 <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Run ID</p>
                 <p className="mt-2 break-all font-mono text-sm text-slate-100">{backtest.run_id}</p>
@@ -1993,7 +2141,7 @@ export const BacktestDetailsV2: React.FC = () => {
               </p>
               {failureReason && (
                 <p className="mt-2 text-sm text-red-200">
-                  Reason: <span className="break-words font-mono">{failureReason}</span>
+                  Reason: <span className="wrap-break-word font-mono">{failureReason}</span>
                 </p>
               )}
               {failureDiagnostic.category !== 'cancelled' && (
@@ -2041,7 +2189,7 @@ export const BacktestDetailsV2: React.FC = () => {
                 )}
               </div>
 
-              <div className="grid min-w-full gap-2 sm:grid-cols-2 xl:min-w-[420px]">
+              <div className="grid min-w-full gap-2 sm:grid-cols-2 xl:min-w-105">
                 <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-3">
                   <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Relation</p>
                   <p className="mt-1 text-sm font-semibold text-slate-100">
@@ -2111,7 +2259,7 @@ export const BacktestDetailsV2: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.45fr)_420px]">
-            <div className="rounded-[24px] border border-slate-800 bg-slate-950/50 p-4 sm:p-5">
+            <div className="rounded-3xl border border-slate-800 bg-slate-950/50 p-4 sm:p-5">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <p className="text-[11px] font-semibold uppercase text-cyan-300">
@@ -2166,7 +2314,7 @@ export const BacktestDetailsV2: React.FC = () => {
               </div>
             </div>
 
-            <div className="rounded-[24px] border border-cyan-500/25 bg-cyan-950/20 p-4 sm:p-5">
+            <div className="rounded-3xl border border-cyan-500/25 bg-cyan-950/20 p-4 sm:p-5">
               <div className="flex items-start gap-3">
                 <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-3 text-cyan-200">
                   <Bot className="h-5 w-5" />
@@ -2241,17 +2389,28 @@ export const BacktestDetailsV2: React.FC = () => {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="overflow-x-auto">
             <div className="flex min-w-max gap-2">
-              {(['summary', 'candles', 'positions', 'trades', 'results'] as const).map((tab) => (
+              {BACKTEST_DETAIL_TABS.map((tab, index) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+                  aria-current={activeTab === tab ? 'page' : undefined}
+                  aria-keyshortcuts={`${index + 1}`}
+                  className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition ${
                     activeTab === tab
                       ? 'bg-cyan-500/15 text-cyan-200 shadow-[inset_0_0_0_1px_rgba(34,211,238,0.24)]'
                       : 'text-slate-400 hover:bg-slate-900/80 hover:text-slate-200'
                   }`}
                 >
                   {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-[0.08em] ${
+                      activeTab === tab
+                        ? 'bg-cyan-500/20 text-cyan-100'
+                        : 'bg-slate-800 text-slate-400'
+                    }`}
+                  >
+                    {tabMetadata[tab].isLoading ? 'Loading…' : tabMetadata[tab].countLabel}
+                  </span>
                 </button>
               ))}
             </div>
@@ -2263,9 +2422,12 @@ export const BacktestDetailsV2: React.FC = () => {
                 : 'Realtime stream reconnecting'}
             </span>
             <span className="rounded-full border border-slate-800 bg-slate-900/80 px-3 py-1 text-slate-400">
-              {activeTab === 'candles'
-                ? `${filteredChartPoints.length} bars loaded`
-                : `${liveBacktest.total_trades ?? trades.length} trades indexed`}
+              {tabMetadata[activeTab].isLoading
+                ? 'Loading tab data…'
+                : `${tabMetadata[activeTab].countLabel} ready`}
+            </span>
+            <span className="rounded-full border border-slate-800 bg-slate-900/80 px-3 py-1 text-slate-500">
+              Shortcuts 1–5
             </span>
           </div>
         </div>
@@ -2273,172 +2435,380 @@ export const BacktestDetailsV2: React.FC = () => {
 
       {/* Summary Tab */}
       {activeTab === 'summary' && (
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/75 p-4 sm:p-6">
-            <h2 className="mb-4 text-xl font-bold">Run Snapshot</h2>
-            <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="space-y-3">
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/55 px-3 py-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <dt className="text-xs uppercase tracking-wide text-slate-500">Run ID</dt>
-                <dd className="mt-1 font-mono text-sm text-slate-200">{backtest.run_id}</dd>
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                  Summary density
+                </p>
+                <p className="text-xs text-slate-400">
+                  Switch to dense mode for tighter scanning on smaller laptop screens.
+                </p>
               </div>
-              <div>
-                <dt className="text-xs uppercase tracking-wide text-slate-500">Created</dt>
-                <dd className="mt-1 text-sm text-slate-200">
-                  {formatDateValue(backtest.created_at)}
-                </dd>
+              <div className="inline-flex rounded-xl border border-slate-700 bg-slate-900/70 p-1">
+                <button
+                  type="button"
+                  onClick={() => setSummaryDensity('comfortable')}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    !isSummaryDense
+                      ? 'bg-cyan-500/15 text-cyan-200 shadow-[inset_0_0_0_1px_rgba(34,211,238,0.24)]'
+                      : 'text-slate-300 hover:text-slate-100'
+                  }`}
+                >
+                  Comfort
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSummaryDensity('dense')}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    isSummaryDense
+                      ? 'bg-cyan-500/15 text-cyan-200 shadow-[inset_0_0_0_1px_rgba(34,211,238,0.24)]'
+                      : 'text-slate-300 hover:text-slate-100'
+                  }`}
+                >
+                  Operator Dense
+                </button>
               </div>
-              <div>
-                <dt className="text-xs uppercase tracking-wide text-slate-500">Date Range</dt>
-                <dd className="mt-1 text-sm text-slate-200">
-                  {backtest.start_date || 'N/A'} to {backtest.end_date || 'N/A'}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs uppercase tracking-wide text-slate-500">Status</dt>
-                <dd className="mt-1 text-sm capitalize text-slate-200">{statusNorm}</dd>
-              </div>
-              <div>
-                <dt className="text-xs uppercase tracking-wide text-slate-500">Profit Factor</dt>
-                <dd className="mt-1 text-sm text-slate-200">
-                  {liveBacktest.profit_factor !== undefined && liveBacktest.profit_factor !== null
-                    ? liveBacktest.profit_factor.toFixed(2)
-                    : 'N/A'}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs uppercase tracking-wide text-slate-500">Max Drawdown</dt>
-                <dd className="mt-1 text-sm text-slate-200">{maxDrawdown.toFixed(1)}%</dd>
-              </div>
-            </dl>
+            </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/75 p-4 sm:p-6">
-            <h2 className="mb-4 text-xl font-bold">Analysis Access</h2>
-            <div className="space-y-3 text-sm text-slate-300">
-              <p>Open a detail tab to load the heavier datasets only when you need them.</p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
-                    Chart workspace
-                  </p>
-                  <p className="mt-2 text-slate-200">
-                    Period filters, market switching, live equity curve, trade markers, and sync
-                    telemetry.
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
-                    Detail panels
-                  </p>
-                  <p className="mt-2 text-slate-200">
-                    Positions, trades, and pair ranking update live without hard resets while the
-                    run executes.
+          <div className={`grid grid-cols-1 xl:grid-cols-2 ${isSummaryDense ? 'gap-4' : 'gap-6'}`}>
+            <div
+              className={`rounded-2xl border border-slate-800 bg-slate-900/75 ${isSummaryDense ? 'p-4' : 'p-4 sm:p-6'}`}
+            >
+              <div
+                className={`${isSummaryDense ? 'mb-3' : 'mb-4'} flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between`}
+              >
+                <div>
+                  <h2 className="text-xl font-bold">Run Snapshot</h2>
+                  <p className={`mt-1 ${isSummaryDense ? 'text-xs' : 'text-sm'} text-slate-400`}>
+                    Live status, timing, and runtime metadata for this backtest ticket.
                   </p>
                 </div>
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4 sm:col-span-2">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
-                    Runtime telemetry
-                  </p>
-                  <p className="mt-2 text-slate-200">
-                    Current task:{' '}
-                    <span className="font-mono text-slate-100">
-                      {currentTaskLine || 'Initializing runtime'}
-                    </span>
-                  </p>
-                  <p className="mt-1 text-sm text-slate-400">
-                    Sync status:{' '}
-                    {progressQuery.isConnected
-                      ? 'websocket streaming live'
-                      : 'silent fallback recovery'}
-                    .
-                  </p>
+                <div className="flex flex-wrap gap-2">
+                  <span className="rounded-full border border-slate-700 bg-slate-950/70 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-slate-300">
+                    {statusNorm}
+                  </span>
+                  <span className="rounded-full border border-cyan-500/35 bg-cyan-500/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-cyan-200">
+                    {progressPercent.toFixed(1)}% progress
+                  </span>
                 </div>
+              </div>
 
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-4 sm:col-span-2">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
-                    History fetch telemetry
+              <div
+                className={`${isSummaryDense ? 'mb-3' : 'mb-4'} grid gap-2 text-xs sm:grid-cols-3`}
+              >
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                    Last sync
                   </p>
-                  {hasHistoryFetchTelemetry ? (
-                    <>
-                      <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
-                        <span className={`font-semibold ${retryPressureTone}`}>
-                          Retry pressure: {retryPressureScore.toFixed(1)} / 100
-                        </span>
-                        <span className="rounded-full border border-slate-800 bg-slate-900/70 px-2.5 py-1 text-[11px] text-slate-300">
-                          {retryPressureLabel}
-                        </span>
-                      </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-                        <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-2.5 py-2 text-slate-300">
-                          <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
-                            Windows
-                          </p>
-                          <p className="mt-1 font-semibold text-slate-100">
-                            {historyFetchTotalWindows}
-                          </p>
-                        </div>
-                        <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-2.5 py-2 text-slate-300">
-                          <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
-                            Retries
-                          </p>
-                          <p className="mt-1 font-semibold text-slate-100">
-                            {historyFetchTotalRetries}
-                          </p>
-                        </div>
-                        <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-2.5 py-2 text-slate-300">
-                          <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
-                            Failed windows
-                          </p>
-                          <p className="mt-1 font-semibold text-slate-100">
-                            {historyFetchTotalFailedWindows}
-                          </p>
-                        </div>
-                        <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-2.5 py-2 text-slate-300">
-                          <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
-                            Backoff
-                          </p>
-                          <p className="mt-1 font-semibold text-slate-100">
-                            {historyFetchTotalBackoffSeconds.toFixed(1)}s
-                          </p>
-                        </div>
-                      </div>
-                      {historyFetchMarketRows.length > 0 && (
-                        <div className="mt-3 overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/60">
-                          <table className="min-w-full text-left text-xs">
-                            <thead className="border-b border-slate-800 text-[10px] uppercase tracking-[0.14em] text-slate-500">
-                              <tr>
-                                <th className="px-3 py-2">Market</th>
-                                <th className="px-3 py-2">Retries</th>
-                                <th className="px-3 py-2">Windows</th>
-                                <th className="px-3 py-2">Failed</th>
-                                <th className="px-3 py-2">Avg backoff</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {historyFetchMarketRows.map((row) => (
-                                <tr
-                                  key={row.market}
-                                  className="border-b border-slate-800/60 text-slate-300 last:border-none"
-                                >
-                                  <td className="px-3 py-2 font-medium text-slate-100">
-                                    {row.market}
-                                  </td>
-                                  <td className="px-3 py-2">{row.retries}</td>
-                                  <td className="px-3 py-2">{row.windows}</td>
-                                  <td className="px-3 py-2">{row.failedWindows}</td>
-                                  <td className="px-3 py-2">{row.avgBackoff.toFixed(2)}s</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <p className="mt-2 text-sm text-slate-400">
-                      No retry/backoff telemetry was captured for this run yet.
+                  <p className="mt-1 font-semibold text-slate-200">
+                    {formatTimeAgo(latestProgressTimestamp)}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Source</p>
+                  <p className="mt-1 font-semibold text-slate-200">{progressSourceLabel}</p>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">ETA</p>
+                  <p className="mt-1 font-semibold text-slate-200">{etaLabel || 'Calibrating'}</p>
+                </div>
+              </div>
+
+              <dl
+                className={`grid grid-cols-1 sm:grid-cols-2 ${isSummaryDense ? 'gap-3' : 'gap-4'}`}
+              >
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-slate-500">Run ID</dt>
+                  <dd
+                    className={`mt-1 font-mono ${isSummaryDense ? 'text-xs' : 'text-sm'} text-slate-200`}
+                  >
+                    {backtest.run_id}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-slate-500">Created</dt>
+                  <dd className={`mt-1 ${isSummaryDense ? 'text-xs' : 'text-sm'} text-slate-200`}>
+                    {formatDateValue(backtest.created_at)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-slate-500">Date Range</dt>
+                  <dd className={`mt-1 ${isSummaryDense ? 'text-xs' : 'text-sm'} text-slate-200`}>
+                    {backtest.start_date || 'N/A'} to {backtest.end_date || 'N/A'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-slate-500">Status</dt>
+                  <dd
+                    className={`mt-1 ${isSummaryDense ? 'text-xs' : 'text-sm'} capitalize text-slate-200`}
+                  >
+                    {statusNorm}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-slate-500">Profit Factor</dt>
+                  <dd className={`mt-1 ${isSummaryDense ? 'text-xs' : 'text-sm'} text-slate-200`}>
+                    {liveBacktest.profit_factor !== undefined && liveBacktest.profit_factor !== null
+                      ? liveBacktest.profit_factor.toFixed(2)
+                      : 'N/A'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-slate-500">Max Drawdown</dt>
+                  <dd className={`mt-1 ${isSummaryDense ? 'text-xs' : 'text-sm'} text-slate-200`}>
+                    {maxDrawdown.toFixed(1)}%
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-slate-500">Worker</dt>
+                  <dd className={`mt-1 ${isSummaryDense ? 'text-xs' : 'text-sm'} text-slate-200`}>
+                    {liveBacktest.worker_backend || 'asyncio'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-slate-500">
+                    Markets in scope
+                  </dt>
+                  <dd className={`mt-1 ${isSummaryDense ? 'text-xs' : 'text-sm'} text-slate-200`}>
+                    {selectedMarketsForRuntime.length}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-slate-500">Trades indexed</dt>
+                  <dd className={`mt-1 ${isSummaryDense ? 'text-xs' : 'text-sm'} text-slate-200`}>
+                    {liveBacktest.total_trades ?? trades.length}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-slate-500">Current task</dt>
+                  <dd className={`mt-1 ${isSummaryDense ? 'text-xs' : 'text-sm'} text-slate-200`}>
+                    {currentTaskLine || 'Initializing runtime'}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+
+            <div
+              className={`rounded-2xl border border-slate-800 bg-slate-900/75 ${isSummaryDense ? 'p-4' : 'p-4 sm:p-6'}`}
+            >
+              <div
+                className={`${isSummaryDense ? 'mb-3' : 'mb-4'} flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between`}
+              >
+                <div>
+                  <h2 className="text-xl font-bold">Analysis Access</h2>
+                  <p className={`mt-1 ${isSummaryDense ? 'text-xs' : 'text-sm'} text-slate-400`}>
+                    Open only the dataset you need and keep heavy panels lazy-loaded.
+                  </p>
+                </div>
+                <LiveStateBadge
+                  tone={streamBadge.tone}
+                  label={streamBadge.label}
+                  className="rounded-full px-3 py-1 text-[11px]"
+                />
+              </div>
+
+              <div
+                className={`${isSummaryDense ? 'mb-3' : 'mb-4'} grid gap-2 text-xs sm:grid-cols-3`}
+              >
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-emerald-200">
+                    Edge score
+                  </p>
+                  <p className="mt-1 font-semibold text-emerald-100">
+                    {edgeQualityScore.toFixed(0)}/100
+                  </p>
+                </div>
+                <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-cyan-200">
+                    Capital efficiency
+                  </p>
+                  <p className="mt-1 font-semibold text-cyan-100">
+                    {capitalEfficiencyPct >= 0 ? '+' : ''}
+                    {capitalEfficiencyPct.toFixed(2)}%
+                  </p>
+                </div>
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-amber-200">
+                    Retry pressure
+                  </p>
+                  <p className="mt-1 font-semibold text-amber-100">
+                    {retryPressureScore.toFixed(1)}/100
+                  </p>
+                </div>
+              </div>
+
+              <div className={`${isSummaryDense ? 'mb-3' : 'mb-4'} flex flex-wrap gap-2`}>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('candles')}
+                  className="rounded-xl border border-cyan-500/35 bg-cyan-500/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-cyan-200 transition hover:border-cyan-400/70"
+                >
+                  Open candles
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('positions')}
+                  className="rounded-xl border border-slate-700 bg-slate-900/75 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-200 transition hover:border-slate-500"
+                >
+                  Open positions
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('trades')}
+                  className="rounded-xl border border-slate-700 bg-slate-900/75 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-200 transition hover:border-slate-500"
+                >
+                  Open trades
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('results')}
+                  className="rounded-xl border border-slate-700 bg-slate-900/75 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-200 transition hover:border-slate-500"
+                >
+                  Open results
+                </button>
+              </div>
+
+              <div
+                className={`${isSummaryDense ? 'space-y-2 text-xs' : 'space-y-3 text-sm'} text-slate-300`}
+              >
+                <p>Open a detail tab to load the heavier datasets only when you need them.</p>
+                <div className={`grid ${isSummaryDense ? 'gap-2' : 'gap-3'} sm:grid-cols-2`}>
+                  <div
+                    className={`rounded-2xl border border-slate-800 bg-slate-950/55 ${isSummaryDense ? 'p-3' : 'p-4'}`}
+                  >
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                      Chart workspace
                     </p>
-                  )}
+                    <p className="mt-2 text-slate-200">
+                      Period filters, market switching, live equity curve, trade markers, and sync
+                      telemetry.
+                    </p>
+                  </div>
+                  <div
+                    className={`rounded-2xl border border-slate-800 bg-slate-950/55 ${isSummaryDense ? 'p-3' : 'p-4'}`}
+                  >
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                      Detail panels
+                    </p>
+                    <p className="mt-2 text-slate-200">
+                      Positions, trades, and pair ranking update live without hard resets while the
+                      run executes.
+                    </p>
+                  </div>
+                  <div
+                    className={`rounded-2xl border border-slate-800 bg-slate-950/55 sm:col-span-2 ${isSummaryDense ? 'p-3' : 'p-4'}`}
+                  >
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                      Runtime telemetry
+                    </p>
+                    <p className="mt-2 text-slate-200">
+                      Current task:{' '}
+                      <span className="font-mono text-slate-100">
+                        {currentTaskLine || 'Initializing runtime'}
+                      </span>
+                    </p>
+                    <p className="mt-1 text-sm text-slate-400">
+                      Sync status:{' '}
+                      {progressQuery.isConnected
+                        ? 'websocket streaming live'
+                        : 'silent fallback recovery'}
+                      .
+                    </p>
+                  </div>
+
+                  <div
+                    className={`rounded-2xl border border-slate-800 bg-slate-950/55 sm:col-span-2 ${isSummaryDense ? 'p-3' : 'p-4'}`}
+                  >
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                      History fetch telemetry
+                    </p>
+                    {hasHistoryFetchTelemetry ? (
+                      <>
+                        <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+                          <span className={`font-semibold ${retryPressureTone}`}>
+                            Retry pressure: {retryPressureScore.toFixed(1)} / 100
+                          </span>
+                          <span className="rounded-full border border-slate-800 bg-slate-900/70 px-2.5 py-1 text-[11px] text-slate-300">
+                            {retryPressureLabel}
+                          </span>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                          <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-2.5 py-2 text-slate-300">
+                            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                              Windows
+                            </p>
+                            <p className="mt-1 font-semibold text-slate-100">
+                              {historyFetchTotalWindows}
+                            </p>
+                          </div>
+                          <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-2.5 py-2 text-slate-300">
+                            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                              Retries
+                            </p>
+                            <p className="mt-1 font-semibold text-slate-100">
+                              {historyFetchTotalRetries}
+                            </p>
+                          </div>
+                          <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-2.5 py-2 text-slate-300">
+                            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                              Failed windows
+                            </p>
+                            <p className="mt-1 font-semibold text-slate-100">
+                              {historyFetchTotalFailedWindows}
+                            </p>
+                          </div>
+                          <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-2.5 py-2 text-slate-300">
+                            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                              Backoff
+                            </p>
+                            <p className="mt-1 font-semibold text-slate-100">
+                              {historyFetchTotalBackoffSeconds.toFixed(1)}s
+                            </p>
+                          </div>
+                        </div>
+                        {historyFetchMarketRows.length > 0 && (
+                          <div className="mt-3 overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/60">
+                            <table className="min-w-full text-left text-xs">
+                              <thead className="border-b border-slate-800 text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                                <tr>
+                                  <th className="px-3 py-2">Market</th>
+                                  <th className="px-3 py-2">Retries</th>
+                                  <th className="px-3 py-2">Windows</th>
+                                  <th className="px-3 py-2">Failed</th>
+                                  <th className="px-3 py-2">Avg backoff</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {historyFetchMarketRows.map((row) => (
+                                  <tr
+                                    key={row.market}
+                                    className="border-b border-slate-800/60 text-slate-300 last:border-none"
+                                  >
+                                    <td className="px-3 py-2 font-medium text-slate-100">
+                                      {row.market}
+                                    </td>
+                                    <td className="px-3 py-2">{row.retries}</td>
+                                    <td className="px-3 py-2">{row.windows}</td>
+                                    <td className="px-3 py-2">{row.failedWindows}</td>
+                                    <td className="px-3 py-2">{row.avgBackoff.toFixed(2)}s</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <p
+                        className={`mt-2 ${isSummaryDense ? 'text-xs' : 'text-sm'} text-slate-400`}
+                      >
+                        No retry/backoff telemetry was captured for this run yet.
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -2464,7 +2834,7 @@ export const BacktestDetailsV2: React.FC = () => {
       {/* Candles Tab */}
       {activeTab === 'candles' && (
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.5fr)_360px]">
-          <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-4 sm:p-5">
+          <div className="rounded-3xl border border-slate-800 bg-slate-900/75 p-4 sm:p-5">
             {analyticsLoading ? (
               <div className="flex items-center justify-center py-16 gap-3">
                 <Loader className="w-6 h-6 animate-spin text-blue-400" />
@@ -2546,7 +2916,7 @@ export const BacktestDetailsV2: React.FC = () => {
             )}
           </div>
           <div className="space-y-5">
-            <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-5">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5">
               <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
                 Visible Range
               </p>
@@ -2591,7 +2961,7 @@ export const BacktestDetailsV2: React.FC = () => {
               </div>
             </div>
 
-            <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-5">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5">
               <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
                 Live Telemetry
               </p>
@@ -2600,7 +2970,7 @@ export const BacktestDetailsV2: React.FC = () => {
                   <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
                     Active task
                   </p>
-                  <p className="mt-2 break-words font-mono text-sm text-slate-100">
+                  <p className="mt-2 wrap-break-word font-mono text-sm text-slate-100">
                     {currentTaskLine || 'No active task line yet'}
                   </p>
                 </div>
@@ -2639,7 +3009,7 @@ export const BacktestDetailsV2: React.FC = () => {
               </div>
             </div>
 
-            <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-5">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5">
               <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Top Pairs</p>
               <div className="mt-4 space-y-3">
                 {topPairs.length > 0 ? (
@@ -2674,14 +3044,14 @@ export const BacktestDetailsV2: React.FC = () => {
       {activeTab === 'positions' && (
         <div>
           {positionsLoading ? (
-            <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-6">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/75 p-6">
               <div className="flex items-center justify-center gap-3 py-16">
                 <Loader className="h-6 w-6 animate-spin text-blue-400" />
                 <p className="text-sm text-slate-400">Loading position snapshots...</p>
               </div>
             </div>
           ) : positionsError ? (
-            <div className="rounded-[24px] border border-red-700 bg-red-950/30 px-4 py-3 text-sm text-red-200">
+            <div className="rounded-3xl border border-red-700 bg-red-950/30 px-4 py-3 text-sm text-red-200">
               {positionsError}
             </div>
           ) : positions.length === 0 ? (
@@ -2704,14 +3074,14 @@ export const BacktestDetailsV2: React.FC = () => {
       {activeTab === 'trades' && (
         <div>
           {tradesLoading ? (
-            <div className="rounded-[24px] border border-slate-800 bg-slate-900/75 p-6">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/75 p-6">
               <div className="flex items-center justify-center gap-3 py-16">
                 <Loader className="h-6 w-6 animate-spin text-blue-400" />
                 <p className="text-sm text-slate-400">Loading trade history...</p>
               </div>
             </div>
           ) : tradesError ? (
-            <div className="rounded-[24px] border border-red-700 bg-red-950/30 px-4 py-3 text-sm text-red-200">
+            <div className="rounded-3xl border border-red-700 bg-red-950/30 px-4 py-3 text-sm text-red-200">
               {tradesError}
             </div>
           ) : trades.length === 0 ? (

@@ -228,6 +228,7 @@ run.json
 # Generated runtime state that can contain credentials or operational secrets
 bot/dydx_bot
 bot/bot_states/*.json
+# Deprecated per-instance runtime config caches; migrate with scripts/migrate_yaml_configs_to_db.py
 bot/bot_states/*.yaml
 bot/bot_states/*.yml
 bot/bot_states/*.log

@@ -3,6 +3,10 @@
 import asyncio
 import importlib
 import json
+from uuid import UUID
+
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 
 def _load_server_module():
@@ -388,6 +392,140 @@ def test_sync_health_endpoint_returns_runtime_counters(monkeypatch):
     assert payload["data"]["queue_depth"] == 2
     assert payload["data"]["active_jobs"] == 1
     assert payload["data"]["total_runs"] == 5
+    assert "strategy_resolution_metrics" in payload["data"]
+    assert "counts" in payload["data"]["strategy_resolution_metrics"]
+
+
+def test_sync_health_endpoint_metrics_only_filter(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: _StubService())
+
+    response = asyncio.run(_call(server.backtest_sync_health(metrics_only=True)))
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert payload["data"]["status"] == "ok"
+    assert "strategy_resolution_metrics" in payload["data"]
+    assert "queue_depth" not in payload["data"]
+
+
+def test_health_and_ready_include_strategy_resolution_alert_metadata(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: _StubService())
+
+    health_response = asyncio.run(_call(server.health_check()))
+    health_payload = json.loads(health_response.body)
+    assert health_payload["success"] is True
+    assert "strategy_resolution_metrics" in health_payload["data"]
+    assert "strategy_resolution_alerts" in health_payload["data"]
+    assert "strategy_resolution_alert_recommended" in health_payload["data"]
+
+    ready_response = asyncio.run(_call(server.readiness_check()))
+    ready_payload = json.loads(ready_response.body)
+    assert "strategy_resolution_metrics" in ready_payload["data"]
+    assert "strategy_resolution_alerts" in ready_payload["data"]
+    assert "strategy_resolution_alert_recommended" in ready_payload["data"]
+
+
+def test_runtime_strategy_resolution_metrics_endpoint_returns_snapshot(monkeypatch):
+    server = _load_server_module()
+
+    response = asyncio.run(
+        _call(server.get_strategy_resolution_metrics(current_user=object()))
+    )
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert "counts" in payload["data"]
+    assert "window" in payload["data"]
+    assert "alerts" in payload["data"]
+
+
+def test_admin_runtime_strategy_resolution_metrics_endpoint_returns_snapshot(
+    monkeypatch,
+):
+    server = _load_server_module()
+
+    response = asyncio.run(
+        _call(server.get_strategy_resolution_metrics_admin(current_user=object()))
+    )
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert "counts" in payload["data"]
+    assert "alerts" in payload["data"]
+
+
+def test_runtime_strategy_resolution_metrics_prometheus_endpoint(monkeypatch):
+    server = _load_server_module()
+
+    response = asyncio.run(
+        _call(server.get_strategy_resolution_metrics_prometheus(current_user=object()))
+    )
+    body = response.body.decode("utf-8")
+
+    assert response.status_code == 200
+    assert "bot_strategy_resolution_total" in body
+    assert "bot_strategy_resolution_request_ratio_alert_triggered" in body
+    assert "bot_strategy_resolution_alert_summary" in body
+    assert "bot_strategy_resolution_request_snapshot_fallback_enabled" in body
+
+
+def test_admin_runtime_strategy_resolution_metrics_reset_endpoint(monkeypatch):
+    server = _load_server_module()
+
+    server._record_strategy_resolution_path("request")
+    server._record_strategy_resolution_path("history")
+
+    response = asyncio.run(
+        _call(server.reset_strategy_resolution_metrics_admin(current_user=object()))
+    )
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    counts = payload["data"]["counts"]
+    assert counts["store"] == 0
+    assert counts["history"] == 0
+    assert counts["request"] == 0
+    assert counts["not_found"] == 0
+    assert payload["data"]["window"]["total"] == 0
+
+
+def test_strategy_resolution_request_ratio_alert_triggers(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setenv("STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE", "5")
+    monkeypatch.setenv("STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_THRESHOLD", "0.40")
+    monkeypatch.setenv("STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_MIN_RUNS", "5")
+
+    with server._strategy_resolution_metrics_lock:
+        server._strategy_resolution_metrics["counts"] = {
+            "store": 0,
+            "history": 0,
+            "request": 0,
+            "not_found": 0,
+        }
+        server._strategy_resolution_metrics["last_path"] = None
+        server._strategy_resolution_metrics["last_updated_at"] = None
+        server._strategy_resolution_recent_paths.clear()
+
+    # 3/5 request resolution ratio => 0.6 > 0.4, should trigger alert.
+    server._record_strategy_resolution_path("request")
+    server._record_strategy_resolution_path("request")
+    server._record_strategy_resolution_path("store")
+    server._record_strategy_resolution_path("request")
+    server._record_strategy_resolution_path("history")
+
+    snapshot = server._strategy_resolution_metrics_snapshot()
+    assert snapshot["window"]["total"] == 5
+    assert snapshot["window"]["counts"]["request"] == 3
+    assert snapshot["alerts"]["request_ratio_recent"] == 0.6
+    assert snapshot["alerts"]["request_ratio_alert_triggered"] is True
+
+    prom = server._strategy_resolution_metrics_prometheus()
+    assert (
+        'bot_strategy_resolution_alert_summary{alert="request_ratio",severity="warning",reason="request_ratio_exceeded"} 1'
+        in prom
+    )
 
 
 def test_restart_returns_409_when_original_request_payload_missing(monkeypatch):
@@ -477,6 +615,10 @@ def test_openapi_documents_standard_response_envelope():
     assert "/api/v1/admin/backtests/interrupted/reconcile" in schema["paths"]
     assert "/api/v1/capabilities" in schema["paths"]
     assert "/api/v1/runtime/db-config" in schema["paths"]
+    assert "/api/v1/runtime/strategy-resolution-metrics" in schema["paths"]
+    assert "/api/v1/runtime/strategy-resolution-metrics/prom" in schema["paths"]
+    assert "/api/v1/admin/runtime/strategy-resolution-metrics" in schema["paths"]
+    assert "/api/v1/admin/runtime/strategy-resolution-metrics/reset" in schema["paths"]
 
     status_schema = schema["paths"]["/api/v1/backtests/{run_id}/status"]["get"][
         "responses"
@@ -553,6 +695,8 @@ def test_run_backtest_compat_uses_strategy_snapshot_when_lookup_fails(monkeypatc
         raise RuntimeError("db unavailable")
 
     monkeypatch.setattr(server.InMemoryStrategyStore, "get", _raise_lookup)
+    metrics_before = server._strategy_resolution_metrics_snapshot()
+    request_before = int(metrics_before["counts"].get("request", 0) or 0)
 
     request = server.BacktestRunRequestCompat(
         start_date="2026-03-01",
@@ -583,6 +727,71 @@ def test_run_backtest_compat_uses_strategy_snapshot_when_lookup_fails(monkeypatc
         stub_service.last_request.strategy_payload_snapshot["name"]
         == "Backend Strategy"
     )
+    metrics_after = server._strategy_resolution_metrics_snapshot()
+    assert int(metrics_after["counts"].get("request", 0) or 0) == request_before + 1
+
+
+def test_run_backtest_compat_strict_mode_disables_request_snapshot_fallback_in_production(
+    monkeypatch,
+):
+    server = _load_server_module()
+    stub_service = _RunStubService()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: stub_service)
+
+    async def _stub_markets(_pairs, _selected_pairs, _max):
+        return ["BTC-USD", "ETH-USD"]
+
+    monkeypatch.setattr(server, "_resolve_backtest_markets", _stub_markets)
+    monkeypatch.setattr(server.InMemoryStrategyStore, "get", lambda _strategy_id: None)
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv(
+        "BACKTEST_DISABLE_REQUEST_SNAPSHOT_FALLBACK_IN_PRODUCTION",
+        "true",
+    )
+
+    original_get_session = server.db.get_session
+
+    class _SessionProxy:
+        def query(self, *_args, **_kwargs):
+            class _QueryProxy:
+                def order_by(self, *_a, **_k):
+                    return self
+
+                def limit(self, *_a, **_k):
+                    return self
+
+                def all(self):
+                    return []
+
+            return _QueryProxy()
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(server.db, "get_session", lambda: _SessionProxy())
+
+    try:
+        request = server.BacktestRunRequestCompat(
+            start_date="2026-03-01",
+            end_date="2026-03-31",
+            strategy_id=4,
+            pairs=["BTC-USD", "ETH-USD"],
+            strategy_payload_snapshot={
+                "id": 4,
+                "name": "Should Not Be Used",
+                "description": "strict mode disables request fallback",
+            },
+        )
+
+        response = asyncio.run(_call(server.run_backtest_compat(request)))
+        payload = json.loads(response.body)
+    finally:
+        monkeypatch.setattr(server.db, "get_session", original_get_session)
+
+    assert response.status_code == 404
+    assert payload["success"] is False
+    assert payload["data"]["error"] == "STRATEGY_NOT_FOUND"
+    assert stub_service.last_request is None
 
 
 def test_create_backtest_uses_strategy_snapshot_when_lookup_returns_none(monkeypatch):
@@ -622,6 +831,100 @@ def test_create_backtest_uses_strategy_snapshot_when_lookup_returns_none(monkeyp
     assert (
         stub_service.last_request.strategy_payload_snapshot["name"]
         == "Backend-only Strategy"
+    )
+
+
+def test_run_backtest_compat_prefers_history_snapshot_before_request_fallback(
+    monkeypatch,
+):
+    server = _load_server_module()
+    stub_service = _RunStubService()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: stub_service)
+
+    async def _stub_markets(_pairs, _selected_pairs, _max):
+        return ["BTC-USD", "ETH-USD"]
+
+    monkeypatch.setattr(server, "_resolve_backtest_markets", _stub_markets)
+    monkeypatch.setattr(server.InMemoryStrategyStore, "get", lambda _strategy_id: None)
+    monkeypatch.setattr(
+        server,
+        "_resolve_strategy_backtest_request",
+        server._resolve_strategy_backtest_request,
+    )
+
+    # Monkeypatch the internal helper by wrapping resolver call context.
+    original_resolver = server._resolve_strategy_backtest_request
+
+    def _resolver_with_history(request, pairs, selected_pair_labels, endpoint):
+        original_query = server.db.get_session
+
+        class _SessionProxy:
+            def __init__(self, session):
+                self._session = session
+
+            def query(self, *args, **kwargs):
+                class _QueryProxy:
+                    def order_by(self, *_a, **_k):
+                        return self
+
+                    def limit(self, *_a, **_k):
+                        return self
+
+                    def all(self):
+                        return [
+                            (
+                                {
+                                    "strategy_id": 4,
+                                    "strategy_payload_snapshot": {
+                                        "id": 4,
+                                        "name": "History Snapshot",
+                                        "description": "Recovered from backtest history",
+                                        "starting_balance": 2200,
+                                        "pair_selection_mode": "liquidity",
+                                    },
+                                },
+                                "run-historical-1",
+                            )
+                        ]
+
+                return _QueryProxy()
+
+            def close(self):
+                return None
+
+        monkeypatch.setattr(server.db, "get_session", lambda: _SessionProxy(None))
+        try:
+            return original_resolver(request, pairs, selected_pair_labels, endpoint)
+        finally:
+            monkeypatch.setattr(server.db, "get_session", original_query)
+
+    monkeypatch.setattr(
+        server, "_resolve_strategy_backtest_request", _resolver_with_history
+    )
+
+    request = server.BacktestRunRequestCompat(
+        start_date="2026-03-01",
+        end_date="2026-03-31",
+        strategy_id=4,
+        pairs=["BTC-USD", "ETH-USD"],
+        strategy_payload_snapshot={
+            "id": 4,
+            "name": "Request Snapshot",
+            "description": "Fallback payload",
+            "starting_balance": 1500,
+            "pair_selection_mode": "liquidity",
+        },
+    )
+
+    response = asyncio.run(_call(server.run_backtest_compat(request)))
+    payload = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert payload["success"] is True
+    assert stub_service.last_request is not None
+    assert (
+        stub_service.last_request.strategy_payload_snapshot["name"]
+        == "History Snapshot"
     )
 
 
@@ -928,6 +1231,68 @@ def test_api_response_sanitizes_internal_error_details():
 
     assert payload["message"] == "Internal server error"
     assert "psycopg2" not in payload["message"]
+
+
+def test_request_trace_middleware_uses_inbound_trace_id(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setenv("ENVIRONMENT", "production")
+
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/api/v1/health",
+        "raw_path": b"/api/v1/health",
+        "query_string": b"",
+        "headers": [(b"x-trace-id", b"trace-from-backend")],
+        "client": ("127.0.0.1", 12345),
+        "server": ("testserver", 80),
+    }
+    request = Request(scope)
+
+    async def _call_next(_request):
+        return JSONResponse({"trace_id_seen": server.trace_id_ctx.get()})
+
+    response = asyncio.run(
+        _call(server.request_trace_logging_middleware(request, _call_next))
+    )
+    payload = json.loads(response.body)
+
+    assert response.headers.get("X-Trace-Id") == "trace-from-backend"
+    assert payload["trace_id_seen"] == "trace-from-backend"
+
+
+def test_request_trace_middleware_generates_uuid_when_header_missing(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setenv("ENVIRONMENT", "production")
+
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/api/v1/health",
+        "raw_path": b"/api/v1/health",
+        "query_string": b"",
+        "headers": [],
+        "client": ("127.0.0.1", 12345),
+        "server": ("testserver", 80),
+    }
+    request = Request(scope)
+
+    async def _call_next(_request):
+        return JSONResponse({"trace_id_seen": server.trace_id_ctx.get()})
+
+    response = asyncio.run(
+        _call(server.request_trace_logging_middleware(request, _call_next))
+    )
+    payload = json.loads(response.body)
+    generated_trace_id = response.headers.get("X-Trace-Id")
+
+    assert generated_trace_id
+    UUID(generated_trace_id)
+    assert payload["trace_id_seen"] == generated_trace_id
 
 
 def test_runtime_db_config_endpoint_returns_sanitized_payload(monkeypatch):

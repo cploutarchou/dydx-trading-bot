@@ -29,7 +29,7 @@ var errAdvisoryLockUnsupported = errors.New("postgres advisory locks unsupported
 
 func backtestAdmissionLockKey(userID int) int64 {
 	hasher := fnv.New64a()
-	_, _ = hasher.Write([]byte(fmt.Sprintf("backtest-admission:%d", userID)))
+	_, _ = fmt.Fprintf(hasher, "backtest-admission:%d", userID)
 	return int64(hasher.Sum64())
 }
 
@@ -123,6 +123,8 @@ type CandleFilter struct {
 	Market    string
 	StartDate *time.Time
 	EndDate   *time.Time
+	Skip      int
+	Limit     int
 }
 
 func (r *BacktestRepository) GetRunByID(runID string) (*models.BacktestRun, error) {
@@ -187,9 +189,14 @@ func (r *BacktestRepository) GetCandles(filter CandleFilter) ([]models.BacktestC
 	if filter.EndDate != nil {
 		query += fmt.Sprintf(" AND timestamp <= $%d", argNum)
 		args = append(args, filter.EndDate)
+		argNum++
 	}
 
 	query += " ORDER BY timestamp"
+	if filter.Limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argNum, argNum+1)
+		args = append(args, filter.Limit, filter.Skip)
+	}
 
 	rows, err := r.db.Query(query, args...)
 	if err != nil {

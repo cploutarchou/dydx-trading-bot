@@ -16,12 +16,54 @@ type CacheService struct {
 	client *redis.Client
 }
 
+const defaultRedisOperationTimeout = 5 * time.Second
+
+func logCacheOperation(operation string, key string, ttlSeconds int, hit bool, latency time.Duration, err error) {
+	attrs := []any{
+		"operation", operation,
+		"key", key,
+		"ttl_seconds", ttlSeconds,
+		"hit", hit,
+		"latency_ms", latency.Milliseconds(),
+	}
+
+	if err != nil {
+		attrs = append(attrs, "error", err)
+		slog.Error("cache operation failed", attrs...)
+		return
+	}
+
+	if hit {
+		slog.Debug("cache operation", attrs...)
+		return
+	}
+
+	// Misses should be visible at INFO for operator observability.
+	slog.Info("cache operation", attrs...)
+}
+
+func marshalCacheValue(value interface{}) ([]byte, error) {
+	switch v := value.(type) {
+	case string:
+		return []byte(v), nil
+	case []byte:
+		return v, nil
+	default:
+		return json.Marshal(value)
+	}
+}
+
+func (cs *CacheService) contextWithTimeout() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), defaultRedisOperationTimeout)
+}
+
 // NewCacheService creates a new cache service
 func NewCacheService(redisHost string, redisPort int, redisPassword string, redisDB int) *CacheService {
 	client := redis.NewClient(&redis.Options{
 		Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
 		Password: redisPassword,
 		DB:       redisDB,
+		Protocol: 2,
 	})
 
 	// Test connection
@@ -37,65 +79,77 @@ func NewCacheService(redisHost string, redisPort int, redisPassword string, redi
 
 // SetCache sets a value in cache with optional TTL
 func (cs *CacheService) SetCache(key string, value interface{}, ttlSeconds int) error {
-	jsonData, err := json.Marshal(value)
+	startedAt := time.Now()
+	jsonData, err := marshalCacheValue(value)
 	if err != nil {
+		logCacheOperation("set", key, ttlSeconds, false, time.Since(startedAt), err)
 		return fmt.Errorf("failed to marshal value: %w", err)
 	}
 
-	ctx := context.Background()
+	ctx, cancel := cs.contextWithTimeout()
+	defer cancel()
 	ttl := time.Duration(ttlSeconds) * time.Second
 
 	err = cs.client.Set(ctx, key, jsonData, ttl).Err()
 	if err != nil {
+		logCacheOperation("set", key, ttlSeconds, false, time.Since(startedAt), err)
 		return fmt.Errorf("failed to set cache: %w", err)
 	}
 
-	slog.Debug("cache set", "key", key, "ttl_seconds", ttlSeconds)
+	logCacheOperation("set", key, ttlSeconds, true, time.Since(startedAt), nil)
 	return nil
 }
 
 // GetCache retrieves a value from cache
 func (cs *CacheService) GetCache(key string) (interface{}, error) {
-	ctx := context.Background()
+	startedAt := time.Now()
+	ctx, cancel := cs.contextWithTimeout()
+	defer cancel()
 
 	val, err := cs.client.Get(ctx, key).Result()
 	if errors.Is(err, redis.Nil) {
+		logCacheOperation("get", key, 0, false, time.Since(startedAt), nil)
 		return nil, nil // Key doesn't exist
 	}
 	if err != nil {
+		logCacheOperation("get", key, 0, false, time.Since(startedAt), err)
 		return nil, fmt.Errorf("failed to get cache: %w", err)
 	}
 
 	var data interface{}
 	if err := json.Unmarshal([]byte(val), &data); err != nil {
+		logCacheOperation("get", key, 0, false, time.Since(startedAt), err)
 		return nil, fmt.Errorf("failed to unmarshal cache value: %w", err)
 	}
 
-	slog.Debug("cache hit", "key", key)
+	logCacheOperation("get", key, 0, true, time.Since(startedAt), nil)
 	return data, nil
 }
 
 // GetCacheString retrieves a string value from cache
 func (cs *CacheService) GetCacheString(key string) (string, error) {
-	ctx := context.Background()
+	startedAt := time.Now()
+	ctx, cancel := cs.contextWithTimeout()
+	defer cancel()
 
 	val, err := cs.client.Get(ctx, key).Result()
 	if errors.Is(err, redis.Nil) {
-		slog.Debug("cache miss", "key", key)
+		logCacheOperation("get_string", key, 0, false, time.Since(startedAt), nil)
 		return "", nil
 	}
 	if err != nil {
-		slog.Error("cache get error", "key", key, "error", err)
+		logCacheOperation("get_string", key, 0, false, time.Since(startedAt), err)
 		return "", fmt.Errorf("failed to get cache: %w", err)
 	}
 
-	slog.Debug("cache hit", "key", key)
+	logCacheOperation("get_string", key, 0, true, time.Since(startedAt), nil)
 	return val, nil
 }
 
 // DeleteCache deletes a key from cache
 func (cs *CacheService) DeleteCache(key string) error {
-	ctx := context.Background()
+	ctx, cancel := cs.contextWithTimeout()
+	defer cancel()
 
 	err := cs.client.Del(ctx, key).Err()
 	if err != nil {
@@ -108,19 +162,35 @@ func (cs *CacheService) DeleteCache(key string) error {
 
 // DeleteCachePattern deletes all keys matching a pattern
 func (cs *CacheService) DeleteCachePattern(pattern string) error {
-	ctx := context.Background()
+	ctx, cancel := cs.contextWithTimeout()
+	defer cancel()
 
-	keys, err := cs.client.Keys(ctx, pattern).Result()
-	if err != nil {
-		return fmt.Errorf("failed to find keys: %w", err)
+	var (
+		cursor      uint64
+		removedKeys int
+	)
+
+	for {
+		keys, nextCursor, err := cs.client.Scan(ctx, cursor, pattern, 200).Result()
+		if err != nil {
+			return fmt.Errorf("failed to scan keys: %w", err)
+		}
+
+		if len(keys) > 0 {
+			if err := cs.client.Del(ctx, keys...).Err(); err != nil {
+				return fmt.Errorf("failed to delete keys: %w", err)
+			}
+			removedKeys += len(keys)
+		}
+
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
 	}
 
-	if len(keys) > 0 {
-		err = cs.client.Del(ctx, keys...).Err()
-		if err != nil {
-			return fmt.Errorf("failed to delete keys: %w", err)
-		}
-		slog.Info("cache pattern deleted", "pattern", pattern, "removed_keys", len(keys))
+	if removedKeys > 0 {
+		slog.Info("cache pattern deleted", "pattern", pattern, "removed_keys", removedKeys)
 	}
 
 	return nil
@@ -128,7 +198,8 @@ func (cs *CacheService) DeleteCachePattern(pattern string) error {
 
 // ClearAllCache clears entire cache
 func (cs *CacheService) ClearAllCache() error {
-	ctx := context.Background()
+	ctx, cancel := cs.contextWithTimeout()
+	defer cancel()
 
 	err := cs.client.FlushDB(ctx).Err()
 	if err != nil {
@@ -141,7 +212,8 @@ func (cs *CacheService) ClearAllCache() error {
 
 // GetCacheStats returns cache statistics
 func (cs *CacheService) GetCacheStats() map[string]interface{} {
-	ctx := context.Background()
+	ctx, cancel := cs.contextWithTimeout()
+	defer cancel()
 
 	info := cs.client.Info(ctx, "stats")
 	keys := cs.client.DBSize(ctx)
@@ -155,7 +227,8 @@ func (cs *CacheService) GetCacheStats() map[string]interface{} {
 
 // ExistsInCache checks if a key exists in cache
 func (cs *CacheService) ExistsInCache(key string) (bool, error) {
-	ctx := context.Background()
+	ctx, cancel := cs.contextWithTimeout()
+	defer cancel()
 
 	exists, err := cs.client.Exists(ctx, key).Result()
 	if err != nil {
@@ -167,7 +240,8 @@ func (cs *CacheService) ExistsInCache(key string) (bool, error) {
 
 // GetCacheTTL gets the remaining TTL for a key
 func (cs *CacheService) GetCacheTTL(key string) (time.Duration, error) {
-	ctx := context.Background()
+	ctx, cancel := cs.contextWithTimeout()
+	defer cancel()
 
 	ttl, err := cs.client.TTL(ctx, key).Result()
 	if err != nil {
@@ -179,7 +253,8 @@ func (cs *CacheService) GetCacheTTL(key string) (time.Duration, error) {
 
 // IncrementCounter increments a counter in cache
 func (cs *CacheService) IncrementCounter(key string, increment int64) error {
-	ctx := context.Background()
+	ctx, cancel := cs.contextWithTimeout()
+	defer cancel()
 
 	err := cs.client.IncrBy(ctx, key, increment).Err()
 	if err != nil {
@@ -191,7 +266,8 @@ func (cs *CacheService) IncrementCounter(key string, increment int64) error {
 
 // GetCounter gets a counter value from cache
 func (cs *CacheService) GetCounter(key string) (int64, error) {
-	ctx := context.Background()
+	ctx, cancel := cs.contextWithTimeout()
+	defer cancel()
 
 	val, err := cs.client.Get(ctx, key).Int64()
 	if errors.Is(err, redis.Nil) {

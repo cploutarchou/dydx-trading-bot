@@ -10,6 +10,7 @@
  * - Thread-safe execution
  */
 
+import { useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, AlertTriangle, BarChart3, Copy, Settings, Trash2, X } from 'lucide-react';
 import {
     type KeyboardEvent as ReactKeyboardEvent,
@@ -26,7 +27,14 @@ import apiClient, {
     normalizeDydxCandleResolution,
     toAIBacktestSummary,
 } from '../api';
-import { useStrategyRuntimes, useStrategyStartReadiness } from '../api/hooks';
+import {
+    useStartStrategyRuntimeMutation,
+    useStopStrategyRuntimeMutation,
+    useStrategies,
+    useStrategyBacktests,
+    useStrategyRuntimes,
+    useStrategyStartReadiness,
+} from '../api/hooks';
 import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/intelligence';
 import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
 import { Strategy, useStrategyStore } from '../store/strategies';
@@ -258,8 +266,10 @@ const hasExplicitMarketSelection = (readiness: StrategyStartReadiness | null): b
 
 export default function StrategyManager() {
   const navigate = useNavigate();
-  const { strategies, fetchStrategies, loading, duplicateStrategy, deleteStrategy } =
-    useStrategyStore();
+  const queryClient = useQueryClient();
+  const { duplicateStrategy, deleteStrategy } = useStrategyStore();
+  const strategiesQuery = useStrategies(0, 100, true);
+  const strategies = strategiesQuery.data;
   const safeStrategies = useMemo(
     () =>
       (Array.isArray(strategies) ? strategies : []).filter(
@@ -297,27 +307,33 @@ export default function StrategyManager() {
   const configNameInputRef = useRef<HTMLInputElement | null>(null);
 
   const compactCards = viewPreset === 'operator';
+  const startRuntimeMutation = useStartStrategyRuntimeMutation();
+  const stopRuntimeMutation = useStopStrategyRuntimeMutation();
+  const strategyBacktestsQuery = useStrategyBacktests(
+    focusedCardId ?? 0,
+    5,
+    focusedCardId !== null
+  );
 
-  // Fetch recent completed backtests for a strategy the first time its card is focused
-  const ensureStrategyBacktests = (strategyId: number) => {
-    if (strategyBacktests.has(strategyId)) return;
-    apiClient
-      .listBacktestsByStrategy(strategyId, 5)
-      .then((resp) => {
-        const items = Array.isArray(resp.data?.backtests) ? resp.data.backtests : [];
-        const summaries: AIBacktestSummary[] = items
-          .map((b) => toAIBacktestSummary(b))
-          .filter((summary): summary is AIBacktestSummary => summary !== null);
-        setStrategyBacktests((prev) => {
-          const next = new Map(prev);
-          next.set(strategyId, summaries);
-          return next;
-        });
-      })
-      .catch(() => {
-        // silently ignore — advisor degrades gracefully with empty recent_backtests
-      });
-  };
+  useEffect(() => {
+    if (focusedCardId === null || !strategyBacktestsQuery.data) {
+      return;
+    }
+
+    const items = Array.isArray(strategyBacktestsQuery.data.data?.backtests)
+      ? strategyBacktestsQuery.data.data.backtests
+      : [];
+
+    const summaries: AIBacktestSummary[] = items
+      .map((backtest) => toAIBacktestSummary(backtest))
+      .filter((summary): summary is AIBacktestSummary => summary !== null);
+
+    setStrategyBacktests((prev) => {
+      const next = new Map(prev);
+      next.set(focusedCardId, summaries);
+      return next;
+    });
+  }, [focusedCardId, strategyBacktestsQuery.data]);
 
   const recordSuccessfulAction = (
     strategyId: number,
@@ -334,11 +350,6 @@ export default function StrategyManager() {
   const updateEditingConfig = (patch: Partial<Strategy>) => {
     setEditingConfig((current) => (current ? { ...current, ...patch } : current));
   };
-
-  // Load strategies on mount
-  useEffect(() => {
-    void fetchStrategies();
-  }, [fetchStrategies]);
 
   const applyStrategyStatuses = (nextStatuses: StrategyStatus[]) => {
     setStrategyStatuses(() => {
@@ -732,11 +743,11 @@ export default function StrategyManager() {
         }
       }
 
-      let response = await apiClient.startStrategyRuntime(
-        strategy.id,
-        runtimeNetwork,
-        forceRecreate
-      );
+      let response = await startRuntimeMutation.mutateAsync({
+        strategyId: strategy.id,
+        network: runtimeNetwork,
+        forceRecreate,
+      });
 
       if (
         !forceRecreate &&
@@ -756,7 +767,11 @@ export default function StrategyManager() {
           });
           return;
         }
-        response = await apiClient.startStrategyRuntime(strategy.id, runtimeNetwork, true);
+        response = await startRuntimeMutation.mutateAsync({
+          strategyId: strategy.id,
+          network: runtimeNetwork,
+          forceRecreate: true,
+        });
       }
 
       mergeStrategyStatus(toStrategyStatus(strategy.id, response.data));
@@ -777,11 +792,11 @@ export default function StrategyManager() {
         const confirmed = confirmRecreate();
         if (confirmed) {
           try {
-            const response = await apiClient.startStrategyRuntime(
-              strategy.id,
-              runtimeNetwork,
-              true
-            );
+            const response = await startRuntimeMutation.mutateAsync({
+              strategyId: strategy.id,
+              network: runtimeNetwork,
+              forceRecreate: true,
+            });
             mergeStrategyStatus(toStrategyStatus(strategy.id, response.data));
             recordSuccessfulAction(strategy.id, 'Runtime started');
             showTransientMessage(
@@ -884,7 +899,7 @@ export default function StrategyManager() {
     });
 
     try {
-      const response = await apiClient.stopStrategyRuntime(strategy.id);
+      const response = await stopRuntimeMutation.mutateAsync({ strategyId: strategy.id });
 
       mergeStrategyStatus(toStrategyStatus(strategy.id, response.data));
       recordSuccessfulAction(strategy.id, 'Runtime stopped');
@@ -1006,7 +1021,7 @@ export default function StrategyManager() {
       showTransientMessage({ type: 'success', text: '✅ Strategy configuration updated' }, 4000);
 
       closeConfigDialog();
-      await fetchStrategies();
+      await queryClient.invalidateQueries({ queryKey: ['strategies'] });
     } catch (error: unknown) {
       showTransientMessage(
         {
@@ -1052,7 +1067,7 @@ export default function StrategyManager() {
     };
     try {
       await apiClient.updateStrategy(strategy.id, buildStrategyUpdatePayload(mergedConfig));
-      await fetchStrategies();
+      await queryClient.invalidateQueries({ queryKey: ['strategies'] });
       showTransientMessage(
         {
           type: 'success',
@@ -1186,6 +1201,7 @@ export default function StrategyManager() {
   const handleDuplicateStrategy = async (strategy: Strategy) => {
     try {
       await duplicateStrategy(strategy);
+      await queryClient.invalidateQueries({ queryKey: ['strategies'] });
       showTransientMessage(
         { type: 'success', text: `✅ Duplicated strategy "${strategy.name}"` },
         4000
@@ -1204,6 +1220,7 @@ export default function StrategyManager() {
   const handleDeleteStrategy = async (strategy: Strategy) => {
     try {
       await deleteStrategy(strategy.id);
+      await queryClient.invalidateQueries({ queryKey: ['strategies'] });
       setDeleteConfirmId(null);
       showTransientMessage(
         { type: 'success', text: `✅ Deleted strategy "${strategy.name}"` },
@@ -1397,7 +1414,7 @@ export default function StrategyManager() {
   );
   const attentionCount = digestErrorCount + runtimeHealthSummary.staleRuntimeCount;
 
-  if (loading) {
+  if (strategiesQuery.isLoading) {
     return (
       <PageContainer size="wide" className="flex h-96 items-center justify-center">
         <div className="text-center">
@@ -1655,7 +1672,6 @@ export default function StrategyManager() {
                 tabIndex={0}
                 onFocus={() => {
                   setFocusedCardId(strategy.id);
-                  ensureStrategyBacktests(strategy.id);
                 }}
                 onBlur={() => setFocusedCardId(null)}
                 onKeyDown={(event) => handleStrategyCardKeyDown(event, strategy, status)}

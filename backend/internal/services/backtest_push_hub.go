@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/redis/go-redis/v9"
@@ -27,6 +28,7 @@ func NewBacktestPushHub(redisHost string, redisPort int, redisPassword string, r
 			Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
 			Password: redisPassword,
 			DB:       redisDB,
+			Protocol: 2,
 		},
 	}
 	go h.runSubscriber()
@@ -60,40 +62,108 @@ func (h *BacktestPushHub) Unsubscribe(runID string, conn *websocket.Conn) {
 func (h *BacktestPushHub) push(runID string, payload []byte) {
 	h.mu.RLock()
 	set := h.conns[runID]
+	conns := make([]*websocket.Conn, 0, len(set))
+	for conn := range set {
+		conns = append(conns, conn)
+	}
 	h.mu.RUnlock()
 
-	for conn := range set {
+	if len(conns) == 0 {
+		return
+	}
+
+	deadConns := make([]*websocket.Conn, 0)
+	for _, conn := range conns {
+		_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
 			slog.Debug("backtest_push_hub write failed", "run_id", runID, "error", err)
-			// Stale connections are cleaned up when the WS handler closes.
+			deadConns = append(deadConns, conn)
 		}
+		_ = conn.SetWriteDeadline(time.Time{})
+	}
+
+	if len(deadConns) > 0 {
+		h.mu.Lock()
+		if set, ok := h.conns[runID]; ok {
+			for _, deadConn := range deadConns {
+				delete(set, deadConn)
+				_ = deadConn.Close()
+			}
+			if len(set) == 0 {
+				delete(h.conns, runID)
+			}
+		}
+		h.mu.Unlock()
 	}
 }
 
 // runSubscriber blocks forever, consuming Redis pub/sub messages on backtest:*:status.
 func (h *BacktestPushHub) runSubscriber() {
-	rc := redis.NewClient(&h.redisOpts)
-	defer func() { _ = rc.Close() }()
+	const (
+		initialBackoff = time.Second
+		maxBackoff     = 30 * time.Second
+	)
 
-	ctx := context.Background()
-	pubsub := rc.PSubscribe(ctx, "backtest:*:status")
-	defer func() { _ = pubsub.Close() }()
+	backoff := initialBackoff
 
-	slog.Info("backtest_push_hub redis subscriber started")
+	for {
+		rc := redis.NewClient(&h.redisOpts)
+		ctx := context.Background()
 
-	ch := pubsub.Channel()
-	for msg := range ch {
-		// Channel pattern: backtest:{run_id}:status
-		parts := strings.SplitN(msg.Channel, ":", 3)
-		if len(parts) != 3 {
+		if err := rc.Ping(ctx).Err(); err != nil {
+			slog.Warn("backtest_push_hub redis ping failed", "error", err, "retry_in", backoff.String())
+			_ = rc.Close()
+			time.Sleep(backoff)
+			if backoff < maxBackoff {
+				backoff *= 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+			}
 			continue
 		}
-		runID := parts[1]
-		if runID == "" {
+
+		pubsub := rc.PSubscribe(ctx, "backtest:*:status")
+		if _, err := pubsub.Receive(ctx); err != nil {
+			slog.Warn("backtest_push_hub subscribe failed", "error", err, "retry_in", backoff.String())
+			_ = pubsub.Close()
+			_ = rc.Close()
+			time.Sleep(backoff)
+			if backoff < maxBackoff {
+				backoff *= 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+			}
 			continue
 		}
-		h.push(runID, []byte(msg.Payload))
+
+		slog.Info("backtest_push_hub redis subscriber started")
+		backoff = initialBackoff
+
+		ch := pubsub.Channel()
+		for msg := range ch {
+			// Channel pattern: backtest:{run_id}:status
+			parts := strings.SplitN(msg.Channel, ":", 3)
+			if len(parts) != 3 {
+				continue
+			}
+			runID := parts[1]
+			if runID == "" {
+				continue
+			}
+			h.push(runID, []byte(msg.Payload))
+		}
+
+		slog.Warn("backtest_push_hub redis subscriber channel closed; reconnecting", "retry_in", backoff.String())
+		_ = pubsub.Close()
+		_ = rc.Close()
+		time.Sleep(backoff)
+		if backoff < maxBackoff {
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		}
 	}
-
-	slog.Warn("backtest_push_hub redis subscriber channel closed")
 }

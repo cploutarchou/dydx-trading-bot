@@ -912,6 +912,66 @@ func isUpstreamNotFound(err error) bool {
 	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound
 }
 
+func ensureBacktestRunAccess(c *gin.Context, runID string, backtestRepo *repository.BacktestRepository) bool {
+	runID = strings.TrimSpace(runID)
+	if runID == "" || backtestRepo == nil {
+		return true
+	}
+	if c.GetBool("is_admin") {
+		return true
+	}
+
+	userIDValue, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success":   false,
+			"message":   "unauthorized",
+			"error":     "unauthorized",
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+			"trace_id":  middleware.GetTraceID(c),
+		})
+		return false
+	}
+	userID, ok := userIDValue.(int)
+	if !ok || userID <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success":   false,
+			"message":   "invalid user context",
+			"error":     "invalid user context",
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+			"trace_id":  middleware.GetTraceID(c),
+		})
+		return false
+	}
+
+	ownerID, err := backtestRepo.GetRunOwnerID(runID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success":   false,
+			"message":   "failed to verify backtest access",
+			"error":     err.Error(),
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+			"trace_id":  middleware.GetTraceID(c),
+		})
+		return false
+	}
+	if ownerID == nil {
+		return true
+	}
+	if *ownerID != userID {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success":   false,
+			"message":   "backtest not found",
+			"error":     "backtest not found",
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+			"trace_id":  middleware.GetTraceID(c),
+		})
+		return false
+	}
+
+	return true
+}
+
 // RegisterBotAPIDelegateRoutes registers all delegated bot API endpoints
 // These routes proxy to the Python bot API (default 127.0.0.1:8889) and sync with the Go database
 func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPIClient) {
@@ -936,6 +996,11 @@ func RegisterBotAPIDelegateRoutesWithSyncCacheAndPush(
 ) {
 	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, backtestSync, cache)
 
+	var backtestRepo *repository.BacktestRepository
+	if backtestSync != nil && backtestSync.DB() != nil {
+		backtestRepo = repository.NewBacktestRepository(backtestSync.DB())
+	}
+
 	if pushHub == nil {
 		return
 	}
@@ -948,6 +1013,9 @@ func RegisterBotAPIDelegateRoutesWithSyncCacheAndPush(
 		runID := strings.TrimSpace(c.Param("run_id"))
 		if runID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "run_id required"})
+			return
+		}
+		if !ensureBacktestRunAccess(c, runID, backtestRepo) {
 			return
 		}
 		conn, err := websocketUpgrader.Upgrade(c.Writer, c.Request, nil)
@@ -1036,62 +1104,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 	}
 
 	requireBacktestRunAccess := func(c *gin.Context, runID string) bool {
-		runID = strings.TrimSpace(runID)
-		if runID == "" || backtestRepo == nil {
-			return true
-		}
-		if c.GetBool("is_admin") {
-			return true
-		}
-
-		userIDValue, exists := c.Get("user_id")
-		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"success":   false,
-				"message":   "unauthorized",
-				"error":     "unauthorized",
-				"timestamp": time.Now().UTC().Format(time.RFC3339),
-				"trace_id":  middleware.GetTraceID(c),
-			})
-			return false
-		}
-		userID, ok := userIDValue.(int)
-		if !ok || userID <= 0 {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"success":   false,
-				"message":   "invalid user context",
-				"error":     "invalid user context",
-				"timestamp": time.Now().UTC().Format(time.RFC3339),
-				"trace_id":  middleware.GetTraceID(c),
-			})
-			return false
-		}
-
-		ownerID, err := backtestRepo.GetRunOwnerID(runID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"success":   false,
-				"message":   "failed to verify backtest access",
-				"error":     err.Error(),
-				"timestamp": time.Now().UTC().Format(time.RFC3339),
-				"trace_id":  middleware.GetTraceID(c),
-			})
-			return false
-		}
-		if ownerID == nil {
-			return true
-		}
-		if *ownerID != userID {
-			c.JSON(http.StatusNotFound, gin.H{
-				"success":   false,
-				"message":   "backtest not found",
-				"error":     "backtest not found",
-				"timestamp": time.Now().UTC().Format(time.RFC3339),
-				"trace_id":  middleware.GetTraceID(c),
-			})
-			return false
-		}
-		return true
+		return ensureBacktestRunAccess(c, runID, backtestRepo)
 	}
 
 	proxyWebSocket := func(c *gin.Context, requestClient *services.BotAPIClient, upstreamEndpoint string) {
@@ -2031,10 +2044,21 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		backtestGroup.DELETE("/:run_id", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)
 			runID := c.Param("run_id")
+			runPrimaryKey := 0
+			if backtestRepo != nil {
+				if run, lookupErr := backtestRepo.GetRunByID(runID); lookupErr == nil && run != nil {
+					runPrimaryKey = run.ID
+				}
+			}
 			result, err := requestClient.DeleteBacktest(runID)
 			if err != nil {
 				respondBotAPIError(c, err)
 				return
+			}
+			if candleCache != nil && runPrimaryKey > 0 {
+				if invalidateErr := candleCache.InvalidateCandleCache(runPrimaryKey); invalidateErr != nil {
+					log.Printf("CandleCache: invalidate error for deleted run %s (pk=%d): %v", runID, runPrimaryKey, invalidateErr)
+				}
 			}
 			respondBacktestEnvelope(c, http.StatusOK, "Backtest deleted successfully", result)
 		})
@@ -2798,6 +2822,9 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		wsGroup.GET("/backtests/:run_id", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)
 			runID := c.Param("run_id")
+			if !ensureBacktestRunAccess(c, runID, backtestRepo) {
+				return
+			}
 			upstreamEndpoint := fmt.Sprintf("/ws/backtests/%s", runID)
 			proxyWebSocket(c, requestClient, upstreamEndpoint)
 		})

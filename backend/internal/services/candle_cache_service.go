@@ -11,9 +11,25 @@ import (
 
 // CandleCacheService manages candle data caching
 type CandleCacheService struct {
-	cache *CacheService
-	repo  *repository.BacktestRepository
+	cache candleCacheStore
+	repo  candleBacktestRepo
 }
+
+type candleCacheStore interface {
+	SetCache(key string, value interface{}, ttlSeconds int) error
+	GetCache(key string) (interface{}, error)
+	GetCacheString(key string) (string, error)
+	DeleteCache(key string) error
+	DeleteCachePattern(pattern string) error
+	GetCacheStats() map[string]interface{}
+}
+
+type candleBacktestRepo interface {
+	GetUniqueMarkets(runID int) ([]string, error)
+	GetCandles(filter repository.CandleFilter) ([]models.BacktestCandle, error)
+}
+
+const candleCachePageSize = 1000
 
 // NewCandleCacheService creates a new candle cache service
 func NewCandleCacheService(cache *CacheService) *CandleCacheService {
@@ -48,7 +64,7 @@ func (ccs *CandleCacheService) CacheCandles(runID int, market string, candles []
 		ttlSeconds = 86400 // Default 24 hours
 	}
 
-	err = ccs.cache.SetCache(key, string(candleData), ttlSeconds)
+	err = ccs.cache.SetCache(key, json.RawMessage(candleData), ttlSeconds)
 	if err != nil {
 		return fmt.Errorf("failed to cache candles: %w", err)
 	}
@@ -82,7 +98,11 @@ func (ccs *CandleCacheService) GetCachedCandles(runID int, market string) ([]mod
 // InvalidateCandleCache invalidates candle cache for a run
 func (ccs *CandleCacheService) InvalidateCandleCache(runID int) error {
 	pattern := fmt.Sprintf("backtest:candles:%d:*", runID)
-	return ccs.cache.DeleteCachePattern(pattern)
+	if err := ccs.cache.DeleteCachePattern(pattern); err != nil {
+		return err
+	}
+	chartPattern := fmt.Sprintf("backtest:chart:*:%d:*", runID)
+	return ccs.cache.DeleteCachePattern(chartPattern)
 }
 
 // InvalidateCandleCacheByMarket invalidates candle cache for a specific market
@@ -204,12 +224,7 @@ func (ccs *CandleCacheService) PrefetchCandlesForRun(runID int, ttlSeconds int) 
 	}
 
 	for _, market := range markets {
-		candles, err := ccs.repo.GetCandles(repository.CandleFilter{RunID: runID, Market: market})
-		if err != nil {
-			log.Printf("CandleCacheService: failed to fetch candles for run %d market %s: %v", runID, market, err)
-			continue
-		}
-		if err := ccs.CacheCandles(runID, market, candles, ttlSeconds); err != nil {
+		if err := ccs.cacheMarketCandlesInPages(runID, market, ttlSeconds); err != nil {
 			log.Printf("CandleCacheService: failed to cache candles for run %d market %s: %v", runID, market, err)
 		}
 	}
@@ -227,29 +242,48 @@ func (ccs *CandleCacheService) WarmCache(runID int, markets []string, durationHo
 		return nil
 	}
 
-	const pageSize = 1000
 	ttlSeconds := 86400 // 24 h
 
 	for _, market := range markets {
-		// Fetch in pages to avoid large single-query memory spikes
-		candles, err := ccs.repo.GetCandles(repository.CandleFilter{RunID: runID, Market: market})
-		if err != nil {
-			log.Printf("CandleCacheService: WarmCache fetch error for run %d market %s: %v", runID, market, err)
-			continue
-		}
-
-		// Cache in pages
-		for start := 0; start < len(candles); start += pageSize {
-			end := start + pageSize
-			if end > len(candles) {
-				end = len(candles)
-			}
-			if err := ccs.CacheCandles(runID, market, candles[start:end], ttlSeconds); err != nil {
-				log.Printf("CandleCacheService: WarmCache cache error for run %d market %s page %d: %v", runID, market, start/pageSize, err)
-			}
+		if err := ccs.cacheMarketCandlesInPages(runID, market, ttlSeconds); err != nil {
+			log.Printf("CandleCacheService: WarmCache cache error for run %d market %s: %v", runID, market, err)
 		}
 	}
 
 	log.Printf("CandleCacheService: WarmCache complete for run %d (%d markets)", runID, len(markets))
 	return nil
+}
+
+func (ccs *CandleCacheService) cacheMarketCandlesInPages(runID int, market string, ttlSeconds int) error {
+	offset := 0
+	allCandles := make([]models.BacktestCandle, 0, candleCachePageSize)
+
+	for {
+		candles, err := ccs.repo.GetCandles(repository.CandleFilter{
+			RunID:  runID,
+			Market: market,
+			Limit:  candleCachePageSize,
+			Skip:   offset,
+		})
+		if err != nil {
+			return err
+		}
+
+		if len(candles) == 0 {
+			break
+		}
+
+		allCandles = append(allCandles, candles...)
+		offset += len(candles)
+
+		if len(candles) < candleCachePageSize {
+			break
+		}
+	}
+
+	if len(allCandles) == 0 {
+		return nil
+	}
+
+	return ccs.CacheCandles(runID, market, allCandles, ttlSeconds)
 }

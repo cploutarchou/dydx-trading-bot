@@ -464,7 +464,7 @@ func (s *AIMarketService) callClaude(ctx context.Context, apiKey string, config 
 			return parseAIMarketSelection(part.Text)
 		}
 	}
-	return nil, fmt.Errorf("Claude returned no market ranking content")
+	return nil, fmt.Errorf("claude returned no market ranking content")
 }
 
 func (s *AIMarketService) executeJSON(ctx context.Context, config aiProviderConfig, kind aiRequestKind, bearer string, payload any, target any, headers map[string]string) error {
@@ -518,7 +518,7 @@ func (s *AIMarketService) executeJSONAttempt(ctx context.Context, url string, be
 			Retryable: true,
 		}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -1218,7 +1218,7 @@ func (s *AIMarketService) callClaudeForText(ctx context.Context, apiKey string, 
 			return t, nil
 		}
 	}
-	return "", fmt.Errorf("Claude returned no content")
+	return "", fmt.Errorf("claude returned no content")
 }
 
 func applyDeepSeekOptions(body map[string]any, config aiProviderConfig, kind aiRequestKind) {

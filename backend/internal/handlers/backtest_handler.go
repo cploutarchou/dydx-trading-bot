@@ -229,7 +229,7 @@ func (h *BacktestHandler) GetBacktestCandles(c *gin.Context) {
 	}
 
 	var candles []CandleResponse
-	var uniqueMarkets map[string]bool = make(map[string]bool)
+	uniqueMarkets := make(map[string]bool)
 
 	for _, candle := range dbCandles {
 		uniqueMarkets[candle.Market] = true

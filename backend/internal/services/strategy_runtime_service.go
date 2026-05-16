@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -296,6 +297,14 @@ func (s *StrategyRuntimeService) startRuntime(
 	if !forceRecreate && existsLocally && shouldRecreateForTelegramRefresh(instanceRecord, createPayload) {
 		log.Printf(
 			"ℹ️ refreshing runtime instance %s to apply updated Telegram delivery settings",
+			runtimeState.InstanceID,
+		)
+		forceRecreate = true
+	}
+
+	if !forceRecreate && existsLocally && shouldRecreateForTradingParamsDrift(instanceRecord, createPayload) {
+		log.Printf(
+			"ℹ️ refreshing runtime instance %s to apply updated trading parameters (e.g. selected_markets)",
 			runtimeState.InstanceID,
 		)
 		forceRecreate = true
@@ -943,15 +952,16 @@ func mergeRemoteRuntimeState(runtimeState StrategyRuntimeState, remote map[strin
 			}
 		}
 	}
-	if status == "running" {
+	switch status {
+	case "running":
 		runtimeState.LastError = ""
 		runtimeState.StoppedAt = nil
 		if runtimeState.StartedAt == nil {
 			runtimeState.StartedAt = &now
 		}
-	} else if status == "starting" || status == "stopping" {
+	case "starting", "stopping":
 		runtimeState.LastError = ""
-	} else if status == "stopped" {
+	case "stopped":
 		runtimeState.LastError = ""
 		runtimeState.ProcessID = nil
 		runtimeState.StoppedAt = &now
@@ -1283,6 +1293,57 @@ func shouldRecreateForTelegramRefresh(
 
 	return strings.TrimSpace(desiredToken) != strings.TrimSpace(currentToken) ||
 		strings.TrimSpace(desiredChatID) != strings.TrimSpace(currentChatID)
+}
+
+// shouldRecreateForTradingParamsDrift returns true when any trading parameter
+// stored in the persisted instance config differs from the desired payload.
+// It serialises both trading_params maps to canonical (sorted-key) JSON and
+// compares them so any field change — selected_markets, usd_per_trade,
+// zscore_threshold, strategy, etc. — triggers a fresh recreation.
+func shouldRecreateForTradingParamsDrift(
+	instance *models.BotInstance,
+	desiredPayload map[string]interface{},
+) bool {
+	if instance == nil {
+		return false
+	}
+	if !instance.Config.Valid || strings.TrimSpace(instance.Config.String) == "" {
+		return false
+	}
+
+	var storedPayload map[string]interface{}
+	if err := json.Unmarshal([]byte(instance.Config.String), &storedPayload); err != nil {
+		return false
+	}
+
+	desiredTP, _ := desiredPayload["trading_params"].(map[string]interface{})
+	storedTP, _ := storedPayload["trading_params"].(map[string]interface{})
+	if desiredTP == nil || storedTP == nil {
+		return false
+	}
+
+	// Normalise both sides: sort any slice values so order differences don't
+	// cause false positives, then marshal to comparable JSON strings.
+	normalise := func(m map[string]interface{}) string {
+		normalised := make(map[string]interface{}, len(m))
+		for k, v := range m {
+			switch val := v.(type) {
+			case []interface{}:
+				strs := make([]string, 0, len(val))
+				for _, item := range val {
+					strs = append(strs, strings.TrimSpace(fmt.Sprintf("%v", item)))
+				}
+				sort.Strings(strs)
+				normalised[k] = strs
+			default:
+				normalised[k] = v
+			}
+		}
+		b, _ := json.Marshal(normalised)
+		return string(b)
+	}
+
+	return normalise(desiredTP) != normalise(storedTP)
 }
 
 func extractTelegramCredentials(payload map[string]interface{}) (token string, chatID string) {

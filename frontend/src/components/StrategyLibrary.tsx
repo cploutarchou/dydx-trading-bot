@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Layers3, Search, Sparkles } from 'lucide-react';
+import { AlertTriangle, Layers3, Search, Sparkles, Zap } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -408,20 +408,14 @@ export default function StrategyLibrary() {
       )}
 
       <section className="premium-panel mb-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-start gap-3">
-            <div className="premium-icon-wrap text-cyan-300">
-              <Search className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-white">Search and compare faster</h2>
-              <p className="mt-1 text-sm text-slate-400">
-                Filter by narrative, inspect risk posture at a glance, and move straight into
-                action.
-              </p>
-            </div>
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-white">Search and compare faster</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Filter by narrative, inspect risk posture at a glance, and move straight into action.
+            </p>
           </div>
-          <div className="grid grid-cols-2 gap-3 sm:min-w-85">
+          <div className="grid grid-cols-2 gap-3 shrink-0">
             <div className={statsTileClass}>
               <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Visible</p>
               <p className="mt-1 text-lg font-semibold text-white">{filteredStrategies.length}</p>
@@ -435,13 +429,13 @@ export default function StrategyLibrary() {
           </div>
         </div>
         <div className="relative mt-5">
-          <Search className="pointer-events-none absolute left-4 top-3.5 h-4 w-4 text-slate-500" />
+          <Search className="pointer-events-none absolute left-3.5 top-3 h-4 w-4 text-slate-500" />
           <input
             type="text"
             placeholder="Search strategies by name, narrative, or description..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="premium-input pl-11"
+            className="premium-input pl-12"
           />
         </div>
       </section>
@@ -470,118 +464,190 @@ export default function StrategyLibrary() {
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4">
-          {filteredStrategies.map((strategy) => (
-            <div
-              key={strategy.id}
-              className="premium-panel premium-panel-hover animate-fade-slide-up p-6"
-            >
-              <div className="flex justify-between items-start mb-3">
-                <div className="flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-lg font-semibold text-white mb-1">{strategy.name}</h3>
-                    <span className="inline-flex items-center rounded-full border border-slate-700/70 bg-slate-950/50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                      <Layers3 className="mr-1.5 h-3 w-3" />
+          {filteredStrategies.map((strategy) => {
+            // Compute strategy health indicators for fintech standards
+            const isHighRisk =
+              strategy.max_drawdown_pct > 25 ||
+              strategy.stop_loss_pct < 5 ||
+              strategy.zscore_threshold > 3;
+            const isMediumRisk = strategy.max_drawdown_pct > 15 || strategy.zscore_threshold > 2;
+            const pairCount = strategy.selected_markets?.length ?? 0;
+            const hasMarkets = pairCount > 0;
+            const isReadyForCapital =
+              strategy.place_trades && strategy.abort_all_positions && hasMarkets && !isHighRisk;
+
+            return (
+              <div
+                key={strategy.id}
+                className="premium-panel premium-panel-hover animate-fade-slide-up p-6"
+              >
+                {/* Header: Name + Status badges */}
+                <div className="mb-4 flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-lg font-bold text-white truncate">{strategy.name}</h3>
+                    <p className="mt-1 text-sm text-slate-400 line-clamp-2">
+                      {strategy.description}
+                    </p>
+                  </div>
+
+                  {/* Status & Risk badges */}
+                  <div className="ml-3 flex shrink-0 flex-wrap justify-end gap-2">
+                    {/* Category badge */}
+                    <span className="inline-flex items-center gap-1 rounded-lg border border-slate-700/60 bg-slate-900/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-300">
+                      <Layers3 className="h-2.5 w-2.5" />
                       {strategy.category}
                     </span>
-                  </div>
-                  <p className="text-slate-400 text-sm mb-2">{strategy.description}</p>
-                  <div className="flex gap-3 flex-wrap">
+
+                    {/* Capital readiness indicator */}
+                    {isReadyForCapital && (
+                      <span className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
+                        ✓ Ready
+                      </span>
+                    )}
+                    {!isReadyForCapital && isHighRisk && (
+                      <span className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-rose-300">
+                        <AlertTriangle className="h-2.5 w-2.5" />
+                        High Risk
+                      </span>
+                    )}
+                    {!isReadyForCapital && isMediumRisk && !isHighRisk && (
+                      <span className="inline-flex items-center gap-1 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+                        ⚠ Medium Risk
+                      </span>
+                    )}
+
+                    {/* Public badge */}
                     {strategy.is_public && (
-                      <span className="inline-block rounded-full border border-blue-500/20 bg-blue-500/10 px-2.5 py-1 text-xs text-blue-300">
+                      <span className="inline-flex items-center gap-1 rounded-lg border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-blue-300">
                         🌐 Public
                       </span>
                     )}
                   </div>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 gap-4 my-4 border-t border-slate-700/70 py-4 sm:grid-cols-2 xl:grid-cols-4">
-                <div className="workspace-card p-4">
-                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
-                    Z-Score Threshold
-                  </p>
-                  <p className="text-lg font-semibold text-cyan-300">{strategy.zscore_threshold}</p>
-                </div>
-                <div className="workspace-card p-4">
-                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
-                    Stats Window (h)
-                  </p>
-                  <p className="text-lg font-semibold text-cyan-300">{strategy.stats_window}</p>
-                </div>
-                <div className="workspace-card p-4">
-                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
-                    Max Half-Life (h)
-                  </p>
-                  <p className="text-lg font-semibold text-cyan-300">{strategy.max_half_life}</p>
-                </div>
-                <div className="workspace-card p-4">
-                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
-                    Max History Days
-                  </p>
-                  <p className="text-lg font-semibold text-cyan-300">
-                    {strategy.max_history_days ?? 90}
-                  </p>
-                </div>
-              </div>
+                {/* Performance & Risk summary row */}
+                <div className="mb-4 grid grid-cols-2 gap-3 border-t border-slate-700/50 pt-4 sm:grid-cols-4">
+                  {/* Key metric 1: Z-Score Threshold */}
+                  <div className="workspace-card p-3">
+                    <p className="text-[9px] uppercase tracking-[0.15em] text-slate-500">Z-Score</p>
+                    <p className="mt-1 text-base font-bold text-cyan-300">
+                      {strategy.zscore_threshold.toFixed(2)}
+                    </p>
+                  </div>
 
-              <div className="mb-4 text-xs text-slate-500">
-                Updated: {new Date(strategy.updated_at).toLocaleDateString()} at{' '}
-                {new Date(strategy.updated_at).toLocaleTimeString()}
-              </div>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleRunStrategy(strategy)}
-                  className="flex-1 rounded-xl border border-emerald-900/15 bg-emerald-700 px-3 py-2 text-sm font-medium text-white shadow-sm shadow-emerald-950/10 transition hover:bg-emerald-600"
-                >
-                  Run Backtest
-                </button>
-                <button
-                  onClick={() => navigate(`/backtests/new?strategy_id=${strategy.id}`)}
-                  className={secondaryActionButtonClass}
-                >
-                  New Ticket
-                </button>
-                <button
-                  onClick={() => navigate(`/strategies/${strategy.id}/edit`)}
-                  className={secondaryActionButtonClass}
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={() => void handleDuplicate(strategy)}
-                  disabled={duplicateMutation.isPending}
-                  className={`${secondaryActionButtonClass} disabled:opacity-60`}
-                >
-                  Duplicate
-                </button>
-                {deleteConfirmId === strategy.id ? (
-                  <>
-                    <button
-                      onClick={() => void handleDelete(strategy.id)}
-                      disabled={deleteMutation.isPending}
-                      className="flex-1 rounded-xl bg-red-600 px-3 py-2 text-white text-sm font-medium transition hover:bg-red-500 disabled:opacity-60"
-                    >
-                      Confirm Delete
-                    </button>
-                    <button
-                      onClick={() => setDeleteConfirmId(null)}
-                      className={secondaryActionButtonClass}
-                    >
-                      Cancel
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={() => setDeleteConfirmId(strategy.id)}
-                    className="flex-1 rounded-xl border border-slate-700/70 bg-slate-900/70 px-3 py-2 text-sm font-medium text-white transition hover:border-red-500/35 hover:bg-slate-900"
+                  {/* Key metric 2: Max Drawdown (Risk) */}
+                  <div
+                    className={`workspace-card p-3 ${
+                      strategy.max_drawdown_pct > 25
+                        ? 'border-rose-500/40 bg-rose-500/5'
+                        : 'border-emerald-500/20 bg-emerald-500/5'
+                    }`}
                   >
-                    🗑️ Delete
+                    <p className="text-[9px] uppercase tracking-[0.15em] text-slate-500">
+                      Max Drawdown
+                    </p>
+                    <p
+                      className={`mt-1 text-base font-bold ${
+                        strategy.max_drawdown_pct > 25
+                          ? 'text-rose-300'
+                          : strategy.max_drawdown_pct > 15
+                            ? 'text-amber-300'
+                            : 'text-emerald-300'
+                      }`}
+                    >
+                      {strategy.max_drawdown_pct}%
+                    </p>
+                  </div>
+
+                  {/* Key metric 3: Pair/Market coverage */}
+                  <div className="workspace-card p-3">
+                    <p className="text-[9px] uppercase tracking-[0.15em] text-slate-500">Pairs</p>
+                    <p
+                      className={`mt-1 text-base font-bold ${
+                        !hasMarkets ? 'text-slate-500' : 'text-cyan-300'
+                      }`}
+                    >
+                      {pairCount > 0 ? `${pairCount}` : '—'}
+                    </p>
+                  </div>
+
+                  {/* Key metric 4: Risk-adjusted parameter (Stop Loss) */}
+                  <div className="workspace-card p-3">
+                    <p className="text-[9px] uppercase tracking-[0.15em] text-slate-500">
+                      Stop Loss
+                    </p>
+                    <p className="mt-1 text-base font-bold text-cyan-300">
+                      {strategy.stop_loss_pct}%
+                    </p>
+                  </div>
+                </div>
+
+                {/* Footer: Updated time + risk summary */}
+                <div className="mb-3 flex items-center justify-between text-xs text-slate-500">
+                  <span>Updated {new Date(strategy.updated_at).toLocaleDateString()}</span>
+                  <span className="rounded-full border border-slate-700/50 bg-slate-900/20 px-2 py-0.5">
+                    {strategy.max_positions} max positions
+                  </span>
+                </div>
+
+                {/* Action buttons: Primary (Run Backtest), then secondary (Test, Edit, Clone, Delete) */}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => handleRunStrategy(strategy)}
+                    className="flex items-center gap-2 rounded-lg border border-emerald-900/25 bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-950/20 transition hover:bg-emerald-500 sm:flex-1"
+                  >
+                    <Zap className="h-4 w-4" />
+                    Run Backtest
                   </button>
-                )}
+                  <button
+                    onClick={() => navigate(`/backtests/new?strategy_id=${strategy.id}`)}
+                    className={secondaryActionButtonClass}
+                    title="Quick test with default settings"
+                  >
+                    Test
+                  </button>
+                  <button
+                    onClick={() => navigate(`/strategies/${strategy.id}/edit`)}
+                    className={secondaryActionButtonClass}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => void handleDuplicate(strategy)}
+                    disabled={duplicateMutation.isPending}
+                    className={`${secondaryActionButtonClass} disabled:opacity-60`}
+                  >
+                    Clone
+                  </button>
+                  {deleteConfirmId === strategy.id ? (
+                    <>
+                      <button
+                        onClick={() => void handleDelete(strategy.id)}
+                        disabled={deleteMutation.isPending}
+                        className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-500 disabled:opacity-60 sm:min-w-25"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => setDeleteConfirmId(null)}
+                        className={secondaryActionButtonClass}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => setDeleteConfirmId(strategy.id)}
+                      className="flex-1 rounded-lg border border-slate-700/70 bg-slate-900/50 px-3 py-2 text-sm font-medium text-slate-300 transition hover:border-red-500/40 hover:bg-red-950/20 hover:text-red-300 sm:min-w-20"
+                      title="Delete this strategy"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

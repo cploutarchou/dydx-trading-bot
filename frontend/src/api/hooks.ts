@@ -2,29 +2,29 @@
 // Provides optimized data fetching with loading states, error handling, and caching
 
 import {
-    useInfiniteQuery,
-    useMutation,
-    useQueries,
-    useQuery,
-    useQueryClient,
+	useInfiniteQuery,
+	useMutation,
+	useQueries,
+	useQuery,
+	useQueryClient,
 } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import api, { TelegramConfigPayload, TelegramSettingsScope } from '../api';
 import { enhancedApiClient as apiClient } from './enhancedClient';
 import { cacheUtils, queryConfigs, queryKeys } from './queryClient';
 import type {
-    BacktestConfig,
-    BotInstance,
-    BotJob,
-    CreateBotRequest,
-    ListAlertsParams,
-    ListBacktestsParams,
-    ListBotsParams,
-    ListTradesParams,
-    QuickDeployBotRequest,
-    StartBotRequest,
-    UpdateBotRequest,
-    User,
+	BacktestConfig,
+	BotInstance,
+	BotJob,
+	CreateBotRequest,
+	ListAlertsParams,
+	ListBacktestsParams,
+	ListBotsParams,
+	ListTradesParams,
+	QuickDeployBotRequest,
+	StartBotRequest,
+	UpdateBotRequest,
+	User,
 } from './types';
 
 interface ManagedWebSocketOptions {
@@ -34,6 +34,7 @@ interface ManagedWebSocketOptions {
   onOpen?: (_socket: WebSocket) => (() => void) | void;
   staleAfterMs?: number;
   onStale?: () => Promise<void> | void;
+  closeOnStale?: boolean;
 }
 
 const useManagedWebSocket = ({
@@ -43,6 +44,7 @@ const useManagedWebSocket = ({
   onOpen,
   staleAfterMs = 15000,
   onStale,
+  closeOnStale = true,
 }: ManagedWebSocketOptions) => {
   const [isConnected, setIsConnected] = useState(false);
   const [socketError, setSocketError] = useState<Error | null>(null);
@@ -50,6 +52,7 @@ const useManagedWebSocket = ({
   const reconnectTimerRef = useRef<number | null>(null);
   const staleTimerRef = useRef<number | null>(null);
   const staleInFlightRef = useRef(false);
+  const lastStaleLogAtRef = useRef(0);
 
   useEffect(() => {
     if (!enabled) {
@@ -98,8 +101,20 @@ const useManagedWebSocket = ({
           return;
         }
 
+        const now = Date.now();
+        const shouldLogStaleEvent = now - lastStaleLogAtRef.current >= 60_000;
+        if (shouldLogStaleEvent) {
+          lastStaleLogAtRef.current = now;
+        }
+
         if (!staleInFlightRef.current) {
           staleInFlightRef.current = true;
+          if (shouldLogStaleEvent) {
+            console.info('🔌 WebSocket stale threshold reached; requesting HTTP resync', {
+              staleAfterMs,
+              closeOnStale,
+            });
+          }
           Promise.resolve(onStale?.())
             .catch((error) => {
               console.warn('Failed websocket stale resync', error);
@@ -109,11 +124,27 @@ const useManagedWebSocket = ({
             });
         }
 
-        try {
-          socket.close();
-        } catch (error) {
-          console.warn('Failed to close stale websocket', error);
+        if (closeOnStale) {
+          if (shouldLogStaleEvent) {
+            console.warn('🔌 Closing stale WebSocket to trigger controlled reconnect', {
+              staleAfterMs,
+            });
+          }
+          try {
+            socket.close();
+          } catch (error) {
+            console.warn('Failed to close stale websocket', error);
+          }
+          return;
         }
+
+        if (shouldLogStaleEvent) {
+          console.info('🔌 Keeping stale WebSocket open while fallback polling resyncs state', {
+            staleAfterMs,
+          });
+        }
+
+        scheduleStaleCheck();
       }, staleAfterMs);
     };
 
@@ -121,6 +152,13 @@ const useManagedWebSocket = ({
       if (closedByEffect || reconnectTimerRef.current !== null) {
         return;
       }
+
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        pausedForPageLifecycle = true;
+        shouldResumeAfterPageShow = true;
+        return;
+      }
+
       const attempts = Math.min(reconnectAttemptRef.current, 4);
       const baseDelayMs = Math.min(1000 * 2 ** attempts, 15000);
       const jitterFactor = 0.75 + Math.random() * 0.5; // 0.75x - 1.25x
@@ -188,7 +226,7 @@ const useManagedWebSocket = ({
       connect();
     };
 
-    const handlePageHide = () => {
+    const pauseSocketLifecycle = (reason: string) => {
       if (closedByEffect) {
         return;
       }
@@ -203,14 +241,14 @@ const useManagedWebSocket = ({
 
       if (socket && socket.readyState !== WebSocket.CLOSED) {
         try {
-          socket.close(1000, 'pagehide');
+          socket.close(1000, reason);
         } catch (error) {
-          console.warn('Failed to close websocket on pagehide', error);
+          console.warn(`Failed to close websocket on ${reason}`, error);
         }
       }
     };
 
-    const handlePageShow = () => {
+    const resumeSocketLifecycle = () => {
       if (closedByEffect || !pausedForPageLifecycle) {
         return;
       }
@@ -226,9 +264,31 @@ const useManagedWebSocket = ({
       connect();
     };
 
+    const handlePageHide = () => {
+      pauseSocketLifecycle('pagehide');
+    };
+
+    const handlePageShow = () => {
+      resumeSocketLifecycle();
+    };
+
+    const handleVisibilityChange = () => {
+      if (typeof document === 'undefined') {
+        return;
+      }
+
+      if (document.visibilityState === 'hidden') {
+        pauseSocketLifecycle('visibility-hidden');
+        return;
+      }
+
+      resumeSocketLifecycle();
+    };
+
     window.addEventListener('online', handleOnline);
     window.addEventListener('pagehide', handlePageHide);
     window.addEventListener('pageshow', handlePageShow);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     connect();
 
     return () => {
@@ -236,6 +296,7 @@ const useManagedWebSocket = ({
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('pageshow', handlePageShow);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       clearReconnectTimer();
       clearStaleTimer();
       clearOpenCleanup();
@@ -246,7 +307,7 @@ const useManagedWebSocket = ({
         socket.close();
       }
     };
-  }, [connectSocket, enabled, onMessage, onOpen, onStale, staleAfterMs]);
+  }, [closeOnStale, connectSocket, enabled, onMessage, onOpen, onStale, staleAfterMs]);
 
   return { isConnected, socketError };
 };
@@ -306,7 +367,7 @@ export function useCurrentUser() {
   return useQuery({
     queryKey: queryKeys.currentUser,
     queryFn: () => apiClient.getCurrentUser(),
-    ...queryConfigs.user,
+    ...queryConfigs.static,
     enabled: apiClient.isAuthenticated(),
   });
 }
@@ -1184,6 +1245,8 @@ export function useBacktestProgress(runId: string) {
     // reconnect storm where the server closes idle sockets every ~15 s.
     enabled: !!runId && !isTerminalStatus(data?.status),
     connectSocket: useCallback(() => api.connectBacktestSocket(runId), [runId]),
+    closeOnStale: false,
+    staleAfterMs: 30_000,
     onMessage: useCallback(
       (parsed: unknown) => {
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
@@ -1390,6 +1453,21 @@ export function useOptimisticBotUpdate(instanceId: string) {
 // ==================== Strategy Hooks ====================
 
 /**
+ * Fetch strategy list for strategy management surfaces.
+ */
+export function useStrategies(skip: number = 0, limit: number = 100, enabled: boolean = true) {
+  return useQuery({
+    queryKey: queryKeys.strategies({ skip, limit }),
+    queryFn: async () => {
+      const response = await api.listStrategies(skip, limit);
+      return Array.isArray(response.data?.strategies) ? response.data.strategies : [];
+    },
+    ...queryConfigs.user,
+    enabled,
+  });
+}
+
+/**
  * Fetch runtime status for a single strategy.
  * Polls every 15 seconds while the strategy is running.
  */
@@ -1482,6 +1560,43 @@ export function useStopStrategyRuntime(strategyId: number) {
     mutationFn: () => api.stopStrategyRuntime(strategyId),
     onSuccess: () => {
       void cacheUtils.invalidateStrategyQueries(strategyId);
+    },
+  });
+}
+
+/**
+ * Start any strategy runtime by ID. Useful for list UIs where strategy IDs are dynamic.
+ */
+export function useStartStrategyRuntimeMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      strategyId,
+      network,
+      forceRecreate = false,
+    }: {
+      strategyId: number;
+      network: 'testnet' | 'mainnet';
+      forceRecreate?: boolean;
+    }) => api.startStrategyRuntime(strategyId, network, forceRecreate),
+    onSuccess: (_, variables) => {
+      void cacheUtils.invalidateStrategyQueries(variables.strategyId);
+      void queryClient.invalidateQueries({
+        queryKey: ['strategies', variables.strategyId, 'start-readiness'],
+      });
+    },
+  });
+}
+
+/**
+ * Stop any strategy runtime by ID. Useful for list UIs where strategy IDs are dynamic.
+ */
+export function useStopStrategyRuntimeMutation() {
+  return useMutation({
+    mutationFn: ({ strategyId, force = false }: { strategyId: number; force?: boolean }) =>
+      api.stopStrategyRuntime(strategyId, force),
+    onSuccess: (_, variables) => {
+      void cacheUtils.invalidateStrategyQueries(variables.strategyId);
     },
   });
 }

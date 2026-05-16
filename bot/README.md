@@ -61,7 +61,12 @@ Suggested daily workflow:
 
 The bot manager owns process lifecycle. Bot instances run as isolated subprocesses; PostgreSQL is the source of truth for
 instance status, lifecycle events, supervised job state, and backtest progress. `bot_states/` is kept only for generated
-per-instance config, subprocess log output, and temporary/debug compatibility artifacts.
+subprocess log output and temporary/debug state artifacts.
+
+Worker startup loads per-instance runtime config from `bot_instances.config` only. If the row is missing or lacks
+credentials/trading parameters, the worker fails fast instead of falling back to YAML or environment defaults. Deprecated
+`bot_states/config_<instance_id>.yaml` files can be migrated once with
+`bot/.venv/bin/python scripts/migrate_yaml_configs_to_db.py`; workers do not read or refresh them.
 
 Async background work must be launched through the supervised job helper so task failures, cancellations, progress, and
 traceback summaries are persisted in the `jobs` table instead of disappearing as unobserved task exceptions.
@@ -71,6 +76,41 @@ bot rows with missing workers are marked error. Set `BACKTEST_AUTO_RECOVERY_MODE
 and `BOT_AUTO_RECOVER_LIVE_RUNTIMES=true` for testnet live bot auto-restart; mainnet live restart also requires
 `BOT_AUTO_RECOVER_LIVE_MAINNET=true`. Backtest startup recovery waits for `BACKTEST_AUTO_RECOVERY_MIN_AGE_SECONDS`
 before acting so fresh rows from another API worker are not incorrectly failed.
+
+For `/api/v1/backtests` and `/api/v1/backtests/run`, strategy resolution is ordered as: strategy table lookup by
+`strategy_id` → recent persisted backtest request snapshots in DB → request-provided `strategy_payload_snapshot`
+(compatibility fallback).
+
+To monitor strategy-resolution drift, use `GET /api/v1/backtests/sync-health` and inspect
+`data.strategy_resolution_metrics.counts` (`store`, `history`, `request`, `not_found`).
+For lightweight dashboard polling, use:
+
+- `GET /api/v1/backtests/sync-health?metrics_only=true`
+- `GET /api/v1/runtime/strategy-resolution-metrics`
+- `GET /api/v1/admin/runtime/strategy-resolution-metrics` (admin-only alias)
+- `GET /api/v1/runtime/strategy-resolution-metrics/prom` (Prometheus text format)
+- `POST /api/v1/admin/runtime/strategy-resolution-metrics/reset` (admin-only counter reset)
+
+Windowed alerting is also exposed under
+`data.strategy_resolution_metrics.alerts.request_ratio_alert_triggered`.
+Defaults:
+
+- `STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE=200`
+- `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_THRESHOLD=0.05`
+- `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_MIN_RUNS=20`
+
+Optional strict mode (production safety hardening): set
+`BACKTEST_DISABLE_REQUEST_SNAPSHOT_FALLBACK_IN_PRODUCTION=true`.
+When `ENVIRONMENT=production` (or `prod`), request-level
+`strategy_payload_snapshot` fallback is disabled.
+
+`GET /health` and `GET /ready` now include:
+
+- `strategy_resolution_metrics`
+- `strategy_resolution_alerts`
+- `strategy_resolution_alert_recommended`
+
+This lets standard SRE probes detect strategy-resolution drift without calling dedicated runtime endpoints.
 
 The bot service is not a public frontend integration surface. The supported product path is:
 

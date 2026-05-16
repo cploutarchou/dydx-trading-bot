@@ -1,175 +1,128 @@
 #!/usr/bin/env python3
-"""
-Configuration System Validation Script
+"""Validate DB/env-backed runtime configuration for local development."""
 
-Validates that all database and redis configuration is properly set up.
-Checks: config.yaml, environment variables, dataclasses, and services.
-"""
+from __future__ import annotations
 
 import os
 import sys
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+BOT_ROOT = REPO_ROOT / "bot"
+if str(BOT_ROOT) not in sys.path:
+    sys.path.insert(0, str(BOT_ROOT))
 
-def check_file_exists(path, description):
-    """Check if a file exists."""
-    exists = Path(path).exists()
-    status = "✅" if exists else "❌"
-    print(f"{status} {description}: {path}")
+from src.shared.env_loader import load_repo_env  # noqa: E402
+
+
+def check_file_exists(path: Path, description: str) -> bool:
+    exists = path.exists()
+    status = "OK" if exists else "MISSING"
+    print(f"{status}: {description}: {path}")
     return exists
 
 
-def check_config_section(file_path, section):
-    """Check if a section exists in config.yaml."""
-    try:
-        import yaml
-
-        with open(file_path, "r") as f:
-            config = yaml.safe_load(f)
-        exists = section in config
-        status = "✅" if exists else "❌"
-        print(f"  {status} Section [{section}]: {exists}")
-        return exists
-    except Exception as e:
-        print(f"  ❌ Error reading config: {e}")
-        return False
-
-
-def check_env_vars():
-    """Check for environment variables."""
-    db_vars = ["DB_TYPE", "DB_NAME", "DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD"]
+def check_env_vars() -> bool:
+    db_vars = [
+        "DATABASE_URL",
+        "BOT_DATABASE_URL",
+        "DB_HOST",
+        "POSTGRES_HOST",
+        "DB_NAME",
+        "POSTGRES_DB",
+        "DB_USER",
+        "POSTGRES_USER",
+    ]
     redis_vars = ["REDIS_ENABLED", "REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD"]
 
-    print("\n📋 Environment Variables:")
+    print("\nEnvironment:")
+    db_set = [var for var in db_vars if os.getenv(var)]
+    redis_set = [var for var in redis_vars if os.getenv(var)]
 
-    db_set = sum(1 for var in db_vars if os.getenv(var))
-    redis_set = sum(1 for var in redis_vars if os.getenv(var))
-
-    print(f"  Database vars set: {db_set}/{len(db_vars)}")
-    print(f"  Redis vars set: {redis_set}/{len(redis_vars)}")
-
-    return db_set > 0 or redis_set > 0
+    print(f"  DB vars set: {len(db_set)}/{len(db_vars)}")
+    print(f"  Redis vars set: {len(redis_set)}/{len(redis_vars)}")
+    return bool(db_set)
 
 
-def check_dataclasses():
-    """Check if dataclasses are defined in config.py."""
+def check_dataclasses() -> bool:
     try:
-        from backend.app.config import DydxConfig
+        from config.config import DydxConfig, config
 
-        print("  ✅ DatabaseSettings class found")
-        print("  ✅ RedisSettings class found")
-        print("  ✅ DydxConfig class found")
-
-        # Check DydxConfig has the fields
-        config_instance = DydxConfig()
-        has_db = hasattr(config_instance, "database")
-        has_redis = hasattr(config_instance, "redis")
-
-        print(f"  {'✅' if has_db else '❌'} DydxConfig.database field exists")
-        print(f"  {'✅' if has_redis else '❌'} DydxConfig.redis field exists")
-
-        return has_db and has_redis
-    except Exception as e:
-        print(f"  ❌ Error importing dataclasses: {e}")
+        resolved = config()
+        print("  DydxConfig class import: OK")
+        status = "OK" if isinstance(resolved, DydxConfig) else "MISSING"
+        environment = getattr(resolved, "environment", "unknown") if resolved else "unknown"
+        print(f"  Config resolved: {status}")
+        print(f"  Environment: {environment}")
+        return isinstance(resolved, DydxConfig)
+    except Exception as exc:
+        print(f"  Config import failed: {exc}")
         return False
 
 
-def check_config_loader():
-    """Check if ConfigurationLoader exists and works."""
+def check_database_config() -> bool:
     try:
-        from backend.config_loader import get_config_loader
+        from src.infrastructure.database import DatabaseConfig
 
-        loader = get_config_loader()
-
-        db_config = loader.get_database_config()
-        redis_config = loader.get_redis_config()
-
-        print("  ✅ ConfigurationLoader.get_config_loader() works")
-        print(f"  ✅ Database config loaded: {bool(db_config)}")
-        print(f"  ✅ Redis config loaded: {bool(redis_config)}")
-
-        return bool(db_config and redis_config)
-    except Exception as e:
-        print(f"  ❌ Error loading configuration: {e}")
+        diagnostics = DatabaseConfig().to_diagnostics()
+        print("  DatabaseConfig import: OK")
+        print(
+            "  DB target: "
+            f"{diagnostics['host']}:{diagnostics['port']}/{diagnostics['name']} "
+            f"mode={diagnostics['cutover_mode']}"
+        )
+        return bool(diagnostics["host"] and diagnostics["name"])
+    except Exception as exc:
+        print(f"  DatabaseConfig failed: {exc}")
         return False
 
 
-def main():
-    """Run all validation checks."""
-    print("🔍 Database & Redis Configuration Validation\n")
+def check_deprecated_yaml_configs() -> bool:
+    yaml_files = sorted((BOT_ROOT / "bot_states").glob("config_*.yaml"))
+    if not yaml_files:
+        print("  Deprecated runtime YAML configs: none")
+        return True
+    print(
+        "  Deprecated runtime YAML configs found; run "
+        "bot/.venv/bin/python scripts/migrate_yaml_configs_to_db.py before deleting them:"
+    )
+    for path in yaml_files:
+        print(f"    {path}")
+    return False
 
-    # Check files exist
-    print("📁 Files:")
+
+def main() -> int:
+    load_repo_env(str(BOT_ROOT / "src" / "main_instance.py"))
+    print("DB/env-backed runtime configuration validation\n")
+
     files_ok = all(
         [
             check_file_exists(
-                "/home/chris/workspace/dydx-trading-bot/backend/config_loader.py",
-                "ConfigurationLoader",
+                REPO_ROOT / "config" / "profiles" / "development.config.enc.json",
+                "development encrypted profile",
             ),
-            check_file_exists(
-                "/backend/app/config.yaml", "config.yaml"
-            ),
-            check_file_exists(
-                "/home/chris/workspace/dydx-trading-bot/config/profiles/development.config.enc.json",
-                "development.config.enc.json",
-            ),
-            check_file_exists(
-                "/home/chris/workspace/dydx-trading-bot/docs/DATABASE_REDIS_CONFIG.md",
-                "Documentation",
-            ),
+            check_file_exists(REPO_ROOT / "Makefile", "root Makefile"),
+            check_file_exists(BOT_ROOT / "src" / "infrastructure" / "database.py", "bot DB layer"),
         ]
     )
 
-    # Check config.yaml sections
-    print("\n⚙️  Configuration File:")
-    config_ok = all(
-        [
-            check_config_section(
-                "/backend/app/config.yaml", "database"
-            ),
-            check_config_section(
-                "/backend/app/config.yaml", "redis"
-            ),
-        ]
-    )
-
-    # Check environment variables
-    print()
     env_ok = check_env_vars()
+    print("\nDataclasses:")
+    dataclasses_ok = check_dataclasses()
+    print("\nDatabase:")
+    db_ok = check_database_config()
+    print("\nDeprecated YAML:")
+    yaml_ok = check_deprecated_yaml_configs()
 
-    # Check dataclasses
-    print("\n📦 Dataclasses:")
-    try:
-        dataclasses_ok = check_dataclasses()
-    except Exception as e:
-        print(f"  ❌ Error: {e}")
-        dataclasses_ok = False
-
-    # Check ConfigurationLoader
-    print("\n🔧 Configuration Loader:")
-    try:
-        loader_ok = check_config_loader()
-    except Exception as e:
-        print(f"  ❌ Error: {e}")
-        loader_ok = False
-
-    # Summary
-    print("\n" + "=" * 60)
-    print("📊 Summary:")
-    print(f"  {'✅' if files_ok else '❌'} All required files present")
-    print(f"  {'✅' if config_ok else '❌'} config.yaml sections complete")
-    print(f"  {'✅' if dataclasses_ok else '❌'} Dataclasses defined")
-    print(f"  {'✅' if loader_ok else '❌'} ConfigurationLoader functional")
-
-    all_ok = files_ok and config_ok and dataclasses_ok and loader_ok
-
-    if all_ok:
-        print("\n✅ All validation checks passed!")
-        return 0
-    else:
-        print("\n⚠️  Some checks failed. See details above.")
-        return 1
+    all_ok = files_ok and env_ok and dataclasses_ok and db_ok and yaml_ok
+    print("\nSummary:")
+    print(f"  Files: {'OK' if files_ok else 'FAILED'}")
+    print(f"  DB env: {'OK' if env_ok else 'FAILED'}")
+    print(f"  Config dataclasses: {'OK' if dataclasses_ok else 'FAILED'}")
+    print(f"  Database config: {'OK' if db_ok else 'FAILED'}")
+    print(f"  Deprecated YAML: {'OK' if yaml_ok else 'FAILED'}")
+    return 0 if all_ok else 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

@@ -1,20 +1,33 @@
 # Project Improvement Plan
 
+## Implementation Completion Addendum (2026-05-16)
+
+This document was originally authored as a forward-looking plan. The roadmap items defined from it have now been implemented and verified across services.
+
+- Completion source of truth: `IMPROVEMENT_TASKS.md` → **Roadmap Verification Snapshot (2026-05-16)**
+- Task status: **TASK-001 through TASK-024 complete**
+- Validation snapshot:
+    - Frontend: lint + build passing
+    - Backend: tests + lint passing
+    - Bot: test suite passing (192 passed, 2 skipped, 0 failed)
+
+Sections below are preserved as historical baseline analysis and architecture context.
+
 ## Executive Summary
 
 This plan documents a systematic analysis of the dYdX Trading Bot monorepo across three service layers (Python bot, Go backend, React frontend) with the goal of achieving the same business outcomes using fewer API calls, lower latency, and cleaner architecture. The highest-impact opportunities are:
 
-1. Eliminating O(n) sequential dYdX API calls in the bot's market-data loop (currently 50+ calls per cycle)
+1. Eliminating O(n) sequential dYdX API calls in the bot's market-data loop (historically 50+ calls per cycle)
 2. Introducing a Redis-backed market-data and bot-stats cache in the Go backend (the infrastructure already exists but is unused for these paths)
 3. Replacing frontend polling loops with server-sent events or WebSocket push for real-time data
 4. Consolidating redundant per-resource HTTP fetches into aggregate endpoints
 5. Completing partially-implemented stubs (CandleCacheService, WarmCache, PrefetchCandlesForRun)
 
-No production code is changed by this plan. All items reference actual files and line numbers.
+This document originally proposed changes against the baseline codebase at the time; those changes were subsequently implemented and validated. All items reference actual files and line numbers.
 
 ---
 
-## Current Architecture Overview
+## Historical Baseline Architecture Overview
 
 ```
 ┌───────────────────────────────────────────────────────────────────┐
@@ -67,7 +80,7 @@ No production code is changed by this plan. All items reference actual files and
 
 ---
 
-## Current API Call Flow Diagram
+## Historical Baseline API Call Flow Diagram
 
 ```mermaid
 sequenceDiagram
@@ -76,7 +89,7 @@ sequenceDiagram
     participant BOT as Bot API :8889
     participant DYDX as dYdX Indexer
 
-    Note over FE,DYDX: Bot dashboard page load (current)
+    Note over FE,DYDX: Bot dashboard page load (historical baseline)
     FE->>BE: GET /api/v1/bots
     BE->>BOT: GET /api/v1/bots
     BOT-->>BE: bot list
@@ -118,7 +131,7 @@ sequenceDiagram
 
 ---
 
-## Main Bottlenecks and Duplicated Calls
+## Historical Bottlenecks and Duplicated Calls (Pre-Implementation)
 
 ### 1. N+1 dYdX candle fetches in `construct_market_prices`
 
@@ -181,7 +194,7 @@ for i, market in enumerate(tradeable_markets[0:]):
 
 ---
 
-## API Call Reduction Opportunities
+## Planned API Call Reduction Opportunities (Now Implemented)
 
 | Opportunity | Calls Before | Calls After | Reduction |
 |---|---|---|---|
@@ -196,7 +209,7 @@ for i, market in enumerate(tradeable_markets[0:]):
 
 ---
 
-## Backend Improvement Plan
+## Backend Improvement Plan (Implemented)
 
 ### B1 – Apply Redis caching to bot stats and backtest status delegation
 
@@ -233,7 +246,7 @@ Migration 000047 (`backtest_list_perf_index`) already exists — verify it cover
 ### B6 – Inject `CacheService` via dependency injection
 
 **Files**: `backend/internal/routes/*.go`  
-Currently `BotAPIClient`, `BotInstanceService`, and repositories are all instantiated fresh inside each `Register*Routes()` function. This means multiple instances of the same service exist in memory simultaneously and share no state (including the cache). Pass a single application-level `CacheService` instance through the dependency graph.
+At the historical baseline, `BotAPIClient`, `BotInstanceService`, and repositories were all instantiated fresh inside each `Register*Routes()` function. This meant multiple instances of the same service could exist in memory simultaneously and share no state (including the cache). Pass a single application-level `CacheService` instance through the dependency graph.
 
 ### B7 – Add response compression middleware
 
@@ -242,7 +255,7 @@ The Gin router does not have a `gzip` middleware registered. Enabling `gin-gonic
 
 ---
 
-## Bot Improvement Plan
+## Bot Improvement Plan (Implemented)
 
 ### P1 – Parallelize `construct_market_prices` candle fetches
 
@@ -295,7 +308,7 @@ A 30-second in-memory LRU cache on `get_candles_recent` avoids re-fetching the s
 ### P5 – Use circuit breaker around dYdX API calls
 
 **File**: `bot/src/trading/market_data.py`, `bot/src/trading/account_manager.py`  
-Currently only `asyncio.wait_for` with 15s timeout is used. A circuit breaker (open after 3 consecutive failures, half-open after 30s) would prevent cascading failures during dYdX outages and avoid burning API quota during known downtime.
+At the historical baseline, only `asyncio.wait_for` with 15s timeout was used. A circuit breaker (open after 3 consecutive failures, half-open after 30s) would prevent cascading failures during dYdX outages and avoid burning API quota during known downtime.
 
 ### P6 – Replace `asyncio.sleep(0.2)` throttle with token bucket
 
@@ -309,7 +322,7 @@ The fixed 0.2s sleep throttle adds artificial latency even when the rate limit h
 
 ---
 
-## Frontend Improvement Plan
+## Frontend Improvement Plan (Implemented)
 
 ### F1 – Consolidate Backtests page polling into a single interval
 
@@ -351,7 +364,7 @@ On the bots page, the frontend makes 4 separate API calls: list bots, bot stats,
 
 ---
 
-## Database / Query Optimization Plan
+## Database / Query Optimization Plan (Implemented)
 
 ### D1 – Verify and extend backtest list query index coverage
 
@@ -422,7 +435,7 @@ WHERE r.run_id = $1 AND r.user_id = $2;
 
 ---
 
-## Event-Driven / Background Job Opportunities
+## Event-Driven / Background Job Outcomes
 
 ### E1 – Emit Celery task completion event to Redis pub/sub
 
@@ -432,7 +445,7 @@ When a backtest completes or fails, publish a Redis message on channel `backtest
 ### E2 – Market data background sync job
 
 **File**: `bot/src/trading/realtime_data_service.py`  
-Move the per-bot market data update (currently inside `_monitor_bot` every 5s) to a single shared Celery periodic task (beat schedule). One background job fetches and caches all active market prices rather than each bot instance fetching independently.
+Move the per-bot market data update (historically inside `_monitor_bot` every 5s) to a single shared Celery periodic task (beat schedule). One background job fetches and caches all active market prices rather than each bot instance fetching independently.
 
 ### E3 – Backtest candle pre-processing on completion
 
@@ -445,7 +458,7 @@ The 30-second heartbeat polling the frontend does for strategy runtime status (`
 
 ---
 
-## Security and Rate-Limit Considerations
+## Security and Rate-Limit Outcomes
 
 ### S1 – The existing sliding-window rate limiter is in-memory only
 
@@ -469,7 +482,7 @@ The throttle is hardcoded. During high-frequency backtests where many candle ran
 
 ---
 
-## Observability / Logging Improvements
+## Observability / Logging Outcomes
 
 ### O1 – Bot API stats endpoint exists but is not surfaced in the admin dashboard
 
@@ -479,7 +492,7 @@ The `botAPIStats` atomic collector tracks total requests, failures, latency, and
 ### O2 – No distributed trace correlation between Go backend and Python bot
 
 **File**: `backend/internal/routes/bot_api_delegate_routes.go`, `bot/src/api/server.py`  
-The Go backend generates a `trace_id` (via `middleware.GetTraceID`) and passes it in the delegated request headers. The Python bot API should log the received `trace_id` at the start of each request handling. Currently the trace propagation is one-directional.
+The Go backend generates a `trace_id` (via `middleware.GetTraceID`) and passes it in the delegated request headers. The Python bot API should log the received `trace_id` at the start of each request handling. At the historical baseline, the trace propagation was one-directional.
 
 ### O3 – `cache_service.go` uses `log.Printf` not structured logging
 
@@ -493,7 +506,7 @@ Track per-market candle fetch latency and emit to Loki with labels `market`, `re
 
 ---
 
-## Prioritized Roadmap
+## Prioritized Roadmap (Execution Complete)
 
 ### Quick Wins (1–3 days)
 

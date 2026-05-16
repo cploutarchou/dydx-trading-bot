@@ -2,8 +2,9 @@ from src.infrastructure.workers.celery_monitor import (
     _task_from_backtest,
     build_progress_meta,
     celery_state_from_backtest,
-    redact_payload,
+    list_celery_tasks,
     list_celery_workers,
+    redact_payload,
 )
 
 
@@ -144,4 +145,53 @@ def test_list_celery_workers_uses_short_lived_cache(monkeypatch):
 
     assert first["total"] == 1
     assert second["total"] == 1
-    assert calls == ["stats", "active", "registered"]
+    assert sorted(calls) == ["active", "registered", "stats"]
+
+
+def test_list_celery_tasks_skips_async_result_for_terminal_runs(monkeypatch):
+    from src.infrastructure.workers import celery_monitor
+
+    celery_monitor._clear_monitor_cache()
+    monkeypatch.delenv("CELERY_TASK_RESULT_ENRICH_TERMINAL", raising=False)
+    monkeypatch.setenv("CELERY_MONITOR_CACHE_TTL_SECONDS", "0")
+
+    runs = [
+        {
+            "run_id": "run-completed",
+            "worker_task_id": "run-completed",
+            "status": "completed",
+        },
+        {"run_id": "run-failed", "worker_task_id": "run-failed", "status": "failed"},
+        {"run_id": "run-running", "worker_task_id": "run-running", "status": "running"},
+    ]
+    monkeypatch.setattr(celery_monitor, "_load_backtest_runs", lambda: runs)
+
+    class _Inspector:
+        def active(self):
+            return {}
+
+        def reserved(self):
+            return {}
+
+        def scheduled(self):
+            return {}
+
+    monkeypatch.setattr(celery_monitor, "_inspect", lambda: _Inspector())
+
+    probed_task_ids = []
+
+    class _FakeResult:
+        def __init__(self, task_id, app=None):
+            _ = app
+            probed_task_ids.append(task_id)
+            self.state = "PENDING"
+            self.info = {}
+            self.traceback = None
+            self.result = None
+
+    monkeypatch.setattr(celery_monitor, "AsyncResult", _FakeResult)
+
+    payload = list_celery_tasks(limit=100)
+
+    assert payload["total"] == 3
+    assert probed_task_ids == ["run-running"]

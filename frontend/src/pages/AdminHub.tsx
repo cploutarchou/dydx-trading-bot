@@ -38,23 +38,7 @@ export const AdminHubPage = () => {
 
   const botStatsQuery = useQuery({
     queryKey: ['admin', 'bot-api-stats'],
-    queryFn: async () => {
-      const res = await api.getBotAPIStats();
-      return (
-        res as unknown as {
-          data: {
-            TotalRequests: number;
-            SuccessfulRequests: number;
-            FailedRequests: number;
-            AverageLatencyMillis: number;
-            MaxLatencyMillis: number;
-            Timeouts: number;
-            Upstream4xx: number;
-            Upstream5xx: number;
-          };
-        }
-      ).data;
-    },
+    queryFn: async () => (await api.getBotAPIStats()).data,
     staleTime: 15_000,
     refetchInterval: 30_000,
   });
@@ -184,14 +168,14 @@ export const AdminHubPage = () => {
         ) : (
           <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5 text-sm">
             {[
-              { label: 'Total requests', value: botStatsQuery.data?.TotalRequests ?? 0 },
-              { label: 'Successful', value: botStatsQuery.data?.SuccessfulRequests ?? 0 },
-              { label: 'Failed', value: botStatsQuery.data?.FailedRequests ?? 0 },
+              { label: 'Total requests', value: botStatsQuery.data?.total_requests ?? 0 },
+              { label: 'Successful', value: botStatsQuery.data?.successful_requests ?? 0 },
+              { label: 'Failed', value: botStatsQuery.data?.failed_requests ?? 0 },
               {
                 label: 'Avg latency (ms)',
-                value: botStatsQuery.data?.AverageLatencyMillis?.toFixed(1) ?? '—',
+                value: botStatsQuery.data?.average_latency_ms?.toFixed(1) ?? '—',
               },
-              { label: 'Max latency (ms)', value: botStatsQuery.data?.MaxLatencyMillis ?? 0 },
+              { label: 'Max latency (ms)', value: botStatsQuery.data?.max_latency_ms ?? 0 },
             ].map(({ label, value }) => (
               <div key={label} className="rounded border border-slate-700/50 bg-slate-900/60 p-3">
                 <p className="text-xs text-slate-400">{label}</p>

@@ -120,6 +120,7 @@ func RegisterAdminUserRoutes(router *gin.Engine, database *sql.DB) {
 	adminRoutes.Use(middleware.RequireMFA(database))
 	{
 		adminRoutes.GET("/users", middleware.RequirePermission(database, "users.read"), listAdminUsersHandler(database))
+		adminRoutes.GET("/bot-api-stats", middleware.RequirePermission(database, "users.read"), botAPIStatsHandler())
 		adminRoutes.GET("/users/:id", middleware.RequirePermission(database, "users.read"), getAdminUserHandler(database))
 		adminRoutes.POST("/users", middleware.RequirePermission(database, "roles.manage"), createAdminUserHandler(database))
 		adminRoutes.PUT("/users/:id/role", middleware.RequirePermission(database, "roles.manage"), updateAdminUserRoleHandler(database))

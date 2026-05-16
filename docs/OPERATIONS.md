@@ -33,6 +33,49 @@ The local development baseline is intentionally split:
 
 This mirrors the production ownership model and avoids accidental shared-state coupling.
 
+## Backtest Strategy Resolution
+
+For bot backtest creation endpoints (`POST /api/v1/backtests`, `POST /api/v1/backtests/run`), strategy payload
+resolution is intentionally ordered to reduce `strategy_not_found` drift during delegated backend execution:
+
+1. Bot strategy table lookup by `strategy_id`
+2. Most recent persisted backtest request snapshots in bot DB
+3. Request-provided `strategy_payload_snapshot` (compatibility fallback)
+
+If lookup falls to step 3, execution still proceeds, but operators should verify strategy replication/sync between
+backend and bot persistence domains.
+
+### Drift monitoring and strict mode
+
+- `GET /api/v1/backtests/sync-health` now includes
+   `strategy_resolution_metrics` with counters for `store`, `history`, `request`, and `not_found` paths.
+- For dashboard polling, use either:
+   - `GET /api/v1/backtests/sync-health?metrics_only=true`
+   - `GET /api/v1/runtime/strategy-resolution-metrics`
+   - `GET /api/v1/admin/runtime/strategy-resolution-metrics` (admin alias)
+- Prometheus text endpoint:
+   - `GET /api/v1/runtime/strategy-resolution-metrics/prom`
+- Alerting fields are included under `strategy_resolution_metrics.alerts`.
+- Request-fallback alert tuning:
+   - `STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE` (default `200`)
+   - `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_THRESHOLD` (default `0.05`)
+   - `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_MIN_RUNS` (default `20`)
+- To disable request-payload strategy fallback in production, set:
+   `BACKTEST_DISABLE_REQUEST_SNAPSHOT_FALLBACK_IN_PRODUCTION=true`
+   (effective when `ENVIRONMENT=production` or `ENVIRONMENT=prod`).
+
+### Probe surfaces for SRE
+
+- `GET /health` and `GET /ready` include:
+   - `strategy_resolution_metrics`
+   - `strategy_resolution_alerts`
+   - `strategy_resolution_alert_recommended`
+
+### Incident response control
+
+- Admin-only reset endpoint:
+   - `POST /api/v1/admin/runtime/strategy-resolution-metrics/reset`
+
 ### Database ownership guardrails
 
 - bot runtime supports cutover modes via `BOT_DB_CUTOVER_MODE`:
@@ -76,7 +119,12 @@ This mirrors the production ownership model and avoids accidental shared-state c
 - frontend consumes backend-only live channels
 
 Plain-text files under `bot/bot_states/` are operational debug artifacts only. PostgreSQL is the recovery source for
-runtime status and job/backtest progress.
+runtime status, job/backtest progress, and per-instance runtime configuration.
+
+Runtime worker configuration is DB-only: workers resolve per-instance settings from `bot_instances.config` and fail fast
+when that payload is missing or incomplete. Deprecated `bot_states/config_<instance_id>.yaml` files must be migrated with
+`bot/.venv/bin/python scripts/migrate_yaml_configs_to_db.py` before relying on those instances; workers do not read YAML
+in dev, staging, or production.
 
 ## Troubleshooting
 

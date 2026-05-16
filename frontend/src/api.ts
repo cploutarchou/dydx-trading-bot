@@ -432,16 +432,16 @@ export interface CRMSummaryResponse extends Record<string, unknown> {
 }
 
 export interface BotAPIStatsResponse extends Record<string, unknown> {
-  TotalRequests: number;
-  SuccessfulRequests: number;
-  FailedRequests: number;
-  TransportFailures: number;
-  Timeouts: number;
-  Upstream4xx: number;
-  Upstream5xx: number;
-  TotalLatencyMillis: number;
-  AverageLatencyMillis: number;
-  MaxLatencyMillis: number;
+  total_requests: number;
+  successful_requests: number;
+  failed_requests: number;
+  transport_failures: number;
+  timeouts: number;
+  upstream_4xx: number;
+  upstream_5xx: number;
+  total_latency_ms: number;
+  average_latency_ms: number;
+  max_latency_ms: number;
 }
 
 export interface CRMUserRow extends Record<string, unknown> {
@@ -2335,11 +2335,25 @@ class ApiClient {
     const source = String(marketsData?.source || '')
       .trim()
       .toLowerCase();
+    const normalizedMarkets = Array.isArray(marketsData?.markets)
+      ? marketsData.markets
+      : ([] as string[]);
+    const normalizedCount =
+      typeof marketsData?.count === 'number' && Number.isFinite(marketsData.count)
+        ? marketsData.count
+        : normalizedMarkets.length;
+    const normalizedSource =
+      typeof marketsData?.source === 'string' && marketsData.source.trim().length > 0
+        ? marketsData.source
+        : 'unknown';
 
     return {
       ...payload,
       data: {
         ...(marketsData || {}),
+        markets: normalizedMarkets,
+        count: normalizedCount,
+        source: normalizedSource,
         cache_hit: isHeaderEnabled('x-cache-hit'),
         cache_stale: isHeaderEnabled('x-cache-stale') || source === 'cache_stale',
         static_fallback: isHeaderEnabled('x-markets-fallback') || source === 'static_fallback',
@@ -2996,11 +3010,26 @@ class ApiClient {
     }
   }
 
-  async getBotAPIStats(): Promise<ApiResponse<{ data: BotAPIStatsResponse }>> {
-    const response = await this.client.get<ApiResponse<{ data: BotAPIStatsResponse }>>(
-      '/api/v1/backoffice/bot-api-stats'
-    );
-    return response.data;
+  async getBotAPIStats(): Promise<ApiResponse<BotAPIStatsResponse>> {
+    try {
+      const response = await this.client.get<ApiResponse<BotAPIStatsResponse>>(
+        '/api/v1/admin/bot-api-stats'
+      );
+      return response.data;
+    } catch (error: unknown) {
+      if (!this.shouldUseLegacyRouteFallback(error)) {
+        throw error;
+      }
+      this.logLegacyRouteFallback(
+        '/api/v1/admin/bot-api-stats',
+        '/api/v1/backoffice/bot-api-stats',
+        error
+      );
+      const fallback = await this.client.get<ApiResponse<BotAPIStatsResponse>>(
+        '/api/v1/backoffice/bot-api-stats'
+      );
+      return fallback.data;
+    }
   }
 
   async getCRMUsersTable(): Promise<ApiResponse<CRMUsersTableResponse>> {
@@ -3836,6 +3865,30 @@ class ApiClient {
     this.ensureTokenLoaded();
     try {
       const response = await this.client.get<ApiResponse>(`/api/v1/bots/${instanceId}/stats`);
+      return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
+  }
+
+  async getBotSummary(
+    instanceId: string,
+    include: string = 'stats,positions,trades',
+    limit: number = 20
+  ): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    try {
+      const params = new URLSearchParams();
+      if (include) {
+        params.set('include', include);
+      }
+      if (Number.isFinite(limit) && limit > 0) {
+        params.set('limit', String(limit));
+      }
+      const query = params.toString();
+      const response = await this.client.get<ApiResponse>(
+        `/api/v1/bots/${instanceId}/summary${query ? `?${query}` : ''}`
+      );
       return response.data;
     } catch (error: unknown) {
       throw new Error(getErrorMessage(error));

@@ -140,6 +140,15 @@ The current UI direction is production DeFi:
 - responsive layouts across mobile, tablet, and desktop
 - smaller, intentional surfaces instead of oversized marketing boxes
 
+## Live Backtest Stream Stability
+
+- Backtest progress streams use websocket-first updates with HTTP bootstrap/recovery.
+- Managed websocket stale detection now supports two modes:
+  - force-close stale sockets to trigger reconnect (`closeOnStale: true`)
+  - keep sockets open and resync state over HTTP without forced reconnect (`closeOnStale: false`)
+- Backtest progress uses the non-forced-close mode to avoid deterministic reconnect churn/noisy logs when a stream is temporarily quiet.
+- Stale/resync events are logged with `🔌` prefixes and throttled so production consoles remain readable.
+
 ## Shared Product Patterns
 
 - public pages should explain workflow, trust posture, and pricing before auth
@@ -158,6 +167,9 @@ The current UI direction is production DeFi:
   - live/realtime: cyan
   - warning/recovering: amber
   - negative/failure: rose/red
+- operator density preferences should persist across pages via `localStorage` key
+  `operator-ui-density` using `src/hooks/usePersistentPreference.ts`.
+  Backtest operator pages read this shared preference to keep comfort/dense layouts consistent.
 
 ## Supporting Docs
 

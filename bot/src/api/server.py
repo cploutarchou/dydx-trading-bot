@@ -35,9 +35,8 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, PlainTextResponse
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
-from starlette.concurrency import run_in_threadpool
-
 from src.shared.env_loader import load_repo_env
+from starlette.concurrency import run_in_threadpool
 
 # Load structured config BEFORE importing project modules that initialize config/database.
 load_repo_env(__file__)
@@ -2241,7 +2240,7 @@ def _persist_bot_status_and_event(
 async def request_trace_logging_middleware(request: Request, call_next):
     """Attach per-request trace IDs and emit verbose request logs in development."""
     inbound_trace_id = (request.headers.get("X-Trace-Id") or "").strip()
-    trace_id = inbound_trace_id or f"req-{uuid4().hex[:12]}"
+    trace_id = inbound_trace_id or str(uuid4())
     token = trace_id_ctx.set(trace_id)
     started = time.perf_counter()
     is_development = os.getenv("ENVIRONMENT", "development").lower() == "development"
@@ -2250,19 +2249,46 @@ async def request_trace_logging_middleware(request: Request, call_next):
         query = f"{query[:253]}..."
     client = request.client.host if request.client else "unknown"
 
-    if is_development:
-        logger.debug(
-            "request_started trace_id={} method={} path={} query={} client={}",
-            trace_id,
-            request.method,
-            request.url.path,
-            query or "-",
-            client,
-        )
-
     try:
         with logger.contextualize(trace_id=trace_id):
+            if is_development:
+                logger.debug(
+                    "request_started trace_id={} method={} path={} query={} client={}",
+                    trace_id,
+                    request.method,
+                    request.url.path,
+                    query or "-",
+                    client,
+                )
+
             response = await call_next(request)
+            response.headers["X-Trace-Id"] = trace_id
+
+            if is_development:
+                elapsed_ms = (time.perf_counter() - started) * 1000.0
+                log_message = (
+                    "request_completed trace_id={} method={} path={} query={} status={} "
+                    "duration_ms={:.2f} client={}"
+                )
+                log_args = (
+                    trace_id,
+                    request.method,
+                    request.url.path,
+                    query or "-",
+                    response.status_code,
+                    elapsed_ms,
+                    client,
+                )
+                if response.status_code >= 500:
+                    logger.error(log_message, *log_args)
+                elif _is_expected_strategy_runtime_probe_404(request, response.status_code):
+                    logger.debug(log_message, *log_args)
+                elif response.status_code >= 400:
+                    logger.warning(log_message, *log_args)
+                else:
+                    logger.info(log_message, *log_args)
+
+            return response
     except Exception:
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         logger.exception(
@@ -2277,34 +2303,6 @@ async def request_trace_logging_middleware(request: Request, call_next):
         raise
     finally:
         trace_id_ctx.reset(token)
-
-    response.headers["X-Trace-Id"] = trace_id
-
-    if is_development:
-        elapsed_ms = (time.perf_counter() - started) * 1000.0
-        log_message = (
-            "request_completed trace_id={} method={} path={} query={} status={} "
-            "duration_ms={:.2f} client={}"
-        )
-        log_args = (
-            trace_id,
-            request.method,
-            request.url.path,
-            query or "-",
-            response.status_code,
-            elapsed_ms,
-            client,
-        )
-        if response.status_code >= 500:
-            logger.error(log_message, *log_args)
-        elif _is_expected_strategy_runtime_probe_404(request, response.status_code):
-            logger.debug(log_message, *log_args)
-        elif response.status_code >= 400:
-            logger.warning(log_message, *log_args)
-        else:
-            logger.info(log_message, *log_args)
-
-    return response
 
 
 def _is_expected_strategy_runtime_probe_404(request: Request, status_code: int) -> bool:

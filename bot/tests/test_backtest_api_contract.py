@@ -3,6 +3,10 @@
 import asyncio
 import importlib
 import json
+from uuid import UUID
+
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 
 def _load_server_module():
@@ -1227,6 +1231,68 @@ def test_api_response_sanitizes_internal_error_details():
 
     assert payload["message"] == "Internal server error"
     assert "psycopg2" not in payload["message"]
+
+
+def test_request_trace_middleware_uses_inbound_trace_id(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setenv("ENVIRONMENT", "production")
+
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/api/v1/health",
+        "raw_path": b"/api/v1/health",
+        "query_string": b"",
+        "headers": [(b"x-trace-id", b"trace-from-backend")],
+        "client": ("127.0.0.1", 12345),
+        "server": ("testserver", 80),
+    }
+    request = Request(scope)
+
+    async def _call_next(_request):
+        return JSONResponse({"trace_id_seen": server.trace_id_ctx.get()})
+
+    response = asyncio.run(
+        _call(server.request_trace_logging_middleware(request, _call_next))
+    )
+    payload = json.loads(response.body)
+
+    assert response.headers.get("X-Trace-Id") == "trace-from-backend"
+    assert payload["trace_id_seen"] == "trace-from-backend"
+
+
+def test_request_trace_middleware_generates_uuid_when_header_missing(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setenv("ENVIRONMENT", "production")
+
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/api/v1/health",
+        "raw_path": b"/api/v1/health",
+        "query_string": b"",
+        "headers": [],
+        "client": ("127.0.0.1", 12345),
+        "server": ("testserver", 80),
+    }
+    request = Request(scope)
+
+    async def _call_next(_request):
+        return JSONResponse({"trace_id_seen": server.trace_id_ctx.get()})
+
+    response = asyncio.run(
+        _call(server.request_trace_logging_middleware(request, _call_next))
+    )
+    payload = json.loads(response.body)
+    generated_trace_id = response.headers.get("X-Trace-Id")
+
+    assert generated_trace_id
+    UUID(generated_trace_id)
+    assert payload["trace_id_seen"] == generated_trace_id
 
 
 def test_runtime_db_config_endpoint_returns_sanitized_payload(monkeypatch):

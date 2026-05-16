@@ -2,10 +2,9 @@ import importlib.util
 import logging
 import sys
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Mapping
 
 from loguru import logger
-
 from src.constants import (
     ENVIRONMENT,
     LOG_LEVEL,
@@ -18,6 +17,12 @@ from src.constants import (
 
 REQUESTS_AVAILABLE = importlib.util.find_spec("requests") is not None
 _LOGGING_CONFIGURED = False
+_LOKI_DYNAMIC_LABEL_FIELDS = (
+    "market",
+    "resolution",
+    "timeframe",
+    "fetch_type",
+)
 
 
 class InterceptHandler(logging.Handler):
@@ -172,13 +177,25 @@ def _configure_loki_sink(level: str) -> None:
 
     labels = LOKI_LABELS or {}
 
+    def _build_stream_labels(extra: Mapping[str, Any]) -> Dict[str, str]:
+        stream_labels = dict(labels)
+        for field in _LOKI_DYNAMIC_LABEL_FIELDS:
+            value = extra.get(field)
+            if value is None:
+                continue
+            value_str = str(value).strip()
+            if value_str:
+                stream_labels[field] = value_str
+        return stream_labels
+
     def _loki_sink(message: Any) -> None:
         record = message.record
         text = str(message).rstrip("\n")
+        stream_labels = _build_stream_labels(record.get("extra", {}))
         ok = send_to_loki_directly(
             message=text,
             level=record["level"].name,
-            labels=labels,
+            labels=stream_labels,
             url=LOKI_PUSH_URL,
             username=LOKI_USERNAME,
             password=LOKI_PASSWORD,

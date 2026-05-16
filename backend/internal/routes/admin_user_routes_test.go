@@ -239,6 +239,39 @@ func TestAdminUserRoutes_ListUsers(t *testing.T) {
 	}
 }
 
+func TestAdminUserRoutes_BotAPIStatsEndpoint(t *testing.T) {
+	router, dbConn := setupAdminUserRouter(t)
+	t.Cleanup(func() {
+		if err := dbConn.Close(); err != nil {
+			t.Errorf("close db: %v", err)
+		}
+	})
+
+	adminID := seedAdminUser(t, dbConn, "admin", "admin@example.local", "admin", true)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/bot-api-stats", nil)
+	req.Header.Set("Authorization", issueAdminBearerToken(t, adminID, "admin", "admin"))
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	for _, key := range []string{"total_requests", "successful_requests", "failed_requests", "average_latency_ms", "max_latency_ms"} {
+		if _, ok := body.Data[key]; !ok {
+			t.Fatalf("expected data.%s in payload, got %v", key, body.Data)
+		}
+	}
+}
+
 func TestAdminUserRoutes_CreateUser(t *testing.T) {
 	router, dbConn := setupAdminUserRouter(t)
 	t.Cleanup(func() {

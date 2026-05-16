@@ -8,11 +8,11 @@ from dydx_v4_client import MAX_CLIENT_ID, OrderFlags
 from dydx_v4_client.indexer.rest.constants import OrderType
 from dydx_v4_client.node.market import Market
 from loguru import logger
-from src.constants import DYDX_ADDRESS, SUBACCOUNT_NUMBER
+from src.constants import DYDX_ADDRESS, DYDX_API_THROTTLE_SECONDS, SUBACCOUNT_NUMBER
 from src.shared.utils import format_number
 from src.trading.arbitrage_observability import increment_metric
-from src.trading.bot_agents_state import clear_tracked_positions
 from src.trading.arbitrage_runtime_config import is_arbitrage_improvements_enabled
+from src.trading.bot_agents_state import clear_tracked_positions
 from src.trading.market_data import get_markets
 from v4_proto.dydxprotocol.clob.order_pb2 import Order
 
@@ -178,7 +178,8 @@ async def get_order_fills(client, order_id, market=None, limit: int = 100):
 async def is_open_positions(client, market):
     """Check if there are any open positions for a specific market."""
     # Protect API
-    await asyncio.sleep(0.2)
+    if DYDX_API_THROTTLE_SECONDS > 0:
+        await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
 
     # Get positions (try wallet address then configured address)
     address = _resolve_client_address(client)
@@ -536,7 +537,8 @@ async def abort_all_positions(client):
             close_orders.append(order)
 
             # Protect API
-            await asyncio.sleep(0.2)
+            if DYDX_API_THROTTLE_SECONDS > 0:
+                await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
 
     await clear_tracked_positions()
 

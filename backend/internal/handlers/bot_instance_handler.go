@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -32,6 +33,36 @@ type BotInstanceHandler struct {
 	positionRepo *repository.BotPositionRepository
 	botTradeRepo *repository.BotTradeRepository
 	cache        *services.CacheService
+}
+
+const defaultBotStatsCacheTTLSeconds = 30
+
+func botStatsCacheKey(instanceID string) string {
+	return fmt.Sprintf("bot:stats:%s", instanceID)
+}
+
+func readBotStatsCacheTTLSeconds() int {
+	raw := strings.TrimSpace(os.Getenv("BOT_STATS_CACHE_TTL_SECONDS"))
+	if raw == "" {
+		return defaultBotStatsCacheTTLSeconds
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil {
+		return defaultBotStatsCacheTTLSeconds
+	}
+	if parsed < 0 {
+		return 0
+	}
+	return parsed
+}
+
+func (h *BotInstanceHandler) invalidateBotStatsCache(instanceID string) {
+	if h.cache == nil {
+		return
+	}
+
+	_ = h.cache.DeleteCache(botStatsCacheKey(instanceID))
+	_ = h.cache.DeleteCache(fmt.Sprintf("bot_summary_stats:%s", instanceID))
 }
 
 func unwrapBotAPIEnvelope(payload map[string]interface{}) map[string]interface{} {
@@ -418,6 +449,8 @@ func (h *BotInstanceHandler) StartBotInstance(c *gin.Context) {
 		return
 	}
 
+	h.invalidateBotStatsCache(instanceID)
+
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      map[string]string{"status": "started"},
@@ -443,6 +476,8 @@ func (h *BotInstanceHandler) StopBotInstance(c *gin.Context) {
 		return
 	}
 
+	h.invalidateBotStatsCache(instanceID)
+
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      map[string]interface{}{"status": "stopped", "force": force},
@@ -466,6 +501,8 @@ func (h *BotInstanceHandler) RestartBotInstance(c *gin.Context) {
 		})
 		return
 	}
+
+	h.invalidateBotStatsCache(instanceID)
 
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
@@ -491,6 +528,8 @@ func (h *BotInstanceHandler) DeleteBotInstance(c *gin.Context) {
 		return
 	}
 
+	h.invalidateBotStatsCache(instanceID)
+
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      map[string]string{"status": "deleted"},
@@ -504,14 +543,33 @@ func (h *BotInstanceHandler) GetBotInstanceStats(c *gin.Context) {
 	if _, ok := h.authorizeInstanceAccess(c, instanceID); !ok {
 		return
 	}
+
+	statsTTLSeconds := readBotStatsCacheTTLSeconds()
+	if h.cache != nil && statsTTLSeconds > 0 {
+		if cached, cacheErr := h.cache.GetCache(botStatsCacheKey(instanceID)); cacheErr == nil && cached != nil {
+			if cachedMap, ok := cached.(map[string]interface{}); ok {
+				c.JSON(http.StatusOK, APIResponse{
+					Success:   true,
+					Data:      cachedMap,
+					Timestamp: time.Now().UTC().Format(time.RFC3339),
+				})
+				return
+			}
+		}
+	}
+
 	service := h.service.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c))
 
 	stats, err := service.GetBotInstanceStats(instanceID)
 	if err != nil {
 		if isRecoverableBotStatsError(err) {
+			emptyPayload := buildEmptyBotStatsPayload(instanceID, fmt.Sprintf("Runtime stats unavailable: %v", err))
+			if h.cache != nil && statsTTLSeconds > 0 {
+				_ = h.cache.SetCache(botStatsCacheKey(instanceID), emptyPayload, statsTTLSeconds)
+			}
 			c.JSON(http.StatusOK, APIResponse{
 				Success:   true,
-				Data:      buildEmptyBotStatsPayload(instanceID, fmt.Sprintf("Runtime stats unavailable: %v", err)),
+				Data:      emptyPayload,
 				Timestamp: time.Now().UTC().Format(time.RFC3339),
 			})
 			return
@@ -523,6 +581,10 @@ func (h *BotInstanceHandler) GetBotInstanceStats(c *gin.Context) {
 			Error:     fmt.Sprintf("Failed to get bot instance stats: %v", err),
 		})
 		return
+	}
+
+	if h.cache != nil && statsTTLSeconds > 0 {
+		_ = h.cache.SetCache(botStatsCacheKey(instanceID), stats, statsTTLSeconds)
 	}
 
 	c.JSON(http.StatusOK, APIResponse{

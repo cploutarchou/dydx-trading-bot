@@ -9,9 +9,9 @@ from uuid import uuid4
 
 import pandas as pd
 from loguru import logger
-
 from src.constants import (
     CLOSE_AT_ZSCORE_CROSS,
+    DYDX_API_THROTTLE_SECONDS,
     USD_MIN_COLLATERAL,
     USD_PER_TRADE,
     ZSCORE_THRESH,
@@ -981,9 +981,11 @@ async def manage_trade_exits(client):
 
         # Get prices
         series_1 = await get_candles_recent(client, position_market_m1)
-        await asyncio.sleep(0.2)
+        if DYDX_API_THROTTLE_SECONDS > 0:
+            await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
         series_2 = await get_candles_recent(client, position_market_m2)
-        await asyncio.sleep(0.2)
+        if DYDX_API_THROTTLE_SECONDS > 0:
+            await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
 
         series_1_numeric = _as_numeric_series(series_1, field_name="series_1_exit")
         series_2_numeric = _as_numeric_series(series_2, field_name="series_2_exit")
@@ -996,7 +998,8 @@ async def manage_trade_exits(client):
         z_score_current: float = z_score_traded
 
         # Protect API
-        await asyncio.sleep(0.2)
+        if DYDX_API_THROTTLE_SECONDS > 0:
+            await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
 
         # Trigger close based on Z-Score
         if CLOSE_AT_ZSCORE_CROSS:

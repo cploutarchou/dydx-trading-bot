@@ -59,6 +59,9 @@ const asArray = <T,>(value: unknown): T[] => {
   return [];
 };
 
+const asRecord = (value: unknown): Record<string, unknown> =>
+  typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+
 const getStatusBadge = (status: string): string => {
   const styles: Record<string, string> = {
     RUNNING: 'bg-green-900 text-green-300 border border-green-700',
@@ -142,7 +145,7 @@ const BotDashboard: React.FC = () => {
       const statsResponses = await Promise.all(
         instances.map(async (bot) => {
           try {
-            return await api.getBotStats(bot.instance_id);
+            return await api.getBotSummary(bot.instance_id, 'stats', 20);
           } catch {
             return null;
           }
@@ -150,7 +153,9 @@ const BotDashboard: React.FC = () => {
       );
 
       const statsData: BotStatsData[] = instances.map((bot, index) => {
-        const rawStats = statsResponses[index]?.data as Record<string, unknown> | undefined;
+        const rawSummary = statsResponses[index]?.data;
+        const summaryRecord = asRecord(rawSummary);
+        const rawStats = asRecord(summaryRecord.stats);
         return {
           instance_id: bot.instance_id,
           status: bot.status || String(rawStats?.status || 'UNKNOWN'),

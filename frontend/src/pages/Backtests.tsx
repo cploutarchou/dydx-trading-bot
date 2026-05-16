@@ -440,10 +440,6 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
         : 60_000,
     refetchIntervalInBackground: false,
   });
-  const activeRunCountForPolling = useMemo(
-    () => (backtestsQuery.data ?? []).filter((run) => isActiveBacktestRun(run)).length,
-    [backtestsQuery.data]
-  );
   const experimentsQuery = useQuery({
     queryKey: ['backtests', 'experiments'],
     queryFn: async (): Promise<BacktestExperimentGroup[]> => {
@@ -718,7 +714,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
       );
       const ws = new WebSocket(wsUrl);
       ws.addEventListener('message', () => {
-        void queryClient.invalidateQueries({ queryKey: ['backtests', 'status', runId] });
+        void queryClient.invalidateQueries({ queryKey: ['backtests', 'active-statuses'] });
         void queryClient.invalidateQueries({ queryKey: ['backtests'] });
       });
       ws.addEventListener('close', () => {
@@ -779,7 +775,8 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
       >;
     },
     staleTime: 6_000,
-    refetchInterval: activeRunCountForPolling > 0 ? 10_000 : 60_000,
+    // WebSocket push is primary; keep a 60s safety poll for disconnect/fallback.
+    refetchInterval: 60_000,
     refetchIntervalInBackground: false,
     retry: 1,
     enabled: activeRunStatusIds.length > 0,

@@ -402,13 +402,13 @@ func (s *BotInstanceService) GetRuntimePreflight(payload map[string]interface{})
 	return s.apiClient.GetRuntimePreflight(payload)
 }
 
-// GetBotInstanceTrades gets trades for a bot instance using upstream status filtering.
-func (s *BotInstanceService) GetBotInstanceTrades(instanceID string, status *string) (map[string]interface{}, error) {
+// GetBotInstanceTrades gets trades for a bot instance using upstream status and pagination filtering.
+func (s *BotInstanceService) GetBotInstanceTrades(instanceID string, status *string, limit *int, offset *int) (map[string]interface{}, error) {
 	if s.apiClient == nil {
 		return nil, fmt.Errorf("bot API client not configured")
 	}
 
-	return s.apiClient.GetBotInstanceTrades(instanceID, status)
+	return s.apiClient.GetBotInstanceTrades(instanceID, status, limit, offset)
 }
 
 // SyncBotInstanceFromAPI syncs bot instance data from the bot API

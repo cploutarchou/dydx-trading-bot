@@ -56,6 +56,42 @@ func readBotStatsCacheTTLSeconds() int {
 	return parsed
 }
 
+func parseLimitOffsetQuery(c *gin.Context, defaultLimit int, maxLimit int) (int, int) {
+	limit := defaultLimit
+
+	if pageSizeRaw := strings.TrimSpace(c.Query("page_size")); pageSizeRaw != "" {
+		if parsed, err := strconv.Atoi(pageSizeRaw); err == nil && parsed > 0 {
+			if parsed > maxLimit {
+				parsed = maxLimit
+			}
+			limit = parsed
+		}
+	} else if limitRaw := strings.TrimSpace(c.Query("limit")); limitRaw != "" {
+		if parsed, err := strconv.Atoi(limitRaw); err == nil && parsed > 0 {
+			if parsed > maxLimit {
+				parsed = maxLimit
+			}
+			limit = parsed
+		}
+	}
+
+	page := 1
+	if pageRaw := strings.TrimSpace(c.Query("page")); pageRaw != "" {
+		if parsed, err := strconv.Atoi(pageRaw); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+	offset := (page - 1) * limit
+
+	if offsetRaw := strings.TrimSpace(c.Query("offset")); offsetRaw != "" {
+		if parsed, err := strconv.Atoi(offsetRaw); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	return limit, offset
+}
+
 func (h *BotInstanceHandler) invalidateBotStatsCache(instanceID string) {
 	if h.cache == nil {
 		return
@@ -600,6 +636,7 @@ func (h *BotInstanceHandler) GetBotInstanceTrades(c *gin.Context) {
 	if _, ok := h.authorizeInstanceAccess(c, instanceID); !ok {
 		return
 	}
+	limit, offset := parseLimitOffsetQuery(c, 100, 500)
 	service := h.service.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c))
 	statusRaw := strings.TrimSpace(c.Query("status"))
 	var status *string
@@ -607,7 +644,7 @@ func (h *BotInstanceHandler) GetBotInstanceTrades(c *gin.Context) {
 		status = &statusRaw
 	}
 
-	trades, err := service.GetBotInstanceTrades(instanceID, status)
+	trades, err := service.GetBotInstanceTrades(instanceID, status, &limit, &offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
@@ -629,8 +666,7 @@ func (h *BotInstanceHandler) GetBotInstanceTrades(c *gin.Context) {
 func (h *BotInstanceHandler) GetBotPositions(c *gin.Context) {
 	instanceID := c.Param("instance_id")
 	status := c.Query("status")
-	limit := 100
-	offset := 0
+	limit, offset := parseLimitOffsetQuery(c, 100, 500)
 
 	inst, authorized := h.authorizeInstanceAccess(c, instanceID)
 	if !authorized {

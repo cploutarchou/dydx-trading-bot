@@ -42,6 +42,17 @@ func logCacheOperation(operation string, key string, ttlSeconds int, hit bool, l
 	slog.Info("cache operation", attrs...)
 }
 
+func marshalCacheValue(value interface{}) ([]byte, error) {
+	switch v := value.(type) {
+	case string:
+		return []byte(v), nil
+	case []byte:
+		return v, nil
+	default:
+		return json.Marshal(value)
+	}
+}
+
 func (cs *CacheService) contextWithTimeout() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), defaultRedisOperationTimeout)
 }
@@ -52,6 +63,7 @@ func NewCacheService(redisHost string, redisPort int, redisPassword string, redi
 		Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
 		Password: redisPassword,
 		DB:       redisDB,
+		Protocol: 2,
 	})
 
 	// Test connection
@@ -68,7 +80,7 @@ func NewCacheService(redisHost string, redisPort int, redisPassword string, redi
 // SetCache sets a value in cache with optional TTL
 func (cs *CacheService) SetCache(key string, value interface{}, ttlSeconds int) error {
 	startedAt := time.Now()
-	jsonData, err := json.Marshal(value)
+	jsonData, err := marshalCacheValue(value)
 	if err != nil {
 		logCacheOperation("set", key, ttlSeconds, false, time.Since(startedAt), err)
 		return fmt.Errorf("failed to marshal value: %w", err)

@@ -15,6 +15,7 @@ from src.constants import (
     MARKETS_CACHE_TTL_SECONDS,
     RESOLUTION,
 )
+from src.shared.notifications import send_error_notification as _send_error_notification
 from src.shared.utils import get_ISO_times
 from src.trading.arbitrage_observability import increment_metric
 
@@ -92,6 +93,23 @@ _CIRCUIT_FAIL_MAX = int(os.getenv("DYDX_CIRCUIT_FAIL_MAX", "3"))
 _CIRCUIT_RESET_TIMEOUT = int(os.getenv("DYDX_CIRCUIT_RESET_TIMEOUT", "30"))
 _dydx_circuit_breaker: Any = None
 
+
+def _notify_circuit_breaker_open(fail_counter: int) -> None:
+    """Best-effort operator alert when the dYdX circuit transitions to OPEN."""
+    try:
+        _send_error_notification(
+            "dYdX circuit breaker open",
+            (
+                "dYdX API circuit opened after "
+                f"{fail_counter} consecutive failures. "
+                "Market data calls are temporarily paused until half-open recovery."
+            ),
+            is_critical=True,
+            category="dydx_circuit_open",
+        )
+    except Exception as exc:
+        logger.warning("dydx_circuit_breaker_notify_failed error={!r}", exc)
+
 if importlib.util.find_spec("pybreaker") is not None:
     try:
         import pybreaker as _pybreaker  # type: ignore[import]
@@ -104,6 +122,7 @@ if importlib.util.find_spec("pybreaker") is not None:
                         _CIRCUIT_FAIL_MAX,
                         cb.fail_counter,
                     )
+                    _notify_circuit_breaker_open(int(cb.fail_counter))
                 elif new_state.name == "closed":
                     logger.info("dydx_circuit_breaker_closed")
                 elif new_state.name == "half-open":

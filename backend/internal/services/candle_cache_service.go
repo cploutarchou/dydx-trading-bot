@@ -227,7 +227,6 @@ func (ccs *CandleCacheService) WarmCache(runID int, markets []string, durationHo
 		return nil
 	}
 
-	const pageSize = 1000
 	ttlSeconds := 86400 // 24 h
 
 	for _, market := range markets {
@@ -238,15 +237,8 @@ func (ccs *CandleCacheService) WarmCache(runID int, markets []string, durationHo
 			continue
 		}
 
-		// Cache in pages
-		for start := 0; start < len(candles); start += pageSize {
-			end := start + pageSize
-			if end > len(candles) {
-				end = len(candles)
-			}
-			if err := ccs.CacheCandles(runID, market, candles[start:end], ttlSeconds); err != nil {
-				log.Printf("CandleCacheService: WarmCache cache error for run %d market %s page %d: %v", runID, market, start/pageSize, err)
-			}
+		if err := ccs.CacheCandles(runID, market, candles, ttlSeconds); err != nil {
+			log.Printf("CandleCacheService: WarmCache cache error for run %d market %s: %v", runID, market, err)
 		}
 	}
 

@@ -12,7 +12,6 @@ from typing import Any, Awaitable, Callable, Optional
 from uuid import uuid4
 
 from loguru import logger
-
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
 
@@ -334,10 +333,17 @@ class AsyncJobManager:
         )
         self.mark_running(resolved_job_id)
         started = time.perf_counter()
-        task = asyncio.create_task(
-            self._as_coroutine(awaitable),
-            name=resolved_job_id,
-        )
+        if asyncio.isfuture(awaitable):
+            task = asyncio.ensure_future(awaitable)
+        elif asyncio.iscoroutine(awaitable):
+            task = asyncio.create_task(awaitable, name=resolved_job_id)
+        else:
+            task = asyncio.create_task(
+                self._as_coroutine(awaitable),
+                name=resolved_job_id,
+            )
+        if task.get_name() != resolved_job_id:
+            task.set_name(resolved_job_id)
         self.tasks[resolved_job_id] = task
 
         def _done(completed_task: asyncio.Task) -> None:

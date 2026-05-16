@@ -3,6 +3,17 @@
 Actionable development tasks derived from `PROJECT_IMPROVEMENT_PLAN.md`.  
 Each task is self-contained and safe to implement without touching production trade logic.
 
+## Incident Hotfix Completions (2026-05-16)
+
+- [x] Enforced strict bot order status success criteria (`FILLED` only) and added regression coverage for failed/cancelled status variants.
+- [x] Added backtest ownership checks before websocket push/proxy upgrade paths.
+- [x] Added production startup security baseline checks (non-placeholder JWT secret + explicit CORS origin allowlist).
+- [x] Fixed push hub broadcast race behavior and added reconnect resiliency.
+- [x] Fixed candle warm-cache overwrite bug.
+- [x] Replaced Redis `KEYS`-based deletion with `SCAN` and applied operation timeouts.
+- [x] Updated schema compatibility tests to current realtime compatibility columns.
+- [x] Updated frontend active-run push websocket URL construction to use backend resolver.
+
 ---
 
 ## Quick Wins (1–3 days)

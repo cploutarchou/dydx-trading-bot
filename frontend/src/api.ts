@@ -2335,11 +2335,25 @@ class ApiClient {
     const source = String(marketsData?.source || '')
       .trim()
       .toLowerCase();
+    const normalizedMarkets = Array.isArray(marketsData?.markets)
+      ? marketsData.markets
+      : ([] as string[]);
+    const normalizedCount =
+      typeof marketsData?.count === 'number' && Number.isFinite(marketsData.count)
+        ? marketsData.count
+        : normalizedMarkets.length;
+    const normalizedSource =
+      typeof marketsData?.source === 'string' && marketsData.source.trim().length > 0
+        ? marketsData.source
+        : 'unknown';
 
     return {
       ...payload,
       data: {
         ...(marketsData || {}),
+        markets: normalizedMarkets,
+        count: normalizedCount,
+        source: normalizedSource,
         cache_hit: isHeaderEnabled('x-cache-hit'),
         cache_stale: isHeaderEnabled('x-cache-stale') || source === 'cache_stale',
         static_fallback: isHeaderEnabled('x-markets-fallback') || source === 'static_fallback',

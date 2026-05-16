@@ -165,6 +165,23 @@ interface DetailSyncState {
 }
 
 type ChartRange = '7D' | '30D' | '90D' | 'ALL';
+type DetailTab = 'summary' | 'candles' | 'positions' | 'trades' | 'results';
+
+const BACKTEST_DETAIL_TABS: readonly DetailTab[] = [
+  'summary',
+  'candles',
+  'positions',
+  'trades',
+  'results',
+];
+
+const DETAIL_TAB_SHORTCUTS: Record<string, DetailTab> = {
+  '1': 'summary',
+  '2': 'candles',
+  '3': 'positions',
+  '4': 'trades',
+  '5': 'results',
+};
 
 const asRecord = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -497,9 +514,7 @@ export const BacktestDetailsV2: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedMarket, setSelectedMarket] = useState<string | null>(null);
   const [chartRange, setChartRange] = useState<ChartRange>('30D');
-  const [activeTab, setActiveTab] = useState<
-    'summary' | 'candles' | 'positions' | 'trades' | 'results'
-  >('summary');
+  const [activeTab, setActiveTab] = useState<DetailTab>('summary');
   const [summaryDensity, setSummaryDensity] = usePersistentPreference<'comfortable' | 'dense'>(
     OPERATOR_DENSITY_STORAGE_KEY,
     'comfortable',
@@ -582,6 +597,40 @@ export const BacktestDetailsV2: React.FC = () => {
   useEffect(() => {
     fetchBacktestMetadata();
   }, [fetchBacktestMetadata]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tagName = target.tagName;
+        const isTypingTarget =
+          target.isContentEditable ||
+          tagName === 'INPUT' ||
+          tagName === 'TEXTAREA' ||
+          tagName === 'SELECT';
+        if (isTypingTarget) {
+          return;
+        }
+      }
+
+      const nextTab = DETAIL_TAB_SHORTCUTS[event.key];
+      if (!nextTab) {
+        return;
+      }
+
+      event.preventDefault();
+      setActiveTab(nextTab);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1584,6 +1633,29 @@ export const BacktestDetailsV2: React.FC = () => {
     },
   ];
 
+  const tabMetadata = {
+    summary: {
+      countLabel: 'Overview',
+      isLoading: false,
+    },
+    candles: {
+      countLabel: `${filteredChartPoints.length} bars`,
+      isLoading: analyticsLoading,
+    },
+    positions: {
+      countLabel: `${positions.length} rows`,
+      isLoading: positionsLoading,
+    },
+    trades: {
+      countLabel: `${liveBacktest.total_trades ?? trades.length} trades`,
+      isLoading: tradesLoading,
+    },
+    results: {
+      countLabel: `${pairBreakdown.length} pairs`,
+      isLoading: false,
+    },
+  } as const;
+
   const runControlStatus = normalizeStatus(liveBacktest.control_status);
   const controlBusy = controlAction !== null;
   const canPause =
@@ -2317,17 +2389,28 @@ export const BacktestDetailsV2: React.FC = () => {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="overflow-x-auto">
             <div className="flex min-w-max gap-2">
-              {(['summary', 'candles', 'positions', 'trades', 'results'] as const).map((tab) => (
+              {BACKTEST_DETAIL_TABS.map((tab, index) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+                  aria-current={activeTab === tab ? 'page' : undefined}
+                  aria-keyshortcuts={`${index + 1}`}
+                  className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition ${
                     activeTab === tab
                       ? 'bg-cyan-500/15 text-cyan-200 shadow-[inset_0_0_0_1px_rgba(34,211,238,0.24)]'
                       : 'text-slate-400 hover:bg-slate-900/80 hover:text-slate-200'
                   }`}
                 >
                   {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-[0.08em] ${
+                      activeTab === tab
+                        ? 'bg-cyan-500/20 text-cyan-100'
+                        : 'bg-slate-800 text-slate-400'
+                    }`}
+                  >
+                    {tabMetadata[tab].isLoading ? 'Loading…' : tabMetadata[tab].countLabel}
+                  </span>
                 </button>
               ))}
             </div>
@@ -2339,9 +2422,12 @@ export const BacktestDetailsV2: React.FC = () => {
                 : 'Realtime stream reconnecting'}
             </span>
             <span className="rounded-full border border-slate-800 bg-slate-900/80 px-3 py-1 text-slate-400">
-              {activeTab === 'candles'
-                ? `${filteredChartPoints.length} bars loaded`
-                : `${liveBacktest.total_trades ?? trades.length} trades indexed`}
+              {tabMetadata[activeTab].isLoading
+                ? 'Loading tab data…'
+                : `${tabMetadata[activeTab].countLabel} ready`}
+            </span>
+            <span className="rounded-full border border-slate-800 bg-slate-900/80 px-3 py-1 text-slate-500">
+              Shortcuts 1–5
             </span>
           </div>
         </div>

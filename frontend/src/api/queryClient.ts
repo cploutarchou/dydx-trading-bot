@@ -55,6 +55,7 @@ export const queryKeys = {
   runtimeDbConfig: ['system', 'runtime-db-config'] as const,
 
   // Strategies
+  strategies: (params?: QueryParams) => ['strategies', 'list', params] as const,
   strategyRuntime: (strategyId: number) => ['strategies', strategyId, 'runtime'] as const,
   strategyStartReadiness: (strategyId: number, network?: string) =>
     ['strategies', strategyId, 'start-readiness', network ?? 'testnet'] as const,

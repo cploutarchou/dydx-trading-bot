@@ -18,6 +18,41 @@ type CacheService struct {
 
 const defaultRedisOperationTimeout = 5 * time.Second
 
+func logCacheOperation(operation string, key string, ttlSeconds int, hit bool, latency time.Duration, err error) {
+	attrs := []any{
+		"operation", operation,
+		"key", key,
+		"ttl_seconds", ttlSeconds,
+		"hit", hit,
+		"latency_ms", latency.Milliseconds(),
+	}
+
+	if err != nil {
+		attrs = append(attrs, "error", err)
+		slog.Error("cache operation failed", attrs...)
+		return
+	}
+
+	if hit {
+		slog.Debug("cache operation", attrs...)
+		return
+	}
+
+	// Misses should be visible at INFO for operator observability.
+	slog.Info("cache operation", attrs...)
+}
+
+func marshalCacheValue(value interface{}) ([]byte, error) {
+	switch v := value.(type) {
+	case string:
+		return []byte(v), nil
+	case []byte:
+		return v, nil
+	default:
+		return json.Marshal(value)
+	}
+}
+
 func (cs *CacheService) contextWithTimeout() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), defaultRedisOperationTimeout)
 }
@@ -28,6 +63,7 @@ func NewCacheService(redisHost string, redisPort int, redisPassword string, redi
 		Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
 		Password: redisPassword,
 		DB:       redisDB,
+		Protocol: 2,
 	})
 
 	// Test connection
@@ -43,8 +79,10 @@ func NewCacheService(redisHost string, redisPort int, redisPassword string, redi
 
 // SetCache sets a value in cache with optional TTL
 func (cs *CacheService) SetCache(key string, value interface{}, ttlSeconds int) error {
-	jsonData, err := json.Marshal(value)
+	startedAt := time.Now()
+	jsonData, err := marshalCacheValue(value)
 	if err != nil {
+		logCacheOperation("set", key, ttlSeconds, false, time.Since(startedAt), err)
 		return fmt.Errorf("failed to marshal value: %w", err)
 	}
 
@@ -54,51 +92,57 @@ func (cs *CacheService) SetCache(key string, value interface{}, ttlSeconds int) 
 
 	err = cs.client.Set(ctx, key, jsonData, ttl).Err()
 	if err != nil {
+		logCacheOperation("set", key, ttlSeconds, false, time.Since(startedAt), err)
 		return fmt.Errorf("failed to set cache: %w", err)
 	}
 
-	slog.Debug("cache set", "key", key, "ttl_seconds", ttlSeconds)
+	logCacheOperation("set", key, ttlSeconds, true, time.Since(startedAt), nil)
 	return nil
 }
 
 // GetCache retrieves a value from cache
 func (cs *CacheService) GetCache(key string) (interface{}, error) {
+	startedAt := time.Now()
 	ctx, cancel := cs.contextWithTimeout()
 	defer cancel()
 
 	val, err := cs.client.Get(ctx, key).Result()
 	if errors.Is(err, redis.Nil) {
+		logCacheOperation("get", key, 0, false, time.Since(startedAt), nil)
 		return nil, nil // Key doesn't exist
 	}
 	if err != nil {
+		logCacheOperation("get", key, 0, false, time.Since(startedAt), err)
 		return nil, fmt.Errorf("failed to get cache: %w", err)
 	}
 
 	var data interface{}
 	if err := json.Unmarshal([]byte(val), &data); err != nil {
+		logCacheOperation("get", key, 0, false, time.Since(startedAt), err)
 		return nil, fmt.Errorf("failed to unmarshal cache value: %w", err)
 	}
 
-	slog.Debug("cache hit", "key", key)
+	logCacheOperation("get", key, 0, true, time.Since(startedAt), nil)
 	return data, nil
 }
 
 // GetCacheString retrieves a string value from cache
 func (cs *CacheService) GetCacheString(key string) (string, error) {
+	startedAt := time.Now()
 	ctx, cancel := cs.contextWithTimeout()
 	defer cancel()
 
 	val, err := cs.client.Get(ctx, key).Result()
 	if errors.Is(err, redis.Nil) {
-		slog.Debug("cache miss", "key", key)
+		logCacheOperation("get_string", key, 0, false, time.Since(startedAt), nil)
 		return "", nil
 	}
 	if err != nil {
-		slog.Error("cache get error", "key", key, "error", err)
+		logCacheOperation("get_string", key, 0, false, time.Since(startedAt), err)
 		return "", fmt.Errorf("failed to get cache: %w", err)
 	}
 
-	slog.Debug("cache hit", "key", key)
+	logCacheOperation("get_string", key, 0, true, time.Since(startedAt), nil)
 	return val, nil
 }
 

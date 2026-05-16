@@ -123,6 +123,8 @@ type CandleFilter struct {
 	Market    string
 	StartDate *time.Time
 	EndDate   *time.Time
+	Skip      int
+	Limit     int
 }
 
 func (r *BacktestRepository) GetRunByID(runID string) (*models.BacktestRun, error) {
@@ -187,9 +189,14 @@ func (r *BacktestRepository) GetCandles(filter CandleFilter) ([]models.BacktestC
 	if filter.EndDate != nil {
 		query += fmt.Sprintf(" AND timestamp <= $%d", argNum)
 		args = append(args, filter.EndDate)
+		argNum++
 	}
 
 	query += " ORDER BY timestamp"
+	if filter.Limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argNum, argNum+1)
+		args = append(args, filter.Limit, filter.Skip)
+	}
 
 	rows, err := r.db.Query(query, args...)
 	if err != nil {

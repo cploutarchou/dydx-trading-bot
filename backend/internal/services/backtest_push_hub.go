@@ -28,6 +28,7 @@ func NewBacktestPushHub(redisHost string, redisPort int, redisPassword string, r
 			Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
 			Password: redisPassword,
 			DB:       redisDB,
+			Protocol: 2,
 		},
 	}
 	go h.runSubscriber()

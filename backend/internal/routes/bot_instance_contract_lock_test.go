@@ -93,6 +93,72 @@ func setupBotInstanceContractRouter(t *testing.T, upstream http.Handler) (*gin.E
 		t.Fatalf("create bot_instances table: %v", err)
 	}
 
+	if _, err := dbConn.Exec(`
+	CREATE TABLE bot_positions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		bot_instance_id INTEGER NOT NULL,
+		position_id TEXT NOT NULL UNIQUE,
+		market_1 TEXT,
+		market_2 TEXT,
+		status TEXT,
+		is_active BOOLEAN,
+		entry_timestamp DATETIME,
+		entry_price_1 REAL,
+		entry_price_2 REAL,
+		entry_zscore REAL,
+		side_1 TEXT,
+		side_2 TEXT,
+		size_1 REAL,
+		size_2 REAL,
+		hedge_ratio REAL,
+		current_price_1 REAL,
+		current_price_2 REAL,
+		current_zscore REAL,
+		unrealized_pnl REAL,
+		unrealized_pnl_pct REAL,
+		exit_timestamp DATETIME,
+		exit_price_1 REAL,
+		exit_price_2 REAL,
+		exit_zscore REAL,
+		realized_pnl REAL,
+		realized_pnl_pct REAL,
+		duration_hours REAL,
+		created_at DATETIME,
+		updated_at DATETIME
+	);`); err != nil {
+		t.Fatalf("create bot_positions table: %v", err)
+	}
+
+	if _, err := dbConn.Exec(`
+	CREATE TABLE bot_trades (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		bot_instance_id INTEGER NOT NULL,
+		trade_id TEXT NOT NULL UNIQUE,
+		market_1 TEXT,
+		market_2 TEXT,
+		entry_timestamp DATETIME,
+		entry_price_1 REAL,
+		entry_price_2 REAL,
+		entry_zscore REAL,
+		side_1 TEXT,
+		side_2 TEXT,
+		size_1 REAL,
+		size_2 REAL,
+		hedge_ratio REAL,
+		exit_timestamp DATETIME,
+		exit_price_1 REAL,
+		exit_price_2 REAL,
+		exit_zscore REAL,
+		pnl REAL,
+		pnl_pct REAL,
+		duration_hours REAL,
+		strategy_zscore_threshold REAL,
+		created_at DATETIME,
+		updated_at DATETIME
+	);`); err != nil {
+		t.Fatalf("create bot_trades table: %v", err)
+	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte("Pass123!"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("generate password hash: %v", err)
@@ -334,6 +400,315 @@ func TestContractLock_BotTradesStatusQueryAndPayloadShape(t *testing.T) {
 		if _, exists := statsData[key]; !exists {
 			t.Fatalf("missing stats delegated envelope key %q in payload: %v", key, statsData)
 		}
+	}
+}
+
+func TestContractLock_BotPositionsEndpointStableEnvelope(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+
+	router, dbConn, upstreamServer := setupBotInstanceContractRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	defer upstreamServer.Close()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginBotInstanceContractUser(t, backendServer.URL)
+
+	var botID int
+	if err := dbConn.QueryRow(`SELECT id FROM bot_instances WHERE instance_id = ?`, "123").Scan(&botID); err != nil {
+		t.Fatalf("query seed bot instance id: %v", err)
+	}
+
+	now := time.Now().UTC()
+	if _, err := dbConn.Exec(
+		`INSERT INTO bot_positions (bot_instance_id, position_id, market_1, market_2, status, is_active, entry_timestamp, entry_price_1, entry_price_2, entry_zscore, side_1, side_2, size_1, size_2, hedge_ratio, current_price_1, current_price_2, current_zscore, unrealized_pnl, unrealized_pnl_pct, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		botID,
+		"pos-1",
+		"BTC-USD",
+		"ETH-USD",
+		"open",
+		true,
+		now,
+		100.0,
+		200.0,
+		1.2,
+		"buy",
+		"sell",
+		0.1,
+		0.2,
+		1.0,
+		101.0,
+		201.0,
+		1.1,
+		3.5,
+		0.8,
+		now,
+		now,
+	); err != nil {
+		t.Fatalf("insert bot position: %v", err)
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/bots/123/positions?status=open", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("positions request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		var payload map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&payload)
+		t.Fatalf("expected positions status 200, got %d payload=%v", resp.StatusCode, payload)
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode positions response: %v", err)
+	}
+	if _, ok := payload["success"].(bool); !ok {
+		t.Fatalf("expected success bool in positions payload: %v", payload)
+	}
+	if _, ok := payload["timestamp"].(string); !ok {
+		t.Fatalf("expected timestamp in positions payload: %v", payload)
+	}
+
+	positions, ok := payload["data"].([]interface{})
+	if !ok {
+		t.Fatalf("expected positions data array, got %T", payload["data"])
+	}
+	if len(positions) != 1 {
+		t.Fatalf("expected one position, got %d", len(positions))
+	}
+	position, ok := positions[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected position object, got %T", positions[0])
+	}
+	if position["position_id"] != "pos-1" {
+		t.Fatalf("expected position_id pos-1, got %v", position["position_id"])
+	}
+	if position["status"] != "open" {
+		t.Fatalf("expected status open, got %v", position["status"])
+	}
+}
+
+func TestContractLock_BotTradeEndpointScopedToInstance(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+
+	router, dbConn, upstreamServer := setupBotInstanceContractRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	defer upstreamServer.Close()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginBotInstanceContractUser(t, backendServer.URL)
+
+	now := time.Now().UTC()
+	if _, err := dbConn.Exec(
+		`INSERT INTO bot_instances (instance_id, instance_name, user_id, status, network, strategy, config, trading_params, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"456",
+		"other-bot",
+		1,
+		"STOPPED",
+		"testnet",
+		"default",
+		`{}`,
+		`{}`,
+		now,
+		now,
+	); err != nil {
+		t.Fatalf("insert second bot instance: %v", err)
+	}
+
+	var botID, otherBotID int
+	if err := dbConn.QueryRow(`SELECT id FROM bot_instances WHERE instance_id = ?`, "123").Scan(&botID); err != nil {
+		t.Fatalf("query seed bot instance id: %v", err)
+	}
+	if err := dbConn.QueryRow(`SELECT id FROM bot_instances WHERE instance_id = ?`, "456").Scan(&otherBotID); err != nil {
+		t.Fatalf("query second bot instance id: %v", err)
+	}
+
+	if _, err := dbConn.Exec(
+		`INSERT INTO bot_trades (bot_instance_id, trade_id, market_1, market_2, entry_timestamp, entry_price_1, entry_price_2, entry_zscore, side_1, side_2, size_1, size_2, hedge_ratio, pnl, pnl_pct, duration_hours, strategy_zscore_threshold, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		botID,
+		"trade-1",
+		"BTC-USD",
+		"ETH-USD",
+		now,
+		100.0,
+		200.0,
+		1.0,
+		"buy",
+		"sell",
+		0.1,
+		0.2,
+		1.0,
+		2.5,
+		1.5,
+		1.2,
+		2.0,
+		now,
+		now,
+	); err != nil {
+		t.Fatalf("insert bot trade for seed instance: %v", err)
+	}
+
+	if _, err := dbConn.Exec(
+		`INSERT INTO bot_trades (bot_instance_id, trade_id, market_1, market_2, entry_timestamp, entry_price_1, entry_price_2, entry_zscore, side_1, side_2, size_1, size_2, hedge_ratio, pnl, pnl_pct, duration_hours, strategy_zscore_threshold, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		otherBotID,
+		"trade-2",
+		"SOL-USD",
+		"ADA-USD",
+		now,
+		50.0,
+		25.0,
+		0.8,
+		"buy",
+		"sell",
+		0.3,
+		0.4,
+		1.0,
+		1.0,
+		0.5,
+		0.9,
+		1.5,
+		now,
+		now,
+	); err != nil {
+		t.Fatalf("insert bot trade for other instance: %v", err)
+	}
+
+	t.Run("returns trade when scoped to instance", func(t *testing.T) {
+		req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/bots/123/trades/trade-1", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("trade request failed: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusOK {
+			var payload map[string]interface{}
+			_ = json.NewDecoder(resp.Body).Decode(&payload)
+			t.Fatalf("expected trade status 200, got %d payload=%v", resp.StatusCode, payload)
+		}
+
+		var payload map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode trade response: %v", err)
+		}
+		if _, ok := payload["timestamp"].(string); !ok {
+			t.Fatalf("expected timestamp in trade payload: %v", payload)
+		}
+		trade, ok := payload["data"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected trade object, got %T", payload["data"])
+		}
+		if trade["trade_id"] != "trade-1" {
+			t.Fatalf("expected trade_id trade-1, got %v", trade["trade_id"])
+		}
+	})
+
+	t.Run("returns not found for mismatched instance", func(t *testing.T) {
+		req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/bots/123/trades/trade-2", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("trade scope mismatch request failed: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusNotFound {
+			var payload map[string]interface{}
+			_ = json.NewDecoder(resp.Body).Decode(&payload)
+			t.Fatalf("expected trade mismatch status 404, got %d payload=%v", resp.StatusCode, payload)
+		}
+
+		var payload map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode trade mismatch response: %v", err)
+		}
+		if success, ok := payload["success"].(bool); !ok || success {
+			t.Fatalf("expected success=false for mismatch payload: %v", payload)
+		}
+	})
+}
+
+func TestContractLock_BotSummaryStatsOnlyStableEnvelope(t *testing.T) {
+	statsQuery := make(chan string, 1)
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/bots/123/stats", func(w http.ResponseWriter, r *http.Request) {
+		statsQuery <- r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"instance_id":"123","bot_statistics":{"total_trades":2},"trade_statistics":{"total_trades":2,"win_rate":0.5}},"timestamp":"2026-04-04T00:00:00Z"}`))
+	})
+
+	router, dbConn, upstreamServer := setupBotInstanceContractRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	defer upstreamServer.Close()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginBotInstanceContractUser(t, backendServer.URL)
+
+	req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/bots/123/summary?include=stats&limit=5", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("summary request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		var payload map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&payload)
+		t.Fatalf("expected summary status 200, got %d payload=%v", resp.StatusCode, payload)
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode summary response: %v", err)
+	}
+
+	if _, ok := payload["success"].(bool); !ok {
+		t.Fatalf("expected success bool in summary payload: %v", payload)
+	}
+	if _, ok := payload["timestamp"].(string); !ok {
+		t.Fatalf("expected timestamp in summary payload: %v", payload)
+	}
+
+	data, ok := payload["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected summary data object, got %T", payload["data"])
+	}
+	if data["instance_id"] != "123" {
+		t.Fatalf("expected summary instance_id=123, got %v", data["instance_id"])
+	}
+	if _, ok := data["generated_at"].(string); !ok {
+		t.Fatalf("expected generated_at in summary payload data: %v", data)
+	}
+	stats, ok := data["stats"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected stats object in summary payload data, got %T", data["stats"])
+	}
+	statsPayload := stats
+	if nested, ok := stats["data"].(map[string]interface{}); ok {
+		statsPayload = nested
+	}
+	if _, ok := statsPayload["bot_statistics"].(map[string]interface{}); !ok {
+		t.Fatalf("expected stats payload bot_statistics object, got %T", statsPayload["bot_statistics"])
+	}
+	if _, exists := data["positions"]; exists {
+		t.Fatalf("did not expect positions when include=stats, got %v", data["positions"])
+	}
+	if _, exists := data["trades"]; exists {
+		t.Fatalf("did not expect trades when include=stats, got %v", data["trades"])
+	}
+
+	select {
+	case rawQuery := <-statsQuery:
+		if rawQuery != "" {
+			t.Fatalf("expected upstream stats query to remain empty, got %q", rawQuery)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for upstream summary stats call")
 	}
 }
 

@@ -367,7 +367,7 @@ export function useCurrentUser() {
   return useQuery({
     queryKey: queryKeys.currentUser,
     queryFn: () => apiClient.getCurrentUser(),
-    ...queryConfigs.user,
+    ...queryConfigs.static,
     enabled: apiClient.isAuthenticated(),
   });
 }
@@ -1453,6 +1453,21 @@ export function useOptimisticBotUpdate(instanceId: string) {
 // ==================== Strategy Hooks ====================
 
 /**
+ * Fetch strategy list for strategy management surfaces.
+ */
+export function useStrategies(skip: number = 0, limit: number = 100, enabled: boolean = true) {
+  return useQuery({
+    queryKey: queryKeys.strategies({ skip, limit }),
+    queryFn: async () => {
+      const response = await api.listStrategies(skip, limit);
+      return Array.isArray(response.data?.strategies) ? response.data.strategies : [];
+    },
+    ...queryConfigs.user,
+    enabled,
+  });
+}
+
+/**
  * Fetch runtime status for a single strategy.
  * Polls every 15 seconds while the strategy is running.
  */
@@ -1545,6 +1560,43 @@ export function useStopStrategyRuntime(strategyId: number) {
     mutationFn: () => api.stopStrategyRuntime(strategyId),
     onSuccess: () => {
       void cacheUtils.invalidateStrategyQueries(strategyId);
+    },
+  });
+}
+
+/**
+ * Start any strategy runtime by ID. Useful for list UIs where strategy IDs are dynamic.
+ */
+export function useStartStrategyRuntimeMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      strategyId,
+      network,
+      forceRecreate = false,
+    }: {
+      strategyId: number;
+      network: 'testnet' | 'mainnet';
+      forceRecreate?: boolean;
+    }) => api.startStrategyRuntime(strategyId, network, forceRecreate),
+    onSuccess: (_, variables) => {
+      void cacheUtils.invalidateStrategyQueries(variables.strategyId);
+      void queryClient.invalidateQueries({
+        queryKey: ['strategies', variables.strategyId, 'start-readiness'],
+      });
+    },
+  });
+}
+
+/**
+ * Stop any strategy runtime by ID. Useful for list UIs where strategy IDs are dynamic.
+ */
+export function useStopStrategyRuntimeMutation() {
+  return useMutation({
+    mutationFn: ({ strategyId, force = false }: { strategyId: number; force?: boolean }) =>
+      api.stopStrategyRuntime(strategyId, force),
+    onSuccess: (_, variables) => {
+      void cacheUtils.invalidateStrategyQueries(variables.strategyId);
     },
   });
 }

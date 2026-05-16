@@ -16,6 +16,39 @@ from internal.domain.models_realtime import (
 from src.shared.time_utils import utc_now
 
 
+def _float_or_default(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        try:
+            return float(default)
+        except (TypeError, ValueError):
+            return 0.0
+
+
+def _position_leg_pnl(
+    side: str,
+    entry_price: Any,
+    current_price: Any,
+    size: Any,
+) -> float:
+    entry = _float_or_default(entry_price)
+    current = _float_or_default(current_price)
+    quantity = abs(_float_or_default(size))
+    normalized_side = str(side or "").upper()
+    if normalized_side in {"SELL", "SHORT"}:
+        return (entry - current) * quantity
+    return (current - entry) * quantity
+
+
+def _position_entry_notional(position: Any) -> float:
+    size1 = _float_or_default(position.current_size1, position.entry_size1)
+    size2 = _float_or_default(position.current_size2, position.entry_size2)
+    return abs(_float_or_default(position.entry_price1) * size1) + abs(
+        _float_or_default(position.entry_price2) * size2
+    )
+
+
 class PositionRepository:
     """Repository for position operations"""
 
@@ -81,12 +114,23 @@ class PositionRepository:
             .first()
         )
         if position:
+            size1 = _float_or_default(position.current_size1, position.entry_size1)
+            size2 = _float_or_default(position.current_size2, position.entry_size2)
+            pnl = _position_leg_pnl(
+                position.side1, position.entry_price1, current_price1, size1
+            ) + _position_leg_pnl(
+                position.side2, position.entry_price2, current_price2, size2
+            )
+            entry_notional = _position_entry_notional(position)
+
             position.current_price1 = current_price1
             position.current_price2 = current_price2
-            # Calculate unrealized P&L (simplified calculation)
-            # This would need more sophisticated logic based on the strategy
-            position.unrealized_pnl = 0.0  # Placeholder
-            position.unrealized_pnl_pct = 0.0  # Placeholder
+            position.current_size1 = size1
+            position.current_size2 = size2
+            position.unrealized_pnl = pnl
+            position.unrealized_pnl_pct = (
+                (pnl / entry_notional) * 100 if entry_notional > 0 else 0.0
+            )
             self.session.commit()
 
     def close_position(self, position_id: str):
@@ -207,11 +251,15 @@ class StatsRepository:
         # Calculate stats from positions
         total_unrealized_pnl = sum(p.unrealized_pnl for p in positions)
         total_positions = len(positions)
+        total_entry_notional = sum(_position_entry_notional(p) for p in positions)
 
         stats.total_open_positions = total_positions
         stats.total_unrealized_pnl = total_unrealized_pnl
-        # Simplified calculations - would need more sophisticated logic
-        stats.total_unrealized_pnl_pct = 0.0
+        stats.total_unrealized_pnl_pct = (
+            (total_unrealized_pnl / total_entry_notional) * 100
+            if total_entry_notional > 0
+            else 0.0
+        )
         stats.daily_pnl = 0.0
         stats.daily_pnl_pct = 0.0
         stats.daily_trades_opened = 0

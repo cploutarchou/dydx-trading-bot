@@ -3975,12 +3975,13 @@ async def get_current_positions(
         session = db.get_session()
         uow = UnitOfWorkRealtime(session)
 
-        # Convert string instance ID to int for database query if needed
-        try:
-            bot_id_int = int(bot_instance_id)
-        except (ValueError, TypeError):
-            # If not a pure int, try to use it as-is (some DB schemas use string IDs)
-            bot_id_int = bot_instance_id
+        bot_id_int = _resolve_realtime_bot_id(session, bot_instance_id)
+        if bot_id_int is None:
+            return api_response(
+                success=False,
+                message=f"Bot instance '{bot_instance_id}' not found",
+                status_code=404,
+            )
 
         positions = uow.positions.get_open_positions(bot_id_int)  # type: ignore[arg-type]
 

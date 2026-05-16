@@ -100,6 +100,10 @@ const mapBots = (data: unknown): BotInstance[] => {
 };
 
 const mapBotStats = (raw: Record<string, unknown>): BotStats => {
+  const realtimeStats =
+    typeof raw.stats === 'object' && raw.stats && !Array.isArray(raw.stats)
+      ? (raw.stats as Record<string, unknown>)
+      : {};
   const botStatistics =
     typeof raw.bot_statistics === 'object' && raw.bot_statistics
       ? (raw.bot_statistics as Record<string, unknown>)
@@ -110,22 +114,69 @@ const mapBotStats = (raw: Record<string, unknown>): BotStats => {
       ? (raw.trade_statistics as Record<string, unknown>)
       : {};
 
-  const totalTrades = toNumber(tradeStatistics.total_trades, toNumber(botStatistics.total_trades));
-  const openPositions = toNumber(raw.open_positions, toNumber(raw.total_open_positions));
+  const positions = Array.isArray(raw.positions) ? raw.positions : null;
+  const positionPnl = (positions ?? []).reduce((sum, position) => {
+    if (!isRecord(position)) return sum;
+    return (
+      sum +
+      toNumber(
+        position.unrealized_pnl,
+        toNumber(position.current_pnl, toNumber(position.profit_loss))
+      )
+    );
+  }, 0);
+  const dailyOpened = toNumber(raw.daily_trades_opened, toNumber(realtimeStats.daily_trades_opened));
+  const dailyClosed = toNumber(raw.daily_trades_closed, toNumber(realtimeStats.daily_trades_closed));
+  const totalTrades = toNumber(
+    tradeStatistics.total_trades,
+    toNumber(
+      botStatistics.total_trades,
+      toNumber(raw.total_trades, toNumber(realtimeStats.total_trades, dailyOpened + dailyClosed))
+    )
+  );
+  const openPositions = positions
+    ? positions.length
+    : toNumber(
+        raw.open_positions,
+        toNumber(
+          raw.total_open_positions,
+          toNumber(realtimeStats.open_positions, toNumber(realtimeStats.total_open_positions))
+        )
+      );
   const closedPositions = toNumber(
     raw.closed_positions,
-    toNumber(raw.daily_trades_closed, totalTrades)
+    toNumber(realtimeStats.closed_positions, toNumber(raw.daily_trades_closed, dailyClosed))
   );
   const totalPnl = toNumber(
     tradeStatistics.net_profit,
     toNumber(
       botStatistics.total_profit_loss,
-      toNumber(raw.total_pnl, toNumber(raw.total_unrealized_pnl, toNumber(raw.daily_pnl)))
+      toNumber(
+        raw.total_pnl,
+        toNumber(
+          raw.total_unrealized_pnl,
+          toNumber(
+            realtimeStats.total_unrealized_pnl,
+            positions && positions.length > 0
+              ? positionPnl
+              : toNumber(raw.daily_pnl, toNumber(realtimeStats.daily_pnl))
+          )
+        )
+      )
     )
   );
   const winRateRaw = toNumber(
     tradeStatistics.win_rate,
-    toNumber(botStatistics.win_rate, toNumber(raw.win_rate, toNumber(raw.daily_win_rate)))
+    toNumber(
+      botStatistics.win_rate,
+      toNumber(
+        raw.win_rate,
+        toNumber(
+          realtimeStats.win_rate,
+          toNumber(raw.daily_win_rate, toNumber(realtimeStats.daily_win_rate))
+        )
+      )
+    )
   );
 
   return {
@@ -134,7 +185,10 @@ const mapBotStats = (raw: Record<string, unknown>): BotStats => {
     closed_positions: closedPositions,
     total_pnl: totalPnl,
     realized_pnl: toNumber(tradeStatistics.total_profit, toNumber(raw.realized_pnl)),
-    unrealized_pnl: toNumber(raw.unrealized_pnl),
+    unrealized_pnl: toNumber(
+      raw.unrealized_pnl,
+      toNumber(realtimeStats.total_unrealized_pnl, positions ? positionPnl : 0)
+    ),
     total_trades: totalTrades,
     win_rate: Math.abs(winRateRaw) <= 1 ? winRateRaw : winRateRaw / 100,
     last_update:
@@ -142,6 +196,8 @@ const mapBotStats = (raw: Record<string, unknown>): BotStats => {
         ? raw.last_update
         : typeof raw.updated_at === 'string'
           ? raw.updated_at
+          : typeof realtimeStats.updated_at === 'string'
+            ? realtimeStats.updated_at
           : new Date().toISOString(),
     degraded: raw.degraded === true,
     warning: typeof raw.warning === 'string' ? raw.warning : undefined,
@@ -229,7 +285,8 @@ const BotCard: React.FC<BotCardProps> = ({
 }) => {
   const shouldStreamRuntime =
     isExpanded || ['RUNNING', 'STARTING', 'STOPPING'].includes(bot.status);
-  const statsQuery = useBotStats(bot.instance_id, true);
+  const isManagedRuntime = isManagedStrategyRuntime(bot);
+  const statsQuery = useBotStats(bot.instance_id, !isManagedRuntime);
   const liveStatsQuery = useBotRuntimeStatsStream(bot.instance_id, shouldStreamRuntime);
   const rawStats =
     liveStatsQuery.data && isRecord(liveStatsQuery.data)
@@ -281,7 +338,7 @@ const BotCard: React.FC<BotCardProps> = ({
               <span className="operator-status-pill" data-tone={statusTone}>
                 {bot.status}
               </span>
-              {isManagedStrategyRuntime(bot) && (
+              {isManagedRuntime && (
                 <Link
                   to="/strategies/manage"
                   onClick={(e) => e.stopPropagation()}
@@ -317,7 +374,7 @@ const BotCard: React.FC<BotCardProps> = ({
           className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
               <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">P&amp;L</p>
               <p
@@ -331,9 +388,13 @@ const BotCard: React.FC<BotCardProps> = ({
               <p className="mt-1 text-sm font-semibold text-white">{stats.open_positions}</p>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
-              <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Win</p>
+              <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Closed</p>
+              <p className="mt-1 text-sm font-semibold text-white">{stats.closed_positions}</p>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Trades</p>
               <p className="mt-1 text-sm font-semibold text-white">
-                {(stats.win_rate * 100).toFixed(1)}%
+                {stats.total_trades}
               </p>
             </div>
           </div>

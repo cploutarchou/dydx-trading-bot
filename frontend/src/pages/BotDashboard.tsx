@@ -124,9 +124,15 @@ const BotDashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedJob, setSelectedJob] = useState<BotJob | null>(null);
 
-  const botInstancesQuery = useBotInstances({}, true);
-  const botInstances = useMemo(
-    () => (botInstancesQuery.data?.data ?? []) as BotListItem[],
+  const botInstancesQuery = useBotInstances({});
+  const botInstances = useMemo<BotListItem[]>(
+    () =>
+      asArray<Record<string, unknown>>(botInstancesQuery.data?.data)
+        .map((bot) => ({
+          instance_id: String(bot.instance_id || ''),
+          status: String(bot.status || 'UNKNOWN'),
+        }))
+        .filter((bot) => bot.instance_id.length > 0),
     [botInstancesQuery.data]
   );
 

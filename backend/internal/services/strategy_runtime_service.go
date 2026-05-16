@@ -807,7 +807,28 @@ func (s *StrategyRuntimeService) fetchRemoteRuntimeStatus(instanceID string) (ma
 		return nil, false, fmt.Errorf("failed to query bot runtime instance %s: %w", instanceID, err)
 	}
 
-	return unwrapBotEnvelope(result), true, nil
+	remote := unwrapBotEnvelope(result)
+	s.enrichRemoteRuntimeStatus(instanceID, remote)
+
+	return remote, true, nil
+}
+
+func (s *StrategyRuntimeService) enrichRemoteRuntimeStatus(instanceID string, remote map[string]interface{}) {
+	if s == nil || s.botService == nil || remote == nil {
+		return
+	}
+
+	if statsResult, err := s.botService.GetRemoteRealtimeStats(instanceID); err == nil {
+		mergeRealtimeStatsIntoRuntime(remote, unwrapBotEnvelope(statsResult))
+	} else if !isNotFoundBotAPIError(err) {
+		log.Printf("⚠️ strategy runtime realtime stats unavailable instance_id=%s: %v", instanceID, err)
+	}
+
+	if positionsResult, err := s.botService.GetRemoteCurrentPositions(instanceID); err == nil {
+		mergeRealtimePositionsIntoRuntime(remote, unwrapBotEnvelope(positionsResult))
+	} else if !isNotFoundBotAPIError(err) {
+		log.Printf("⚠️ strategy runtime realtime positions unavailable instance_id=%s: %v", instanceID, err)
+	}
 }
 
 func (s *StrategyRuntimeService) persistRuntimeState(
@@ -906,26 +927,30 @@ func mergeRemoteRuntimeState(runtimeState StrategyRuntimeState, remote map[strin
 	stats := nestedMap(remote, "stats")
 	performance := nestedMap(remote, "performance")
 	runtime := nestedMap(remote, "runtime")
+	if shouldTreatRemoteRuntimeAsLive(status, remote, stats, performance, runtime) {
+		status = "running"
+		remote["status"] = status
+	}
 
 	runtimeState.Status = status
 	runtimeState.BotStatus = status
 	runtimeState.ProcessID = extractIntPointer(remote["process_id"])
 	runtimeState.TradesExecuted = extractIntPointerPrioritized(
-		[]string{"trades_executed", "total_trades", "trades_count"},
+		[]string{"trades_executed", "total_trades", "trades_count", "daily_trades_closed", "daily_trades_opened"},
 		remote,
 		stats,
 		performance,
 		runtime,
 	)
 	runtimeState.Pnl = extractFloatPointerPrioritized(
-		[]string{"pnl", "total_pnl", "total_pnl_usd", "realized_pnl", "pnl_usd"},
+		[]string{"pnl", "total_pnl", "total_pnl_usd", "total_unrealized_pnl", "unrealized_pnl", "daily_pnl", "realized_pnl", "pnl_usd"},
 		remote,
 		stats,
 		performance,
 		runtime,
 	)
 	runtimeState.WinRate = normalizeWinRatePercent(extractFloatPointerPrioritized(
-		[]string{"win_rate", "win_rate_pct", "win_rate_percent"},
+		[]string{"win_rate", "win_rate_pct", "win_rate_percent", "daily_win_rate"},
 		remote,
 		stats,
 		performance,
@@ -965,6 +990,14 @@ func mergeRemoteRuntimeState(runtimeState StrategyRuntimeState, remote map[strin
 		runtimeState.LastError = ""
 		runtimeState.ProcessID = nil
 		runtimeState.StoppedAt = &now
+	case "error", "failed":
+		if lastError := extractStringPrioritized(
+			[]string{"last_error", "error", "error_message", "message"},
+			remote,
+			runtime,
+		); lastError != "" {
+			runtimeState.LastError = lastError
+		}
 	}
 
 	return runtimeState
@@ -1053,6 +1086,116 @@ func nestedMap(payload map[string]interface{}, key string) map[string]interface{
 	return nil
 }
 
+func shouldTreatRemoteRuntimeAsLive(status string, payloads ...map[string]interface{}) bool {
+	switch status {
+	case "error", "failed", "unknown", "missing", "unavailable":
+	default:
+		return false
+	}
+
+	openPositions := resolveOpenPositions(payloads...)
+	return openPositions != nil && *openPositions > 0
+}
+
+func isNotFoundBotAPIError(err error) bool {
+	var apiErr *BotAPIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == 404
+}
+
+func setRuntimeValueIfMissing(payload map[string]interface{}, key string, value interface{}) {
+	if payload == nil || value == nil {
+		return
+	}
+	if existing, exists := payload[key]; exists {
+		switch typed := existing.(type) {
+		case string:
+			if strings.TrimSpace(typed) != "" {
+				return
+			}
+		case nil:
+		default:
+			return
+		}
+	}
+	payload[key] = value
+}
+
+func mergeRealtimeStatsIntoRuntime(remote map[string]interface{}, realtime map[string]interface{}) {
+	if remote == nil || realtime == nil {
+		return
+	}
+
+	stats := nestedMap(realtime, "stats")
+	if stats == nil {
+		stats = realtime
+	}
+	if len(stats) == 0 {
+		return
+	}
+
+	existingStats := nestedMap(remote, "stats")
+	if existingStats == nil {
+		existingStats = map[string]interface{}{}
+		remote["stats"] = existingStats
+	}
+	for key, value := range stats {
+		existingStats[key] = value
+	}
+
+	setRuntimeValueIfMissing(remote, "open_positions", stats["total_open_positions"])
+	setRuntimeValueIfMissing(remote, "pnl", stats["total_unrealized_pnl"])
+	setRuntimeValueIfMissing(remote, "win_rate", stats["daily_win_rate"])
+	setRuntimeValueIfMissing(remote, "runtime_updated_at", stats["updated_at"])
+
+	opened := extractIntPointer(stats["daily_trades_opened"])
+	closed := extractIntPointer(stats["daily_trades_closed"])
+	if opened != nil || closed != nil {
+		total := 0
+		if opened != nil {
+			total += *opened
+		}
+		if closed != nil {
+			total += *closed
+		}
+		setRuntimeValueIfMissing(remote, "trades_executed", total)
+	}
+}
+
+func mergeRealtimePositionsIntoRuntime(remote map[string]interface{}, positionsPayload map[string]interface{}) {
+	if remote == nil || positionsPayload == nil {
+		return
+	}
+
+	rawPositions, ok := positionsPayload["positions"].([]interface{})
+	if !ok {
+		return
+	}
+
+	remote["positions"] = rawPositions
+	openCount := len(rawPositions)
+	remote["open_positions"] = openCount
+
+	if extractFloatPointer(remote["pnl"]) != nil {
+		return
+	}
+
+	totalPnl := 0.0
+	hasPnl := false
+	for _, rawPosition := range rawPositions {
+		position, ok := rawPosition.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if pnl := extractFloatPointer(position["unrealized_pnl"]); pnl != nil {
+			totalPnl += *pnl
+			hasPnl = true
+		}
+	}
+	if hasPnl {
+		remote["pnl"] = totalPnl
+	}
+}
+
 func extractIntPointer(value interface{}) *int {
 	switch typed := value.(type) {
 	case int:
@@ -1070,6 +1213,24 @@ func extractIntPointer(value interface{}) *int {
 	default:
 		return nil
 	}
+}
+
+func extractStringPrioritized(keys []string, payloads ...map[string]interface{}) string {
+	for _, key := range keys {
+		for _, payload := range payloads {
+			if payload == nil {
+				continue
+			}
+			raw, exists := payload[key]
+			if !exists || raw == nil {
+				continue
+			}
+			if value := strings.TrimSpace(fmt.Sprintf("%v", raw)); value != "" && value != "<nil>" {
+				return value
+			}
+		}
+	}
+	return ""
 }
 
 func extractFloatPointer(value interface{}) *float64 {
@@ -1166,7 +1327,7 @@ func extractTimePointerPrioritized(keys []string, payloads ...map[string]interfa
 }
 
 func resolveOpenPositions(payloads ...map[string]interface{}) *int {
-	countKeys := []string{"open_positions", "open_positions_count", "positions_open", "active_positions"}
+	countKeys := []string{"open_positions", "total_open_positions", "open_positions_count", "positions_open", "active_positions"}
 	if count := extractIntPointerPrioritized(countKeys, payloads...); count != nil {
 		return count
 	}

@@ -80,6 +80,11 @@ const clientRoutes: PortalRouteDefinition[] = [
   { path: '/strategies', allowedRoles: CLIENT_ROLES, element: <StrategyLibrary /> },
   { path: '/strategies/new', allowedRoles: CLIENT_ROLES, element: <StrategyBuilder /> },
   { path: '/strategies/manage', allowedRoles: CLIENT_ROLES, element: <StrategyManager /> },
+  {
+    path: '/strategies/managet',
+    allowedRoles: CLIENT_ROLES,
+    element: <Navigate to="/strategies/manage" replace />,
+  },
   { path: '/strategies/:id/edit', allowedRoles: CLIENT_ROLES, element: <StrategyBuilder /> },
   { path: '/bots', allowedRoles: CLIENT_ROLES, element: <BotManager /> },
   {

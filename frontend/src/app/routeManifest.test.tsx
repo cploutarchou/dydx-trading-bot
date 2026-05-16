@@ -8,6 +8,9 @@ describe('portal route manifest', () => {
 
     expect(routes.find((route) => route.path === '/dashboard')?.allowedRoles).toEqual(CLIENT_ROLES);
     expect(routes.find((route) => route.path === '/backtests')?.allowedRoles).toEqual(CLIENT_ROLES);
+    expect(routes.find((route) => route.path === '/strategies/managet')?.allowedRoles).toEqual(
+      CLIENT_ROLES
+    );
     expect(routes.find((route) => route.path === '/admin/celery')?.allowedRoles).toEqual([
       'admin',
       'super_admin',
@@ -33,4 +36,3 @@ describe('portal route manifest', () => {
     expect(wildcardRoles).toEqual([...IB_ROLES, ...BACKOFFICE_ROLES]);
   });
 });
-

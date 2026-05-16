@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -220,6 +219,6 @@ func (h *AIMarketHandler) respondError(c *gin.Context, status int, err error, fa
 	c.JSON(status, APIResponse{
 		Success:   false,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Error:     fmt.Sprintf("%s", message),
+		Error:     message,
 	})
 }

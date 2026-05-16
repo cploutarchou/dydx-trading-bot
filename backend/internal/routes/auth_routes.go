@@ -4,6 +4,7 @@ package routes
 import (
 	"crypto/subtle"
 	"database/sql"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -994,7 +995,7 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 						c.JSON(http.StatusOK, sessionRefreshResponse)
 						return
 					}
-					if err != nil && err != auth.ErrSessionNotFound {
+					if err != nil && !errors.Is(err, auth.ErrSessionNotFound) {
 						c.JSON(http.StatusUnauthorized, gin.H{
 							"success": false,
 							"error":   "invalid session",

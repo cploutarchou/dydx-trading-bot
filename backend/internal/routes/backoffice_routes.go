@@ -372,6 +372,10 @@ func backofficeAuditLogsHandler(database *sql.DB) gin.HandlerFunc {
 			}
 			logs = append(logs, item)
 		}
+		if err := rows.Err(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to iterate audit logs: %v", err)})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"success":   true,
 			"message":   "Audit logs loaded",

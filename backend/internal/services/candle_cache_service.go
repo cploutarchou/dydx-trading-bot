@@ -11,8 +11,22 @@ import (
 
 // CandleCacheService manages candle data caching
 type CandleCacheService struct {
-	cache *CacheService
-	repo  *repository.BacktestRepository
+	cache candleCacheStore
+	repo  candleBacktestRepo
+}
+
+type candleCacheStore interface {
+	SetCache(key string, value interface{}, ttlSeconds int) error
+	GetCache(key string) (interface{}, error)
+	GetCacheString(key string) (string, error)
+	DeleteCache(key string) error
+	DeleteCachePattern(pattern string) error
+	GetCacheStats() map[string]interface{}
+}
+
+type candleBacktestRepo interface {
+	GetUniqueMarkets(runID int) ([]string, error)
+	GetCandles(filter repository.CandleFilter) ([]models.BacktestCandle, error)
 }
 
 const candleCachePageSize = 1000
@@ -50,7 +64,7 @@ func (ccs *CandleCacheService) CacheCandles(runID int, market string, candles []
 		ttlSeconds = 86400 // Default 24 hours
 	}
 
-	err = ccs.cache.SetCache(key, string(candleData), ttlSeconds)
+	err = ccs.cache.SetCache(key, json.RawMessage(candleData), ttlSeconds)
 	if err != nil {
 		return fmt.Errorf("failed to cache candles: %w", err)
 	}
@@ -84,7 +98,11 @@ func (ccs *CandleCacheService) GetCachedCandles(runID int, market string) ([]mod
 // InvalidateCandleCache invalidates candle cache for a run
 func (ccs *CandleCacheService) InvalidateCandleCache(runID int) error {
 	pattern := fmt.Sprintf("backtest:candles:%d:*", runID)
-	return ccs.cache.DeleteCachePattern(pattern)
+	if err := ccs.cache.DeleteCachePattern(pattern); err != nil {
+		return err
+	}
+	chartPattern := fmt.Sprintf("backtest:chart:*:%d:*", runID)
+	return ccs.cache.DeleteCachePattern(chartPattern)
 }
 
 // InvalidateCandleCacheByMarket invalidates candle cache for a specific market

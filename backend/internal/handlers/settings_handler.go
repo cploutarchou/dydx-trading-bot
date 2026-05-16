@@ -154,7 +154,6 @@ func (h *SettingsHandler) CreateBotSetting(c *gin.Context) {
 		req.DefaultValue,
 		req.IsActive,
 	)
-
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
@@ -1165,6 +1164,7 @@ func (h *SettingsHandler) TestRedisConnection(c *gin.Context) {
 		Addr:     fmt.Sprintf("%s:%d", redisSetting.Host, redisSetting.Port),
 		Password: redisSetting.Password,
 		DB:       redisSetting.Db,
+		Protocol: 2,
 	}
 	if redisSetting.SSL {
 		opts.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}

@@ -61,6 +61,7 @@ func NewSessionStore(cfg *config.Config) *SessionStore {
 		Addr:         fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port),
 		Password:     cfg.Redis.Password,
 		DB:           cfg.Redis.Db,
+		Protocol:     2,
 		PoolSize:     cfg.Redis.MaxConnections,
 		DialTimeout:  time.Duration(cfg.Redis.Timeout) * time.Second,
 		ReadTimeout:  time.Duration(cfg.Redis.Timeout) * time.Second,

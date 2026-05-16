@@ -633,12 +633,24 @@ func (c *BotAPIClient) DeleteBotInstance(instanceID string) (map[string]interfac
 	return c.makeRequest("DELETE", endpoint, nil)
 }
 
-// GetBotInstanceTrades gets trades for a bot instance using the upstream status filter contract.
-func (c *BotAPIClient) GetBotInstanceTrades(instanceID string, status *string) (map[string]interface{}, error) {
+// GetBotInstanceTrades gets trades for a bot instance using the upstream status and pagination filter contract.
+func (c *BotAPIClient) GetBotInstanceTrades(instanceID string, status *string, limit *int, offset *int) (map[string]interface{}, error) {
 	endpoint := fmt.Sprintf("/api/v1/bots/%s/trades", instanceID)
+
+	params := url.Values{}
 	if status != nil && strings.TrimSpace(*status) != "" {
-		endpoint += fmt.Sprintf("?status=%s", strings.TrimSpace(*status))
+		params.Set("status", strings.TrimSpace(*status))
 	}
+	if limit != nil && *limit > 0 {
+		params.Set("limit", strconv.Itoa(*limit))
+	}
+	if offset != nil && *offset >= 0 {
+		params.Set("offset", strconv.Itoa(*offset))
+	}
+	if encoded := params.Encode(); encoded != "" {
+		endpoint += "?" + encoded
+	}
+
 	return c.makeRequest("GET", endpoint, nil)
 }
 

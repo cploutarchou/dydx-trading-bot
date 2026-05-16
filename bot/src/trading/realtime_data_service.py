@@ -4,14 +4,21 @@ Captures live bot data and broadcasts updates via WebSocket
 """
 
 import asyncio
+import json
+import os
 from typing import Dict
 
-from loguru import logger
-
 from internal.repository.repository_realtime import UnitOfWorkRealtime
+from loguru import logger
 from src.api.realtime_serializers import serialize_stats_risk_fields
-from src.api.websocket_server import broadcast_position_update, broadcast_market_update, broadcast_stats_update, \
-    broadcast_alert, broadcast_position_opened, broadcast_position_closed
+from src.api.websocket_server import (
+    broadcast_alert,
+    broadcast_market_update,
+    broadcast_position_closed,
+    broadcast_position_opened,
+    broadcast_position_update,
+    broadcast_stats_update,
+)
 from src.infrastructure.database import db
 from src.infrastructure.use_cases.async_job_manager import async_job_manager
 from src.shared.time_utils import utc_now_iso
@@ -23,6 +30,75 @@ class RealTimeDataService:
     def __init__(self):
         self.update_tasks: Dict[int, asyncio.Task] = {}
         self.update_interval = 5  # seconds
+        self.market_sync_resolution = (
+            str(os.getenv("MARKET_SYNC_RESOLUTION", "1HOUR") or "1HOUR")
+            .strip()
+            .upper()
+        )
+
+    def _get_redis_client(self):
+        try:
+            import redis as _redis
+
+            return _redis.from_url(
+                os.getenv("CELERY_BROKER_URL")
+                or os.getenv("REDIS_URL")
+                or "redis://localhost:6379/0",
+                decode_responses=True,
+                socket_connect_timeout=1,
+                socket_timeout=1,
+            )
+        except Exception as exc:
+            logger.debug("realtime_market_sync_redis_unavailable error={!r}", exc)
+            return None
+
+    @staticmethod
+    def _extract_latest_close(payload) -> float | None:
+        if not isinstance(payload, dict):
+            return None
+        candles = payload.get("candles")
+        if not isinstance(candles, list) or not candles:
+            return None
+
+        latest = None
+        latest_started_at = ""
+        for candle in candles:
+            if not isinstance(candle, dict):
+                continue
+            started_at = str(candle.get("startedAt", "") or "")
+            if latest is None:
+                latest = candle
+                latest_started_at = started_at
+                continue
+            if started_at and started_at > latest_started_at:
+                latest = candle
+                latest_started_at = started_at
+
+        if not isinstance(latest, dict):
+            return None
+        close_raw = latest.get("close")
+        try:
+            return float(close_raw)
+        except (TypeError, ValueError):
+            return None
+
+    def _get_cached_latest_price(self, redis_client, symbol: str) -> float | None:
+        if redis_client is None:
+            return None
+        try:
+            key = f"market:candles:{str(symbol).upper()}:{self.market_sync_resolution}"
+            value = redis_client.get(key)
+            if not value:
+                return None
+            payload = json.loads(value)
+            return self._extract_latest_close(payload)
+        except Exception as exc:
+            logger.debug(
+                "realtime_market_sync_cache_read_failed symbol={} error={!r}",
+                symbol,
+                exc,
+            )
+            return None
 
     async def start_bot_monitoring(self, bot_instance_id: int):
         """Start monitoring data for a specific bot"""
@@ -126,27 +202,60 @@ class RealTimeDataService:
     async def _update_market_data(self, bot_instance_id: int, uow: UnitOfWorkRealtime):
         """Update market data snapshots"""
         try:
-            # This would be called with fresh market data from dYdX API
-            # For now, just broadcast existing data
             market_data = uow.market_data.get_all_market_data(bot_instance_id)
+            redis_client = self._get_redis_client()
+            refreshed = 0
 
-            for market in market_data:
-                await broadcast_market_update(
+            try:
+                for market in market_data:
+                    cached_price = self._get_cached_latest_price(redis_client, market.symbol)
+                    if cached_price is not None:
+                        uow.market_data.upsert_market_data(
+                            bot_instance_id=bot_instance_id,
+                            symbol=market.symbol,
+                            current_price=cached_price,
+                            bid_price=float(market.bid_price) if market.bid_price is not None else None,
+                            ask_price=float(market.ask_price) if market.ask_price is not None else None,
+                            volume_24h=float(market.volume_24h) if market.volume_24h is not None else None,
+                            volatility_24h=float(market.volatility_24h) if market.volatility_24h is not None else None,
+                            rsi=float(market.rsi) if market.rsi is not None else None,
+                            macd=float(market.macd) if market.macd is not None else None,
+                            moving_avg_20=float(market.moving_avg_20) if market.moving_avg_20 is not None else None,
+                            moving_avg_50=float(market.moving_avg_50) if market.moving_avg_50 is not None else None,
+                            funding_rate=float(market.funding_rate) if market.funding_rate is not None else None,
+                        )
+                        market.current_price = cached_price
+                        refreshed += 1
+
+                    await broadcast_market_update(
+                        bot_instance_id,
+                        {
+                            "symbol": market.symbol,
+                            "current_price": float(market.current_price),
+                            "bid_price": float(market.bid_price)
+                            if market.bid_price
+                            else None,
+                            "ask_price": float(market.ask_price)
+                            if market.ask_price
+                            else None,
+                            "volume_24h": float(market.volume_24h)
+                            if market.volume_24h
+                            else None,
+                            "updated_at": utc_now_iso(),
+                        },
+                    )
+            finally:
+                if redis_client is not None:
+                    try:
+                        redis_client.close()
+                    except Exception:
+                        pass
+
+            if refreshed:
+                logger.debug(
+                    "realtime_market_sync_applied bot_instance_id={} refreshed_symbols={}",
                     bot_instance_id,
-                    {
-                        "symbol": market.symbol,
-                        "current_price": float(market.current_price),
-                        "bid_price": float(market.bid_price)
-                        if market.bid_price
-                        else None,
-                        "ask_price": float(market.ask_price)
-                        if market.ask_price
-                        else None,
-                        "volume_24h": float(market.volume_24h)
-                        if market.volume_24h
-                        else None,
-                        "updated_at": utc_now_iso(),
-                    },
+                    refreshed,
                 )
 
         except Exception as e:

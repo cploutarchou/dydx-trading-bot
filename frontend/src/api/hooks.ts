@@ -2,29 +2,29 @@
 // Provides optimized data fetching with loading states, error handling, and caching
 
 import {
-    useInfiniteQuery,
-    useMutation,
-    useQueries,
-    useQuery,
-    useQueryClient,
+	useInfiniteQuery,
+	useMutation,
+	useQueries,
+	useQuery,
+	useQueryClient,
 } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import api, { TelegramConfigPayload, TelegramSettingsScope } from '../api';
 import { enhancedApiClient as apiClient } from './enhancedClient';
 import { cacheUtils, queryConfigs, queryKeys } from './queryClient';
 import type {
-    BacktestConfig,
-    BotInstance,
-    BotJob,
-    CreateBotRequest,
-    ListAlertsParams,
-    ListBacktestsParams,
-    ListBotsParams,
-    ListTradesParams,
-    QuickDeployBotRequest,
-    StartBotRequest,
-    UpdateBotRequest,
-    User,
+	BacktestConfig,
+	BotInstance,
+	BotJob,
+	CreateBotRequest,
+	ListAlertsParams,
+	ListBacktestsParams,
+	ListBotsParams,
+	ListTradesParams,
+	QuickDeployBotRequest,
+	StartBotRequest,
+	UpdateBotRequest,
+	User,
 } from './types';
 
 interface ManagedWebSocketOptions {
@@ -34,6 +34,7 @@ interface ManagedWebSocketOptions {
   onOpen?: (_socket: WebSocket) => (() => void) | void;
   staleAfterMs?: number;
   onStale?: () => Promise<void> | void;
+  closeOnStale?: boolean;
 }
 
 const useManagedWebSocket = ({
@@ -43,6 +44,7 @@ const useManagedWebSocket = ({
   onOpen,
   staleAfterMs = 15000,
   onStale,
+  closeOnStale = true,
 }: ManagedWebSocketOptions) => {
   const [isConnected, setIsConnected] = useState(false);
   const [socketError, setSocketError] = useState<Error | null>(null);
@@ -50,6 +52,7 @@ const useManagedWebSocket = ({
   const reconnectTimerRef = useRef<number | null>(null);
   const staleTimerRef = useRef<number | null>(null);
   const staleInFlightRef = useRef(false);
+  const lastStaleLogAtRef = useRef(0);
 
   useEffect(() => {
     if (!enabled) {
@@ -98,8 +101,20 @@ const useManagedWebSocket = ({
           return;
         }
 
+        const now = Date.now();
+        const shouldLogStaleEvent = now - lastStaleLogAtRef.current >= 60_000;
+        if (shouldLogStaleEvent) {
+          lastStaleLogAtRef.current = now;
+        }
+
         if (!staleInFlightRef.current) {
           staleInFlightRef.current = true;
+          if (shouldLogStaleEvent) {
+            console.info('🔌 WebSocket stale threshold reached; requesting HTTP resync', {
+              staleAfterMs,
+              closeOnStale,
+            });
+          }
           Promise.resolve(onStale?.())
             .catch((error) => {
               console.warn('Failed websocket stale resync', error);
@@ -109,11 +124,27 @@ const useManagedWebSocket = ({
             });
         }
 
-        try {
-          socket.close();
-        } catch (error) {
-          console.warn('Failed to close stale websocket', error);
+        if (closeOnStale) {
+          if (shouldLogStaleEvent) {
+            console.warn('🔌 Closing stale WebSocket to trigger controlled reconnect', {
+              staleAfterMs,
+            });
+          }
+          try {
+            socket.close();
+          } catch (error) {
+            console.warn('Failed to close stale websocket', error);
+          }
+          return;
         }
+
+        if (shouldLogStaleEvent) {
+          console.info('🔌 Keeping stale WebSocket open while fallback polling resyncs state', {
+            staleAfterMs,
+          });
+        }
+
+        scheduleStaleCheck();
       }, staleAfterMs);
     };
 
@@ -246,7 +277,7 @@ const useManagedWebSocket = ({
         socket.close();
       }
     };
-  }, [connectSocket, enabled, onMessage, onOpen, onStale, staleAfterMs]);
+  }, [closeOnStale, connectSocket, enabled, onMessage, onOpen, onStale, staleAfterMs]);
 
   return { isConnected, socketError };
 };
@@ -1184,6 +1215,8 @@ export function useBacktestProgress(runId: string) {
     // reconnect storm where the server closes idle sockets every ~15 s.
     enabled: !!runId && !isTerminalStatus(data?.status),
     connectSocket: useCallback(() => api.connectBacktestSocket(runId), [runId]),
+    closeOnStale: false,
+    staleAfterMs: 30_000,
     onMessage: useCallback(
       (parsed: unknown) => {
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {

@@ -2367,7 +2367,8 @@ class BacktestService:
                     selected_pairs=selected_pair_labels,
                 ),
             )
-            deadline_monotonic = time.monotonic() + timeout_seconds
+            started_monotonic = time.monotonic()
+            deadline_monotonic = started_monotonic + timeout_seconds
             started_at = datetime.now(timezone.utc)
             deadline_at = started_at + timedelta(seconds=timeout_seconds)
             run_data["status"] = "running"
@@ -2394,7 +2395,7 @@ class BacktestService:
             )
             run_data["updated_at"] = started_at.isoformat()
             run_data = self._persist_run_data(run_data)
-            async_job_manager.mark_running(run_id)
+            # mark_running is handled by create_supervised_task; do not call it here.
 
             params = request_payload.get("trading_parameters") or {}
             if request_payload.get("strategy_id") is not None and not isinstance(
@@ -2543,8 +2544,18 @@ class BacktestService:
 
                 if progress_callback is not None:
                     try:
+                        _elapsed = time.monotonic() - started_monotonic
+                        _pairs_done = max(1, idx)
+                        _eta_seconds = (
+                            int(
+                                (_elapsed / _pairs_done)
+                                * max(0, total_pairs - _pairs_done)
+                            )
+                            if _elapsed > 0 and _pairs_done > 0
+                            else 0
+                        )
                         await asyncio.wait_for(
-                            progress_callback(run_id, progress, f"{m1}/{m2}", 0),
+                            progress_callback(run_id, progress, f"{m1}/{m2}", _eta_seconds),
                             timeout=min(
                                 self._PROGRESS_CALLBACK_TIMEOUT_SECONDS,
                                 max(0.001, self._remaining_seconds(deadline_monotonic)),

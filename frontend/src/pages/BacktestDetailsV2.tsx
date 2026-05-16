@@ -6,27 +6,27 @@
  */
 
 import {
-	Activity,
-	Bot,
-	CalendarRange,
-	CandlestickChart,
-	CircleDot,
-	Clock3,
-	Gauge,
-	Layers,
-	Loader,
-	Pause,
-	Percent,
-	Play,
-	Radar,
-	Rocket,
-	RotateCcw,
-	Scale,
-	ShieldCheck,
-	Square,
-	TrendingDown,
-	TrendingUp,
-	Waves,
+    Activity,
+    Bot,
+    CalendarRange,
+    CandlestickChart,
+    CircleDot,
+    Clock3,
+    Gauge,
+    Layers,
+    Loader,
+    Pause,
+    Percent,
+    Play,
+    Radar,
+    Rocket,
+    RotateCcw,
+    Scale,
+    ShieldCheck,
+    Square,
+    TrendingDown,
+    TrendingUp,
+    Waves,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -35,13 +35,18 @@ import { enhancedApiClient } from '../api/enhancedClient';
 import { useBacktestProgress } from '../api/hooks';
 import { AIBacktestExplainer } from '../components/AIBacktestExplainer';
 import BacktestLightweightChart, {
-	type BacktestChartMarker,
-	type BacktestChartPoint,
+    type BacktestChartMarker,
+    type BacktestChartPoint,
 } from '../components/BacktestLightweightChart';
 import BacktestPositionsPanel from '../components/BacktestPositionsPanel';
 import { BacktestResultsEnhanced } from '../components/BacktestResultsEnhanced';
 import BacktestTradesPanel from '../components/BacktestTradesPanel';
 import { PageContainer } from '../components/PageContainer';
+import {
+  LiveStateBadge,
+    formatBacktestProgressSourceLabel,
+  resolveBacktestStreamBadge,
+} from '../components/ui/LiveState';
 
 interface Candle {
   market: string;
@@ -225,7 +230,11 @@ const firstFiniteNumber = (...values: unknown[]): number | null => {
   return null;
 };
 
-const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+const withTimeout = async <T,>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> => {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<T>((_, reject) => {
     timeoutId = setTimeout(() => {
@@ -255,7 +264,11 @@ const buildFallbackBacktestFromStatus = (
   const progress =
     firstFiniteNumber(payload.progress_percent, payload.progress_pct, payload.progress) ?? 0;
   const status = firstMeaningfulString(payload.status, payload.state) ?? 'PENDING';
-  const updatedAt = firstMeaningfulString(payload.updated_at, payload.timestamp, payload.started_at);
+  const updatedAt = firstMeaningfulString(
+    payload.updated_at,
+    payload.timestamp,
+    payload.started_at
+  );
 
   return {
     run_id: runId,
@@ -1208,15 +1221,11 @@ export const BacktestDetailsV2: React.FC = () => {
     typeof progressQuery.etaSeconds === 'number'
       ? formatDurationFromSeconds(progressQuery.etaSeconds)
       : null;
-  const progressSourceLabels: Record<string, string> = {
-    status: 'live status',
-    websocket: 'websocket',
-    polling_recovery: 'polling recovery',
-    polling: 'polling',
-    list_fallback: 'list fallback',
-    details: 'details status',
-  };
-  const progressSourceLabel = progressSourceLabels[progressQuery.progressSource] || 'default';
+  const progressSourceLabel = formatBacktestProgressSourceLabel(progressQuery.progressSource);
+  const streamBadge = resolveBacktestStreamBadge(
+    progressQuery.progressSource,
+    Boolean(progressQuery.isConnected)
+  );
   const totalPnl = liveBacktest.total_pnl_usd ?? liveBacktest.total_pnl ?? 0;
   const maxDrawdown = liveBacktest.max_drawdown ?? liveBacktest.max_drawdown_pct ?? 0;
   const winRatePercent = normalizePercentValue(liveBacktest.win_rate);
@@ -1756,9 +1765,11 @@ export const BacktestDetailsV2: React.FC = () => {
                 >
                   {statusNorm}
                 </span>
-                <span className="rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1 text-[11px] font-medium text-slate-300">
-                  {progressQuery.isConnected ? 'Live websocket' : 'Silent recovery mode'}
-                </span>
+                <LiveStateBadge
+                  tone={streamBadge.tone}
+                  label={streamBadge.label}
+                  className="rounded-full px-3 py-1 normal-case"
+                />
               </div>
               <div>
                 <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-5xl">

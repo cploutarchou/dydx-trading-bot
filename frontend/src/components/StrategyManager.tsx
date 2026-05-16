@@ -45,7 +45,16 @@ import { PageContainer } from './PageContainer';
 
 interface StrategyStatus {
   strategyId: number;
-  status: 'stopped' | 'starting' | 'running' | 'stopping' | 'paused' | 'error';
+  status:
+    | 'stopped'
+    | 'starting'
+    | 'running'
+    | 'stopping'
+    | 'paused'
+    | 'degraded'
+    | 'recovering'
+    | 'safeguarded'
+    | 'error';
   lastError?: string;
   tradesExecuted?: number;
   pnl?: number;
@@ -183,6 +192,15 @@ const HEARTBEAT_DELAYED_THRESHOLD_MS = 120_000;
 const HEARTBEAT_TREND_MAX_POINTS = 14;
 const HEARTBEAT_TREND_MAX_SECONDS = 180;
 
+const isRuntimeOperationalStatus = (status: StrategyStatus['status']): boolean =>
+  status === 'running' ||
+  status === 'degraded' ||
+  status === 'recovering' ||
+  status === 'safeguarded';
+
+const isRuntimeActiveStatus = (status: StrategyStatus['status']): boolean =>
+  isRuntimeOperationalStatus(status) || status === 'starting';
+
 type HeartbeatTone = 'live' | 'delayed' | 'stale' | 'unknown';
 
 const resolveHeartbeatTone = (
@@ -270,12 +288,14 @@ export default function StrategyManager() {
   const { duplicateStrategy, deleteStrategy } = useStrategyStore();
   const strategiesQuery = useStrategies(0, 100, true);
   const strategies = strategiesQuery.data;
-  const safeStrategies = useMemo(
+  const safeStrategies = useMemo<Strategy[]>(
     () =>
-      (Array.isArray(strategies) ? strategies : []).filter(
-        (strategy): strategy is Strategy =>
-          Boolean(strategy) && typeof strategy.id === 'number' && Number.isFinite(strategy.id)
-      ),
+      (Array.isArray(strategies) ? strategies : [])
+        .filter(
+          (strategy) =>
+            Boolean(strategy) && typeof strategy.id === 'number' && Number.isFinite(strategy.id)
+        )
+        .map((strategy) => strategy as unknown as Strategy),
     [strategies]
   );
   const [strategyStatuses, setStrategyStatuses] = useState<Map<number, StrategyStatus>>(new Map());
@@ -357,7 +377,9 @@ export default function StrategyManager() {
       nextStatuses.forEach((status) => {
         nextMap.set(status.strategyId, status);
       });
-      const running = nextStatuses.filter((status) => status.status === 'running').length;
+      const running = nextStatuses.filter((status) =>
+        isRuntimeOperationalStatus(status.status)
+      ).length;
       setRunningCount(running);
       return nextMap;
     });
@@ -381,8 +403,8 @@ export default function StrategyManager() {
     setStrategyStatuses((prev) => {
       const nextMap = new Map(prev);
       nextMap.set(nextStatus.strategyId, nextStatus);
-      const running = Array.from(nextMap.values()).filter(
-        (status) => status.status === 'running'
+      const running = Array.from(nextMap.values()).filter((status) =>
+        isRuntimeOperationalStatus(status.status)
       ).length;
       setRunningCount(running);
       return nextMap;
@@ -405,17 +427,6 @@ export default function StrategyManager() {
     strategyId: number,
     runtimeData: Record<string, unknown> | undefined
   ): StrategyStatus => {
-    const normalizedStatus =
-      typeof runtimeData?.status === 'string' ? runtimeData.status.toLowerCase() : 'stopped';
-    const status =
-      normalizedStatus === 'running' ||
-      normalizedStatus === 'starting' ||
-      normalizedStatus === 'stopping' ||
-      normalizedStatus === 'paused' ||
-      normalizedStatus === 'error'
-        ? normalizedStatus
-        : 'stopped';
-
     const startedAt =
       typeof runtimeData?.started_at === 'string' ? runtimeData.started_at : undefined;
     const rawPnl = asNumber(runtimeData?.pnl);
@@ -423,32 +434,51 @@ export default function StrategyManager() {
     const rawOpenPositions = asNumber(runtimeData?.open_positions);
     const rawWinRate = asNumber(runtimeData?.win_rate);
     const rawUptimeSeconds = asNumber(runtimeData?.uptime_seconds);
+    const updatedAt =
+      typeof runtimeData?.last_synced_at === 'string'
+        ? runtimeData.last_synced_at
+        : typeof runtimeData?.updated_at === 'string'
+          ? runtimeData.updated_at
+          : new Date().toISOString();
+    const runtimeUpdatedAt =
+      typeof runtimeData?.runtime_updated_at === 'string'
+        ? runtimeData.runtime_updated_at
+        : typeof runtimeData?.last_synced_at === 'string'
+          ? runtimeData.last_synced_at
+          : typeof runtimeData?.updated_at === 'string'
+            ? runtimeData.updated_at
+            : undefined;
+    const normalizedStatus =
+      typeof runtimeData?.status === 'string' ? runtimeData.status.toLowerCase() : 'stopped';
+    const acceptedStatus =
+      normalizedStatus === 'running' ||
+      normalizedStatus === 'starting' ||
+      normalizedStatus === 'stopping' ||
+      normalizedStatus === 'paused' ||
+      normalizedStatus === 'degraded' ||
+      normalizedStatus === 'recovering' ||
+      normalizedStatus === 'safeguarded' ||
+      normalizedStatus === 'error'
+        ? normalizedStatus
+        : 'stopped';
+    const hasLiveExposure = rawOpenPositions !== undefined && rawOpenPositions > 0;
+    const status = acceptedStatus === 'error' && hasLiveExposure ? 'running' : acceptedStatus;
+    const rawLastError =
+      typeof runtimeData?.last_error === 'string' ? runtimeData.last_error.trim() : '';
 
     const computedUptimeSeconds =
       rawUptimeSeconds !== undefined
         ? rawUptimeSeconds
-        : startedAt && status === 'running'
+        : startedAt && isRuntimeOperationalStatus(status)
           ? Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000))
           : undefined;
 
     return {
       strategyId,
       status,
-      lastError: typeof runtimeData?.last_error === 'string' ? runtimeData.last_error : undefined,
-      updatedAt:
-        typeof runtimeData?.last_synced_at === 'string'
-          ? runtimeData.last_synced_at
-          : typeof runtimeData?.updated_at === 'string'
-            ? runtimeData.updated_at
-            : new Date().toISOString(),
-      runtimeUpdatedAt:
-        typeof runtimeData?.runtime_updated_at === 'string'
-          ? runtimeData.runtime_updated_at
-          : typeof runtimeData?.last_synced_at === 'string'
-            ? runtimeData.last_synced_at
-            : typeof runtimeData?.updated_at === 'string'
-              ? runtimeData.updated_at
-              : undefined,
+      lastError: status === 'error' && rawLastError ? rawLastError : undefined,
+      updatedAt,
+      runtimeUpdatedAt,
       startedAt,
       tradesExecuted: rawTrades !== undefined ? Math.max(0, Math.floor(rawTrades)) : undefined,
       pnl: rawPnl,
@@ -487,24 +517,35 @@ export default function StrategyManager() {
     }
 
     const nextStatuses = runtimeQueries.map((query, index) => {
+      const strategyId = strategyIds[index];
       if (query.isSuccess && query.data) {
         return toStrategyStatus(
-          strategyIds[index],
+          strategyId,
           query.data.data as Record<string, unknown> | undefined
         );
       }
+      if (!query.isError) {
+        return (
+          strategyStatuses.get(strategyId) ?? {
+            strategyId,
+            status: 'stopped' as const,
+            updatedAt: new Date().toISOString(),
+          }
+        );
+      }
       return {
-        strategyId: strategyIds[index],
+        strategyId,
         status: 'error' as const,
-        lastError: query.error
-          ? getErrorMessage(query.error, 'Failed to load runtime status')
-          : 'Loading...',
+        lastError: getErrorMessage(query.error, 'Failed to load runtime status'),
         updatedAt: new Date().toISOString(),
       };
     });
 
     applyStrategyStatuses(nextStatuses);
-  }, [runtimeQueries.map((q) => q.dataUpdatedAt).join(','), strategyIds.join(',')]);
+  }, [
+    runtimeQueries.map((q) => `${q.dataUpdatedAt}:${q.errorUpdatedAt}:${q.fetchStatus}`).join(','),
+    strategyIds.join(','),
+  ]);
   // ─────────────────────────────────────────────────────────────────────────────
 
   // ── Start-dialog readiness: React Query (only fetches when dialog is open) ──
@@ -876,7 +917,8 @@ export default function StrategyManager() {
 
   const handleRuntimeToggle = async (strategy: Strategy) => {
     const currentStatus = strategyStatuses.get(strategy.id);
-    const shouldStop = currentStatus?.status === 'running' || currentStatus?.status === 'starting';
+    const shouldStop =
+      currentStatus !== undefined && isRuntimeActiveStatus(currentStatus.status);
 
     if (!shouldStop) {
       openStartDialog(strategy);
@@ -1288,7 +1330,7 @@ export default function StrategyManager() {
       return;
     }
 
-    if (key === 'r' && status.status === 'running') {
+    if (key === 'r' && isRuntimeOperationalStatus(status.status)) {
       event.preventDefault();
       void handleRuntimeToggle(strategy);
     }
@@ -1301,6 +1343,9 @@ export default function StrategyManager() {
       case 'starting':
       case 'stopping':
       case 'paused':
+      case 'degraded':
+      case 'recovering':
+      case 'safeguarded':
         return 'text-yellow-400';
       case 'error':
         return 'text-red-400';
@@ -1316,6 +1361,9 @@ export default function StrategyManager() {
       case 'starting':
       case 'stopping':
       case 'paused':
+      case 'degraded':
+      case 'recovering':
+      case 'safeguarded':
         return 'bg-yellow-900/30 border-yellow-700';
       case 'error':
         return 'bg-red-900/30 border-red-700';
@@ -1359,9 +1407,7 @@ export default function StrategyManager() {
 
   const runtimeHealthSummary = useMemo(() => {
     const statuses = Array.from(strategyStatuses.values());
-    const activeStatuses = statuses.filter(
-      (status) => status.status === 'running' || status.status === 'starting'
-    );
+    const activeStatuses = statuses.filter((status) => isRuntimeActiveStatus(status.status));
     const targetStatuses = activeStatuses.length > 0 ? activeStatuses : statuses;
 
     const hasPnlData = targetStatuses.some((status) => status.pnl !== undefined);
@@ -1655,8 +1701,7 @@ export default function StrategyManager() {
             const strategyHeartbeatAt = status.runtimeUpdatedAt || status.updatedAt;
             const strategyHeartbeat = resolveHeartbeatTone(strategyHeartbeatAt, webSocketConnected);
             const showStaleHeartbeatBadge =
-              (status.status === 'running' || status.status === 'starting') &&
-              strategyHeartbeat.tone === 'stale';
+              isRuntimeActiveStatus(status.status) && strategyHeartbeat.tone === 'stale';
             const lastAction = strategyActivity.get(strategy.id);
             const trendPoints = heartbeatTrend.get(strategy.id) || [];
             const trendSvgPoints = buildSparklinePoints(trendPoints, 76, 18);
@@ -1676,7 +1721,7 @@ export default function StrategyManager() {
                 onBlur={() => setFocusedCardId(null)}
                 onKeyDown={(event) => handleStrategyCardKeyDown(event, strategy, status)}
                 className={`premium-panel premium-panel-hover ${compactCards ? 'p-4' : 'p-6'} transition-all duration-300 focus:outline-none ${
-                  status.status === 'running'
+                  isRuntimeOperationalStatus(status.status)
                     ? 'border-emerald-500/40 shadow-lg shadow-emerald-900/20'
                     : ''
                 } ${
@@ -1709,7 +1754,11 @@ export default function StrategyManager() {
                       className={`w-2 h-2 rounded-full ${
                         status.status === 'running'
                           ? 'bg-green-400 animate-pulse'
-                          : status.status === 'starting' || status.status === 'stopping'
+                          : status.status === 'starting' ||
+                              status.status === 'stopping' ||
+                              status.status === 'degraded' ||
+                              status.status === 'recovering' ||
+                              status.status === 'safeguarded'
                             ? 'bg-yellow-400 animate-pulse'
                             : status.status === 'error'
                               ? 'bg-red-400'
@@ -1730,8 +1779,7 @@ export default function StrategyManager() {
                       Stale heartbeat
                     </span>
                   )}
-                  {strategyHeartbeat.tone === 'delayed' &&
-                    (status.status === 'running' || status.status === 'starting') && (
+                  {strategyHeartbeat.tone === 'delayed' && isRuntimeActiveStatus(status.status) && (
                       <span className="rounded-full border border-amber-500/35 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-200">
                         Delayed heartbeat
                       </span>
@@ -1998,7 +2046,7 @@ export default function StrategyManager() {
                     {/* Toggle Button */}
                     {(() => {
                       const pendingAction = runtimePending[strategy.id];
-                      const isRunning = status.status === 'running' || status.status === 'starting';
+                      const isRunning = isRuntimeActiveStatus(status.status);
                       const buttonLabel =
                         pendingAction === 'start'
                           ? 'Starting...'

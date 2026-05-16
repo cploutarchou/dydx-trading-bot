@@ -616,6 +616,61 @@ export function useBotRuntimeStatsStream(instanceId: string, enabled: boolean = 
   const [isLoading, setIsLoading] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<Error | null>(null);
 
+  const toFiniteRuntimeNumber = useCallback((value: unknown): number | undefined => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+    return undefined;
+  }, []);
+
+  const mergeStatsWithPositions = useCallback(
+    (
+      statsRecord: Record<string, unknown> | null,
+      positions: unknown
+    ): Record<string, unknown> | null => {
+      const merged = statsRecord ? { ...statsRecord } : {};
+
+      if (Array.isArray(positions)) {
+        merged.positions = positions;
+        merged.total_open_positions = positions.length;
+        merged.open_positions = positions.length;
+
+        let positionPnl = 0;
+        let hasPositionPnl = false;
+        positions.forEach((position) => {
+          if (!position || typeof position !== 'object' || Array.isArray(position)) {
+            return;
+          }
+          const record = position as Record<string, unknown>;
+          const pnl =
+            toFiniteRuntimeNumber(record.unrealized_pnl) ??
+            toFiniteRuntimeNumber(record.current_pnl) ??
+            toFiniteRuntimeNumber(record.profit_loss);
+          if (pnl !== undefined) {
+            hasPositionPnl = true;
+            positionPnl += pnl;
+          }
+        });
+
+        if (hasPositionPnl) {
+          merged.total_unrealized_pnl = positionPnl;
+          if (merged.daily_pnl === undefined) {
+            merged.daily_pnl = positionPnl;
+          }
+        }
+      }
+
+      return Object.keys(merged).length > 0 ? merged : null;
+    },
+    [toFiniteRuntimeNumber]
+  );
+
   const extractStatsPayload = useCallback((payload: unknown): Record<string, unknown> | null => {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       return null;
@@ -633,7 +688,7 @@ export function useBotRuntimeStatsStream(instanceId: string, enabled: boolean = 
         !Array.isArray(dataRecord.stats)
           ? (dataRecord.stats as Record<string, unknown>)
           : null;
-      return statsRecord;
+      return mergeStatsWithPositions(statsRecord, dataRecord?.positions);
     }
 
     if (record.type === 'stats' || record.type === 'stats_updated') {
@@ -641,11 +696,53 @@ export function useBotRuntimeStatsStream(instanceId: string, enabled: boolean = 
         record.data && typeof record.data === 'object' && !Array.isArray(record.data)
           ? (record.data as Record<string, unknown>)
           : null;
-      return dataRecord;
+      const nestedStats =
+        dataRecord?.stats && typeof dataRecord.stats === 'object' && !Array.isArray(dataRecord.stats)
+          ? (dataRecord.stats as Record<string, unknown>)
+          : dataRecord;
+      return mergeStatsWithPositions(nestedStats, dataRecord?.positions);
+    }
+
+    if (record.type === 'positions_list') {
+      return mergeStatsWithPositions(null, record.data);
+    }
+
+    const nestedStats =
+      record.stats && typeof record.stats === 'object' && !Array.isArray(record.stats)
+        ? (record.stats as Record<string, unknown>)
+        : null;
+    if (nestedStats) {
+      return mergeStatsWithPositions(nestedStats, record.positions);
+    }
+
+    if (
+      'total_open_positions' in record ||
+      'open_positions' in record ||
+      'total_unrealized_pnl' in record ||
+      'daily_pnl' in record
+    ) {
+      return mergeStatsWithPositions(record, record.positions);
     }
 
     return null;
-  }, []);
+  }, [mergeStatsWithPositions]);
+
+  const mergeRuntimeStatsState = useCallback(
+    (
+      current: Record<string, unknown> | undefined,
+      incoming: Record<string, unknown>
+    ): Record<string, unknown> => {
+      const next = { ...(current ?? {}), ...incoming };
+      const currentPositions = current?.positions;
+      if (!Array.isArray(incoming.positions) && Array.isArray(currentPositions)) {
+        next.positions = currentPositions;
+        next.total_open_positions = currentPositions.length;
+        next.open_positions = currentPositions.length;
+      }
+      return next;
+    },
+    []
+  );
 
   useEffect(() => {
     if (!instanceId || !enabled) {
@@ -660,9 +757,10 @@ export function useBotRuntimeStatsStream(instanceId: string, enabled: boolean = 
     const bootstrap = async () => {
       setIsLoading(true);
       try {
-        const result = await apiClient.getBotStats(instanceId);
-        if (!cancelled && result && typeof result === 'object') {
-          setData(result as Record<string, unknown>);
+        const result = await apiClient.getRealtimeStats(instanceId);
+        const statsPayload = extractStatsPayload(result);
+        if (!cancelled && statsPayload) {
+          setData(statsPayload);
           setBootstrapError(null);
         }
       } catch (error) {
@@ -683,7 +781,7 @@ export function useBotRuntimeStatsStream(instanceId: string, enabled: boolean = 
     return () => {
       cancelled = true;
     };
-  }, [enabled, instanceId]);
+  }, [enabled, extractStatsPayload, instanceId]);
 
   const { isConnected, socketError } = useManagedWebSocket({
     enabled: enabled && !!instanceId,
@@ -692,26 +790,27 @@ export function useBotRuntimeStatsStream(instanceId: string, enabled: boolean = 
       (parsed: unknown) => {
         const statsPayload = extractStatsPayload(parsed);
         if (statsPayload) {
-          setData(statsPayload);
+          setData((current) => mergeRuntimeStatsState(current, statsPayload));
           setBootstrapError(null);
         }
       },
-      [extractStatsPayload]
+      [extractStatsPayload, mergeRuntimeStatsState]
     ),
     onOpen: useCallback((socket: WebSocket) => {
-      const requestStats = () => {
+      const requestRuntimeState = () => {
         if (socket.readyState !== WebSocket.OPEN) {
           return;
         }
         try {
           socket.send(JSON.stringify({ type: 'request_stats' }));
+          socket.send(JSON.stringify({ type: 'request_positions' }));
         } catch (error) {
           console.warn('Failed to request bot runtime stats over websocket', error);
         }
       };
 
-      requestStats();
-      const timerId = window.setInterval(requestStats, 5000);
+      requestRuntimeState();
+      const timerId = window.setInterval(requestRuntimeState, 5000);
       return () => {
         window.clearInterval(timerId);
       };
@@ -721,9 +820,10 @@ export function useBotRuntimeStatsStream(instanceId: string, enabled: boolean = 
         return;
       }
       try {
-        const result = await apiClient.getBotStats(instanceId);
-        if (result && typeof result === 'object') {
-          setData(result as Record<string, unknown>);
+        const result = await apiClient.getRealtimeStats(instanceId);
+        const statsPayload = extractStatsPayload(result);
+        if (statsPayload) {
+          setData((current) => mergeRuntimeStatsState(current, statsPayload));
           setBootstrapError(null);
         }
       } catch (error) {
@@ -731,7 +831,7 @@ export function useBotRuntimeStatsStream(instanceId: string, enabled: boolean = 
           error instanceof Error ? error : new Error('Failed to refresh bot runtime stats')
         );
       }
-    }, [enabled, instanceId]),
+    }, [enabled, extractStatsPayload, instanceId, mergeRuntimeStatsState]),
   });
 
   const combinedError = socketError ?? bootstrapError;

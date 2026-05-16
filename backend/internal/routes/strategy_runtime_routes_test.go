@@ -744,6 +744,14 @@ func TestStrategyRuntimeStatusClearsStaleErrorWhenRemoteIsRunning(t *testing.T) 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"success":true,"data":{"instance_id":"strategy-1-101","status":"running","process_id":777,"config":{"trading_params":{"is_testnet":true}}}}`))
 	})
+	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101/realtime-stats", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"bot_instance_id":"strategy-1-101","stats":{"total_open_positions":2,"total_unrealized_pnl":12.5,"daily_trades_opened":3,"daily_trades_closed":4,"daily_win_rate":0.57,"updated_at":"2026-05-17T00:04:40Z"}}}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101/positions/current", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"bot_instance_id":"strategy-1-101","positions":[{"position_id":"pos-1","unrealized_pnl":5.0},{"position_id":"pos-2","unrealized_pnl":7.5}],"count":2}}`))
+	})
 
 	router, dbConn, upstreamServer := setupStrategyRuntimeRouter(t, upstreamMux)
 	defer func() { _ = dbConn.Close() }()
@@ -793,8 +801,88 @@ func TestStrategyRuntimeStatusClearsStaleErrorWhenRemoteIsRunning(t *testing.T) 
 	if data["bot_status"] != "running" {
 		t.Fatalf("expected runtime bot_status=running, got %v", data["bot_status"])
 	}
+	if data["open_positions"] != float64(2) {
+		t.Fatalf("expected realtime open_positions=2, got %v", data["open_positions"])
+	}
+	if data["pnl"] != float64(12.5) {
+		t.Fatalf("expected realtime pnl=12.5, got %v", data["pnl"])
+	}
+	if data["trades_executed"] != float64(7) {
+		t.Fatalf("expected realtime trades_executed=7, got %v", data["trades_executed"])
+	}
 	if value, exists := data["last_error"]; exists && value != "" && value != nil {
 		t.Fatalf("expected stale runtime error to be cleared, got %v", value)
+	}
+}
+
+func TestStrategyRuntimeStatusPromotesLiveExposureFromStaleRemoteError(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"instance_id":"strategy-1-101","status":"error","last_error":"upstream bot API request timed out","process_id":777,"config":{"trading_params":{"is_testnet":true}}}}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101/realtime-stats", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"bot_instance_id":"strategy-1-101","stats":{"total_open_positions":19,"total_unrealized_pnl":0,"daily_trades_opened":0,"daily_trades_closed":0,"daily_win_rate":0,"updated_at":"2026-05-17T00:10:48Z"}}}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101/positions/current", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"bot_instance_id":"strategy-1-101","positions":[{"position_id":"pos-1"},{"position_id":"pos-2"},{"position_id":"pos-3"}],"count":3}}`))
+	})
+
+	router, dbConn, upstreamServer := setupStrategyRuntimeRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	defer upstreamServer.Close()
+
+	if _, err := dbConn.Exec(
+		`INSERT INTO strategy_execution_states (strategy_id, is_running, last_run_at, next_run_at, state, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		101,
+		false,
+		nil,
+		nil,
+		`{"instance_id":"strategy-1-101","status":"error","bot_status":"error","last_error":"upstream bot API request timed out"}`,
+		time.Now().UTC(),
+		time.Now().UTC(),
+	); err != nil {
+		t.Fatalf("seed stale execution state: %v", err)
+	}
+
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginStrategyRuntimeUser(t, backendServer.URL)
+
+	req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/strategies/101/runtime", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request runtime status: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		var payload map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&payload)
+		t.Fatalf("expected 200 for live exposure runtime, got %d payload=%v", resp.StatusCode, payload)
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode runtime payload: %v", err)
+	}
+
+	data, _ := payload["data"].(map[string]interface{})
+	if data["status"] != "running" {
+		t.Fatalf("expected live exposure to promote runtime status=running, got %v", data["status"])
+	}
+	if data["bot_status"] != "running" {
+		t.Fatalf("expected live exposure to promote bot_status=running, got %v", data["bot_status"])
+	}
+	if data["open_positions"] != float64(3) {
+		t.Fatalf("expected current positions to win open_positions=3, got %v", data["open_positions"])
+	}
+	if value, exists := data["last_error"]; exists && value != "" && value != nil {
+		t.Fatalf("expected stale runtime error to be cleared for live exposure, got %v", value)
 	}
 }
 

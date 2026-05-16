@@ -618,6 +618,10 @@ func crmSecurityEventsHandler(database *sql.DB) gin.HandlerFunc {
 
 			events = append(events, event)
 		}
+		if err := rows.Err(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to iterate security events: %v", err)})
+			return
+		}
 
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,

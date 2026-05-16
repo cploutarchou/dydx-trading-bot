@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"log"
 	"os"
 	"strings"
@@ -122,7 +123,7 @@ func RequireAuth() gin.HandlerFunc {
 				c.Next()
 				return
 			}
-			if err != nil && err != auth.ErrSessionNotFound {
+			if err != nil && !errors.Is(err, auth.ErrSessionNotFound) {
 				log.Printf("RequireAuth: trace_id=%s session lookup failed: %v", traceID, err)
 			} else {
 				log.Printf("RequireAuth: trace_id=%s session cookie not found in store", traceID)
@@ -145,7 +146,7 @@ func RequireAuth() gin.HandlerFunc {
 				c.Next()
 				return
 			}
-			if err != nil && err != auth.ErrSessionNotFound {
+			if err != nil && !errors.Is(err, auth.ErrSessionNotFound) {
 				log.Printf("RequireAuth: trace_id=%s session lookup failed: %v", traceID, err)
 				c.JSON(401, gin.H{"error": "invalid session"})
 				c.Abort()

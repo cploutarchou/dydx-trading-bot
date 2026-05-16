@@ -329,7 +329,7 @@ func TestDelegateInterruptedBacktestsRoutes(t *testing.T) {
 		t.Fatal("timeout waiting for reconcile dry_run query")
 	}
 
-	statusCode, payload = authenticatedJSONRequest(t, http.MethodGet, backendServer.URL+"/api/v1/admin/backtests/interrupted", userToken)
+	statusCode, _ = authenticatedJSONRequest(t, http.MethodGet, backendServer.URL+"/api/v1/admin/backtests/interrupted", userToken)
 	if statusCode != http.StatusForbidden {
 		t.Fatalf("expected non-admin admin-alias status 403, got %d", statusCode)
 	}
@@ -337,7 +337,7 @@ func TestDelegateInterruptedBacktestsRoutes(t *testing.T) {
 		t.Fatalf("unexpected admin alias forbidden message: %v", payload["message"])
 	}
 
-	statusCode, payload = authenticatedJSONRequest(t, http.MethodGet, backendServer.URL+"/api/v1/admin/backtests/interrupted", adminToken)
+	statusCode, _ = authenticatedJSONRequest(t, http.MethodGet, backendServer.URL+"/api/v1/admin/backtests/interrupted", adminToken)
 	if statusCode != http.StatusOK {
 		t.Fatalf("unexpected admin interrupted status: %d", statusCode)
 	}

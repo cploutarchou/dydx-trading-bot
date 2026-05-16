@@ -378,7 +378,7 @@ func TestStrategyRuntimeLifecycleRoutes(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(fmt.Sprintf(`{"success":true,"data":{"instance_id":"strategy-1-101","status":"%s","process_id":321,"config":{"trading_params":{"is_testnet":true}}}}`, status)))
+		_, _ = fmt.Fprintf(w, `{"success":true,"data":{"instance_id":"strategy-1-101","status":"%s","process_id":321,"config":{"trading_params":{"is_testnet":true}}}}`, status)
 	})
 	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101/start", func(w http.ResponseWriter, r *http.Request) {
 		upstreamAuthHeaderCh <- r.Header.Get("Authorization")

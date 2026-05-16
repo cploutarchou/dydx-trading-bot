@@ -1,5 +1,7 @@
 .PHONY: help dev prod setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run config edit-config dev-config prod-config config-keygen config-key-rotate install-config-key show-config-token encrypt-dev-config decrypt-dev-config encrypt-prod-config decrypt-prod-config install-security-tools env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down infra-up infra-down infra-logs infra-ps dev-infra dev-infra-down stack-env stack-env-check stack-up-dev stack-up-prod stack-up-integration stack-down stack-logs stack-ps docs-governance
 MODE ?= development
+STACK_COMPOSE_FILE ?= docker-compose.stack.yml
+INFRA_COMPOSE_FILE ?= docker-compose.infra.yml
 
 DEV_INFRA_NETWORK ?= dydx-dev-infra
 DEV_PG_CONTAINER ?= dydx-dev-postgres
@@ -423,7 +425,12 @@ db-down: ## Stop backend DB services (postgres + redis) via Docker Compose
 
 infra-up: ## Start shared infra only (postgres + redis) for local service development
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		APP_CONFIG_ENV=$(MODE) docker compose -f docker-compose.infra.yml up -d --remove-orphans; \
+		if [ ! -f "$(INFRA_COMPOSE_FILE)" ]; then \
+			echo "❌ Missing $(INFRA_COMPOSE_FILE)."; \
+			echo "   Use make dev-infra (docker-run based local infra) as fallback."; \
+			exit 1; \
+		fi; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE) up -d --remove-orphans; \
 		echo "✅ Infra started (postgres:5432, redis:6379)"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot start infra"; \
@@ -432,7 +439,11 @@ infra-up: ## Start shared infra only (postgres + redis) for local service develo
 
 infra-down: ## Stop shared infra only (postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		APP_CONFIG_ENV=$(MODE) docker compose -f docker-compose.infra.yml down --remove-orphans; \
+		if [ ! -f "$(INFRA_COMPOSE_FILE)" ]; then \
+			echo "❌ Missing $(INFRA_COMPOSE_FILE). Nothing to stop via infra commands."; \
+			exit 1; \
+		fi; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE) down --remove-orphans; \
 		echo "✅ Infra stopped"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot stop infra"; \
@@ -441,7 +452,12 @@ infra-down: ## Stop shared infra only (postgres + redis)
 
 infra-logs: ## Follow logs for shared infra services (postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		APP_CONFIG_ENV=$(MODE) docker compose -f docker-compose.infra.yml logs -f --tail=100; \
+		if [ ! -f "$(INFRA_COMPOSE_FILE)" ]; then \
+			echo "❌ Missing $(INFRA_COMPOSE_FILE)."; \
+			echo "   Tip: use docker logs for dev-infra containers ($(DEV_PG_CONTAINER), $(DEV_BOT_PG_CONTAINER), $(DEV_REDIS_CONTAINER))."; \
+			exit 1; \
+		fi; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE) logs -f --tail=100; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot fetch infra logs"; \
 		exit 0; \
@@ -449,7 +465,12 @@ infra-logs: ## Follow logs for shared infra services (postgres + redis)
 
 infra-ps: ## Show status for shared infra services (postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		APP_CONFIG_ENV=$(MODE) docker compose -f docker-compose.infra.yml ps; \
+		if [ ! -f "$(INFRA_COMPOSE_FILE)" ]; then \
+			echo "❌ Missing $(INFRA_COMPOSE_FILE)."; \
+			echo "   Tip: use make dev-infra and inspect with docker ps | grep dydx-dev-."; \
+			exit 1; \
+		fi; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE) ps; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot fetch infra status"; \
 		exit 0; \
@@ -557,9 +578,14 @@ dev-infra-down: ## Stop/remove local backend Postgres + bot Postgres + Redis cre
 
 stack-up-dev: ## Start full integration stack (api + worker + frontend dev + postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		if [ ! -f "$(STACK_COMPOSE_FILE)" ]; then \
+			echo "❌ Missing $(STACK_COMPOSE_FILE)."; \
+			echo "   Use service-first workflow instead: make infra-up, then run backend/frontend/bot individually."; \
+			exit 1; \
+		fi; \
 		set -e; \
 		python3 scripts/validate_stack_env.py --environment development; \
-		APP_CONFIG_ENV=development docker compose -f docker-compose.stack.yml --profile dev up -d --remove-orphans; \
+		APP_CONFIG_ENV=development docker compose -f $(STACK_COMPOSE_FILE) --profile dev up -d --remove-orphans; \
 		echo "✅ Dev stack started (frontend:5173, api:8889, worker enabled)"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot start stack"; \
@@ -568,9 +594,14 @@ stack-up-dev: ## Start full integration stack (api + worker + frontend dev + pos
 
 stack-up-prod: ## Start split app stack (api + worker + frontend preview + postgres + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		if [ ! -f "$(STACK_COMPOSE_FILE)" ]; then \
+			echo "❌ Missing $(STACK_COMPOSE_FILE)."; \
+			echo "   Use service-first workflow instead: make infra-up, then run backend/frontend/bot individually."; \
+			exit 1; \
+		fi; \
 		set -e; \
 		python3 scripts/validate_stack_env.py --environment production --strict-prod; \
-		APP_CONFIG_ENV=production docker compose -f docker-compose.stack.yml --profile prod up -d --remove-orphans; \
+		APP_CONFIG_ENV=production docker compose -f $(STACK_COMPOSE_FILE) --profile prod up -d --remove-orphans; \
 		echo "✅ Prod-like stack started (proxy:8080, api internal, frontend internal)"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot start stack"; \
@@ -581,7 +612,11 @@ stack-up-integration: stack-up-dev ## Alias for full integration stack in dev pr
 
 stack-down: ## Stop split app stack
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		APP_CONFIG_ENV=$(MODE) docker compose -f docker-compose.stack.yml --profile dev --profile prod down --remove-orphans; \
+		if [ ! -f "$(STACK_COMPOSE_FILE)" ]; then \
+			echo "❌ Missing $(STACK_COMPOSE_FILE). Nothing to stop via stack commands."; \
+			exit 1; \
+		fi; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f $(STACK_COMPOSE_FILE) --profile dev --profile prod down --remove-orphans; \
 		echo "✅ Stack stopped"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot stop stack"; \
@@ -590,7 +625,12 @@ stack-down: ## Stop split app stack
 
 stack-logs: ## Follow logs for split app stack
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		APP_CONFIG_ENV=$(MODE) docker compose -f docker-compose.stack.yml logs -f --tail=100; \
+		if [ ! -f "$(STACK_COMPOSE_FILE)" ]; then \
+			echo "❌ Missing $(STACK_COMPOSE_FILE)."; \
+			echo "   Tip: use make infra-logs and service-level logs instead."; \
+			exit 1; \
+		fi; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f $(STACK_COMPOSE_FILE) logs -f --tail=100; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot fetch logs"; \
 		exit 0; \
@@ -598,7 +638,12 @@ stack-logs: ## Follow logs for split app stack
 
 stack-ps: ## Show status for split app stack services
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		APP_CONFIG_ENV=$(MODE) docker compose -f docker-compose.stack.yml ps; \
+		if [ ! -f "$(STACK_COMPOSE_FILE)" ]; then \
+			echo "❌ Missing $(STACK_COMPOSE_FILE)."; \
+			echo "   Tip: use make infra-ps for infra status and service-specific run commands."; \
+			exit 1; \
+		fi; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f $(STACK_COMPOSE_FILE) ps; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot fetch service status"; \
 		exit 0; \

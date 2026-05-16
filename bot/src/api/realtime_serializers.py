@@ -13,7 +13,9 @@ def _float_or_zero(value: Any) -> float:
     return float(value) if value is not None else 0.0
 
 
-def serialize_realtime_position(position: Any, include_updated_at: bool = False) -> Dict[str, Any]:
+def serialize_realtime_position(
+    position: Any, include_updated_at: bool = False
+) -> Dict[str, Any]:
     """Serialize an open position for realtime payloads."""
     payload: Dict[str, Any] = {
         "position_id": position.position_id,
@@ -26,22 +28,26 @@ def serialize_realtime_position(position: Any, include_updated_at: bool = False)
         "entry_price2": _float_or_none(position.entry_price2),
         "current_price1": _float_or_none(position.current_price1),
         "current_price2": _float_or_none(position.current_price2),
-        "current_size1": float(position.current_size1),
-        "current_size2": float(position.current_size2),
-        "unrealized_pnl": float(position.unrealized_pnl),
-        "unrealized_pnl_pct": float(position.unrealized_pnl_pct),
+        "current_size1": _float_or_zero(position.current_size1),
+        "current_size2": _float_or_zero(position.current_size2),
+        "unrealized_pnl": _float_or_zero(position.unrealized_pnl),
+        "unrealized_pnl_pct": _float_or_zero(position.unrealized_pnl_pct),
         "z_score_entry": _float_or_none(position.z_score_entry),
         "z_score_current": _float_or_none(position.z_score_current),
         "entered_at": position.entry_time.isoformat(),
     }
 
     if include_updated_at:
-        payload["updated_at"] = position.updated_at.isoformat() if position.updated_at else None
+        payload["updated_at"] = (
+            position.updated_at.isoformat() if position.updated_at else None
+        )
 
     return payload
 
 
-def serialize_market_core(market: Any, include_volatility: bool = True) -> Dict[str, Any]:
+def serialize_market_core(
+    market: Any, include_volatility: bool = True
+) -> Dict[str, Any]:
     """Serialize common market snapshot fields."""
     payload: Dict[str, Any] = {
         "symbol": market.symbol,

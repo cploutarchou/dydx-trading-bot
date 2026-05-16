@@ -22,7 +22,6 @@ import logging
 import os
 import sys
 from datetime import datetime
-from pathlib import Path
 
 # Add the app directory to path (following existing script patterns)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
@@ -67,11 +66,6 @@ Examples:
         '--name',
         default=None,
         help='Custom name for this backtest (default: auto-generated)'
-    )
-    parser.add_argument(
-        '--config',
-        default='app/config.yaml',
-        help='Path to config file (default: app/config.yaml)'
     )
     parser.add_argument(
         '--save',
@@ -156,12 +150,7 @@ async def main():
                     start_date.date(), end_date.date(), duration_days)
         logger.info("Max pairs: %s", pairs_display)
 
-        # Load configuration (following existing patterns)
-        if not Path(args.config).exists():
-            logger.error("Configuration file not found: %s", args.config)
-            logger.info("Run 'make config' to create configuration file")
-            sys.exit(1)
-
+        # Load configuration from the DB/env-backed runtime config path.
         config = app_config()
 
         if not config:

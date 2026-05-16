@@ -9,6 +9,7 @@ import socket
 import threading
 import time
 import traceback as traceback_module
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional, TypeVar, cast
 
@@ -50,14 +51,27 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _monitor_cache_ttl_seconds() -> float:
-    raw = os.getenv("CELERY_MONITOR_CACHE_TTL_SECONDS")
+def _monitor_cache_ttl_seconds(cache_key: Optional[str] = None) -> float:
+    prefix = str(cache_key or "").split(":", 1)[0].strip().lower()
+    default_by_prefix = {
+        "tasks": 5.0,
+        "workers": 5.0,
+        "health": 5.0,
+        "queues": 2.0,
+    }
+    default_ttl = default_by_prefix.get(prefix, 2.0)
+
+    raw = None
+    if prefix:
+        raw = os.getenv(f"CELERY_MONITOR_CACHE_TTL_{prefix.upper()}_SECONDS")
     if raw in (None, ""):
-        return 2.0
+        raw = os.getenv("CELERY_MONITOR_CACHE_TTL_SECONDS")
+    if raw in (None, ""):
+        return default_ttl
     try:
         return max(0.0, float(raw))
     except (TypeError, ValueError):
-        return 2.0
+        return default_ttl
 
 
 def _clear_monitor_cache() -> None:
@@ -66,7 +80,7 @@ def _clear_monitor_cache() -> None:
 
 
 def _cached_monitor_result(cache_key: str, factory: Callable[[], _T]) -> _T:
-    ttl = _monitor_cache_ttl_seconds()
+    ttl = _monitor_cache_ttl_seconds(cache_key)
     if ttl <= 0:
         return factory()
 
@@ -347,6 +361,30 @@ def _inspect() -> Any:
     )
 
 
+def _inspect_call(method_name: str, default: Any) -> Any:
+    try:
+        inspector = _inspect()
+        method = getattr(inspector, method_name, None)
+        if not callable(method):
+            return default
+        payload = method()
+        return payload if payload is not None else default
+    except Exception:
+        return default
+
+
+def _should_probe_async_result(run: Dict[str, Any]) -> bool:
+    if str(os.getenv("CELERY_TASK_RESULT_ENRICH_TERMINAL", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        return True
+    status = celery_state_from_backtest(run.get("status"))
+    return status not in TERMINAL_STATES
+
+
 def _flatten_worker_tasks(
     worker_payload: Optional[Dict[str, Any]], state_name: str
 ) -> List[Dict[str, Any]]:
@@ -411,21 +449,29 @@ def list_celery_tasks(
             task_id = str(run.get("worker_task_id") or run.get("run_id") or "")
             if not task_id:
                 continue
-            result = AsyncResult(task_id, app=celery_app)
+            result = (
+                AsyncResult(task_id, app=celery_app)
+                if _should_probe_async_result(run)
+                else None
+            )
             tasks_by_id[task_id] = _task_from_backtest(run, result)
 
-        inspector = _inspect()
         try:
-            worker_tasks = []
-            worker_tasks.extend(
-                _flatten_worker_tasks(inspector.active(), states.STARTED)
-            )
-            worker_tasks.extend(
-                _flatten_worker_tasks(inspector.reserved(), states.PENDING)
-            )
-            worker_tasks.extend(
-                _flatten_worker_tasks(inspector.scheduled(), "SCHEDULED")
-            )
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                active_future = executor.submit(_inspect_call, "active", {})
+                reserved_future = executor.submit(_inspect_call, "reserved", {})
+                scheduled_future = executor.submit(_inspect_call, "scheduled", {})
+
+                worker_tasks = []
+                worker_tasks.extend(
+                    _flatten_worker_tasks(active_future.result(), states.STARTED)
+                )
+                worker_tasks.extend(
+                    _flatten_worker_tasks(reserved_future.result(), states.PENDING)
+                )
+                worker_tasks.extend(
+                    _flatten_worker_tasks(scheduled_future.result(), "SCHEDULED")
+                )
             for task in worker_tasks:
                 task_id = task["task_id"]
                 if task_id in tasks_by_id:
@@ -536,10 +582,14 @@ def retry_celery_task(task_id: str) -> Dict[str, Any]:
 
 def list_celery_workers() -> Dict[str, Any]:
     def _build_workers() -> Dict[str, Any]:
-        inspector = _inspect()
-        stats_payload = inspector.stats() or {}
-        active_payload = inspector.active() or {}
-        registered_payload = inspector.registered() or {}
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            stats_future = executor.submit(_inspect_call, "stats", {})
+            active_future = executor.submit(_inspect_call, "active", {})
+            registered_future = executor.submit(_inspect_call, "registered", {})
+
+            stats_payload = stats_future.result() or {}
+            active_payload = active_future.result() or {}
+            registered_payload = registered_future.result() or {}
         workers = []
         for worker, stats_value in stats_payload.items():
             active_tasks = active_payload.get(worker) or []
@@ -590,20 +640,41 @@ def celery_health() -> Dict[str, Any]:
         backend_ok = False
         workers_ok = False
         errors: List[str] = []
-        try:
-            with celery_app.connection_for_read() as conn:
-                conn.ensure_connection(max_retries=1)
-                broker_ok = True
-        except Exception as exc:
-            errors.append(f"broker unavailable: {exc}")
+
+        def _probe_broker() -> Optional[str]:
+            nonlocal broker_ok
+            try:
+                with celery_app.connection_for_read() as conn:
+                    conn.ensure_connection(max_retries=1)
+                    broker_ok = True
+                    return None
+            except Exception as exc:
+                return f"broker unavailable: {exc}"
+
         try:
             backend_ok = bool(celery_app.backend)
         except Exception as exc:
             errors.append(f"result backend unavailable: {exc}")
-        try:
-            workers_ok = bool((_inspect().ping() or {}))
-        except Exception as exc:
-            errors.append(f"workers unavailable: {exc}")
+
+        def _probe_workers() -> Optional[str]:
+            nonlocal workers_ok
+            try:
+                workers_ok = bool(_inspect_call("ping", {}))
+                return None
+            except Exception as exc:
+                return f"workers unavailable: {exc}"
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            broker_future = executor.submit(_probe_broker)
+            workers_future = executor.submit(_probe_workers)
+            broker_error = broker_future.result()
+            worker_error = workers_future.result()
+
+        if broker_error:
+            errors.append(broker_error)
+        if worker_error:
+            errors.append(worker_error)
+
         return {
             "status": (
                 "healthy" if broker_ok and backend_ok and workers_ok else "degraded"

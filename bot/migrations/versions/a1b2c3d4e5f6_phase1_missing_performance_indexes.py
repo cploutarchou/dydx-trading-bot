@@ -10,7 +10,7 @@ Changes:
 - jobs: add partial index on (status, created_at) for active-status job polling
 - jobs: add composite (bot_instance_id, status) for per-bot job queries
 - event_logs: add composite (bot_instance_id, created_at DESC) to replace two single-column indexes
-- trades: add composite (bot_instance_id, status, created_at DESC) for trade history queries
+- trades: add composite (bot_instance_id, status, opened_at DESC) for trade history queries
 
 Implementation note:
 CREATE INDEX CONCURRENTLY cannot run inside an open transaction (Alembic transactional DDL).
@@ -66,7 +66,7 @@ _INDEXES = [
         "jobs",
         """
         CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_jobs_bot_status
-            ON jobs (bot_id, status)
+            ON jobs (bot_instance_id, status)
         """,
     ),
     (
@@ -82,7 +82,7 @@ _INDEXES = [
         "trades",
         """
         CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_trades_bot_status_time
-            ON trades (bot_id, status, created_at DESC)
+            ON trades (bot_instance_id, status, opened_at DESC)
         """,
     ),
 ]

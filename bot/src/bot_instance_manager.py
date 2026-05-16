@@ -22,7 +22,6 @@ import psutil
 from loguru import logger
 from sqlalchemy import text
 
-from config.config import config as load_app_config
 from internal.domain.models import BotStatusEnum
 from src.infrastructure.database import db
 from src.infrastructure.domain.bot_api_models import (
@@ -201,7 +200,7 @@ class BotInstanceManager:
         self.status_event_publisher = publisher
 
     def _load_existing_instances(self):
-        """Load bot instances from the database, with file fallback for compatibility."""
+        """Load bot instances from the database only."""
         self.recovery_diagnostics.update(
             {
                 "started_at": datetime.now(timezone.utc).isoformat(),
@@ -227,28 +226,13 @@ class BotInstanceManager:
             )
             return
 
-        if os.getenv(
-            "BOT_ENABLE_LEGACY_STATE_FALLBACK", "false"
-        ).strip().lower() not in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }:
-            self.recovery_diagnostics["source"] = "database_unavailable"
-            self.recovery_diagnostics["completed_at"] = datetime.now(
-                timezone.utc
-            ).isoformat()
-            logger.warning(
-                "Bot instance DB recovery failed; legacy disk fallback is disabled"
-            )
-            return
-
-        self._load_existing_instances_from_disk()
-        self.recovery_diagnostics["source"] = "disk_snapshot"
+        self.recovery_diagnostics["source"] = "database_unavailable"
         self.recovery_diagnostics["completed_at"] = datetime.now(
             timezone.utc
         ).isoformat()
+        logger.warning(
+            "Bot instance DB recovery failed; DB-backed runtime config is required"
+        )
 
     def _record_recovery_skip(self, instance_id: str, reason: str):
         skipped_instances = self.recovery_diagnostics.setdefault(
@@ -414,26 +398,6 @@ class BotInstanceManager:
                     created_at=record.created_at,
                     last_update=record.updated_at,
                 )
-
-                # Regenerate the on-disk config YAML if it was lost (e.g. after a
-                # server restart or volume wipe).  Without this the worker subprocess
-                # falls back to env-based config which lacks per-instance credentials.
-                config_file = self._get_instance_state_files(record.instance_id)[
-                    "config"
-                ]
-                if not config_file.exists():
-                    try:
-                        self._create_instance_config_file(record.instance_id, config)
-                        logger.info(
-                            "Regenerated missing config file for recovered instance {}",
-                            record.instance_id,
-                        )
-                    except Exception as cfg_exc:
-                        logger.warning(
-                            "Failed to regenerate config file for instance {} during DB recovery: {}",
-                            record.instance_id,
-                            cfg_exc,
-                        )
 
                 loaded += 1
 
@@ -908,7 +872,6 @@ class BotInstanceManager:
             "bot_agents": self.state_dir / f"bot_agents_{instance_id}.json",
             "cointegrated_pairs": self.state_dir
             / f"cointegrated_pairs_{instance_id}.json",
-            "config": self.state_dir / f"config_{instance_id}.yaml",
             "log": self.state_dir / f"bot_{instance_id}.log",
         }
 
@@ -1085,148 +1048,6 @@ class BotInstanceManager:
 
         return status_changed
 
-    def _create_instance_config_file(
-        self, instance_id: str, config: BotInstanceConfig
-    ) -> Path:
-        """Create instance-specific configuration file"""
-        files = self._get_instance_state_files(instance_id)
-        runtime_defaults = load_app_config()
-        if runtime_defaults is None:
-            raise RuntimeError("Failed to resolve runtime configuration defaults")
-
-        telegram_defaults = runtime_defaults.telegram
-        backtest_defaults = runtime_defaults.backtesting
-        logging_defaults = runtime_defaults.logging
-        loki_defaults = logging_defaults.loki
-
-        # Create dynamic config YAML for this instance
-        config_data = {
-            "is_testnet": config.trading_params.is_testnet,
-            "environment": runtime_defaults.environment,
-            "telegram": {
-                "token": (
-                    config.telegram.token
-                    if config.telegram and getattr(config.telegram, "token", "")
-                    else telegram_defaults.token
-                ),
-                "chat_id": (
-                    config.telegram.chat_id
-                    if config.telegram and getattr(config.telegram, "chat_id", "")
-                    else telegram_defaults.chat_id
-                ),
-            },
-            "botSettings": {
-                "subaccountNumber": config.trading_params.subaccount_number,
-                "capitalAllocationUsd": config.trading_params.capital_allocation_usd,
-                "abortAllPositions": config.trading_params.abort_all_positions,
-                "findCointegratedPairs": config.trading_params.find_cointegrated_pairs,
-                "manageExits": config.trading_params.manage_exits,
-                "placeTrades": config.trading_params.place_trades,
-                "resolutionTimeframe": config.trading_params.resolution_timeframe,
-                "strategy": config.trading_params.strategy,
-                "statsWindow": config.trading_params.stats_window,
-                "maxHalfLife": config.trading_params.max_half_life,
-                "ZScoreThreshold": config.trading_params.zscore_threshold,
-                "usdPerTrade": config.trading_params.usd_per_trade,
-                "usdMinCollateral": config.trading_params.usd_min_collateral,
-                "closeAtZscoreCross": config.trading_params.close_at_zscore_cross,
-                "maxPositions": config.trading_params.max_positions,
-                "maxDrawdownPct": config.trading_params.max_drawdown_pct,
-                "stopLossPct": config.trading_params.stop_loss_pct,
-                "takeProfitPct": config.trading_params.take_profit_pct,
-                "trailingStopPct": config.trading_params.trailing_stop_pct,
-                "rebalanceIntervalHours": config.trading_params.rebalance_interval_hours,
-                "positionTimeoutHours": config.trading_params.position_timeout_hours,
-                "selectedMarkets": [
-                    str(market).strip()
-                    for market in config.trading_params.selected_markets
-                    if str(market).strip()
-                ],
-            },
-            "backtesting": {
-                "candleResolution": (
-                    config.backtesting_params.candle_resolution
-                    if config.backtesting_params
-                    else backtest_defaults.candleResolution
-                ),
-                "maxHistoryDays": (
-                    config.backtesting_params.max_history_days
-                    if config.backtesting_params
-                    else backtest_defaults.maxHistoryDays
-                ),
-                "startingBalance": (
-                    config.backtesting_params.starting_balance
-                    if config.backtesting_params
-                    else backtest_defaults.startingBalance
-                ),
-                "transactionFee": (
-                    config.backtesting_params.transaction_fee
-                    if config.backtesting_params
-                    else backtest_defaults.transactionFee
-                ),
-                "slippage": (
-                    config.backtesting_params.slippage
-                    if config.backtesting_params
-                    else backtest_defaults.slippage
-                ),
-                "benchmarkSymbol": (
-                    config.backtesting_params.benchmark_symbol
-                    if config.backtesting_params
-                    else backtest_defaults.benchmarkSymbol
-                ),
-                "riskFreeRate": (
-                    config.backtesting_params.risk_free_rate
-                    if config.backtesting_params
-                    else backtest_defaults.riskFreeRate
-                ),
-            },
-            "dydx_testnet": {
-                "dydx_chain_address": (
-                    config.credentials.address
-                    if config.trading_params.is_testnet
-                    else ""
-                ),
-                "dydx_chain_secret": (
-                    config.credentials.mnemonic
-                    if config.trading_params.is_testnet
-                    else ""
-                ),
-            },
-            "dydx_mainnet": {
-                "dydx_chain_address": (
-                    config.credentials.address
-                    if not config.trading_params.is_testnet
-                    else ""
-                ),
-                "dydx_chain_secret": (
-                    config.credentials.mnemonic
-                    if not config.trading_params.is_testnet
-                    else ""
-                ),
-            },
-            "logging": {
-                "level": logging_defaults.level,
-                "loki": {
-                    "enabled": loki_defaults.enabled,
-                    "url": loki_defaults.url,
-                    "username": loki_defaults.username,
-                    "password": loki_defaults.password,
-                    "labels": {
-                        **(loki_defaults.labels or {}),
-                        "instance": instance_id,
-                    },
-                },
-            },
-        }
-
-        # Write YAML config
-        import yaml
-
-        with open(files["config"], "w") as f:
-            yaml.dump(config_data, f, default_flow_style=False)
-
-        return files["config"]
-
     async def create_instance(self, config: BotInstanceConfig) -> BotOperationResult:
         """Create new bot instance"""
         try:
@@ -1258,9 +1079,6 @@ class BotInstanceManager:
                 created_at=datetime.now(timezone.utc),
                 last_update=datetime.now(timezone.utc),
             )
-
-            # Create instance-specific configuration file
-            config_file = self._create_instance_config_file(config.instance_id, config)
 
             # Store instance
             self.instances[config.instance_id] = instance_state
@@ -1345,7 +1163,6 @@ class BotInstanceManager:
             bot_env.update(
                 {
                     "BOT_INSTANCE_ID": instance_id,
-                    "BOT_CONFIG_FILE": str(files["config"]),
                     "BOT_AGENTS_FILE": str(files["bot_agents"]),
                     "BOT_PAIRS_FILE": str(files["cointegrated_pairs"]),
                 }
@@ -1367,8 +1184,6 @@ class BotInstanceManager:
                 "src.main_instance",
                 "--instance-id",
                 instance_id,
-                "--config",
-                str(files["config"]),
             ]
             log_handle = self._open_instance_log(instance_id)
 

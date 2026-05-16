@@ -167,6 +167,9 @@ The current UI direction is production DeFi:
   - live/realtime: cyan
   - warning/recovering: amber
   - negative/failure: rose/red
+- operator density preferences should persist across pages via `localStorage` key
+  `operator-ui-density` using `src/hooks/usePersistentPreference.ts`.
+  Backtest operator pages read this shared preference to keep comfort/dense layouts consistent.
 
 ## Supporting Docs
 

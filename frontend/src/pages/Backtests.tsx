@@ -1521,19 +1521,19 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
             </div>
 
             <div className="operator-section-card p-5">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
+              <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-start gap-3">
                   <div className="rounded-xl bg-emerald-500/10 p-2 text-emerald-300">
                     <Activity className="h-5 w-5" />
                   </div>
-                  <div>
+                  <div className="max-w-2xl">
                     <h2 className="text-lg font-semibold text-white">Active Runs Quick Access</h2>
                     <p className="text-sm text-slate-400">
                       Open live backtests instantly without leaving the dashboard.
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
                   <button
                     type="button"
                     onClick={scrollToCapacityPanel}
@@ -1799,7 +1799,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
 
       {view === 'runs' && (
         <section className="operator-section-card p-5 space-y-4">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-xl font-semibold text-white">All Backtests</h2>
               <p className="text-sm text-slate-400">
@@ -1807,20 +1807,22 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
                 away.
               </p>
             </div>
-            <Link
-              to="/backtests/experiments"
-              className="premium-button premium-button-secondary rounded-2xl px-4 py-2 text-sm"
-            >
-              Experiments
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-            <Link
-              to="/backtests/compare"
-              className="premium-button premium-button-secondary rounded-2xl px-4 py-2 text-sm"
-            >
-              Compare runs
-              <ArrowRight className="h-4 w-4" />
-            </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                to="/backtests/experiments"
+                className="premium-button premium-button-secondary rounded-2xl px-4 py-2 text-sm"
+              >
+                Experiments
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                to="/backtests/compare"
+                className="premium-button premium-button-secondary rounded-2xl px-4 py-2 text-sm"
+              >
+                Compare runs
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
           </div>
           <BacktestList />
         </section>

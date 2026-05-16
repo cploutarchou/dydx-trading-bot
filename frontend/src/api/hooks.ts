@@ -152,6 +152,13 @@ const useManagedWebSocket = ({
       if (closedByEffect || reconnectTimerRef.current !== null) {
         return;
       }
+
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        pausedForPageLifecycle = true;
+        shouldResumeAfterPageShow = true;
+        return;
+      }
+
       const attempts = Math.min(reconnectAttemptRef.current, 4);
       const baseDelayMs = Math.min(1000 * 2 ** attempts, 15000);
       const jitterFactor = 0.75 + Math.random() * 0.5; // 0.75x - 1.25x
@@ -219,7 +226,7 @@ const useManagedWebSocket = ({
       connect();
     };
 
-    const handlePageHide = () => {
+    const pauseSocketLifecycle = (reason: string) => {
       if (closedByEffect) {
         return;
       }
@@ -234,14 +241,14 @@ const useManagedWebSocket = ({
 
       if (socket && socket.readyState !== WebSocket.CLOSED) {
         try {
-          socket.close(1000, 'pagehide');
+          socket.close(1000, reason);
         } catch (error) {
-          console.warn('Failed to close websocket on pagehide', error);
+          console.warn(`Failed to close websocket on ${reason}`, error);
         }
       }
     };
 
-    const handlePageShow = () => {
+    const resumeSocketLifecycle = () => {
       if (closedByEffect || !pausedForPageLifecycle) {
         return;
       }
@@ -257,9 +264,31 @@ const useManagedWebSocket = ({
       connect();
     };
 
+    const handlePageHide = () => {
+      pauseSocketLifecycle('pagehide');
+    };
+
+    const handlePageShow = () => {
+      resumeSocketLifecycle();
+    };
+
+    const handleVisibilityChange = () => {
+      if (typeof document === 'undefined') {
+        return;
+      }
+
+      if (document.visibilityState === 'hidden') {
+        pauseSocketLifecycle('visibility-hidden');
+        return;
+      }
+
+      resumeSocketLifecycle();
+    };
+
     window.addEventListener('online', handleOnline);
     window.addEventListener('pagehide', handlePageHide);
     window.addEventListener('pageshow', handlePageShow);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     connect();
 
     return () => {
@@ -267,6 +296,7 @@ const useManagedWebSocket = ({
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('pageshow', handlePageShow);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       clearReconnectTimer();
       clearStaleTimer();
       clearOpenCleanup();

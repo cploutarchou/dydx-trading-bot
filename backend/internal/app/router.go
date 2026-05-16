@@ -36,6 +36,23 @@ func ResolveBotAPIURL() string {
 	return botAPIURL
 }
 
+func isWebSocketUpgradeRequest(request *http.Request) bool {
+	if request == nil {
+		return false
+	}
+
+	connectionHeader := strings.ToLower(strings.TrimSpace(request.Header.Get("Connection")))
+	upgradeHeader := strings.ToLower(strings.TrimSpace(request.Header.Get("Upgrade")))
+	return strings.Contains(connectionHeader, "upgrade") && upgradeHeader == "websocket"
+}
+
+func shouldCompressResponse(c *gin.Context) bool {
+	if c == nil {
+		return true
+	}
+	return !isWebSocketUpgradeRequest(c.Request)
+}
+
 func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is required")
@@ -64,7 +81,11 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 	router.Use(middleware.HeaderLoggingMiddleware())
 	router.Use(middleware.RequestLoggingMiddleware())
 	router.Use(middleware.RateLimitMiddleware(100, 200))
-	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/health", "/ready", "/api/v1/health", "/api/v1/ready"})))
+	router.Use(gzip.Gzip(
+		gzip.DefaultCompression,
+		gzip.WithExcludedPaths([]string{"/health", "/ready", "/api/v1/health", "/api/v1/ready"}),
+		gzip.WithCustomShouldCompressFn(shouldCompressResponse),
+	))
 
 	// Build CacheService if Redis is enabled and not explicitly provided
 	if deps.CacheService == nil && cfg.Redis.Enabled {

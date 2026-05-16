@@ -8,7 +8,6 @@ from typing import Any
 
 import pandas as pd
 from loguru import logger
-
 from src.constants import (
     CANDLE_FETCH_CONCURRENCY,
     CANDLES_RECENT_CACHE_TTL_SECONDS,
@@ -54,6 +53,34 @@ async def _throttle_api_call() -> None:
             return
     if DYDX_API_THROTTLE_SECONDS > 0:
         await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
+
+
+def _get_recent_candles_from_redis(market: str, resolution: str):
+    """Best-effort shared-cache lookup for recent candles.
+
+    Returns parsed payload or ``None`` when unavailable.
+    """
+    try:
+        import json as _json
+        import os as _os
+
+        import redis as _redis
+
+        _rc = _redis.from_url(
+            _os.getenv("CELERY_BROKER_URL")
+            or _os.getenv("REDIS_URL")
+            or "redis://localhost:6379/0",
+            decode_responses=True,
+            socket_connect_timeout=1,
+            socket_timeout=1,
+        )
+        _redis_val = _rc.get(f"market:candles:{market}:{resolution}")
+        _rc.close()
+        if isinstance(_redis_val, (str, bytes, bytearray)) and _redis_val:
+            return _json.loads(_redis_val)
+    except Exception:
+        return None
+    return None
 
 
 # ── Circuit breaker (pybreaker) ───────────────────────────────────────────────
@@ -152,17 +179,28 @@ def normalize_resolution(resolution):
 DYDX_RESOLUTION = normalize_resolution(RESOLUTION)
 
 
+def _candle_fetch_logger(*, market: str, resolution: str, timeframe: str, kind: str):
+    """Return a logger pre-bound with candle fetch dimensions for Loki filtering."""
+    return logger.bind(
+        market=str(market),
+        resolution=str(resolution),
+        timeframe=str(timeframe),
+        fetch_type=str(kind),
+    )
+
+
 async def get_candles_recent(client, market, resolution=None):
     """Get recent candles for a market, with a 30-second in-process cache."""
     effective_resolution = (
         normalize_resolution(resolution) if resolution else DYDX_RESOLUTION
     )
+    cache_enabled = CANDLES_RECENT_CACHE_TTL_SECONDS > 0 and resolution is None
 
     cache_key = (market, effective_resolution)
     now = time.monotonic()
 
     # Return cached data if still fresh
-    if CANDLES_RECENT_CACHE_TTL_SECONDS > 0:
+    if cache_enabled:
         cached = _candles_recent_cache.get(cache_key)
         if cached is not None and now < cached["expires"]:
             increment_metric("cache_hits_total")
@@ -171,35 +209,16 @@ async def get_candles_recent(client, market, resolution=None):
     increment_metric("cache_misses_total")
 
     # Check shared Redis cache (written by the Celery Beat market sync task)
-    try:
-        import os as _os
-
-        import redis as _redis
-
-        _rc = _redis.from_url(
-            _os.getenv("CELERY_BROKER_URL")
-            or _os.getenv("REDIS_URL")
-            or "redis://localhost:6379/0",
-            decode_responses=True,
-            socket_connect_timeout=1,
-            socket_timeout=1,
-        )
-        _redis_val = _rc.get(f"market:candles:{market}:{effective_resolution}")
-        _rc.close()
-        if isinstance(_redis_val, (str, bytes, bytearray)) and _redis_val:
-            import json as _json
-
-            _redis_data = _json.loads(_redis_val)
-            if CANDLES_RECENT_CACHE_TTL_SECONDS > 0:
-                _candles_recent_cache[cache_key] = {
-                    "data": _redis_data,
-                    "expires": now + CANDLES_RECENT_CACHE_TTL_SECONDS,
-                }
+    if cache_enabled:
+        _redis_data = _get_recent_candles_from_redis(market, effective_resolution)
+        if _redis_data is not None:
+            _candles_recent_cache[cache_key] = {
+                "data": _redis_data,
+                "expires": now + CANDLES_RECENT_CACHE_TTL_SECONDS,
+            }
             increment_metric("cache_hits_total")
             increment_metric("exchange_api_calls_saved_total")
             return _redis_data
-    except Exception:
-        pass  # Redis unavailable — fall through to direct API call
 
     # Protect API rate limits
     await _throttle_api_call()
@@ -207,6 +226,12 @@ async def get_candles_recent(client, market, resolution=None):
 
     # Get Prices from DYDX V4 (guarded by circuit breaker)
     _fetch_start = time.monotonic()
+    _fetch_logger = _candle_fetch_logger(
+        market=market,
+        resolution=effective_resolution,
+        timeframe="recent",
+        kind="recent",
+    )
     try:
         response = await _circuit_call(
             lambda: asyncio.wait_for(
@@ -219,22 +244,15 @@ async def get_candles_recent(client, market, resolution=None):
     except Exception as _exc:
         increment_metric("provider_errors_total")
         _latency_ms = (time.monotonic() - _fetch_start) * 1000.0
-        logger.warning(
-            "candle_fetch_error market={} resolution={} latency_ms={:.1f} error={}",
-            market,
-            effective_resolution,
+        _fetch_logger.warning(
+            "candle_fetch_error latency_ms={:.1f} error={}",
             _latency_ms,
             _exc,
         )
         raise
     else:
         _latency_ms = (time.monotonic() - _fetch_start) * 1000.0
-        logger.debug(
-            "candle_fetch_ok type=recent market={} resolution={} latency_ms={:.1f}",
-            market,
-            effective_resolution,
-            _latency_ms,
-        )
+        _fetch_logger.debug("candle_fetch_ok latency_ms={:.1f}", _latency_ms)
 
     close_prices = []
     for candle in response["candles"]:
@@ -243,7 +261,7 @@ async def get_candles_recent(client, market, resolution=None):
     result = pd.Series(close_prices, dtype=float)
 
     # Store in cache, bounding size to 200 entries
-    if CANDLES_RECENT_CACHE_TTL_SECONDS > 0:
+    if cache_enabled:
         _candles_recent_cache[cache_key] = {
             "data": result,
             "expires": now + CANDLES_RECENT_CACHE_TTL_SECONDS,
@@ -281,6 +299,12 @@ async def get_candles_historical(client, market, resolution=None):
         await _throttle_api_call()
 
         _fetch_start = time.monotonic()
+        _fetch_logger = _candle_fetch_logger(
+            market=market,
+            resolution=effective_resolution,
+            timeframe=timeframe,
+            kind="historical",
+        )
         try:
             response = await _circuit_call(
                 lambda: asyncio.wait_for(
@@ -296,24 +320,15 @@ async def get_candles_historical(client, market, resolution=None):
             )
         except Exception as _exc:
             _latency_ms = (time.monotonic() - _fetch_start) * 1000.0
-            logger.warning(
-                "candle_fetch_error type=historical market={} resolution={} timeframe={} latency_ms={:.1f} error={}",
-                market,
-                effective_resolution,
-                timeframe,
+            _fetch_logger.warning(
+                "candle_fetch_error latency_ms={:.1f} error={}",
                 _latency_ms,
                 _exc,
             )
             raise
         else:
             _latency_ms = (time.monotonic() - _fetch_start) * 1000.0
-            logger.debug(
-                "candle_fetch_ok type=historical market={} resolution={} timeframe={} latency_ms={:.1f}",
-                market,
-                effective_resolution,
-                timeframe,
-                _latency_ms,
-            )
+            _fetch_logger.debug("candle_fetch_ok latency_ms={:.1f}", _latency_ms)
 
         candles = response
 

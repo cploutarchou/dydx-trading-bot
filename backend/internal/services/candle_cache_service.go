@@ -15,6 +15,8 @@ type CandleCacheService struct {
 	repo  *repository.BacktestRepository
 }
 
+const candleCachePageSize = 1000
+
 // NewCandleCacheService creates a new candle cache service
 func NewCandleCacheService(cache *CacheService) *CandleCacheService {
 	return &CandleCacheService{
@@ -204,12 +206,7 @@ func (ccs *CandleCacheService) PrefetchCandlesForRun(runID int, ttlSeconds int) 
 	}
 
 	for _, market := range markets {
-		candles, err := ccs.repo.GetCandles(repository.CandleFilter{RunID: runID, Market: market})
-		if err != nil {
-			log.Printf("CandleCacheService: failed to fetch candles for run %d market %s: %v", runID, market, err)
-			continue
-		}
-		if err := ccs.CacheCandles(runID, market, candles, ttlSeconds); err != nil {
+		if err := ccs.cacheMarketCandlesInPages(runID, market, ttlSeconds); err != nil {
 			log.Printf("CandleCacheService: failed to cache candles for run %d market %s: %v", runID, market, err)
 		}
 	}
@@ -230,18 +227,45 @@ func (ccs *CandleCacheService) WarmCache(runID int, markets []string, durationHo
 	ttlSeconds := 86400 // 24 h
 
 	for _, market := range markets {
-		// Fetch in pages to avoid large single-query memory spikes
-		candles, err := ccs.repo.GetCandles(repository.CandleFilter{RunID: runID, Market: market})
-		if err != nil {
-			log.Printf("CandleCacheService: WarmCache fetch error for run %d market %s: %v", runID, market, err)
-			continue
-		}
-
-		if err := ccs.CacheCandles(runID, market, candles, ttlSeconds); err != nil {
+		if err := ccs.cacheMarketCandlesInPages(runID, market, ttlSeconds); err != nil {
 			log.Printf("CandleCacheService: WarmCache cache error for run %d market %s: %v", runID, market, err)
 		}
 	}
 
 	log.Printf("CandleCacheService: WarmCache complete for run %d (%d markets)", runID, len(markets))
 	return nil
+}
+
+func (ccs *CandleCacheService) cacheMarketCandlesInPages(runID int, market string, ttlSeconds int) error {
+	offset := 0
+	allCandles := make([]models.BacktestCandle, 0, candleCachePageSize)
+
+	for {
+		candles, err := ccs.repo.GetCandles(repository.CandleFilter{
+			RunID:  runID,
+			Market: market,
+			Limit:  candleCachePageSize,
+			Skip:   offset,
+		})
+		if err != nil {
+			return err
+		}
+
+		if len(candles) == 0 {
+			break
+		}
+
+		allCandles = append(allCandles, candles...)
+		offset += len(candles)
+
+		if len(candles) < candleCachePageSize {
+			break
+		}
+	}
+
+	if len(allCandles) == 0 {
+		return nil
+	}
+
+	return ccs.CacheCandles(runID, market, allCandles, ttlSeconds)
 }

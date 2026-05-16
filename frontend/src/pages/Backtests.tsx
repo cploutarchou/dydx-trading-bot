@@ -1,17 +1,17 @@
-import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-    Activity,
-    ArrowRight,
-    Award,
-    BarChart3,
-    ChevronRight,
-    Layers3,
-    ListChecks,
-    PlusCircle,
-    ShieldCheck,
-    Sparkles,
-    Target,
-    TrendingUp,
+	Activity,
+	ArrowRight,
+	Award,
+	BarChart3,
+	ChevronRight,
+	Layers3,
+	ListChecks,
+	PlusCircle,
+	ShieldCheck,
+	Sparkles,
+	Target,
+	TrendingUp,
 } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -24,17 +24,17 @@ import { CodexAssetIntelStrip } from '../components/CodexAssetIntelStrip';
 import { PageContainer } from '../components/PageContainer';
 import { TerminalDataGrid, type TerminalColumn } from '../components/TerminalDataGrid';
 import {
-    buildIntelligence,
-    extractBacktestRuns,
-    formatCurrency,
-    formatDateTime,
-    formatPercent,
-    isActiveBacktestRun,
-    normalizePercent,
-    safeNumber,
-    type BacktestRun,
-    type StrategyAggregate,
-    type StrategyRef,
+	buildIntelligence,
+	extractBacktestRuns,
+	formatCurrency,
+	formatDateTime,
+	formatPercent,
+	isActiveBacktestRun,
+	normalizePercent,
+	safeNumber,
+	type BacktestRun,
+	type StrategyAggregate,
+	type StrategyRef,
 } from '../features/backtests/intelligence';
 import { buildBacktestIntelRequest } from '../features/codex/marketIntel';
 import { usePersistentPreference } from '../hooks/usePersistentPreference';
@@ -436,8 +436,8 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     staleTime: 10_000,
     refetchInterval: (query) =>
       (query.state.data ?? []).some((run) => isActiveBacktestRun(run as BacktestRun))
-        ? 8_000
-        : false,
+        ? 10_000
+        : 60_000,
     refetchIntervalInBackground: false,
   });
   const activeRunCountForPolling = useMemo(
@@ -626,8 +626,6 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
       return toObject(status);
     },
     staleTime: 10_000,
-    refetchInterval: activeRunCountForPolling > 0 ? 10_000 : 30_000,
-    refetchIntervalInBackground: false,
   });
   const backtestCapacity = useMemo(() => {
     const payload = toObject(systemStatusQuery.data);
@@ -738,42 +736,53 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     };
   }, [activeRunsQuickAccess.map((r) => r.run_id).join(',')]);
 
-  const activeRunLiveStatusQueries = useQueries({
-    queries: activeRunsQuickAccess.map((run) => ({
-      queryKey: ['backtests', 'status', run.run_id, 'quick-access'],
-      queryFn: async () => {
-        const response = await enhancedApiClient.getBacktestStatus(run.run_id);
-        const payload = response as unknown as Record<string, unknown>;
-        const progressCandidate = getEnvelopeField(payload, 'progress_pct');
-        const fallbackProgressCandidate = getEnvelopeField(payload, 'progress_percent');
-        const legacyProgressCandidate = getEnvelopeField(payload, 'progress');
-        const updatedAtMs =
-          parseTimestampMs(getEnvelopeField(payload, 'updated_at')) ??
-          parseTimestampMs(payload.timestamp) ??
-          Date.now();
+  const activeRunStatusIds = useMemo(
+    () => activeRunsQuickAccess.map((run) => run.run_id).filter(Boolean),
+    [activeRunsQuickAccess]
+  );
+  const activeRunLiveStatusesQuery = useQuery({
+    queryKey: ['backtests', 'active-statuses', activeRunStatusIds],
+    queryFn: async () => {
+      const entries = await Promise.all(
+        activeRunStatusIds.map(async (runId) => {
+          const response = await enhancedApiClient.getBacktestStatus(runId);
+          const payload = response as unknown as Record<string, unknown>;
+          const progressCandidate = getEnvelopeField(payload, 'progress_pct');
+          const fallbackProgressCandidate = getEnvelopeField(payload, 'progress_percent');
+          const legacyProgressCandidate = getEnvelopeField(payload, 'progress');
+          const updatedAtMs =
+            parseTimestampMs(getEnvelopeField(payload, 'updated_at')) ??
+            parseTimestampMs(payload.timestamp) ??
+            Date.now();
 
-        return {
-          status: String(getEnvelopeField(payload, 'status') || run.status || 'pending'),
-          progressPct: safeNumber(
-            progressCandidate ?? fallbackProgressCandidate ?? legacyProgressCandidate,
-            Number.NaN
-          ),
-          updatedAtMs,
-        };
-      },
-      staleTime: 6_000,
-      // Stop polling per-run status once the main list shows it as completed/failed
-      refetchInterval: (query: { state: { data?: { status?: string } } }) => {
-        const statusFromQuery = query.state.data?.status?.toUpperCase();
-        if (statusFromQuery && ['COMPLETED', 'FAILED', 'CANCELLED'].includes(statusFromQuery)) {
-          return false;
+          return [
+            runId,
+            {
+              status: String(getEnvelopeField(payload, 'status') || 'pending'),
+              progressPct: safeNumber(
+                progressCandidate ?? fallbackProgressCandidate ?? legacyProgressCandidate,
+                Number.NaN
+              ),
+              updatedAtMs,
+            },
+          ] as const;
+        })
+      );
+
+      return Object.fromEntries(entries) as Record<
+        string,
+        {
+          status: string;
+          progressPct: number;
+          updatedAtMs: number;
         }
-        return 7_000;
-      },
-      refetchIntervalInBackground: false,
-      retry: 1,
-      enabled: Boolean(run.run_id),
-    })),
+      >;
+    },
+    staleTime: 6_000,
+    refetchInterval: activeRunCountForPolling > 0 ? 10_000 : 60_000,
+    refetchIntervalInBackground: false,
+    retry: 1,
+    enabled: activeRunStatusIds.length > 0,
   });
   // activeRunSummaryQueries removed — PnL/trades/winRate are sourced from backtestsQuery list data
   const activeRunLiveById = useMemo(() => {
@@ -794,10 +803,12 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
       (backtestsQuery.data ?? []).map((r) => [r.run_id, r])
     );
 
-    activeRunsQuickAccess.forEach((run, index) => {
-      const query = activeRunLiveStatusQueries[index];
+    const liveStatusesById = activeRunLiveStatusesQuery.data ?? {};
+
+    activeRunsQuickAccess.forEach((run) => {
+      const queryData = liveStatusesById[run.run_id];
       const listRun = runListById.get(run.run_id);
-      const progressValue = query?.data?.progressPct;
+      const progressValue = queryData?.progressPct;
       const normalizedProgress =
         typeof progressValue === 'number' && Number.isFinite(progressValue)
           ? Math.max(0, Math.min(100, progressValue))
@@ -808,10 +819,10 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
       const listWinRate = safeNumber(listRun?.win_rate, Number.NaN);
 
       lookup.set(run.run_id, {
-        status: query?.data?.status,
+        status: queryData?.status,
         progressPct: normalizedProgress,
-        updatedAtMs: query?.data?.updatedAtMs,
-        isFetching: Boolean(query?.isFetching),
+        updatedAtMs: queryData?.updatedAtMs,
+        isFetching: Boolean(activeRunLiveStatusesQuery.isFetching),
         totalPnlUsd: Number.isFinite(listPnl) ? listPnl : undefined,
         totalTrades: Number.isFinite(listTrades) ? listTrades : undefined,
         winRate: Number.isFinite(listWinRate) ? listWinRate : undefined,
@@ -819,7 +830,12 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     });
 
     return lookup;
-  }, [activeRunsQuickAccess, activeRunLiveStatusQueries, backtestsQuery.data]);
+  }, [
+    activeRunsQuickAccess,
+    activeRunLiveStatusesQuery.data,
+    activeRunLiveStatusesQuery.isFetching,
+    backtestsQuery.data,
+  ]);
 
   const statisticsHealth = useMemo(() => {
     const runs = backtestsQuery.data ?? [];

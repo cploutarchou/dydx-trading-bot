@@ -12,8 +12,10 @@ import {
     AlertCircle,
     ArrowRight,
     BarChart2,
+    ChevronRight,
     Clock,
     Play,
+    RefreshCw,
     Rocket,
     Sparkles,
     Target,
@@ -177,6 +179,7 @@ const KpiCard: React.FC<KpiCardProps> = ({
 const ActiveRunCard: React.FC<{ run: BacktestRunSummary }> = ({ run }) => {
   const pct = Math.min(100, Math.max(0, run.progress_pct ?? 0));
   const isRunning = run.status.toUpperCase() === 'RUNNING';
+  const pairs = getPairCount(run);
   return (
     <div className="operator-action-card p-4 space-y-3">
       <div className="flex items-center justify-between">
@@ -190,7 +193,7 @@ const ActiveRunCard: React.FC<{ run: BacktestRunSummary }> = ({ run }) => {
             />
           </span>
           <span className="truncate font-mono text-xs text-cyan-300">
-            {(run.name || run.run_id).substring(0, 22)}
+            {(run.name || run.run_id).substring(0, 26)}
           </span>
         </div>
         <span className="ml-2 shrink-0 text-xs tabular-nums text-slate-400">
@@ -203,11 +206,20 @@ const ActiveRunCard: React.FC<{ run: BacktestRunSummary }> = ({ run }) => {
           style={{ width: `${pct}%` }}
         />
       </div>
-      {run.current_pair && (
-        <p className="text-[11px] text-slate-400">
-          Scanning: <span className="font-mono text-slate-200">{run.current_pair}</span>
-        </p>
-      )}
+      <div className="flex items-center justify-between gap-3 text-[11px] text-slate-400">
+        <span className="truncate">
+          {run.strategy_name ? (
+            <span className="text-slate-300">{run.strategy_name}</span>
+          ) : run.current_pair ? (
+            <>
+              Pair: <span className="font-mono text-slate-200">{run.current_pair}</span>
+            </>
+          ) : (
+            <span className="text-slate-600">No strategy</span>
+          )}
+        </span>
+        <span className="shrink-0 tabular-nums">{pairs !== null ? `${pairs} pairs` : null}</span>
+      </div>
     </div>
   );
 };
@@ -240,6 +252,22 @@ const normalizeRuntimeBots = (value: unknown): RuntimeBotSummary[] =>
 const safeNum = (v: unknown, fallback = 0): number => {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
+};
+
+const fmtRelTime = (ms: number): string => {
+  const secs = Math.floor((Date.now() - ms) / 1000);
+  if (secs < 5) return 'just now';
+  if (secs < 60) return `${secs}s ago`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  return `${Math.floor(secs / 3600)}h ago`;
+};
+
+const getPairCount = (run: BacktestRunSummary): number | null => {
+  if (!run.request) return null;
+  const n = run.request['num_pairs'];
+  if (typeof n === 'number' && Number.isFinite(n) && n > 0) return n;
+  const ns = Number(n);
+  return Number.isFinite(ns) && ns > 0 ? ns : null;
 };
 
 const normalizePercent = (value: unknown): number => {
@@ -458,6 +486,16 @@ export const DashboardPage: React.FC = () => {
   const attentionCount = degradedRuntimeBots.length + stats.failed;
   const countAttention = useCountUp(attentionCount);
 
+  // Data freshness
+  const dataUpdatedAt = backtestRunsQuery.dataUpdatedAt;
+  const [, setFreshnessTick] = useState(0);
+  useEffect(() => {
+    if (!dataUpdatedAt) return;
+    const id = setInterval(() => setFreshnessTick((n) => n + 1), 15_000);
+    return () => clearInterval(id);
+  }, [dataUpdatedAt]);
+  const freshnessLabel = dataUpdatedAt ? fmtRelTime(dataUpdatedAt) : null;
+
   return (
     <PageContainer size="wide" className="space-y-6">
       <section className="operator-hero animate-fade-in px-5 py-5 sm:px-6">
@@ -470,10 +508,52 @@ export const DashboardPage: React.FC = () => {
             <h1 className="mt-4 max-w-3xl text-2xl font-bold text-white sm:text-3xl">
               {greeting}, {user?.username ?? 'Trader'}
             </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
               A simple operating view for the current desk: live activity, portfolio P&amp;L,
               backtest status, and anything that needs attention.
             </p>
+
+            {/* Prominent portfolio P&L metric */}
+            {!statsLoading && (
+              <div className="mt-5 flex items-end gap-4">
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-slate-500">
+                    Portfolio P&amp;L
+                  </p>
+                  <p
+                    className={`mt-1 text-3xl font-bold tabular-nums sm:text-4xl ${
+                      stats.totalPnl >= 0 ? 'text-emerald-300' : 'text-rose-400'
+                    }`}
+                  >
+                    {fmtPnl(stats.totalPnl)}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {stats.completed} completed run{stats.completed !== 1 ? 's' : ''} · avg{' '}
+                    {fmtPnl(stats.avgPnlPerRun)}/run
+                  </p>
+                </div>
+                {stats.bestWinRate > 0 && (
+                  <div className="mb-1">
+                    <p className="text-[10px] uppercase tracking-widest text-slate-500">
+                      Best win rate
+                    </p>
+                    <p className="mt-1 text-xl font-semibold tabular-nums text-cyan-300">
+                      {fmtPct(stats.bestWinRate)}
+                    </p>
+                  </div>
+                )}
+                {stats.bestSharpe > 0 && (
+                  <div className="mb-1">
+                    <p className="text-[10px] uppercase tracking-widest text-slate-500">
+                      Best Sharpe
+                    </p>
+                    <p className="mt-1 text-xl font-semibold tabular-nums text-cyan-300">
+                      {stats.bestSharpe.toFixed(2)}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="mt-4 flex flex-wrap gap-2">
               <div className="operator-status-pill" data-tone="accent">
@@ -497,26 +577,21 @@ export const DashboardPage: React.FC = () => {
                     }`
                   : 'No live activity'}
               </div>
-              <div
-                className="operator-status-pill"
-                data-tone={stats.totalPnl >= 0 ? 'positive' : 'danger'}
-              >
-                {stats.totalPnl >= 0 ? (
-                  <TrendingUp className="h-3.5 w-3.5" />
-                ) : (
-                  <TrendingDown className="h-3.5 w-3.5" />
-                )}
-                {fmtPnl(stats.totalPnl)} lifetime P&amp;L
-              </div>
+              {attentionCount > 0 && (
+                <div className="operator-status-pill" data-tone="danger">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  {attentionCount} need{attentionCount === 1 ? 's' : ''} attention
+                </div>
+              )}
             </div>
           </div>
 
           <div className="operator-hero-panel p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-white">Next best actions</p>
+                <p className="text-sm font-semibold text-white">Operator workflow</p>
                 <p className="mt-1 text-xs text-slate-500">
-                  Move through research, validation, deployment, then monitoring.
+                  Research → strategy → validate → deploy.
                 </p>
               </div>
               <span
@@ -532,8 +607,13 @@ export const DashboardPage: React.FC = () => {
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
               <Link to="/market-intel" className="operator-action-card p-3 text-left">
                 <div className="flex items-start gap-3">
-                  <div className="rounded-lg bg-teal-500/10 p-2 text-teal-300">
-                    <Sparkles className="h-4 w-4" />
+                  <div className="relative shrink-0">
+                    <div className="rounded-lg bg-teal-500/10 p-2 text-teal-300">
+                      <Sparkles className="h-4 w-4" />
+                    </div>
+                    <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-slate-700 text-[9px] font-bold text-slate-300">
+                      1
+                    </span>
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-white">Research market</p>
@@ -543,8 +623,13 @@ export const DashboardPage: React.FC = () => {
               </Link>
               <Link to="/strategies" className="operator-action-card p-3 text-left">
                 <div className="flex items-start gap-3">
-                  <div className="rounded-lg bg-emerald-500/10 p-2 text-emerald-300">
-                    <Target className="h-4 w-4" />
+                  <div className="relative shrink-0">
+                    <div className="rounded-lg bg-emerald-500/10 p-2 text-emerald-300">
+                      <Target className="h-4 w-4" />
+                    </div>
+                    <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-slate-700 text-[9px] font-bold text-slate-300">
+                      2
+                    </span>
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-white">Build strategy</p>
@@ -554,8 +639,13 @@ export const DashboardPage: React.FC = () => {
               </Link>
               <Link to="/backtests/new" className="operator-action-card p-3 text-left">
                 <div className="flex items-start gap-3">
-                  <div className="rounded-lg bg-cyan-500/10 p-2 text-cyan-300">
-                    <Rocket className="h-4 w-4" />
+                  <div className="relative shrink-0">
+                    <div className="rounded-lg bg-cyan-500/10 p-2 text-cyan-300">
+                      <Rocket className="h-4 w-4" />
+                    </div>
+                    <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-slate-700 text-[9px] font-bold text-slate-300">
+                      3
+                    </span>
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-white">Run backtest</p>
@@ -565,8 +655,13 @@ export const DashboardPage: React.FC = () => {
               </Link>
               <Link to="/bots" className="operator-action-card p-3">
                 <div className="flex items-start gap-3">
-                  <div className="rounded-lg bg-amber-500/10 p-2 text-amber-300">
-                    <Play className="h-4 w-4" />
+                  <div className="relative shrink-0">
+                    <div className="rounded-lg bg-amber-500/10 p-2 text-amber-300">
+                      <Play className="h-4 w-4" />
+                    </div>
+                    <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-slate-700 text-[9px] font-bold text-slate-300">
+                      4
+                    </span>
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-white">Deploy bot</p>
@@ -784,7 +879,15 @@ export const DashboardPage: React.FC = () => {
                   <Activity className="h-4 w-4" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-white">Active runs</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-white">Active runs</p>
+                    {freshnessLabel && (
+                      <span className="inline-flex items-center gap-1 rounded-md border border-slate-700/60 bg-slate-900/60 px-1.5 py-0.5 text-[10px] text-slate-500">
+                        <RefreshCw className="h-2 w-2" />
+                        {freshnessLabel}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-slate-400">
                     Progress stays visible without leaving the page.
                   </p>
@@ -799,14 +902,20 @@ export const DashboardPage: React.FC = () => {
             </div>
 
             {stats.activeRuns.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-800">
-                  <Activity className="h-6 w-6 text-slate-500" />
+              <div className="flex items-center gap-3 rounded-lg border border-slate-800/60 bg-slate-950/30 px-4 py-5 text-center">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-800">
+                  <Activity className="h-4 w-4 text-slate-500" />
                 </div>
-                <p className="text-sm text-slate-400">No active runs right now</p>
-                <p className="text-xs text-slate-500">
-                  Open Backtests when you are ready to start a new validation cycle.
-                </p>
+                <div className="text-left">
+                  <p className="text-sm text-slate-300">No active runs right now</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Start a new validation cycle from the{' '}
+                    <Link to="/backtests/new" className="text-cyan-400 hover:underline">
+                      Backtests desk
+                    </Link>
+                    .
+                  </p>
+                </div>
               </div>
             ) : (
               <div className="max-h-80 space-y-3 overflow-y-auto">
@@ -848,8 +957,16 @@ export const DashboardPage: React.FC = () => {
       >
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-semibold text-white">Recent activity</h2>
-            <p className="text-sm text-slate-400">
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-semibold text-white">Recent activity</h2>
+              {freshnessLabel && (
+                <span className="inline-flex items-center gap-1 rounded-md border border-slate-700/60 bg-slate-900/60 px-2 py-0.5 text-[10px] text-slate-400">
+                  <RefreshCw className="h-2.5 w-2.5" />
+                  {freshnessLabel}
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-sm text-slate-400">
               Latest validation and runtime signals, with deep reports kept under Backtests.
             </p>
           </div>
@@ -882,29 +999,75 @@ export const DashboardPage: React.FC = () => {
           />
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {runs.slice(0, 6).map((run) => (
-              <Link
-                key={run.run_id}
-                to={`/backtest/${run.run_id}`}
-                className="rounded-lg border border-slate-800 bg-slate-950/45 p-4 transition hover:border-cyan-500/35 hover:bg-slate-900/70"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-white">
-                      {run.name || run.run_id}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {String(run.status ?? 'unknown').toUpperCase()}
-                    </p>
+            {runs.slice(0, 6).map((run) => {
+              const status = String(run.status ?? 'unknown').toUpperCase();
+              const isCompleted = status === 'COMPLETED';
+              const isRunning = status === 'RUNNING' || status === 'PENDING';
+              const isFailed = status === 'FAILED' || status === 'CANCELLED';
+              const pnl = safeNum(run.total_pnl);
+              const winRatePct = run.win_rate != null ? normalizePercent(run.win_rate) : null;
+              const pairs = getPairCount(run);
+              const sharpe = safeNum(run.sharpe_ratio);
+              return (
+                <Link
+                  key={run.run_id}
+                  to={`/backtest/${run.run_id}`}
+                  className="group rounded-lg border border-slate-800 bg-slate-950/45 p-4 transition hover:border-cyan-500/35 hover:bg-slate-900/70"
+                >
+                  {/* Status + P&L */}
+                  <div className="flex items-start justify-between gap-2">
+                    <span
+                      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                        isCompleted
+                          ? 'bg-emerald-900/40 text-emerald-300'
+                          : isRunning
+                            ? 'bg-cyan-900/40 text-cyan-300'
+                            : isFailed
+                              ? 'bg-rose-900/40 text-rose-300'
+                              : 'bg-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {isRunning && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                      )}
+                      {status}
+                    </span>
+                    <span
+                      className={`text-base font-bold tabular-nums ${pnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}
+                    >
+                      {fmtPnl(pnl)}
+                    </span>
                   </div>
-                  <span
-                    className={`text-sm font-semibold ${safeNum(run.total_pnl) >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}
-                  >
-                    {fmtPnl(safeNum(run.total_pnl))}
-                  </span>
-                </div>
-              </Link>
-            ))}
+
+                  {/* Run ID / name */}
+                  <p className="mt-2 truncate font-mono text-[11px] text-cyan-300/80 group-hover:text-cyan-200">
+                    {run.name || run.run_id}
+                  </p>
+
+                  {/* Metrics row */}
+                  <div className="mt-2 flex items-center gap-3 text-[11px] text-slate-500">
+                    {run.strategy_name && (
+                      <span className="truncate text-slate-400">{run.strategy_name}</span>
+                    )}
+                    {winRatePct !== null && (
+                      <span
+                        className={`tabular-nums ${winRatePct >= 50 ? 'text-emerald-400' : 'text-amber-400'}`}
+                      >
+                        {winRatePct.toFixed(1)}% WR
+                      </span>
+                    )}
+                    {pairs !== null && <span>{pairs}p</span>}
+                    {sharpe > 0 && <span>S&nbsp;{sharpe.toFixed(2)}</span>}
+                  </div>
+
+                  {/* View link hint */}
+                  <div className="mt-3 flex items-center gap-1 text-[10px] text-slate-600 group-hover:text-cyan-400 transition-colors">
+                    <span>View details</span>
+                    <ChevronRight className="h-3 w-3" />
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         )}
       </section>

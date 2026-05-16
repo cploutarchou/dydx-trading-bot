@@ -2,7 +2,6 @@ from contextlib import contextmanager
 from typing import cast
 
 from sqlalchemy.engine import Engine
-
 from src.infrastructure.database import DatabaseManager
 
 
@@ -81,6 +80,9 @@ def test_ensure_schema_compatibility_adds_missing_realtime_metadata_columns(
     assert "ADD COLUMN hedge_ratio DOUBLE PRECISION" in statements
     assert "ADD COLUMN correlation DOUBLE PRECISION" in statements
     assert "ADD COLUMN half_life DOUBLE PRECISION" in statements
+    assert "ADD COLUMN funding_rate DOUBLE PRECISION" in statements
+    assert "ADD COLUMN dydx_order_ids JSON" in statements
+    assert "ADD COLUMN dydx_position_id VARCHAR(100)" in statements
 
 
 def test_ensure_schema_compatibility_skips_existing_realtime_metadata_columns(
@@ -98,6 +100,9 @@ def test_ensure_schema_compatibility_skips_existing_realtime_metadata_columns(
             "hedge_ratio",
             "correlation",
             "half_life",
+            "funding_rate",
+            "dydx_order_ids",
+            "dydx_position_id",
         },
     )
 

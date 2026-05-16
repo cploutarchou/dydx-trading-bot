@@ -34,6 +34,9 @@ func main() {
 	if err := startup.ValidateDatabaseOwnership(config.ConfigInstance); err != nil {
 		log.Fatalf("Invalid database ownership configuration: %v", err)
 	}
+	if err := startup.ValidateSecurityBaseline(config.ConfigInstance); err != nil {
+		log.Fatalf("Invalid production security baseline: %v", err)
+	}
 	if err := services.ValidateEncryptionKeyConfiguration(); err != nil {
 		log.Fatalf("Invalid encryption configuration: %v", err)
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 )
@@ -416,6 +417,85 @@ func TestDelegatedBacktestRoutes_EnforceUserScopedBacktestData(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for owned upstream status call")
+	}
+}
+
+func TestDelegatedBacktestRoutes_EnforceUserScopedBacktestWS(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(_ *http.Request) bool { return true }}
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/ws/backtests/owned-run", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		payload, _ := json.Marshal(map[string]interface{}{
+			"run_id":   "owned-run",
+			"status":   "running",
+			"progress": 55,
+		})
+		_ = conn.WriteMessage(websocket.TextMessage, payload)
+		time.Sleep(100 * time.Millisecond)
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	now := time.Now().UTC()
+	if _, err := dbConn.Exec(
+		`INSERT INTO backtest_runs (run_id, status, created_at, start_date, end_date, num_pairs, total_markets, total_pnl, total_pnl_usd, user_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"owned-run", "running", now, "2026-04-01", "2026-04-02", 2, 10, 0, 0, 1,
+	); err != nil {
+		t.Fatalf("insert owned run: %v", err)
+	}
+	if _, err := dbConn.Exec(
+		`INSERT INTO backtest_runs (run_id, status, created_at, start_date, end_date, num_pairs, total_markets, total_pnl, total_pnl_usd, user_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"foreign-run", "running", now.Add(-time.Minute), "2026-04-01", "2026-04-02", 2, 10, 0, 0, 42,
+	); err != nil {
+		t.Fatalf("insert foreign run: %v", err)
+	}
+
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+
+	wsHeaders := http.Header{}
+	wsHeaders.Set("Authorization", "Bearer "+token)
+
+	foreignWSURL := "ws" + backendServer.URL[len("http"):] + "/ws/backtests/foreign-run"
+	_, resp, err := websocket.DefaultDialer.Dial(foreignWSURL, wsHeaders)
+	if err == nil {
+		t.Fatal("expected websocket dial for foreign run to fail")
+	}
+	if resp == nil {
+		t.Fatal("expected HTTP response for failed foreign websocket dial")
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 for foreign websocket access, got %d", resp.StatusCode)
+	}
+
+	ownedWSURL := "ws" + backendServer.URL[len("http"):] + "/ws/backtests/owned-run"
+	ownedConn, ownedResp, err := websocket.DefaultDialer.Dial(ownedWSURL, wsHeaders)
+	if ownedResp != nil && ownedResp.Body != nil {
+		defer func() { _ = ownedResp.Body.Close() }()
+	}
+	if err != nil {
+		t.Fatalf("expected owned websocket dial success, got error: %v", err)
+	}
+	defer func() { _ = ownedConn.Close() }()
+
+	_, msg, err := ownedConn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read owned websocket payload: %v", err)
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(msg, &payload); err != nil {
+		t.Fatalf("decode owned websocket payload: %v", err)
+	}
+	if payload["run_id"] != "owned-run" {
+		t.Fatalf("unexpected owned websocket payload: %v", payload)
 	}
 }
 

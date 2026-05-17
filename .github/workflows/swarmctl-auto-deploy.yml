@@ -23,10 +23,34 @@ jobs:
       TARGET_DEPLOY_INFRA: ${{ vars.SWARMCTL_AUTO_DEPLOY_INFRA || 'false' }}
       TARGET_DEPLOY_APPS: ${{ vars.SWARMCTL_AUTO_DEPLOY_APPS || 'true' }}
       TARGET_DRY_RUN: ${{ vars.SWARMCTL_AUTO_DRY_RUN || 'false' }}
-      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.17' }}
+      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.22' }}
       SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
       SOURCE_BRANCH: ${{ github.event.workflow_run.head_branch }}
     steps:
+      - name: Checkout dydx-trading-bot
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+
+      - name: Checkout server-orchestrator
+        uses: actions/checkout@v4
+        with:
+          repository: cploutarchou/server-orchestrator
+          ref: ${{ env.SWARMCTL_REF }}
+          path: server-orchestrator
+
+      - name: Build swarmctl
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd server-orchestrator
+          go build -o ../swarmctl ./cmd/swarmctl
+          chmod +x ../swarmctl
+          ../swarmctl version
+
       - name: Compute image tag
         id: tag
         shell: bash
@@ -59,6 +83,11 @@ jobs:
           fi
 
           echo "Auto-dispatch preflight passed for env=${TARGET_ENV}, image_tag=${IMAGE_TAG}."
+
+      - name: Validate infra observability
+        run: |
+          ./swarmctl infra ips --env ${{ env.TARGET_ENV }}
+          ./swarmctl infra topology --env ${{ env.TARGET_ENV }}
 
       - name: Dispatch Swarmctl Validate & Deploy workflow
         env:

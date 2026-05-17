@@ -1,0 +1,60 @@
+domains:
+    - name: api.executionlab.io
+      environment: ""
+      owner: platform
+      ingressIP: ""
+      allowSubdomains: true
+      status: ""
+      createdAt: ""
+    - name: api.staging.your-domain.com
+      environment: ""
+      owner: platform
+      ingressIP: ""
+      allowSubdomains: true
+      status: ""
+      createdAt: ""
+    - name: executionlab.io
+      environment: ""
+      owner: platform
+      ingressIP: ""
+      allowSubdomains: true
+      status: ""
+      createdAt: ""
+    - name: staging.tradeenginex.com
+      environment: ""
+      owner: platform
+      ingressIP: ""
+      allowSubdomains: true
+      status: ""
+      createdAt: ""
+    - name: staging.your-domain.com
+      environment: ""
+      owner: platform
+      ingressIP: ""
+      allowSubdomains: true
+      status: ""
+      createdAt: ""
+    - name: your-domain.com
+      environment: ""
+      owner: platform
+      ingressIP: ""
+      allowSubdomains: true
+      status: ""
+      createdAt: ""
+    - name: api.executionlab.io
+      environment: production
+      owner: platform
+      ingressIP: 156.67.29.10
+      allowSubdomains: true
+      status: verified
+      createdAt: "2026-05-17T15:54:38Z"
+      verifiedAt: "2026-05-17T16:28:11Z"
+    - name: executionlab.io
+      environment: production
+      owner: platform
+      ingressIP: 156.67.29.10
+      allowSubdomains: true
+      status: verified
+      createdAt: "2026-05-17T15:54:38Z"
+      verifiedAt: "2026-05-17T16:28:23Z"
+claims: []

@@ -15,7 +15,7 @@ import json
 import os
 import signal
 import sys
-from typing import Any, Dict, Optional, cast
+from typing import Any, Awaitable, Dict, Optional, TypeVar, overload, cast
 
 from loguru import logger
 
@@ -30,6 +30,8 @@ from src.trading.analysis.cointegration import store_cointegration_results
 from src.trading.dydx_client import connect_dydx_runtime
 from src.trading.market_data import construct_market_prices
 from src.trading.position_manager import manage_trade_exits, open_positions
+
+_T = TypeVar("_T")
 
 
 class BotInstance:
@@ -95,11 +97,17 @@ class BotInstance:
             raise RuntimeError("Messenger is not initialized")
         return self.messenger
 
-    async def _maybe_await(self, value: Any) -> Any:
+    @overload
+    async def _maybe_await(self, value: Awaitable[_T]) -> _T: ...
+
+    @overload
+    async def _maybe_await(self, value: _T) -> _T: ...
+
+    async def _maybe_await(self, value: Awaitable[_T] | _T) -> _T:
         """Await values only when they are awaitable (supports sync/async callables)."""
         if inspect.isawaitable(value):
-            return await value
-        return value
+            return await cast(Awaitable[_T], value)
+        return cast(_T, value)
 
     def setup_logging(self):
         """Setup instance-specific logging"""
@@ -652,6 +660,7 @@ class BotInstance:
 
     async def run_initial_setup(self):
         """Run initial setup tasks (positions, cointegration analysis)"""
+        runtime_messenger: TelegramMessenger | None = None
         try:
             runtime_logger = self._require_logger()
             runtime_config = self._require_config()
@@ -701,12 +710,13 @@ class BotInstance:
         except Exception as e:
             error_detail = self._describe_exception(e)
             self._log_exception("Error in initial setup: {}", e)
-            runtime_messenger.send_error_message(
-                "Setup Failed",
-                f"Bot instance {self.instance_id} setup failed: {error_detail}",
-                is_critical=True,
-                category="lifecycle_setup",
-            )
+            if runtime_messenger is not None:
+                runtime_messenger.send_error_message(
+                    "Setup Failed",
+                    f"Bot instance {self.instance_id} setup failed: {error_detail}",
+                    is_critical=True,
+                    category="lifecycle_setup",
+                )
             raise
 
     async def trading_loop(self):

@@ -1,5 +1,9 @@
 # Swarm HA deployment (PostgreSQL + Redis)
 
+For a full operator onboarding and deployment walkthrough, see:
+
+- `swarm/DEPLOYMENT_STEP_BY_STEP.md`
+
 This repository now includes production-oriented Docker Swarm stacks for:
 
 - PostgreSQL HA (3-node `postgresql-repmgr` + 2-node `pgpool` endpoint)
@@ -153,7 +157,7 @@ Optional GitHub repository variables (for auto-deploy behavior):
 - `SWARMCTL_AUTO_DEPLOY_INFRA` (default: `false`)
 - `SWARMCTL_AUTO_DEPLOY_APPS` (default: `true`)
 - `SWARMCTL_AUTO_DRY_RUN` (default: `false`)
-- `SWARMCTL_REPO_REF` (default: `swarmctl-v0.1.17`)
+- `SWARMCTL_REPO_REF` (default: `swarmctl-v0.1.19`)
 
 Credential hardening implemented in workflow:
 

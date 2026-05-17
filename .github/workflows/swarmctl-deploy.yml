@@ -49,14 +49,26 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
+  validate-and-deploy:
+    name: Validate and Deploy
+    runs-on: ubuntu-latest
+    env:
+      SWARM_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
+    steps:
+      - name: Validate infra observability
+        run: |
+          swarmctl infra ips --env "${SWARM_ENV}"
+          swarmctl infra topology --env "${SWARM_ENV}"
+
   validate-manifests:
     name: Validate swarm manifests
     runs-on: ubuntu-latest
     env:
       SWARM_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
-      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.17' }}
+      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.22' }}
     steps:
       - name: Checkout dydx-trading-bot
         uses: actions/checkout@v4
@@ -150,7 +162,7 @@ jobs:
       DEPLOY_INFRA: ${{ inputs.deploy_infra }}
       DEPLOY_APPS: ${{ inputs.deploy_apps }}
       DRY_RUN: ${{ inputs.dry_run }}
-      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.17' }}
+      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.22' }}
     steps:
       - name: Checkout dydx-trading-bot
         uses: actions/checkout@v4

@@ -12,7 +12,7 @@ metadata:
 spec:
   image:
     repository: ghcr.io/cploutarchou/dydx-trading-bot/worker
-    tag: latest
+    tag: sha-<commit> # Updated to use immutable tag for production
   replicas: 2
 
   env:

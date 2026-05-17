@@ -184,6 +184,9 @@ migrate -path migrations/postgres -database "postgres://user:password@localhost:
 Both seed migrations are **non-production fixtures** for development and QA.
 They are fully reversible — their `.down.sql` files use marker-prefix `DELETE`s
 that only remove rows inserted by that migration and leave non-seed data intact.
+Migration `000058_cleanup_non_production_seed_data` removes these fixtures and
+untouched default/test seed accounts from the final migrated PostgreSQL state so
+runtime environments do not retain QA data.
 
 #### `000042_seed_portal_test_clients_and_ibs` — small QA fixture set
 

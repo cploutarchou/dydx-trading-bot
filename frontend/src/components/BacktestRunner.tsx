@@ -135,7 +135,6 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   const [marketsError, setMarketsError] = useState<string | null>(null);
   const [marketsSource, setMarketsSource] = useState<string>('unknown');
   const [marketsStale, setMarketsStale] = useState(false);
-  const [marketsStaticFallback, setMarketsStaticFallback] = useState(false);
   const requestedStrategyId = useMemo(() => {
     const raw = searchParams.get('strategy_id');
     const parsed = raw ? Number(raw) : NaN;
@@ -181,11 +180,20 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         const response = await api.getPerpetualMarkets(120);
         const markets = Array.isArray(response.data?.markets) ? response.data.markets : [];
         const responseData = (response.data || {}) as PerpetualMarketsResponse;
+        const source = String(responseData.source || 'unknown');
+        const staticFallback =
+          Boolean(responseData.static_fallback) || source.trim().toLowerCase() === 'static_fallback';
         if (!cancelled) {
+          if (staticFallback) {
+            setAvailableMarkets([]);
+            setMarketsSource(source);
+            setMarketsStale(false);
+            setMarketsError('Market list came from a static fallback. Live dYdX data is required.');
+            return;
+          }
           setAvailableMarkets(markets);
-          setMarketsSource(String(responseData.source || 'unknown'));
+          setMarketsSource(source);
           setMarketsStale(Boolean(responseData.cache_stale));
-          setMarketsStaticFallback(Boolean(responseData.static_fallback));
         }
       } catch (err: unknown) {
         if (!cancelled) {
@@ -561,12 +569,6 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       .pair_selection_mode as BacktestRunRequest['pair_selection_mode']) || 'liquidity';
   const normalizedMarketsSource = marketsSource.trim().toLowerCase();
   const marketSourceBadge = useMemo(() => {
-    if (marketsStaticFallback || normalizedMarketsSource === 'static_fallback') {
-      return {
-        label: 'Source: static fallback',
-        className: 'border-rose-500/50 bg-rose-500/10 text-rose-200',
-      };
-    }
     if (marketsStale || normalizedMarketsSource === 'cache_stale') {
       return {
         label: 'Source: stale cache',
@@ -589,17 +591,14 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       label: 'Source: unknown',
       className: 'border-slate-600/70 bg-slate-700/40 text-slate-200',
     };
-  }, [marketsSource, marketsStale, marketsStaticFallback, normalizedMarketsSource]);
+  }, [marketsSource, marketsStale, normalizedMarketsSource]);
 
   const marketSourceWarning = useMemo(() => {
-    if (marketsStaticFallback || normalizedMarketsSource === 'static_fallback') {
-      return 'Using static fallback market list due to temporary upstream market resolution failure.';
-    }
     if (marketsStale || normalizedMarketsSource === 'cache_stale') {
       return 'Using stale cached market list while upstream refresh is unavailable.';
     }
     return null;
-  }, [marketsStaticFallback, marketsStale, normalizedMarketsSource]);
+  }, [marketsStale, normalizedMarketsSource]);
 
   const pairSelectionNotes: Record<
     NonNullable<BacktestRunRequest['pair_selection_mode']>,

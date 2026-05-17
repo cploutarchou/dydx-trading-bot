@@ -1,10 +1,13 @@
 """
-Database initialization script
-Creates authentication tables and default admin user
+Database initialization script.
+
+Creates authentication tables. Bootstrap admin creation is opt-in through
+environment variables so local setup does not inject hardcoded credentials.
 """
 
 from datetime import datetime
-from typing import Type, Union
+import os
+from typing import Optional, Type, Union
 
 from loguru import logger
 from sqlalchemy.orm import Session
@@ -14,11 +17,9 @@ from src.infrastructure.database import db, init_db
 from src.infrastructure.domain.models.auth_models import User
 
 
-def create_admin_user(session: Session) -> Union[Type[User], User]:
+def create_admin_user(session: Session) -> Optional[Union[Type[User], User]]:
     """
-    Create default admin user if it doesn't exist
-    Username: admin
-    Password: admin123
+    Create a bootstrap admin user only when BOOTSTRAP_ADMIN_PASSWORD is set.
     """
     # Check if the admin user already exists
     existing_admin = session.query(User).filter(User.username == "admin").first()
@@ -27,12 +28,22 @@ def create_admin_user(session: Session) -> Union[Type[User], User]:
         logger.info("Admin user already exists")
         return existing_admin
 
+    bootstrap_password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "").strip()
+    if not bootstrap_password:
+        logger.warning(
+            "Skipping bootstrap admin creation because BOOTSTRAP_ADMIN_PASSWORD is not set"
+        )
+        return None
+
+    bootstrap_email = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@localhost").strip()
+    bootstrap_username = os.getenv("BOOTSTRAP_ADMIN_USERNAME", "admin").strip() or "admin"
+
     # Create admin user
     admin_user = User(
-        username="admin",
-        email="admin@localhost",
+        username=bootstrap_username,
+        email=bootstrap_email or "admin@localhost",
         hashed_password=PasswordUtils.hash_password(
-            "admin123"[:72]
+            bootstrap_password[:72]
         ),  # Truncate to 72 bytes for bcrypt
         first_name="System",
         last_name="Administrator",
@@ -47,10 +58,9 @@ def create_admin_user(session: Session) -> Union[Type[User], User]:
     session.commit()
     session.refresh(admin_user)
 
-    logger.info("✅ Default admin user created:")
-    logger.info("   Username: admin")
-    logger.info("   Password: admin123")
-    logger.info("   Email: admin@localhost")
+    logger.info("✅ Bootstrap admin user created:")
+    logger.info(f"   Username: {bootstrap_username}")
+    logger.info(f"   Email: {bootstrap_email or 'admin@localhost'}")
     logger.info("⚠️  IMPORTANT: Change the default password after first login!")
 
     return admin_user
@@ -95,7 +105,7 @@ def test_email_config():
 
 def initialize_auth_database():
     """
-    Initialize authentication database tables and create the default admin user
+    Initialize authentication database tables and optional bootstrap admin user.
     """
     try:
         logger.info("🚀 Starting database initialization...")
@@ -105,12 +115,13 @@ def initialize_auth_database():
         init_db()
         logger.info("✅ Database tables created successfully")
 
-        # Create admin user
-        logger.info("👤 Creating default admin user...")
+        # Create bootstrap admin user when explicitly configured.
+        logger.info("👤 Checking bootstrap admin configuration...")
         session = db.get_session()
         try:
             admin_user = create_admin_user(session)
-            logger.info(f"✅ Admin user ready with ID: {getattr(admin_user, 'id')}")
+            if admin_user is not None:
+                logger.info(f"✅ Admin user ready with ID: {getattr(admin_user, 'id')}")
         finally:
             session.close()
 
@@ -134,59 +145,6 @@ def initialize_auth_database():
         return False
 
 
-def create_test_users(session: Session):
-    """
-    Create additional test users for development
-    """
-    test_users = [
-        {
-            "username": "user1",
-            "email": "user1@localhost",
-            "password": "password123",
-            "first_name": "Test",
-            "last_name": "User1",
-            "is_superuser": False,
-        },
-        {
-            "username": "user2",
-            "email": "user2@localhost",
-            "password": "password123",
-            "first_name": "Test",
-            "last_name": "User2",
-            "is_superuser": False,
-        },
-    ]
-
-    created_count = 0
-    for user_data in test_users:
-        existing_user = (
-            session.query(User).filter(User.username == user_data["username"]).first()
-        )
-
-        if not existing_user:
-            test_user = User(
-                username=user_data["username"],
-                email=user_data["email"],
-                hashed_password=PasswordUtils.hash_password(user_data["password"]),
-                first_name=user_data["first_name"],
-                last_name=user_data["last_name"],
-                is_active=True,
-                is_superuser=user_data["is_superuser"],
-                is_2fa_enabled=False,
-                created_at=datetime.utcnow(),
-                password_changed_at=datetime.utcnow(),
-            )
-
-            session.add(test_user)
-            created_count += 1
-
-    if created_count > 0:
-        session.commit()
-        logger.info(f"✅ Created {created_count} test users")
-    else:
-        logger.info("Test users already exist")
-
-
 def main():
     """
     Main initialization function
@@ -199,24 +157,11 @@ def main():
     success = initialize_auth_database()
 
     if success:
-        # Create test users in development
-        try:
-            logger.info("👥 Creating test users...")
-            session = db.get_session()
-            try:
-                create_test_users(session)
-            finally:
-                session.close()
-        except Exception as e:
-            logger.warning(f"Test user creation failed (not critical): {e}")
-
         print("\n" + "=" * 60)
         print("🎉 SETUP COMPLETE!")
         print("=" * 60)
-        print("Default Admin User:")
-        print("  Username: admin")
-        print("  Password: admin123")
-        print("  Email: admin@localhost")
+        print("Bootstrap Admin User:")
+        print("  Set BOOTSTRAP_ADMIN_PASSWORD before running this script to create one.")
         print()
         print("API Endpoints:")
         print("  Login: POST /auth/login")
@@ -233,7 +178,7 @@ def main():
         print("  4. Test with: POST /auth/test-email")
         print()
         print("⚠️  Security Notes:")
-        print("  1. Change admin password immediately after first login")
+        print("  1. Use a unique bootstrap admin password and rotate it after first login")
         print("  2. Enable 2FA with email verification for all production users")
         print("  3. Update SECRET_KEY in production environment")
         print("  4. Configure email provider for 2FA and password reset")

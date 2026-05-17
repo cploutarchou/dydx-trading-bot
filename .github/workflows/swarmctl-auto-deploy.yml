@@ -19,11 +19,11 @@ jobs:
       (github.event.workflow_run.head_branch == 'master' || github.event.workflow_run.head_branch == 'main') &&
       github.event.workflow_run.repository.full_name == github.repository
     env:
-      TARGET_ENV: ${{ vars.SWARMCTL_AUTO_ENV || 'staging' }}
-      TARGET_DEPLOY_INFRA: ${{ vars.SWARMCTL_AUTO_DEPLOY_INFRA || 'false' }}
+      TARGET_ENV: ${{ vars.SWARMCTL_AUTO_ENV || 'production' }}
+      TARGET_DEPLOY_INFRA: ${{ vars.SWARMCTL_AUTO_DEPLOY_INFRA || 'true' }}
       TARGET_DEPLOY_APPS: ${{ vars.SWARMCTL_AUTO_DEPLOY_APPS || 'true' }}
       TARGET_DRY_RUN: ${{ vars.SWARMCTL_AUTO_DRY_RUN || 'false' }}
-      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.24' }}
+      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.25' }}
       SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
       SOURCE_BRANCH: ${{ github.event.workflow_run.head_branch }}
     steps:
@@ -168,7 +168,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          image_tag="latest"
+          short_sha="$(echo "${SOURCE_SHA}" | cut -c1-7)"
+          image_tag="sha-${short_sha}"
           echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
           echo "Using image_tag=${image_tag} from source SHA ${SOURCE_SHA}"
 

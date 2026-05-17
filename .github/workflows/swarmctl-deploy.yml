@@ -1,0 +1,326 @@
+name: Swarmctl Validate & Deploy
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "app.yml"
+      - "app-api.yml"
+      - "app-backend.yml"
+      - "app-worker.yml"
+      - "swarm/**"
+      - ".github/workflows/swarmctl-deploy.yml"
+  push:
+    branches: [main, master]
+    paths:
+      - "app.yml"
+      - "app-api.yml"
+      - "app-backend.yml"
+      - "app-worker.yml"
+      - "swarm/**"
+      - ".github/workflows/swarmctl-deploy.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Swarmctl environment/context environment value"
+        required: true
+        type: string
+        default: "staging"
+      image_tag:
+        description: "Image tag override for app manifests (e.g. sha-abc123, latest)"
+        required: true
+        type: string
+        default: "latest"
+      deploy_infra:
+        description: "Deploy PostgreSQL/Redis HA stacks"
+        required: true
+        type: boolean
+        default: false
+      deploy_apps:
+        description: "Deploy app manifests (api/backend/worker/frontend)"
+        required: true
+        type: boolean
+        default: true
+      dry_run:
+        description: "Validate and plan only (skip apply/deploy)"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  validate-and-deploy:
+    name: Validate and Deploy
+    runs-on: ubuntu-latest
+    env:
+      SWARM_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
+    steps:
+      - name: Validate infra observability
+        run: |
+          swarmctl infra ips --env "${SWARM_ENV}"
+          swarmctl infra topology --env "${SWARM_ENV}"
+
+  validate-manifests:
+    name: Validate swarm manifests
+    runs-on: ubuntu-latest
+    env:
+      SWARM_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
+      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.22' }}
+    steps:
+      - name: Checkout dydx-trading-bot
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+
+      - name: Checkout server-orchestrator
+        uses: actions/checkout@v4
+        with:
+          repository: cploutarchou/server-orchestrator
+          ref: ${{ env.SWARMCTL_REF }}
+          path: server-orchestrator
+
+      - name: Manifest policy guard (platform.yml vs app manifests)
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            base_sha="${PR_BASE_SHA}"
+            head_sha="${PR_HEAD_SHA}"
+          else
+            base_sha="${BEFORE_SHA}"
+            head_sha="${AFTER_SHA}"
+          fi
+
+          if [[ -z "${base_sha}" || "${base_sha}" == "0000000000000000000000000000000000000000" ]]; then
+            changed_files="$(git ls-files)"
+          else
+            changed_files="$(git diff --name-only "${base_sha}" "${head_sha}")"
+          fi
+
+          platform_changed=false
+          app_changed=false
+
+          while IFS= read -r f; do
+            [[ -z "${f}" ]] && continue
+            [[ "${f}" == "platform.yml" ]] && platform_changed=true
+            [[ "${f}" == "app.yml" || "${f}" == "app-api.yml" || "${f}" == "app-backend.yml" || "${f}" == "app-worker.yml" ]] && app_changed=true
+          done <<< "${changed_files}"
+
+          if [[ "${platform_changed}" == "true" && "${app_changed}" == "false" ]]; then
+            echo "platform.yml changed without corresponding app*.yml updates." >&2
+            echo "Policy: swarmctl deployments are sourced from app*.yml + swarm/stack-*.yml; keep platform.yml and app manifests in sync." >&2
+            exit 1
+          fi
+
+          echo "Manifest policy check passed."
+
+      - name: Build swarmctl
+        run: |
+          set -euo pipefail
+          cd server-orchestrator
+          go build -o ../swarmctl ./cmd/swarmctl
+          chmod +x ../swarmctl
+          ../swarmctl version
+
+      - name: Validate swarm stacks with compose parser
+        run: |
+          set -euo pipefail
+          docker compose -f swarm/stack-postgres-ha.yml config >/dev/null
+          docker compose -f swarm/stack-redis-ha.yml config >/dev/null
+
+      - name: Validate swarmctl app manifests
+        run: |
+          set -euo pipefail
+          ./swarmctl validate -f app-api.yml --env "${SWARM_ENV}"
+          ./swarmctl validate -f app-backend.yml --env "${SWARM_ENV}"
+          ./swarmctl validate -f app-worker.yml --env "${SWARM_ENV}"
+          ./swarmctl validate -f app.yml --env "${SWARM_ENV}"
+
+  deploy:
+    name: Deploy via swarmctl
+    needs: validate-manifests
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      SWARM_ENV: ${{ inputs.environment }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+      DEPLOY_INFRA: ${{ inputs.deploy_infra }}
+      DEPLOY_APPS: ${{ inputs.deploy_apps }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.22' }}
+    steps:
+      - name: Checkout dydx-trading-bot
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pyyaml
+
+      - name: Checkout server-orchestrator
+        uses: actions/checkout@v4
+        with:
+          repository: cploutarchou/server-orchestrator
+          ref: ${{ env.SWARMCTL_REF }}
+          path: server-orchestrator
+
+      - name: Build swarmctl
+        run: |
+          set -euo pipefail
+          cd server-orchestrator
+          go build -o ../swarmctl ./cmd/swarmctl
+          chmod +x ../swarmctl
+          ../swarmctl version
+
+      - name: Configure swarmctl context
+        env:
+          SWARMCTL_CONFIG_BASE64: ${{ secrets.SWARMCTL_CONFIG_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${SWARMCTL_CONFIG_BASE64:-}" ]]; then
+            echo "Missing required secret: SWARMCTL_CONFIG_BASE64" >&2
+            exit 1
+          fi
+          umask 077
+          mkdir -p "$HOME/.swarmctl"
+          echo "$SWARMCTL_CONFIG_BASE64" | base64 -d > "$HOME/.swarmctl/config.yaml"
+          chmod 600 "$HOME/.swarmctl/config.yaml"
+          ./swarmctl context current || true
+
+      - name: Guard immutable tags for non-staging
+        run: |
+          set -euo pipefail
+          env_lc="$(echo "${SWARM_ENV}" | tr '[:upper:]' '[:lower:]')"
+          tag_lc="$(echo "${IMAGE_TAG}" | tr '[:upper:]' '[:lower:]')"
+
+          if [[ "${env_lc}" != "staging" && "${tag_lc}" == "latest" ]]; then
+            echo "Blocked: image_tag=latest is not allowed for non-staging deployments (env=${SWARM_ENV})." >&2
+            echo "Use an immutable tag (for example: sha-<commit>)." >&2
+            exit 1
+          fi
+
+          if [[ "${env_lc}" != "staging" ]]; then
+            # Allowed non-staging patterns:
+            # - sha-<hex> (commit-derived immutable tag)
+            # - v<semver> or <semver>, optional suffix like -rc.1
+            if [[ "${tag_lc}" =~ ^sha-[0-9a-f]{7,64}$ ]]; then
+              :
+            elif [[ "${tag_lc}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-.][a-z0-9.]+)?$ ]]; then
+              :
+            else
+              echo "Blocked: non-staging image_tag '${IMAGE_TAG}' is not allowed (env=${SWARM_ENV})." >&2
+              echo "Allowed patterns: sha-<hex>, v<major>.<minor>.<patch>, <major>.<minor>.<patch> (optional -rc.1 style suffix)." >&2
+              exit 1
+            fi
+          fi
+
+          echo "Tag guard check passed for env=${SWARM_ENV}, image_tag=${IMAGE_TAG}."
+
+      - name: Render app manifests with selected image tag
+        run: |
+          set -euo pipefail
+          mkdir -p .rendered
+          cp app.yml .rendered/app.yml
+          cp app-api.yml .rendered/app-api.yml
+          cp app-backend.yml .rendered/app-backend.yml
+          cp app-worker.yml .rendered/app-worker.yml
+
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import yaml
+
+          image_tag = os.environ["IMAGE_TAG"]
+          files = [
+              ".rendered/app.yml",
+              ".rendered/app-api.yml",
+              ".rendered/app-backend.yml",
+              ".rendered/app-worker.yml",
+          ]
+          for f in files:
+              p = pathlib.Path(f)
+              data = yaml.safe_load(p.read_text())
+              spec = data.setdefault("spec", {})
+              img = spec.get("image")
+              if isinstance(img, dict):
+                  img["tag"] = image_tag
+              else:
+                  raise RuntimeError(f"Expected spec.image object in {f}")
+              p.write_text(yaml.safe_dump(data, sort_keys=False))
+          PY
+
+      - name: Validate rendered manifests
+        run: |
+          set -euo pipefail
+          ./swarmctl validate -f .rendered/app-api.yml --env "${SWARM_ENV}"
+          ./swarmctl validate -f .rendered/app-backend.yml --env "${SWARM_ENV}"
+          ./swarmctl validate -f .rendered/app-worker.yml --env "${SWARM_ENV}"
+          ./swarmctl validate -f .rendered/app.yml --env "${SWARM_ENV}"
+
+      - name: Plan rendered manifests
+        run: |
+          set -euo pipefail
+          ./swarmctl plan -f .rendered/app-api.yml --env "${SWARM_ENV}"
+          ./swarmctl plan -f .rendered/app-backend.yml --env "${SWARM_ENV}"
+          ./swarmctl plan -f .rendered/app-worker.yml --env "${SWARM_ENV}"
+          ./swarmctl plan -f .rendered/app.yml --env "${SWARM_ENV}"
+
+      - name: Deploy infra stacks
+        if: env.DRY_RUN != 'true' && env.DEPLOY_INFRA == 'true'
+        run: |
+          set -euo pipefail
+          ./swarmctl stack deploy dydx-postgres-ha -c swarm/stack-postgres-ha.yml --env "${SWARM_ENV}"
+          ./swarmctl stack deploy dydx-redis-ha -c swarm/stack-redis-ha.yml --env "${SWARM_ENV}"
+          ./swarmctl stack status dydx-postgres-ha --env "${SWARM_ENV}"
+          ./swarmctl stack status dydx-redis-ha --env "${SWARM_ENV}"
+
+      - name: Deploy app manifests
+        if: env.DRY_RUN != 'true' && env.DEPLOY_APPS == 'true'
+        run: |
+          set -euo pipefail
+          ./swarmctl apply -f .rendered/app-api.yml --env "${SWARM_ENV}" --wait --timeout 5m
+          ./swarmctl apply -f .rendered/app-backend.yml --env "${SWARM_ENV}" --wait --timeout 5m
+          ./swarmctl apply -f .rendered/app-worker.yml --env "${SWARM_ENV}" --wait --timeout 10m
+          ./swarmctl apply -f .rendered/app.yml --env "${SWARM_ENV}" --wait --timeout 5m
+
+      - name: Rollout status
+        if: env.DRY_RUN != 'true' && env.DEPLOY_APPS == 'true'
+        run: |
+          set -euo pipefail
+          ./swarmctl rollout status dydx-trading-bot-api --env "${SWARM_ENV}" || true
+          ./swarmctl rollout status dydx-trading-bot-backend --env "${SWARM_ENV}" || true
+          ./swarmctl rollout status dydx-trading-bot-worker --env "${SWARM_ENV}" || true
+          ./swarmctl rollout status dydx-trading-bot-frontend --env "${SWARM_ENV}" || true
+
+      - name: Cleanup sensitive files
+        if: always()
+        run: |
+          set -euo pipefail
+          if [[ -f "$HOME/.swarmctl/config.yaml" ]]; then
+            shred -u "$HOME/.swarmctl/config.yaml" || rm -f "$HOME/.swarmctl/config.yaml"
+          fi

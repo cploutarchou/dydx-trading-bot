@@ -1,0 +1,182 @@
+services:
+  redis-node-1:
+    image: bitnami/redis:7.2
+    environment:
+      ALLOW_EMPTY_PASSWORD: "no"
+      REDIS_REPLICATION_MODE: master
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+    networks:
+      - internal
+    volumes:
+      - redis_1_data:/bitnami/redis/data
+    secrets:
+      - redis_password
+    healthcheck:
+      test:
+        ["CMD-SHELL", 'redis-cli -a "$(cat /run/secrets/redis_password)" ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  redis-node-2:
+    image: bitnami/redis:7.2
+    environment:
+      ALLOW_EMPTY_PASSWORD: "no"
+      REDIS_REPLICATION_MODE: replica
+      REDIS_MASTER_HOST: redis-node-1
+      REDIS_MASTER_PORT_NUMBER: "6379"
+      REDIS_MASTER_PASSWORD_FILE: /run/secrets/redis_password
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+    networks:
+      - internal
+    volumes:
+      - redis_2_data:/bitnami/redis/data
+    secrets:
+      - redis_password
+    healthcheck:
+      test:
+        ["CMD-SHELL", 'redis-cli -a "$(cat /run/secrets/redis_password)" ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  redis-node-3:
+    image: bitnami/redis:7.2
+    environment:
+      ALLOW_EMPTY_PASSWORD: "no"
+      REDIS_REPLICATION_MODE: replica
+      REDIS_MASTER_HOST: redis-node-1
+      REDIS_MASTER_PORT_NUMBER: "6379"
+      REDIS_MASTER_PASSWORD_FILE: /run/secrets/redis_password
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+    networks:
+      - internal
+    volumes:
+      - redis_3_data:/bitnami/redis/data
+    secrets:
+      - redis_password
+    healthcheck:
+      test:
+        ["CMD-SHELL", 'redis-cli -a "$(cat /run/secrets/redis_password)" ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  redis-sentinel-1:
+    image: bitnami/redis-sentinel:7.2
+    environment:
+      REDIS_MASTER_HOST: redis-node-1
+      REDIS_MASTER_PORT_NUMBER: "6379"
+      REDIS_MASTER_SET: mymaster
+      REDIS_MASTER_PASSWORD_FILE: /run/secrets/redis_password
+      REDIS_SENTINEL_QUORUM: "2"
+      REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS: "5000"
+      REDIS_SENTINEL_FAILOVER_TIMEOUT: "10000"
+    networks:
+      internal:
+        aliases:
+          - redis-sentinel
+    secrets:
+      - redis_password
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  redis-sentinel-2:
+    image: bitnami/redis-sentinel:7.2
+    environment:
+      REDIS_MASTER_HOST: redis-node-1
+      REDIS_MASTER_PORT_NUMBER: "6379"
+      REDIS_MASTER_SET: mymaster
+      REDIS_MASTER_PASSWORD_FILE: /run/secrets/redis_password
+      REDIS_SENTINEL_QUORUM: "2"
+      REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS: "5000"
+      REDIS_SENTINEL_FAILOVER_TIMEOUT: "10000"
+    networks:
+      internal:
+        aliases:
+          - redis-sentinel
+    secrets:
+      - redis_password
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  redis-sentinel-3:
+    image: bitnami/redis-sentinel:7.2
+    environment:
+      REDIS_MASTER_HOST: redis-node-1
+      REDIS_MASTER_PORT_NUMBER: "6379"
+      REDIS_MASTER_SET: mymaster
+      REDIS_MASTER_PASSWORD_FILE: /run/secrets/redis_password
+      REDIS_SENTINEL_QUORUM: "2"
+      REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS: "5000"
+      REDIS_SENTINEL_FAILOVER_TIMEOUT: "10000"
+    networks:
+      internal:
+        aliases:
+          - redis-sentinel
+    secrets:
+      - redis_password
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  redis-master-proxy:
+    image: haproxy:2.9-alpine
+    configs:
+      - source: redis_haproxy_cfg
+        target: /usr/local/etc/haproxy/haproxy.cfg
+    ports:
+      - target: 6379
+        published: 6379
+        protocol: tcp
+        mode: ingress
+    networks:
+      - internal
+    depends_on:
+      - redis-node-1
+      - redis-node-2
+      - redis-node-3
+      - redis-sentinel-1
+      - redis-sentinel-2
+      - redis-sentinel-3
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+
+networks:
+  internal:
+    external: true
+
+volumes:
+  redis_1_data:
+  redis_2_data:
+  redis_3_data:
+
+configs:
+  redis_haproxy_cfg:
+    file: ./swarm/config/redis-haproxy.cfg
+
+secrets:
+  redis_password:
+    external: true

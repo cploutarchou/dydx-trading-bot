@@ -3,13 +3,6 @@ name: Build and Push Docker Images
 on:
     push:
         branches: [master, main]
-        paths:
-            - "backend/**"
-            - "bot/**"
-            - "frontend/**"
-            - "docker/**"
-            - "platform.yml"
-            - ".github/workflows/docker-publish.yml"
     pull_request:
         branches: [master, main]
         paths:

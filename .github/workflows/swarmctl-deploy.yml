@@ -126,6 +126,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: cploutarchou/server-orchestrator
+          token: ${{ secrets.ORCHESTRATOR_WORKFLOW_TOKEN != '' && secrets.ORCHESTRATOR_WORKFLOW_TOKEN || github.token }}
           path: server-orchestrator
 
       - name: Resolve swarmctl source ref
@@ -248,6 +249,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: cploutarchou/server-orchestrator
+          token: ${{ secrets.ORCHESTRATOR_WORKFLOW_TOKEN != '' && secrets.ORCHESTRATOR_WORKFLOW_TOKEN || github.token }}
           path: server-orchestrator
 
       - name: Resolve swarmctl source ref

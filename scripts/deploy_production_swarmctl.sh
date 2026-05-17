@@ -8,7 +8,7 @@ Usage:
 
 Options:
   --env <name>                 Target swarmctl environment (default: production)
-  --image-tag <tag>            Image tag to deploy (default: sha-<current_git_short_sha>)
+  --image-tag <tag>            Image tag to deploy (default: sha-<origin_default_branch_short_sha>)
   --dry-run <true|false>       Validate + plan only (default: true)
   --deploy-infra <true|false>  Deploy HA infra stacks (default: false)
   --deploy-apps <true|false>   Deploy app manifests (default: true)
@@ -42,7 +42,17 @@ tolower() {
 # Defaults
 ENVIRONMENT="production"
 if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  git_short_sha="$(git rev-parse --short HEAD 2>/dev/null || true)"
+  default_branch="$(git remote show origin 2>/dev/null | sed -n '/HEAD branch/s/.*: //p' | head -n1 || true)"
+  if [[ -z "$default_branch" ]]; then
+    default_branch="master"
+  fi
+
+  remote_sha="$(git ls-remote --heads origin "$default_branch" 2>/dev/null | awk '{print $1}' | head -n1 || true)"
+  if [[ -n "$remote_sha" ]]; then
+    git_short_sha="${remote_sha:0:7}"
+  else
+    git_short_sha="$(git rev-parse --short HEAD 2>/dev/null || true)"
+  fi
 else
   git_short_sha=""
 fi

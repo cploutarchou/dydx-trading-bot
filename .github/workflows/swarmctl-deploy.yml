@@ -26,7 +26,7 @@ on:
         description: "Swarmctl environment/context environment value"
         required: true
         type: string
-        default: "staging"
+        default: "production"
       image_tag:
         description: "Image tag override for app manifests (e.g. sha-abc123, latest)"
         required: true
@@ -36,7 +36,7 @@ on:
         description: "Deploy PostgreSQL/Redis HA stacks"
         required: true
         type: boolean
-        default: false
+        default: true
       deploy_apps:
         description: "Deploy app manifests (api/backend/worker/frontend)"
         required: true
@@ -46,11 +46,12 @@ on:
         description: "Validate and plan only (skip apply/deploy)"
         required: true
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: read
   actions: write
+  packages: read
 
 jobs:
   validate-and-deploy:
@@ -534,6 +535,18 @@ jobs:
                   raise RuntimeError(f"Expected spec.image object in {f}")
               p.write_text(yaml.safe_dump(data, sort_keys=False))
           PY
+
+          - name: Authenticate to GHCR for preflight image checks
+            env:
+              GHCR_USERNAME: ${{ vars.GHCR_USERNAME || github.repository_owner }}
+              GHCR_TOKEN: ${{ secrets.GHCR_TOKEN != '' && secrets.GHCR_TOKEN || github.token }}
+            run: |
+              set -euo pipefail
+              if [[ -z "${GHCR_TOKEN:-}" ]]; then
+                echo "Missing GHCR token. Set repository secret GHCR_TOKEN, or rely on github.token with packages:read." >&2
+                exit 1
+              fi
+              echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin >/dev/null
 
       - name: Validate rendered manifests
         run: |

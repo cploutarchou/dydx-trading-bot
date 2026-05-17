@@ -19,8 +19,8 @@ jobs:
       (github.event.workflow_run.head_branch == 'master' || github.event.workflow_run.head_branch == 'main') &&
       github.event.workflow_run.repository.full_name == github.repository
     env:
-      TARGET_ENV: ${{ vars.SWARMCTL_AUTO_ENV || 'staging' }}
-      TARGET_DEPLOY_INFRA: ${{ vars.SWARMCTL_AUTO_DEPLOY_INFRA || 'false' }}
+      TARGET_ENV: ${{ vars.SWARMCTL_AUTO_ENV || 'production' }}
+      TARGET_DEPLOY_INFRA: ${{ vars.SWARMCTL_AUTO_DEPLOY_INFRA || 'true' }}
       TARGET_DEPLOY_APPS: ${{ vars.SWARMCTL_AUTO_DEPLOY_APPS || 'true' }}
       TARGET_DRY_RUN: ${{ vars.SWARMCTL_AUTO_DRY_RUN || 'false' }}
       SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.25' }}

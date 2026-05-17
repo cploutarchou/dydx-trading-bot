@@ -209,9 +209,11 @@ swarmctl rollout status dydx-trading-bot-frontend --env staging
 
 ## 8) GitHub prerequisites for CI/CD deployment
 
-### 8.1 Required secret
+### 8.1 Required secrets
 
 - `SWARMCTL_CONFIG_BASE64`
+- `SWARM_SSH_PRIVATE_KEY`
+- `ORCHESTRATOR_WORKFLOW_TOKEN` (PAT with read access to `cploutarchou/server-orchestrator`)
 
 Generate locally:
 
@@ -219,11 +221,19 @@ Generate locally:
 base64 -w 0 ~/.swarmctl/config.yaml
 ```
 
-Copy output into GitHub repository/environment secret.
+For SSH key (the key used by your swarmctl context), copy the private key content into GitHub as a multiline secret:
+
+```bash
+cat ~/.ssh/<your-ssh-key>
+```
+
+Copy outputs into GitHub repository/environment secrets.
+
+`ORCHESTRATOR_WORKFLOW_TOKEN` should be a GitHub PAT that can read private repositories (or at minimum has access to `cploutarchou/server-orchestrator`) so cross-repository checkout in workflows can succeed.
 
 ### 8.2 Recommended repository variables
 
-- `SWARMCTL_REPO_REF=swarmctl-v0.1.19`
+- `SWARMCTL_REPO_REF=master`
 - `SWARMCTL_AUTO_ENV=staging`
 - `SWARMCTL_AUTO_DEPLOY_INFRA=false`
 - `SWARMCTL_AUTO_DEPLOY_APPS=true`

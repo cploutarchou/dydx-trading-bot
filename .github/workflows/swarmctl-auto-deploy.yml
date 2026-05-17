@@ -97,42 +97,42 @@ jobs:
           chmod 600 "$HOME/.ssh/id_ed25519"
 
           sed -E -i 's#^(\s*sshKeyPath:)\s*.*#\1 /home/runner/.ssh/id_ed25519#' "$HOME/.swarmctl/config.yaml"
-            python3 - <<'PY'
-            import pathlib
-            import subprocess
-            import yaml
+          python3 - <<'PY'
+          import pathlib
+          import subprocess
+          import yaml
 
-            cfg_path = pathlib.Path.home() / ".swarmctl" / "config.yaml"
-            cfg = yaml.safe_load(cfg_path.read_text()) or {}
-            contexts = cfg.get("contexts") or {}
-            hosts = sorted({
+          cfg_path = pathlib.Path.home() / ".swarmctl" / "config.yaml"
+          cfg = yaml.safe_load(cfg_path.read_text()) or {}
+          contexts = cfg.get("contexts") or {}
+          hosts = sorted({
               str(v.get("managerHost", "")).strip()
               for v in contexts.values()
               if isinstance(v, dict) and str(v.get("managerHost", "")).strip()
-            })
+          })
 
-            ssh_dir = pathlib.Path.home() / ".ssh"
-            known_hosts = ssh_dir / "known_hosts"
-            known_hosts.touch(mode=0o600, exist_ok=True)
+          ssh_dir = pathlib.Path.home() / ".ssh"
+          known_hosts = ssh_dir / "known_hosts"
+          known_hosts.touch(mode=0o600, exist_ok=True)
 
-            for host in hosts:
+          for host in hosts:
               with known_hosts.open("a") as fh:
-                subprocess.run(
-                  ["ssh-keyscan", "-H", "-T", "10", host],
-                  stdout=fh,
-                  stderr=subprocess.DEVNULL,
-                  check=False,
-                )
-            PY
+                  subprocess.run(
+                      ["ssh-keyscan", "-H", "-T", "10", host],
+                      stdout=fh,
+                      stderr=subprocess.DEVNULL,
+                      check=False,
+                  )
+          PY
 
-            cat > "$HOME/.ssh/config" <<'EOF'
-            Host *
+          cat > "$HOME/.ssh/config" <<'EOF'
+          Host *
             IdentityFile /home/runner/.ssh/id_ed25519
             IdentitiesOnly yes
-              StrictHostKeyChecking no
-              UserKnownHostsFile /dev/null
-            EOF
-            chmod 600 "$HOME/.ssh/config"
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+          EOF
+          chmod 600 "$HOME/.ssh/config"
           ./swarmctl context current || true
 
       - name: Compute image tag

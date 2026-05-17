@@ -12,7 +12,7 @@ metadata:
 spec:
   image:
     repository: ghcr.io/cploutarchou/dydx-trading-bot/frontend
-    tag: latest
+    tag: sha-<commit> # Updated to use immutable tag for production
   replicas: 1
 
   ports:
@@ -27,7 +27,7 @@ spec:
     enabled: true
     className: traefik
     hosts:
-      - host: staging.tradeenginex.com
+      - host: executionlab.io
         servicePort: http
         tls: true
     middlewares: []
@@ -35,7 +35,7 @@ spec:
 
   env:
     plain:
-      VITE_API_URL: "https://api.staging.tradeenginex.com"
+      VITE_API_URL: "https://api.executionlab.io"
       VITE_FORCE_MOCK_DATA: "false"
 
   secrets:

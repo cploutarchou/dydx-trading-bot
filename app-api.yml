@@ -12,7 +12,7 @@ metadata:
 spec:
   image:
     repository: ghcr.io/cploutarchou/dydx-trading-bot/api
-    tag: latest
+    tag: sha-<commit> # Updated to use immutable tag for production
   replicas: 1
 
   ports:
@@ -79,7 +79,7 @@ spec:
       STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE: "200"
       STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_THRESHOLD: "0.05"
       STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_MIN_RUNS: "20"
-      FRONTEND_URL: "https://staging.tradeenginex.com"
+      FRONTEND_URL: "https://executionlab.io"
 
   secrets:
     - name: dydx-bot-db-password

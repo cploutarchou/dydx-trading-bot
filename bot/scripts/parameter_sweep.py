@@ -242,8 +242,8 @@ def parse_args() -> argparse.Namespace:
     bypass = os.getenv("API_BYPASS_AUTH", "false").lower() == "true"
     p = argparse.ArgumentParser(description="Parameter sweep for dYdX bot strategy")
     p.add_argument("--base-url", default="http://localhost:8889")
-    p.add_argument("--username", default="admin")
-    p.add_argument("--password", default="admin123")
+    p.add_argument("--username", default=os.getenv("BOT_API_USERNAME", "admin"))
+    p.add_argument("--password", default=os.getenv("BOT_API_PASSWORD", ""))
     p.add_argument("--start-date", default=start)
     p.add_argument("--end-date", default=end)
     p.add_argument("--max-pairs", type=int, default=3)
@@ -266,6 +266,8 @@ def main() -> int:
     if args.skip_auth:
         print("Auth skipped (API_BYPASS_AUTH mode)")
     else:
+        if not args.password:
+            raise RuntimeError("BOT_API_PASSWORD or --password is required when auth is enabled")
         print("Logging in...")
         token = login(args.base_url, args.username, args.password)
 

@@ -1,4 +1,5 @@
 name: Swarmctl Validate & Deploy
+# noop: trigger pipeline refresh
 
 on:
   pull_request:

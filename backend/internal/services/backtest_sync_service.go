@@ -52,11 +52,19 @@ func (s *BacktestSyncService) SyncBacktestRun(userID int, upstream map[string]in
 
 	startDate := getString(payload, "start_date")
 	endDate := getString(payload, "end_date")
+	if cfg := asMap(payload["config"]); cfg != nil {
+		if startDate == "" {
+			startDate = getString(cfg, "start_date")
+		}
+		if endDate == "" {
+			endDate = getString(cfg, "end_date")
+		}
+	}
 	if startDate == "" {
-		startDate = time.Now().UTC().Format("2006-01-02")
+		return fmt.Errorf("backtest sync payload %s missing start_date", runID)
 	}
 	if endDate == "" {
-		endDate = startDate
+		return fmt.Errorf("backtest sync payload %s missing end_date", runID)
 	}
 
 	numPairs := getInt(payload, "num_pairs", "max_pairs")

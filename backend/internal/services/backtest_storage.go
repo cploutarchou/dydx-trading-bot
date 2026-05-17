@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -101,7 +102,7 @@ type BacktestTradeData struct {
 }
 
 // SaveBacktestResult saves backtest result to JSON file with timestamped filename
-func (bsm *BacktestStorageManager) SaveBacktestResult(trades []models.BacktestTrade, metrics *models.BacktestMetrics, testName string) (string, error) {
+func (bsm *BacktestStorageManager) SaveBacktestResult(trades []models.BacktestTrade, metrics *models.BacktestMetrics, run *models.BacktestRun, testName string) (string, error) {
 	bsm.mu.Lock()
 	defer bsm.mu.Unlock()
 
@@ -133,7 +134,7 @@ func (bsm *BacktestStorageManager) SaveBacktestResult(trades []models.BacktestTr
 	for i, trade := range trades {
 		tradesData[i] = BacktestTradeData{
 			TradeID:                 trade.TradeID,
-			Timestamp:               trade.EntryTimestamp.String(),
+			Timestamp:               trade.EntryTimestamp.UTC().Format(time.RFC3339),
 			Market1:                 trade.Market1,
 			Market2:                 trade.Market2,
 			Side1:                   trade.Side1,
@@ -155,13 +156,25 @@ func (bsm *BacktestStorageManager) SaveBacktestResult(trades []models.BacktestTr
 		}
 	}
 
+	startDate, endDate, totalDays := deriveStoredBacktestDateRange(run, trades)
+	startingBalance := float64(0)
+	if run != nil {
+		startingBalance = run.StartingBalance
+	}
+	endingBalance := float64(0)
+	if run != nil && run.EndingBalance != nil {
+		endingBalance = *run.EndingBalance
+	} else if startingBalance > 0 {
+		endingBalance = startingBalance + metrics.TotalPnl
+	}
+
 	// Create result data
 	resultData := BacktestResultData{
-		StartDate:         time.Now().Add(-24 * time.Hour).Format("2006-01-02"), // Placeholder
-		EndDate:           time.Now().Format("2006-01-02"),                      // Placeholder
-		TotalDays:         1,                                                    // Placeholder
-		StartingBalance:   0,                                                    // Should be from metrics
-		EndingBalance:     0,                                                    // Should be from metrics
+		StartDate:         startDate,
+		EndDate:           endDate,
+		TotalDays:         totalDays,
+		StartingBalance:   startingBalance,
+		EndingBalance:     endingBalance,
 		Metrics:           metricsData,
 		Trades:            tradesData,
 		ConfigSnapshot:    make(map[string]interface{}),
@@ -184,6 +197,45 @@ func (bsm *BacktestStorageManager) SaveBacktestResult(trades []models.BacktestTr
 
 	log.Printf("✅ Saved backtest result: %s (%d trades, $%.2f PnL)", filename, metrics.TotalTrades, metrics.TotalPnl)
 	return filename, nil
+}
+
+func deriveStoredBacktestDateRange(run *models.BacktestRun, trades []models.BacktestTrade) (string, string, int) {
+	startDate := ""
+	endDate := ""
+	if run != nil {
+		startDate = strings.TrimSpace(run.StartDate)
+		endDate = strings.TrimSpace(run.EndDate)
+	}
+
+	if startDate == "" || endDate == "" {
+		for _, trade := range trades {
+			tradeDate := trade.EntryTimestamp.UTC().Format("2006-01-02")
+			if startDate == "" || tradeDate < startDate {
+				startDate = tradeDate
+			}
+			if endDate == "" || tradeDate > endDate {
+				endDate = tradeDate
+			}
+		}
+	}
+
+	if startDate == "" && endDate != "" {
+		startDate = endDate
+	}
+	if endDate == "" && startDate != "" {
+		endDate = startDate
+	}
+
+	totalDays := 0
+	if startDate != "" && endDate != "" {
+		start, startErr := time.Parse("2006-01-02", startDate)
+		end, endErr := time.Parse("2006-01-02", endDate)
+		if startErr == nil && endErr == nil && !end.Before(start) {
+			totalDays = int(end.Sub(start).Hours()/24) + 1
+		}
+	}
+
+	return startDate, endDate, totalDays
 }
 
 // LoadBacktestResult loads specific backtest result by filename

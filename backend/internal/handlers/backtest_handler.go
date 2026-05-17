@@ -598,39 +598,106 @@ func (h *BacktestHandler) SaveBacktestResultJSON(c *gin.Context) {
 
 	// Calculate metrics from trades
 	wins := 0
+	losses := 0
 	totalPnl := float64(0)
+	grossWin := float64(0)
+	grossLoss := float64(0)
+	totalDurationHours := float64(0)
+	durationCount := 0
 	for _, t := range trades {
-		if t.Pnl != nil && *t.Pnl > 0 {
-			wins++
+		if t.Pnl != nil {
 			totalPnl += *t.Pnl
+			if *t.Pnl > 0 {
+				wins++
+				grossWin += *t.Pnl
+			} else if *t.Pnl < 0 {
+				losses++
+				grossLoss += -*t.Pnl
+			}
 		}
+		if t.DurationHours != nil {
+			totalDurationHours += *t.DurationHours
+			durationCount++
+		}
+	}
+
+	totalTrades := len(trades)
+	if run.TotalTrades > 0 {
+		totalTrades = run.TotalTrades
+	}
+	winningTrades := wins
+	if run.ProfitableTrades > 0 {
+		winningTrades = run.ProfitableTrades
+	}
+	losingTrades := losses
+	if run.LosingTrades > 0 {
+		losingTrades = run.LosingTrades
+	}
+	if totalPnl == 0 && len(trades) == 0 {
+		totalPnl = run.TotalPnLUSD
+	}
+	winRate := float64(0)
+	if run.WinRate != nil {
+		winRate = *run.WinRate
+	} else if totalTrades > 0 {
+		winRate = (float64(winningTrades) / float64(totalTrades)) * 100
+	}
+	avgWin := float64(0)
+	if winningTrades > 0 {
+		avgWin = grossWin / float64(winningTrades)
+	}
+	avgLoss := float64(0)
+	if losingTrades > 0 {
+		avgLoss = -(grossLoss / float64(losingTrades))
+	}
+	profitFactor := float64(0)
+	if run.ProfitFactor != nil {
+		profitFactor = *run.ProfitFactor
+	} else if grossLoss > 0 {
+		profitFactor = grossWin / grossLoss
+	}
+	avgDurationHours := float64(0)
+	if durationCount > 0 {
+		avgDurationHours = totalDurationHours / float64(durationCount)
+	}
+	totalReturnPct := float64(0)
+	if run.StartingBalance > 0 {
+		totalReturnPct = (totalPnl / run.StartingBalance) * 100
+	}
+	sharpeRatio := float64(0)
+	if run.SharpeRatio != nil {
+		sharpeRatio = *run.SharpeRatio
+	}
+	calmarRatio := float64(0)
+	if run.CalmarRatio != nil {
+		calmarRatio = *run.CalmarRatio
+	}
+	maxDrawdown := float64(0)
+	if run.MaxDrawdown != nil {
+		maxDrawdown = *run.MaxDrawdown
 	}
 
 	// Convert to models.BacktestMetrics
 	metricsModel := &models.BacktestMetrics{
-		TotalTrades:           len(trades),
-		WinningTrades:         wins,
-		LosingTrades:          len(trades) - wins,
-		WinRate:               float64(0),
-		AvgWin:                float64(0),
-		AvgLoss:               float64(0),
-		ProfitFactor:          float64(1),
-		MaxDrawdown:           float64(0),
-		MaxDrawdownPct:        float64(0),
-		SharpeRatio:           1.5,
-		CalmarRatio:           float64(0),
+		TotalTrades:           totalTrades,
+		WinningTrades:         winningTrades,
+		LosingTrades:          losingTrades,
+		WinRate:               winRate,
+		AvgWin:                avgWin,
+		AvgLoss:               avgLoss,
+		ProfitFactor:          profitFactor,
+		MaxDrawdown:           maxDrawdown,
+		MaxDrawdownPct:        0,
+		SharpeRatio:           sharpeRatio,
+		CalmarRatio:           calmarRatio,
 		MaxConsecutiveLosses:  0,
-		AvgTradeDurationHours: float64(0),
+		AvgTradeDurationHours: avgDurationHours,
 		TotalPnl:              totalPnl,
-		TotalReturnPct:        (totalPnl / 100000) * 100,
-	}
-
-	if len(trades) > 0 {
-		metricsModel.WinRate = (float64(wins) / float64(len(trades))) * 100
+		TotalReturnPct:        totalReturnPct,
 	}
 
 	// Save to JSON
-	filename, err := h.storage.SaveBacktestResult(trades, metricsModel, testName)
+	filename, err := h.storage.SaveBacktestResult(trades, metricsModel, run, testName)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success: false,

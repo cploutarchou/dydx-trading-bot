@@ -162,8 +162,8 @@ def parse_args() -> argparse.Namespace:
         description="Run production-profile simulation against bot backtest API"
     )
     parser.add_argument("--base-url", default="http://localhost:8889")
-    parser.add_argument("--username", default="admin")
-    parser.add_argument("--password", default="admin123")
+    parser.add_argument("--username", default=os.getenv("BOT_API_USERNAME", "admin"))
+    parser.add_argument("--password", default=os.getenv("BOT_API_PASSWORD", ""))
     parser.add_argument("--start-date", default=start)
     parser.add_argument("--end-date", default=end)
     parser.add_argument("--max-pairs", type=int, default=3)
@@ -185,6 +185,8 @@ def main() -> int:
     if args.skip_auth:
         print("Skipping auth (API_BYPASS_AUTH mode)")
     else:
+        if not args.password:
+            raise RuntimeError("BOT_API_PASSWORD or --password is required when auth is enabled")
         print("Logging in to bot API...")
         token = login(args.base_url, args.username, args.password)
 

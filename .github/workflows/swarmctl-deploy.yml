@@ -83,14 +83,21 @@ jobs:
           cd server-orchestrator
 
           requested_ref="${SWARMCTL_REF}"
-          resolved_ref="master"
+          resolved_ref="swarmctl-v0.1.25"
 
-          if git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
+          if [[ -z "${requested_ref}" || "${requested_ref}" == "latest" || "${requested_ref}" == "latest-release" ]]; then
+            latest_tag="$(git ls-remote --tags --refs origin 'refs/tags/swarmctl-v*' | awk -F/ '{print $NF}' | sort -V | tail -n1)"
+            if [[ -n "${latest_tag}" ]]; then
+              resolved_ref="${latest_tag}"
+            else
+              echo "Could not determine latest swarmctl release tag; falling back to '${resolved_ref}'."
+            fi
+          elif git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           elif git ls-remote --exit-code origin "refs/tags/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           else
-            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to 'master'."
+            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to '${resolved_ref}'."
           fi
 
           git fetch --depth=1 origin "${resolved_ref}"
@@ -242,14 +249,21 @@ jobs:
           cd server-orchestrator
 
           requested_ref="${SWARMCTL_REF}"
-          resolved_ref="master"
+          resolved_ref="swarmctl-v0.1.25"
 
-          if git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
+          if [[ -z "${requested_ref}" || "${requested_ref}" == "latest" || "${requested_ref}" == "latest-release" ]]; then
+            latest_tag="$(git ls-remote --tags --refs origin 'refs/tags/swarmctl-v*' | awk -F/ '{print $NF}' | sort -V | tail -n1)"
+            if [[ -n "${latest_tag}" ]]; then
+              resolved_ref="${latest_tag}"
+            else
+              echo "Could not determine latest swarmctl release tag; falling back to '${resolved_ref}'."
+            fi
+          elif git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           elif git ls-remote --exit-code origin "refs/tags/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           else
-            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to 'master'."
+            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to '${resolved_ref}'."
           fi
 
           git fetch --depth=1 origin "${resolved_ref}"
@@ -365,14 +379,21 @@ jobs:
           cd server-orchestrator
 
           requested_ref="${SWARMCTL_REF}"
-          resolved_ref="master"
+          resolved_ref="swarmctl-v0.1.25"
 
-          if git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
+          if [[ -z "${requested_ref}" || "${requested_ref}" == "latest" || "${requested_ref}" == "latest-release" ]]; then
+            latest_tag="$(git ls-remote --tags --refs origin 'refs/tags/swarmctl-v*' | awk -F/ '{print $NF}' | sort -V | tail -n1)"
+            if [[ -n "${latest_tag}" ]]; then
+              resolved_ref="${latest_tag}"
+            else
+              echo "Could not determine latest swarmctl release tag; falling back to '${resolved_ref}'."
+            fi
+          elif git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           elif git ls-remote --exit-code origin "refs/tags/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           else
-            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to 'master'."
+            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to '${resolved_ref}'."
           fi
 
           git fetch --depth=1 origin "${resolved_ref}"

@@ -173,8 +173,7 @@ migrate -path migrations/postgres -database "postgres://user:password@localhost:
 - PostgreSQL is the only supported SQL database in this repository.
 - Use PostgreSQL-native column types and defaults in new migrations.
 - Keep new migration files under `migrations/postgres`.
-- `migrations/sqlite` is legacy reference/test material only; do not add new
-  SQLite migrations for runtime backend features.
+- Do not add SQLite migrations or runtime SQLite compatibility paths.
 - Automatic dirty/already-exists migration recovery is disabled in production by
   default. Use `DB_MIGRATION_FORCE_RECOVERY=true` only for an explicit operator
   repair window after inspecting the schema state.
@@ -184,6 +183,9 @@ migrate -path migrations/postgres -database "postgres://user:password@localhost:
 Both seed migrations are **non-production fixtures** for development and QA.
 They are fully reversible — their `.down.sql` files use marker-prefix `DELETE`s
 that only remove rows inserted by that migration and leave non-seed data intact.
+Migration `000058_cleanup_non_production_seed_data` removes these fixtures and
+untouched default/test seed accounts from the final migrated PostgreSQL state so
+runtime environments do not retain QA data.
 
 #### `000042_seed_portal_test_clients_and_ibs` — small QA fixture set
 

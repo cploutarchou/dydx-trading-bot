@@ -55,7 +55,7 @@ Auditor: GitHub Copilot (GPT-5.3-Codex)
   **Function/Area:** DB-level idempotency for child sync tables  
   **Risk:** High  
   **Issue:** Multi-replica race windows existed when sync used update-then-insert and lacked enforced candle natural-key uniqueness.  
-  **Recommended fix:** **Applied** postgres/sqlite idempotency migrations + native UPSERT (`ON CONFLICT`) for trades/positions/candles.  
+  **Recommended fix:** **Applied** PostgreSQL idempotency migration + native UPSERT (`ON CONFLICT`) for trades/positions/candles.
   **Estimated effort:** M (done)
 
 - **File:** `backend/internal/routes/bot_api_delegate_routes.go`, `backend/internal/repository/backtest_repo.go`  
@@ -153,8 +153,6 @@ Auditor: GitHub Copilot (GPT-5.3-Codex)
 - `backend/internal/repository/backtest_sync_repo.go`
 - `backend/migrations/postgres/000054_backtest_sync_idempotency_indexes.up.sql`
 - `backend/migrations/postgres/000054_backtest_sync_idempotency_indexes.down.sql`
-- `backend/migrations/sqlite/000046_backtest_sync_idempotency_indexes.up.sql`
-- `backend/migrations/sqlite/000046_backtest_sync_idempotency_indexes.down.sql`
 
 **Changes:**
 

@@ -153,7 +153,6 @@ trace_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
 INTERNAL_ERROR_MESSAGE = "Internal server error"
 bot_manager_monitor_task: Optional[asyncio.Task] = None
 
-DEFAULT_PAIRS = ["BTC-USD", "ETH-USD", "SOL-USD"]
 MARKET_RESOLUTION_TIMEOUT_SECONDS = 10.0
 
 
@@ -414,23 +413,6 @@ def _markets_cache_set(value: Dict[str, Any]) -> None:
             "expires_at": now + float(_MARKETS_CACHE_TTL_SECONDS),
             "updated_at": now,
         }
-
-
-def _static_market_fallback() -> List[str]:
-    """Return deterministic local fallback markets for temporary dYdX outages."""
-    raw = os.getenv("MARKETS_FALLBACK_LIST", "")
-    if raw.strip():
-        markets = [item.strip().upper() for item in raw.split(",") if item.strip()]
-        deduped: List[str] = []
-        seen: set[str] = set()
-        for market in markets:
-            if market in seen:
-                continue
-            seen.add(market)
-            deduped.append(market)
-        if deduped:
-            return deduped
-    return list(DEFAULT_PAIRS)
 
 
 def _cache_get(key: str) -> Optional[Any]:
@@ -3526,8 +3508,8 @@ async def list_perpetual_markets(limit: int = 0):
     When the live dYdX call fails, stale cache data is served (up to
     ``MARKETS_STALE_TTL_SECONDS``, default 300 s) with an ``X-Cache-Stale: 1``
     header so callers can distinguish live vs fallback responses.
-    When both live resolution and cache fallback are unavailable, the endpoint
-    can return a deterministic static fallback list instead of 5xx.
+    When both live resolution and stale cache data are unavailable, the endpoint
+    returns 503 instead of inventing a market list.
     """
     cap = _normalize_requested_pair_cap(limit)
     client = None
@@ -3602,30 +3584,6 @@ async def list_perpetual_markets(limit: int = 0):
                 },
                 message=f"Retrieved {len(result_markets)} perpetual markets (stale cache fallback)",
                 headers={"X-Cache-Stale": "1"},
-            )
-
-        allow_static_fallback = os.getenv(
-            "MARKETS_ENDPOINT_ALLOW_STATIC_FALLBACK", "true"
-        ).strip().lower() in {"1", "true", "yes", "on"}
-        if allow_static_fallback:
-            fallback_markets = _static_market_fallback()
-            if cap is not None:
-                fallback_markets = fallback_markets[:cap]
-            logger.warning(
-                "markets_static_fallback endpoint=/api/v1/markets/perpetuals "
-                "count={} error={}",
-                len(fallback_markets),
-                live_error,
-            )
-            return api_response(
-                success=True,
-                data={
-                    "markets": fallback_markets,
-                    "count": len(fallback_markets),
-                    "source": "static_fallback",
-                },
-                message=f"Retrieved {len(fallback_markets)} perpetual markets (static fallback)",
-                headers={"X-Cache-Stale": "1", "X-Markets-Fallback": "1"},
             )
 
         return api_response(

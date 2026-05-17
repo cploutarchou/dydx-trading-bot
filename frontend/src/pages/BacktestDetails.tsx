@@ -146,8 +146,9 @@ export const BacktestDetailsPage: React.FC = () => {
   // Generate equity curve data from trades
   const generateEquityCurveData = () => {
     if (!backtest?.all_trades) return [];
+    if (typeof backtest.starting_balance !== 'number') return [];
 
-    let balance = backtest.starting_balance || 1000;
+    let balance = backtest.starting_balance;
     const data = [{ timestamp: 'Start', balance, trades: 0 }];
 
     backtest.all_trades.forEach((trade, idx) => {

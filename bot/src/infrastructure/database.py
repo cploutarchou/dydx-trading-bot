@@ -688,47 +688,6 @@ class DatabaseManager:
 
         logger.info("Running pending Alembic migrations...")
 
-        engine = self.get_engine()
-
-        # ── Pre-migration connection eviction ─────────────────────────────────
-        # CREATE INDEX CONCURRENTLY waits for all transactions that were open
-        # when the build starts to finish.  Long-lived connections from worker
-        # subprocesses and the API server's own pool would cause it to hang
-        # indefinitely.  We therefore:
-        #   1. Dispose our own pool so those connections are not counted.
-        #   2. Terminate every other client backend on this database so
-        #      CONCURRENTLY can obtain a clean snapshot immediately.
-        # Worker subprocesses reconnect transparently on their next query via
-        # SQLAlchemy's connection-checkout retry / pool_pre_ping logic.
-        engine.dispose()
-        try:
-            with engine.connect().execution_options(
-                isolation_level="AUTOCOMMIT"
-            ) as _conn:
-                result = _conn.execute(text("""
-                        SELECT COUNT(pg_terminate_backend(pid))
-                        FROM pg_stat_activity
-                        WHERE datname = current_database()
-                          AND pid <> pg_backend_pid()
-                          AND backend_type = 'client backend'
-                        """))
-                terminated = result.scalar() or 0
-                if terminated:
-                    logger.warning(
-                        "Terminated {} other DB connection(s) to allow lock-free index "
-                        "migrations. They will reconnect automatically.",
-                        terminated,
-                    )
-        except Exception as _evict_err:
-            # Non-superuser roles may lack pg_terminate_backend permission.
-            # Log and continue — migrations will still run, but CONCURRENTLY
-            # steps may be slower if other connections are present.
-            logger.warning(
-                "Could not evict other DB connections before migration ({}). "
-                "Proceeding anyway — migrations may be slower.",
-                _evict_err,
-            )
-
         command.upgrade(alembic_config, "head")
         logger.info("Alembic migrations applied successfully")
 

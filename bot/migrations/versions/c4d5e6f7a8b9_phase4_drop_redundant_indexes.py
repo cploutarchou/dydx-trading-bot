@@ -11,11 +11,16 @@ Audit source: DBA audit report 2026-05-01, Section 3.1.
 
 Changes (Alembic-managed tables only):
 - jobs: drop ix_jobs_job_id is UNIQUE — KEEP (functionally required). Drop ix_job_created
-  which is covered by the partial index added in Phase 1.
+  which is covered by the status/time index added in Phase 1.
 - event_logs: drop ix_event_logs_created_at (duplicate of ix_event_created; both are
   single-column on created_at). Keep ix_event_created.
 - bot_instances (Alembic version): drop ix_bot_status (low-cardinality enum column with
   only ~8 distinct values; partial indexes per status are more selective).
+
+Implementation note:
+Automatic startup migrations run inside Alembic's normal transaction. Drops and
+rollback index re-creation intentionally use transaction-safe DDL so API startup
+does not depend on autocommit blocks.
 
 Risk: LOW — all indexes identified as redundant or superseded by Phase 1 composites.
 Rollback: downgrade() re-creates them.
@@ -47,22 +52,21 @@ def _table_exists(bind, table_name: str) -> bool:
 
 
 # (table, index_to_drop, restore_sql)
-# Each drop/restore runs inside autocommit_block() so CONCURRENTLY is permitted.
 _DROPS = [
     (
         "event_logs",
         "ix_event_logs_created_at",
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_event_logs_created_at ON event_logs (created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_event_logs_created_at ON event_logs (created_at)",
     ),
     (
         "jobs",
         "ix_job_created",
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_job_created ON jobs (created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_job_created ON jobs (created_at)",
     ),
     (
         "system_metrics",
         "ix_metrics_timestamp",
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_metrics_timestamp ON system_metrics (timestamp)",
+        "CREATE INDEX IF NOT EXISTS ix_metrics_timestamp ON system_metrics (timestamp)",
     ),
 ]
 
@@ -77,8 +81,7 @@ def upgrade() -> None:
             continue
         if not _index_exists(bind, index_name):
             continue
-        with op.get_context().autocommit_block():
-            op.execute(sa.text(f"DROP INDEX CONCURRENTLY IF EXISTS {index_name}"))
+        op.execute(sa.text(f"DROP INDEX IF EXISTS {index_name}"))
 
 
 def downgrade() -> None:
@@ -91,5 +94,4 @@ def downgrade() -> None:
             continue
         if _index_exists(bind, index_name):
             continue
-        with op.get_context().autocommit_block():
-            op.execute(sa.text(restore_sql))
+        op.execute(sa.text(restore_sql))

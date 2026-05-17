@@ -105,6 +105,34 @@ jobs:
           cfg_path = pathlib.Path.home() / ".swarmctl" / "config.yaml"
           cfg = yaml.safe_load(cfg_path.read_text()) or {}
           contexts = cfg.get("contexts") or {}
+
+          for _, ctx in contexts.items():
+              if not isinstance(ctx, dict):
+                  continue
+
+              manager_host = str(ctx.get("managerHost", "")).strip()
+              ssh_user = str(ctx.get("sshUser", "")).strip()
+              docker_host = str(ctx.get("dockerHost", "")).strip()
+
+              # Normalize legacy managerHost values like "root@1.2.3.4".
+              if manager_host and "@" in manager_host:
+                  user_part, host_part = manager_host.split("@", 1)
+                  if not ssh_user and user_part:
+                      ctx["sshUser"] = user_part
+                      ssh_user = user_part
+                  ctx["managerHost"] = host_part
+                  manager_host = host_part
+
+              # Normalize dockerHost to include scheme when omitted.
+              if docker_host:
+                  if "://" not in docker_host and "@" in docker_host:
+                      ctx["dockerHost"] = f"ssh://{docker_host}"
+              elif manager_host and ssh_user:
+                  ctx["dockerHost"] = f"ssh://{ssh_user}@{manager_host}"
+
+          cfg["contexts"] = contexts
+          cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False))
+
           hosts = sorted({
               str(v.get("managerHost", "")).strip()
               for v in contexts.values()

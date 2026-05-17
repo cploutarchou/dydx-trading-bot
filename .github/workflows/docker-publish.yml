@@ -1,217 +1,210 @@
 name: Build and Push Docker Images
 
 on:
-    push:
-        branches: [master, main]
-        paths:
-            - "backend/**"
-            - "bot/**"
-            - "frontend/**"
-            - "docker/**"
-            - "platform.yml"
-            - ".github/workflows/docker-publish.yml"
-    pull_request:
-        branches: [master, main]
-        paths:
-            - "backend/**"
-            - "bot/**"
-            - "frontend/**"
-            - "docker/**"
-            - "platform.yml"
-            - ".github/workflows/docker-publish.yml"
-    workflow_dispatch:
-        inputs:
-            redeploy_services:
-                description: "Optional comma-separated services to redeploy (api,backend,worker,frontend)"
-                required: false
-                type: string
-                default: ""
-            redeploy_dry_run:
-                description: "Trigger redeploy workflow in dry-run mode"
-                required: false
-                type: boolean
-                default: false
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+    paths:
+      - "backend/**"
+      - "bot/**"
+      - "frontend/**"
+      - "docker/**"
+      - "platform.yml"
+      - ".github/workflows/docker-publish.yml"
+  workflow_dispatch:
+    inputs:
+      redeploy_services:
+        description: "Optional comma-separated services to redeploy (api,backend,worker,frontend)"
+        required: false
+        type: string
+        default: ""
+      redeploy_dry_run:
+        description: "Trigger redeploy workflow in dry-run mode"
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
-    group: docker-publish-${{ github.ref }}
-    cancel-in-progress: true
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-    detect-changed-services:
-        name: Detect changed services
-        runs-on: ubuntu-latest
-        if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-        outputs:
-            services_csv: ${{ steps.detect.outputs.services_csv }}
-            should_redeploy: ${{ steps.detect.outputs.should_redeploy }}
-        steps:
-            - name: Checkout repository
-              uses: actions/checkout@v4
-              with:
-                  fetch-depth: 0
+  detect-changed-services:
+    name: Detect changed services
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    outputs:
+      services_csv: ${{ steps.detect.outputs.services_csv }}
+      should_redeploy: ${{ steps.detect.outputs.should_redeploy }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-            - name: Detect changed services
-              id: detect
-              shell: bash
-              run: |
-                  set -euo pipefail
+      - name: Detect changed services
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
 
-                  before_sha="${{ github.event.before }}"
-                  after_sha="${{ github.sha }}"
+          before_sha="${{ github.event.before }}"
+          after_sha="${{ github.sha }}"
 
-                  if [[ -z "${before_sha}" || "${before_sha}" == "0000000000000000000000000000000000000000" ]]; then
-                    changed_files="$(git ls-files)"
-                  else
-                    changed_files="$(git diff --name-only "${before_sha}" "${after_sha}")"
-                  fi
+          if [[ -z "${before_sha}" || "${before_sha}" == "0000000000000000000000000000000000000000" ]]; then
+            changed_files="$(git ls-files)"
+          else
+            changed_files="$(git diff --name-only "${before_sha}" "${after_sha}")"
+          fi
 
-                  echo "Changed files:"
-                  echo "${changed_files}"
+          echo "Changed files:"
+          echo "${changed_files}"
 
-                  add_service() {
-                    local svc="$1"
-                    case ",${services}," in
-                      *",${svc},"*) ;;
-                      *)
-                        if [[ -n "${services}" ]]; then
-                          services="${services},${svc}"
-                        else
-                          services="${svc}"
-                        fi
-                        ;;
-                    esac
-                  }
+          add_service() {
+            local svc="$1"
+            case ",${services}," in
+              *",${svc},"*) ;;
+              *)
+                if [[ -n "${services}" ]]; then
+                  services="${services},${svc}"
+                else
+                  services="${svc}"
+                fi
+                ;;
+            esac
+          }
 
-                  services=""
-                  all_services="api,backend,worker,frontend"
+          services=""
+          all_services="api,backend,worker,frontend"
 
-                  while IFS= read -r file; do
-                    [[ -z "${file}" ]] && continue
-                    case "${file}" in
-                      platform.yml)
-                        services="${all_services}"
-                        break
-                        ;;
-                      backend/*|docker/Dockerfile.backend)
-                        add_service "backend"
-                        ;;
-                      bot/*|docker/Dockerfile.api)
-                        add_service "api"
-                        ;;
-                      docker/Dockerfile.worker)
-                        add_service "worker"
-                        ;;
-                      frontend/*|docker/Dockerfile.frontend|docker/nginx.conf)
-                        add_service "frontend"
-                        ;;
-                      docker/*)
-                        services="${all_services}"
-                        break
-                        ;;
-                    esac
-                  done <<< "${changed_files}"
+          while IFS= read -r file; do
+            [[ -z "${file}" ]] && continue
+            case "${file}" in
+              platform.yml)
+                services="${all_services}"
+                break
+                ;;
+              backend/*|docker/Dockerfile.backend)
+                add_service "backend"
+                ;;
+              bot/*|docker/Dockerfile.api)
+                add_service "api"
+                ;;
+              docker/Dockerfile.worker)
+                add_service "worker"
+                ;;
+              frontend/*|docker/Dockerfile.frontend|docker/nginx.conf)
+                add_service "frontend"
+                ;;
+              docker/*)
+                services="${all_services}"
+                break
+                ;;
+            esac
+          done <<< "${changed_files}"
 
-                  if [[ -z "${services}" ]]; then
-                    echo "No deployable service changes detected; defaulting to all services for safety."
-                    services="${all_services}"
-                  fi
+          if [[ -z "${services}" ]]; then
+            echo "No deployable service changes detected; defaulting to all services for safety."
+            services="${all_services}"
+          fi
 
-                  echo "services_csv=${services}" >> "${GITHUB_OUTPUT}"
-                  echo "should_redeploy=true" >> "${GITHUB_OUTPUT}"
+          echo "services_csv=${services}" >> "${GITHUB_OUTPUT}"
+          echo "should_redeploy=true" >> "${GITHUB_OUTPUT}"
 
-    build:
-        runs-on: ubuntu-latest
-        permissions:
-            contents: read
-            packages: write
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
-        strategy:
-            fail-fast: false
-            matrix:
-                include:
-                    - service: api
-                      dockerfile: docker/Dockerfile.api
-                    - service: worker
-                      dockerfile: docker/Dockerfile.worker
-                    - service: backend
-                      dockerfile: docker/Dockerfile.backend
-                    - service: frontend
-                      dockerfile: docker/Dockerfile.frontend
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: api
+            dockerfile: docker/Dockerfile.api
+          - service: worker
+            dockerfile: docker/Dockerfile.worker
+          - service: backend
+            dockerfile: docker/Dockerfile.backend
+          - service: frontend
+            dockerfile: docker/Dockerfile.frontend
 
-        steps:
-            - name: Checkout repository
-              uses: actions/checkout@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-            - name: Log in to GitHub Container Registry
-              if: github.event_name != 'pull_request'
-              uses: docker/login-action@v3
-              with:
-                  registry: ghcr.io
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Extract Docker metadata
-              id: meta
-              uses: docker/metadata-action@v5
-              with:
-                  images: ghcr.io/${{ github.repository_owner }}/dydx-trading-bot/${{ matrix.service }}
-                  tags: |
-                      type=sha,format=short
-                      type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/dydx-trading-bot/${{ matrix.service }}
+          tags: |
+            type=sha,format=short
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
 
-            - name: Build and push ${{ matrix.service }}
-              uses: docker/build-push-action@v6
-              with:
-                  context: .
-                  file: ${{ matrix.dockerfile }}
-                  push: ${{ github.event_name != 'pull_request' }}
-                  tags: ${{ steps.meta.outputs.tags }}
-                  labels: ${{ steps.meta.outputs.labels }}
-                  cache-from: type=gha,scope=${{ matrix.service }}
-                  cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
-    trigger-redeploy:
-        name: Trigger platform redeploy
-        runs-on: ubuntu-latest
-        needs: [build, detect-changed-services]
-        if: (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) || github.event_name == 'workflow_dispatch'
-        permissions:
-            contents: read
-        steps:
-            - name: Trigger server-orchestrator selective redeploy
-              env:
-                  GH_TOKEN: ${{ secrets.ORCHESTRATOR_WORKFLOW_TOKEN }}
-                  OWNER: cploutarchou
-                  REPO: server-orchestrator
-                  EVENT_TYPE: dydx-images-published
-                  SERVICES_CSV: ${{ needs.detect-changed-services.outputs.services_csv }}
-                  MANUAL_SERVICES: ${{ inputs.redeploy_services }}
-                  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.redeploy_dry_run || 'false' }}
-                  SOURCE_SHA: ${{ github.sha }}
-              run: |
-                  set -euo pipefail
-                  if [[ -z "${GH_TOKEN:-}" ]]; then
-                    echo "Missing required secret: ORCHESTRATOR_WORKFLOW_TOKEN" >&2
-                    exit 1
-                  fi
+  trigger-redeploy:
+    name: Trigger platform redeploy
+    runs-on: ubuntu-latest
+    needs: [build, detect-changed-services]
+    if: (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+    steps:
+      - name: Trigger server-orchestrator selective redeploy
+        env:
+          GH_TOKEN: ${{ secrets.ORCHESTRATOR_WORKFLOW_TOKEN }}
+          OWNER: cploutarchou
+          REPO: server-orchestrator
+          EVENT_TYPE: dydx-images-published
+          SERVICES_CSV: ${{ needs.detect-changed-services.outputs.services_csv }}
+          MANUAL_SERVICES: ${{ inputs.redeploy_services }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.redeploy_dry_run || 'false' }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "Missing required secret: ORCHESTRATOR_WORKFLOW_TOKEN" >&2
+            exit 1
+          fi
 
-                  resolved_services="${SERVICES_CSV:-}"
-                  if [[ -z "${resolved_services}" ]]; then
-                    resolved_services="${MANUAL_SERVICES:-}"
-                  fi
-                  if [[ -z "${resolved_services}" ]]; then
-                    resolved_services="api,backend,worker,frontend"
-                  fi
+          resolved_services="${SERVICES_CSV:-}"
+          if [[ -z "${resolved_services}" ]]; then
+            resolved_services="${MANUAL_SERVICES:-}"
+          fi
+          if [[ -z "${resolved_services}" ]]; then
+            resolved_services="api,backend,worker,frontend"
+          fi
 
-                  payload="{\"event_type\":\"${EVENT_TYPE}\",\"client_payload\":{\"services\":\"${resolved_services}\",\"source_repo\":\"${{ github.repository }}\",\"source_sha\":\"${SOURCE_SHA}\",\"dry_run\":\"${DRY_RUN}\"}}"
+          payload="{\"event_type\":\"${EVENT_TYPE}\",\"client_payload\":{\"services\":\"${resolved_services}\",\"source_repo\":\"${{ github.repository }}\",\"source_sha\":\"${SOURCE_SHA}\",\"dry_run\":\"${DRY_RUN}\"}}"
 
-                  curl -sS -X POST \
-                    -H "Accept: application/vnd.github+json" \
-                    -H "Authorization: Bearer ${GH_TOKEN}" \
-                    "https://api.github.com/repos/${OWNER}/${REPO}/dispatches" \
-                    -d "${payload}"
+          curl -sS -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/${OWNER}/${REPO}/dispatches" \
+            -d "${payload}"
 
-                  echo "Triggered ${OWNER}/${REPO} repository_dispatch (${EVENT_TYPE}) for services: ${resolved_services} (dry_run=${DRY_RUN})."
+          echo "Triggered ${OWNER}/${REPO} repository_dispatch (${EVENT_TYPE}) for services: ${resolved_services} (dry_run=${DRY_RUN})."

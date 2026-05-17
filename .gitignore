@@ -192,6 +192,7 @@ logs/
 # Environment variables
 .env.local
 .env.*.local
+scripts/production.secrets.env
 
 # Node modules (for React frontend if applicable)
 node_modules/

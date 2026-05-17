@@ -1,249 +1,263 @@
 name: Swarmctl Auto Deploy After Image Publish
 
 on:
-    workflow_run:
-        workflows: ["Build and Push Docker Images"]
-        types: [completed]
+  workflow_run:
+    workflows: ["Build and Push Docker Images"]
+    types: [completed]
 
 permissions:
-    contents: read
-    actions: write
+  contents: read
+  actions: write
 
 jobs:
-    dispatch-swarmctl-deploy:
-        name: Dispatch swarmctl deploy workflow
-        runs-on: ubuntu-latest
-        if: >-
-            github.event.workflow_run.conclusion == 'success' &&
-            github.event.workflow_run.event == 'push' &&
-            (github.event.workflow_run.head_branch == 'master' || github.event.workflow_run.head_branch == 'main') &&
-            github.event.workflow_run.repository.full_name == github.repository
+  dispatch-swarmctl-deploy:
+    name: Dispatch swarmctl deploy workflow
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      (github.event.workflow_run.head_branch == 'master' || github.event.workflow_run.head_branch == 'main') &&
+      github.event.workflow_run.repository.full_name == github.repository
+    env:
+      TARGET_ENV: ${{ vars.SWARMCTL_AUTO_ENV || 'production' }}
+      TARGET_DEPLOY_INFRA: ${{ vars.SWARMCTL_AUTO_DEPLOY_INFRA || 'true' }}
+      TARGET_DEPLOY_APPS: ${{ vars.SWARMCTL_AUTO_DEPLOY_APPS || 'true' }}
+      TARGET_DRY_RUN: ${{ vars.SWARMCTL_AUTO_DRY_RUN || 'false' }}
+      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.25' }}
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+      SOURCE_BRANCH: ${{ github.event.workflow_run.head_branch }}
+    steps:
+      - name: Checkout dydx-trading-bot
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+
+      - name: Checkout server-orchestrator
+        uses: actions/checkout@v4
+        with:
+          repository: cploutarchou/server-orchestrator
+          token: ${{ secrets.ORCHESTRATOR_WORKFLOW_TOKEN != '' && secrets.ORCHESTRATOR_WORKFLOW_TOKEN || github.token }}
+          path: server-orchestrator
+
+      - name: Resolve swarmctl source ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd server-orchestrator
+
+          requested_ref="${SWARMCTL_REF}"
+          resolved_ref="swarmctl-v0.1.25"
+
+          if [[ -n "${requested_ref}" && ( "${requested_ref}" == *'*'* || "${requested_ref}" == *'?'* || "${requested_ref}" == *'['* ) ]]; then
+            echo "Treating wildcard SWARMCTL_REF='${requested_ref}' as latest-release."
+            requested_ref="latest-release"
+          fi
+
+          if [[ -z "${requested_ref}" || "${requested_ref}" == "latest" || "${requested_ref}" == "latest-release" ]]; then
+            latest_tag="$(git ls-remote --tags --refs origin 'refs/tags/swarmctl-v*' | awk -F/ '{print $NF}' | sort -V | tail -n1)"
+            if [[ -n "${latest_tag}" ]]; then
+              resolved_ref="${latest_tag}"
+            else
+              echo "Could not determine latest swarmctl release tag; falling back to '${resolved_ref}'."
+            fi
+          elif git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
+            resolved_ref="${requested_ref}"
+          elif git ls-remote --exit-code origin "refs/tags/${requested_ref}" >/dev/null 2>&1; then
+            resolved_ref="${requested_ref}"
+          else
+            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to '${resolved_ref}'."
+          fi
+
+          git fetch --depth=1 origin "${resolved_ref}"
+          git checkout --force FETCH_HEAD
+          echo "Using server-orchestrator ref: ${resolved_ref}"
+
+      - name: Build swarmctl
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd server-orchestrator
+          go build -o ../swarmctl ./cmd/swarmctl
+          chmod +x ../swarmctl
+          ../swarmctl version
+
+      - name: Configure swarmctl context
         env:
-            TARGET_ENV: ${{ vars.SWARMCTL_AUTO_ENV || 'staging' }}
-            TARGET_DEPLOY_INFRA: ${{ vars.SWARMCTL_AUTO_DEPLOY_INFRA || 'false' }}
-            TARGET_DEPLOY_APPS: ${{ vars.SWARMCTL_AUTO_DEPLOY_APPS || 'true' }}
-            TARGET_DRY_RUN: ${{ vars.SWARMCTL_AUTO_DRY_RUN || 'false' }}
-            SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'master' }}
-            SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
-            SOURCE_BRANCH: ${{ github.event.workflow_run.head_branch }}
-        steps:
-            - name: Checkout dydx-trading-bot
-              uses: actions/checkout@v4
+          SWARMCTL_CONFIG_BASE64: ${{ secrets.SWARMCTL_CONFIG_BASE64 }}
+          SWARM_SSH_PRIVATE_KEY: ${{ secrets.SWARM_SSH_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${SWARMCTL_CONFIG_BASE64:-}" ]]; then
+            echo "Missing required secret: SWARMCTL_CONFIG_BASE64" >&2
+            exit 1
+          fi
+          if [[ -z "${SWARM_SSH_PRIVATE_KEY:-}" ]]; then
+            echo "Missing required secret: SWARM_SSH_PRIVATE_KEY" >&2
+            exit 1
+          fi
 
-            - name: Set up Go
-              uses: actions/setup-go@v5
-              with:
-                  go-version: "1.22.x"
+          umask 077
+          mkdir -p "$HOME/.swarmctl" "$HOME/.ssh"
+          echo "$SWARMCTL_CONFIG_BASE64" | base64 -d > "$HOME/.swarmctl/config.yaml"
+          chmod 600 "$HOME/.swarmctl/config.yaml"
 
-            - name: Checkout server-orchestrator
-              uses: actions/checkout@v4
-              with:
-                  repository: cploutarchou/server-orchestrator
-                  token: ${{ secrets.ORCHESTRATOR_WORKFLOW_TOKEN != '' && secrets.ORCHESTRATOR_WORKFLOW_TOKEN || github.token }}
-                  path: server-orchestrator
+          printf '%s\n' "$SWARM_SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
 
-            - name: Resolve swarmctl source ref
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  cd server-orchestrator
+          sed -E -i 's#^(\s*sshKeyPath:)\s*.*#\1 /home/runner/.ssh/id_ed25519#' "$HOME/.swarmctl/config.yaml"
+          python3 - <<'PY'
+          import pathlib
+          import subprocess
+          import yaml
 
-                  requested_ref="${SWARMCTL_REF}"
-                  resolved_ref="master"
+          cfg_path = pathlib.Path.home() / ".swarmctl" / "config.yaml"
+          cfg = yaml.safe_load(cfg_path.read_text()) or {}
+          contexts = cfg.get("contexts") or {}
 
-                  if git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
-                    resolved_ref="${requested_ref}"
-                  elif git ls-remote --exit-code origin "refs/tags/${requested_ref}" >/dev/null 2>&1; then
-                    resolved_ref="${requested_ref}"
-                  else
-                    echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to 'master'."
-                  fi
+          for _, ctx in contexts.items():
+              if not isinstance(ctx, dict):
+                  continue
 
-                  git fetch --depth=1 origin "${resolved_ref}"
-                  git checkout --force FETCH_HEAD
-                  echo "Using server-orchestrator ref: ${resolved_ref}"
+              manager_host = str(ctx.get("managerHost", "")).strip()
+              ssh_user = str(ctx.get("sshUser", "")).strip()
+              docker_host = str(ctx.get("dockerHost", "")).strip()
 
-            - name: Build swarmctl
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  cd server-orchestrator
-                  go build -o ../swarmctl ./cmd/swarmctl
-                  chmod +x ../swarmctl
-                  ../swarmctl version
+              # Normalize legacy managerHost values like "root@1.2.3.4".
+              if manager_host and "@" in manager_host:
+                  user_part, host_part = manager_host.split("@", 1)
+                  if not ssh_user and user_part:
+                      ctx["sshUser"] = user_part
+                      ssh_user = user_part
+                  ctx["managerHost"] = host_part
+                  manager_host = host_part
 
-            - name: Configure swarmctl context
-              env:
-                  SWARMCTL_CONFIG_BASE64: ${{ secrets.SWARMCTL_CONFIG_BASE64 }}
-                  SWARM_SSH_PRIVATE_KEY: ${{ secrets.SWARM_SSH_PRIVATE_KEY }}
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  if [[ -z "${SWARMCTL_CONFIG_BASE64:-}" ]]; then
-                    echo "Missing required secret: SWARMCTL_CONFIG_BASE64" >&2
-                    exit 1
-                  fi
-                  if [[ -z "${SWARM_SSH_PRIVATE_KEY:-}" ]]; then
-                    echo "Missing required secret: SWARM_SSH_PRIVATE_KEY" >&2
-                    exit 1
-                  fi
+              # Normalize dockerHost to include scheme when omitted.
+              if docker_host:
+                  if "://" not in docker_host and "@" in docker_host:
+                      ctx["dockerHost"] = f"ssh://{docker_host}"
+              elif manager_host and ssh_user:
+                  ctx["dockerHost"] = f"ssh://{ssh_user}@{manager_host}"
 
-                  umask 077
-                  mkdir -p "$HOME/.swarmctl" "$HOME/.ssh"
-                  echo "$SWARMCTL_CONFIG_BASE64" | base64 -d > "$HOME/.swarmctl/config.yaml"
-                  chmod 600 "$HOME/.swarmctl/config.yaml"
+          cfg["contexts"] = contexts
+          cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False))
 
-                  printf '%s\n' "$SWARM_SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
-                  chmod 600 "$HOME/.ssh/id_ed25519"
+          hosts = sorted({
+              str(v.get("managerHost", "")).strip()
+              for v in contexts.values()
+              if isinstance(v, dict) and str(v.get("managerHost", "")).strip()
+          })
 
-                  sed -E -i 's#^(\s*sshKeyPath:)\s*.*#\1 /home/runner/.ssh/id_ed25519#' "$HOME/.swarmctl/config.yaml"
-                  python3 - <<'PY'
-                  import pathlib
-                  import subprocess
-                  import yaml
+          ssh_dir = pathlib.Path.home() / ".ssh"
+          known_hosts = ssh_dir / "known_hosts"
+          known_hosts.touch(mode=0o600, exist_ok=True)
 
-                  cfg_path = pathlib.Path.home() / ".swarmctl" / "config.yaml"
-                  cfg = yaml.safe_load(cfg_path.read_text()) or {}
-                  contexts = cfg.get("contexts") or {}
+          for host in hosts:
+              with known_hosts.open("a") as fh:
+                  subprocess.run(
+                      ["ssh-keyscan", "-H", "-T", "10", host],
+                      stdout=fh,
+                      stderr=subprocess.DEVNULL,
+                      check=False,
+                  )
+          PY
 
-                  for _, ctx in contexts.items():
-                      if not isinstance(ctx, dict):
-                          continue
+          cat > "$HOME/.ssh/config" <<'EOF'
+          Host *
+            IdentityFile /home/runner/.ssh/id_ed25519
+            IdentitiesOnly yes
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+          EOF
+          chmod 600 "$HOME/.ssh/config"
+          ./swarmctl context current || true
 
-                      manager_host = str(ctx.get("managerHost", "")).strip()
-                      ssh_user = str(ctx.get("sshUser", "")).strip()
-                      docker_host = str(ctx.get("dockerHost", "")).strip()
+      - name: Compute image tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          short_sha="$(echo "${SOURCE_SHA}" | cut -c1-7)"
+          image_tag="sha-${short_sha}"
+          echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
+          echo "Using image_tag=${image_tag} from source SHA ${SOURCE_SHA}"
 
-                      # Normalize legacy managerHost values like "root@1.2.3.4".
-                      if manager_host and "@" in manager_host:
-                          user_part, host_part = manager_host.split("@", 1)
-                          if not ssh_user and user_part:
-                              ctx["sshUser"] = user_part
-                              ssh_user = user_part
-                          ctx["managerHost"] = host_part
-                          manager_host = host_part
+      - name: Preflight tag policy check
+        env:
+          IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          env_lc="$(echo "${TARGET_ENV}" | tr '[:upper:]' '[:lower:]')"
+          tag_lc="$(echo "${IMAGE_TAG}" | tr '[:upper:]' '[:lower:]')"
 
-                      # Normalize dockerHost to include scheme when omitted.
-                      if docker_host:
-                          if "://" not in docker_host and "@" in docker_host:
-                              ctx["dockerHost"] = f"ssh://{docker_host}"
-                      elif manager_host and ssh_user:
-                          ctx["dockerHost"] = f"ssh://{ssh_user}@{manager_host}"
+          if [[ "${env_lc}" != "staging" ]]; then
+            if [[ "${tag_lc}" == "latest" ]]; then
+              :
+            elif [[ "${tag_lc}" =~ ^sha-[0-9a-f]{7,64}$ ]]; then
+              :
+            elif [[ "${tag_lc}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-.][a-z0-9.]+)?$ ]]; then
+              :
+            else
+              echo "Blocked before dispatch: non-staging image_tag '${IMAGE_TAG}' is not allowed (env=${TARGET_ENV})." >&2
+              echo "Allowed patterns: latest, sha-<hex>, v<major>.<minor>.<patch>, <major>.<minor>.<patch> (optional -rc.1 style suffix)." >&2
+              exit 1
+            fi
+          fi
 
-                  cfg["contexts"] = contexts
-                  cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False))
+          echo "Auto-dispatch preflight passed for env=${TARGET_ENV}, image_tag=${IMAGE_TAG}."
 
-                  hosts = sorted({
-                      str(v.get("managerHost", "")).strip()
-                      for v in contexts.values()
-                      if isinstance(v, dict) and str(v.get("managerHost", "")).strip()
-                  })
+      - name: Validate infra observability
+        run: |
+          ./swarmctl infra ips --env ${{ env.TARGET_ENV }}
+          ./swarmctl infra topology --env ${{ env.TARGET_ENV }}
 
-                  ssh_dir = pathlib.Path.home() / ".ssh"
-                  known_hosts = ssh_dir / "known_hosts"
-                  known_hosts.touch(mode=0o600, exist_ok=True)
+      - name: Dispatch Swarmctl Validate & Deploy workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
 
-                  for host in hosts:
-                      with known_hosts.open("a") as fh:
-                          subprocess.run(
-                              ["ssh-keyscan", "-H", "-T", "10", host],
-                              stdout=fh,
-                              stderr=subprocess.DEVNULL,
-                              check=False,
-                          )
-                  PY
+          payload=$(jq -nc \
+            --arg ref "${SOURCE_BRANCH}" \
+            --arg environment "${TARGET_ENV}" \
+            --arg image_tag "${IMAGE_TAG}" \
+            --arg deploy_infra "${TARGET_DEPLOY_INFRA}" \
+            --arg deploy_apps "${TARGET_DEPLOY_APPS}" \
+            --arg dry_run "${TARGET_DRY_RUN}" \
+            '{
+              ref: $ref,
+              inputs: {
+                environment: $environment,
+                image_tag: $image_tag,
+                deploy_infra: $deploy_infra,
+                deploy_apps: $deploy_apps,
+                dry_run: $dry_run
+              }
+            }')
 
-                  cat > "$HOME/.ssh/config" <<'EOF'
-                  Host *
-                    IdentityFile /home/runner/.ssh/id_ed25519
-                    IdentitiesOnly yes
-                    StrictHostKeyChecking no
-                    UserKnownHostsFile /dev/null
-                  EOF
-                  chmod 600 "$HOME/.ssh/config"
-                  ./swarmctl context current || true
+          curl -sS -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/${REPO}/actions/workflows/swarmctl-deploy.yml/dispatches" \
+            -d "${payload}"
 
-            - name: Compute image tag
-              id: tag
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  short_sha="${SOURCE_SHA:0:7}"
-                  image_tag="sha-${short_sha}"
-                  echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
-                  echo "Using image_tag=${image_tag} from source SHA ${SOURCE_SHA}"
+          echo "Triggered swarmctl-deploy.yml for ${SOURCE_BRANCH} with image_tag=${IMAGE_TAG}, env=${TARGET_ENV}, dry_run=${TARGET_DRY_RUN}, swarmctl_ref=${SWARMCTL_REF}"
 
-            - name: Preflight tag policy check
-              env:
-                  IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  env_lc="$(echo "${TARGET_ENV}" | tr '[:upper:]' '[:lower:]')"
-                  tag_lc="$(echo "${IMAGE_TAG}" | tr '[:upper:]' '[:lower:]')"
-
-                  if [[ "${env_lc}" != "staging" ]]; then
-                    if [[ "${tag_lc}" =~ ^sha-[0-9a-f]{7,64}$ ]]; then
-                      :
-                    elif [[ "${tag_lc}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-.][a-z0-9.]+)?$ ]]; then
-                      :
-                    else
-                      echo "Blocked before dispatch: non-staging image_tag '${IMAGE_TAG}' is not allowed (env=${TARGET_ENV})." >&2
-                      echo "Allowed patterns: sha-<hex>, v<major>.<minor>.<patch>, <major>.<minor>.<patch> (optional -rc.1 style suffix)." >&2
-                      exit 1
-                    fi
-                  fi
-
-                  echo "Auto-dispatch preflight passed for env=${TARGET_ENV}, image_tag=${IMAGE_TAG}."
-
-            - name: Validate infra observability
-              run: |
-                  ./swarmctl infra ips --env ${{ env.TARGET_ENV }}
-                  ./swarmctl infra topology --env ${{ env.TARGET_ENV }}
-
-            - name: Dispatch Swarmctl Validate & Deploy workflow
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  IMAGE_TAG: ${{ steps.tag.outputs.image_tag }}
-                  REPO: ${{ github.repository }}
-              shell: bash
-              run: |
-                  set -euo pipefail
-
-                  payload=$(jq -nc \
-                    --arg ref "${SOURCE_BRANCH}" \
-                    --arg environment "${TARGET_ENV}" \
-                    --arg image_tag "${IMAGE_TAG}" \
-                    --arg deploy_infra "${TARGET_DEPLOY_INFRA}" \
-                    --arg deploy_apps "${TARGET_DEPLOY_APPS}" \
-                    --arg dry_run "${TARGET_DRY_RUN}" \
-                    '{
-                      ref: $ref,
-                      inputs: {
-                        environment: $environment,
-                        image_tag: $image_tag,
-                        deploy_infra: $deploy_infra,
-                        deploy_apps: $deploy_apps,
-                        dry_run: $dry_run
-                      }
-                    }')
-
-                  curl -sS -X POST \
-                    -H "Accept: application/vnd.github+json" \
-                    -H "Authorization: Bearer ${GH_TOKEN}" \
-                    "https://api.github.com/repos/${REPO}/actions/workflows/swarmctl-deploy.yml/dispatches" \
-                    -d "${payload}"
-
-                  echo "Triggered swarmctl-deploy.yml for ${SOURCE_BRANCH} with image_tag=${IMAGE_TAG}, env=${TARGET_ENV}, dry_run=${TARGET_DRY_RUN}, swarmctl_ref=${SWARMCTL_REF}"
-
-            - name: Cleanup sensitive files
-              if: always()
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  rm -f "$HOME/.ssh/id_ed25519"
-                  rm -f "$HOME/.ssh/config"
-                  rm -f "$HOME/.ssh/known_hosts"
-                  if [[ -f "$HOME/.swarmctl/config.yaml" ]]; then
-                    shred -u "$HOME/.swarmctl/config.yaml" || rm -f "$HOME/.swarmctl/config.yaml"
-                  fi
+      - name: Cleanup sensitive files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f "$HOME/.ssh/id_ed25519"
+          rm -f "$HOME/.ssh/config"
+          rm -f "$HOME/.ssh/known_hosts"
+          if [[ -f "$HOME/.swarmctl/config.yaml" ]]; then
+            shred -u "$HOME/.swarmctl/config.yaml" || rm -f "$HOME/.swarmctl/config.yaml"
+          fi

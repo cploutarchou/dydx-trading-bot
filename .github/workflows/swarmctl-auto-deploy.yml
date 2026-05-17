@@ -129,8 +129,8 @@ jobs:
             Host *
             IdentityFile /home/runner/.ssh/id_ed25519
             IdentitiesOnly yes
-            StrictHostKeyChecking yes
-            UserKnownHostsFile /home/runner/.ssh/known_hosts
+              StrictHostKeyChecking no
+              UserKnownHostsFile /dev/null
             EOF
             chmod 600 "$HOME/.ssh/config"
           ./swarmctl context current || true

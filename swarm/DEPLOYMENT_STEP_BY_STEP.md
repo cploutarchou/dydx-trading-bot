@@ -213,6 +213,7 @@ swarmctl rollout status dydx-trading-bot-frontend --env staging
 
 - `SWARMCTL_CONFIG_BASE64`
 - `SWARM_SSH_PRIVATE_KEY`
+- `ORCHESTRATOR_WORKFLOW_TOKEN` (PAT with read access to `cploutarchou/server-orchestrator`)
 
 Generate locally:
 
@@ -227,6 +228,8 @@ cat ~/.ssh/<your-ssh-key>
 ```
 
 Copy outputs into GitHub repository/environment secrets.
+
+`ORCHESTRATOR_WORKFLOW_TOKEN` should be a GitHub PAT that can read private repositories (or at minimum has access to `cploutarchou/server-orchestrator`) so cross-repository checkout in workflows can succeed.
 
 ### 8.2 Recommended repository variables
 

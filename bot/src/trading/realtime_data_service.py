@@ -6,7 +6,7 @@ Captures live bot data and broadcasts updates via WebSocket
 import asyncio
 import json
 import os
-from typing import Dict
+from typing import Any, Dict, cast
 
 from internal.repository.repository_realtime import UnitOfWorkRealtime
 from loguru import logger
@@ -53,30 +53,33 @@ class RealTimeDataService:
             return None
 
     @staticmethod
-    def _extract_latest_close(payload) -> float | None:
+    def _extract_latest_close(payload: object) -> float | None:
         if not isinstance(payload, dict):
             return None
         candles = payload.get("candles")
         if not isinstance(candles, list) or not candles:
             return None
 
-        latest = None
+        latest: dict[str, Any] | None = None
         latest_started_at = ""
         for candle in candles:
             if not isinstance(candle, dict):
                 continue
-            started_at = str(candle.get("startedAt", "") or "")
+            candle_payload = cast(dict[str, Any], candle)
+            started_at = str(candle_payload.get("startedAt", "") or "")
             if latest is None:
-                latest = candle
+                latest = candle_payload
                 latest_started_at = started_at
                 continue
             if started_at and started_at > latest_started_at:
-                latest = candle
+                latest = candle_payload
                 latest_started_at = started_at
 
-        if not isinstance(latest, dict):
+        if latest is None:
             return None
         close_raw = latest.get("close")
+        if close_raw is None:
+            return None
         try:
             return float(close_raw)
         except (TypeError, ValueError):

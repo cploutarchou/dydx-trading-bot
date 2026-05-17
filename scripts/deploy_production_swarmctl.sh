@@ -8,7 +8,7 @@ Usage:
 
 Options:
   --env <name>                 Target swarmctl environment (default: production)
-  --image-tag <tag>            Image tag to deploy (default: latest)
+  --image-tag <tag>            Image tag to deploy (default: sha-<current_git_short_sha>)
   --dry-run <true|false>       Validate + plan only (default: true)
   --deploy-infra <true|false>  Deploy HA infra stacks (default: false)
   --deploy-apps <true|false>   Deploy app manifests (default: true)
@@ -41,7 +41,15 @@ tolower() {
 
 # Defaults
 ENVIRONMENT="production"
-IMAGE_TAG="latest"
+if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  git_short_sha="$(git rev-parse --short HEAD 2>/dev/null || true)"
+else
+  git_short_sha=""
+fi
+IMAGE_TAG="${git_short_sha:+sha-${git_short_sha}}"
+if [[ -z "$IMAGE_TAG" ]]; then
+  IMAGE_TAG="latest"
+fi
 DRY_RUN="true"
 DEPLOY_INFRA="false"
 DEPLOY_APPS="true"

@@ -168,7 +168,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          image_tag="latest"
+          short_sha="$(echo "${SOURCE_SHA}" | cut -c1-7)"
+          image_tag="sha-${short_sha}"
           echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
           echo "Using image_tag=${image_tag} from source SHA ${SOURCE_SHA}"
 

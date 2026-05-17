@@ -44,7 +44,7 @@
 2. **Data model & migration**
    - Add new RBAC tables and indexes.
    - Seed minimum role-permission matrix.
-   - Verify migration behavior for both Postgres and SQLite test mode.
+   - Verify migration behavior against PostgreSQL.
 
 3. **Frontend alignment**
    - Expand role normalization for new CRM roles.

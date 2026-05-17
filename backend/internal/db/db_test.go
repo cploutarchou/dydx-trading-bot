@@ -12,6 +12,9 @@ func TestSetConfigDefaultsUsesPostgresPoolSizes(t *testing.T) {
 	if cfg.MaxIdleConns != 5 {
 		t.Fatalf("expected postgres MaxIdleConns=5, got %d", cfg.MaxIdleConns)
 	}
+	if cfg.MigrationsPath != "migrations/postgres" {
+		t.Fatalf("expected postgres migrations path, got %q", cfg.MigrationsPath)
+	}
 }
 
 func TestSetConfigDefaultsKeepsPostgresPoolDefaults(t *testing.T) {

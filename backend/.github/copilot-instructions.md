@@ -18,7 +18,7 @@ This is a **layered Go REST API** for managing dYdX trading credentials and back
 
 Use these when any later section conflicts:
 
-- Runtime database support is PostgreSQL-focused in current backend startup/config paths; do not assume SQLite parity for production behavior.
+- Runtime database support is PostgreSQL-only. `config.LoadConfig()` rejects non-PostgreSQL `DB_TYPE` values.
 - Backtest list behavior for frontend is DB-backed (`GET /api/v1/backtests`) and not a direct passthrough to bot API.
 - Payload normalization for delegated backtest status/progress fields is owned in `internal/routes/bot_api_delegate_routes.go`.
 - Startup migration flow assumes transaction-safe SQL; avoid migration patterns that require non-transactional `CONCURRENTLY` operations.
@@ -27,7 +27,7 @@ Use these when any later section conflicts:
 
 ### Database Operations
 
-- **Dual database support**: SQLite (dev) vs PostgreSQL (prod) using `DB_TYPE` env var
+- **PostgreSQL-only database support** using the shared `DB_*` / `POSTGRES_*` env vars
 - **Auto-migrations** run on startup via `golang-migrate` with recovery for dirty state
 - **Connection management**: Use `database.Query()`, `database.Exec()` methods, not raw `database.DB`
 - **Migration naming**: `000XXX_description.{up,down}.sql` with sequential numbering
@@ -65,9 +65,8 @@ make migrate-create NAME=your_migration_name
 
 ### Environment Setup
 
-- Copy the repo-root `.env.example` → `.env` and configure shared database settings
-- **SQLite**: Set `DB_TYPE=sqlite3` for local development
-- **PostgreSQL**: Prefer the repo-root infra workflow: `make stack-env` then `make infra-up`
+- Copy the repo-root `.env.example` → `.env` and configure shared PostgreSQL settings
+- Prefer the repo-root infra workflow: `make stack-env` then `make infra-up`
 
 ## Project-Specific Conventions
 
@@ -94,8 +93,8 @@ All routes follow `/api/v1/{resource}/{action}` pattern:
 ### Configuration Management
 
 - **Centralized config** in `config/config.go` with env var defaults
-- **Database DSN generation** handles both SQLite paths and PostgreSQL connection strings
-- **Migration path switching** based on database type (`migrations/sqlite` vs `migrations/postgres`)
+- **Database DSN generation** builds PostgreSQL/libpq connection strings
+- **Migration path** is fixed to `migrations/postgres`
 
 ## Integration Points
 

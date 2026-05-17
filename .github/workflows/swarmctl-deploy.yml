@@ -85,6 +85,11 @@ jobs:
           requested_ref="${SWARMCTL_REF}"
           resolved_ref="swarmctl-v0.1.25"
 
+          if [[ -n "${requested_ref}" && ( "${requested_ref}" == *'*'* || "${requested_ref}" == *'?'* || "${requested_ref}" == *'['* ) ]]; then
+            echo "Treating wildcard SWARMCTL_REF='${requested_ref}' as latest-release."
+            requested_ref="latest-release"
+          fi
+
           if [[ -z "${requested_ref}" || "${requested_ref}" == "latest" || "${requested_ref}" == "latest-release" ]]; then
             latest_tag="$(git ls-remote --tags --refs origin 'refs/tags/swarmctl-v*' | awk -F/ '{print $NF}' | sort -V | tail -n1)"
             if [[ -n "${latest_tag}" ]]; then
@@ -251,6 +256,11 @@ jobs:
           requested_ref="${SWARMCTL_REF}"
           resolved_ref="swarmctl-v0.1.25"
 
+          if [[ -n "${requested_ref}" && ( "${requested_ref}" == *'*'* || "${requested_ref}" == *'?'* || "${requested_ref}" == *'['* ) ]]; then
+            echo "Treating wildcard SWARMCTL_REF='${requested_ref}' as latest-release."
+            requested_ref="latest-release"
+          fi
+
           if [[ -z "${requested_ref}" || "${requested_ref}" == "latest" || "${requested_ref}" == "latest-release" ]]; then
             latest_tag="$(git ls-remote --tags --refs origin 'refs/tags/swarmctl-v*' | awk -F/ '{print $NF}' | sort -V | tail -n1)"
             if [[ -n "${latest_tag}" ]]; then
@@ -380,6 +390,11 @@ jobs:
 
           requested_ref="${SWARMCTL_REF}"
           resolved_ref="swarmctl-v0.1.25"
+
+          if [[ -n "${requested_ref}" && ( "${requested_ref}" == *'*'* || "${requested_ref}" == *'?'* || "${requested_ref}" == *'['* ) ]]; then
+            echo "Treating wildcard SWARMCTL_REF='${requested_ref}' as latest-release."
+            requested_ref="latest-release"
+          fi
 
           if [[ -z "${requested_ref}" || "${requested_ref}" == "latest" || "${requested_ref}" == "latest-release" ]]; then
             latest_tag="$(git ls-remote --tags --refs origin 'refs/tags/swarmctl-v*' | awk -F/ '{print $NF}' | sort -V | tail -n1)"

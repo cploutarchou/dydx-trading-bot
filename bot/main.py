@@ -159,7 +159,7 @@ async def main():
         try:
             print("")
             print("Fetching token market prices, please allow around 5 minutes...")
-            df_market_prices = await construct_market_prices(client)
+            df_market_prices = construct_market_prices(client)
             print(df_market_prices)
         except Exception as e:
             print("Error constructing market prices: ", e)

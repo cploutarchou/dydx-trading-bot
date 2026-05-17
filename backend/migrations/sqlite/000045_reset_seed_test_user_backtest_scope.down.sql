@@ -1,1 +1,0 @@
--- No rollback: the previous ownership came from an unscoped upstream list sync.

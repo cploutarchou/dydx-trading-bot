@@ -1,1 +1,0 @@
--- SQLite does not support dropping columns in-place; keep the column during rollback.

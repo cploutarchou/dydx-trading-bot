@@ -91,7 +91,8 @@ _INDEXES = [
 def upgrade() -> None:
     bind = op.get_bind()
 
-    # SQLite (test env) does not support CONCURRENTLY — skip entirely.
+    # Runtime migrations are PostgreSQL-only; guard offline tooling from
+    # applying PostgreSQL-specific DDL against the wrong dialect.
     if bind.dialect.name != "postgresql":
         return
 

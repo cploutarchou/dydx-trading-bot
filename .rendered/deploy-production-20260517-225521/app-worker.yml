@@ -1,0 +1,109 @@
+apiVersion: swarmctl.io/v1
+kind: App
+metadata:
+  name: dydx-trading-bot-worker
+  namespace: default
+  team: backend
+  description: Python Celery worker for dYdX Trading Bot (staging).
+  labels:
+    app: dydx-trading-bot-worker
+    service: worker
+    environment: staging
+spec:
+  image:
+    repository: ghcr.io/cploutarchou/dydx-trading-bot/worker
+    tag: sha-00a97f4
+  replicas: 2
+  env:
+    plain:
+      LOG_LEVEL: INFO
+      BOT_DB_TYPE: postgresql
+      BOT_DB_CUTOVER_MODE: shared
+      BOT_DB_HOST: pgpool
+      BOT_DB_PORT: '5432'
+      BOT_DB_NAME: dydx_bot
+      BOT_DB_USER: dydx_bot
+      DB_TYPE: postgresql
+      DB_HOST: pgpool
+      DB_PORT: '5432'
+      DB_NAME: dydx_bot
+      DB_USER: dydx_bot
+      POSTGRES_HOST: pgpool
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: dydx_bot
+      POSTGRES_USER: dydx_bot
+      REDIS_ENABLED: 'true'
+      REDIS_HOST: redis-master-proxy
+      REDIS_PORT: '6379'
+      REDIS_DB: '0'
+      REDIS_SSL: 'false'
+      REDIS_TIMEOUT: '5'
+      BACKTEST_WORKER_BACKEND: celery
+      WORKER_MODE: celery-backtest
+      CELERY_CONCURRENCY: '10'
+      CELERY_QUEUES: celery
+      LOKI_ENABLED: 'true'
+      LOKI_URL: http://81.17.102.165:3100
+      LOKI_LABELS: '{"app":"dydx-worker","env":"staging"}'
+      IS_TESTNET: 'true'
+      DYDX_TESTNET_NODE_URL: test-dydx-grpc.kingnodes.com
+      APP_ENV: staging
+      ENVIRONMENT: staging
+  secrets:
+  - name: dydx-bot-db-password
+    target: BOT_DB_PASSWORD
+    required: true
+    external: true
+  - name: dydx-db-password
+    target: DB_PASSWORD
+    required: true
+    external: true
+  - name: dydx-postgres-password
+    target: POSTGRES_PASSWORD
+    required: true
+    external: true
+  - name: dydx-redis-password
+    target: REDIS_PASSWORD
+    required: true
+    external: true
+  - name: dydx-jwt-secret-key
+    target: JWT_SECRET_KEY
+    required: true
+    external: true
+  - name: dydx-secret-key
+    target: SECRET_KEY
+    required: true
+    external: true
+  - name: dydx-encryption-key
+    target: ENCRYPTION_KEY
+    required: true
+    external: true
+  - name: dydx-bot-api-token
+    target: BOT_API_TOKEN
+    required: true
+    external: true
+  networks:
+  - internal
+  resources:
+    limits:
+      cpus: '1.00'
+      memory: 2048M
+    reservations:
+      cpus: '0.50'
+      memory: 1024M
+  deploy:
+    strategy: rolling
+    update:
+      parallelism: 1
+      delay: 10s
+      order: start-first
+      failureAction: rollback
+    rollback:
+      parallelism: 1
+      delay: 10s
+      order: stop-first
+  restartPolicy:
+    condition: on-failure
+    delay: 5s
+    maxAttempts: 5
+    window: 120s

@@ -145,7 +145,7 @@ func runtimeSQLDriver(configDriver string) string {
 	if d == "postgresql" || d == "postgres" {
 		return "postgres"
 	}
-	return "postgres"
+	return d
 }
 
 // GetConnection returns the raw SQL DB connection (thread-safe)
@@ -380,7 +380,7 @@ func setConfigDefaults(cfg *Config) {
 		cfg.QueryTimeout = 30 * time.Second
 	}
 	if cfg.MigrationsPath == "" {
-		cfg.MigrationsPath = "migrations"
+		cfg.MigrationsPath = "migrations/postgres"
 	}
 }
 

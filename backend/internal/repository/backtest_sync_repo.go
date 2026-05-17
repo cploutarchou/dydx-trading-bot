@@ -162,10 +162,10 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 			return fmt.Errorf("run_id is required")
 		}
 		if payload.StartDate == "" {
-			payload.StartDate = time.Now().UTC().Format("2006-01-02")
+			return fmt.Errorf("start_date is required")
 		}
 		if payload.EndDate == "" {
-			payload.EndDate = payload.StartDate
+			return fmt.Errorf("end_date is required")
 		}
 
 		updateQuery := `

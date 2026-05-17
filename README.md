@@ -63,6 +63,8 @@ When finished:
 ## Documentation Map
 
 - [Platform Wiki Home](docs/README.md)
+- [Swarm Deployment Step-by-Step](swarm/DEPLOYMENT_STEP_BY_STEP.md)
+- [Swarm HA Deployment Guide](swarm/HA_DEPLOYMENT.md)
 - [Platform Overview](docs/PLATFORM.md)
 - [Development Workflow](docs/DEVELOPMENT.md)
 - [Operations Guide](docs/OPERATIONS.md)

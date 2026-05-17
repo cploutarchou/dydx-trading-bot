@@ -394,6 +394,24 @@ func (s *BotInstanceService) GetRemoteBotInstance(instanceID string) (map[string
 	return s.apiClient.GetBotInstance(instanceID)
 }
 
+// GetRemoteRealtimeStats retrieves realtime statistics directly from the upstream bot API.
+func (s *BotInstanceService) GetRemoteRealtimeStats(instanceID string) (map[string]interface{}, error) {
+	if s.apiClient == nil {
+		return nil, fmt.Errorf("bot API client not configured")
+	}
+
+	return s.apiClient.GetRealtimeStats(instanceID)
+}
+
+// GetRemoteCurrentPositions retrieves currently open realtime positions directly from the upstream bot API.
+func (s *BotInstanceService) GetRemoteCurrentPositions(instanceID string) (map[string]interface{}, error) {
+	if s.apiClient == nil {
+		return nil, fmt.Errorf("bot API client not configured")
+	}
+
+	return s.apiClient.GetCurrentPositions(instanceID)
+}
+
 // GetRuntimePreflight evaluates runtime readiness using the upstream bot API.
 func (s *BotInstanceService) GetRuntimePreflight(payload map[string]interface{}) (map[string]interface{}, error) {
 	if s.apiClient == nil {

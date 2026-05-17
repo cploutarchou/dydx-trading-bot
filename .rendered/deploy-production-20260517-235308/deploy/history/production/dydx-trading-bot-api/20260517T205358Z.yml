@@ -1,0 +1,5 @@
+app: dydx-trading-bot-api
+environment: production
+image: ghcr.io/cploutarchou/dydx-trading-bot/api:latest
+stackFile: /home/chris/workspace/dydx-trading-bot/.rendered/deploy-production-20260517-235308/deploy/rendered/production/dydx-trading-bot-api/stack.yml
+deployedAt: 2026-05-17T20:53:58Z

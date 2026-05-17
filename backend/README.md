@@ -99,11 +99,9 @@ The legacy dummy CRM seeding route is no longer registered. Production portal fl
 
 ## Database Migration Posture
 
-PostgreSQL migrations in `migrations/postgres` are the runtime source of truth.
-The `migrations/sqlite` tree is retained only as legacy test/reference material
-and must not be extended for new backend runtime behavior. New migrations should
-be created with `make migrate-create NAME=...`, which writes to
-`migrations/postgres`.
+PostgreSQL migrations in `migrations/postgres` are the only runtime migration
+source of truth. New migrations should be created with
+`make migrate-create NAME=...`, which writes to `migrations/postgres`.
 
 ## Related Docs
 

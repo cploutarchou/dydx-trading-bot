@@ -3,6 +3,7 @@ Backtest API Usage Examples
 Demonstrates how to use the new backtesting API endpoints
 """
 
+import os
 import time
 
 import requests
@@ -22,8 +23,12 @@ class BacktestAPIClient:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
 
-    def login(self, username="admin", password="admin123"):
+    def login(self, username=None, password=None):
         """Login and store JWT token"""
+        username = username or os.getenv("BOT_API_USERNAME", "admin")
+        password = password or os.getenv("BOT_API_PASSWORD", "")
+        if not password:
+            raise RuntimeError("BOT_API_PASSWORD or an explicit password is required")
         response = requests.post(
             f"{self.base_url}/auth/login",
             json={"username": username, "password": password},

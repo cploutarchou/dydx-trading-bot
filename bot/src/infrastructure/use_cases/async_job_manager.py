@@ -8,7 +8,7 @@ import threading
 import time
 import traceback
 from collections import deque
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Coroutine, Optional, cast
 from uuid import uuid4
 
 from loguru import logger
@@ -20,7 +20,7 @@ class AsyncJobManager:
     """Create and supervise asyncio tasks without losing task failures."""
 
     def __init__(self):
-        self.tasks: dict[str, asyncio.Task] = {}
+        self.tasks: dict[str, asyncio.Task[Any]] = {}
         self._persistence_lock = threading.Lock()
         self._metrics_lock = threading.Lock()
         self._progress_checkpoint: dict[str, tuple[float, float]] = {}
@@ -323,7 +323,7 @@ class AsyncJobManager:
         parameters: Optional[dict[str, Any]] = None,
         metadata: Optional[dict[str, Any]] = None,
         auto_complete: bool = True,
-    ) -> asyncio.Task:
+    ) -> asyncio.Task[Any]:
         resolved_job_id = self.create_job(
             job_type=job_type,
             bot_instance_id=bot_instance_id,
@@ -333,20 +333,23 @@ class AsyncJobManager:
         )
         self.mark_running(resolved_job_id)
         started = time.perf_counter()
-        if asyncio.isfuture(awaitable):
-            task = asyncio.ensure_future(awaitable)
+        if isinstance(awaitable, asyncio.Task):
+            task = cast(asyncio.Task[Any], awaitable)
+            if task.get_name() != resolved_job_id:
+                task.set_name(resolved_job_id)
         elif asyncio.iscoroutine(awaitable):
-            task = asyncio.create_task(awaitable, name=resolved_job_id)
+            task = asyncio.create_task(
+                cast(Coroutine[Any, Any, Any], awaitable),
+                name=resolved_job_id,
+            )
         else:
             task = asyncio.create_task(
                 self._as_coroutine(awaitable),
                 name=resolved_job_id,
             )
-        if task.get_name() != resolved_job_id:
-            task.set_name(resolved_job_id)
         self.tasks[resolved_job_id] = task
 
-        def _done(completed_task: asyncio.Task) -> None:
+        def _done(completed_task: asyncio.Future[Any]) -> None:
             self.tasks.pop(resolved_job_id, None)
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             if completed_task.cancelled():

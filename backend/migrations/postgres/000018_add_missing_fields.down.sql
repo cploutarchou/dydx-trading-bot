@@ -3,7 +3,6 @@
 -- Drop indexes
 DROP INDEX IF EXISTS idx_backtest_results_updated_at;
 
--- Note: SQLite doesn't support dropping columns easily
--- The updated_at column would need manual table recreation if full rollback is required
--- For now, just drop the index as the column presence won't cause issues
+-- Historical rollback posture: keep the updated_at column and only drop the
+-- companion index, because the column presence is non-breaking.
 

@@ -93,7 +93,7 @@ Key files:
 - `backend/internal/routes/` — route registration
 - `backend/internal/auth/` — JWT middleware
 - `backend/internal/middleware/` — CORS, rate limiting
-- `backend/migrations/postgres/` and `backend/migrations/sqlite/` — dual DB migration sets
+- `backend/migrations/postgres/` — PostgreSQL runtime migration set
 
 ### Frontend (`frontend/`) — React 19 + TypeScript + Vite, port 5173
 

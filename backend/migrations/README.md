@@ -173,8 +173,7 @@ migrate -path migrations/postgres -database "postgres://user:password@localhost:
 - PostgreSQL is the only supported SQL database in this repository.
 - Use PostgreSQL-native column types and defaults in new migrations.
 - Keep new migration files under `migrations/postgres`.
-- `migrations/sqlite` is legacy reference/test material only; do not add new
-  SQLite migrations for runtime backend features.
+- Do not add SQLite migrations or runtime SQLite compatibility paths.
 - Automatic dirty/already-exists migration recovery is disabled in production by
   default. Use `DB_MIGRATION_FORCE_RECOVERY=true` only for an explicit operator
   repair window after inspecting the schema state.

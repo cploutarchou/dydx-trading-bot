@@ -83,14 +83,26 @@ jobs:
           cd server-orchestrator
 
           requested_ref="${SWARMCTL_REF}"
-          resolved_ref="master"
+          resolved_ref="swarmctl-v0.1.25"
 
-          if git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
+          if [[ -n "${requested_ref}" && ( "${requested_ref}" == *'*'* || "${requested_ref}" == *'?'* || "${requested_ref}" == *'['* ) ]]; then
+            echo "Treating wildcard SWARMCTL_REF='${requested_ref}' as latest-release."
+            requested_ref="latest-release"
+          fi
+
+          if [[ -z "${requested_ref}" || "${requested_ref}" == "latest" || "${requested_ref}" == "latest-release" ]]; then
+            latest_tag="$(git ls-remote --tags --refs origin 'refs/tags/swarmctl-v*' | awk -F/ '{print $NF}' | sort -V | tail -n1)"
+            if [[ -n "${latest_tag}" ]]; then
+              resolved_ref="${latest_tag}"
+            else
+              echo "Could not determine latest swarmctl release tag; falling back to '${resolved_ref}'."
+            fi
+          elif git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           elif git ls-remote --exit-code origin "refs/tags/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           else
-            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to 'master'."
+            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to '${resolved_ref}'."
           fi
 
           git fetch --depth=1 origin "${resolved_ref}"
@@ -242,14 +254,26 @@ jobs:
           cd server-orchestrator
 
           requested_ref="${SWARMCTL_REF}"
-          resolved_ref="master"
+          resolved_ref="swarmctl-v0.1.25"
 
-          if git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
+          if [[ -n "${requested_ref}" && ( "${requested_ref}" == *'*'* || "${requested_ref}" == *'?'* || "${requested_ref}" == *'['* ) ]]; then
+            echo "Treating wildcard SWARMCTL_REF='${requested_ref}' as latest-release."
+            requested_ref="latest-release"
+          fi
+
+          if [[ -z "${requested_ref}" || "${requested_ref}" == "latest" || "${requested_ref}" == "latest-release" ]]; then
+            latest_tag="$(git ls-remote --tags --refs origin 'refs/tags/swarmctl-v*' | awk -F/ '{print $NF}' | sort -V | tail -n1)"
+            if [[ -n "${latest_tag}" ]]; then
+              resolved_ref="${latest_tag}"
+            else
+              echo "Could not determine latest swarmctl release tag; falling back to '${resolved_ref}'."
+            fi
+          elif git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           elif git ls-remote --exit-code origin "refs/tags/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           else
-            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to 'master'."
+            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to '${resolved_ref}'."
           fi
 
           git fetch --depth=1 origin "${resolved_ref}"
@@ -365,14 +389,26 @@ jobs:
           cd server-orchestrator
 
           requested_ref="${SWARMCTL_REF}"
-          resolved_ref="master"
+          resolved_ref="swarmctl-v0.1.25"
 
-          if git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
+          if [[ -n "${requested_ref}" && ( "${requested_ref}" == *'*'* || "${requested_ref}" == *'?'* || "${requested_ref}" == *'['* ) ]]; then
+            echo "Treating wildcard SWARMCTL_REF='${requested_ref}' as latest-release."
+            requested_ref="latest-release"
+          fi
+
+          if [[ -z "${requested_ref}" || "${requested_ref}" == "latest" || "${requested_ref}" == "latest-release" ]]; then
+            latest_tag="$(git ls-remote --tags --refs origin 'refs/tags/swarmctl-v*' | awk -F/ '{print $NF}' | sort -V | tail -n1)"
+            if [[ -n "${latest_tag}" ]]; then
+              resolved_ref="${latest_tag}"
+            else
+              echo "Could not determine latest swarmctl release tag; falling back to '${resolved_ref}'."
+            fi
+          elif git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           elif git ls-remote --exit-code origin "refs/tags/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           else
-            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to 'master'."
+            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to '${resolved_ref}'."
           fi
 
           git fetch --depth=1 origin "${resolved_ref}"
@@ -536,17 +572,17 @@ jobs:
               p.write_text(yaml.safe_dump(data, sort_keys=False))
           PY
 
-          - name: Authenticate to GHCR for preflight image checks
-            env:
-              GHCR_USERNAME: ${{ vars.GHCR_USERNAME || github.repository_owner }}
-              GHCR_TOKEN: ${{ secrets.GHCR_TOKEN != '' && secrets.GHCR_TOKEN || github.token }}
-            run: |
-              set -euo pipefail
-              if [[ -z "${GHCR_TOKEN:-}" ]]; then
-                echo "Missing GHCR token. Set repository secret GHCR_TOKEN, or rely on github.token with packages:read." >&2
-                exit 1
-              fi
-              echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin >/dev/null
+      - name: Authenticate to GHCR for preflight image checks
+        env:
+          GHCR_USERNAME: ${{ vars.GHCR_USERNAME || github.repository_owner }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN != '' && secrets.GHCR_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GHCR_TOKEN:-}" ]]; then
+            echo "Missing GHCR token. Set repository secret GHCR_TOKEN, or rely on github.token with packages:read." >&2
+            exit 1
+          fi
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin >/dev/null
 
       - name: Validate rendered manifests
         run: |

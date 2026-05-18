@@ -59,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SWARM_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
-      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.25' }}
+      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.26' }}
     steps:
       - name: Checkout dydx-trading-bot
         uses: actions/checkout@v4
@@ -83,7 +83,7 @@ jobs:
           cd server-orchestrator
 
           requested_ref="${SWARMCTL_REF}"
-          resolved_ref="swarmctl-v0.1.25"
+          resolved_ref="swarmctl-v0.1.26"
 
           if [[ -n "${requested_ref}" && ( "${requested_ref}" == *'*'* || "${requested_ref}" == *'?'* || "${requested_ref}" == *'['* ) ]]; then
             echo "Treating wildcard SWARMCTL_REF='${requested_ref}' as latest-release."
@@ -228,7 +228,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SWARM_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
-      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.25' }}
+      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.26' }}
     steps:
       - name: Checkout dydx-trading-bot
         uses: actions/checkout@v4
@@ -254,7 +254,7 @@ jobs:
           cd server-orchestrator
 
           requested_ref="${SWARMCTL_REF}"
-          resolved_ref="swarmctl-v0.1.25"
+          resolved_ref="swarmctl-v0.1.26"
 
           if [[ -n "${requested_ref}" && ( "${requested_ref}" == *'*'* || "${requested_ref}" == *'?'* || "${requested_ref}" == *'['* ) ]]; then
             echo "Treating wildcard SWARMCTL_REF='${requested_ref}' as latest-release."
@@ -355,7 +355,7 @@ jobs:
       DEPLOY_INFRA: ${{ inputs.deploy_infra }}
       DEPLOY_APPS: ${{ inputs.deploy_apps }}
       DRY_RUN: ${{ inputs.dry_run }}
-      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.25' }}
+      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.26' }}
     steps:
       - name: Checkout dydx-trading-bot
         uses: actions/checkout@v4
@@ -389,7 +389,7 @@ jobs:
           cd server-orchestrator
 
           requested_ref="${SWARMCTL_REF}"
-          resolved_ref="swarmctl-v0.1.25"
+          resolved_ref="swarmctl-v0.1.26"
 
           if [[ -n "${requested_ref}" && ( "${requested_ref}" == *'*'* || "${requested_ref}" == *'?'* || "${requested_ref}" == *'['* ) ]]; then
             echo "Treating wildcard SWARMCTL_REF='${requested_ref}' as latest-release."

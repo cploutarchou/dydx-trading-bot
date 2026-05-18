@@ -1,130 +1,11 @@
 services:
-  postgres-1:
-    image: bitnamilegacy/postgresql-repmgr:latest
-    environment:
-      POSTGRESQL_POSTGRES_PASSWORD_FILE: /run/secrets/pg_su_password
-      POSTGRESQL_USERNAME: dydx_bot
-      POSTGRESQL_PASSWORD_FILE: /run/secrets/pg_app_password
-      POSTGRESQL_DATABASE: dydx_bot
-      POSTGRESQL_NUM_SYNCHRONOUS_REPLICAS: "1"
-
-      REPMGR_USERNAME: repmgr
-      REPMGR_PASSWORD_FILE: /run/secrets/pg_repmgr_password
-      REPMGR_PRIMARY_HOST: postgres-1
-      REPMGR_PARTNER_NODES: postgres-1,postgres-2,postgres-3
-      REPMGR_NODE_NAME: postgres-1
-      REPMGR_NODE_NETWORK_NAME: postgres-1
-    networks:
-      internal:
-        aliases:
-          - postgres-1
-    volumes:
-      - postgres_1_data:/bitnami/postgresql
-    secrets:
-      - pg_su_password
-      - pg_app_password
-      - pg_repmgr_password
-    healthcheck:
-      test:
-        ["CMD-SHELL", "pg_isready -U dydx_bot -d dydx_bot -h 127.0.0.1 -p 5432"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 45s
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-
-  postgres-2:
-    image: bitnamilegacy/postgresql-repmgr:latest
-    environment:
-      POSTGRESQL_POSTGRES_PASSWORD_FILE: /run/secrets/pg_su_password
-      POSTGRESQL_USERNAME: dydx_bot
-      POSTGRESQL_PASSWORD_FILE: /run/secrets/pg_app_password
-      POSTGRESQL_DATABASE: dydx_bot
-      POSTGRESQL_NUM_SYNCHRONOUS_REPLICAS: "1"
-
-      REPMGR_USERNAME: repmgr
-      REPMGR_PASSWORD_FILE: /run/secrets/pg_repmgr_password
-      REPMGR_PRIMARY_HOST: postgres-1
-      REPMGR_PARTNER_NODES: postgres-1,postgres-2,postgres-3
-      REPMGR_NODE_NAME: postgres-2
-      REPMGR_NODE_NETWORK_NAME: postgres-2
-    networks:
-      internal:
-        aliases:
-          - postgres-2
-    volumes:
-      - postgres_2_data:/bitnami/postgresql
-    secrets:
-      - pg_su_password
-      - pg_app_password
-      - pg_repmgr_password
-    healthcheck:
-      test:
-        ["CMD-SHELL", "pg_isready -U dydx_bot -d dydx_bot -h 127.0.0.1 -p 5432"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 45s
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-
-  postgres-3:
-    image: bitnamilegacy/postgresql-repmgr:latest
-    environment:
-      POSTGRESQL_POSTGRES_PASSWORD_FILE: /run/secrets/pg_su_password
-      POSTGRESQL_USERNAME: dydx_bot
-      POSTGRESQL_PASSWORD_FILE: /run/secrets/pg_app_password
-      POSTGRESQL_DATABASE: dydx_bot
-      POSTGRESQL_NUM_SYNCHRONOUS_REPLICAS: "1"
-
-      REPMGR_USERNAME: repmgr
-      REPMGR_PASSWORD_FILE: /run/secrets/pg_repmgr_password
-      REPMGR_PRIMARY_HOST: postgres-1
-      REPMGR_PARTNER_NODES: postgres-1,postgres-2,postgres-3
-      REPMGR_NODE_NAME: postgres-3
-      REPMGR_NODE_NETWORK_NAME: postgres-3
-    networks:
-      internal:
-        aliases:
-          - postgres-3
-    volumes:
-      - postgres_3_data:/bitnami/postgresql
-    secrets:
-      - pg_su_password
-      - pg_app_password
-      - pg_repmgr_password
-    healthcheck:
-      test:
-        ["CMD-SHELL", "pg_isready -U dydx_bot -d dydx_bot -h 127.0.0.1 -p 5432"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 45s
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
-
   pgpool:
-    image: bitnamilegacy/pgpool:latest
-    depends_on:
-      - postgres-1
-      - postgres-2
-      - postgres-3
+    image: bitnamilegacy/postgresql:latest
     environment:
-      PGPOOL_BACKEND_NODES: 0:postgres-1:5432,1:postgres-2:5432,2:postgres-3:5432
-      PGPOOL_SR_CHECK_USER: repmgr
-      PGPOOL_SR_CHECK_PASSWORD_FILE: /run/secrets/pg_repmgr_password
-      PGPOOL_POSTGRES_USERNAME: dydx_bot
-      PGPOOL_POSTGRES_PASSWORD_FILE: /run/secrets/pg_app_password
-      PGPOOL_ADMIN_USERNAME: admin
-      PGPOOL_ADMIN_PASSWORD_FILE: /run/secrets/pgpool_admin_password
-      PGPOOL_ENABLE_LOAD_BALANCING: "yes"
+      POSTGRESQL_POSTGRES_PASSWORD_FILE: /run/secrets/pg_su_password
+      POSTGRESQL_USERNAME: dydx_bot
+      POSTGRESQL_PASSWORD_FILE: /run/secrets/pg_app_password
+      POSTGRESQL_DATABASE: dydx_bot
     ports:
       - target: 5432
         published: 5432
@@ -134,10 +15,12 @@ services:
       internal:
         aliases:
           - pgpool
+          - postgres
+    volumes:
+      - postgres_data:/bitnami/postgresql
     secrets:
+      - pg_su_password
       - pg_app_password
-      - pg_repmgr_password
-      - pgpool_admin_password
     healthcheck:
       test:
         ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U dydx_bot -d dydx_bot"]
@@ -146,7 +29,7 @@ services:
       retries: 12
       start_period: 45s
     deploy:
-      replicas: 2
+      replicas: 1
       restart_policy:
         condition: on-failure
 
@@ -155,16 +38,10 @@ networks:
     external: true
 
 volumes:
-  postgres_1_data:
-  postgres_2_data:
-  postgres_3_data:
+  postgres_data:
 
 secrets:
   pg_su_password:
     external: true
   pg_app_password:
-    external: true
-  pg_repmgr_password:
-    external: true
-  pgpool_admin_password:
     external: true

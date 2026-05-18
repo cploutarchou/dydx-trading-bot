@@ -238,3 +238,4 @@ bot/bot_states/.*.lock
 bot/bot_states/instances.json
 token.txt
 .codex
+production.secrets.env

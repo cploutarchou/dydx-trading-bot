@@ -26,7 +26,7 @@ on:
         description: "Swarmctl environment/context environment value"
         required: true
         type: string
-        default: "staging"
+        default: "production"
       image_tag:
         description: "Image tag override for app manifests (e.g. sha-abc123, latest)"
         required: true
@@ -36,7 +36,7 @@ on:
         description: "Deploy PostgreSQL/Redis HA stacks"
         required: true
         type: boolean
-        default: false
+        default: true
       deploy_apps:
         description: "Deploy app manifests (api/backend/worker/frontend)"
         required: true
@@ -46,11 +46,12 @@ on:
         description: "Validate and plan only (skip apply/deploy)"
         required: true
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: read
   actions: write
+  packages: read
 
 jobs:
   validate-and-deploy:
@@ -58,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SWARM_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
-      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.24' }}
+      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.26' }}
     steps:
       - name: Checkout dydx-trading-bot
         uses: actions/checkout@v4
@@ -82,14 +83,26 @@ jobs:
           cd server-orchestrator
 
           requested_ref="${SWARMCTL_REF}"
-          resolved_ref="master"
+          resolved_ref="swarmctl-v0.1.26"
 
-          if git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
+          if [[ -n "${requested_ref}" && ( "${requested_ref}" == *'*'* || "${requested_ref}" == *'?'* || "${requested_ref}" == *'['* ) ]]; then
+            echo "Treating wildcard SWARMCTL_REF='${requested_ref}' as latest-release."
+            requested_ref="latest-release"
+          fi
+
+          if [[ -z "${requested_ref}" || "${requested_ref}" == "latest" || "${requested_ref}" == "latest-release" ]]; then
+            latest_tag="$(git ls-remote --tags --refs origin 'refs/tags/swarmctl-v*' | awk -F/ '{print $NF}' | sort -V | tail -n1)"
+            if [[ -n "${latest_tag}" ]]; then
+              resolved_ref="${latest_tag}"
+            else
+              echo "Could not determine latest swarmctl release tag; falling back to '${resolved_ref}'."
+            fi
+          elif git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           elif git ls-remote --exit-code origin "refs/tags/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           else
-            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to 'master'."
+            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to '${resolved_ref}'."
           fi
 
           git fetch --depth=1 origin "${resolved_ref}"
@@ -215,7 +228,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SWARM_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'staging' }}
-      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.24' }}
+      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.26' }}
     steps:
       - name: Checkout dydx-trading-bot
         uses: actions/checkout@v4
@@ -241,14 +254,26 @@ jobs:
           cd server-orchestrator
 
           requested_ref="${SWARMCTL_REF}"
-          resolved_ref="master"
+          resolved_ref="swarmctl-v0.1.26"
 
-          if git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
+          if [[ -n "${requested_ref}" && ( "${requested_ref}" == *'*'* || "${requested_ref}" == *'?'* || "${requested_ref}" == *'['* ) ]]; then
+            echo "Treating wildcard SWARMCTL_REF='${requested_ref}' as latest-release."
+            requested_ref="latest-release"
+          fi
+
+          if [[ -z "${requested_ref}" || "${requested_ref}" == "latest" || "${requested_ref}" == "latest-release" ]]; then
+            latest_tag="$(git ls-remote --tags --refs origin 'refs/tags/swarmctl-v*' | awk -F/ '{print $NF}' | sort -V | tail -n1)"
+            if [[ -n "${latest_tag}" ]]; then
+              resolved_ref="${latest_tag}"
+            else
+              echo "Could not determine latest swarmctl release tag; falling back to '${resolved_ref}'."
+            fi
+          elif git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           elif git ls-remote --exit-code origin "refs/tags/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           else
-            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to 'master'."
+            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to '${resolved_ref}'."
           fi
 
           git fetch --depth=1 origin "${resolved_ref}"
@@ -330,7 +355,7 @@ jobs:
       DEPLOY_INFRA: ${{ inputs.deploy_infra }}
       DEPLOY_APPS: ${{ inputs.deploy_apps }}
       DRY_RUN: ${{ inputs.dry_run }}
-      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.24' }}
+      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.26' }}
     steps:
       - name: Checkout dydx-trading-bot
         uses: actions/checkout@v4
@@ -364,14 +389,26 @@ jobs:
           cd server-orchestrator
 
           requested_ref="${SWARMCTL_REF}"
-          resolved_ref="master"
+          resolved_ref="swarmctl-v0.1.26"
 
-          if git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
+          if [[ -n "${requested_ref}" && ( "${requested_ref}" == *'*'* || "${requested_ref}" == *'?'* || "${requested_ref}" == *'['* ) ]]; then
+            echo "Treating wildcard SWARMCTL_REF='${requested_ref}' as latest-release."
+            requested_ref="latest-release"
+          fi
+
+          if [[ -z "${requested_ref}" || "${requested_ref}" == "latest" || "${requested_ref}" == "latest-release" ]]; then
+            latest_tag="$(git ls-remote --tags --refs origin 'refs/tags/swarmctl-v*' | awk -F/ '{print $NF}' | sort -V | tail -n1)"
+            if [[ -n "${latest_tag}" ]]; then
+              resolved_ref="${latest_tag}"
+            else
+              echo "Could not determine latest swarmctl release tag; falling back to '${resolved_ref}'."
+            fi
+          elif git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           elif git ls-remote --exit-code origin "refs/tags/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           else
-            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to 'master'."
+            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to '${resolved_ref}'."
           fi
 
           git fetch --depth=1 origin "${resolved_ref}"
@@ -535,6 +572,75 @@ jobs:
               p.write_text(yaml.safe_dump(data, sort_keys=False))
           PY
 
+      - name: Production preflight gate (infra readiness)
+        if: env.DRY_RUN != 'true' && env.DEPLOY_APPS == 'true' && env.DEPLOY_INFRA != 'true' && env.SWARM_ENV == 'production'
+        run: |
+          set -euo pipefail
+
+          readarray -t ctx_info < <(python3 - <<'PY'
+          import pathlib
+          import yaml
+
+          cfg_path = pathlib.Path.home() / ".swarmctl" / "config.yaml"
+          cfg = yaml.safe_load(cfg_path.read_text()) or {}
+          contexts = cfg.get("contexts") or {}
+          current = cfg.get("currentContext")
+          target = contexts.get(current) if current else None
+          if not isinstance(target, dict):
+              raise SystemExit("Unable to resolve current swarmctl context from ~/.swarmctl/config.yaml")
+
+          manager_host = str(target.get("managerHost", "")).strip()
+          ssh_user = str(target.get("sshUser", "")).strip() or "root"
+          if not manager_host:
+              raise SystemExit("Missing managerHost in current swarmctl context")
+
+          print(ssh_user)
+          print(manager_host)
+          PY
+          )
+
+          ssh_user="${ctx_info[0]}"
+          manager_host="${ctx_info[1]}"
+          remote="${ssh_user}@${manager_host}"
+
+          check_exact_replicas() {
+            local service="$1"
+            local expected="$2"
+            local actual
+            actual="$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote" "docker service ls --filter name='${service}' --format '{{.Replicas}}'" | head -n1)"
+            if [[ -z "$actual" ]]; then
+              echo "Preflight failed: service not found: ${service}" >&2
+              return 1
+            fi
+            if [[ "$actual" != "$expected" ]]; then
+              echo "Preflight failed: ${service} replicas ${actual} (expected ${expected})" >&2
+              return 1
+            fi
+            echo "Preflight pass: ${service} replicas ${actual}"
+          }
+
+          # Required infra stacks must exist
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote" "docker stack ls --format '{{.Name}}' | grep -qx 'dydx-postgres-ha'"
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote" "docker stack ls --format '{{.Name}}' | grep -qx 'dydx-redis-ha'"
+
+          # Strict readiness gates for simplified single-instance infra services
+          check_exact_replicas "dydx-postgres-ha_pgpool" "1/1"
+          check_exact_replicas "dydx-redis-ha_redis-master-proxy" "1/1"
+
+          echo "Production preflight gate passed: infra is ready for app deployment."
+
+      - name: Authenticate to GHCR for preflight image checks
+        env:
+          GHCR_USERNAME: ${{ vars.GHCR_USERNAME || github.repository_owner }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN != '' && secrets.GHCR_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GHCR_TOKEN:-}" ]]; then
+            echo "Missing GHCR token. Set repository secret GHCR_TOKEN, or rely on github.token with packages:read." >&2
+            exit 1
+          fi
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin >/dev/null
+
       - name: Validate rendered manifests
         run: |
           set -euo pipefail
@@ -563,6 +669,67 @@ jobs:
         if: env.DRY_RUN != 'true' && env.DEPLOY_INFRA == 'true'
         run: |
           set -euo pipefail
+
+          # Preflight required external secrets for HA stacks
+          readarray -t ctx_info < <(python3 - <<'PY'
+          import pathlib
+          import yaml
+
+          cfg_path = pathlib.Path.home() / ".swarmctl" / "config.yaml"
+          cfg = yaml.safe_load(cfg_path.read_text()) or {}
+          contexts = cfg.get("contexts") or {}
+          current = cfg.get("currentContext")
+          target = contexts.get(current) if current else None
+          if not isinstance(target, dict):
+              raise SystemExit("Unable to resolve current swarmctl context from ~/.swarmctl/config.yaml")
+
+          manager_host = str(target.get("managerHost", "")).strip()
+          ssh_user = str(target.get("sshUser", "")).strip() or "root"
+          if not manager_host:
+              raise SystemExit("Missing managerHost in current swarmctl context")
+
+          print(ssh_user)
+          print(manager_host)
+          PY
+          )
+
+          ssh_user="${ctx_info[0]}"
+          manager_host="${ctx_info[1]}"
+          remote="${ssh_user}@${manager_host}"
+
+          required_secrets=(
+          )
+
+          if [[ ${#required_secrets[@]} -gt 0 ]]; then
+            missing=()
+            for s in "${required_secrets[@]}"; do
+              if ! ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote" "docker secret inspect '$s' >/dev/null 2>&1"; then
+                missing+=("$s")
+              fi
+            done
+
+            if [[ ${#missing[@]} -gt 0 ]]; then
+              echo "Missing required infra secrets for stack deploy: ${missing[*]}" >&2
+              exit 1
+            fi
+          fi
+
+          # Cleanup legacy HA services so simplified infra topology is effective.
+          legacy_services=(
+            dydx-postgres-ha_postgres-1
+            dydx-postgres-ha_postgres-2
+            dydx-postgres-ha_postgres-3
+            dydx-redis-ha_redis-node-1
+            dydx-redis-ha_redis-node-2
+            dydx-redis-ha_redis-node-3
+            dydx-redis-ha_redis-sentinel-1
+            dydx-redis-ha_redis-sentinel-2
+            dydx-redis-ha_redis-sentinel-3
+          )
+          for svc in "${legacy_services[@]}"; do
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote" "docker service rm '$svc' >/dev/null 2>&1 || true"
+          done
+
           ./swarmctl stack deploy dydx-postgres-ha -c swarm/stack-postgres-ha.yml --env "${SWARM_ENV}"
           ./swarmctl stack deploy dydx-redis-ha -c swarm/stack-redis-ha.yml --env "${SWARM_ENV}"
           ./swarmctl stack status dydx-postgres-ha --env "${SWARM_ENV}"
@@ -576,10 +743,26 @@ jobs:
           if [[ "$(echo "${IMAGE_TAG}" | tr '[:upper:]' '[:lower:]')" == "latest" ]]; then
             allow_latest_args+=(--allow-latest)
           fi
-          ./swarmctl apply -f .rendered/app-api.yml --env "${SWARM_ENV}" --wait --timeout 5m "${allow_latest_args[@]}"
-          ./swarmctl apply -f .rendered/app-backend.yml --env "${SWARM_ENV}" --wait --timeout 5m "${allow_latest_args[@]}"
-          ./swarmctl apply -f .rendered/app-worker.yml --env "${SWARM_ENV}" --wait --timeout 10m "${allow_latest_args[@]}"
-          ./swarmctl apply -f .rendered/app.yml --env "${SWARM_ENV}" --wait --timeout 5m "${allow_latest_args[@]}"
+
+          run_swarmctl_apply() {
+            local manifest="$1"
+            local timeout="$2"
+            local apply_cmd=(./swarmctl apply -f "$manifest" --env "${SWARM_ENV}" --wait --timeout "$timeout")
+            if [[ ${#allow_latest_args[@]} -gt 0 ]]; then
+              apply_cmd+=("${allow_latest_args[@]}")
+            fi
+
+            if [[ "${SWARM_ENV}" == "production" ]]; then
+              apply_cmd+=(--yes)
+            fi
+
+            "${apply_cmd[@]}"
+          }
+
+          run_swarmctl_apply .rendered/app-api.yml 5m
+          run_swarmctl_apply .rendered/app-backend.yml 5m
+          run_swarmctl_apply .rendered/app-worker.yml 10m
+          run_swarmctl_apply .rendered/app.yml 5m
 
       - name: Rollout status
         if: env.DRY_RUN != 'true' && env.DEPLOY_APPS == 'true'

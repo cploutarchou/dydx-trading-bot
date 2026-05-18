@@ -19,11 +19,11 @@ jobs:
       (github.event.workflow_run.head_branch == 'master' || github.event.workflow_run.head_branch == 'main') &&
       github.event.workflow_run.repository.full_name == github.repository
     env:
-      TARGET_ENV: ${{ vars.SWARMCTL_AUTO_ENV || 'staging' }}
-      TARGET_DEPLOY_INFRA: ${{ vars.SWARMCTL_AUTO_DEPLOY_INFRA || 'false' }}
+      TARGET_ENV: ${{ vars.SWARMCTL_AUTO_ENV || 'production' }}
+      TARGET_DEPLOY_INFRA: ${{ vars.SWARMCTL_AUTO_DEPLOY_INFRA || 'true' }}
       TARGET_DEPLOY_APPS: ${{ vars.SWARMCTL_AUTO_DEPLOY_APPS || 'true' }}
       TARGET_DRY_RUN: ${{ vars.SWARMCTL_AUTO_DRY_RUN || 'false' }}
-      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.24' }}
+      SWARMCTL_REF: ${{ vars.SWARMCTL_REPO_REF || 'swarmctl-v0.1.25' }}
       SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
       SOURCE_BRANCH: ${{ github.event.workflow_run.head_branch }}
     steps:
@@ -49,14 +49,26 @@ jobs:
           cd server-orchestrator
 
           requested_ref="${SWARMCTL_REF}"
-          resolved_ref="master"
+          resolved_ref="swarmctl-v0.1.25"
 
-          if git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
+          if [[ -n "${requested_ref}" && ( "${requested_ref}" == *'*'* || "${requested_ref}" == *'?'* || "${requested_ref}" == *'['* ) ]]; then
+            echo "Treating wildcard SWARMCTL_REF='${requested_ref}' as latest-release."
+            requested_ref="latest-release"
+          fi
+
+          if [[ -z "${requested_ref}" || "${requested_ref}" == "latest" || "${requested_ref}" == "latest-release" ]]; then
+            latest_tag="$(git ls-remote --tags --refs origin 'refs/tags/swarmctl-v*' | awk -F/ '{print $NF}' | sort -V | tail -n1)"
+            if [[ -n "${latest_tag}" ]]; then
+              resolved_ref="${latest_tag}"
+            else
+              echo "Could not determine latest swarmctl release tag; falling back to '${resolved_ref}'."
+            fi
+          elif git ls-remote --exit-code origin "refs/heads/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           elif git ls-remote --exit-code origin "refs/tags/${requested_ref}" >/dev/null 2>&1; then
             resolved_ref="${requested_ref}"
           else
-            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to 'master'."
+            echo "Requested SWARMCTL_REF='${requested_ref}' not found in cploutarchou/server-orchestrator; falling back to '${resolved_ref}'."
           fi
 
           git fetch --depth=1 origin "${resolved_ref}"
@@ -168,7 +180,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          image_tag="latest"
+          short_sha="$(echo "${SOURCE_SHA}" | cut -c1-7)"
+          image_tag="sha-${short_sha}"
           echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
           echo "Using image_tag=${image_tag} from source SHA ${SOURCE_SHA}"
 

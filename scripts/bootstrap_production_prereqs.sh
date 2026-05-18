@@ -28,6 +28,13 @@ secrets-file format (shell env file):
   DYDX_ENCRYPTION_KEY=...
   DYDX_BOT_API_TOKEN=...
 
+# Optional HA infra overrides (fallbacks are derived automatically):
+# PG_SU_PASSWORD (default: DYDX_POSTGRES_PASSWORD)
+# PG_APP_PASSWORD (default: DYDX_POSTGRES_PASSWORD)
+# PG_REPMGR_PASSWORD (default: DYDX_POSTGRES_PASSWORD)
+# PGPOOL_ADMIN_PASSWORD (default: DYDX_POSTGRES_PASSWORD)
+# REDIS_PASSWORD (default: DYDX_REDIS_PASSWORD)
+
 Example:
   export GHCR_TOKEN='ghp_...'
   scripts/bootstrap_production_prereqs.sh \
@@ -165,6 +172,13 @@ if [[ "$SKIP_SECRETS" != "true" ]]; then
     fi
   done
 
+  # Derive HA infra secret values unless explicit overrides are provided.
+  PG_SU_PASSWORD="${PG_SU_PASSWORD:-$DYDX_POSTGRES_PASSWORD}"
+  PG_APP_PASSWORD="${PG_APP_PASSWORD:-$DYDX_POSTGRES_PASSWORD}"
+  PG_REPMGR_PASSWORD="${PG_REPMGR_PASSWORD:-$DYDX_POSTGRES_PASSWORD}"
+  PGPOOL_ADMIN_PASSWORD="${PGPOOL_ADMIN_PASSWORD:-$DYDX_POSTGRES_PASSWORD}"
+  REDIS_PASSWORD="${REDIS_PASSWORD:-$DYDX_REDIS_PASSWORD}"
+
   upsert_secret() {
     local secret_name="$1"
     local secret_value="$2"
@@ -182,11 +196,18 @@ if [[ "$SKIP_SECRETS" != "true" ]]; then
   upsert_secret "dydx-secret-key" "$DYDX_SECRET_KEY"
   upsert_secret "dydx-encryption-key" "$DYDX_ENCRYPTION_KEY"
   upsert_secret "dydx-bot-api-token" "$DYDX_BOT_API_TOKEN"
+
+  # HA infra secrets required by swarm/stack-postgres-ha.yml and swarm/stack-redis-ha.yml
+  upsert_secret "pg_su_password" "$PG_SU_PASSWORD"
+  upsert_secret "pg_app_password" "$PG_APP_PASSWORD"
+  upsert_secret "pg_repmgr_password" "$PG_REPMGR_PASSWORD"
+  upsert_secret "pgpool_admin_password" "$PGPOOL_ADMIN_PASSWORD"
+  upsert_secret "redis_password" "$REDIS_PASSWORD"
 fi
 
 echo "=== quick verification ==="
 ssh "${SSH_OPTS[@]}" "$REMOTE" "set -euo pipefail; docker network ls --format '{{.Name}}' | grep -E '^(internal|public)$'"
-ssh "${SSH_OPTS[@]}" "$REMOTE" "set -euo pipefail; docker secret ls --format '{{.Name}}' | grep -E '^(dydx-bot-db-password|dydx-db-password|dydx-postgres-password|dydx-redis-password|dydx-jwt-secret-key|dydx-secret-key|dydx-encryption-key|dydx-bot-api-token)$' || true"
+ssh "${SSH_OPTS[@]}" "$REMOTE" "set -euo pipefail; docker secret ls --format '{{.Name}}' | grep -E '^(dydx-bot-db-password|dydx-db-password|dydx-postgres-password|dydx-redis-password|dydx-jwt-secret-key|dydx-secret-key|dydx-encryption-key|dydx-bot-api-token|pg_su_password|pg_app_password|pg_repmgr_password|pgpool_admin_password|redis_password)$' || true"
 
 echo "Bootstrap complete. You can now rerun:"
 echo "  ./scripts/deploy_production_swarmctl.sh --env production --dry-run false --deploy-infra false --deploy-apps true"

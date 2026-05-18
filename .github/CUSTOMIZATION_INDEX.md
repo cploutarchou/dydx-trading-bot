@@ -34,6 +34,9 @@ For each new task, review:
 - `.github/agents/senior-prod-backtest-defi-auditor.agent.md`
   Agent mode for production-readiness audits, Python/Go service hardening, long-running backtest hangs, and DeFi bot-instance risk reviews.
 
+- `.github/agents/senior-swarmctl-production-deployer.agent.md`
+  Agent mode for production deployment with `swarmctl`, Docker Swarm rollout debugging, GHCR pullability issues, HA infra secret validation, and master-push auto-deploy hardening.
+
 - `backend/.github/agents/senior-go-defi-backend.agent.md`
   Service-specific backend expert for Go APIs, PostgreSQL, delegated bot integration, auth, and websocket proxying.
 
@@ -52,6 +55,14 @@ For each new task, review:
   - UTC-safe datetime usage
   - async API correctness
   - risk/DeFi/performance validation
+
+- `.github/skills/swarmctl-production-deployment/SKILL.md`
+  Production deployment workflow for this repo using `swarmctl`, Docker Swarm, GHCR, GitHub Actions, and HA infra prerequisites:
+  - immutable SHA tag deployment
+  - manager/network/secret validation
+  - GHCR pullability checks
+  - workflow and rollout failure triage
+  - auto-deploy setup for master pushes/merges
 
 ## Prompts
 

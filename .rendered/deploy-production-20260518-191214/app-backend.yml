@@ -1,0 +1,134 @@
+apiVersion: swarmctl.io/v1
+kind: App
+metadata:
+  name: dydx-trading-bot-backend
+  namespace: default
+  team: backend
+  description: Go API gateway/orchestration for dYdX Trading Bot (staging).
+  labels:
+    app: dydx-trading-bot-backend
+    service: backend
+    environment: staging
+spec:
+  image:
+    repository: ghcr.io/cploutarchou/dydx-trading-bot/backend
+    tag: sha-85cd53d
+  replicas: 1
+  ports:
+  - name: http
+    target: 8888
+    published: null
+    protocol: tcp
+    mode: ingress
+    public: true
+  ingress:
+    enabled: true
+    className: traefik
+    hosts:
+    - host: api.executionlab.io
+      servicePort: http
+      tls: true
+    middlewares: []
+    annotations: {}
+  env:
+    plain:
+      API_PORT: '8888'
+      ENVIRONMENT: staging
+      APP_ENV: staging
+      APP_CONFIG_ENV: staging
+      CORS_ALLOWED_ORIGINS: https://executionlab.io
+      BOT_API_URL: http://dydx-trading-bot-api:8889
+      BOT_API_FALLBACK_URLS: http://dydx-trading-bot-api:8889
+      BOT_API_TIMEOUT_SECONDS: '120'
+      DB_TYPE: postgresql
+      DB_HOST: dydx-postgres-ha_pgpool
+      DB_PORT: '5432'
+      DB_NAME: dydx_bot
+      DB_USER: dydx_bot
+      POSTGRES_HOST: dydx-postgres-ha_pgpool
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: dydx_bot
+      POSTGRES_USER: dydx_bot
+      BOT_DB_HOST: dydx-postgres-ha_pgpool
+      BOT_DB_PORT: '5432'
+      BOT_DB_NAME: dydx_bot
+      BOT_DB_CUTOVER_MODE: shared
+      REDIS_ENABLED: 'true'
+      REDIS_HOST: dydx-redis-ha_redis-master-proxy
+      REDIS_PORT: '6379'
+      REDIS_DB: '0'
+      REDIS_SSL: 'false'
+      REDIS_TIMEOUT: '5'
+      LOKI_ENABLED: 'true'
+      LOKI_URL: http://81.17.102.165:3100
+      LOKI_LABELS: '{"app":"dydx-backend","env":"staging"}'
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: '30'
+      REFRESH_TOKEN_EXPIRE_DAYS: '1'
+      SESSION_TTL_HOURS: '24'
+      AUTH_REQUIRE_REDIS_SESSIONS: 'true'
+      IS_TESTNET: 'true'
+  secrets:
+  - name: dydx-db-password
+    target: DB_PASSWORD
+    required: true
+    external: true
+  - name: dydx-postgres-password
+    target: POSTGRES_PASSWORD
+    required: true
+    external: true
+  - name: dydx-redis-password
+    target: REDIS_PASSWORD
+    required: true
+    external: true
+  - name: dydx-jwt-secret-key
+    target: JWT_SECRET_KEY
+    required: true
+    external: true
+  - name: dydx-secret-key
+    target: SECRET_KEY
+    required: true
+    external: true
+  - name: dydx-encryption-key
+    target: ENCRYPTION_KEY
+    required: true
+    external: true
+  - name: dydx-bot-api-token
+    target: BOT_API_TOKEN
+    required: true
+    external: true
+  networks:
+  - public
+  - internal
+  healthcheck:
+    enabled: true
+    type: http
+    path: /health
+    port: http
+    interval: 30s
+    timeout: 5s
+    retries: 5
+    startPeriod: 30s
+  resources:
+    limits:
+      cpus: '0.30'
+      memory: 256M
+    reservations:
+      cpus: '0.10'
+      memory: 128M
+  deploy:
+    strategy: rolling
+    update:
+      parallelism: 1
+      delay: 10s
+      order: start-first
+      failureAction: rollback
+    rollback:
+      parallelism: 1
+      delay: 10s
+      order: stop-first
+  restartPolicy:
+    condition: on-failure
+    delay: 5s
+    maxAttempts: 5
+    window: 120s

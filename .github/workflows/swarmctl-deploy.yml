@@ -670,21 +670,48 @@ jobs:
         if: env.DRY_RUN != 'true' && env.DEPLOY_APPS == 'true'
         run: |
           set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y expect
           allow_latest_args=()
           if [[ "$(echo "${IMAGE_TAG}" | tr '[:upper:]' '[:lower:]')" == "latest" ]]; then
             allow_latest_args+=(--allow-latest)
           fi
-          if [[ "${SWARM_ENV}" == "production" ]]; then
-            echo production | ./swarmctl apply -f .rendered/app-api.yml --env "${SWARM_ENV}" --wait --timeout 5m "${allow_latest_args[@]}"
-            echo production | ./swarmctl apply -f .rendered/app-backend.yml --env "${SWARM_ENV}" --wait --timeout 5m "${allow_latest_args[@]}"
-            echo production | ./swarmctl apply -f .rendered/app-worker.yml --env "${SWARM_ENV}" --wait --timeout 10m "${allow_latest_args[@]}"
-            echo production | ./swarmctl apply -f .rendered/app.yml --env "${SWARM_ENV}" --wait --timeout 5m "${allow_latest_args[@]}"
-          else
-            ./swarmctl apply -f .rendered/app-api.yml --env "${SWARM_ENV}" --wait --timeout 5m "${allow_latest_args[@]}"
-            ./swarmctl apply -f .rendered/app-backend.yml --env "${SWARM_ENV}" --wait --timeout 5m "${allow_latest_args[@]}"
-            ./swarmctl apply -f .rendered/app-worker.yml --env "${SWARM_ENV}" --wait --timeout 10m "${allow_latest_args[@]}"
-            ./swarmctl apply -f .rendered/app.yml --env "${SWARM_ENV}" --wait --timeout 5m "${allow_latest_args[@]}"
-          fi
+
+          # Create expect script template for production confirmation automation
+          create_expect_script() {
+            local manifest="$1"
+            local timeout="$2"
+            local script_file="/tmp/swarmctl_expect_$$.exp"
+            cat > "$script_file" << 'EXPECT_EOF'
+          spawn ./swarmctl apply -f MANIFEST_PLACEHOLDER --env SWARM_ENV_PLACEHOLDER --wait --timeout TIMEOUT_PLACEHOLDER ALLOW_LATEST_PLACEHOLDER
+          expect {
+            "Type production to continue:" { send "production\r"; exp_continue }
+            eof
+          }
+          EXPECT_EOF
+            sed -i "s|MANIFEST_PLACEHOLDER|$manifest|g" "$script_file"
+            sed -i "s|SWARM_ENV_PLACEHOLDER|${SWARM_ENV}|g" "$script_file"
+            sed -i "s|TIMEOUT_PLACEHOLDER|$timeout|g" "$script_file"
+            sed -i "s|ALLOW_LATEST_PLACEHOLDER|${allow_latest_args[*]}|g" "$script_file"
+            echo "$script_file"
+          }
+
+          run_swarmctl_apply() {
+            local manifest="$1"
+            local timeout="$2"
+            if [[ "${SWARM_ENV}" == "production" ]]; then
+              local expect_script
+              expect_script=$(create_expect_script "$manifest" "$timeout")
+              expect "$expect_script"
+              rm -f "$expect_script"
+            else
+              ./swarmctl apply -f "$manifest" --env "${SWARM_ENV}" --wait --timeout "$timeout" "${allow_latest_args[@]}"
+            fi
+          }
+
+          run_swarmctl_apply .rendered/app-api.yml 5m
+          run_swarmctl_apply .rendered/app-backend.yml 5m
+          run_swarmctl_apply .rendered/app-worker.yml 10m
+          run_swarmctl_apply .rendered/app.yml 5m
 
       - name: Rollout status
         if: env.DRY_RUN != 'true' && env.DEPLOY_APPS == 'true'

@@ -676,35 +676,18 @@ jobs:
             allow_latest_args+=(--allow-latest)
           fi
 
-          # Create expect script template for production confirmation automation
-          create_expect_script() {
-            local manifest="$1"
-            local timeout="$2"
-            local script_file="/tmp/swarmctl_expect_$$.exp"
-            cat > "$script_file" << 'EXPECT_EOF'
-          spawn ./swarmctl apply -f MANIFEST_PLACEHOLDER --env SWARM_ENV_PLACEHOLDER --wait --timeout TIMEOUT_PLACEHOLDER ALLOW_LATEST_PLACEHOLDER
-          expect {
-            "Type production to continue:" { send "production\r"; exp_continue }
-            eof
-          }
-          EXPECT_EOF
-            sed -i "s|MANIFEST_PLACEHOLDER|$manifest|g" "$script_file"
-            sed -i "s|SWARM_ENV_PLACEHOLDER|${SWARM_ENV}|g" "$script_file"
-            sed -i "s|TIMEOUT_PLACEHOLDER|$timeout|g" "$script_file"
-            sed -i "s|ALLOW_LATEST_PLACEHOLDER|${allow_latest_args[*]}|g" "$script_file"
-            echo "$script_file"
-          }
-
           run_swarmctl_apply() {
             local manifest="$1"
             local timeout="$2"
+            local apply_cmd=(./swarmctl apply -f "$manifest" --env "${SWARM_ENV}" --wait --timeout "$timeout")
+            if [[ ${#allow_latest_args[@]} -gt 0 ]]; then
+              apply_cmd+=("${allow_latest_args[@]}")
+            fi
+
             if [[ "${SWARM_ENV}" == "production" ]]; then
-              local expect_script
-              expect_script=$(create_expect_script "$manifest" "$timeout")
-              expect "$expect_script"
-              rm -f "$expect_script"
+              expect -c 'set timeout -1; spawn {*}$argv; expect {"Type production to continue:" {send "production\r"; exp_continue} eof}' -- "${apply_cmd[@]}"
             else
-              ./swarmctl apply -f "$manifest" --env "${SWARM_ENV}" --wait --timeout "$timeout" "${allow_latest_args[@]}"
+              "${apply_cmd[@]}"
             fi
           }
 

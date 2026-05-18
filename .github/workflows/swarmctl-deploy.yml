@@ -762,6 +762,11 @@ jobs:
                   spawn ./swarmctl apply -f $manifest --env $env_name --wait --timeout $timeout_arg $allow_flag
                 }
 
+                # Some swarmctl builds read confirmation from tty without a
+                # reliably matchable prompt. Send once proactively, then send
+                # again on known prompt variants.
+                send -- "production\\r"
+
                 expect {
                   -re "(?i)Production confirmation required for:.*" {
                     send -- "production\\r"

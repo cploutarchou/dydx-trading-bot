@@ -572,6 +572,66 @@ jobs:
               p.write_text(yaml.safe_dump(data, sort_keys=False))
           PY
 
+      - name: Production preflight gate (infra readiness)
+        if: env.DRY_RUN != 'true' && env.DEPLOY_APPS == 'true' && env.SWARM_ENV == 'production'
+        run: |
+          set -euo pipefail
+
+          readarray -t ctx_info < <(python3 - <<'PY'
+          import pathlib
+          import yaml
+
+          cfg_path = pathlib.Path.home() / ".swarmctl" / "config.yaml"
+          cfg = yaml.safe_load(cfg_path.read_text()) or {}
+          contexts = cfg.get("contexts") or {}
+          current = cfg.get("currentContext")
+          target = contexts.get(current) if current else None
+          if not isinstance(target, dict):
+              raise SystemExit("Unable to resolve current swarmctl context from ~/.swarmctl/config.yaml")
+
+          manager_host = str(target.get("managerHost", "")).strip()
+          ssh_user = str(target.get("sshUser", "")).strip() or "root"
+          if not manager_host:
+              raise SystemExit("Missing managerHost in current swarmctl context")
+
+          print(ssh_user)
+          print(manager_host)
+          PY
+          )
+
+          ssh_user="${ctx_info[0]}"
+          manager_host="${ctx_info[1]}"
+          remote="${ssh_user}@${manager_host}"
+
+          check_exact_replicas() {
+            local service="$1"
+            local expected="$2"
+            local actual
+            actual="$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote" "docker service ls --filter name='${service}' --format '{{.Replicas}}'" | head -n1)"
+            if [[ -z "$actual" ]]; then
+              echo "Preflight failed: service not found: ${service}" >&2
+              return 1
+            fi
+            if [[ "$actual" != "$expected" ]]; then
+              echo "Preflight failed: ${service} replicas ${actual} (expected ${expected})" >&2
+              return 1
+            fi
+            echo "Preflight pass: ${service} replicas ${actual}"
+          }
+
+          # Required infra stacks must exist
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote" "docker stack ls --format '{{.Name}}' | grep -qx 'dydx-postgres-ha'"
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote" "docker stack ls --format '{{.Name}}' | grep -qx 'dydx-redis-ha'"
+
+          # Strict readiness gates for critical infra services
+          check_exact_replicas "dydx-postgres-ha_postgres-1" "1/1"
+          check_exact_replicas "dydx-postgres-ha_postgres-2" "1/1"
+          check_exact_replicas "dydx-postgres-ha_postgres-3" "1/1"
+          check_exact_replicas "dydx-postgres-ha_pgpool" "2/2"
+          check_exact_replicas "dydx-redis-ha_redis-master-proxy" "2/2"
+
+          echo "Production preflight gate passed: infra is ready for app deployment."
+
       - name: Authenticate to GHCR for preflight image checks
         env:
           GHCR_USERNAME: ${{ vars.GHCR_USERNAME || github.repository_owner }}

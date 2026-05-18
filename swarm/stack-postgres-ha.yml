@@ -1,6 +1,6 @@
 services:
   postgres-1:
-    image: bitnami/postgresql-repmgr:16
+    image: bitnamilegacy/postgresql-repmgr:latest
     environment:
       POSTGRESQL_POSTGRES_PASSWORD_FILE: /run/secrets/pg_su_password
       POSTGRESQL_USERNAME: dydx_bot
@@ -35,7 +35,7 @@ services:
         condition: on-failure
 
   postgres-2:
-    image: bitnami/postgresql-repmgr:16
+    image: bitnamilegacy/postgresql-repmgr:latest
     environment:
       POSTGRESQL_POSTGRES_PASSWORD_FILE: /run/secrets/pg_su_password
       POSTGRESQL_USERNAME: dydx_bot
@@ -70,7 +70,7 @@ services:
         condition: on-failure
 
   postgres-3:
-    image: bitnami/postgresql-repmgr:16
+    image: bitnamilegacy/postgresql-repmgr:latest
     environment:
       POSTGRESQL_POSTGRES_PASSWORD_FILE: /run/secrets/pg_su_password
       POSTGRESQL_USERNAME: dydx_bot
@@ -105,7 +105,7 @@ services:
         condition: on-failure
 
   pgpool:
-    image: bitnami/pgpool:4
+    image: bitnamilegacy/pgpool:latest
     depends_on:
       - postgres-1
       - postgres-2

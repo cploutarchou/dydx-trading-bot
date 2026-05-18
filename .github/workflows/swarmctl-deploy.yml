@@ -730,7 +730,6 @@ jobs:
         if: env.DRY_RUN != 'true' && env.DEPLOY_APPS == 'true'
         run: |
           set -euo pipefail
-          sudo apt-get update && sudo apt-get install -y expect
           allow_latest_args=()
           if [[ "$(echo "${IMAGE_TAG}" | tr '[:upper:]' '[:lower:]')" == "latest" ]]; then
             allow_latest_args+=(--allow-latest)
@@ -745,11 +744,7 @@ jobs:
             fi
 
             if [[ "${SWARM_ENV}" == "production" ]]; then
-              local allow_flag=""
-              if [[ ${#allow_latest_args[@]} -gt 0 ]]; then
-                allow_flag="${allow_latest_args[0]}"
-              fi
-              expect -c "set timeout -1; spawn ./swarmctl apply -f $manifest --env ${SWARM_ENV} --wait --timeout $timeout $allow_flag; expect {\"Type production to continue:\" { send \"production\\r\"; exp_continue } eof }"
+              printf '%s\n' production | "${apply_cmd[@]}"
             else
               "${apply_cmd[@]}"
             fi

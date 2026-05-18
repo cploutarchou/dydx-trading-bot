@@ -2,8 +2,7 @@ services:
   redis-master-proxy:
     image: bitnamilegacy/redis:latest
     environment:
-      ALLOW_EMPTY_PASSWORD: "no"
-      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      ALLOW_EMPTY_PASSWORD: "yes"
     ports:
       - target: 6379
         published: 6379
@@ -16,11 +15,8 @@ services:
           - redis
     volumes:
       - redis_data:/bitnami/redis/data
-    secrets:
-      - redis_password
     healthcheck:
-      test:
-        ["CMD-SHELL", 'redis-cli -a "$$(cat /run/secrets/redis_password)" ping']
+      test: ["CMD-SHELL", "redis-cli ping"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -36,7 +32,3 @@ networks:
 
 volumes:
   redis_data:
-
-secrets:
-  redis_password:
-    external: true

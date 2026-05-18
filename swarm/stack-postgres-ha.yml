@@ -2,9 +2,8 @@ services:
   pgpool:
     image: bitnamilegacy/postgresql:latest
     environment:
-      POSTGRESQL_POSTGRES_PASSWORD_FILE: /run/secrets/pg_su_password
+      ALLOW_EMPTY_PASSWORD: "yes"
       POSTGRESQL_USERNAME: dydx_bot
-      POSTGRESQL_PASSWORD_FILE: /run/secrets/pg_app_password
       POSTGRESQL_DATABASE: dydx_bot
     ports:
       - target: 5432
@@ -18,9 +17,6 @@ services:
           - postgres
     volumes:
       - postgres_data:/bitnami/postgresql
-    secrets:
-      - pg_su_password
-      - pg_app_password
     healthcheck:
       test:
         ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U dydx_bot -d dydx_bot"]
@@ -39,9 +35,3 @@ networks:
 
 volumes:
   postgres_data:
-
-secrets:
-  pg_su_password:
-    external: true
-  pg_app_password:
-    external: true

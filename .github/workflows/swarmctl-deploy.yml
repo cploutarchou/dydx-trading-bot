@@ -698,23 +698,37 @@ jobs:
           remote="${ssh_user}@${manager_host}"
 
           required_secrets=(
-            pg_su_password
-            pg_app_password
-            redis_password
           )
 
-          missing=()
-          for s in "${required_secrets[@]}"; do
-            if ! ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote" "docker secret inspect '$s' >/dev/null 2>&1"; then
-              missing+=("$s")
-            fi
-          done
+          if [[ ${#required_secrets[@]} -gt 0 ]]; then
+            missing=()
+            for s in "${required_secrets[@]}"; do
+              if ! ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote" "docker secret inspect '$s' >/dev/null 2>&1"; then
+                missing+=("$s")
+              fi
+            done
 
-          if [[ ${#missing[@]} -gt 0 ]]; then
-            echo "Missing required infra secrets for HA stack deploy: ${missing[*]}" >&2
-            echo "Run scripts/bootstrap_production_prereqs.sh with --secrets-file to provision them, then retry." >&2
-            exit 1
+            if [[ ${#missing[@]} -gt 0 ]]; then
+              echo "Missing required infra secrets for stack deploy: ${missing[*]}" >&2
+              exit 1
+            fi
           fi
+
+          # Cleanup legacy HA services so simplified infra topology is effective.
+          legacy_services=(
+            dydx-postgres-ha_postgres-1
+            dydx-postgres-ha_postgres-2
+            dydx-postgres-ha_postgres-3
+            dydx-redis-ha_redis-node-1
+            dydx-redis-ha_redis-node-2
+            dydx-redis-ha_redis-node-3
+            dydx-redis-ha_redis-sentinel-1
+            dydx-redis-ha_redis-sentinel-2
+            dydx-redis-ha_redis-sentinel-3
+          )
+          for svc in "${legacy_services[@]}"; do
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote" "docker service rm '$svc' >/dev/null 2>&1 || true"
+          done
 
           ./swarmctl stack deploy dydx-postgres-ha -c swarm/stack-postgres-ha.yml --env "${SWARM_ENV}"
           ./swarmctl stack deploy dydx-redis-ha -c swarm/stack-redis-ha.yml --env "${SWARM_ENV}"

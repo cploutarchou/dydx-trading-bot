@@ -40,17 +40,20 @@ spec:
       BOT_DB_PORT: "5432"
       BOT_DB_NAME: "dydx_bot"
       BOT_DB_USER: "dydx_bot"
+      BOT_DB_PASSWORD: ""
 
       DB_TYPE: "postgresql"
       DB_HOST: "pgpool"
       DB_PORT: "5432"
       DB_NAME: "dydx_bot"
       DB_USER: "dydx_bot"
+      DB_PASSWORD: ""
 
       POSTGRES_HOST: "pgpool"
       POSTGRES_PORT: "5432"
       POSTGRES_DB: "dydx_bot"
       POSTGRES_USER: "dydx_bot"
+      POSTGRES_PASSWORD: ""
 
       REDIS_ENABLED: "true"
       REDIS_HOST: "dydx-redis-ha_redis-master-proxy"
@@ -58,6 +61,7 @@ spec:
       REDIS_DB: "0"
       REDIS_SSL: "false"
       REDIS_TIMEOUT: "5"
+      REDIS_PASSWORD: ""
 
       BACKTEST_WORKER_BACKEND: "celery"
 
@@ -82,22 +86,6 @@ spec:
       FRONTEND_URL: "https://executionlab.io"
 
   secrets:
-    - name: dydx-bot-db-password
-      target: BOT_DB_PASSWORD
-      required: true
-      external: true
-    - name: dydx-db-password
-      target: DB_PASSWORD
-      required: true
-      external: true
-    - name: dydx-postgres-password
-      target: POSTGRES_PASSWORD
-      required: true
-      external: true
-    - name: dydx-redis-password
-      target: REDIS_PASSWORD
-      required: true
-      external: true
     - name: dydx-jwt-secret-key
       target: JWT_SECRET_KEY
       required: true

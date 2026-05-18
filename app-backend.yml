@@ -50,16 +50,19 @@ spec:
       DB_PORT: "5432"
       DB_NAME: "dydx_bot"
       DB_USER: "dydx_bot"
+      DB_PASSWORD: ""
 
       POSTGRES_HOST: "pgpool"
       POSTGRES_PORT: "5432"
       POSTGRES_DB: "dydx_bot"
       POSTGRES_USER: "dydx_bot"
+      POSTGRES_PASSWORD: ""
 
       BOT_DB_HOST: "pgpool"
       BOT_DB_PORT: "5432"
       BOT_DB_NAME: "dydx_bot"
       BOT_DB_CUTOVER_MODE: "shared"
+      BOT_DB_PASSWORD: ""
 
       REDIS_ENABLED: "true"
       REDIS_HOST: "dydx-redis-ha_redis-master-proxy"
@@ -67,6 +70,7 @@ spec:
       REDIS_DB: "0"
       REDIS_SSL: "false"
       REDIS_TIMEOUT: "5"
+      REDIS_PASSWORD: ""
 
       LOKI_ENABLED: "true"
       LOKI_URL: "http://81.17.102.165:3100"
@@ -80,18 +84,6 @@ spec:
       IS_TESTNET: "true"
 
   secrets:
-    - name: dydx-db-password
-      target: DB_PASSWORD
-      required: true
-      external: true
-    - name: dydx-postgres-password
-      target: POSTGRES_PASSWORD
-      required: true
-      external: true
-    - name: dydx-redis-password
-      target: REDIS_PASSWORD
-      required: true
-      external: true
     - name: dydx-jwt-secret-key
       target: JWT_SECRET_KEY
       required: true

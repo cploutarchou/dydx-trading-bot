@@ -10,10 +10,10 @@ services:
 
       REPMGR_USERNAME: repmgr
       REPMGR_PASSWORD_FILE: /run/secrets/pg_repmgr_password
-      REPMGR_PRIMARY_HOST: dydx-postgres-ha_postgres-1
-      REPMGR_PARTNER_NODES: dydx-postgres-ha_postgres-1,dydx-postgres-ha_postgres-2,dydx-postgres-ha_postgres-3
+      REPMGR_PRIMARY_HOST: postgres-1
+      REPMGR_PARTNER_NODES: postgres-1,postgres-2,postgres-3
       REPMGR_NODE_NAME: postgres-1
-      REPMGR_NODE_NETWORK_NAME: dydx-postgres-ha_postgres-1
+      REPMGR_NODE_NETWORK_NAME: postgres-1
     networks:
       internal:
         aliases:
@@ -47,10 +47,10 @@ services:
 
       REPMGR_USERNAME: repmgr
       REPMGR_PASSWORD_FILE: /run/secrets/pg_repmgr_password
-      REPMGR_PRIMARY_HOST: dydx-postgres-ha_postgres-1
-      REPMGR_PARTNER_NODES: dydx-postgres-ha_postgres-1,dydx-postgres-ha_postgres-2,dydx-postgres-ha_postgres-3
+      REPMGR_PRIMARY_HOST: postgres-1
+      REPMGR_PARTNER_NODES: postgres-1,postgres-2,postgres-3
       REPMGR_NODE_NAME: postgres-2
-      REPMGR_NODE_NETWORK_NAME: dydx-postgres-ha_postgres-2
+      REPMGR_NODE_NETWORK_NAME: postgres-2
     networks:
       internal:
         aliases:
@@ -84,10 +84,10 @@ services:
 
       REPMGR_USERNAME: repmgr
       REPMGR_PASSWORD_FILE: /run/secrets/pg_repmgr_password
-      REPMGR_PRIMARY_HOST: dydx-postgres-ha_postgres-1
-      REPMGR_PARTNER_NODES: dydx-postgres-ha_postgres-1,dydx-postgres-ha_postgres-2,dydx-postgres-ha_postgres-3
+      REPMGR_PRIMARY_HOST: postgres-1
+      REPMGR_PARTNER_NODES: postgres-1,postgres-2,postgres-3
       REPMGR_NODE_NAME: postgres-3
-      REPMGR_NODE_NETWORK_NAME: dydx-postgres-ha_postgres-3
+      REPMGR_NODE_NETWORK_NAME: postgres-3
     networks:
       internal:
         aliases:
@@ -117,7 +117,7 @@ services:
       - postgres-2
       - postgres-3
     environment:
-      PGPOOL_BACKEND_NODES: 0:dydx-postgres-ha_postgres-1:5432,1:dydx-postgres-ha_postgres-2:5432,2:dydx-postgres-ha_postgres-3:5432
+      PGPOOL_BACKEND_NODES: 0:postgres-1:5432,1:postgres-2:5432,2:postgres-3:5432
       PGPOOL_SR_CHECK_USER: repmgr
       PGPOOL_SR_CHECK_PASSWORD_FILE: /run/secrets/pg_repmgr_password
       PGPOOL_POSTGRES_USERNAME: dydx_bot

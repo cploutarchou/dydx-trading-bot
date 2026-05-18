@@ -730,7 +730,6 @@ jobs:
         if: env.DRY_RUN != 'true' && env.DEPLOY_APPS == 'true'
         run: |
           set -euo pipefail
-          sudo apt-get update && sudo apt-get install -y expect
           allow_latest_args=()
           if [[ "$(echo "${IMAGE_TAG}" | tr '[:upper:]' '[:lower:]')" == "latest" ]]; then
             allow_latest_args+=(--allow-latest)
@@ -745,51 +744,10 @@ jobs:
             fi
 
             if [[ "${SWARM_ENV}" == "production" ]]; then
-              local allow_flag=""
-              if [[ ${#allow_latest_args[@]} -gt 0 ]]; then
-                allow_flag="${allow_latest_args[0]}"
-              fi
-              MANIFEST="$manifest" APPLY_ENV="${SWARM_ENV}" APPLY_TIMEOUT="$timeout" APPLY_ALLOW_FLAG="$allow_flag" expect -c '
-                set timeout 15
-                set manifest $env(MANIFEST)
-                set env_name $env(APPLY_ENV)
-                set timeout_arg $env(APPLY_TIMEOUT)
-                set allow_flag $env(APPLY_ALLOW_FLAG)
-
-                if {$allow_flag eq ""} {
-                  spawn ./swarmctl apply -f $manifest --env $env_name --wait --timeout $timeout_arg
-                } else {
-                  spawn ./swarmctl apply -f $manifest --env $env_name --wait --timeout $timeout_arg $allow_flag
-                }
-
-                # Some swarmctl builds read confirmation from tty without a
-                # reliably matchable prompt. Send once proactively, then send
-                # again on known prompt variants.
-                send -- "production\\r"
-
-                while {1} {
-                  expect {
-                    -re "(?i)Production confirmation required" {
-                      send -- "production\\r"
-                      exp_continue
-                    }
-                    -re "(?i)Type production to continue" {
-                      send -- "production\\r"
-                      exp_continue
-                    }
-                    timeout {
-                      send -- "production\\r"
-                      exp_continue
-                    }
-                    eof {
-                      break
-                    }
-                  }
-                }
-              '
-            else
-              "${apply_cmd[@]}"
+              apply_cmd+=(--yes)
             fi
+
+            "${apply_cmd[@]}"
           }
 
           run_swarmctl_apply .rendered/app-api.yml 5m

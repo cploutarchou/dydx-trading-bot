@@ -573,7 +573,7 @@ jobs:
           PY
 
       - name: Production preflight gate (infra readiness)
-        if: env.DRY_RUN != 'true' && env.DEPLOY_APPS == 'true' && env.SWARM_ENV == 'production'
+        if: env.DRY_RUN != 'true' && env.DEPLOY_APPS == 'true' && env.DEPLOY_INFRA != 'true' && env.SWARM_ENV == 'production'
         run: |
           set -euo pipefail
 

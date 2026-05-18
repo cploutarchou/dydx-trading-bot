@@ -750,7 +750,7 @@ jobs:
                 allow_flag="${allow_latest_args[0]}"
               fi
               MANIFEST="$manifest" APPLY_ENV="${SWARM_ENV}" APPLY_TIMEOUT="$timeout" APPLY_ALLOW_FLAG="$allow_flag" expect -c '
-                set timeout -1
+                set timeout 15
                 set manifest $env(MANIFEST)
                 set env_name $env(APPLY_ENV)
                 set timeout_arg $env(APPLY_TIMEOUT)
@@ -767,16 +767,24 @@ jobs:
                 # again on known prompt variants.
                 send -- "production\\r"
 
-                expect {
-                  -re "(?i)Production confirmation required for:.*" {
-                    send -- "production\\r"
-                    exp_continue
+                while {1} {
+                  expect {
+                    -re "(?i)Production confirmation required" {
+                      send -- "production\\r"
+                      exp_continue
+                    }
+                    -re "(?i)Type production to continue" {
+                      send -- "production\\r"
+                      exp_continue
+                    }
+                    timeout {
+                      send -- "production\\r"
+                      exp_continue
+                    }
+                    eof {
+                      break
+                    }
                   }
-                  -re "(?i)Type production to continue:.*" {
-                    send -- "production\\r"
-                    exp_continue
-                  }
-                  eof
                 }
               '
             else

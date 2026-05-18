@@ -745,30 +745,11 @@ jobs:
             fi
 
             if [[ "${SWARM_ENV}" == "production" ]]; then
-              local expect_script="/tmp/swarmctl_apply_confirm_$$.exp"
-              local allow_args="${allow_latest_args[*]}"
-              cat > "$expect_script" <<'EXPECT_EOF'
-              set timeout -1
-              set cmd [list ./swarmctl apply -f $env(SWARMCTL_MANIFEST) --env $env(SWARMCTL_ENV) --wait --timeout $env(SWARMCTL_TIMEOUT)]
-              if {[info exists env(SWARMCTL_ALLOW_ARGS)] && $env(SWARMCTL_ALLOW_ARGS) ne ""} {
-                foreach arg [split $env(SWARMCTL_ALLOW_ARGS) " "] {
-                  if {$arg ne ""} { lappend cmd $arg }
-                }
-              }
-              eval spawn $cmd
-              expect {
-                "Type production to continue:" { send "production\r"; exp_continue }
-                eof
-              }
-              EXPECT_EOF
-
-              SWARMCTL_MANIFEST="$manifest" \
-              SWARMCTL_ENV="${SWARM_ENV}" \
-              SWARMCTL_TIMEOUT="$timeout" \
-              SWARMCTL_ALLOW_ARGS="$allow_args" \
-              expect "$expect_script"
-
-              rm -f "$expect_script"
+              local allow_flag=""
+              if [[ ${#allow_latest_args[@]} -gt 0 ]]; then
+                allow_flag="${allow_latest_args[0]}"
+              fi
+              expect -c "set timeout -1; spawn ./swarmctl apply -f $manifest --env ${SWARM_ENV} --wait --timeout $timeout $allow_flag; expect {\"Type production to continue:\" { send \"production\\r\"; exp_continue } eof }"
             else
               "${apply_cmd[@]}"
             fi

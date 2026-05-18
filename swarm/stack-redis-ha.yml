@@ -6,7 +6,9 @@ services:
       REDIS_REPLICATION_MODE: master
       REDIS_PASSWORD_FILE: /run/secrets/redis_password
     networks:
-      - internal
+      internal:
+        aliases:
+          - redis-node-1
     volumes:
       - redis_1_data:/bitnami/redis/data
     secrets:
@@ -28,12 +30,14 @@ services:
     environment:
       ALLOW_EMPTY_PASSWORD: "no"
       REDIS_REPLICATION_MODE: replica
-      REDIS_MASTER_HOST: redis-node-1
+      REDIS_MASTER_HOST: dydx-redis-ha_redis-node-1
       REDIS_MASTER_PORT_NUMBER: "6379"
       REDIS_MASTER_PASSWORD_FILE: /run/secrets/redis_password
       REDIS_PASSWORD_FILE: /run/secrets/redis_password
     networks:
-      - internal
+      internal:
+        aliases:
+          - redis-node-2
     volumes:
       - redis_2_data:/bitnami/redis/data
     secrets:
@@ -55,12 +59,14 @@ services:
     environment:
       ALLOW_EMPTY_PASSWORD: "no"
       REDIS_REPLICATION_MODE: replica
-      REDIS_MASTER_HOST: redis-node-1
+      REDIS_MASTER_HOST: dydx-redis-ha_redis-node-1
       REDIS_MASTER_PORT_NUMBER: "6379"
       REDIS_MASTER_PASSWORD_FILE: /run/secrets/redis_password
       REDIS_PASSWORD_FILE: /run/secrets/redis_password
     networks:
-      - internal
+      internal:
+        aliases:
+          - redis-node-3
     volumes:
       - redis_3_data:/bitnami/redis/data
     secrets:
@@ -80,7 +86,7 @@ services:
   redis-sentinel-1:
     image: bitnamilegacy/redis-sentinel:latest
     environment:
-      REDIS_MASTER_HOST: redis-node-1
+      REDIS_MASTER_HOST: dydx-redis-ha_redis-node-1
       REDIS_MASTER_PORT_NUMBER: "6379"
       REDIS_MASTER_SET: mymaster
       REDIS_MASTER_PASSWORD_FILE: /run/secrets/redis_password
@@ -101,7 +107,7 @@ services:
   redis-sentinel-2:
     image: bitnamilegacy/redis-sentinel:latest
     environment:
-      REDIS_MASTER_HOST: redis-node-1
+      REDIS_MASTER_HOST: dydx-redis-ha_redis-node-1
       REDIS_MASTER_PORT_NUMBER: "6379"
       REDIS_MASTER_SET: mymaster
       REDIS_MASTER_PASSWORD_FILE: /run/secrets/redis_password
@@ -122,7 +128,7 @@ services:
   redis-sentinel-3:
     image: bitnamilegacy/redis-sentinel:latest
     environment:
-      REDIS_MASTER_HOST: redis-node-1
+      REDIS_MASTER_HOST: dydx-redis-ha_redis-node-1
       REDIS_MASTER_PORT_NUMBER: "6379"
       REDIS_MASTER_SET: mymaster
       REDIS_MASTER_PASSWORD_FILE: /run/secrets/redis_password
@@ -143,7 +149,7 @@ services:
   redis-master-proxy:
     image: haproxy:2.9-alpine
     configs:
-      - source: redis_haproxy_cfg
+      - source: redis_haproxy_cfg_v2
         target: /usr/local/etc/haproxy/haproxy.cfg
     ports:
       - target: 6379
@@ -151,7 +157,9 @@ services:
         protocol: tcp
         mode: ingress
     networks:
-      - internal
+      internal:
+        aliases:
+          - redis-master-proxy
     depends_on:
       - redis-node-1
       - redis-node-2
@@ -174,7 +182,7 @@ volumes:
   redis_3_data:
 
 configs:
-  redis_haproxy_cfg:
+  redis_haproxy_cfg_v2:
     file: ./config/redis-haproxy.cfg
 
 secrets:

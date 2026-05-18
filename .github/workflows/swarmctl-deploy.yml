@@ -674,10 +674,17 @@ jobs:
           if [[ "$(echo "${IMAGE_TAG}" | tr '[:upper:]' '[:lower:]')" == "latest" ]]; then
             allow_latest_args+=(--allow-latest)
           fi
-          ./swarmctl apply -f .rendered/app-api.yml --env "${SWARM_ENV}" --wait --timeout 5m "${allow_latest_args[@]}"
-          ./swarmctl apply -f .rendered/app-backend.yml --env "${SWARM_ENV}" --wait --timeout 5m "${allow_latest_args[@]}"
-          ./swarmctl apply -f .rendered/app-worker.yml --env "${SWARM_ENV}" --wait --timeout 10m "${allow_latest_args[@]}"
-          ./swarmctl apply -f .rendered/app.yml --env "${SWARM_ENV}" --wait --timeout 5m "${allow_latest_args[@]}"
+          if [[ "${SWARM_ENV}" == "production" ]]; then
+            echo production | ./swarmctl apply -f .rendered/app-api.yml --env "${SWARM_ENV}" --wait --timeout 5m "${allow_latest_args[@]}"
+            echo production | ./swarmctl apply -f .rendered/app-backend.yml --env "${SWARM_ENV}" --wait --timeout 5m "${allow_latest_args[@]}"
+            echo production | ./swarmctl apply -f .rendered/app-worker.yml --env "${SWARM_ENV}" --wait --timeout 10m "${allow_latest_args[@]}"
+            echo production | ./swarmctl apply -f .rendered/app.yml --env "${SWARM_ENV}" --wait --timeout 5m "${allow_latest_args[@]}"
+          else
+            ./swarmctl apply -f .rendered/app-api.yml --env "${SWARM_ENV}" --wait --timeout 5m "${allow_latest_args[@]}"
+            ./swarmctl apply -f .rendered/app-backend.yml --env "${SWARM_ENV}" --wait --timeout 5m "${allow_latest_args[@]}"
+            ./swarmctl apply -f .rendered/app-worker.yml --env "${SWARM_ENV}" --wait --timeout 10m "${allow_latest_args[@]}"
+            ./swarmctl apply -f .rendered/app.yml --env "${SWARM_ENV}" --wait --timeout 5m "${allow_latest_args[@]}"
+          fi
 
       - name: Rollout status
         if: env.DRY_RUN != 'true' && env.DEPLOY_APPS == 'true'

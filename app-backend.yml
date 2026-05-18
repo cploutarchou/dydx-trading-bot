@@ -46,23 +46,23 @@ spec:
       BOT_API_TIMEOUT_SECONDS: "120"
 
       DB_TYPE: "postgresql"
-      DB_HOST: "pgpool"
+      DB_HOST: "dydx-postgres-ha_pgpool"
       DB_PORT: "5432"
       DB_NAME: "dydx_bot"
       DB_USER: "dydx_bot"
 
-      POSTGRES_HOST: "pgpool"
+      POSTGRES_HOST: "dydx-postgres-ha_pgpool"
       POSTGRES_PORT: "5432"
       POSTGRES_DB: "dydx_bot"
       POSTGRES_USER: "dydx_bot"
 
-      BOT_DB_HOST: "pgpool"
+      BOT_DB_HOST: "dydx-postgres-ha_pgpool"
       BOT_DB_PORT: "5432"
       BOT_DB_NAME: "dydx_bot"
       BOT_DB_CUTOVER_MODE: "shared"
 
       REDIS_ENABLED: "true"
-      REDIS_HOST: "redis-master-proxy"
+      REDIS_HOST: "dydx-redis-ha_redis-master-proxy"
       REDIS_PORT: "6379"
       REDIS_DB: "0"
       REDIS_SSL: "false"

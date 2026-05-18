@@ -612,6 +612,55 @@ jobs:
         if: env.DRY_RUN != 'true' && env.DEPLOY_INFRA == 'true'
         run: |
           set -euo pipefail
+
+          # Preflight required external secrets for HA stacks
+          readarray -t ctx_info < <(python3 - <<'PY'
+          import pathlib
+          import yaml
+
+          cfg_path = pathlib.Path.home() / ".swarmctl" / "config.yaml"
+          cfg = yaml.safe_load(cfg_path.read_text()) or {}
+          contexts = cfg.get("contexts") or {}
+          current = cfg.get("currentContext")
+          target = contexts.get(current) if current else None
+          if not isinstance(target, dict):
+              raise SystemExit("Unable to resolve current swarmctl context from ~/.swarmctl/config.yaml")
+
+          manager_host = str(target.get("managerHost", "")).strip()
+          ssh_user = str(target.get("sshUser", "")).strip() or "root"
+          if not manager_host:
+              raise SystemExit("Missing managerHost in current swarmctl context")
+
+          print(ssh_user)
+          print(manager_host)
+          PY
+          )
+
+          ssh_user="${ctx_info[0]}"
+          manager_host="${ctx_info[1]}"
+          remote="${ssh_user}@${manager_host}"
+
+          required_secrets=(
+            pg_su_password
+            pg_app_password
+            pg_repmgr_password
+            pgpool_admin_password
+            redis_password
+          )
+
+          missing=()
+          for s in "${required_secrets[@]}"; do
+            if ! ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote" "docker secret inspect '$s' >/dev/null 2>&1"; then
+              missing+=("$s")
+            fi
+          done
+
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "Missing required infra secrets for HA stack deploy: ${missing[*]}" >&2
+            echo "Run scripts/bootstrap_production_prereqs.sh with --secrets-file to provision them, then retry." >&2
+            exit 1
+          fi
+
           ./swarmctl stack deploy dydx-postgres-ha -c swarm/stack-postgres-ha.yml --env "${SWARM_ENV}"
           ./swarmctl stack deploy dydx-redis-ha -c swarm/stack-redis-ha.yml --env "${SWARM_ENV}"
           ./swarmctl stack status dydx-postgres-ha --env "${SWARM_ENV}"

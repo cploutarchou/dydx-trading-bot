@@ -623,12 +623,9 @@ jobs:
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote" "docker stack ls --format '{{.Name}}' | grep -qx 'dydx-postgres-ha'"
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote" "docker stack ls --format '{{.Name}}' | grep -qx 'dydx-redis-ha'"
 
-          # Strict readiness gates for critical infra services
-          check_exact_replicas "dydx-postgres-ha_postgres-1" "1/1"
-          check_exact_replicas "dydx-postgres-ha_postgres-2" "1/1"
-          check_exact_replicas "dydx-postgres-ha_postgres-3" "1/1"
-          check_exact_replicas "dydx-postgres-ha_pgpool" "2/2"
-          check_exact_replicas "dydx-redis-ha_redis-master-proxy" "2/2"
+          # Strict readiness gates for simplified single-instance infra services
+          check_exact_replicas "dydx-postgres-ha_pgpool" "1/1"
+          check_exact_replicas "dydx-redis-ha_redis-master-proxy" "1/1"
 
           echo "Production preflight gate passed: infra is ready for app deployment."
 
@@ -703,8 +700,6 @@ jobs:
           required_secrets=(
             pg_su_password
             pg_app_password
-            pg_repmgr_password
-            pgpool_admin_password
             redis_password
           )
 

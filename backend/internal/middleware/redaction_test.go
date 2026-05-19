@@ -46,9 +46,9 @@ func TestRedactSensitiveRawQueryMasksTokens(t *testing.T) {
 }
 
 func TestIsAllowedBrowserOriginUsesCORSConfig(t *testing.T) {
-	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.cydevcloud.com")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://executionlab.io")
 
-	if !IsAllowedBrowserOrigin("https://app.cydevcloud.com") {
+	if !IsAllowedBrowserOrigin("https://executionlab.io") {
 		t.Fatal("expected configured origin to be allowed")
 	}
 	if IsAllowedBrowserOrigin("https://evil.example.com") {

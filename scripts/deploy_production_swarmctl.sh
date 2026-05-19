@@ -260,7 +260,20 @@ if [[ "$DEPLOY_INFRA" == "true" ]]; then
   swarmctl stack status dydx-redis-ha --env "$ENVIRONMENT"
 fi
 
+ensure_app_database_exists() {
+  echo "=== ensure application database exists ==="
+  docker run --rm --network internal --entrypoint /bin/bash bitnamilegacy/postgresql:latest -ec '
+    exists="$(psql -h dydx-postgres-ha_pgpool -p 5432 -U postgres -d postgres -Atc "SELECT 1 FROM pg_database WHERE datname = '\''dydx_bot'\''")"
+    if [ "$exists" != "1" ]; then
+      psql -h dydx-postgres-ha_pgpool -p 5432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE dydx_bot OWNER dydx_bot"
+    fi
+    psql -h dydx-postgres-ha_pgpool -p 5432 -U postgres -d dydx_bot -v ON_ERROR_STOP=1 -c "ALTER SCHEMA public OWNER TO dydx_bot; GRANT ALL ON SCHEMA public TO dydx_bot;"
+  '
+}
+
 if [[ "$DEPLOY_APPS" == "true" ]]; then
+  ensure_app_database_exists
+
   echo "=== deploy app manifests ==="
   APPLY_ARGS=(--env "$ENVIRONMENT" --wait)
   APPLY_ARGS+=("${ALLOW_LATEST_ARGS[@]}")

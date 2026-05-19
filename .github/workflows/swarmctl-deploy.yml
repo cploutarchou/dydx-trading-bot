@@ -735,6 +735,48 @@ jobs:
           ./swarmctl stack status dydx-postgres-ha --env "${SWARM_ENV}"
           ./swarmctl stack status dydx-redis-ha --env "${SWARM_ENV}"
 
+      - name: Ensure application database exists
+        if: env.DRY_RUN != 'true' && env.DEPLOY_APPS == 'true'
+        run: |
+          set -euo pipefail
+
+          readarray -t ctx_info < <(python3 - <<'PY'
+          import pathlib
+          import yaml
+
+          cfg_path = pathlib.Path.home() / ".swarmctl" / "config.yaml"
+          cfg = yaml.safe_load(cfg_path.read_text()) or {}
+          contexts = cfg.get("contexts") or {}
+          current = cfg.get("currentContext")
+          target = contexts.get(current) if current else None
+          if not isinstance(target, dict):
+              raise SystemExit("Unable to resolve current swarmctl context from ~/.swarmctl/config.yaml")
+
+          manager_host = str(target.get("managerHost", "")).strip()
+          ssh_user = str(target.get("sshUser", "")).strip() or "root"
+          if not manager_host:
+              raise SystemExit("Missing managerHost in current swarmctl context")
+
+          print(ssh_user)
+          print(manager_host)
+          PY
+          )
+
+          ssh_user="${ctx_info[0]}"
+          manager_host="${ctx_info[1]}"
+          remote="${ssh_user}@${manager_host}"
+
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote" <<'REMOTE'
+          set -euo pipefail
+          docker run --rm --network internal --entrypoint /bin/bash bitnamilegacy/postgresql:latest -ec '
+            exists="$(psql -h dydx-postgres-ha_pgpool -p 5432 -U postgres -d postgres -Atc "SELECT 1 FROM pg_database WHERE datname = '\''dydx_bot'\''")"
+            if [ "$exists" != "1" ]; then
+              psql -h dydx-postgres-ha_pgpool -p 5432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE dydx_bot OWNER dydx_bot"
+            fi
+            psql -h dydx-postgres-ha_pgpool -p 5432 -U postgres -d dydx_bot -v ON_ERROR_STOP=1 -c "ALTER SCHEMA public OWNER TO dydx_bot; GRANT ALL ON SCHEMA public TO dydx_bot;"
+          '
+          REMOTE
+
       - name: Deploy app manifests
         if: env.DRY_RUN != 'true' && env.DEPLOY_APPS == 'true'
         timeout-minutes: 40

@@ -737,6 +737,7 @@ jobs:
 
       - name: Deploy app manifests
         if: env.DRY_RUN != 'true' && env.DEPLOY_APPS == 'true'
+        timeout-minutes: 40
         run: |
           set -euo pipefail
           allow_latest_args=()
@@ -744,10 +745,59 @@ jobs:
             allow_latest_args+=(--allow-latest)
           fi
 
+          readarray -t ctx_info < <(python3 - <<'PY'
+          import pathlib
+          import yaml
+
+          cfg_path = pathlib.Path.home() / ".swarmctl" / "config.yaml"
+          cfg = yaml.safe_load(cfg_path.read_text()) or {}
+          contexts = cfg.get("contexts") or {}
+          current = cfg.get("currentContext")
+          target = contexts.get(current) if current else None
+          if not isinstance(target, dict):
+              raise SystemExit("Unable to resolve current swarmctl context from ~/.swarmctl/config.yaml")
+
+          manager_host = str(target.get("managerHost", "")).strip()
+          ssh_user = str(target.get("sshUser", "")).strip() or "root"
+          if not manager_host:
+              raise SystemExit("Missing managerHost in current swarmctl context")
+
+          print(ssh_user)
+          print(manager_host)
+          PY
+          )
+
+          ssh_user="${ctx_info[0]}"
+          manager_host="${ctx_info[1]}"
+          remote="${ssh_user}@${manager_host}"
+          ssh_cmd=(
+            ssh
+            -o StrictHostKeyChecking=no
+            -o UserKnownHostsFile=/dev/null
+            -o ConnectTimeout=15
+            -o ServerAliveInterval=15
+            -o ServerAliveCountMax=2
+            "$remote"
+          )
+
+          dump_service_diagnostics() {
+            local service="$1"
+            local stack_service="${service}_${service}"
+
+            echo "::group::Swarm diagnostics for ${stack_service}"
+            "${ssh_cmd[@]}" "docker service ls --filter name='${stack_service}' --format 'table {{.ID}}\t{{.Name}}\t{{.Mode}}\t{{.Replicas}}\t{{.Image}}\t{{.Ports}}' || true"
+            "${ssh_cmd[@]}" "docker service inspect '${stack_service}' --format '{{json .UpdateStatus}}' || true"
+            "${ssh_cmd[@]}" "docker service ps '${stack_service}' --no-trunc --format 'table {{.ID}}\t{{.Name}}\t{{.Node}}\t{{.CurrentState}}\t{{.DesiredState}}\t{{.Error}}\t{{.Image}}' || true"
+            "${ssh_cmd[@]}" "docker service logs --raw --tail 120 '${stack_service}' 2>&1 || true"
+            echo "::endgroup::"
+          }
+
           run_swarmctl_apply() {
             local manifest="$1"
-            local timeout="$2"
-            local apply_cmd=(./swarmctl apply -f "$manifest" --env "${SWARM_ENV}" --wait --timeout "$timeout" --with-registry-auth)
+            local service="$2"
+            local rollout_timeout="$3"
+            local guard_timeout="$4"
+            local apply_cmd=(./swarmctl apply -f "$manifest" --env "${SWARM_ENV}" --wait --timeout "$rollout_timeout" --with-registry-auth)
             if [[ ${#allow_latest_args[@]} -gt 0 ]]; then
               apply_cmd+=("${allow_latest_args[@]}")
             fi
@@ -756,13 +806,22 @@ jobs:
               apply_cmd+=(--yes)
             fi
 
-            "${apply_cmd[@]}"
+            echo "Deploying ${service} from ${manifest} with rollout timeout ${rollout_timeout}."
+            set +e
+            timeout --kill-after=30s "${guard_timeout}" "${apply_cmd[@]}"
+            status=$?
+            set -e
+            if [[ "$status" -ne 0 ]]; then
+              echo "Deploy failed or timed out for ${service} (exit ${status}). Capturing Swarm task diagnostics." >&2
+              dump_service_diagnostics "$service"
+              return "$status"
+            fi
           }
 
-          run_swarmctl_apply .rendered/app-api.yml 5m
-          run_swarmctl_apply .rendered/app-backend.yml 5m
-          run_swarmctl_apply .rendered/app-worker.yml 10m
-          run_swarmctl_apply .rendered/app.yml 5m
+          run_swarmctl_apply .rendered/app-api.yml dydx-trading-bot-api 5m 7m
+          run_swarmctl_apply .rendered/app-backend.yml dydx-trading-bot-backend 5m 7m
+          run_swarmctl_apply .rendered/app-worker.yml dydx-trading-bot-worker 10m 12m
+          run_swarmctl_apply .rendered/app.yml dydx-trading-bot-frontend 5m 7m
 
       - name: Rollout status
         if: env.DRY_RUN != 'true' && env.DEPLOY_APPS == 'true'

@@ -51,7 +51,7 @@ describe('backend origin helpers', () => {
     expect(
       shouldAttemptCookieSessionBootstrap('https://api.executionlab.io', {
         protocol: 'https:',
-        host: 'app.cydevcloud.com',
+        host: 'executionlab.io',
       })
     ).toBe(true);
   });
@@ -69,7 +69,7 @@ describe('backend origin helpers', () => {
     expect(
       shouldAttemptCookieSessionBootstrap('', {
         protocol: 'https:',
-        host: 'app.cydevcloud.com',
+        host: 'executionlab.io',
       })
     ).toBe(true);
   });

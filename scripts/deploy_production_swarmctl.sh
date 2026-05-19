@@ -268,10 +268,46 @@ if [[ "$DEPLOY_APPS" == "true" ]]; then
     APPLY_ARGS+=(--with-registry-auth)
   fi
 
-  swarmctl apply -f "$RENDER_DIR/app-api.yml" "${APPLY_ARGS[@]}" --timeout 5m
-  swarmctl apply -f "$RENDER_DIR/app-backend.yml" "${APPLY_ARGS[@]}" --timeout 5m
-  swarmctl apply -f "$RENDER_DIR/app-worker.yml" "${APPLY_ARGS[@]}" --timeout 10m
-  swarmctl apply -f "$RENDER_DIR/app.yml" "${APPLY_ARGS[@]}" --timeout 5m
+  dump_service_diagnostics() {
+    local service="$1"
+    local stack_service="${service}_${service}"
+
+    echo "=== swarm diagnostics: ${stack_service} ==="
+    docker service ls --filter "name=${stack_service}" --format 'table {{.ID}}\t{{.Name}}\t{{.Mode}}\t{{.Replicas}}\t{{.Image}}\t{{.Ports}}' || true
+    docker service inspect "${stack_service}" --format '{{json .UpdateStatus}}' || true
+    docker service ps "${stack_service}" --no-trunc --format 'table {{.ID}}\t{{.Name}}\t{{.Node}}\t{{.CurrentState}}\t{{.DesiredState}}\t{{.Error}}\t{{.Image}}' || true
+    docker service logs --raw --tail 120 "${stack_service}" 2>&1 || true
+  }
+
+  run_swarmctl_apply() {
+    local manifest="$1"
+    local service="$2"
+    local rollout_timeout="$3"
+    local guard_timeout="$4"
+    local apply_cmd=(swarmctl apply -f "$manifest")
+    apply_cmd+=("${APPLY_ARGS[@]}")
+    apply_cmd+=(--timeout "$rollout_timeout")
+
+    echo "Deploying ${service} from ${manifest} with rollout timeout ${rollout_timeout}."
+    set +e
+    if command -v timeout >/dev/null 2>&1; then
+      timeout --kill-after=30s "$guard_timeout" "${apply_cmd[@]}"
+    else
+      "${apply_cmd[@]}"
+    fi
+    status=$?
+    set -e
+    if [[ "$status" -ne 0 ]]; then
+      echo "Deploy failed or timed out for ${service} (exit ${status}). Capturing Swarm task diagnostics." >&2
+      dump_service_diagnostics "$service"
+      return "$status"
+    fi
+  }
+
+  run_swarmctl_apply "$RENDER_DIR/app-api.yml" dydx-trading-bot-api 5m 7m
+  run_swarmctl_apply "$RENDER_DIR/app-backend.yml" dydx-trading-bot-backend 5m 7m
+  run_swarmctl_apply "$RENDER_DIR/app-worker.yml" dydx-trading-bot-worker 10m 12m
+  run_swarmctl_apply "$RENDER_DIR/app.yml" dydx-trading-bot-frontend 5m 7m
 
   echo "=== rollout status ==="
   swarmctl rollout status dydx-trading-bot-api --env "$ENVIRONMENT"

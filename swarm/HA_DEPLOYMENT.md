@@ -11,6 +11,7 @@ This repository now includes production-oriented Docker Swarm stacks for:
 
 Files:
 
+- `swarm/stack-traefik.yml`
 - `swarm/stack-postgres-ha.yml`
 - `swarm/stack-redis-ha.yml`
 - `swarm/config/redis-haproxy.cfg`
@@ -76,9 +77,11 @@ echo -n 'replace-me' | docker secret create dydx-bot-api-token -
 From this repo root (`/home/chris/workspace/dydx-trading-bot`):
 
 ```bash
+swarmctl stack deploy traefik -c swarm/stack-traefik.yml --env staging
 swarmctl stack deploy dydx-postgres-ha -c swarm/stack-postgres-ha.yml --env staging
 swarmctl stack deploy dydx-redis-ha -c swarm/stack-redis-ha.yml --env staging
 
+swarmctl stack status traefik --env staging
 swarmctl stack status dydx-postgres-ha --env staging
 swarmctl stack status dydx-redis-ha --env staging
 ```

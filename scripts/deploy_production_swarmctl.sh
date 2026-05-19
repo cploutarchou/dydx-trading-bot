@@ -201,6 +201,7 @@ swarmctl infra ips --env "$ENVIRONMENT"
 swarmctl infra topology --env "$ENVIRONMENT"
 
 echo "=== validate infra compose files ==="
+docker compose -f swarm/stack-traefik.yml config >/dev/null
 docker compose -f swarm/stack-postgres-ha.yml config >/dev/null
 docker compose -f swarm/stack-redis-ha.yml config >/dev/null
 
@@ -254,11 +255,19 @@ fi
 
 if [[ "$DEPLOY_INFRA" == "true" ]]; then
   echo "=== deploy infra stacks ==="
+  swarmctl stack deploy traefik -c swarm/stack-traefik.yml --env "$ENVIRONMENT"
+  swarmctl stack status traefik --env "$ENVIRONMENT"
   swarmctl stack deploy dydx-postgres-ha -c swarm/stack-postgres-ha.yml --env "$ENVIRONMENT"
   swarmctl stack deploy dydx-redis-ha -c swarm/stack-redis-ha.yml --env "$ENVIRONMENT"
   swarmctl stack status dydx-postgres-ha --env "$ENVIRONMENT"
   swarmctl stack status dydx-redis-ha --env "$ENVIRONMENT"
 fi
+
+ensure_traefik_stack_exists() {
+  echo "=== ensure Traefik ingress stack exists ==="
+  swarmctl stack deploy traefik -c swarm/stack-traefik.yml --env "$ENVIRONMENT"
+  swarmctl stack status traefik --env "$ENVIRONMENT"
+}
 
 ensure_app_database_exists() {
   echo "=== ensure application database exists ==="
@@ -272,6 +281,7 @@ ensure_app_database_exists() {
 }
 
 if [[ "$DEPLOY_APPS" == "true" ]]; then
+  ensure_traefik_stack_exists
   ensure_app_database_exists
 
   echo "=== deploy app manifests ==="

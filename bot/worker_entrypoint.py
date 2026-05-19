@@ -6,6 +6,8 @@ import os
 import subprocess
 import sys
 
+from src.shared.env_loader import load_file_env_values
+
 
 def _sanitize_node_url_env(var_name: str) -> None:
     raw = os.getenv(var_name, "")
@@ -46,6 +48,8 @@ class _FilteredStderr:
 
 
 def main() -> int:
+    load_file_env_values(override=True)
+
     # Harden runtime env for libraries that consume node URL variables directly.
     _sanitize_node_url_env("DYDX_TESTNET_NODE_URL")
     _sanitize_node_url_env("DYDX_MAINNET_NODE_URL")
@@ -81,4 +85,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

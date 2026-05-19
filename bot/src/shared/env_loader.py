@@ -161,7 +161,23 @@ def _flatten_env(node: dict[str, Any]) -> OrderedDict[str, str]:
     return flattened
 
 
+def load_file_env_values(override: bool = True) -> None:
+    for key, path in list(os.environ.items()):
+        if not key.endswith("_FILE"):
+            continue
+
+        target = key[:-5]
+        if not target or not path.strip():
+            continue
+        if not override and os.getenv(target, "").strip():
+            continue
+
+        secret_path = Path(path).expanduser()
+        os.environ[target] = secret_path.read_text(encoding="utf-8").rstrip("\r\n")
+
+
 def load_repo_env(anchor: PathLike, override: bool = True) -> Path:
+    load_file_env_values(override=override)
     repo_root = find_repo_root(anchor)
     environment = _resolve_environment()
     profile_path = _resolve_profile_file(repo_root, environment)
@@ -172,4 +188,5 @@ def load_repo_env(anchor: PathLike, override: bool = True) -> Path:
             os.environ[key] = value
 
     os.environ.setdefault("APP_CONFIG_ENV", environment)
+    load_file_env_values(override=True)
     return profile_path

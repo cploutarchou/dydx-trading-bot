@@ -1,6 +1,16 @@
 -- Migration 000021: Create default admin user
 -- Creates an admin user with username: admin, password: admin123
 
+-- Older deployments created users before role/avatar/password rotation metadata
+-- existed. Keep this seed migration safe when it runs against those schemas.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) NOT NULL DEFAULT 'client';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_change_required BOOLEAN NOT NULL DEFAULT FALSE;
+
+UPDATE users
+SET role = CASE WHEN is_admin THEN 'admin' ELSE 'client' END
+WHERE role IS NULL OR BTRIM(role) = '';
+
 -- Insert admin user (password is bcrypt hash of "admin123")
 -- Hash generated using: bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
 INSERT INTO users (username, email, role, full_name, avatar, is_active, is_admin, password_change_required, hashed_password, created_at, updated_at)

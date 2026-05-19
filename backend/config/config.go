@@ -64,7 +64,21 @@ func (db *DatabaseSettings) DSN() string {
 	if db.SSL {
 		sslMode = "require"
 	}
-	return "host=" + db.Host + " port=" + strconv.Itoa(db.Port) + " user=" + db.User + " dbname=" + db.Dbname + " password=" + db.Password + " sslmode=" + sslMode + " connect_timeout=" + strconv.Itoa(db.Timeout)
+
+	parts := []string{
+		"host=" + db.Host,
+		"port=" + strconv.Itoa(db.Port),
+		"user=" + db.User,
+		"dbname=" + db.Dbname,
+	}
+	if db.Password != "" {
+		parts = append(parts, "password="+db.Password)
+	}
+	parts = append(parts,
+		"sslmode="+sslMode,
+		"connect_timeout="+strconv.Itoa(db.Timeout),
+	)
+	return strings.Join(parts, " ")
 }
 
 // MigrationsPath returns the PostgreSQL migrations directory.
@@ -187,6 +201,33 @@ func LoadConfig() error {
 		Auth:     auth,
 	}
 
+	return nil
+}
+
+func LoadFileEnvValues(override bool) error {
+	for _, item := range os.Environ() {
+		key, value, ok := strings.Cut(item, "=")
+		if !ok || !strings.HasSuffix(key, "_FILE") {
+			continue
+		}
+
+		target := strings.TrimSuffix(key, "_FILE")
+		path := strings.TrimSpace(value)
+		if target == "" || path == "" {
+			continue
+		}
+		if !override && strings.TrimSpace(os.Getenv(target)) != "" {
+			continue
+		}
+
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read %s from %s: %w", target, path, err)
+		}
+		if err := os.Setenv(target, strings.TrimRight(string(raw), "\r\n")); err != nil {
+			return fmt.Errorf("set %s from %s: %w", target, path, err)
+		}
+	}
 	return nil
 }
 

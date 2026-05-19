@@ -4,11 +4,11 @@ metadata:
   name: dydx-trading-bot-api
   namespace: default
   team: backend
-  description: Python Bot API for dYdX Trading Bot (staging).
+  description: Python Bot API for dYdX Trading Bot (production).
   labels:
     app: dydx-trading-bot-api
     service: api
-    environment: staging
+    environment: production
 spec:
   image:
     repository: ghcr.io/cploutarchou/dydx-trading-bot/api
@@ -67,11 +67,11 @@ spec:
 
       LOKI_ENABLED: "true"
       LOKI_URL: "http://81.17.102.165:3100"
-      LOKI_LABELS: '{"app":"dydx-api","env":"staging"}'
+      LOKI_LABELS: '{"app":"dydx-api","env":"production"}'
 
       IS_TESTNET: "true"
-      APP_ENV: "staging"
-      ENVIRONMENT: "staging"
+      APP_ENV: "production"
+      ENVIRONMENT: "production"
 
       JWT_ALGORITHM: "HS256"
       ACCESS_TOKEN_EXPIRE_MINUTES: "30"

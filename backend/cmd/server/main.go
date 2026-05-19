@@ -24,7 +24,13 @@ func loadStructuredConfigEnv() {
 
 func main() {
 	startTime := time.Now()
+	if err := config.LoadFileEnvValues(true); err != nil {
+		log.Fatalf("Failed to load file-backed environment values: %v", err)
+	}
 	loadStructuredConfigEnv()
+	if err := config.LoadFileEnvValues(true); err != nil {
+		log.Fatalf("Failed to load file-backed environment values: %v", err)
+	}
 
 	if err := config.LoadConfig(); err != nil {
 		log.Fatalf("Failed to load config: %v", err)

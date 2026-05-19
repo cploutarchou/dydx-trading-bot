@@ -382,7 +382,10 @@ SELECT
   app.notes,
   app.review_notes,
   reviewer.id,
-  app.reviewed_at,
+  CASE
+    WHEN app.reviewer_username IS NULL THEN NULL
+    ELSE CURRENT_TIMESTAMP - app.updated_offset
+  END,
   CURRENT_TIMESTAMP - app.created_offset,
   CURRENT_TIMESTAMP - app.updated_offset
 FROM (

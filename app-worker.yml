@@ -4,11 +4,11 @@ metadata:
   name: dydx-trading-bot-worker
   namespace: default
   team: backend
-  description: Python Celery worker for dYdX Trading Bot (staging).
+  description: Python Celery worker for dYdX Trading Bot (production).
   labels:
     app: dydx-trading-bot-worker
     service: worker
-    environment: staging
+    environment: production
 spec:
   image:
     repository: ghcr.io/cploutarchou/dydx-trading-bot/worker
@@ -55,12 +55,12 @@ spec:
 
       LOKI_ENABLED: "true"
       LOKI_URL: "http://81.17.102.165:3100"
-      LOKI_LABELS: '{"app":"dydx-worker","env":"staging"}'
+      LOKI_LABELS: '{"app":"dydx-worker","env":"production"}'
 
       IS_TESTNET: "true"
       DYDX_TESTNET_NODE_URL: "test-dydx-grpc.kingnodes.com"
-      APP_ENV: "staging"
-      ENVIRONMENT: "staging"
+      APP_ENV: "production"
+      ENVIRONMENT: "production"
 
   secrets:
     - name: dydx-jwt-secret-key

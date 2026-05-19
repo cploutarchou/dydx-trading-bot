@@ -17,7 +17,7 @@ COPY frontend/ ./frontend/
 
 # VITE_* values are baked into the JS bundle at build time.
 # Set VITE_APP_PORTAL_TYPE to client, backoffice, or ib for separate portal images.
-ARG VITE_API_URL=https://api.cydevcloud.com
+ARG VITE_API_URL=https://api.executionlab.io
 ARG VITE_API_BASE_URL=$VITE_API_URL
 ARG VITE_AUTH_BASE_URL=$VITE_API_BASE_URL
 ARG VITE_APP_PORTAL_TYPE=client

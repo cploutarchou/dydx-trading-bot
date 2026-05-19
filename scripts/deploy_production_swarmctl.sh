@@ -201,6 +201,7 @@ swarmctl infra ips --env "$ENVIRONMENT"
 swarmctl infra topology --env "$ENVIRONMENT"
 
 echo "=== validate infra compose files ==="
+docker compose -f swarm/stack-traefik.yml config >/dev/null
 docker compose -f swarm/stack-postgres-ha.yml config >/dev/null
 docker compose -f swarm/stack-redis-ha.yml config >/dev/null
 
@@ -254,24 +255,135 @@ fi
 
 if [[ "$DEPLOY_INFRA" == "true" ]]; then
   echo "=== deploy infra stacks ==="
+  swarmctl stack deploy traefik -c swarm/stack-traefik.yml --env "$ENVIRONMENT"
+  swarmctl stack status traefik --env "$ENVIRONMENT"
   swarmctl stack deploy dydx-postgres-ha -c swarm/stack-postgres-ha.yml --env "$ENVIRONMENT"
   swarmctl stack deploy dydx-redis-ha -c swarm/stack-redis-ha.yml --env "$ENVIRONMENT"
   swarmctl stack status dydx-postgres-ha --env "$ENVIRONMENT"
   swarmctl stack status dydx-redis-ha --env "$ENVIRONMENT"
 fi
 
+ensure_traefik_stack_exists() {
+  echo "=== ensure Traefik ingress stack exists ==="
+  swarmctl stack deploy traefik -c swarm/stack-traefik.yml --env "$ENVIRONMENT"
+  swarmctl stack status traefik --env "$ENVIRONMENT"
+}
+
+ensure_app_database_exists() {
+  echo "=== ensure application database exists ==="
+  docker run --rm --network internal --entrypoint /bin/bash bitnamilegacy/postgresql:latest -ec '
+    exists="$(psql -h dydx-postgres-ha_pgpool -p 5432 -U postgres -d postgres -Atc "SELECT 1 FROM pg_database WHERE datname = '\''dydx_bot'\''")"
+    if [ "$exists" != "1" ]; then
+      psql -h dydx-postgres-ha_pgpool -p 5432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE dydx_bot OWNER dydx_bot"
+    fi
+    psql -h dydx-postgres-ha_pgpool -p 5432 -U postgres -d dydx_bot -v ON_ERROR_STOP=1 -c "ALTER SCHEMA public OWNER TO dydx_bot; GRANT ALL ON SCHEMA public TO dydx_bot;"
+  '
+}
+
 if [[ "$DEPLOY_APPS" == "true" ]]; then
+  ensure_traefik_stack_exists
+  ensure_app_database_exists
+
   echo "=== deploy app manifests ==="
-  APPLY_ARGS=(--env "$ENVIRONMENT" --wait)
+  APPLY_ARGS=(--env "$ENVIRONMENT")
   APPLY_ARGS+=("${ALLOW_LATEST_ARGS[@]}")
   if [[ "$WITH_REGISTRY_AUTH" == "true" ]]; then
     APPLY_ARGS+=(--with-registry-auth)
   fi
 
-  swarmctl apply -f "$RENDER_DIR/app-api.yml" "${APPLY_ARGS[@]}" --timeout 5m
-  swarmctl apply -f "$RENDER_DIR/app-backend.yml" "${APPLY_ARGS[@]}" --timeout 5m
-  swarmctl apply -f "$RENDER_DIR/app-worker.yml" "${APPLY_ARGS[@]}" --timeout 10m
-  swarmctl apply -f "$RENDER_DIR/app.yml" "${APPLY_ARGS[@]}" --timeout 5m
+  dump_service_diagnostics() {
+    local service="$1"
+    local stack_service="${service}_${service}"
+
+    echo "=== swarm diagnostics: ${stack_service} ==="
+    docker service ls --filter "name=${stack_service}" --format 'table {{.ID}}\t{{.Name}}\t{{.Mode}}\t{{.Replicas}}\t{{.Image}}\t{{.Ports}}' || true
+    docker service inspect "${stack_service}" --format '{{json .UpdateStatus}}' || true
+    docker service ps "${stack_service}" --no-trunc --format 'table {{.ID}}\t{{.Name}}\t{{.Node}}\t{{.CurrentState}}\t{{.DesiredState}}\t{{.Error}}\t{{.Image}}' || true
+    docker service logs --raw --tail 120 "${stack_service}" 2>&1 || true
+  }
+
+  duration_seconds() {
+    local value="$1"
+    case "$value" in
+      *m) echo "$(( ${value%m} * 60 ))" ;;
+      *s) echo "${value%s}" ;;
+      *) echo "$value" ;;
+    esac
+  }
+
+  wait_service_ready() {
+    local service="$1"
+    local wait_for="$2"
+    local stack_service="${service}_${service}"
+    local timeout_seconds
+    local deadline
+
+    timeout_seconds="$(duration_seconds "$wait_for")"
+    deadline=$(( $(date +%s) + timeout_seconds ))
+
+    while (( $(date +%s) < deadline )); do
+      local replicas
+      local update_state
+
+      replicas="$(docker service ls --filter "name=${stack_service}" --format '{{.Replicas}}' | head -n1 | tr -d '\r' || true)"
+      update_state="$(docker service inspect "${stack_service}" --format '{{if .UpdateStatus}}{{.UpdateStatus.State}}{{end}}' 2>/dev/null | tr -d '\r' || true)"
+
+      case "$update_state" in
+        paused|rollback_started|rollback_paused|rollback_completed)
+          echo "Service ${stack_service} update failed with state: ${update_state}" >&2
+          dump_service_diagnostics "$service"
+          return 1
+          ;;
+      esac
+
+      if [[ "$replicas" =~ ^([0-9]+)/([0-9]+)$ ]]; then
+        local running="${BASH_REMATCH[1]}"
+        local desired="${BASH_REMATCH[2]}"
+        if [[ "$desired" != "0" && "$running" == "$desired" && "$update_state" != "updating" ]]; then
+          echo "${stack_service} ready: replicas ${replicas}${update_state:+, update ${update_state}}"
+          return 0
+        fi
+      fi
+
+      echo "Waiting for ${stack_service}: replicas=${replicas:-missing}, update=${update_state:-none}"
+      sleep 5
+    done
+
+    echo "Timed out waiting for ${stack_service} to become ready after ${wait_for}." >&2
+    dump_service_diagnostics "$service"
+    return 1
+  }
+
+  run_swarmctl_apply() {
+    local manifest="$1"
+    local service="$2"
+    local readiness_timeout="$3"
+    local guard_timeout="$4"
+    local apply_cmd=(swarmctl apply -f "$manifest")
+    apply_cmd+=("${APPLY_ARGS[@]}")
+
+    echo "Deploying ${service} from ${manifest} with readiness timeout ${readiness_timeout}."
+    set +e
+    if command -v timeout >/dev/null 2>&1; then
+      timeout --kill-after=30s "$guard_timeout" "${apply_cmd[@]}"
+    else
+      "${apply_cmd[@]}"
+    fi
+    status=$?
+    set -e
+    if [[ "$status" -ne 0 ]]; then
+      echo "Deploy failed or timed out for ${service} (exit ${status}). Capturing Swarm task diagnostics." >&2
+      dump_service_diagnostics "$service"
+      return "$status"
+    fi
+
+    wait_service_ready "$service" "$readiness_timeout"
+  }
+
+  run_swarmctl_apply "$RENDER_DIR/app-api.yml" dydx-trading-bot-api 5m 7m
+  run_swarmctl_apply "$RENDER_DIR/app-backend.yml" dydx-trading-bot-backend 5m 7m
+  run_swarmctl_apply "$RENDER_DIR/app-worker.yml" dydx-trading-bot-worker 10m 12m
+  run_swarmctl_apply "$RENDER_DIR/app.yml" dydx-trading-bot-frontend 5m 7m
 
   echo "=== rollout status ==="
   swarmctl rollout status dydx-trading-bot-api --env "$ENVIRONMENT"

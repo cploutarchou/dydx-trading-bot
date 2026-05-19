@@ -38,10 +38,17 @@
 -- Risk: MEDIUM — fails if any bot_instance.user_id has no matching users.id row.
 -- Constraint: RESTRICT on delete (never silently orphan bot financial history).
 -- ─────────────────────────────────────────────────────────────────────────────
-ALTER TABLE bot_instances
-    ADD CONSTRAINT fk_bot_instances_user_id
-    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT
-    NOT VALID;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_bot_instances_user_id'
+    ) THEN
+        ALTER TABLE bot_instances
+            ADD CONSTRAINT fk_bot_instances_user_id
+            FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT
+            NOT VALID;
+    END IF;
+END $$;
 
 -- Validate separately (allows concurrent DML during validation):
 ALTER TABLE bot_instances
@@ -52,10 +59,17 @@ ALTER TABLE bot_instances
 -- The existing NOT NULL on user_id makes this safe once orphans are cleaned.
 -- Credentials without an owner are a security risk — restrict deletion.
 -- ─────────────────────────────────────────────────────────────────────────────
-ALTER TABLE external_api_credentials
-    ADD CONSTRAINT fk_external_api_credentials_user_id
-    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT
-    NOT VALID;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_external_api_credentials_user_id'
+    ) THEN
+        ALTER TABLE external_api_credentials
+            ADD CONSTRAINT fk_external_api_credentials_user_id
+            FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT
+            NOT VALID;
+    END IF;
+END $$;
 
 ALTER TABLE external_api_credentials
     VALIDATE CONSTRAINT fk_external_api_credentials_user_id;
@@ -78,11 +92,18 @@ ALTER TABLE users
 -- Validates status values match the botstatusenum set used by the Python bot.
 -- NOT VALID + VALIDATE pattern avoids lock escalation on large tables.
 -- ─────────────────────────────────────────────────────────────────────────────
-ALTER TABLE bot_instances
-    ADD CONSTRAINT chk_bot_instances_status
-    CHECK (status IN ('CREATED','STARTING','RUNNING','PAUSED','STOPPING','STOPPED',
-                      'FAILED','ERROR','RECOVERING','DEGRADED','SAFEGUARDED'))
-    NOT VALID;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'chk_bot_instances_status'
+    ) THEN
+        ALTER TABLE bot_instances
+            ADD CONSTRAINT chk_bot_instances_status
+            CHECK (status::text IN ('CREATED','STARTING','RUNNING','PAUSED','STOPPING','STOPPED',
+                                    'FAILED','ERROR','RECOVERING','DEGRADED','SAFEGUARDED'))
+            NOT VALID;
+    END IF;
+END $$;
 
 ALTER TABLE bot_instances
     VALIDATE CONSTRAINT chk_bot_instances_status;

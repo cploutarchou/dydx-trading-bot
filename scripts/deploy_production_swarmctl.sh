@@ -285,7 +285,7 @@ if [[ "$DEPLOY_APPS" == "true" ]]; then
   ensure_app_database_exists
 
   echo "=== deploy app manifests ==="
-  APPLY_ARGS=(--env "$ENVIRONMENT" --wait)
+  APPLY_ARGS=(--env "$ENVIRONMENT")
   APPLY_ARGS+=("${ALLOW_LATEST_ARGS[@]}")
   if [[ "$WITH_REGISTRY_AUTH" == "true" ]]; then
     APPLY_ARGS+=(--with-registry-auth)
@@ -302,16 +302,67 @@ if [[ "$DEPLOY_APPS" == "true" ]]; then
     docker service logs --raw --tail 120 "${stack_service}" 2>&1 || true
   }
 
+  duration_seconds() {
+    local value="$1"
+    case "$value" in
+      *m) echo "$(( ${value%m} * 60 ))" ;;
+      *s) echo "${value%s}" ;;
+      *) echo "$value" ;;
+    esac
+  }
+
+  wait_service_ready() {
+    local service="$1"
+    local wait_for="$2"
+    local stack_service="${service}_${service}"
+    local timeout_seconds
+    local deadline
+
+    timeout_seconds="$(duration_seconds "$wait_for")"
+    deadline=$(( $(date +%s) + timeout_seconds ))
+
+    while (( $(date +%s) < deadline )); do
+      local replicas
+      local update_state
+
+      replicas="$(docker service ls --filter "name=${stack_service}" --format '{{.Replicas}}' | head -n1 | tr -d '\r' || true)"
+      update_state="$(docker service inspect "${stack_service}" --format '{{if .UpdateStatus}}{{.UpdateStatus.State}}{{end}}' 2>/dev/null | tr -d '\r' || true)"
+
+      case "$update_state" in
+        paused|rollback_started|rollback_paused|rollback_completed)
+          echo "Service ${stack_service} update failed with state: ${update_state}" >&2
+          dump_service_diagnostics "$service"
+          return 1
+          ;;
+      esac
+
+      if [[ "$replicas" =~ ^([0-9]+)/([0-9]+)$ ]]; then
+        local running="${BASH_REMATCH[1]}"
+        local desired="${BASH_REMATCH[2]}"
+        if [[ "$desired" != "0" && "$running" == "$desired" && "$update_state" != "updating" ]]; then
+          echo "${stack_service} ready: replicas ${replicas}${update_state:+, update ${update_state}}"
+          return 0
+        fi
+      fi
+
+      echo "Waiting for ${stack_service}: replicas=${replicas:-missing}, update=${update_state:-none}"
+      sleep 5
+    done
+
+    echo "Timed out waiting for ${stack_service} to become ready after ${wait_for}." >&2
+    dump_service_diagnostics "$service"
+    return 1
+  }
+
   run_swarmctl_apply() {
     local manifest="$1"
     local service="$2"
-    local rollout_timeout="$3"
+    local readiness_timeout="$3"
     local guard_timeout="$4"
     local apply_cmd=(swarmctl apply -f "$manifest")
     apply_cmd+=("${APPLY_ARGS[@]}")
-    apply_cmd+=(--timeout "$rollout_timeout")
 
-    echo "Deploying ${service} from ${manifest} with rollout timeout ${rollout_timeout}."
+    echo "Deploying ${service} from ${manifest} with readiness timeout ${readiness_timeout}."
     set +e
     if command -v timeout >/dev/null 2>&1; then
       timeout --kill-after=30s "$guard_timeout" "${apply_cmd[@]}"
@@ -325,6 +376,8 @@ if [[ "$DEPLOY_APPS" == "true" ]]; then
       dump_service_diagnostics "$service"
       return "$status"
     fi
+
+    wait_service_ready "$service" "$readiness_timeout"
   }
 
   run_swarmctl_apply "$RENDER_DIR/app-api.yml" dydx-trading-bot-api 5m 7m

@@ -3,11 +3,6 @@ services:
     image: bitnamilegacy/redis:latest
     environment:
       ALLOW_EMPTY_PASSWORD: "yes"
-    ports:
-      - target: 6379
-        published: 6379
-        protocol: tcp
-        mode: ingress
     networks:
       internal:
         aliases:

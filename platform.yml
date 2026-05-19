@@ -60,7 +60,7 @@ apps:
       STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE: "200"
       STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_THRESHOLD: "0.05"
       STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_MIN_RUNS: "20"
-      FRONTEND_URL: "https://app.cydevcloud.com"
+      FRONTEND_URL: "https://executionlab.io"
     secrets:
       # Pulled at runtime from Nomad Variables at nomad/jobs/api
       BOT_DB_PASSWORD: ""
@@ -85,14 +85,14 @@ apps:
     cpu: 300
     memory: 256
     expose: public
-    host: api.cydevcloud.com
+    host: api.executionlab.io
     path: backend
     env:
       API_PORT: "8888"
       ENVIRONMENT: "prod"
       APP_ENV: "prod"
       APP_CONFIG_ENV: "production"
-      CORS_ALLOWED_ORIGINS: "https://app.cydevcloud.com"
+      CORS_ALLOWED_ORIGINS: "https://executionlab.io"
       # Upstream Python bot API. Prefer loopback (host-network static port)
       # and keep Consul DNS names only as fallback while DNS is being stabilized.
       BOT_API_URL: "http://api.service.consul:8889"
@@ -204,7 +204,7 @@ apps:
     cpu: 300
     memory: 128
     expose: public
-    host: app.cydevcloud.com
+    host: executionlab.io
     path: frontend
     auth:
       basic:

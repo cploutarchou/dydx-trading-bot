@@ -747,7 +747,7 @@ jobs:
           run_swarmctl_apply() {
             local manifest="$1"
             local timeout="$2"
-            local apply_cmd=(./swarmctl apply -f "$manifest" --env "${SWARM_ENV}" --wait --timeout "$timeout")
+            local apply_cmd=(./swarmctl apply -f "$manifest" --env "${SWARM_ENV}" --wait --timeout "$timeout" --with-registry-auth)
             if [[ ${#allow_latest_args[@]} -gt 0 ]]; then
               apply_cmd+=("${allow_latest_args[@]}")
             fi

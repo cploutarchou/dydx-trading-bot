@@ -5,11 +5,6 @@ services:
       ALLOW_EMPTY_PASSWORD: "yes"
       POSTGRESQL_USERNAME: dydx_bot
       POSTGRESQL_DATABASE: dydx_bot
-    ports:
-      - target: 5432
-        published: 5432
-        protocol: tcp
-        mode: ingress
     networks:
       internal:
         aliases:

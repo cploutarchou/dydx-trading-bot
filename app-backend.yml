@@ -107,6 +107,10 @@ spec:
     - public
     - internal
 
+  placement:
+    constraints:
+      - node.role == manager
+
   healthcheck:
     enabled: true
     type: http

@@ -372,9 +372,16 @@ if [[ "$DEPLOY_APPS" == "true" ]]; then
     status=$?
     set -e
     if [[ "$status" -ne 0 ]]; then
-      echo "Deploy failed or timed out for ${service} (exit ${status}). Capturing Swarm task diagnostics." >&2
-      dump_service_diagnostics "$service"
-      return "$status"
+      # swarmctl may report exit 20 while Swarm is still converging updates.
+      # Record diagnostics and continue to explicit readiness polling first.
+      if [[ "$status" -eq 20 ]]; then
+        echo "swarmctl apply returned exit 20 for ${service}; verifying readiness before failing." >&2
+        dump_service_diagnostics "$service"
+      else
+        echo "Deploy failed or timed out for ${service} (exit ${status}). Capturing Swarm task diagnostics." >&2
+        dump_service_diagnostics "$service"
+        return "$status"
+      fi
     fi
 
     wait_service_ready "$service" "$readiness_timeout"

@@ -148,9 +148,7 @@ deletable_role_seed_users AS (
   FROM role_seed_users seed
   WHERE NOT EXISTS (SELECT 1 FROM bot_instances WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM backtest_strategies WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM backtest_comparisons WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM dydx_keys WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM dydx_key_settings WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM external_api_credentials WHERE user_id = seed.id)
 )
 UPDATE backtest_runs
@@ -172,9 +170,7 @@ deletable_role_seed_users AS (
   FROM role_seed_users seed
   WHERE NOT EXISTS (SELECT 1 FROM bot_instances WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM backtest_strategies WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM backtest_comparisons WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM dydx_keys WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM dydx_key_settings WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM external_api_credentials WHERE user_id = seed.id)
 )
 UPDATE audit_logs
@@ -196,9 +192,7 @@ deletable_role_seed_users AS (
   FROM role_seed_users seed
   WHERE NOT EXISTS (SELECT 1 FROM bot_instances WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM backtest_strategies WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM backtest_comparisons WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM dydx_keys WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM dydx_key_settings WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM external_api_credentials WHERE user_id = seed.id)
 )
 UPDATE bot_settings
@@ -220,9 +214,7 @@ deletable_role_seed_users AS (
   FROM role_seed_users seed
   WHERE NOT EXISTS (SELECT 1 FROM bot_instances WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM backtest_strategies WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM backtest_comparisons WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM dydx_keys WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM dydx_key_settings WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM external_api_credentials WHERE user_id = seed.id)
 )
 UPDATE custom_roles
@@ -244,9 +236,7 @@ deletable_role_seed_users AS (
   FROM role_seed_users seed
   WHERE NOT EXISTS (SELECT 1 FROM bot_instances WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM backtest_strategies WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM backtest_comparisons WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM dydx_keys WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM dydx_key_settings WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM external_api_credentials WHERE user_id = seed.id)
 )
 DELETE FROM user_mfa_credentials
@@ -267,9 +257,7 @@ deletable_role_seed_users AS (
   FROM role_seed_users seed
   WHERE NOT EXISTS (SELECT 1 FROM bot_instances WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM backtest_strategies WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM backtest_comparisons WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM dydx_keys WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM dydx_key_settings WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM external_api_credentials WHERE user_id = seed.id)
 )
 DELETE FROM user_permission_overrides
@@ -291,9 +279,7 @@ deletable_role_seed_users AS (
   FROM role_seed_users seed
   WHERE NOT EXISTS (SELECT 1 FROM bot_instances WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM backtest_strategies WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM backtest_comparisons WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM dydx_keys WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM dydx_key_settings WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM external_api_credentials WHERE user_id = seed.id)
 )
 DELETE FROM users
@@ -309,9 +295,7 @@ WITH default_admin_seed AS (
     AND seed.hashed_password = '$2a$10$wTHTBe5KhqRqKKXvCc1K9eGhgzzVH4kaPhDB9935o6S62GwMoO/ra'
     AND NOT EXISTS (SELECT 1 FROM bot_instances WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM backtest_strategies WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM backtest_comparisons WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM dydx_keys WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM dydx_key_settings WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM external_api_credentials WHERE user_id = seed.id)
 )
 UPDATE backtest_runs
@@ -326,9 +310,7 @@ WITH default_admin_seed AS (
     AND seed.hashed_password = '$2a$10$wTHTBe5KhqRqKKXvCc1K9eGhgzzVH4kaPhDB9935o6S62GwMoO/ra'
     AND NOT EXISTS (SELECT 1 FROM bot_instances WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM backtest_strategies WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM backtest_comparisons WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM dydx_keys WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM dydx_key_settings WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM external_api_credentials WHERE user_id = seed.id)
 )
 UPDATE audit_logs
@@ -343,9 +325,7 @@ WITH default_admin_seed AS (
     AND seed.hashed_password = '$2a$10$wTHTBe5KhqRqKKXvCc1K9eGhgzzVH4kaPhDB9935o6S62GwMoO/ra'
     AND NOT EXISTS (SELECT 1 FROM bot_instances WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM backtest_strategies WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM backtest_comparisons WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM dydx_keys WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM dydx_key_settings WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM external_api_credentials WHERE user_id = seed.id)
 )
 UPDATE bot_settings
@@ -360,9 +340,7 @@ WITH default_admin_seed AS (
     AND seed.hashed_password = '$2a$10$wTHTBe5KhqRqKKXvCc1K9eGhgzzVH4kaPhDB9935o6S62GwMoO/ra'
     AND NOT EXISTS (SELECT 1 FROM bot_instances WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM backtest_strategies WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM backtest_comparisons WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM dydx_keys WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM dydx_key_settings WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM external_api_credentials WHERE user_id = seed.id)
 )
 UPDATE custom_roles
@@ -377,9 +355,7 @@ WITH default_admin_seed AS (
     AND seed.hashed_password = '$2a$10$wTHTBe5KhqRqKKXvCc1K9eGhgzzVH4kaPhDB9935o6S62GwMoO/ra'
     AND NOT EXISTS (SELECT 1 FROM bot_instances WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM backtest_strategies WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM backtest_comparisons WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM dydx_keys WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM dydx_key_settings WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM external_api_credentials WHERE user_id = seed.id)
 )
 DELETE FROM user_mfa_credentials
@@ -393,9 +369,7 @@ WITH default_admin_seed AS (
     AND seed.hashed_password = '$2a$10$wTHTBe5KhqRqKKXvCc1K9eGhgzzVH4kaPhDB9935o6S62GwMoO/ra'
     AND NOT EXISTS (SELECT 1 FROM bot_instances WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM backtest_strategies WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM backtest_comparisons WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM dydx_keys WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM dydx_key_settings WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM external_api_credentials WHERE user_id = seed.id)
 )
 DELETE FROM user_permission_overrides
@@ -410,9 +384,7 @@ WITH default_admin_seed AS (
     AND seed.hashed_password = '$2a$10$wTHTBe5KhqRqKKXvCc1K9eGhgzzVH4kaPhDB9935o6S62GwMoO/ra'
     AND NOT EXISTS (SELECT 1 FROM bot_instances WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM backtest_strategies WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM backtest_comparisons WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM dydx_keys WHERE user_id = seed.id)
-    AND NOT EXISTS (SELECT 1 FROM dydx_key_settings WHERE user_id = seed.id)
     AND NOT EXISTS (SELECT 1 FROM external_api_credentials WHERE user_id = seed.id)
 )
 DELETE FROM users

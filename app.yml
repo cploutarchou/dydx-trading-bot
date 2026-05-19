@@ -38,12 +38,6 @@ spec:
       VITE_API_URL: "https://api.executionlab.io"
       VITE_FORCE_MOCK_DATA: "false"
 
-  secrets:
-    - name: dydx-trading-bot-frontend-basic-auth
-      target: FRONTEND_BASIC_AUTH
-      required: false
-      external: true
-
   networks:
     - public
     - internal

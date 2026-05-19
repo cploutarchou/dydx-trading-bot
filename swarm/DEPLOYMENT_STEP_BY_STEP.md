@@ -158,6 +158,7 @@ To avoid manifest confusion:
   - `app-backend.yml`
   - `app-worker.yml`
 - Infra deployment source of truth:
+  - `swarm/stack-traefik.yml`
   - `swarm/stack-postgres-ha.yml`
   - `swarm/stack-redis-ha.yml`
 - `platform.yml` is legacy/meta mapping and must stay synced when edited.
@@ -180,9 +181,11 @@ swarmctl validate -f app.yml --env staging
 Deploy HA infra:
 
 ```bash
+swarmctl stack deploy traefik -c swarm/stack-traefik.yml --env staging
 swarmctl stack deploy dydx-postgres-ha -c swarm/stack-postgres-ha.yml --env staging
 swarmctl stack deploy dydx-redis-ha -c swarm/stack-redis-ha.yml --env staging
 
+swarmctl stack status traefik --env staging
 swarmctl stack status dydx-postgres-ha --env staging
 swarmctl stack status dydx-redis-ha --env staging
 ```
@@ -315,6 +318,7 @@ Examples blocked in non-staging:
 ## 13) Files you should know
 
 - `swarm/HA_DEPLOYMENT.md`
+- `swarm/stack-traefik.yml`
 - `swarm/stack-postgres-ha.yml`
 - `swarm/stack-redis-ha.yml`
 - `app.yml`, `app-api.yml`, `app-backend.yml`, `app-worker.yml`

@@ -332,6 +332,7 @@ jobs:
       - name: Validate swarm stacks with compose parser
         run: |
           set -euo pipefail
+          docker compose -f swarm/stack-traefik.yml config >/dev/null
           docker compose -f swarm/stack-postgres-ha.yml config >/dev/null
           docker compose -f swarm/stack-redis-ha.yml config >/dev/null
 
@@ -730,10 +731,19 @@ jobs:
             ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$remote" "docker service rm '$svc' >/dev/null 2>&1 || true"
           done
 
+          ./swarmctl stack deploy traefik -c swarm/stack-traefik.yml --env "${SWARM_ENV}"
+          ./swarmctl stack status traefik --env "${SWARM_ENV}"
           ./swarmctl stack deploy dydx-postgres-ha -c swarm/stack-postgres-ha.yml --env "${SWARM_ENV}"
           ./swarmctl stack deploy dydx-redis-ha -c swarm/stack-redis-ha.yml --env "${SWARM_ENV}"
           ./swarmctl stack status dydx-postgres-ha --env "${SWARM_ENV}"
           ./swarmctl stack status dydx-redis-ha --env "${SWARM_ENV}"
+
+      - name: Ensure Traefik ingress stack exists
+        if: env.DRY_RUN != 'true' && env.DEPLOY_APPS == 'true'
+        run: |
+          set -euo pipefail
+          ./swarmctl stack deploy traefik -c swarm/stack-traefik.yml --env "${SWARM_ENV}"
+          ./swarmctl stack status traefik --env "${SWARM_ENV}"
 
       - name: Ensure application database exists
         if: env.DRY_RUN != 'true' && env.DEPLOY_APPS == 'true'

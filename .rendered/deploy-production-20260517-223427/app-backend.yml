@@ -12,7 +12,7 @@ metadata:
 spec:
   image:
     repository: ghcr.io/cploutarchou/dydx-trading-bot/backend
-    tag: sha-74558c4
+    tag: sha-a2a64db
   replicas: 1
   ports:
   - name: http

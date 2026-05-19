@@ -49,7 +49,7 @@ describe('backend origin helpers', () => {
 
   it('attempts cookie session bootstrap for hosted https deployments even without local hints', () => {
     expect(
-      shouldAttemptCookieSessionBootstrap('https://api.cydevcloud.com', {
+      shouldAttemptCookieSessionBootstrap('https://api.executionlab.io', {
         protocol: 'https:',
         host: 'app.cydevcloud.com',
       })

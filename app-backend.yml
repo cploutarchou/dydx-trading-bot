@@ -12,7 +12,7 @@ metadata:
 spec:
   image:
     repository: ghcr.io/cploutarchou/dydx-trading-bot/backend
-    tag: sha-<commit> # Updated to use immutable tag for production
+    tag: sha-9d498c9
   replicas: 1
 
   ports:

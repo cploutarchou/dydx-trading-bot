@@ -736,6 +736,45 @@ def init_db():
     db.create_all_tables()
     logger.info("Database initialized successfully")
 
+    # --- Admin user seeding logic ---
+    from src.infrastructure.domain.models.auth_models import User
+    from src.api.auth_utils import PasswordUtils
+    import os
+    from datetime import datetime
+
+    admin_username = os.getenv("BOOTSTRAP_ADMIN_USERNAME", "admin").strip() or "admin"
+    admin_email = (
+        os.getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@localhost").strip()
+        or "admin@localhost"
+    )
+        admin_password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "admin123").strip() or "admin123"
+
+    if not admin_password:
+        logger.warning("Skipping admin user creation: BOOTSTRAP_ADMIN_PASSWORD not set")
+        return
+
+    with db.session_scope() as session:
+        existing = session.query(User).filter(User.username == admin_username).first()
+        if existing:
+            logger.info(f"Admin user '{admin_username}' already exists")
+            return
+
+        hashed = PasswordUtils.hash_password(admin_password[:72])
+        admin_user = User(
+            username=admin_username,
+            email=admin_email,
+            hashed_password=hashed,
+            full_name="System Administrator",
+            is_active=True,
+            is_admin=True,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        session.add(admin_user)
+        session.commit()
+        logger.info(f"✅ Admin user '{admin_username}' created (email: {admin_email})")
+        logger.info("⚠️  IMPORTANT: Change the default password after first login!")
+
 
 if __name__ == "__main__":
     # Test database connection

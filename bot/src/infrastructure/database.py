@@ -740,14 +740,16 @@ def init_db():
     from src.infrastructure.domain.models.auth_models import User
     from src.api.auth_utils import PasswordUtils
     import os
-    from datetime import datetime
+    from src.shared.time_utils import utc_now
 
     admin_username = os.getenv("BOOTSTRAP_ADMIN_USERNAME", "admin").strip() or "admin"
     admin_email = (
         os.getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@localhost").strip()
         or "admin@localhost"
     )
-        admin_password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "admin123").strip() or "admin123"
+    admin_password = (
+        os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "admin123").strip() or "admin123"
+    )
 
     if not admin_password:
         logger.warning("Skipping admin user creation: BOOTSTRAP_ADMIN_PASSWORD not set")
@@ -767,8 +769,8 @@ def init_db():
             full_name="System Administrator",
             is_active=True,
             is_admin=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=utc_now(),
+            updated_at=utc_now(),
         )
         session.add(admin_user)
         session.commit()

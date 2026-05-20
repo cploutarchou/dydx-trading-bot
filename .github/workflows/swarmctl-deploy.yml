@@ -933,7 +933,7 @@ jobs:
           }
 
           run_swarmctl_apply .rendered/app-api.yml dydx-trading-bot-api 5m 7m
-          run_swarmctl_apply .rendered/app-backend.yml dydx-trading-bot-backend 5m 7m
+          run_swarmctl_apply .rendered/app-backend.yml dydx-trading-bot-backend 10m 12m
           run_swarmctl_apply .rendered/app-worker.yml dydx-trading-bot-worker 10m 12m
           run_swarmctl_apply .rendered/app.yml dydx-trading-bot-frontend 5m 7m
 

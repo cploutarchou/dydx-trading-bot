@@ -9,15 +9,15 @@ import { QueryProvider } from './api/QueryProvider';
 import { getCurrentPortalType } from './app/portal';
 import { getPortalRouteManifest } from './app/routeManifest';
 import {
-    BACKOFFICE_ROLES,
-    getUserWorkspaceRole,
-    roleMatches,
-    type WorkspaceRole,
+  BACKOFFICE_ROLES,
+  getUserWorkspaceRole,
+  roleMatches,
+  type WorkspaceRole,
 } from './auth/roles';
 import {
-    ErrorBoundary as EnhancedErrorBoundary,
-    ToastContainer,
-    useToastStore,
+  ErrorBoundary as EnhancedErrorBoundary,
+  ToastContainer,
+  useToastStore,
 } from './components/ErrorBoundary';
 import { MainLayout } from './components/MainLayout';
 import { RegistrationDisabledLoginGate } from './components/RegistrationDisabledLoginGate';
@@ -130,6 +130,8 @@ const PasswordRotationRoute: React.FC = () => {
   return <ForcePasswordChangePage />;
 };
 
+
+
 export const App: React.FC = () => {
   const portal = getCurrentPortalType();
   const portalRoutes = getPortalRouteManifest(portal);
@@ -234,7 +236,9 @@ export const App: React.FC = () => {
                   key={`${portal}:${route.path}`}
                   path={route.path}
                   element={
-                    <ProtectedRoute allowedRoles={route.allowedRoles}>{route.element}</ProtectedRoute>
+                    <ProtectedRoute allowedRoles={route.allowedRoles}>
+                      {route.element}
+                    </ProtectedRoute>
                   }
                 />
               ))}

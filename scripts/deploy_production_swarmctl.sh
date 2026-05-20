@@ -372,16 +372,23 @@ if [[ "$DEPLOY_APPS" == "true" ]]; then
     status=$?
     set -e
     if [[ "$status" -ne 0 ]]; then
-      echo "Deploy failed or timed out for ${service} (exit ${status}). Capturing Swarm task diagnostics." >&2
-      dump_service_diagnostics "$service"
-      return "$status"
+      # swarmctl may report exit 20 while Swarm is still converging updates.
+      # Record diagnostics and continue to explicit readiness polling first.
+      if [[ "$status" -eq 20 ]]; then
+        echo "swarmctl apply returned exit 20 for ${service}; verifying readiness before failing." >&2
+        dump_service_diagnostics "$service"
+      else
+        echo "Deploy failed or timed out for ${service} (exit ${status}). Capturing Swarm task diagnostics." >&2
+        dump_service_diagnostics "$service"
+        return "$status"
+      fi
     fi
 
     wait_service_ready "$service" "$readiness_timeout"
   }
 
   run_swarmctl_apply "$RENDER_DIR/app-api.yml" dydx-trading-bot-api 5m 7m
-  run_swarmctl_apply "$RENDER_DIR/app-backend.yml" dydx-trading-bot-backend 5m 7m
+  run_swarmctl_apply "$RENDER_DIR/app-backend.yml" dydx-trading-bot-backend 10m 12m
   run_swarmctl_apply "$RENDER_DIR/app-worker.yml" dydx-trading-bot-worker 10m 12m
   run_swarmctl_apply "$RENDER_DIR/app.yml" dydx-trading-bot-frontend 5m 7m
 

@@ -64,6 +64,14 @@ func main() {
 		}
 	}()
 
+	conn, err := database.GetConnection()
+	if err != nil {
+		log.Fatalf("Failed to access database connection for bootstrap admin: %v", err)
+	}
+	if err := startup.EnsureBootstrapAdmin(conn); err != nil {
+		log.Fatalf("Failed to ensure bootstrap admin: %v", err)
+	}
+
 	middleware.InitAuthMiddleware(config.ConfigInstance)
 	if config.ConfigInstance.Auth.JWTSecretKey != "" {
 		log.Printf("Auth middleware initialized (JWT secret length=%d)", len(config.ConfigInstance.Auth.JWTSecretKey))

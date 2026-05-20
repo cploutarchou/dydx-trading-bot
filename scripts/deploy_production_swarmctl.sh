@@ -388,7 +388,7 @@ if [[ "$DEPLOY_APPS" == "true" ]]; then
   }
 
   run_swarmctl_apply "$RENDER_DIR/app-api.yml" dydx-trading-bot-api 5m 7m
-  run_swarmctl_apply "$RENDER_DIR/app-backend.yml" dydx-trading-bot-backend 5m 7m
+  run_swarmctl_apply "$RENDER_DIR/app-backend.yml" dydx-trading-bot-backend 10m 12m
   run_swarmctl_apply "$RENDER_DIR/app-worker.yml" dydx-trading-bot-worker 10m 12m
   run_swarmctl_apply "$RENDER_DIR/app.yml" dydx-trading-bot-frontend 5m 7m
 

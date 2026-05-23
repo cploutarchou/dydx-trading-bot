@@ -14,7 +14,7 @@ The frontend is a Vite/React workspace that now builds three independent authent
 
 ## Runtime
 
-- framework: React 19 + TypeScript + Vite
+- framework: React 19 + TypeScript 6 + Vite 8
 - default dev port: `5173`
 - API target: backend on `8888`
 - registration verification: set `VITE_TURNSTILE_SITE_KEY` to a Cloudflare Turnstile
@@ -75,7 +75,7 @@ The client portal is organized around the automation workflow:
 
 - Dashboard: live account and runtime intelligence, active bots, live PnL, alerts, recent activity, and quick actions.
 - Strategies: strategy library, builder, edit flows, templates, risk profile, and validation readiness.
-- Backtests: a dedicated subsection with `/backtests` for validation dashboard stats, `/backtests/new` for run setup, `/backtests/runs` for the run archive, and `/backtests/compare` for comparisons.
+- Backtests: a dedicated subsection with `/backtests` for validation dashboard stats, `/backtests/new` for run setup, `/backtests/runs` for the run archive, `/backtests/experiments` for experiment tracking, and `/backtests/compare` for comparisons.
 - Bots: live/paper runtime management, health, start/stop/restart/delete actions, positions, logs, and deployment review.
 - Market Intel: Codex token intelligence and Market News research. Legacy `/codex` and `/news` links redirect into this section.
 - Client Area / Account: role progression, onboarding state, and partner application timeline.
@@ -106,27 +106,33 @@ Suggested deployment mapping:
 
 ## Role Guards
 
-Client routes allow `client` and `user`. IB routes allow `ib` and `sub_ib`; admin/backoffice roles can also enter for operational oversight. Backoffice routes allow `admin`, `super_admin`, `backoffice`, `operations_admin`, `finance_admin`, and `support_agent`.
+Client routes allow `client` and `user`. IB routes allow `ib` and `sub_ib`; admin/backoffice roles can also enter for operational oversight. Backoffice routes allow `admin`, `super_admin`, `backoffice_admin`, `backoffice`, `operations_admin`, `compliance_admin`, `finance_admin`, `support_agent`, `read_only_auditor`, `security_analyst`, `accounting`, `marketing`, and `agent`.
 
 Unauthorized authenticated users land on `/unauthorized`. Backend endpoints must continue to enforce the same role boundaries; frontend guards are a UX and accidental-access layer, not the source of authorization truth.
 
 ## Backend/API Notes
 
-Existing backend contracts are reused:
+The current portal builds consume these backend namespaces:
 
-- client/portal: `/api/v1/portal/*`
-- CRM/backoffice: `/api/v1/admin/crm/*`, `/api/v1/admin/users`, `/api/v1/settings/*`
-- IB administration/metrics: `/api/v1/admin/ib/*`, `/api/v1/portal/hierarchy*`, `/api/v1/portal/commission-metrics`
+- client/session and shared account state: `/api/v1/me`, `/api/v1/auth/session`
+- partner/client portal data: `/api/v1/portal/*`
+- CRM/backoffice operations: `/api/v1/backoffice/*`
+- IB portal workspace: `/api/v1/ib/*`
+- legacy CRM compatibility while older clients migrate: `/api/v1/admin/crm/*`
+- platform and trading settings: `/api/v1/settings/*`
 
-No backend contract changes are required by this split. Backend role checks should verify the same portal assumptions listed above, especially for `/api/v1/settings/*`, `/api/v1/admin/crm/*`, and `/api/v1/admin/ib/*`.
+Backend role checks must enforce the same portal assumptions listed above, especially for `/api/v1/backoffice/*`, `/api/v1/ib/*`, `/api/v1/portal/*`, and `/api/v1/settings/*`.
 
 ## Key Directories
 
-- `apps` for portal app boundaries
-- `packages` for shared UI/API/auth/types exports
-- `src/pages` for route-level screens
+- `apps/backoffice`, `apps/client-portal`, and `apps/ib-portal` for portal app shells
+- `packages/shared-ui`, `packages/shared-api`, `packages/shared-auth`, and `packages/shared-types` for shared exports
+- `src/app` for portal detection and typed route manifest ownership
+- `src/pages` for route-level screens, including `src/pages/crm`, `src/pages/ib`, and `src/pages/client`
 - `src/components` for reusable UI blocks
-- `src/api` for API and websocket helpers
+- `src/features` for feature modules such as backtests and Codex
+- `src/api` for API, websocket helpers, hooks, and normalizers
+- `src/auth` for role definitions and role normalization
 - `src/store` for Zustand state
 - `src/navigation` for workspace navigation and command palette
 

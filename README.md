@@ -8,7 +8,7 @@ This repository contains the active dYdX trading platform across three runtime s
 
 | Service     | Purpose                                                  | Default port |
 | ----------- | -------------------------------------------------------- | ------------ |
-| `frontend/` | public website, auth flows, operator workspace           | `5173`       |
+| `frontend/` | public website, auth flows, client/backoffice/IB portals | `5173`       |
 | `backend/`  | public application API, auth, orchestration, bot proxy   | `8888`       |
 | `bot/`      | Python bot API, trading runtime, backtests, live workers | `8889`       |
 
@@ -17,6 +17,23 @@ Supporting local infrastructure:
 - backend PostgreSQL: `5432`
 - bot PostgreSQL: `5433`
 - Redis: `6379`
+
+## Repository Structure
+
+The current project is organized around service ownership plus shared deployment/config assets:
+
+| Path          | Current role |
+| ------------- | ------------ |
+| `frontend/`   | React 19 + TypeScript + Vite UI. Builds the client portal, backoffice portal, and IB portal from `frontend/apps/*` with shared source in `frontend/src/*` and shared exports in `frontend/packages/*`. |
+| `backend/`    | Go API gateway/orchestration service. Runtime entry point is `backend/cmd/server`, app-facing route ownership is under `backend/internal/routes`, and PostgreSQL migrations live in `backend/migrations/postgres`. |
+| `bot/`        | Python FastAPI control plane and trading runtime. API assembly is `bot/src/api/server.py`, worker startup is `bot/src/main_instance.py`, and lifecycle ownership is `bot/src/bot_instance_manager.py`. |
+| `config/`     | Encrypted structured runtime profiles plus examples. Root `run.json` is generated from this flow and is not hand-maintained. |
+| `docker/`     | Dockerfiles and Nginx config for service images. |
+| `swarm/`      | Docker Swarm stack files and deployment runbooks. |
+| `platform/`   | Platform registry metadata and service deployment descriptors. |
+| `deploy/`     | Rendered deployment output and deployment history. |
+| `scripts/`    | Repository-level operational, config, validation, and backtest helper scripts. |
+| `docs/`       | Wiki-style platform documentation and rollout/audit notes. |
 
 ## Quick Start
 

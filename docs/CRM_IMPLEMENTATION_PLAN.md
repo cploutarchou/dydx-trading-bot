@@ -63,7 +63,8 @@
 ## Dependencies
 - Existing user role field in `users.role` remains source role identifier.
 - Auth claims already include `role` and `is_admin`.
-- Existing CRM endpoints under `/api/v1/admin/crm/*` provide rollout-safe anchor.
+- First-class CRM/backoffice endpoints under `/api/v1/backoffice/*` provide the current rollout anchor.
+- Legacy CRM compatibility endpoints under `/api/v1/admin/crm/*` remain available while older clients migrate.
 
 ## Rollout order
 1. Deploy migrations.

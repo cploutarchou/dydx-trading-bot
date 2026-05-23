@@ -27,7 +27,7 @@ That produces the shared `run.json` file used by the services.
 Use this when working on one service at a time.
 
 ```bash
-make dev-infra
+make infra-up
 ```
 
 Then start only the service you are editing:
@@ -40,7 +40,7 @@ Then start only the service you are editing:
 Stop local infra with:
 
 ```bash
-make dev-infra-down
+make infra-down
 ```
 
 ### Full integration mode
@@ -74,7 +74,7 @@ make stack-down
 
 - frontend: `cd frontend && npm run lint && npm run build`
 - backend: `cd backend && make test`
-- bot: `cd bot && .venv/bin/pytest`
+- bot: `cd bot && .venv/bin/python -m pytest tests/ -v`
 - docs governance: `python3 scripts/validate_docs_governance.py`
 
 ## Development Rules

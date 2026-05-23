@@ -27,17 +27,17 @@ Format:
 ```
 
 - type: feat, fix, docs, style, refactor, perf, test, chore, ci, build, revert
-- scope: a module or file group (optional). Example: `app`, `backend`, `config`
+- scope: a module or file group (optional). Example: `bot`, `backend`, `frontend`, `config`
 - short summary: 50 characters or less, imperative mood ("Add" not "Added")
 
 Examples:
 
 ```
-feat(app): add strategy_params support to BacktestEngine
+feat(bot): add strategy_params support to BacktestEngine
 
 Allow backtests to override config values using the new
 `strategy_params` dict. This enables quick A/B testing without
-editing `app/config.yaml`.
+editing generated runtime config by hand.
 
 Closes #432
 ```
@@ -102,7 +102,7 @@ mypy .
 
 4. Verify you didn't commit secrets or credentials.
 
-5. Ensure you updated `app/constants.py` (or other constants) when you added a config parameter, and include that in the commit.
+5. Ensure you updated the structured config profile and the relevant service constants/config loader when you added a config parameter, and include that in the commit.
 
 6. Add tests for new behavior; if you changed behavior, update relevant tests.
 
@@ -186,14 +186,15 @@ Recommended merge strategy: prefer squash-and-merge for feature branches (keeps 
 When your change touches configuration or trading logic, double-check these items are included in the commit/PR:
 
 - If you added a new config parameter:
-  - Edit `app/config.yaml` (user-facing option)
-  - Add to `app/config.py` dataclass (type-safe field)
-  - Export in `app/constants.py` (importable constant)
+  - Edit the relevant `config/profiles/*.config.enc.json` profile through `make dev-config` or `make prod-config`
+  - Regenerate root `run.json` with `make dev` or `make prod`
+  - Add the field to the owning service config loader, such as `bot/config/config.py` or `backend/config/config.go`
+  - Export/import through `bot/src/constants.py` for Python trading hot paths when needed
   - Update any docs (README or instructions file)
 
-- If you modified persistence or state formats (eg. `cointegrated_pairs.json` or `bot_agents.json`):
+- If you modified persistence or state formats (for example bot state artifacts under `bot/bot_states/` or DB-backed runtime rows):
   - Add a migration or backward-compatible parsing logic
-  - Update `app/models/pair_storage.py` if necessary
+  - Update the owning persistence layer, such as `bot/src/infrastructure/*` or `backend/internal/repository/*`
 
 - If your change affects backtesting logic or results:
   - Add/adjust unit tests in `tests/` covering the logic

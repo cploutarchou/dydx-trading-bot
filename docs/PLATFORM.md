@@ -16,9 +16,10 @@ Supporting infrastructure:
 
 ### Frontend
 
-- React 19 + TypeScript + Vite operator workspace and public website
+- React 19 + TypeScript + Vite public website plus client, backoffice, and IB portal builds
 - consumes HTTP and websocket traffic from the Go backend only
 - never talks directly to the Python bot service in normal product flows
+- route ownership is centralized in `frontend/src/app/routeManifest.tsx`
 
 ### Backend
 
@@ -26,6 +27,7 @@ Supporting infrastructure:
 - authentication, orchestration, persistence, and delegation layer
 - proxies bot HTTP and websocket channels
 - owns the frontend-facing contract
+- first-class portal API namespaces are `/api/v1/backoffice/*`, `/api/v1/ib/*`, and `/api/v1/portal/*`
 
 ### Bot
 
@@ -61,7 +63,7 @@ The platform currently includes:
 
 - public website and pricing pages
 - login, registration, 2FA, and forced password-change flows
-- dashboard and operator workspace shell
+- client portal, CRM/backoffice portal, and IB portal workspace shells
 - strategy creation and live runtime control
 - backtest execution, live progress, and live results
 - live websocket-first monitoring for backtests and runtime views

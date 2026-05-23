@@ -133,7 +133,7 @@ in dev, staging, or production.
 Start the dev infra:
 
 ```bash
-make dev-infra
+make infra-up
 ```
 
 ### Frontend is hitting the bot directly

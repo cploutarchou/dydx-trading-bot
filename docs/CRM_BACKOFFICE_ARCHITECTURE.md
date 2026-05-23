@@ -15,8 +15,9 @@
 - Password rotation flag (`password_change_required`) exists and is enforced in frontend routing.
 
 ### Existing CRM capability
-- CRM route exists in frontend (`/crm`) with role guard (`admin`, `backoffice`).
-- Backend CRM endpoints already exist under `/api/v1/admin/crm/*` in `portal_routes.go`.
+- CRM route exists in the backoffice portal (`/crm/*`) with `BACKOFFICE_ROLES` route guards in `frontend/src/app/routeManifest.tsx`.
+- First-class backend CRM/backoffice endpoints exist under `/api/v1/backoffice/*` in `backend/internal/routes/backoffice_routes.go`.
+- Legacy CRM compatibility endpoints remain under `/api/v1/admin/crm/*` in `backend/internal/routes/portal_routes.go` while older clients migrate.
 - Current CRM checks are mostly role-string based (`canManageCRM`) and not permission-granular.
 
 ## Security/auth gap analysis
@@ -62,8 +63,10 @@
 
 ### Roles supported
 Legacy + fintech CRM roles:
-- `admin`, `backoffice`
-- `super_admin`, `operations_admin`, `compliance_admin`, `support_agent`, `finance_admin`, `read_only_auditor`, `security_analyst`
+- `admin`, `super_admin`, `backoffice`, `backoffice_admin`
+- `operations_admin`, `compliance_admin`, `support_agent`, `finance_admin`, `read_only_auditor`, `security_analyst`
+- `accounting`, `marketing`, `agent`
+- custom backoffice roles backed by RBAC tables
 
 ## Deployment/routing strategy recommendation
 

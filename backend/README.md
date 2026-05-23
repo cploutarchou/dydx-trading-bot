@@ -22,11 +22,15 @@ The backend is the public application API for the platform. It is the only servi
 
 ## Key Packages
 
+- `cmd/server` for the service entry point
+- `config` for backend environment/config loading
 - `internal/routes` for HTTP route registration
 - `internal/handlers` for request handling
 - `internal/services` for orchestration and bot delegation
 - `internal/repository` for persistence
 - `internal/middleware` for auth, tracing, CORS, and logging
+- `internal/auth` for JWT/session auth helpers
+- `migrations/postgres` for the runtime migration set
 
 ## Core Commands
 
@@ -57,8 +61,10 @@ The separated React portals use first-class API namespaces:
 - Client/session: `GET /api/v1/me`, `GET /api/v1/auth/session`
 - Backoffice/CRM: `/api/v1/backoffice/*`
 - IB Portal: `/api/v1/ib/*`
+- Partner/client portal compatibility: `/api/v1/portal/*`
+- Legacy CRM compatibility while older clients migrate: `/api/v1/admin/crm/*`
 
-Backoffice routes require authentication, privileged MFA when enabled, and RBAC permissions such as `users.read`, `roles.manage`, `crm.admin.manage`, `finance.manage`, and `audit.read`. IB routes require `ib`, `sub_ib`, or a backoffice/admin role. Admin and super admin retain override access through RBAC mappings.
+Backoffice routes require authentication, privileged MFA when enabled, and RBAC permissions such as `users.read`, `roles.manage`, `crm.admin.manage`, `finance.manage`, and `audit.read`. IB routes require `ib`, `sub_ib`, or a backoffice/admin role. Admin and super admin retain override access through RBAC mappings, and custom roles are supported by the RBAC tables.
 
 Core Backoffice endpoints:
 
@@ -71,10 +77,18 @@ Core Backoffice endpoints:
 - `GET /api/v1/backoffice/access-control`
 - `GET|PUT /api/v1/backoffice/registration-policy`
 - `GET|PUT /api/v1/backoffice/settings`
+- `POST /api/v1/backoffice/roles`
+- `PUT /api/v1/backoffice/roles/:role/permissions`
+- `DELETE /api/v1/backoffice/roles/:role`
 - `GET /api/v1/backoffice/crm/summary`
 - `GET /api/v1/backoffice/crm/clients`
 - `GET /api/v1/backoffice/crm/clients/:id`
+- `GET /api/v1/backoffice/crm/hierarchy`
+- `GET /api/v1/backoffice/crm/security-events`
+- `POST /api/v1/backoffice/crm/applications/:id/review`
+- `PUT /api/v1/backoffice/crm/commission-metrics/:user_id`
 - `GET /api/v1/backoffice/audit-logs`
+- `GET /api/v1/backoffice/bot-api-stats`
 
 Core IB endpoints:
 
@@ -88,6 +102,7 @@ Core IB endpoints:
 - `GET /api/v1/ib/referral-links`
 - `GET /api/v1/ib/commissions`
 - `GET /api/v1/ib/reports`
+- `GET /api/v1/ib/invitations/:id/validate`
 
 The legacy dummy CRM seeding route is no longer registered. Production portal flows should use real users, invitation tokens, partner relationships, and commission records.
 

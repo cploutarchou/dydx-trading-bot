@@ -95,9 +95,9 @@ Key files:
 - `backend/internal/middleware/` — CORS, rate limiting
 - `backend/migrations/postgres/` — PostgreSQL runtime migration set
 
-### Frontend (`frontend/`) — React 19 + TypeScript + Vite, port 5173
+### Frontend (`frontend/`) — React 19 + TypeScript 6 + Vite 8, port 5173
 
-The frontend is a **single codebase** that renders three distinct portal apps selected at build time via `VITE_APP_PORTAL_TYPE`, or at runtime via hostname detection (`crm.*` → backoffice, `ib.*` → ib, default → client). Portal resolution lives in `frontend/src/app/portal.ts`.
+The frontend is a **single codebase** that renders three distinct portal apps selected at build time via `VITE_APP_PORTAL_TYPE`, or at runtime via hostname detection (`crm.*` → backoffice, `ib.*` → ib, default → client). Portal resolution lives in `frontend/src/app/portal.ts`; route ownership and role gates live in `frontend/src/app/routeManifest.tsx`.
 
 #### Portal apps (`frontend/apps/`)
 
@@ -119,6 +119,7 @@ Each app shell re-exports from `src/App.tsx`; the main source tree is shared. Ro
 #### Key source files
 
 - `frontend/src/app/portal.ts` — portal type detection, role filtering, portal labels
+- `frontend/src/app/routeManifest.tsx` — typed portal route ownership, route elements, and role gates
 - `frontend/src/auth/roles.ts` — `WorkspaceRole` type, `BACKOFFICE_ROLES`, `CLIENT_ROLES`, `IB_ROLES`
 - `frontend/src/navigation/workspaceNav.ts` — nav items scoped per portal + role
 - `frontend/src/api.ts` — base Axios client, JWT injection, 401 handling
@@ -134,9 +135,10 @@ Each app shell re-exports from `src/App.tsx`; the main source tree is shared. Ro
 - Never add backoffice/IB-only routes to the client portal without a role guard.
 - Never add client-only routes to the backoffice portal.
 - Portal type detection is `getCurrentPortalType()` from `src/app/portal.ts` — do not duplicate it.
+- Portal route ownership is `getPortalRouteManifest()` from `src/app/routeManifest.tsx` — do not create parallel route manifests.
 - CRM and IB route path helpers live in `src/pages/crm/paths.ts` and `src/pages/ib/paths.ts`.
 
-Tech stack: React 19, TypeScript 5, Vite, TanStack Query v5, Zustand 5, Tailwind CSS v4, Recharts 3, Axios 1, React Router v7.
+Tech stack: React 19, TypeScript 6, Vite 8, TanStack Query v5, Zustand 5, Tailwind CSS v4, Recharts 3, Axios 1, React Router v7.
 
 ### Config and infra
 
@@ -144,6 +146,8 @@ Tech stack: React 19, TypeScript 5, Vite, TanStack Query v5, Zustand 5, Tailwind
 - `run.json` — generated runtime config (do not edit directly)
 - `platform.yml` — Docker Compose stack definition
 - `docker/` — per-service Dockerfiles
+- `swarm/` — Docker Swarm deployment stacks and runbooks
+- `deploy/` — rendered deployment output and deployment history
 - `Makefile` — canonical stack commands: `make stack-up-dev`, `make infra-up`, `make dev-config`, `make config-keygen`
 
 ## Startup checklist (always first)

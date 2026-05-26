@@ -19,7 +19,7 @@ COPY bot/ .
 RUN addgroup --system app && adduser --system --ingroup app app && chown -R app:app /app
 
 # Stub so env_loader.find_repo_root() succeeds.
-# All real config comes from environment variables injected by Nomad Variables.
+# Runtime configuration is injected through environment variables.
 RUN echo '{}' > /app/run.json
 
 ENV APP_ENV=prod

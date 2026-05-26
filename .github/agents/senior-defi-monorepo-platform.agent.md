@@ -146,7 +146,6 @@ Tech stack: React 19, TypeScript 6, Vite 8, TanStack Query v5, Zustand 5, Tailwi
 - `run.json` — generated runtime config (do not edit directly)
 - `platform.yml` — Docker Compose stack definition
 - `docker/` — per-service Dockerfiles
-- `swarm/` — Docker Swarm deployment stacks and runbooks
 - `deploy/` — rendered deployment output and deployment history
 - `Makefile` — canonical stack commands: `make stack-up-dev`, `make infra-up`, `make dev-config`, `make config-keygen`
 

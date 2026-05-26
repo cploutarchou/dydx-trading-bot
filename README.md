@@ -29,7 +29,6 @@ The current project is organized around service ownership plus shared deployment
 | `bot/`        | Python FastAPI control plane and trading runtime. API assembly is `bot/src/api/server.py`, worker startup is `bot/src/main_instance.py`, and lifecycle ownership is `bot/src/bot_instance_manager.py`. |
 | `config/`     | Encrypted structured runtime profiles plus examples. Root `run.json` is generated from this flow and is not hand-maintained. |
 | `docker/`     | Dockerfiles and Nginx config for service images. |
-| `swarm/`      | Docker Swarm stack files and deployment runbooks. |
 | `platform/`   | Platform registry metadata and service deployment descriptors. |
 | `deploy/`     | Rendered deployment output and deployment history. |
 | `scripts/`    | Repository-level operational, config, validation, and backtest helper scripts. |
@@ -80,8 +79,6 @@ When finished:
 ## Documentation Map
 
 - [Platform Wiki Home](docs/README.md)
-- [Swarm Deployment Step-by-Step](swarm/DEPLOYMENT_STEP_BY_STEP.md)
-- [Swarm HA Deployment Guide](swarm/HA_DEPLOYMENT.md)
 - [Platform Overview](docs/PLATFORM.md)
 - [Development Workflow](docs/DEVELOPMENT.md)
 - [Operations Guide](docs/OPERATIONS.md)

@@ -19,7 +19,7 @@ This `docs/` directory is the wiki-style home for the active monorepo.
 - `backend/`: Go API service with route registration in `internal/routes`, business logic in `internal/services`, persistence in `internal/repository`, and migrations in `migrations/postgres`.
 - `bot/`: Python FastAPI and trading runtime with API code in `src/api`, lifecycle/runtime code in `src/bot_instance_manager.py` and `src/main_instance.py`, and runtime state/log artifacts under `bot_states/`.
 - `config/`: encrypted profile source for generated root `run.json`.
-- `docker/`, `swarm/`, `platform/`, and `deploy/`: service images, Swarm deployment assets, platform registry data, and rendered deployment output.
+- `docker/`, `platform/`, and `deploy/`: service images, platform registry data, and rendered deployment output.
 - `scripts/`: repo-level config, validation, operations, and backtest helpers.
 
 ## Documentation Rules

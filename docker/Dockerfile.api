@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY bot/ .
 
 # Stub so env_loader.find_repo_root() succeeds.
-# All real config comes from environment variables injected by Nomad Variables.
+# Runtime configuration is injected through environment variables.
 RUN echo '{}' > /app/run.json
 
 ENV BOT_API_HOST=0.0.0.0

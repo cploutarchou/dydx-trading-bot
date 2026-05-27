@@ -20,6 +20,9 @@ For each new task, review:
 - `.github/instructions/python-trading.instructions.md`  
   Deprecated file (historical only), scoped to `DO_NOT_USE/**`.
 
+- `.github/instructions/workflow-yaml.instructions.md`
+  GitHub Actions workflow guardrails for explicit triggers, deterministic job ordering, safe secret handling, and StackForge-aware production deployment checks.
+
 ## Agents
 
 - `.github/agents/senior-defi-monorepo-platform.agent.md`
@@ -33,6 +36,9 @@ For each new task, review:
 
 - `.github/agents/senior-prod-backtest-defi-auditor.agent.md`
   Agent mode for production-readiness audits, Python/Go service hardening, long-running backtest hangs, and DeFi bot-instance risk reviews.
+
+- `.github/agents/senior-deploy-github-actions.agent.md`
+  Agent mode for CI/CD workflow design, deployment safety gates, rollout/rollback planning, and GitHub Actions hardening.
 
 - `backend/.github/agents/senior-go-defi-backend.agent.md`
   Service-specific backend expert for Go APIs, PostgreSQL, delegated bot integration, auth, and websocket proxying.
@@ -53,6 +59,13 @@ For each new task, review:
   - async API correctness
   - risk/DeFi/performance validation
 
+- `.github/skills/deployment-github-actions/SKILL.md`
+  Deployment and GitHub Actions workflow for CI/CD reliability and safe rollout:
+  - deterministic job dependencies and failure gating
+  - branch/environment trigger safety
+  - secret/config handling hygiene
+  - rollback-aware deployment validation
+
 ## Prompts
 
 - `.github/prompts/defi-risk-review.prompt.md`  
@@ -63,6 +76,12 @@ For each new task, review:
 
 - `.github/prompts/defi-incident-hotfix-go-no-go.prompt.md`  
   Incident-mode emergency go/no-go gate.
+
+- `.github/prompts/deploy-go-no-go.prompt.md`
+  StackForge-aware deployment approval gate for CI/CD, release, rollback readiness, and operator go/no-go decisions.
+
+- `.github/prompts/github-actions-failure-triage.prompt.md`
+  Focused GitHub Actions / release pipeline failure triage with root-cause, retry posture, and smallest-safe-fix guidance.
 
 - `.github/prompts/codex-dydx-strategy-suggestions.prompt.md`
   Codex command for dYdX strategy-aware AI parameter suggestion tuning.

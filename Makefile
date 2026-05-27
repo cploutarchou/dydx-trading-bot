@@ -1,7 +1,9 @@
-.PHONY: help dev prod setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run config edit-config dev-config prod-config config-keygen config-key-rotate install-config-key show-config-token encrypt-dev-config decrypt-dev-config encrypt-prod-config decrypt-prod-config install-security-tools env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down infra-up infra-down infra-logs infra-ps dev-infra dev-infra-down stack-env stack-env-check stack-up-dev stack-up-prod stack-up-integration stack-down stack-logs stack-ps docs-governance
+.PHONY: help dev prod setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run config edit-config dev-config prod-config config-keygen config-key-rotate install-config-key show-config-token encrypt-dev-config decrypt-dev-config encrypt-prod-config decrypt-prod-config install-security-tools env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down infra-up infra-down infra-logs infra-ps dev-infra dev-infra-down stack-env stack-env-check stack-up-dev stack-up-prod stack-up-integration stack-down stack-logs stack-ps docs-governance images-build images-build-latest images-push images-push-latest images-print
 MODE ?= development
 STACK_COMPOSE_FILE ?= docker-compose.stack.yml
 INFRA_COMPOSE_FILE ?= docker-compose.infra.yml
+IMAGE_REGISTRY ?= ghcr.io/cploutarchou/dydx-trading-bot
+IMAGE_TAG ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo latest)
 
 DEV_INFRA_NETWORK ?= dydx-dev-infra
 DEV_PG_CONTAINER ?= dydx-dev-postgres
@@ -219,6 +221,22 @@ logs: ## View recent bot logs
 # ============================================================================
 # DOCKER
 # ============================================================================
+
+images-build: ## Build all deployable service images locally (api/worker/backend/frontend)
+	IMAGE_REGISTRY=$(IMAGE_REGISTRY) IMAGE_TAG=$(IMAGE_TAG) PUSH=false ALSO_LATEST=false bash scripts/build_all_service_images.sh
+
+images-build-latest: ## Build all deployable service images and tag :latest locally
+	IMAGE_REGISTRY=$(IMAGE_REGISTRY) IMAGE_TAG=$(IMAGE_TAG) PUSH=false ALSO_LATEST=true bash scripts/build_all_service_images.sh
+
+images-push: ## Build and push all deployable service images with IMAGE_TAG
+	IMAGE_REGISTRY=$(IMAGE_REGISTRY) IMAGE_TAG=$(IMAGE_TAG) PUSH=true ALSO_LATEST=false bash scripts/build_all_service_images.sh
+
+images-push-latest: ## Build and push all deployable service images with IMAGE_TAG and :latest
+	IMAGE_REGISTRY=$(IMAGE_REGISTRY) IMAGE_TAG=$(IMAGE_TAG) PUSH=true ALSO_LATEST=true bash scripts/build_all_service_images.sh
+
+images-print: ## Print image variables to copy into .env.stackforge
+	@echo "IMAGE_REGISTRY=$(IMAGE_REGISTRY)"
+	@echo "IMAGE_TAG=$(IMAGE_TAG)"
 
 docker-build: ## Build Docker image
 	docker build -t dydx-trading-bot:latest .

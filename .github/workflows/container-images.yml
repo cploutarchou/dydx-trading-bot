@@ -5,22 +5,10 @@ on:
     branches:
       - master
       - main
-    paths:
-      - "backend/**"
-      - "bot/**"
-      - "frontend/**"
-      - "docker/**"
-      - ".github/workflows/container-images.yml"
   pull_request:
     branches:
       - master
       - main
-    paths:
-      - "backend/**"
-      - "bot/**"
-      - "frontend/**"
-      - "docker/**"
-      - ".github/workflows/container-images.yml"
   workflow_dispatch:
 
 permissions:

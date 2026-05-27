@@ -1,0 +1,115 @@
+name: Build Service Images
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: container-images-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    name: Build ${{ matrix.service }} image
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: api
+            dockerfile: docker/Dockerfile.api
+          - service: worker
+            dockerfile: docker/Dockerfile.worker
+          - service: backend
+            dockerfile: docker/Dockerfile.backend
+          - service: frontend
+            dockerfile: docker/Dockerfile.frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/dydx-trading-bot/${{ matrix.service }}
+          tags: |
+            type=sha,format=short
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  image-tag-summary:
+    name: Image tag summary
+    runs-on: ubuntu-latest
+    needs: build-and-publish
+    steps:
+      - name: Publish image tag summary
+        env:
+          OWNER: ${{ github.repository_owner }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          short_sha="${SHA:0:7}"
+          image_registry="ghcr.io/${OWNER}/dydx-trading-bot"
+
+          {
+            echo "## Container image summary"
+            echo
+            if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+              echo "- Event: pull request (images built but not pushed)"
+            else
+              echo "- Event: ${EVENT_NAME}"
+            fi
+            echo "- Branch: ${REF_NAME}"
+            echo "- Commit: ${SHA}"
+            echo
+            echo "### Recommended deploy env"
+            echo
+            echo "- IMAGE_REGISTRY=${image_registry}"
+            echo "- IMAGE_TAG=${short_sha}"
+            echo
+            echo "### Service images"
+            echo
+            echo "- ${image_registry}/api:${short_sha}"
+            echo "- ${image_registry}/worker:${short_sha}"
+            echo "- ${image_registry}/backend:${short_sha}"
+            echo "- ${image_registry}/frontend:${short_sha}"
+            echo
+            echo "> If this run is on the default branch, the images are also tagged as \`latest\`."
+          } >> "$GITHUB_STEP_SUMMARY"

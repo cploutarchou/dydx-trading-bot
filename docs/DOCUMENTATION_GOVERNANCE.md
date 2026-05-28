@@ -8,7 +8,7 @@ Use this checklist in every PR that changes runtime behavior, contracts, config,
 
 - [ ] Updated the owning service README (`frontend/README.md`, `backend/README.md`, or `bot/README.md`) for behavior changes.
 - [ ] Updated at least one root/cross-service doc when cross-service behavior changed (`README.md`, `docs/PLATFORM.md`, `docs/DEVELOPMENT.md`, `docs/OPERATIONS.md`).
-- [ ] Updated `IMPROVEMENTS.md` status when a roadmap item changed state.
+- [ ] Updated `docs/roadmap/IMPROVEMENTS.md` status when a roadmap item changed state.
 - [ ] Added/updated verification steps in docs if commands, ports, health probes, or deployment gates changed.
 - [ ] Added contract notes if request/response payloads or websocket semantics changed.
 
@@ -19,7 +19,7 @@ Canonical docs are link-validated in CI using `scripts/validate_docs_governance.
 Validation scope includes:
 
 - `README.md`
-- `IMPROVEMENTS.md`
+- `docs/roadmap/IMPROVEMENTS.md`
 - `docs/*.md`
 - service docs (`frontend/README.md`, `backend/README.md`, `bot/README.md`)
 - `config/README.md`
@@ -60,7 +60,7 @@ Example:
 
 - service READMEs
 - `docs/PLATFORM.md`, `docs/DEVELOPMENT.md`, `docs/OPERATIONS.md`
-- roadmap and governance files (`IMPROVEMENTS.md`, `docs/CI_CD_STRATEGY.md`, this file)
+- roadmap and governance files (`docs/roadmap/IMPROVEMENTS.md`, `docs/CI_CD_STRATEGY.md`, this file)
 
 ## Local Validation
 

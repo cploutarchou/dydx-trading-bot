@@ -65,8 +65,8 @@ No default business logic changed:
 ## Files Changed
 
 - `README.md`
-- `IMPROVEMENTS.md`
-- `env.example`
+- `docs/roadmap/IMPROVEMENTS.md`
+- `.env.example`
 - `bot/src/constants.py`
 - `bot/src/api/server.py`
 - `bot/src/trading/arbitrage_observability.py`

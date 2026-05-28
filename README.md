@@ -120,7 +120,7 @@ defaults; admin users can now manage the persisted runtime values from
 - `NEWS_SIGNALS_ENABLED=false`
 - `AUTO_EXECUTION_CHANGES_ENABLED=false`
 
-See `env.example` for optional TTL and pair-priority tuning values.
+See `.env.example` for optional TTL and pair-priority tuning values.
 
 Authenticated diagnostics are exposed through the backend at:
 

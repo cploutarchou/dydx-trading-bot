@@ -19,7 +19,7 @@ ARCHIVE_DIR = REPO_ROOT / "docs" / "archive"
 
 CANONICAL_DOCS = [
     REPO_ROOT / "README.md",
-    REPO_ROOT / "IMPROVEMENTS.md",
+    REPO_ROOT / "docs" / "roadmap" / "IMPROVEMENTS.md",
     REPO_ROOT / "docs" / "README.md",
     REPO_ROOT / "docs" / "PLATFORM.md",
     REPO_ROOT / "docs" / "DEVELOPMENT.md",
@@ -33,7 +33,7 @@ CANONICAL_DOCS = [
 
 SCAN_GLOBS = [
     "README.md",
-    "IMPROVEMENTS.md",
+    "docs/roadmap/*.md",
     "docs/**/*.md",
     "frontend/README.md",
     "backend/README.md",

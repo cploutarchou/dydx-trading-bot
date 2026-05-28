@@ -7,7 +7,9 @@ This `docs/` directory is the wiki-style home for the active monorepo.
 1. [Platform Overview](PLATFORM.md)
 2. [Development Workflow](DEVELOPMENT.md)
 3. [Operations Guide](OPERATIONS.md)
-4. Service docs:
+4. [Roadmap Index](roadmap/IMPROVEMENTS.md)
+5. [Restructure Report](reports/RESTRUCTURE_REPORT.md)
+6. Service docs:
    - [Frontend](/home/chris/workspace/dydx-trading-bot/frontend/README.md)
    - [Backend](/home/chris/workspace/dydx-trading-bot/backend/README.md)
    - [Bot](/home/chris/workspace/dydx-trading-bot/bot/README.md)
@@ -21,6 +23,8 @@ This `docs/` directory is the wiki-style home for the active monorepo.
 - `config/`: encrypted profile source for generated root `run.json`.
 - `docker/`, `platform/`, and `deploy/`: service images, platform registry data, and rendered deployment output.
 - `scripts/`: repo-level config, validation, operations, and backtest helpers.
+- `docs/roadmap/`: roadmap and improvement planning records.
+- `docs/reports/`: generated audit, restructure, and review reports.
 
 ## Documentation Rules
 

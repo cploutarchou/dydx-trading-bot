@@ -21,7 +21,7 @@ Actual structural changes applied:
 
 - Moved `bot/test_comprehensive.py` to `bot/tests/test_comprehensive.py`.
 - Updated `bot/tasks.md` references for the moved test file.
-- Added root `.env.example` as the conventional dotenv example path while preserving existing `env.example`.
+- Added root `.env.example` as the conventional dotenv example path and removed the duplicate `env.example`.
 
 No business logic, function signatures, API routes, database schemas, migrations, or seed files were changed.
 
@@ -43,7 +43,6 @@ The full source tree was printed with generated/vendor/runtime artifacts exclude
 |-- AGENTS.md
 |-- Makefile
 |-- README.md
-|-- env.example
 `-- stackforge-deployment.yaml
 ```
 
@@ -304,7 +303,7 @@ Warnings:
 
 - Root scripts are a mix of bot operations, config rendering, testing helpers, and deployment helpers. This is workable but should eventually split into `scripts/config/`, `scripts/deploy/`, `scripts/bot/`, and `scripts/test/`.
 - `.env.stackforge` is ignored and local-only. Keep it that way because it contains deployment secret placeholders.
-- A root `env.example` existed but the conventional `.env.example` path was missing; this report added `.env.example` without removing `env.example`.
+- A root `env.example` existed but the conventional `.env.example` path was missing; the examples are now consolidated into `.env.example`.
 
 Recommended target layout:
 

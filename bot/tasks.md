@@ -24,7 +24,7 @@
   - `bot/openapi.json`
 - Updated deployment/env defaults:
   - `platform.yml` (production strict fallback disable + alert settings)
-  - `env.example` (new alert/strict-mode env vars)
+  - `.env.example` (new alert/strict-mode env vars)
 
 ## Follow-up audit notes
 

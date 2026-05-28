@@ -4,7 +4,7 @@
 
 This document was originally authored as a forward-looking plan. The roadmap items defined from it have now been implemented and verified across services.
 
-- Completion source of truth: `IMPROVEMENT_TASKS.md` → **Roadmap Verification Snapshot (2026-05-16)**
+- Completion source of truth: `IMPROVEMENT_TASKS.md` -> **Roadmap Verification Snapshot (2026-05-16)**
 - Task status: **TASK-001 through TASK-024 complete**
 - Validation snapshot:
     - Frontend: lint + build passing

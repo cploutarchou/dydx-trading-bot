@@ -24,7 +24,7 @@
   - `bot/openapi.json`
 - Updated deployment/env defaults:
   - `platform.yml` (production strict fallback disable + alert settings)
-  - `env.example` (new alert/strict-mode env vars)
+  - `.env.example` (new alert/strict-mode env vars)
 
 ## Follow-up audit notes
 
@@ -33,8 +33,8 @@
 - Restored `src/main_instance.py` from git history and reintroduced the DB-first config-loading helpers expected at that time.
 - Validation after restore:
   - `./.venv/bin/python -m pytest tests/test_main_instance.py -q` -> `7 passed`
-  - `./.venv/bin/python -m pytest -q` -> blocked by `test_comprehensive.py` import-time `sys.exit(1)` internal error
-  - `./.venv/bin/python -m pytest --ignore=test_comprehensive.py -q` -> `169 passed, 2 skipped`
-- Resolved final full-suite blocker by converting `test_comprehensive.py` from script-style execution to pytest test functions (removed import-time `sys.exit(...)` behavior).
+  - `./.venv/bin/python -m pytest -q` -> previously blocked by `tests/test_comprehensive.py` import-time `sys.exit(1)` internal error
+  - `./.venv/bin/python -m pytest --ignore=tests/test_comprehensive.py -q` -> `169 passed, 2 skipped`
+- Resolved final full-suite blocker by converting `tests/test_comprehensive.py` from script-style execution to pytest test functions (removed import-time `sys.exit(...)` behavior).
 - Final validation:
   - `./.venv/bin/python -m pytest -q` -> `173 passed, 2 skipped, 3 warnings`

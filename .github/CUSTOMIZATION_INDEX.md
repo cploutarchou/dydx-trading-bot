@@ -17,22 +17,18 @@ For each new task, review:
 
 ## File-scoped instructions
 
-- `.github/instructions/python-trading.instructions.md`  
-  Deprecated file (historical only), scoped to `DO_NOT_USE/**`.
-
 - `.github/instructions/workflow-yaml.instructions.md`
   GitHub Actions workflow guardrails for explicit triggers, deterministic job ordering, safe secret handling, and StackForge-aware production deployment checks.
 
 ## Agents
 
+Root-agent selection:
+
+1. Use `senior-defi-monorepo-platform` for all root-level DeFi monorepo tasks (platform + universal + trading/quant-heavy scope).
+2. Prefer service-specific agents (`backend/`, `bot/`, `frontend/`) when scope is single-service.
+
 - `.github/agents/senior-defi-monorepo-platform.agent.md`
-  Agent mode for cross-service platform work, architecture, end-to-end integration, docs, config, and production-readiness changes.
-
-- `.github/agents/senior-defi-universal-project.agent.md`
-  Agent mode for handling any repo task across bot, backend, frontend, config, docs, infra, and integration work.
-
-- `.github/agents/senior-defi-dev.agent.md`  
-  Agent mode for trading strategy, DeFi execution, quant/stat-arb, and full-stack bot changes.
+  Consolidated root agent mode for platform architecture, universal repo tasks, and DeFi trading/quant work.
 
 - `.github/agents/senior-prod-backtest-defi-auditor.agent.md`
   Agent mode for production-readiness audits, Python/Go service hardening, long-running backtest hangs, and DeFi bot-instance risk reviews.
@@ -65,6 +61,20 @@ For each new task, review:
   - branch/environment trigger safety
   - secret/config handling hygiene
   - rollback-aware deployment validation
+
+- `.github/skills/config-infrastructure-management/SKILL.md`
+  Runtime configuration, encrypted profiles, deployment config, environment management, infrastructure-as-code:
+  - encrypted profile design and management
+  - run.json generation and validation
+  - Docker/Compose infrastructure
+  - secrets and credentials handling
+
+- `.github/skills/defi-observability-metrics/SKILL.md`
+  Observability, metrics, logging, dashboards, health monitoring, and alerting for trading platform:
+  - Prometheus metrics and custom counters
+  - Grafana dashboards and operator visibility
+  - structured logging and trace correlation
+  - alerting thresholds and runbooks
 
 ## Prompts
 
@@ -104,3 +114,11 @@ For each new task, review:
   - `backend/migrations/postgres/000047_backtest_list_perf_index.up.sql`
   - `backend/migrations/postgres/000051_phase1_missing_indexes.{up,down}.sql`
   - `backend/migrations/postgres/000053_phase4_drop_redundant_indexes.up.sql`
+
+## Customization Audit (2026-05)
+
+- Removed deprecated `frontend/.github/skills/senior-ui-designer/` (superseded by `senior-ux-designer`)
+- Removed deprecated `.github/instructions/python-trading.instructions.md`
+- Added `.github/skills/config-infrastructure-management/SKILL.md` for config/deployment workflows
+- Added `.github/skills/defi-observability-metrics/SKILL.md` for metrics/monitoring/observability
+- See `.github/CUSTOMIZATION_AUDIT.md` for full audit report

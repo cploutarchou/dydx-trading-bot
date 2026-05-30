@@ -1,5 +1,8 @@
 # StackForge cluster config for dydx-trading-bot
 # Generated scaffold: replace TODO values before any live production action.
+# Note for existing clusters: effective runtime values may already be provisioned in
+# ~/.stackforge/stackforge-cluster/ (inventory/domain-pool/generated-secrets).
+# Treat those live state files as source-of-truth for day-2 operations and verification.
 
 cluster:
   name: stackforge-cluster

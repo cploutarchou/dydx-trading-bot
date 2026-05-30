@@ -240,3 +240,11 @@ token.txt
 .codex
 production.secrets.env
 .env.stackforge
+.env.stackforge.bak.*
+stackforge-install-report.json
+STACKFORGE_INSTALL_REPORT.md
+
+# Local ad-hoc deployment/incident reports (can contain infra details)
+report.md
+report-ops.md
+report-exec.md

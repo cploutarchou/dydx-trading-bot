@@ -27,7 +27,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
   const { language, locale, t, tr } = useI18n();
   const setLanguage = useUIPreferencesStore((state) => state.setLanguage);
   const controlCls =
-    'border-stone-700/70 bg-stone-950/65 text-stone-300 hover:border-stone-600 hover:text-white';
+    'border-slate-700/70 bg-slate-950/70 text-slate-300 hover:border-cyan-500/30 hover:text-white';
   const environmentLabel = import.meta.env.DEV
     ? t('Development', 'Ανάπτυξη')
     : t('Production', 'Παραγωγή');
@@ -96,14 +96,14 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
                 <h1 className="text-lg font-semibold text-white sm:text-xl">{pageTitle}</h1>
                 <span className="workspace-chip border-cyan-500/20 text-cyan-200">
                   <ShieldCheck className="h-3.5 w-3.5" />
-                  {t('Live desk', 'Ζωντανός πίνακας')}
+                  {t('Execution desk', 'Πίνακας εκτέλεσης')}
                 </span>
               </div>
               <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-500 sm:text-sm">
                 {routeMeta?.description
                   ? tr(routeMeta.description)
                   : t(
-                      'Move across live workflows with route context, command access, and operational state in view.',
+                      'Move across execution workflows with route context, command access, and operational state in view.',
                       'Μετακινηθείτε σε ζωντανές ροές με ορατό context διαδρομής, πρόσβαση εντολών και λειτουργική κατάσταση.'
                     )}
               </p>

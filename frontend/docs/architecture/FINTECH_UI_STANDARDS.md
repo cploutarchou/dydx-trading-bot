@@ -79,7 +79,7 @@ Use this document as the frontend quality bar for production-grade DeFi surfaces
 
 ## Platform design-system direction
 
-- Use DefiArbitrage as the product identity across public, client, CRM, admin, and IB portals.
+- Use ExecutionLab as the product identity across public, client, CRM, admin, and IB portals.
 - Keep page headers consistent: kicker, concise title, operational description, and only high-value actions.
 - Prefer 8px radii for cards, buttons, tabs, panels, badges, and inputs.
 - Use cyan for live/action context, emerald for positive/approved, amber for pending/review, rose for destructive or failed, violet for backoffice/admin segmentation, and slate for neutral states.

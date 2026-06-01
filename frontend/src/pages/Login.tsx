@@ -63,13 +63,13 @@ export const LoginPage: React.FC = () => {
       ? 'Invitation only'
       : registrationStatusQuery.data?.enabled === false
         ? 'Registration paused'
-        : 'Open evaluation';
+        : 'Open review';
 
   return (
     <AuthExperienceShell
       kicker="Welcome back"
-      title="Sign in to the operator workspace"
-      description="Return to your research, runtime, and command surfaces with clearer access cues and stronger fintech-grade trust messaging."
+      title="Sign in to the execution workspace"
+      description="Return to research, automation, runtime, and command surfaces with clear access cues and disciplined technical trust messaging."
     >
       {error && (
         <div
@@ -95,7 +95,7 @@ export const LoginPage: React.FC = () => {
           <p className="text-[11px] uppercase text-slate-500">Security posture</p>
           <p className="mt-2 text-sm font-semibold text-white">Account-first entry</p>
           <p className="mt-1 text-xs leading-5 text-slate-400">
-            Authentication and follow-up security setup happen before live workflow access.
+            Authentication and follow-up security setup happen before execution workflow access.
           </p>
         </div>
       </div>
@@ -155,8 +155,8 @@ export const LoginPage: React.FC = () => {
               <p className="text-sm font-semibold text-white">Need a new operator account?</p>
             </div>
             <p className="mt-2 max-w-md text-sm leading-6 text-slate-400">
-              Review subscriptions first, then continue through the premium onboarding flow with the
-              right access model for your desk.
+              Review engagement options first, then continue through the premium onboarding flow
+              with the right access model for your work.
             </p>
           </div>
           <button
@@ -195,7 +195,7 @@ export const LoginPage: React.FC = () => {
               onClick={() => navigate('/register')}
               className="font-medium text-cyan-300 hover:text-cyan-200"
             >
-              Start free evaluation
+              Start execution review
             </button>
           </>
         )}

@@ -503,13 +503,13 @@ export const DashboardPage: React.FC = () => {
           <div>
             <div className="surface-label">
               <Sparkles className="h-3.5 w-3.5" />
-              Client dashboard
+              Execution cockpit
             </div>
             <h1 className="mt-4 max-w-3xl text-2xl font-bold text-white sm:text-3xl">
               {greeting}, {user?.username ?? 'Trader'}
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-              A simple operating view for the current desk: live activity, portfolio P&amp;L,
+              A simple operating view for the current workspace: live activity, portfolio P&amp;L,
               backtest status, and anything that needs attention.
             </p>
 
@@ -591,7 +591,7 @@ export const DashboardPage: React.FC = () => {
               <div>
                 <p className="text-sm font-semibold text-white">Operator workflow</p>
                 <p className="mt-1 text-xs text-slate-500">
-                  Research → strategy → validate → deploy.
+                  {'Research -> strategy -> validate -> execute.'}
                 </p>
               </div>
               <span
@@ -600,7 +600,7 @@ export const DashboardPage: React.FC = () => {
               >
                 {attentionCount > 0
                   ? `${attentionCount} alert${attentionCount === 1 ? '' : 's'}`
-                  : 'Desk healthy'}
+                  : 'Workspace healthy'}
               </span>
             </div>
 

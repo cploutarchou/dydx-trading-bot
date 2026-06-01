@@ -53,7 +53,7 @@ export function ForcePasswordChangePage() {
     <AuthExperienceShell
       kicker="Security checkpoint"
       title="Rotate your temporary password"
-      description={`${user?.username ? `${user.username}, ` : ''}your account is in first-login mode. Rotate the temporary password before entering the live trading workspace.`}
+      description={`${user?.username ? `${user.username}, ` : ''}your account is in first-login mode. Rotate the temporary password before entering the execution workspace.`}
       sideLabel="Account Hardening"
       sideTitle="Secure entry should feel premium, not punitive."
       sideDescription="This first-login checkpoint keeps account access aligned with the production-grade environment behind the platform."

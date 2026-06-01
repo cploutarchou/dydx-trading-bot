@@ -2,6 +2,7 @@ import { Activity, ArrowRight, Menu, ShieldCheck, Waypoints, X } from 'lucide-re
 import React, { useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { getPrimaryCta, publicNavItems } from '../content/publicSite';
+import { BrandMark } from './BrandMark';
 import { PublicMarketTape } from './PublicMarketPulse';
 
 interface PublicSiteShellProps {
@@ -10,15 +11,15 @@ interface PublicSiteShellProps {
 }
 
 const trustIndicators = [
-  { icon: Activity, label: 'Realtime arbitrage telemetry' },
-  { icon: ShieldCheck, label: 'Security-first onboarding' },
-  { icon: Waypoints, label: 'Research-to-runtime workflow' },
+  { icon: Activity, label: 'Execution systems in motion' },
+  { icon: ShieldCheck, label: 'Security-minded delivery' },
+  { icon: Waypoints, label: 'Build, test, execute workflow' },
 ];
 
 const conversionTrustRows = [
-  ['Evidence first', 'Evaluate strategy quality before live commercial commitment'],
-  ['Secure onboarding', 'Account readiness and 2FA posture before runtime controls'],
-  ['Operator clarity', 'Research, pricing, and runtime path explained in one flow'],
+  ['Evidence first', 'Validate scope, risk, and delivery path before commitment'],
+  ['Disciplined execution', 'Build quality gates into every handoff and release path'],
+  ['Operator clarity', 'Keep strategy, pricing, and delivery context in one flow'],
 ] as const;
 
 export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
@@ -35,18 +36,10 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
 
   return (
     <div className="public-site-shell min-h-screen overflow-x-hidden text-white">
-      <header className="sticky top-0 z-50 border-b border-stone-800/90 bg-[#070807]/92 backdrop-blur-xl">
+      <header className="sticky top-0 z-50 border-b border-slate-800/90 bg-[#050816]/92 backdrop-blur-xl">
         <div className="public-shell-container flex min-h-14 items-center justify-between gap-2.5 py-2 sm:min-h-16 sm:gap-3 sm:py-2.5">
           <Link to="/" className="group flex items-center gap-2.5 sm:gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-teal-300/30 bg-teal-400/12 text-sm font-semibold text-teal-100 transition duration-300 group-hover:border-teal-200/50 sm:h-10 sm:w-10">
-              DA
-            </div>
-            <div>
-              <p className="text-[13px] font-semibold text-white sm:text-sm">DefiArbitrage</p>
-              <p className="text-[10px] uppercase text-slate-500 sm:text-[11px]">
-                Crypto intelligence platform
-              </p>
-            </div>
+            <BrandMark subtitle="Technical execution lab" />
           </Link>
 
           <nav className="hidden items-center gap-0.5 xl:flex">
@@ -73,7 +66,7 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
               <span className="pulse-ring relative flex h-2.5 w-2.5 items-center justify-center">
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
               </span>
-              Evaluation open
+              Lab open
             </div>
             <Link
               to="/login"
@@ -101,7 +94,7 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
         </div>
 
         {mobileOpen && (
-          <div className="mobile-shell-panel border-t border-stone-800 bg-[#080a0b]/98 px-4 py-4 lg:hidden">
+          <div className="mobile-shell-panel border-t border-slate-800 bg-[#050816]/98 px-4 py-4 lg:hidden">
             <div className="space-y-3">
               {trustIndicators.map((item) => {
                 const Icon = item.icon;
@@ -158,10 +151,10 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
           <div className="public-trust-strip">
             <div>
               <p className="text-[11px] font-semibold uppercase text-slate-500">
-                Why teams convert
+                Why teams engage
               </p>
               <p className="mt-2 text-xl font-semibold text-white">
-                Trust first. Live access when the desk is ready.
+                Precision first. Execution when the plan is ready.
               </p>
             </div>
 
@@ -178,7 +171,7 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
               to="/register"
               className="premium-button premium-button-primary justify-center px-5 py-3 text-sm font-semibold text-white lg:self-center"
             >
-              Start free evaluation
+              Start execution review
               <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
@@ -186,19 +179,11 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
       )}
 
       {!hideFooter && (
-        <footer className="relative z-10 border-t border-stone-800/80 bg-[#060706]/96">
+        <footer className="relative z-10 border-t border-slate-800/80 bg-[#050816]/96">
           <div className="public-shell-container py-6">
             <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-teal-300/25 bg-teal-400/10 text-xs font-semibold text-teal-100">
-                  DA
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-white">DefiArbitrage</p>
-                  <p className="text-xs text-slate-500">
-                    Research, runtime, market intelligence, and onboarding.
-                  </p>
-                </div>
+                <BrandMark subtitle="Build. Test. Execute." />
               </div>
 
               <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-slate-400">
@@ -226,19 +211,19 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
                   to="/register"
                   className="rounded-lg border border-teal-400/25 bg-teal-500/10 px-3.5 py-2 text-sm font-semibold text-teal-100 transition hover:border-teal-300/50"
                 >
-                  Start free evaluation
+                  Start execution review
                 </Link>
               </div>
             </div>
 
             <div className="mt-5 flex flex-col gap-3 border-t border-stone-800 pt-4 text-xs text-slate-500 md:flex-row md:items-center md:justify-between">
-              <p>Start with evidence. Prove fit. Move to live access with confidence.</p>
+              <p>Start with evidence. Prove fit. Move to execution with confidence.</p>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <Link to="/services/security" className="transition hover:text-slate-300">
-                  Security onboarding
+                  Delivery security
                 </Link>
-                <span>Account readiness</span>
-                <span>Runtime visibility</span>
+                <span>Scope readiness</span>
+                <span>Execution visibility</span>
               </div>
             </div>
           </div>

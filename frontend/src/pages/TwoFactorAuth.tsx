@@ -86,10 +86,10 @@ export const TwoFactorAuthPage: React.FC = () => {
     <AuthExperienceShell
       kicker="Security setup"
       title="Activate two-factor authentication"
-      description="Protect access to your trading workspace before entering live operations. This is a critical step for any production-grade operator account."
+      description="Protect access to your execution workspace before entering production operations. This is a critical step for any serious operator account."
       sideLabel="Operator Security"
       sideTitle="Security belongs in the core product experience, not as an afterthought."
-      sideDescription="2FA setup should feel like part of a premium operating system: clear, trustworthy, and aligned with the value of the platform behind it."
+      sideDescription="2FA setup should feel like part of a premium execution system: clear, trustworthy, and aligned with the value of the platform behind it."
     >
       <div className="twofa-stepper mb-6 grid gap-2 sm:grid-cols-4">
         {['setup', 'verify', 'backup-codes', 'complete'].map((item, index) => (

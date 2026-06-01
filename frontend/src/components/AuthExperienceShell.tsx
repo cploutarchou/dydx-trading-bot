@@ -26,21 +26,21 @@ interface AuthExperienceShellProps {
 
 const highlights = [
   {
-    label: 'Realtime',
-    title: 'Live runtime control',
-    description: 'Websocket-first monitoring for backtests, bots, and execution context.',
+    label: 'Execute',
+    title: 'Delivery systems in motion',
+    description: 'Live-ready monitoring for backtests, automation, and execution context.',
     icon: Waves,
   },
   {
-    label: 'Research',
+    label: 'Experiment',
     title: 'Operator-grade intelligence',
-    description: 'Analytics, market context, and faster movement between research and runtime.',
+    description: 'Analytics, workflow context, and faster movement between idea and shipped system.',
     icon: Sparkles,
   },
   {
     label: 'Security',
     title: 'Trust designed into onboarding',
-    description: '2FA readiness, clear access states, and stronger session expectations from day one.',
+    description: '2FA readiness, clear access states, and disciplined session expectations from day one.',
     icon: ShieldCheck,
   },
 ];
@@ -48,19 +48,19 @@ const highlights = [
 const securityPrinciples = [
   'Secure account entry',
   'Clear return navigation',
-  'Onboarding before live access',
+  'Readiness before execution',
 ];
 
 const plans = [
-  { name: 'Explorer', detail: 'Evaluate workflows before monetization starts' },
-  { name: 'Performance', detail: '12% net-profit share when live execution is enabled' },
-  { name: 'Desk', detail: 'Custom rollout and desk-level commercial structure' },
+  { name: 'Explore', detail: 'Evaluate fit and scope before delivery starts' },
+  { name: 'Build', detail: 'Turn validated priorities into production-ready systems' },
+  { name: 'Scale', detail: 'Custom rollout and execution partnership structure' },
 ];
 
 const readinessRows = [
   ['Account', 'Create credentials or return to sign in'],
   ['Security', 'Confirm access state before runtime use'],
-  ['Workspace', 'Enter research and operations after onboarding'],
+  ['Workspace', 'Enter execution and operations after onboarding'],
 ] as const;
 
 const AuthReadinessPanel: React.FC = () => (
@@ -91,7 +91,7 @@ export const AuthExperienceShell: React.FC<AuthExperienceShellProps> = ({
   description,
   children,
   sideLabel = 'Operator entry',
-  sideTitle = 'Enter a trading workspace with clear context, account state, and routes back.',
+  sideTitle = 'Enter a technical execution workspace with clear context, account state, and routes back.',
   sideDescription = 'Review pricing, return to the product overview, or continue into onboarding without losing your place.',
   loginOnlyLock,
 }) => {
@@ -141,7 +141,7 @@ export const AuthExperienceShell: React.FC<AuthExperienceShellProps> = ({
                 <div className="auth-command-line">
                   <span>03</span>
                   <strong>Workspace route</strong>
-                  <p>Research, runtime, and pricing remain one step away</p>
+                  <p>Research, execution, and pricing remain one step away</p>
                 </div>
               </div>
             </div>
@@ -168,7 +168,7 @@ export const AuthExperienceShell: React.FC<AuthExperienceShellProps> = ({
               <div className="auth-commercial-heading">
                 <div>
                   <span>Commercial model</span>
-                  <strong>Evaluation comes before live commercial terms.</strong>
+                  <strong>Evaluation comes before execution terms.</strong>
                 </div>
                 <Link to="/pricing" className="premium-button premium-button-secondary px-4 py-2 text-sm">
                   View pricing
@@ -202,7 +202,7 @@ export const AuthExperienceShell: React.FC<AuthExperienceShellProps> = ({
               <CheckCircle2 className="h-4 w-4" />
               <p>
                 Clear entry keeps account setup, onboarding, and workspace access predictable
-                before operators move into live workflows.
+                before operators move into execution workflows.
               </p>
             </div>
           </section>

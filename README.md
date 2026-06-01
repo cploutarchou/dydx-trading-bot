@@ -93,6 +93,17 @@ When finished:
 - [Bot Service Doc](bot/README.md)
 - [Shared Config Doc](config/README.md)
 
+## Nomad-native deployment option
+
+By default, current StackForge app rollout in this repo uses compose-over-SSH (`stackforge deploy`), so workloads do not appear under Nomad Jobs.
+
+If you want workloads visible in Nomad UI, use the job-based path under `deploy/nomad/`:
+
+- `deploy/nomad/dydx-trading-bot.nomad.hcl`
+- `deploy/nomad/README.md`
+
+This path submits a real Nomad job (`nomad job run ...`) so allocations and status appear in `/ui/jobs`.
+
 ## Core Rules
 
 - the frontend communicates with the backend only

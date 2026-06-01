@@ -1,5 +1,4 @@
 name: dydx-trading-bot
-
 services:
   postgres:
     image: postgres:16
@@ -9,34 +8,33 @@ services:
       POSTGRES_USER: ${APP_DB_USER:-app}
       POSTGRES_PASSWORD: ${APP_DB_PASSWORD:-change-me}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+    - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test:
-        - CMD-SHELL
-        - pg_isready -U ${APP_DB_USER:-app} -d ${APP_DB_NAME:-app}
+      - CMD-SHELL
+      - pg_isready -U ${APP_DB_USER:-app} -d ${APP_DB_NAME:-app}
       interval: 10s
       timeout: 5s
       retries: 10
-
   redis:
     image: redis:7-alpine
     restart: unless-stopped
     command:
-      - redis-server
-      - "--appendonly"
-      - "yes"
+    - redis-server
+    - --appendonly
+    - 'yes'
     volumes:
-      - redis_data:/data
+    - redis_data:/data
     healthcheck:
       test:
-        - CMD
-        - redis-cli
-        - ping
+      - CMD
+      - redis-cli
+      - ping
       interval: 10s
       timeout: 3s
       retries: 10
-
   bot:
+    image: ghcr.io/cploutarchou/dydx-trading-bot/api:latest
     build:
       context: .
       dockerfile: docker/Dockerfile.api
@@ -63,18 +61,17 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
     expose:
-      - "8889"
+    - '8889'
     healthcheck:
       test:
-        - CMD-SHELL
-        - python -c "import urllib.request;
-          urllib.request.urlopen('http://127.0.0.1:8889/ready')" >/dev/null
-          2>&1 || exit 1
+      - CMD-SHELL
+      - python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8889/ready')"
+        >/dev/null 2>&1 || exit 1
       interval: 15s
       timeout: 5s
       retries: 10
-
   backend:
+    image: ghcr.io/cploutarchou/dydx-trading-bot/backend:latest
     build:
       context: .
       dockerfile: docker/Dockerfile.backend
@@ -104,20 +101,21 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       BOT_API_URL: http://bot:8889
-      BOT_API_USE_SERVICE_TOKEN: "true"
+      BOT_API_USE_SERVICE_TOKEN: 'true'
       BOT_API_TOKEN: ${ENCRYPTION_KEY:-replace-me-strong-encryption-key}
       BOT_DB_CUTOVER_MODE: shared
+      STACKFORGE_ROLLOUT_NONCE: 20260531T220515Z
     ports:
-      - "8888:8888"
+    - 8888:8888
     healthcheck:
       test:
-        - CMD-SHELL
-        - wget -qO- http://127.0.0.1:8888/ready >/dev/null 2>&1 || exit 1
+      - CMD-SHELL
+      - wget -qO- http://127.0.0.1:8888/ready >/dev/null 2>&1 || exit 1
       interval: 15s
       timeout: 5s
       retries: 10
-
   frontend:
+    image: ghcr.io/cploutarchou/dydx-trading-bot/frontend:latest
     build:
       context: .
       dockerfile: docker/Dockerfile.frontend
@@ -131,8 +129,7 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "5173:80"
-
+    - 5173:80
 volumes:
   postgres_data: null
   redis_data: null

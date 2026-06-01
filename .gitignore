@@ -241,6 +241,8 @@ token.txt
 production.secrets.env
 .env.stackforge
 .env.stackforge.bak.*
+deploy/nomad/*.vars.hcl
+!deploy/nomad/*.vars.hcl.example
 stackforge-install-report.json
 STACKFORGE_INSTALL_REPORT.md
 

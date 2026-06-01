@@ -37,6 +37,7 @@ services:
       retries: 10
 
   bot:
+    image: ghcr.io/cploutarchou/dydx-trading-bot/api:latest
     build:
       context: .
       dockerfile: docker/Dockerfile.api
@@ -75,6 +76,7 @@ services:
       retries: 10
 
   backend:
+    image: ghcr.io/cploutarchou/dydx-trading-bot/backend:latest
     build:
       context: .
       dockerfile: docker/Dockerfile.backend
@@ -118,6 +120,7 @@ services:
       retries: 10
 
   frontend:
+    image: ghcr.io/cploutarchou/dydx-trading-bot/frontend:latest
     build:
       context: .
       dockerfile: docker/Dockerfile.frontend

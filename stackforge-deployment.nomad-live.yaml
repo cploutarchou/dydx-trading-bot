@@ -37,6 +37,7 @@ services:
       retries: 10
 
   bot:
+    image: dydx-bot:sf-live-test
     build:
       context: .
       dockerfile: docker/Dockerfile.api
@@ -75,6 +76,7 @@ services:
       retries: 10
 
   backend:
+    image: dydx-backend:sf-live-test
     build:
       context: .
       dockerfile: docker/Dockerfile.backend
@@ -118,6 +120,7 @@ services:
       retries: 10
 
   frontend:
+    image: dydx-frontend:sf-live-test
     build:
       context: .
       dockerfile: docker/Dockerfile.frontend

@@ -2,7 +2,7 @@
 	"name": "dydx-backtest-ui",
 	"version": "1.0.0",
 	"type": "module",
-	"description": "Interactive UI for dYdX Backtest System",
+	"description": "ExecutionLab technical execution workspace",
 	"private": true,
 	"dependencies": {
 		"@headlessui/react": "2.2.10",

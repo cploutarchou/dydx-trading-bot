@@ -12,6 +12,7 @@ import {
 } from '../navigation/workspaceNav';
 import { getCurrentPortalType, getPortalLabel } from '../app/portal';
 import { useAuthStore } from '../store/auth';
+import { BrandMark } from './BrandMark';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -75,14 +76,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
 
         <div className="border-b border-slate-800/90 px-5 pb-4 pt-4 lg:pt-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-teal-300/30 bg-teal-400/15 text-sm font-semibold text-teal-100">
-              DA
-            </div>
+            <BrandMark compact />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <h1 className="truncate text-lg font-semibold text-white">DefiArbitrage</h1>
+                <h1 className="truncate text-lg font-semibold text-white">ExecutionLab</h1>
                 <span
-                  className="rounded-full bg-emerald-400/80 p-1"
+                  className="rounded-full bg-cyan-400/80 p-1"
                   title={t('Ready', 'Έτοιμο')}
                 />
               </div>

@@ -179,8 +179,8 @@ export const RegisterPage: React.FC = () => {
   return (
     <AuthExperienceShell
       kicker="Create operator access"
-      title="Start a premium evaluation account"
-      description="The registration flow now reads more like fintech onboarding: clearer access state, cleaner password guidance, and stronger security framing before the workspace opens."
+      title="Start an ExecutionLab review account"
+      description="The registration flow keeps access state, password guidance, and security framing clear before the execution workspace opens."
       loginOnlyLock={{
         enabled: isRegistrationDisabled,
         reason:
@@ -192,10 +192,10 @@ export const RegisterPage: React.FC = () => {
         <div className="metric-tile px-4 py-4">
           <p className="text-[11px] uppercase text-slate-500">Registration mode</p>
           <p className="mt-2 text-sm font-semibold text-white">
-            {registrationStatusQuery.data?.invitation_required ? 'Invitation required' : 'Open evaluation'}
+            {registrationStatusQuery.data?.invitation_required ? 'Invitation required' : 'Open review'}
           </p>
           <p className="mt-1 text-xs leading-5 text-slate-400">
-            Account creation flows into security setup before live product use.
+            Account creation flows into security setup before execution workspace use.
           </p>
         </div>
         <div className="metric-tile px-4 py-4">
@@ -433,7 +433,7 @@ export const RegisterPage: React.FC = () => {
               <span className="font-medium text-cyan-300">
                 Privacy Policy
               </span>
-              . I understand the account will continue into security setup before I reach the live
+              . I understand the account will continue into security setup before I reach the execution
               workspace.
             </label>
           </div>
@@ -451,7 +451,7 @@ export const RegisterPage: React.FC = () => {
           className="premium-button premium-button-primary mt-2 w-full disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading && <Loader className="h-4 w-4 animate-spin" />}
-          {loading ? 'Creating account...' : 'Create evaluation account'}
+          {loading ? 'Creating account...' : 'Create review account'}
         </button>
       </form>
 
@@ -460,7 +460,7 @@ export const RegisterPage: React.FC = () => {
           <ShieldCheck className="mt-0.5 h-4 w-4 text-cyan-300" />
           <p>
             The next step after registration is security setup. The flow is designed to make access
-            readiness explicit before the operator reaches live controls.
+            readiness explicit before the operator reaches execution controls.
           </p>
         </div>
       </div>

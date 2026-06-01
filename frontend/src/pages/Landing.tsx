@@ -15,33 +15,33 @@ import { PublicMarketPulsePanel } from '../components/PublicMarketPulse';
 import PublicSiteShell from '../components/PublicSiteShell';
 
 const pathItems = [
-  [Waypoints, 'Research', 'Validate quality, risk, and consistency before exposure'],
-  [ShieldCheck, 'Security', 'Complete account readiness with clear onboarding expectations'],
-  [TrendingUp, 'Runtime', 'Enter live control when your operating desk is ready'],
+  [Waypoints, 'Frame', 'Validate scope, risk, and constraints before build work starts'],
+  [ShieldCheck, 'Harden', 'Complete account readiness with clear security expectations'],
+  [TrendingUp, 'Execute', 'Move into automation and runtime when the plan is ready'],
 ] as const;
 
 const valueItems = [
   [
     Radar,
-    'Backtest confidence',
-    'Compare strategy quality with risk context before teams spend effort on runtime decisions.',
+    'Execution confidence',
+    'Compare system direction with risk context before teams spend effort on build decisions.',
   ],
   [
     ShieldCheck,
     'Secure onboarding',
-    'Keep account setup, pricing, and live-access expectations plain and transparent.',
+    'Keep account setup, pricing, and execution expectations plain and transparent.',
   ],
   [
     Sparkles,
-    'Live clarity',
-    'Make runtime state readable the moment your desk transitions from evaluation into operation.',
+    'Runtime clarity',
+    'Make system state readable the moment a workflow transitions from evaluation into operation.',
   ],
 ] as const;
 
 const proofItems = [
-  ['Signal discipline', 'Backtests, drawdown, win rate, and Sharpe reviewed before exposure'],
-  ['Operational control', 'Live bot state, stream health, and action paths kept close together'],
-  ['Commercial clarity', 'Client, IB, CRM, and admin workflows connected under one platform'],
+  ['Scope discipline', 'Requirements, constraints, and risk reviewed before execution'],
+  ['Operational control', 'Runtime state, health, and action paths kept close together'],
+  ['Delivery clarity', 'Product, automation, and admin workflows connected under one workspace'],
 ] as const;
 
 const trustItems = [
@@ -51,7 +51,7 @@ const trustItems = [
   ],
   [
     'Transparent operating model',
-    'Evaluation first, then performance-aligned terms when live outcomes are measurable',
+    'Evaluation first, then execution terms when the delivery path is measurable',
   ],
   [
     'Audit-ready operations',
@@ -60,10 +60,10 @@ const trustItems = [
 ] as const;
 
 const riskItems = [
-  'Trading digital assets carries risk, including partial or total loss of capital.',
-  'Backtest outcomes are historical simulations and do not guarantee future performance.',
-  'Execution quality depends on market liquidity, spread, latency, and venue availability.',
-  'Operators are responsible for their own compliance obligations and jurisdiction suitability.',
+  'Technical delivery carries risk, including scope change, integration uncertainty, and operational complexity.',
+  'Prototype and test outcomes are evidence for planning, not guarantees of production behavior.',
+  'Execution quality depends on clear requirements, data access, reliable systems, and timely decisions.',
+  'Operators remain responsible for business, security, compliance, and jurisdiction requirements.',
 ] as const;
 
 export const LandingPage: React.FC = () => {
@@ -75,15 +75,14 @@ export const LandingPage: React.FC = () => {
             <MotionReveal className="public-modern-copy" distancePx={18}>
               <div className="surface-label">
                 <Radar className="h-3.5 w-3.5" />
-                DeFi operator platform
+                Modern technical execution lab
               </div>
               <h1>
-                Arbitrage intelligence, client operations, and live control in one premium crypto
-                desk.
+                Build. Test. Execute. Premium technical delivery without the noise.
               </h1>
               <p>
-                DefiArbitrage brings research evidence, secure onboarding, partner operations, and
-                runtime visibility into a clean operating system for serious DeFi teams.
+                ExecutionLab turns ideas into shipped systems with disciplined discovery,
+                production-minded engineering, automation, and clear runtime visibility.
               </p>
 
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
@@ -91,14 +90,14 @@ export const LandingPage: React.FC = () => {
                   to="/register"
                   className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3.5 text-sm font-semibold text-white"
                 >
-                  Start free evaluation
+                  Start execution review
                   <ArrowRight className="h-4 w-4" />
                 </Link>
                 <Link
                   to="/pricing"
                   className="premium-button premium-button-secondary justify-center px-6 py-3.5 text-sm font-medium"
                 >
-                  View pricing
+                  View engagement model
                 </Link>
               </div>
             </MotionReveal>
@@ -110,14 +109,14 @@ export const LandingPage: React.FC = () => {
                   <span />
                   <span />
                   <span />
-                  <strong>ARBITRAGE DESK</strong>
+                  <strong>EXECUTION LAB</strong>
                 </div>
                 <DeFiHeroIllustration />
               </div>
               <div className="public-visual-tags">
                 <span>Research evidence</span>
                 <span>Runtime control</span>
-                <span>Secure onboarding</span>
+                <span>Automation ready</span>
               </div>
             </MotionReveal>
           </div>
@@ -147,8 +146,8 @@ export const LandingPage: React.FC = () => {
           <MotionReveal distancePx={18}>
             <PublicMarketPulsePanel
               eyebrow="Market intelligence"
-              title="Route quality, spread, and depth stay close to every arbitrage decision."
-              description="Compare active pairs, watch spread discipline, and keep liquidity context visible before a strategy moves toward runtime."
+              title="Scope, build, test, and launch readiness stay close to every execution decision."
+              description="Compare workstreams, watch quality gates, and keep implementation context visible before a system moves toward runtime."
             />
           </MotionReveal>
         </section>
@@ -157,10 +156,10 @@ export const LandingPage: React.FC = () => {
           <div className="public-modern-container public-modern-split">
             <MotionReveal className="public-modern-section-copy" distancePx={18}>
               <div className="surface-label">Evaluation path</div>
-              <h2>Move from signal confidence to live operation without losing context.</h2>
+              <h2>Move from signal confidence to shipped system without losing context.</h2>
               <p>
-                The public experience now matches the platform promise: research, account readiness,
-                pricing, and runtime all sit in one intentional journey.
+                The experience matches the ExecutionLab promise: research, account readiness,
+                pricing, automation, and runtime all sit in one intentional journey.
               </p>
             </MotionReveal>
 
@@ -187,10 +186,10 @@ export const LandingPage: React.FC = () => {
               <CheckCircle2 className="h-3.5 w-3.5" />
               Product promise
             </div>
-            <h2>Confidence before the first live action. Clarity after every handoff.</h2>
+            <h2>Confidence before the first build action. Clarity after every handoff.</h2>
             <p>
-              Each surface should help a serious operator understand evidence, access, and action
-              priority without feeling like they entered a disconnected portal.
+              Each surface helps serious operators understand evidence, access, and action priority
+              without feeling like they entered a disconnected portal.
             </p>
           </MotionReveal>
 
@@ -215,12 +214,12 @@ export const LandingPage: React.FC = () => {
             <div>
               <div className="surface-label">
                 <ShieldCheck className="h-4 w-4" />
-                Ready for evaluation
+                Ready for execution review
               </div>
-              <h2>Start with context. Continue into secure onboarding.</h2>
+              <h2>Start with context. Continue into disciplined execution.</h2>
               <p>
-                Review pricing, align on security expectations, and complete onboarding before live
-                workflows or partner operations begin.
+                Review engagement options, align on security expectations, and complete onboarding
+                before runtime workflows or partner operations begin.
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -228,7 +227,7 @@ export const LandingPage: React.FC = () => {
                 to="/register"
                 className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3 text-sm font-semibold text-white"
               >
-                Start free evaluation
+                Start execution review
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <Link
@@ -244,9 +243,9 @@ export const LandingPage: React.FC = () => {
         <section className="public-modern-container public-outcome-stage">
           <MotionReveal className="public-modern-section-copy" distancePx={18}>
             <div className="surface-label">Risk disclosure</div>
-            <h2>Clear risk language before any live activation.</h2>
+            <h2>Clear risk language before execution begins.</h2>
             <p>
-              We aim to keep expectations explicit so operators can evaluate strategy quality, risk
+              We keep expectations explicit so operators can evaluate delivery quality, risk
               posture, and operational readiness with no hidden assumptions.
             </p>
           </MotionReveal>

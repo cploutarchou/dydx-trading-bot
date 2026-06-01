@@ -2,27 +2,37 @@
 @import 'tailwindcss';
 
 :root {
-  --app-bg: #070a0d;
-  --panel-bg: rgba(13, 18, 22, 0.88);
+  --app-bg: #050816;
+  --panel-bg: rgba(15, 23, 42, 0.88);
   /* motion duration tokens */
   --duration-fast: 200ms;
   --duration-base: 300ms;
   --duration-slow: 500ms;
-  --panel-border: rgba(151, 163, 151, 0.22);
-  --panel-highlight: rgba(45, 212, 191, 0.2);
+  --panel-border: rgba(30, 41, 59, 0.92);
+  --panel-highlight: rgba(0, 212, 255, 0.2);
+  --execution-bg: #050816;
+  --execution-surface: #0f172a;
+  --execution-elevated: #111827;
+  --execution-primary: #00d4ff;
+  --execution-primary-dark: #0284c7;
+  --execution-secondary: #7c3aed;
+  --execution-success: #22c55e;
+  --execution-text: #f8fafc;
+  --execution-muted: #94a3b8;
+  --execution-border: #1e293b;
   --text-primary: #f8fafc;
-  --text-muted: #9aa6a2;
-  --body-grid-vertical: rgba(255, 255, 255, 0.03);
-  --body-grid-horizontal: rgba(255, 255, 255, 0.025);
-  --body-gradient-start: #0a0d0f;
-  --body-gradient-mid: #070a0d;
-  --body-gradient-end: #050607;
-  --shell-topbar-bg: rgba(7, 9, 10, 0.86);
-  --shell-sidebar-bg-start: rgba(12, 16, 18, 0.98);
-  --shell-sidebar-bg-end: rgba(6, 8, 9, 0.99);
-  --workspace-card-bg-start: rgba(18, 24, 25, 0.8);
-  --workspace-card-bg-end: rgba(6, 8, 9, 0.92);
-  --workspace-chip-bg: rgba(2, 6, 23, 0.54);
+  --text-muted: #94a3b8;
+  --body-grid-vertical: rgba(0, 212, 255, 0.035);
+  --body-grid-horizontal: rgba(148, 163, 184, 0.025);
+  --body-gradient-start: #071026;
+  --body-gradient-mid: #050816;
+  --body-gradient-end: #030512;
+  --shell-topbar-bg: rgba(5, 8, 22, 0.88);
+  --shell-sidebar-bg-start: rgba(8, 14, 31, 0.98);
+  --shell-sidebar-bg-end: rgba(3, 6, 18, 0.99);
+  --workspace-card-bg-start: rgba(15, 23, 42, 0.82);
+  --workspace-card-bg-end: rgba(5, 8, 22, 0.94);
+  --workspace-chip-bg: rgba(15, 23, 42, 0.7);
 }
 
 *,
@@ -37,7 +47,7 @@ body,
   height: 100%;
   margin: 0;
   padding: 0;
-  background-color: #050706;
+  background-color: var(--execution-bg);
 }
 
 body {
@@ -340,7 +350,7 @@ h6 {
 }
 
 .gradient-text {
-  background: linear-gradient(135deg, #7dd3fc, #60a5fa, #5eead4);
+  background: linear-gradient(135deg, #f8fafc, var(--execution-primary), #a78bfa);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -556,13 +566,13 @@ h6 {
 .premium-button-primary {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.02) 34%, transparent),
-    linear-gradient(135deg, #0f766e 0%, #0d9488 56%, #84cc16 100%);
-  border-color: rgba(94, 234, 212, 0.2);
+    linear-gradient(135deg, #0284c7 0%, #00d4ff 58%, #7c3aed 100%);
+  border-color: rgba(0, 212, 255, 0.34);
   color: white;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 18px 44px rgba(13, 148, 136, 0.22),
-    0 6px 18px rgba(132, 204, 22, 0.12);
+    0 18px 44px rgba(2, 132, 199, 0.24),
+    0 6px 18px rgba(124, 58, 237, 0.14);
 }
 
 .premium-button-primary::after {
@@ -591,7 +601,7 @@ h6 {
 }
 
 .premium-button-secondary:hover {
-  border-color: rgba(45, 212, 191, 0.3);
+  border-color: rgba(0, 212, 255, 0.34);
 }
 
 .card-glow:hover {
@@ -728,9 +738,9 @@ h6 {
   overflow-x: hidden;
   background: linear-gradient(
     145deg,
-    rgba(6, 9, 8, 1) 0%,
-    rgba(9, 12, 10, 1) 42%,
-    rgba(5, 7, 6, 1) 100%
+    rgba(5, 8, 22, 1) 0%,
+    rgba(8, 14, 31, 1) 42%,
+    rgba(3, 6, 18, 1) 100%
   );
 }
 
@@ -741,8 +751,8 @@ h6 {
   z-index: 0;
   pointer-events: none;
   background:
-    linear-gradient(120deg, rgba(45, 212, 191, 0.05), transparent 28rem),
-    linear-gradient(250deg, rgba(132, 204, 22, 0.035), transparent 34rem);
+    linear-gradient(120deg, rgba(0, 212, 255, 0.06), transparent 28rem),
+    linear-gradient(250deg, rgba(124, 58, 237, 0.05), transparent 34rem);
   mask-image: linear-gradient(
     180deg,
     rgba(255, 255, 255, 0.6),
@@ -764,8 +774,8 @@ h6 {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(45, 212, 191, 0.035) 34%,
-    rgba(132, 204, 22, 0.025) 52%,
+    rgba(0, 212, 255, 0.045) 34%,
+    rgba(124, 58, 237, 0.035) 52%,
     transparent 78%
   );
   animation:
@@ -1000,8 +1010,8 @@ h6 {
 }
 
 .platform-button-primary {
-  border-color: rgba(94, 234, 212, 0.24);
-  background: linear-gradient(135deg, #0f766e, #0d9488 58%, #65a30d);
+  border-color: rgba(0, 212, 255, 0.3);
+  background: linear-gradient(135deg, #0284c7, #00d4ff 58%, #7c3aed);
   color: white;
 }
 
@@ -2156,6 +2166,94 @@ h6 {
   text-transform: uppercase;
 }
 
+.execution-brand-mark {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--execution-text);
+}
+
+.execution-brand-symbol {
+  position: relative;
+  display: inline-flex;
+  height: 2.75rem;
+  width: 2.75rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid rgba(0, 212, 255, 0.36);
+  border-radius: 0.5rem;
+  background:
+    linear-gradient(rgba(0, 212, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 212, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(145deg, rgba(0, 212, 255, 0.16), rgba(124, 58, 237, 0.14)),
+    rgba(15, 23, 42, 0.92);
+  background-size:
+    11px 11px,
+    11px 11px,
+    auto,
+    auto;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 14px 34px rgba(0, 212, 255, 0.12);
+}
+
+.execution-brand-bracket,
+.execution-brand-core {
+  position: relative;
+  z-index: 1;
+}
+
+.execution-brand-bracket {
+  color: var(--execution-primary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.execution-brand-core {
+  color: var(--execution-text);
+  font-family: 'Sora', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.execution-brand-cursor {
+  position: relative;
+  z-index: 1;
+  margin-left: 0.12rem;
+  height: 1rem;
+  width: 0.16rem;
+  border-radius: 999px;
+  background: var(--execution-success);
+  box-shadow: 0 0 14px rgba(34, 197, 94, 0.62);
+}
+
+.execution-brand-name {
+  color: var(--execution-text);
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.execution-brand-subtitle {
+  margin-top: 0.18rem;
+  color: var(--execution-muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.execution-brand-mark.is-compact .execution-brand-symbol {
+  height: 2.25rem;
+  width: 2.25rem;
+}
+
 /* ═══════════════════════════════════════════════════
    Public service pages — premium full-page redesign
    ═══════════════════════════════════════════════════ */
@@ -2273,9 +2371,9 @@ h6 {
   background:
     linear-gradient(rgba(148, 163, 184, 0.045) 1px, transparent 1px),
     linear-gradient(90deg, rgba(148, 163, 184, 0.045) 1px, transparent 1px),
-    radial-gradient(circle at 12% 22%, rgba(45, 212, 191, 0.18), transparent 28rem),
-    radial-gradient(circle at 82% 18%, rgba(132, 204, 22, 0.12), transparent 28rem),
-    linear-gradient(135deg, #06110f 0%, #070b0e 48%, #020403 100%);
+    radial-gradient(circle at 12% 22%, rgba(0, 212, 255, 0.2), transparent 28rem),
+    radial-gradient(circle at 82% 18%, rgba(124, 58, 237, 0.14), transparent 28rem),
+    linear-gradient(135deg, #071026 0%, #050816 48%, #030512 100%);
   background-size:
     56px 56px,
     56px 56px,
@@ -2310,9 +2408,9 @@ h6 {
   background:
     linear-gradient(rgba(148, 163, 184, 0.04) 1px, transparent 1px),
     linear-gradient(90deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px),
-    radial-gradient(circle at 12% 20%, rgba(16, 185, 129, 0.2), transparent 28rem),
-    radial-gradient(circle at 82% 20%, rgba(45, 212, 191, 0.14), transparent 26rem),
-    linear-gradient(135deg, #06130f 0%, #070b0e 48%, #020403 100%);
+    radial-gradient(circle at 12% 20%, rgba(0, 212, 255, 0.18), transparent 28rem),
+    radial-gradient(circle at 82% 20%, rgba(124, 58, 237, 0.14), transparent 26rem),
+    linear-gradient(135deg, #071026 0%, #050816 48%, #030512 100%);
   background-size:
     56px 56px,
     56px 56px,
@@ -2325,9 +2423,9 @@ h6 {
   background:
     linear-gradient(rgba(148, 163, 184, 0.04) 1px, transparent 1px),
     linear-gradient(90deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px),
-    radial-gradient(circle at 12% 20%, rgba(34, 211, 238, 0.17), transparent 28rem),
-    radial-gradient(circle at 82% 22%, rgba(52, 211, 153, 0.13), transparent 26rem),
-    linear-gradient(135deg, #071210 0%, #070b0e 48%, #020403 100%);
+    radial-gradient(circle at 12% 20%, rgba(0, 212, 255, 0.2), transparent 28rem),
+    radial-gradient(circle at 82% 22%, rgba(124, 58, 237, 0.15), transparent 26rem),
+    linear-gradient(135deg, #071026 0%, #050816 48%, #030512 100%);
   background-size:
     56px 56px,
     56px 56px,
@@ -2340,9 +2438,9 @@ h6 {
   background:
     linear-gradient(rgba(148, 163, 184, 0.04) 1px, transparent 1px),
     linear-gradient(90deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px),
-    radial-gradient(circle at 12% 20%, rgba(20, 184, 166, 0.19), transparent 28rem),
-    radial-gradient(circle at 82% 22%, rgba(132, 204, 22, 0.12), transparent 26rem),
-    linear-gradient(135deg, #06110f 0%, #070b0e 48%, #020403 100%);
+    radial-gradient(circle at 12% 20%, rgba(0, 212, 255, 0.18), transparent 28rem),
+    radial-gradient(circle at 82% 22%, rgba(124, 58, 237, 0.14), transparent 26rem),
+    linear-gradient(135deg, #071026 0%, #050816 48%, #030512 100%);
   background-size:
     56px 56px,
     56px 56px,
@@ -2404,11 +2502,18 @@ h6 {
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 0.5rem;
   background:
-    linear-gradient(180deg, rgba(2, 6, 8, 0.22), rgba(2, 6, 8, 0.86)),
-    linear-gradient(125deg, rgba(20, 184, 166, 0.26), rgba(132, 204, 22, 0.08)),
-    url('https://images.unsplash.com/photo-1640340434855-6084b1f4901c?auto=format&fit=crop&w=1400&q=80');
+    linear-gradient(rgba(0, 212, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 212, 255, 0.08) 1px, transparent 1px),
+    radial-gradient(circle at 18% 18%, rgba(0, 212, 255, 0.32), transparent 18rem),
+    radial-gradient(circle at 82% 22%, rgba(124, 58, 237, 0.22), transparent 18rem),
+    linear-gradient(135deg, rgba(2, 132, 199, 0.18), rgba(5, 8, 22, 0.92) 52%, rgba(3, 6, 18, 0.98));
   background-position: center;
-  background-size: cover;
+  background-size:
+    44px 44px,
+    44px 44px,
+    auto,
+    auto,
+    auto;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     0 40px 100px rgba(0, 0, 0, 0.42);
@@ -2465,16 +2570,16 @@ h6 {
 }
 
 .public-terminal-bar span:first-child {
-  background: rgba(45, 212, 191, 0.86);
+  background: rgba(0, 212, 255, 0.86);
 }
 
 .public-terminal-bar span:nth-child(2) {
-  background: rgba(132, 204, 22, 0.78);
+  background: rgba(124, 58, 237, 0.78);
 }
 
 .public-terminal-bar strong {
   margin-left: auto;
-  color: #9ff8ee;
+  color: #a5f3fc;
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.68rem;
   letter-spacing: 0.08em;
@@ -2516,8 +2621,8 @@ h6 {
   width: 0.44rem;
   height: 0.44rem;
   border-radius: 999px;
-  background: #2dd4bf;
-  box-shadow: 0 0 14px rgba(45, 212, 191, 0.6);
+  background: var(--execution-primary);
+  box-shadow: 0 0 14px rgba(0, 212, 255, 0.62);
 }
 
 .public-proof-strip {
@@ -2797,7 +2902,7 @@ h6 {
 }
 
 .public-market-chart circle:last-child {
-  stroke: #84cc16;
+  stroke: #7c3aed;
 }
 
 .public-market-metrics {

@@ -9,7 +9,7 @@ type ServiceIllustrationVariant = 'research' | 'runtime' | 'intelligence' | 'sec
 export const DeFiHeroIllustration: React.FC<IllustrationProps> = ({ className = '' }) => {
   return (
     <div className={`market-illustration-shell ${className}`.trim()}>
-      <svg viewBox="0 0 720 520" role="img" aria-label="Blockchain arbitrage network illustration">
+      <svg viewBox="0 0 720 520" role="img" aria-label="ExecutionLab technical systems illustration">
         <defs>
           <linearGradient id="hero-bg" x1="0%" x2="100%" y1="0%" y2="100%">
             <stop offset="0%" stopColor="rgba(34,211,238,0.25)" />
@@ -80,11 +80,11 @@ export const DeFiHeroIllustration: React.FC<IllustrationProps> = ({ className = 
 
         <g filter="url(#hero-glow)">
           {[
-            { x: 130, y: 340, label: 'ETH', fill: '#0891b2' },
-            { x: 330, y: 190, label: 'BTC', fill: '#2563eb' },
-            { x: 615, y: 182, label: 'DYDX', fill: '#0f766e' },
-            { x: 350, y: 318, label: 'ARB', fill: '#0ea5e9' },
-            { x: 610, y: 332, label: 'USDC', fill: '#14b8a6' },
+            { x: 130, y: 340, label: 'IDEA', fill: '#0891b2' },
+            { x: 330, y: 190, label: 'BUILD', fill: '#2563eb' },
+            { x: 615, y: 182, label: 'SHIP', fill: '#7c3aed' },
+            { x: 350, y: 318, label: 'TEST', fill: '#0ea5e9' },
+            { x: 610, y: 332, label: 'AUTO', fill: '#14b8a6' },
           ].map((node) => (
             <g key={node.label} className="market-node">
               <circle cx={node.x} cy={node.y} r="34" fill={node.fill} opacity="0.24" />
@@ -130,23 +130,23 @@ export const DeFiHeroIllustration: React.FC<IllustrationProps> = ({ className = 
         <g>
           <rect x="430" y="82" width="210" height="108" rx="24" fill="rgba(8,15,28,0.78)" stroke="rgba(125,211,252,0.18)" />
           <text x="458" y="116" fill="#94a3b8" fontSize="12" letterSpacing="2.2" fontFamily="Manrope, sans-serif">
-            LIVE SPREAD MAP
+            EXECUTION MAP
           </text>
           <text x="458" y="154" fill="#f8fafc" fontSize="34" fontWeight="800" fontFamily="Sora, sans-serif">
-            +2.84%
+            READY
           </text>
           <text x="458" y="177" fill="#34d399" fontSize="14" fontWeight="700" fontFamily="Manrope, sans-serif">
-            BTC / ETH / DYDX route active
+            Build / test / launch route active
           </text>
         </g>
 
         <g>
           <rect x="82" y="84" width="176" height="74" rx="22" fill="rgba(8,15,28,0.82)" stroke="rgba(96,165,250,0.18)" />
           <text x="104" y="116" fill="#94a3b8" fontSize="12" letterSpacing="2.2" fontFamily="Manrope, sans-serif">
-            EXECUTION HEALTH
+            SYSTEM HEALTH
           </text>
           <text x="104" y="145" fill="#f8fafc" fontSize="22" fontWeight="800" fontFamily="Sora, sans-serif">
-            99.94%
+            STEADY
           </text>
         </g>
       </svg>
@@ -157,7 +157,7 @@ export const DeFiHeroIllustration: React.FC<IllustrationProps> = ({ className = 
 export const ProfitShareIllustration: React.FC<IllustrationProps> = ({ className = '' }) => {
   return (
     <div className={`market-illustration-shell market-illustration-compact ${className}`.trim()}>
-      <svg viewBox="0 0 680 460" role="img" aria-label="Profit share trading platform illustration">
+      <svg viewBox="0 0 680 460" role="img" aria-label="ExecutionLab engagement model illustration">
         <defs>
           <linearGradient id="profit-bg" x1="0%" x2="100%" y1="0%" y2="100%">
             <stop offset="0%" stopColor="rgba(37,99,235,0.18)" />
@@ -177,10 +177,10 @@ export const ProfitShareIllustration: React.FC<IllustrationProps> = ({ className
             OPERATOR
           </text>
           <text x="92" y="170" fill="#f8fafc" fontSize="28" fontWeight="800" fontFamily="Sora, sans-serif">
-            $240K
+            SCOPE
           </text>
           <text x="92" y="198" fill="#34d399" fontSize="15" fontWeight="700" fontFamily="Manrope, sans-serif">
-            validated strategy capital
+            validated execution brief
           </text>
           {[0, 1, 2].map((index) => (
             <rect
@@ -217,40 +217,40 @@ export const ProfitShareIllustration: React.FC<IllustrationProps> = ({ className
         <g>
           <circle cx="376" cy="150" r="42" fill="rgba(8,15,28,0.9)" stroke="rgba(103,232,249,0.26)" />
           <text x="376" y="145" textAnchor="middle" fill="#f8fafc" fontSize="14" fontWeight="700" fontFamily="Manrope, sans-serif">
-            DEFI
+            BUILD
           </text>
           <text x="376" y="166" textAnchor="middle" fill="#67e8f9" fontSize="18" fontWeight="800" fontFamily="Sora, sans-serif">
-            OS
+            LAB
           </text>
           <circle cx="376" cy="330" r="42" fill="rgba(8,15,28,0.9)" stroke="rgba(52,211,153,0.26)" />
           <text x="376" y="325" textAnchor="middle" fill="#f8fafc" fontSize="12" fontWeight="700" fontFamily="Manrope, sans-serif">
-            PROFIT
+            EXECUTE
           </text>
           <text x="376" y="346" textAnchor="middle" fill="#34d399" fontSize="18" fontWeight="800" fontFamily="Sora, sans-serif">
-            SHARE
+            LOOP
           </text>
         </g>
 
         <g>
           <rect x="520" y="88" width="98" height="98" rx="26" fill="rgba(8,15,28,0.84)" stroke="rgba(125,211,252,0.18)" />
           <text x="569" y="125" textAnchor="middle" fill="#94a3b8" fontSize="11" letterSpacing="2" fontFamily="Manrope, sans-serif">
-            FEE
+            MODEL
           </text>
           <text x="569" y="155" textAnchor="middle" fill="#f8fafc" fontSize="30" fontWeight="800" fontFamily="Sora, sans-serif">
-            12%
+            FIT
           </text>
           <rect x="520" y="216" width="98" height="132" rx="26" fill="rgba(8,15,28,0.84)" stroke="rgba(52,211,153,0.18)" />
           <text x="569" y="252" textAnchor="middle" fill="#94a3b8" fontSize="11" letterSpacing="2" fontFamily="Manrope, sans-serif">
-            RESULT
+            STATE
           </text>
           <text x="569" y="289" textAnchor="middle" fill="#34d399" fontSize="26" fontWeight="800" fontFamily="Sora, sans-serif">
-            +$18.4K
+            READY
           </text>
           <text x="569" y="313" textAnchor="middle" fill="#cbd5e1" fontSize="12" fontFamily="Manrope, sans-serif">
-            only billed on
+            engage when
           </text>
           <text x="569" y="332" textAnchor="middle" fill="#cbd5e1" fontSize="12" fontFamily="Manrope, sans-serif">
-            realized upside
+            path is clear
           </text>
         </g>
       </svg>

@@ -8,51 +8,51 @@ import PublicSiteShell from '../components/PublicSiteShell';
 
 const plans = [
   {
-    name: 'Explorer',
-    price: '$0',
-    cadence: 'evaluation access',
-    audience: 'Initial product evaluation',
-    activation: 'Starts immediately after signup',
-    commitment: 'No commercial commitment',
+    name: 'Scope Review',
+    price: 'Review',
+    cadence: 'fit and discovery',
+    audience: 'Initial product or automation evaluation',
+    activation: 'Starts after onboarding',
+    commitment: 'Focused discovery commitment',
     description:
-      'Inspect the platform, understand the workflows, and validate whether the operator experience is right for your desk.',
+      'Clarify the objective, map constraints, and decide whether the execution path is worth building.',
     features: [
       'Account setup and security onboarding',
-      'Historical backtest workspace',
-      'Foundational market intelligence',
-      'Single-operator evaluation posture',
+      'Scope and constraint review',
+      'Technical direction assessment',
+      'Execution plan recommendation',
     ],
   },
   {
-    name: 'Performance',
-    price: '12%',
-    cadence: 'of net profit',
-    audience: 'Active operators',
-    activation: 'Applies only when live net profit is realized',
-    commitment: 'No fixed platform fee',
+    name: 'Build Sprint',
+    price: 'Quoted',
+    cadence: 'project execution',
+    audience: 'Teams ready to build',
+    activation: 'Starts after scope approval',
+    commitment: 'Defined delivery scope',
     description:
-      'Move into live operating mode with commercial terms tied to realized upside instead of flat software rent.',
+      'Move into focused engineering delivery with clear milestones, implementation ownership, and quality gates.',
     features: [
-      'Live bot control and runtime workflow',
-      'Realtime stream and sync-health monitoring',
-      'Signal-rich research views',
-      'No recurring platform fee',
+      'Product and frontend implementation',
+      'Automation and runtime workflow',
+      'Testing and release readiness',
+      'Operator handoff documentation',
     ],
     featured: true,
   },
   {
-    name: 'Desk',
+    name: 'Execution Partner',
     price: 'Custom',
-    cadence: 'commercial structure',
-    audience: 'Teams and partnerships',
-    activation: 'Activated after desk rollout planning',
-    commitment: 'Negotiated operating terms',
+    cadence: 'delivery partnership',
+    audience: 'Teams and ongoing systems',
+    activation: 'Activated after rollout planning',
+    commitment: 'Tailored operating terms',
     description:
-      'For desks that need multiple operators, rollout support, workflow alignment, or a tailored commercial arrangement.',
+      'For teams that need ongoing execution, rollout support, automation ownership, or a tailored delivery arrangement.',
     features: [
       'Tailored onboarding and enablement',
-      'Multi-operator workflow planning',
-      'Desk-level commercial discussion',
+      'Multi-workstream delivery planning',
+      'System operations and iteration support',
       'Negotiated support model',
     ],
   },
@@ -60,114 +60,114 @@ const plans = [
 
 const comparisonRows = [
   ['Security onboarding', 'Included', 'Included', 'Included'],
-  ['Backtest intelligence workspace', 'Included', 'Advanced', 'Advanced'],
-  ['Live runtime operations', 'Preview posture', 'Included', 'Included'],
-  ['Realtime stream monitoring', 'Preview posture', 'Included', 'Included'],
-  ['Commercial model', 'No fee', '12% net profit share', 'Negotiated'],
+  ['Execution planning', 'Included', 'Advanced', 'Advanced'],
+  ['Build implementation', 'Recommendation', 'Included', 'Included'],
+  ['Runtime and automation visibility', 'Preview posture', 'Included', 'Included'],
+  ['Engagement model', 'Focused review', 'Quoted project', 'Negotiated'],
 ];
 
 const pricingModelRows = [
   {
-    stage: 'Evaluation',
-    value: '$0',
-    detail: 'Access the platform and validate fit before any commercial activation.',
+    stage: 'Discovery',
+    value: 'Review',
+    detail: 'Validate fit, constraints, and execution priority before build activation.',
     note: 'Best for first product validation',
   },
   {
-    stage: 'Live access',
-    value: '12%',
-    detail: 'Profit share applies only to realized net profit from live operation.',
-    note: 'No fixed platform fee',
+    stage: 'Build',
+    value: 'Quoted',
+    detail: 'Delivery terms follow a defined scope, milestone plan, and quality bar.',
+    note: 'Best for focused execution',
   },
   {
-    stage: 'Desk rollout',
+    stage: 'Scale',
     value: 'Custom',
-    detail: 'Commercial structure is tailored to team workflow and support needs.',
-    note: 'Designed for multi-operator teams',
+    detail: 'Commercial structure is tailored to team workflow, automation depth, and support needs.',
+    note: 'Designed for ongoing systems',
   },
 ] as const;
 
 const modelScenarios = [
   {
-    title: 'Example: $10,000 net-profit month',
-    share: '$1,200 performance share',
-    keep: '$8,800 retained by your desk',
+    title: 'Example: product workflow build',
+    share: 'Defined milestone plan',
+    keep: 'Scope, delivery gates, and acceptance criteria agreed up front',
   },
   {
-    title: 'Example: $0 net-profit month',
-    share: '$0 performance share',
-    keep: 'No fee charged for that period',
+    title: 'Example: automation rollout',
+    share: 'Custom execution model',
+    keep: 'Runtime, support, and iteration needs shape the engagement',
   },
 ] as const;
 
 const personaGuides = [
   {
     id: 'new',
-    label: 'I am just exploring',
-    recommendedPlan: 'Explorer',
-    reason: 'Start with zero commitment and validate workflow fit before any live economics.',
+    label: 'I need clarity',
+    recommendedPlan: 'Scope Review',
+    reason: 'Start with a focused review and validate execution fit before build work begins.',
   },
   {
     id: 'live',
-    label: 'I plan to trade live',
-    recommendedPlan: 'Performance',
-    reason: 'Use performance-aligned terms that activate only when realized live profit exists.',
+    label: 'I am ready to build',
+    recommendedPlan: 'Build Sprint',
+    reason: 'Use a defined execution plan when scope, ownership, and quality gates are ready.',
   },
   {
     id: 'team',
-    label: 'I run a desk team',
-    recommendedPlan: 'Desk',
-    reason: 'Coordinate multi-operator rollout with tailored terms and support structure.',
+    label: 'I need an execution partner',
+    recommendedPlan: 'Execution Partner',
+    reason: 'Coordinate ongoing delivery, automation, and rollout with tailored terms and support structure.',
   },
 ] as const;
 
 const trustSignals = [
-  ['No fixed fee to evaluate', 'Start with product fit, not procurement pressure'],
-  ['Performance-aligned live terms', 'Commercial upside follows realized live net profit'],
-  ['Desk rollout clarity', 'Team workflows can move into tailored commercial structure'],
+  ['Clarity before build', 'Start with product fit, not procurement pressure'],
+  ['Execution-aligned terms', 'Commercial shape follows scope, risk, and delivery responsibility'],
+  ['Rollout clarity', 'Team workflows can move into tailored execution structure'],
 ] as const;
 
 const pricingFaqs = [
   [
-    'When does the performance share apply?',
-    'Only after live operation produces realized net profit under the performance plan.',
+    'When does build work start?',
+    'After scope, constraints, acceptance criteria, and delivery responsibility are clear.',
   ],
   [
     'Can a team evaluate before committing?',
-    'Yes. Explorer exists so operators can inspect workflows, security posture, and research quality before live economics.',
+    'Yes. Scope Review exists so operators can inspect workflows, security posture, and execution quality before larger delivery work.',
   ],
   [
-    'What changes for a desk team?',
-    'Desk plans add rollout planning, multi-operator workflow alignment, and negotiated support terms.',
+    'What changes for an ongoing team?',
+    'Execution Partner adds rollout planning, multi-workstream alignment, automation support, and negotiated operating terms.',
   ],
 ] as const;
 
 const funnelSteps = [
-  ['Create evaluation account', 'Access product surfaces with no fixed commercial commitment.'],
+  ['Create review account', 'Access product surfaces with a clear evaluation path.'],
   ['Complete security readiness', 'Validate credentials, environment, and runtime prerequisites.'],
   [
     'Run evidence-first workflow',
-    'Review backtests, risk context, and operational signals before activation.',
+    'Review scope, risk context, and operational signals before activation.',
   ],
   [
-    'Activate live terms when ready',
-    'Performance model applies only when realized net profit exists.',
+    'Activate execution terms when ready',
+    'Delivery model follows the agreed execution path.',
   ],
 ] as const;
 
 const riskDisclosures = [
-  'No representation is made that any account will achieve profits or avoid losses.',
-  'Past or simulated performance is not a guarantee of future outcomes.',
-  'Crypto market structure, liquidity, and latency conditions can change quickly.',
-  'Users remain responsible for legal, tax, and regulatory obligations in their jurisdiction.',
+  'No representation is made that every idea will be feasible or worth building.',
+  'Prototype or test outcomes are planning evidence, not guarantees of production behavior.',
+  'Integration, data, security, and operational constraints can change execution scope.',
+  'Users remain responsible for business, legal, security, and regulatory obligations.',
 ] as const;
 
 const PricingModelPanel: React.FC = () => (
   <div className="pricing-model-panel">
     <div className="pricing-model-header">
       <div>
-        <p className="text-[11px] font-semibold uppercase text-slate-400">Commercial model</p>
-        <p className="mt-2 text-2xl font-semibold text-white">Evaluation before commitment</p>
+        <p className="text-[11px] font-semibold uppercase text-slate-400">Engagement model</p>
+        <p className="mt-2 text-2xl font-semibold text-white">Clarity before commitment</p>
       </div>
       <p className="pricing-model-open">
         <span className="h-2 w-2 rounded-full bg-emerald-400" />
@@ -214,15 +214,14 @@ export const PricingPage: React.FC = () => {
             <MotionReveal className="public-modern-copy" distancePx={18}>
               <div className="surface-label">
                 <ShieldCheck className="h-3.5 w-3.5" />
-                Pricing
+                Engagement
               </div>
               <h1>
-                DefiArbitrage pricing built around evidence, live performance, and desk readiness.
+                ExecutionLab engagements built around evidence, speed, and delivery discipline.
               </h1>
               <p>
-                Evaluate the workspace first, then move into performance-aligned economics when live
-                operation is ready. No flat fee to start. Commercial terms activate when live
-                outcomes are real.
+                Start with fit and scope clarity, then move into focused technical execution when
+                the plan is ready. Terms follow the work, risk, and delivery responsibility.
               </p>
 
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
@@ -230,7 +229,7 @@ export const PricingPage: React.FC = () => {
                   to="/register"
                   className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3.5 text-sm font-semibold text-white"
                 >
-                  Start free evaluation
+                  Start execution review
                   <ArrowRight className="h-4 w-4" />
                 </Link>
                 <Link
@@ -249,14 +248,14 @@ export const PricingPage: React.FC = () => {
                   <span />
                   <span />
                   <span />
-                  <strong>COMMERCIAL DESK</strong>
+                  <strong>ENGAGEMENT MODEL</strong>
                 </div>
                 <ProfitShareIllustration />
               </div>
               <div className="public-visual-tags">
-                <span>No fixed fee</span>
-                <span>12% net profit share</span>
-                <span>Desk rollout</span>
+                <span>Scope review</span>
+                <span>Build sprint</span>
+                <span>Execution partner</span>
               </div>
             </MotionReveal>
           </div>
@@ -275,9 +274,9 @@ export const PricingPage: React.FC = () => {
         <section className="public-modern-container public-market-section">
           <MotionReveal distancePx={18}>
             <PublicMarketPulsePanel
-              eyebrow="Commercial signal"
-              title="Pricing stays tied to route quality, liquidity, and live operating context."
-              description="Use the market view to evaluate where spread, depth, and execution quality support a performance-aligned operating model."
+              eyebrow="Engagement signal"
+              title="Engagement shape stays tied to scope, risk, and execution context."
+              description="Use the execution view to evaluate where readiness, ownership, and quality gates support the right delivery model."
             />
           </MotionReveal>
         </section>
@@ -285,12 +284,12 @@ export const PricingPage: React.FC = () => {
         <section className="public-modern-band">
           <div className="public-modern-container public-modern-split">
             <MotionReveal className="public-modern-section-copy" distancePx={18}>
-              <div className="surface-label">Commercial model</div>
-              <h2>Evaluation before commitment, live economics after proof.</h2>
+              <div className="surface-label">Engagement model</div>
+              <h2>Evaluation before commitment, execution terms after proof.</h2>
               <p>
                 Pricing should feel as clear and operational as the product itself: start with
-                evidence, activate live terms only when live outcomes are measurable, and move desks
-                into tailored rollout when the workflow demands it.
+                evidence, activate delivery terms when the path is measurable, and move teams into
+                tailored rollout when the workflow demands it.
               </p>
             </MotionReveal>
 
@@ -303,7 +302,7 @@ export const PricingPage: React.FC = () => {
         <section className="public-modern-container public-outcome-stage pricing-modern-selector">
           <MotionReveal className="public-modern-section-copy" distancePx={18}>
             <div className="surface-label">Plan selector</div>
-            <h2>Which model fits your desk?</h2>
+            <h2>Which model fits your execution path?</h2>
             <p>{selectedGuide.reason}</p>
           </MotionReveal>
 
@@ -380,7 +379,7 @@ export const PricingPage: React.FC = () => {
                         : 'premium-button-secondary'
                     }`}
                   >
-                    {plan.name === 'Desk' ? 'Discuss rollout' : 'Start free evaluation'}
+                    {plan.name === 'Execution Partner' ? 'Discuss rollout' : 'Start execution review'}
                   </Link>
                 </div>
               </MotionReveal>
@@ -391,10 +390,10 @@ export const PricingPage: React.FC = () => {
         <section className="public-modern-container public-outcome-stage">
           <MotionReveal className="public-modern-section-copy" distancePx={18}>
             <div className="surface-label">How it works</div>
-            <h2>Simple subscription funnel from evaluation to live operation.</h2>
+            <h2>Simple engagement path from review to execution.</h2>
             <p>
-              The commercial path is designed to be explicit at each step so teams can adopt the
-              platform progressively without hidden pricing transitions.
+              The engagement path is explicit at each step so teams can adopt ExecutionLab
+              progressively without hidden transitions.
             </p>
           </MotionReveal>
 
@@ -416,10 +415,10 @@ export const PricingPage: React.FC = () => {
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 Compare access
               </div>
-              <h2>Clear access levels for evaluation, live operation, and desk rollout.</h2>
+              <h2>Clear access levels for review, build, and rollout.</h2>
               <p>
-                Start with the lowest commitment path, then move to performance or desk terms when
-                the workflow is ready.
+                Start with the lowest commitment path, then move to build or partner terms when the
+                workflow is ready.
               </p>
             </MotionReveal>
 
@@ -428,9 +427,9 @@ export const PricingPage: React.FC = () => {
                 <thead>
                   <tr className="text-left">
                     <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Capability</th>
-                    <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Explorer</th>
-                    <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Performance</th>
-                    <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Desk</th>
+                    <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Scope Review</th>
+                    <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Build Sprint</th>
+                    <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Partner</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -460,10 +459,10 @@ export const PricingPage: React.FC = () => {
               <ShieldCheck className="h-3.5 w-3.5" />
               Pricing FAQ
             </div>
-            <h2>Straight answers before the first live workflow.</h2>
+            <h2>Straight answers before the first execution workflow.</h2>
             <p>
-              Evaluation, onboarding, and live commercial activation stay intentionally separate so
-              teams always understand the next step.
+              Evaluation, onboarding, and delivery activation stay intentionally separate so teams
+              always understand the next step.
             </p>
           </MotionReveal>
 
@@ -483,8 +482,8 @@ export const PricingPage: React.FC = () => {
             <div className="surface-label">Risk disclosure</div>
             <h2>Risk and compliance expectations are stated up front.</h2>
             <p>
-              Commercial clarity also means operational realism: live trading includes risk, and
-              users should evaluate suitability, controls, and obligations before activation.
+              Commercial clarity also means operational realism: technical delivery includes risk,
+              and users should evaluate suitability, controls, and obligations before activation.
             </p>
           </MotionReveal>
 

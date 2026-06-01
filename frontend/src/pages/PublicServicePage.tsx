@@ -52,12 +52,12 @@ export const PublicServicePage: React.FC = () => {
       page?.slug === 'runtime'
         ? ([
             'Reduce response lag in live operations.',
-            'Spot degraded streams early.',
+            'Spot degraded systems early.',
             'Keep controls close to state.',
           ][index] ?? 'Keep operational decisions clear.')
         : ([
-            'Improve research with market context.',
-            'Support live decisions with narrative context.',
+            'Improve research with system context.',
+            'Support execution decisions with narrative context.',
             'Increase trust through complete operator visibility.',
           ][index] ?? 'Support higher-confidence operator decisions.'),
   }));
@@ -73,9 +73,9 @@ export const PublicServicePage: React.FC = () => {
   const outcomesIntro = isSecurityPage
     ? 'Keep entry trust high by making account state, onboarding flow, and next-step clarity obvious at every stage.'
     : page?.slug === 'runtime'
-      ? 'Keep live execution clear with visible state, explicit stream health, and faster action paths during runtime pressure.'
+      ? 'Keep live execution clear with visible state, explicit system health, and faster action paths during runtime pressure.'
       : page?.slug === 'intelligence'
-        ? 'Translate market context into operator decisions by connecting research framing, live narrative signals, and timing clarity.'
+        ? 'Translate technical context into operator decisions by connecting research framing, narrative signals, and timing clarity.'
         : 'Clear operating context helps teams decide when a strategy, account, or runtime workflow is ready for the next step.';
 
   const serviceVariant =
@@ -89,9 +89,9 @@ export const PublicServicePage: React.FC = () => {
 
   const serviceVisualTags =
     page?.slug === 'runtime'
-      ? ['Stream health', 'Action priority', 'Runtime continuity']
+        ? ['System health', 'Action priority', 'Runtime continuity']
       : page?.slug === 'intelligence'
-        ? ['Narrative context', 'Timing clarity', 'Conviction support']
+        ? ['Technical context', 'Timing clarity', 'Conviction support']
         : page?.slug === 'security'
           ? ['Access trust', '2FA readiness', 'Onboarding clarity']
           : ['Backtest ranking', 'Risk framing', 'Promotion standard'];
@@ -116,11 +116,11 @@ export const PublicServicePage: React.FC = () => {
               <p>{page.heroIntro}</p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <Link to="/register" className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3 text-sm font-semibold text-white">
-                  Start free evaluation
+                  Start execution review
                   <ArrowRight className="h-4 w-4" />
                 </Link>
                 <Link to="/pricing" className="premium-button premium-button-secondary justify-center px-6 py-3 text-sm font-medium">
-                  View pricing
+                  View engagement model
                 </Link>
               </div>
             </MotionReveal>
@@ -158,9 +158,9 @@ export const PublicServicePage: React.FC = () => {
         <section className="public-modern-container public-market-section">
           <MotionReveal distancePx={18}>
             <PublicMarketPulsePanel
-              eyebrow={`${page.navLabel} market context`}
-              title="Pair movement, spread, and route quality stay visible beside the workflow."
-              description={`Use market context to connect ${page.navLabel.toLowerCase()} decisions with liquidity, execution quality, and operator timing.`}
+              eyebrow={`${page.navLabel} execution context`}
+              title="Workflow readiness, ownership, and execution quality stay visible beside the work."
+              description={`Use execution context to connect ${page.navLabel.toLowerCase()} decisions with delivery quality, risk, and operator timing.`}
             />
           </MotionReveal>
         </section>
@@ -172,7 +172,7 @@ export const PublicServicePage: React.FC = () => {
               <h2>Built to make the next operating decision obvious.</h2>
               <p>
                 The public page should explain the platform quickly, then move the user toward
-                evaluation with confidence. This layer turns {page.navLabel.toLowerCase()} into a
+                execution review with confidence. This layer turns {page.navLabel.toLowerCase()} into a
                 clear operational promise instead of a generic feature list.
               </p>
             </MotionReveal>
@@ -238,15 +238,15 @@ export const PublicServicePage: React.FC = () => {
                 <ShieldCheck className="h-4 w-4" />
                 Continue the journey
               </div>
-              <h2>Continue from {page.navLabel.toLowerCase()} into evaluation.</h2>
-              <p>Review pricing, create an account, and complete security onboarding before live access.</p>
+              <h2>Continue from {page.navLabel.toLowerCase()} into execution review.</h2>
+              <p>Review engagement options, create an account, and complete security onboarding before execution access.</p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
               <Link to="/pricing" className="premium-button premium-button-secondary justify-center px-6 py-3 text-sm font-medium">
-                View pricing
+                View engagement model
               </Link>
               <Link to="/register" className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3 text-sm font-semibold text-white">
-                Start free evaluation
+                Start execution review
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>

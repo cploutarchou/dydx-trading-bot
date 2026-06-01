@@ -1,8 +1,5 @@
 # StackForge cluster config for dydx-trading-bot
-# Generated scaffold: replace TODO values before any live production action.
-# Note for existing clusters: effective runtime values may already be provisioned in
-# ~/.stackforge/stackforge-cluster/ (inventory/domain-pool/generated-secrets).
-# Treat those live state files as source-of-truth for day-2 operations and verification.
+# Canonical repo config aligned with the live stackforge-cluster production state.
 
 cluster:
   name: stackforge-cluster
@@ -17,9 +14,7 @@ ssh:
 
 nodes:
   - name: nomad-cp-01
-    # TODO: Set private RFC1918 address for internal traffic
     address: 10.0.0.11
-    # TODO: Set public node address/hostname used for SSH/bootstrap
     public_address: 159.195.82.201
     roles:
       - consul-server
@@ -30,15 +25,16 @@ nodes:
       - control-plane
 
 network:
-  # TODO: Set actual interface names for your hosts
   private_interface: eth1
   public_interface: eth0
-  # TODO: Restrict to operator/VPN/admin CIDRs
   allowed_admin_cidrs:
-    - 10.0.0.0/24
-  # TODO: Restrict SSH source ranges; avoid public-all CIDRs
+    - 212.32.18.42/32
+    - 66.92.130.49/32
+    - 87.228.189.174/32
   allowed_ssh_cidrs:
-    - 10.0.0.0/24
+    - 212.32.18.42/32
+    - 66.92.130.49/32
+    - 87.228.189.174/32
   allow_public_internal_communication: false
 
 consul:
@@ -59,11 +55,9 @@ traefik:
     web: 80
     websecure: 443
   cert_resolver: letsencrypt
-  # TODO: set operator email for ACME
-  email: ops@your-domain.com
+  email: support@cpdevlabs.com
   dashboard_enabled: true
-  # TODO: set real dashboard domain
-  dashboard_domain: traefik.your-domain.com
+  dashboard_domain: traefik.cpdevlabs.com
   dashboard_basic_auth: true
 
 database:
@@ -73,11 +67,10 @@ database:
   backup_schedule: "0 3 * * *"
 
 control_plane:
-  # TODO: set real control-plane domain
-  domain: control.your-domain.com
+  domain: cpdevlabs.com
   api_port: 8080
   admin_api_keys:
-    - set-a-real-admin-api-key-before-live
+    - b79f2c6dc035ac2febe470e86b67fdf07da1499653233e0e60665244ed4d0211
   reconciler_enabled: true
   reconciler_interval_seconds: 300
 

@@ -4,11 +4,13 @@ const storage = new Map<string, string>();
 
 const apiMock = {
   hasToken: vi.fn(() => true),
+  hasSessionHint: vi.fn(() => true),
   login: vi.fn(),
   register: vi.fn(),
   setup2FA: vi.fn(),
   verify2FA: vi.fn(),
   setToken: vi.fn(),
+  markSessionEstablishedForCookieAuth: vi.fn(),
   logout: vi.fn(),
   getCurrentUser: vi.fn(),
   restoreSession: vi.fn(),
@@ -50,6 +52,7 @@ beforeEach(() => {
   storage.clear();
   vi.clearAllMocks();
   apiMock.hasToken.mockReturnValue(true);
+  apiMock.hasSessionHint.mockReturnValue(true);
   apiMock.shouldAttemptCookieRefresh.mockReturnValue(true);
   useAuthStore.setState({
     user: null,
@@ -66,6 +69,8 @@ beforeEach(() => {
 
 describe('auth store session bootstrap', () => {
   it('falls back to a cookie-backed current-user probe when refresh restore returns false', async () => {
+    apiMock.hasToken.mockReturnValue(false);
+    apiMock.hasSessionHint.mockReturnValue(true);
     apiMock.restoreSession.mockResolvedValue(false);
     apiMock.getCurrentUser.mockResolvedValue({
       success: true,
@@ -87,6 +92,7 @@ describe('auth store session bootstrap', () => {
     expect(apiMock.restoreSession).toHaveBeenCalledWith({ allowCookieRefresh: true });
     expect(apiMock.getCurrentUser).toHaveBeenCalledTimes(1);
     expect(useAuthStore.getState().user?.username).toBe('admin');
+    expect(useAuthStore.getState().isAuthenticated()).toBe(true);
     expect(useAuthStore.getState().sessionInitialized).toBe(true);
     expect(useAuthStore.getState().sessionLoading).toBe(false);
   });

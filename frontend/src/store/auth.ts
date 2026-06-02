@@ -54,7 +54,7 @@ const buildLoggedOutState = () => ({
   backupCodes: undefined,
 });
 
-const hasActiveSession = (): boolean => api.hasToken();
+const hasActiveSession = (): boolean => api.hasToken() || api.hasSessionHint();
 let activeInitializeSession: Promise<void> | null = null;
 
 interface User {
@@ -317,7 +317,7 @@ export const useAuthStore = create<AuthStore>()(
           state.error = null;
           state.loading = false;
           state.sessionLoading = false;
-          state.sessionInitialized = true;
+          state.sessionInitialized = false;
           state.twoFARequired = false;
           state.twoFASecret = undefined;
           state.twoFAQRCode = undefined;

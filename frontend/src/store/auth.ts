@@ -196,14 +196,29 @@ export const useAuthStore = create<AuthStore>()(
           perfMark('session:init:start');
 
           try {
+            const allowCookieRefresh = api.shouldAttemptCookieRefresh();
             const restored = await withTimeout(
               api.restoreSession({
-                allowCookieRefresh: api.shouldAttemptCookieRefresh(),
+                allowCookieRefresh,
               }),
               10000,
               'restoreSession'
             );
             if (!restored) {
+              if (allowCookieRefresh) {
+                console.warn(
+                  '⚠️ auth.ts: restoreSession did not recover a token, probing current user via cookie session'
+                );
+                await withTimeout(
+                  get().getCurrentUser(),
+                  10000,
+                  'initializeSession cookie session probe'
+                );
+                if (get().user) {
+                  return;
+                }
+              }
+
               set(buildLoggedOutState());
               return;
             }

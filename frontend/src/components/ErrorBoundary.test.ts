@@ -15,7 +15,7 @@ describe('shouldIgnoreGlobalError', () => {
   it('does not ignore regular application errors', () => {
     expect(
       shouldIgnoreGlobalError({
-        message: 'Cannot read properties of undefined (reading \'map\')',
+        message: "Cannot read properties of undefined (reading 'map')",
         filename: 'https://executionlab.io/assets/index.js',
         target: null,
       } as ErrorEvent)

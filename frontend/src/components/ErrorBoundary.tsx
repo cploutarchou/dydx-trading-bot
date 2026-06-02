@@ -340,7 +340,9 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
   const Icon = toneMap.icon;
 
   return (
-    <div className={`rounded-lg border p-4 shadow-[0_24px_80px_rgba(2,6,23,0.45)] ${toneMap.wrapper}`}>
+    <div
+      className={`rounded-lg border p-4 shadow-[0_24px_80px_rgba(2,6,23,0.45)] ${toneMap.wrapper}`}
+    >
       <div className="flex items-start gap-3">
         <div className={`shrink-0 rounded-lg border p-2 ${toneMap.iconWrap}`}>
           <Icon className="h-4 w-4" />
@@ -348,7 +350,9 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
 
         <div className="min-w-0 flex-1">
           <div className={`text-sm font-semibold ${toneMap.title}`}>{toast.title}</div>
-          {toast.message && <div className="mt-1 text-sm leading-6 text-slate-300">{toast.message}</div>}
+          {toast.message && (
+            <div className="mt-1 text-sm leading-6 text-slate-300">{toast.message}</div>
+          )}
 
           {toast.action && (
             <button

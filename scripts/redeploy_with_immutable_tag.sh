@@ -12,6 +12,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASE_MANIFEST="${REPO_ROOT}/stackforge-deployment.yaml"
 ENV_FILE="${REPO_ROOT}/.env.stackforge"
 STACKFORGE_WRAPPER="${REPO_ROOT}/scripts/stackforge_live.sh"
+STACKFORGE_CONFIG="${REPO_ROOT}/stackforge.yaml"
 BUILD_SCRIPT="${REPO_ROOT}/scripts/build_all_service_images.sh"
 
 IMAGE_REGISTRY="${IMAGE_REGISTRY:-ghcr.io/cploutarchou/dydx-trading-bot}"
@@ -20,6 +21,120 @@ BUILD_PUSH=false
 ALSO_LATEST=false
 WAIT=false
 DRY_RUN=false
+
+get_stackforge_config_value() {
+  local field="$1"
+  python3 - <<'PY' "${STACKFORGE_CONFIG}" "${field}"
+import re
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text()
+field = sys.argv[2]
+patterns = {
+    "cluster_name": r"(?m)^\s*name:\s*([^\s#]+)\s*$",
+    "ssh_user": r"(?ms)^ssh:\n.*?^\s*user:\s*([^\s#]+)\s*$",
+    "public_address": r"(?m)^\s*public_address:\s*([^\s#]+)\s*$",
+}
+match = re.search(patterns[field], text)
+print(match.group(1) if match else "")
+PY
+}
+
+remote_stackforge_deploy() {
+  local stackforge_cluster ssh_user public_address ssh_target remote_prefix remote_manifest remote_env remote_config
+  stackforge_cluster="${STACKFORGE_CLUSTER:-$(get_stackforge_config_value cluster_name)}"
+  ssh_user="${STACKFORGE_SSH_USER:-$(get_stackforge_config_value ssh_user)}"
+  public_address="${STACKFORGE_PUBLIC_HOST:-$(get_stackforge_config_value public_address)}"
+
+  if [[ -z "${public_address}" ]]; then
+    echo "Remote StackForge fallback failed: could not determine public host from ${STACKFORGE_CONFIG}" >&2
+    return 1
+  fi
+
+  if [[ -z "${ssh_user}" ]]; then
+    ssh_user="root"
+  fi
+
+  ssh_target="${STACKFORGE_REMOTE_HOST:-${ssh_user}@${public_address}}"
+  remote_prefix="/tmp/dydx-stackforge-${IMAGE_TAG}-$$"
+  remote_manifest="${remote_prefix}.manifest.yaml"
+  remote_env="${remote_prefix}.env"
+  remote_config="${remote_prefix}.stackforge.yaml"
+
+  echo "==> Falling back to host-side StackForge deploy via ${ssh_target}"
+
+  ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "${ssh_target}" "umask 077 && cat > '${remote_manifest}'" < "${TMP_MANIFEST}"
+  ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "${ssh_target}" "umask 077 && cat > '${remote_env}'" < "${ENV_FILE}"
+  ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "${ssh_target}" "umask 077 && cat > '${remote_config}'" < "${STACKFORGE_CONFIG}"
+
+  if [[ "${DRY_RUN}" == "true" ]]; then
+    ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "${ssh_target}" \
+      "REMOTE_MANIFEST='${remote_manifest}' REMOTE_ENV='${remote_env}' REMOTE_CONFIG='${remote_config}' STACKFORGE_CLUSTER='${stackforge_cluster}' WAIT='${WAIT}' DRY_RUN='${DRY_RUN}' bash -s" <<'EOF' \
+      | sed -E 's/ghp_[A-Za-z0-9_]+/***redacted***/g; s/("password"\s*:\s*")[^"]+(")/\1***redacted***\2/g'
+set -euo pipefail
+trap 'rm -f "${REMOTE_MANIFEST}" "${REMOTE_ENV}" "${REMOTE_CONFIG}"' EXIT
+
+if [[ -f /root/.nomad-secure-env ]]; then
+  # shellcheck disable=SC1091
+  source /root/.nomad-secure-env
+fi
+
+deploy_args=(
+  deploy
+  --confirm-production
+  --yes
+  --mode nomad
+  --file "${REMOTE_MANIFEST}"
+  --env-file "${REMOTE_ENV}"
+  --nomad-address https://127.0.0.1:4646
+  --nomad-cacert /etc/nomad.d/tls/ca.pem
+)
+
+if [[ "${WAIT}" == "true" ]]; then
+  deploy_args+=(--wait)
+fi
+
+if [[ "${DRY_RUN}" == "true" ]]; then
+  deploy_args+=(--dry-run)
+fi
+
+stackforge --cluster "${STACKFORGE_CLUSTER}" --config "${REMOTE_CONFIG}" "${deploy_args[@]}"
+EOF
+  else
+    ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "${ssh_target}" \
+      "REMOTE_MANIFEST='${remote_manifest}' REMOTE_ENV='${remote_env}' REMOTE_CONFIG='${remote_config}' STACKFORGE_CLUSTER='${stackforge_cluster}' WAIT='${WAIT}' DRY_RUN='${DRY_RUN}' bash -s" <<'EOF'
+set -euo pipefail
+trap 'rm -f "${REMOTE_MANIFEST}" "${REMOTE_ENV}" "${REMOTE_CONFIG}"' EXIT
+
+if [[ -f /root/.nomad-secure-env ]]; then
+  # shellcheck disable=SC1091
+  source /root/.nomad-secure-env
+fi
+
+deploy_args=(
+  deploy
+  --confirm-production
+  --yes
+  --mode nomad
+  --file "${REMOTE_MANIFEST}"
+  --env-file "${REMOTE_ENV}"
+  --nomad-address https://127.0.0.1:4646
+  --nomad-cacert /etc/nomad.d/tls/ca.pem
+)
+
+if [[ "${WAIT}" == "true" ]]; then
+  deploy_args+=(--wait)
+fi
+
+if [[ "${DRY_RUN}" == "true" ]]; then
+  deploy_args+=(--dry-run)
+fi
+
+stackforge --cluster "${STACKFORGE_CLUSTER}" --config "${REMOTE_CONFIG}" "${deploy_args[@]}"
+EOF
+  fi
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -62,6 +177,11 @@ fi
 
 if [[ ! -x "${STACKFORGE_WRAPPER}" ]]; then
   echo "Missing executable wrapper: ${STACKFORGE_WRAPPER}" >&2
+  exit 1
+fi
+
+if [[ ! -f "${STACKFORGE_CONFIG}" ]]; then
+  echo "Missing StackForge config: ${STACKFORGE_CONFIG}" >&2
   exit 1
 fi
 
@@ -123,11 +243,31 @@ if [[ "${DRY_RUN}" == "true" ]]; then
   deploy_args+=(--dry-run)
 fi
 
+set +e
 if [[ "${DRY_RUN}" == "true" ]]; then
-  "${STACKFORGE_WRAPPER}" "${deploy_args[@]}" \
-    2>&1 | sed -E 's/ghp_[A-Za-z0-9_]+/***redacted***/g; s/("password"\s*:\s*")[^"]+("?)/\1***redacted***\2/g'
+  deploy_output="$("${STACKFORGE_WRAPPER}" "${deploy_args[@]}" 2>&1)"
 else
-  "${STACKFORGE_WRAPPER}" "${deploy_args[@]}"
+  deploy_output="$("${STACKFORGE_WRAPPER}" "${deploy_args[@]}" 2>&1)"
+fi
+deploy_status=$?
+set -e
+
+if [[ ${deploy_status} -eq 0 ]]; then
+  if [[ "${DRY_RUN}" == "true" ]]; then
+    printf '%s\n' "${deploy_output}" | sed -E 's/ghp_[A-Za-z0-9_]+/***redacted***/g; s/("password"\s*:\s*")[^"]+(")/\1***redacted***\2/g'
+  else
+    printf '%s\n' "${deploy_output}"
+  fi
+elif [[ ${deploy_status} -eq 3 ]]; then
+  printf '%s\n' "${deploy_output}" >&2
+  remote_stackforge_deploy
+else
+  if [[ "${DRY_RUN}" == "true" ]]; then
+    printf '%s\n' "${deploy_output}" | sed -E 's/ghp_[A-Za-z0-9_]+/***redacted***/g; s/("password"\s*:\s*")[^"]+(")/\1***redacted***\2/g' >&2
+  else
+    printf '%s\n' "${deploy_output}" >&2
+  fi
+  exit ${deploy_status}
 fi
 
 echo

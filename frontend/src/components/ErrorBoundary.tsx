@@ -115,6 +115,43 @@ interface ErrorBoundaryState {
   errorInfo: ErrorInfo | null;
 }
 
+const IGNORABLE_GLOBAL_ERROR_PATTERNS = [
+  /^script error\.?$/i,
+  /resizeobserver loop (limit exceeded|completed with undelivered notifications)/i,
+  /non-error promise rejection captured/i,
+];
+
+const isIgnorableResourceErrorTarget = (target: EventTarget | null): boolean => {
+  if (!target) {
+    return false;
+  }
+
+  return (
+    (typeof HTMLScriptElement !== 'undefined' && target instanceof HTMLScriptElement) ||
+    (typeof HTMLLinkElement !== 'undefined' && target instanceof HTMLLinkElement) ||
+    (typeof HTMLImageElement !== 'undefined' && target instanceof HTMLImageElement)
+  );
+};
+
+export const shouldIgnoreGlobalError = (event: ErrorEvent): boolean => {
+  const message = String(event.message || '').trim();
+  const filename = String(event.filename || '').trim();
+
+  if (IGNORABLE_GLOBAL_ERROR_PATTERNS.some((pattern) => pattern.test(message))) {
+    return true;
+  }
+
+  if (/^(chrome|moz)-extension:\/\//i.test(filename)) {
+    return true;
+  }
+
+  if (isIgnorableResourceErrorTarget(event.target)) {
+    return true;
+  }
+
+  return false;
+};
+
 // React Error Boundary Component
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
@@ -259,7 +296,7 @@ export function ToastContainer() {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed right-4 top-4 z-[80] flex w-full max-w-sm flex-col gap-2">
+    <div className="fixed right-4 top-4 z-80 flex w-full max-w-sm flex-col gap-2">
       {toasts.map((toast) => (
         <ToastItem key={toast.id} toast={toast} onRemove={removeToast} />
       ))}
@@ -334,32 +371,38 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
   );
 }
 
-// Global error handler for unhandled promise rejections
-window.addEventListener('unhandledrejection', (event) => {
-  console.error('Unhandled promise rejection:', event.reason);
+if (typeof window !== 'undefined') {
+  // Global error handler for unhandled promise rejections
+  window.addEventListener('unhandledrejection', (event) => {
+    console.error('Unhandled promise rejection:', event.reason);
 
-  const toastStore = useToastStore.getState();
-  toastStore.error(
-    'Unexpected Error',
-    'An error occurred while processing your request. Please try again.',
-    { duration: 6000 }
-  );
+    const toastStore = useToastStore.getState();
+    toastStore.error(
+      'Unexpected Error',
+      'An error occurred while processing your request. Please try again.',
+      { duration: 6000 }
+    );
 
-  // Prevent the default handling
-  event.preventDefault();
-});
+    // Prevent the default handling
+    event.preventDefault();
+  });
 
-// Global error handler for uncaught errors
-window.addEventListener('error', (event) => {
-  console.error('Uncaught error:', event.error);
+  // Global error handler for uncaught errors
+  window.addEventListener('error', (event) => {
+    if (shouldIgnoreGlobalError(event)) {
+      return;
+    }
 
-  const toastStore = useToastStore.getState();
-  toastStore.error(
-    'Application Error',
-    'An unexpected error occurred. Please refresh the page if problems persist.',
-    { duration: 8000 }
-  );
-});
+    console.error('Uncaught error:', event.error);
+
+    const toastStore = useToastStore.getState();
+    toastStore.error(
+      'Application Error',
+      'An unexpected error occurred. Please refresh the page if problems persist.',
+      { duration: 8000 }
+    );
+  });
+}
 
 export default {
   ErrorBoundary,

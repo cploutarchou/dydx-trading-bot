@@ -278,7 +278,6 @@ func createSessionForUser(c *gin.Context, user *models.User, role string) (strin
 		return "", auth.SessionData{}, err
 	}
 
-	setSessionCookie(c, sessionToken, int(sessionTTL().Seconds()))
 	return sessionToken, sessionData, nil
 }
 

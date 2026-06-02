@@ -22,6 +22,10 @@ ALSO_LATEST=false
 WAIT=false
 DRY_RUN=false
 
+NOMAD_SERVICE_HOST_STRATEGY="${NOMAD_SERVICE_HOST_STRATEGY:-}"
+NOMAD_SERVICE_HOST="${NOMAD_SERVICE_HOST:-}"
+NOMAD_PREFLIGHT_PROBE_MODE="${NOMAD_PREFLIGHT_PROBE_MODE:-}"
+
 get_stackforge_config_value() {
   local field="$1"
   python3 - <<'PY' "${STACKFORGE_CONFIG}" "${field}"
@@ -47,6 +51,11 @@ remote_stackforge_deploy() {
   ssh_user="${STACKFORGE_SSH_USER:-$(get_stackforge_config_value ssh_user)}"
   public_address="${STACKFORGE_PUBLIC_HOST:-$(get_stackforge_config_value public_address)}"
 
+  if [[ -z "${NOMAD_SERVICE_HOST_STRATEGY}" ]]; then
+    NOMAD_SERVICE_HOST_STRATEGY="node-public"
+    echo "[INFO] No NOMAD_SERVICE_HOST_STRATEGY set; defaulting to node-public for remote fallback" >&2
+  fi
+
   if [[ -z "${public_address}" ]]; then
     echo "Remote StackForge fallback failed: could not determine public host from ${STACKFORGE_CONFIG}" >&2
     return 1
@@ -70,7 +79,7 @@ remote_stackforge_deploy() {
 
   if [[ "${DRY_RUN}" == "true" ]]; then
     ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "${ssh_target}" \
-      "REMOTE_MANIFEST='${remote_manifest}' REMOTE_ENV='${remote_env}' REMOTE_CONFIG='${remote_config}' STACKFORGE_CLUSTER='${stackforge_cluster}' WAIT='${WAIT}' DRY_RUN='${DRY_RUN}' bash -s" <<'EOF' \
+      "REMOTE_MANIFEST='${remote_manifest}' REMOTE_ENV='${remote_env}' REMOTE_CONFIG='${remote_config}' STACKFORGE_CLUSTER='${stackforge_cluster}' WAIT='${WAIT}' DRY_RUN='${DRY_RUN}' NOMAD_SERVICE_HOST_STRATEGY='${NOMAD_SERVICE_HOST_STRATEGY}' NOMAD_SERVICE_HOST='${NOMAD_SERVICE_HOST}' NOMAD_PREFLIGHT_PROBE_MODE='${NOMAD_PREFLIGHT_PROBE_MODE}' bash -s" <<'EOF' \
       | sed -E 's/ghp_[A-Za-z0-9_]+/***redacted***/g; s/("password"\s*:\s*")[^"]+(")/\1***redacted***\2/g'
 set -euo pipefail
 trap 'rm -f "${REMOTE_MANIFEST}" "${REMOTE_ENV}" "${REMOTE_CONFIG}"' EXIT
@@ -99,11 +108,90 @@ if [[ "${DRY_RUN}" == "true" ]]; then
   deploy_args+=(--dry-run)
 fi
 
-stackforge --cluster "${STACKFORGE_CLUSTER}" --config "${REMOTE_CONFIG}" "${deploy_args[@]}"
+if [[ -n "${NOMAD_SERVICE_HOST_STRATEGY:-}" ]]; then
+  deploy_args+=(--nomad-service-host-strategy "${NOMAD_SERVICE_HOST_STRATEGY}")
+fi
+
+if [[ "${NOMAD_SERVICE_HOST_STRATEGY:-}" == "custom" && -n "${NOMAD_SERVICE_HOST:-}" ]]; then
+  deploy_args+=(--nomad-service-host "${NOMAD_SERVICE_HOST}")
+fi
+
+if [[ -n "${NOMAD_PREFLIGHT_PROBE_MODE:-}" ]]; then
+  deploy_args+=(--nomad-preflight-probe-mode "${NOMAD_PREFLIGHT_PROBE_MODE}")
+fi
+
+set +e
+deploy_output="$(stackforge --cluster "${STACKFORGE_CLUSTER}" --config "${REMOTE_CONFIG}" "${deploy_args[@]}" 2>&1)"
+deploy_status=$?
+set -e
+
+printf '%s\n' "${deploy_output}"
+
+if [[ ${deploy_status} -ne 0 ]]; then
+  if [[ "${WAIT}" == "true" ]] && grep -q "nomad deploy wait timed out" <<<"${deploy_output}"; then
+    echo "[WARN] StackForge wait timed out; validating Nomad job health before failing..." >&2
+    python3 - <<'PY'
+import json
+import subprocess
+import sys
+
+try:
+    raw = subprocess.check_output(["nomad", "job", "status", "-json", "dydx-trading-bot"], text=True)
+except Exception as exc:
+    print(f"nomad health check failed: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+
+data = json.loads(raw)
+if isinstance(data, list):
+  data = data[0] if data else {}
+if not isinstance(data, dict):
+  print(f"unexpected nomad JSON shape: {type(data).__name__}", file=sys.stderr)
+  raise SystemExit(1)
+
+status = str(data.get("Status", "")).lower()
+
+deployment = data.get("LatestDeploymentSummary")
+dep_status = ""
+if isinstance(deployment, dict):
+  dep_status = str(deployment.get("Status", "")).lower()
+elif isinstance(deployment, list) and deployment:
+  first = deployment[0]
+  if isinstance(first, dict):
+    dep_status = str(first.get("Status", "")).lower()
+
+task_groups = data.get("TaskGroups") or []
+healthy = True
+if isinstance(task_groups, dict):
+  iterable = task_groups.values()
+elif isinstance(task_groups, list):
+  iterable = task_groups
+else:
+  iterable = []
+
+for tg in iterable:
+  if not isinstance(tg, dict):
+    continue
+  desired = int(tg.get("Desired", 0) or 0)
+  running = int(tg.get("Running", 0) or 0)
+  if desired > 0 and running < desired:
+    healthy = False
+    break
+
+if status == "running" and dep_status in {"successful", "running"} and healthy:
+    print("Nomad job is healthy despite wait timeout; treating deploy as success.")
+    raise SystemExit(0)
+
+print("Nomad job is not healthy after wait timeout.", file=sys.stderr)
+raise SystemExit(1)
+PY
+    exit $?
+  fi
+  exit ${deploy_status}
+fi
 EOF
   else
     ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "${ssh_target}" \
-      "REMOTE_MANIFEST='${remote_manifest}' REMOTE_ENV='${remote_env}' REMOTE_CONFIG='${remote_config}' STACKFORGE_CLUSTER='${stackforge_cluster}' WAIT='${WAIT}' DRY_RUN='${DRY_RUN}' bash -s" <<'EOF'
+      "REMOTE_MANIFEST='${remote_manifest}' REMOTE_ENV='${remote_env}' REMOTE_CONFIG='${remote_config}' STACKFORGE_CLUSTER='${stackforge_cluster}' WAIT='${WAIT}' DRY_RUN='${DRY_RUN}' NOMAD_SERVICE_HOST_STRATEGY='${NOMAD_SERVICE_HOST_STRATEGY}' NOMAD_SERVICE_HOST='${NOMAD_SERVICE_HOST}' NOMAD_PREFLIGHT_PROBE_MODE='${NOMAD_PREFLIGHT_PROBE_MODE}' bash -s" <<'EOF'
 set -euo pipefail
 trap 'rm -f "${REMOTE_MANIFEST}" "${REMOTE_ENV}" "${REMOTE_CONFIG}"' EXIT
 
@@ -131,7 +219,86 @@ if [[ "${DRY_RUN}" == "true" ]]; then
   deploy_args+=(--dry-run)
 fi
 
-stackforge --cluster "${STACKFORGE_CLUSTER}" --config "${REMOTE_CONFIG}" "${deploy_args[@]}"
+if [[ -n "${NOMAD_SERVICE_HOST_STRATEGY:-}" ]]; then
+  deploy_args+=(--nomad-service-host-strategy "${NOMAD_SERVICE_HOST_STRATEGY}")
+fi
+
+if [[ "${NOMAD_SERVICE_HOST_STRATEGY:-}" == "custom" && -n "${NOMAD_SERVICE_HOST:-}" ]]; then
+  deploy_args+=(--nomad-service-host "${NOMAD_SERVICE_HOST}")
+fi
+
+if [[ -n "${NOMAD_PREFLIGHT_PROBE_MODE:-}" ]]; then
+  deploy_args+=(--nomad-preflight-probe-mode "${NOMAD_PREFLIGHT_PROBE_MODE}")
+fi
+
+set +e
+deploy_output="$(stackforge --cluster "${STACKFORGE_CLUSTER}" --config "${REMOTE_CONFIG}" "${deploy_args[@]}" 2>&1)"
+deploy_status=$?
+set -e
+
+printf '%s\n' "${deploy_output}"
+
+if [[ ${deploy_status} -ne 0 ]]; then
+  if [[ "${WAIT}" == "true" ]] && grep -q "nomad deploy wait timed out" <<<"${deploy_output}"; then
+    echo "[WARN] StackForge wait timed out; validating Nomad job health before failing..." >&2
+    python3 - <<'PY'
+import json
+import subprocess
+import sys
+
+try:
+    raw = subprocess.check_output(["nomad", "job", "status", "-json", "dydx-trading-bot"], text=True)
+except Exception as exc:
+    print(f"nomad health check failed: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+
+data = json.loads(raw)
+if isinstance(data, list):
+  data = data[0] if data else {}
+if not isinstance(data, dict):
+  print(f"unexpected nomad JSON shape: {type(data).__name__}", file=sys.stderr)
+  raise SystemExit(1)
+
+status = str(data.get("Status", "")).lower()
+
+deployment = data.get("LatestDeploymentSummary")
+dep_status = ""
+if isinstance(deployment, dict):
+  dep_status = str(deployment.get("Status", "")).lower()
+elif isinstance(deployment, list) and deployment:
+  first = deployment[0]
+  if isinstance(first, dict):
+    dep_status = str(first.get("Status", "")).lower()
+
+task_groups = data.get("TaskGroups") or []
+healthy = True
+if isinstance(task_groups, dict):
+  iterable = task_groups.values()
+elif isinstance(task_groups, list):
+  iterable = task_groups
+else:
+  iterable = []
+
+for tg in iterable:
+  if not isinstance(tg, dict):
+    continue
+  desired = int(tg.get("Desired", 0) or 0)
+  running = int(tg.get("Running", 0) or 0)
+  if desired > 0 and running < desired:
+    healthy = False
+    break
+
+if status == "running" and dep_status in {"successful", "running"} and healthy:
+    print("Nomad job is healthy despite wait timeout; treating deploy as success.")
+    raise SystemExit(0)
+
+print("Nomad job is not healthy after wait timeout.", file=sys.stderr)
+raise SystemExit(1)
+PY
+    exit $?
+  fi
+  exit ${deploy_status}
+fi
 EOF
   fi
 }
@@ -241,6 +408,18 @@ fi
 
 if [[ "${DRY_RUN}" == "true" ]]; then
   deploy_args+=(--dry-run)
+fi
+
+if [[ -n "${NOMAD_SERVICE_HOST_STRATEGY}" ]]; then
+  deploy_args+=(--nomad-service-host-strategy "${NOMAD_SERVICE_HOST_STRATEGY}")
+fi
+
+if [[ "${NOMAD_SERVICE_HOST_STRATEGY}" == "custom" && -n "${NOMAD_SERVICE_HOST}" ]]; then
+  deploy_args+=(--nomad-service-host "${NOMAD_SERVICE_HOST}")
+fi
+
+if [[ -n "${NOMAD_PREFLIGHT_PROBE_MODE}" ]]; then
+  deploy_args+=(--nomad-preflight-probe-mode "${NOMAD_PREFLIGHT_PROBE_MODE}")
 fi
 
 set +e

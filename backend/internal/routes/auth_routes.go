@@ -158,6 +158,32 @@ func authCookieSecure() bool {
 	return tlsCert != "" || forceHTTPS == "true" || forceHTTPS == "1"
 }
 
+func authCookieSameSite() http.SameSite {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv("AUTH_COOKIE_SAMESITE")))
+	switch value {
+	case "none", "no_restriction":
+		return http.SameSiteNoneMode
+	case "strict":
+		return http.SameSiteStrictMode
+	case "lax", "":
+		return http.SameSiteLaxMode
+	default:
+		return http.SameSiteLaxMode
+	}
+}
+
+func authCookieDomain() string {
+	return strings.TrimSpace(os.Getenv("AUTH_COOKIE_DOMAIN"))
+}
+
+func effectiveAuthCookieSecure() bool {
+	if authCookieSameSite() == http.SameSiteNoneMode {
+		// Browsers reject SameSite=None cookies unless Secure is set.
+		return true
+	}
+	return authCookieSecure()
+}
+
 func refreshTokenMaxAge() int {
 	if config.ConfigInstance != nil && config.ConfigInstance.Auth.RefreshTokenExpireDays > 0 {
 		return config.ConfigInstance.Auth.RefreshTokenExpireDays * 86400
@@ -166,40 +192,59 @@ func refreshTokenMaxAge() int {
 }
 
 func setSessionCookie(c *gin.Context, token string, maxAge int) {
+	secure := effectiveAuthCookieSecure()
+	sameSite := authCookieSameSite()
+	domain := authCookieDomain()
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     auth.SessionCookieName,
 		Value:    token,
+		Domain:   domain,
 		Path:     "/",
 		MaxAge:   maxAge,
 		HttpOnly: true,
-		Secure:   authCookieSecure(),
-		SameSite: http.SameSiteLaxMode,
+		Secure:   secure,
+		SameSite: sameSite,
 	})
 }
 
 func setRefreshTokenCookie(c *gin.Context, token string) {
+	secure := effectiveAuthCookieSecure()
+	sameSite := authCookieSameSite()
+	domain := authCookieDomain()
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     "refresh_token",
 		Value:    token,
+		Domain:   domain,
 		Path:     "/api/v1/auth",
 		MaxAge:   refreshTokenMaxAge(),
 		HttpOnly: true,
-		Secure:   authCookieSecure(),
-		SameSite: http.SameSiteLaxMode,
+		Secure:   secure,
+		SameSite: sameSite,
 	})
 }
 
 func clearAuthCookies(c *gin.Context) {
+	secure := effectiveAuthCookieSecure()
+	sameSite := authCookieSameSite()
+	domain := authCookieDomain()
 	for _, name := range []string{auth.SessionCookieName, "access_token", "refresh_token", "token", "jwt"} {
-		http.SetCookie(c.Writer, &http.Cookie{
-			Name:     name,
-			Value:    "",
-			Path:     "/",
-			MaxAge:   -1,
-			HttpOnly: true,
-			Secure:   authCookieSecure(),
-			SameSite: http.SameSiteLaxMode,
-		})
+		expirePaths := []string{"/"}
+		if name == "refresh_token" {
+			expirePaths = append(expirePaths, "/api/v1/auth")
+		}
+
+		for _, path := range expirePaths {
+			http.SetCookie(c.Writer, &http.Cookie{
+				Name:     name,
+				Value:    "",
+				Domain:   domain,
+				Path:     path,
+				MaxAge:   -1,
+				HttpOnly: true,
+				Secure:   secure,
+				SameSite: sameSite,
+			})
+		}
 	}
 }
 
@@ -233,7 +278,6 @@ func createSessionForUser(c *gin.Context, user *models.User, role string) (strin
 		return "", auth.SessionData{}, err
 	}
 
-	setSessionCookie(c, sessionToken, int(sessionTTL().Seconds()))
 	return sessionToken, sessionData, nil
 }
 

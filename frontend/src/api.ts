@@ -1862,6 +1862,10 @@ class ApiClient {
     }
   }
 
+  markSessionEstablishedForCookieAuth(): void {
+    this.markSessionEstablished();
+  }
+
   shouldAttemptCookieRefresh(): boolean {
     return this.hasSessionHint() || shouldAttemptCookieSessionBootstrap(API_BASE_URL);
   }
@@ -2103,8 +2107,11 @@ class ApiClient {
     const payload = response.data as ApiResponse<UserProfile> | UserProfile;
 
     if (payload && typeof payload === 'object' && 'success' in payload && 'message' in payload) {
+      this.markSessionEstablishedForCookieAuth();
       return payload as ApiResponse<UserProfile>;
     }
+
+    this.markSessionEstablishedForCookieAuth();
 
     return {
       success: true,

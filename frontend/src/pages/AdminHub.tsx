@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { Activity, ArrowRight, LockKeyhole, ShieldCheck, Users, Workflow } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import api from '../api';
 import { PageContainer } from '../components/PageContainer';
 import {
     EmptyState,
+  InlineNotice,
     PlatformPageHeader,
     PlatformPanel,
     PlatformStatCard,
@@ -24,6 +25,26 @@ const resolveModuleHref = (route: string | undefined): string => {
 };
 
 export const AdminHubPage = () => {
+  const navigate = useNavigate();
+
+  const getApiErrorCode = (error: unknown): string | null => {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'response' in error &&
+      typeof (error as { response?: unknown }).response === 'object' &&
+      (error as { response?: unknown }).response !== null
+    ) {
+      const response = (error as { response?: { data?: { code?: unknown } } }).response;
+      const code = response?.data?.code;
+      if (typeof code === 'string' && code.trim().length > 0) {
+        return code.trim().toLowerCase();
+      }
+    }
+
+    return null;
+  };
+
   const overviewQuery = useQuery({
     queryKey: ['portal', 'overview', 'admin'],
     queryFn: async () => (await api.getPortalOverview()).data,
@@ -45,6 +66,30 @@ export const AdminHubPage = () => {
 
   const modules = overviewQuery.data?.modules ?? [];
   const pendingApps = summaryQuery.data?.pending_partner_applications ?? 0;
+  const mfaEnrollmentRequired = [overviewQuery.error, summaryQuery.error, botStatsQuery.error]
+    .map(getApiErrorCode)
+    .some((code) => code === 'mfa_required');
+
+  if (mfaEnrollmentRequired) {
+    return (
+      <PageContainer size="wide" className="space-y-6">
+        <InlineNotice
+          tone="warning"
+          title="MFA enrollment required"
+          description="Admin hub operations are protected. Complete 2FA enrollment before accessing this workspace."
+          action={
+            <button
+              type="button"
+              onClick={() => navigate('/2fa-setup')}
+              className="rounded-lg border border-amber-500/30 bg-amber-500/15 px-4 py-2 text-sm font-medium text-amber-100 transition hover:border-amber-400/40 hover:bg-amber-500/20"
+            >
+              Open 2FA setup
+            </button>
+          }
+        />
+      </PageContainer>
+    );
+  }
 
   return (
     <PageContainer size="wide" className="space-y-6">

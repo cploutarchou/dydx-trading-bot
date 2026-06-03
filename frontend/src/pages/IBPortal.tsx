@@ -1,15 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, GitBranchPlus, KeyRound, Loader2, ShieldX, Users, WalletCards } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api, { CreateIBInvitationTokenPayload, IBInvitationToken } from '../api';
-import {
-  BACKOFFICE_ROLES,
-  IB_ROLES,
-  getUserWorkspaceRole,
-  roleMatches,
-} from '../auth/roles';
+import { BACKOFFICE_ROLES, IB_ROLES, getUserWorkspaceRole, roleMatches } from '../auth/roles';
 import { useToastStore } from '../components/ErrorBoundary';
 import { PageContainer } from '../components/PageContainer';
+import { InlineNotice } from '../components/ui/PlatformUI';
 import { useAuthStore } from '../store/auth';
 
 const formatDateTime = (value?: string) => {
@@ -40,6 +37,26 @@ const isTokenActive = (token: IBInvitationToken) => {
 };
 
 export const IBPortalPage = () => {
+  const navigate = useNavigate();
+
+  const getApiErrorCode = (error: unknown): string | null => {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'response' in error &&
+      typeof (error as { response?: unknown }).response === 'object' &&
+      (error as { response?: unknown }).response !== null
+    ) {
+      const response = (error as { response?: { data?: { code?: unknown } } }).response;
+      const code = response?.data?.code;
+      if (typeof code === 'string' && code.trim().length > 0) {
+        return code.trim().toLowerCase();
+      }
+    }
+
+    return null;
+  };
+
   const user = useAuthStore((state) => state.user);
   const role = getUserWorkspaceRole(user);
   const canUseIBPortal = roleMatches(role, [...IB_ROLES, ...BACKOFFICE_ROLES]);
@@ -106,6 +123,13 @@ export const IBPortalPage = () => {
       void queryClient.invalidateQueries({ queryKey: ['ib', 'invitation-tokens'] });
     },
     onError: (error: unknown) => {
+      if (getApiErrorCode(error) === 'mfa_required') {
+        errorToast(
+          'MFA enrollment required',
+          'Complete 2FA enrollment to create invitation tokens.'
+        );
+        return;
+      }
       errorToast(
         'Failed to create token',
         error instanceof Error ? error.message : 'Unknown error'
@@ -120,6 +144,13 @@ export const IBPortalPage = () => {
       void queryClient.invalidateQueries({ queryKey: ['ib', 'invitation-tokens'] });
     },
     onError: (error: unknown) => {
+      if (getApiErrorCode(error) === 'mfa_required') {
+        errorToast(
+          'MFA enrollment required',
+          'Complete 2FA enrollment to revoke invitation tokens.'
+        );
+        return;
+      }
       errorToast(
         'Failed to revoke token',
         error instanceof Error ? error.message : 'Unknown error'
@@ -133,6 +164,15 @@ export const IBPortalPage = () => {
   const relationships = hierarchyQuery.data?.relationships ?? [];
   const ownerCommission = commissionQuery.data?.owner;
   const downlineCommission = commissionQuery.data?.downline;
+  const mfaEnrollmentRequired = [
+    tokensQuery.error,
+    overviewQuery.error,
+    applicationsQuery.error,
+    hierarchyQuery.error,
+    commissionQuery.error,
+  ]
+    .map(getApiErrorCode)
+    .some((code) => code === 'mfa_required');
 
   const stats = useMemo(() => {
     const active = tokens.filter((token) => isTokenActive(token)).length;
@@ -152,6 +192,27 @@ export const IBPortalPage = () => {
             back-office.
           </p>
         </div>
+      </PageContainer>
+    );
+  }
+
+  if (mfaEnrollmentRequired) {
+    return (
+      <PageContainer size="wide" className="space-y-6">
+        <InlineNotice
+          tone="warning"
+          title="MFA enrollment required"
+          description="IB portal operations are protected. Complete 2FA enrollment before accessing this workspace."
+          action={
+            <button
+              type="button"
+              onClick={() => navigate('/2fa-setup')}
+              className="rounded-lg border border-amber-500/30 bg-amber-500/15 px-4 py-2 text-sm font-medium text-amber-100 transition hover:border-amber-400/40 hover:bg-amber-500/20"
+            >
+              Open 2FA setup
+            </button>
+          }
+        />
       </PageContainer>
     );
   }

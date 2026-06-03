@@ -11,33 +11,33 @@
  */
 
 import {
-    AlertCircle,
-    BarChart2,
-    ChevronRight,
-    KeyRound,
-    Loader,
-    Mail,
-    MessageSquare,
-    Newspaper,
-    RefreshCw,
-    Save,
-    Search,
-    ShieldCheck,
-    SlidersHorizontal,
-    UserCircle,
-    Users,
-    Zap,
+	AlertCircle,
+	BarChart2,
+	ChevronRight,
+	KeyRound,
+	Loader,
+	Mail,
+	MessageSquare,
+	Newspaper,
+	RefreshCw,
+	Save,
+	Search,
+	ShieldCheck,
+	SlidersHorizontal,
+	UserCircle,
+	Users,
+	Zap,
 } from 'lucide-react';
 import {
-    type ComponentType,
-    useCallback,
-    useDeferredValue,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
+	type ComponentType,
+	useCallback,
+	useDeferredValue,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
 } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import apiClient from '../api';
 import { BACKOFFICE_ROLES, getUserWorkspaceRole, roleMatches } from '../auth/roles';
 import { AdminAccessControlSettings } from '../components/AdminAccessControlSettings';
@@ -53,10 +53,10 @@ import { PageContainer } from '../components/PageContainer';
 import { ProfileSettings } from '../components/ProfileSettings';
 import { TelegramSettings } from '../components/TelegramSettings';
 import {
-    InlineNotice,
-    PlatformPageHeader,
-    PlatformStatCard,
-    StatusBadge,
+	InlineNotice,
+	PlatformPageHeader,
+	PlatformStatCard,
+	StatusBadge,
 } from '../components/ui/PlatformUI';
 import { useAuthStore } from '../store/auth';
 
@@ -85,6 +85,17 @@ const getApiErrorMessage = (error: unknown, fallback: string): string => {
   }
 
   return fallback;
+};
+
+const getApiErrorCode = (error: unknown): string | null => {
+  if (isRecord(error) && isRecord(error.response) && isRecord(error.response.data)) {
+    const code = error.response.data.code;
+    if (typeof code === 'string' && code.trim().length > 0) {
+      return code.trim().toLowerCase();
+    }
+  }
+
+  return null;
 };
 
 interface SettingField {
@@ -348,6 +359,7 @@ const hasAnyFieldErrors = (errors: FieldErrors): boolean =>
   Object.values(errors).some((sectionErrors) => Object.keys(sectionErrors).length > 0);
 
 export default function Settings() {
+  const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
   const isAdminUser = Boolean(user?.is_admin);
   const canManageBackofficeSettings = roleMatches(getUserWorkspaceRole(user), BACKOFFICE_ROLES);
@@ -360,6 +372,7 @@ export default function Settings() {
   >({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [mfaEnrollmentRequired, setMfaEnrollmentRequired] = useState(false);
   const [activeSection, setActiveSection] = useState<string>(requestedSection || 'profile');
   const [pendingFocusTarget, setPendingFocusTarget] = useState<PendingFocusTarget | null>(null);
   const [sectionSearchQuery, setSectionSearchQuery] = useState('');
@@ -451,6 +464,7 @@ export default function Settings() {
   const fetchSettingsData = useCallback(async () => {
     try {
       setLoading(true);
+      setMfaEnrollmentRequired(false);
 
       if (!canManageBackofficeSettings) {
         setSchema({ sections: [] });
@@ -498,6 +512,16 @@ export default function Settings() {
       setFormValues(formVals);
       setInitialFormValues(formVals);
     } catch (error: unknown) {
+      const apiErrorCode = getApiErrorCode(error);
+      if (apiErrorCode === 'mfa_required') {
+        setMfaEnrollmentRequired(true);
+        errorToast(
+          'MFA enrollment required',
+          'Complete 2FA enrollment to access operator settings.'
+        );
+        return;
+      }
+
       errorToast('Failed to load settings', getApiErrorMessage(error, 'Unknown error'));
     } finally {
       setLoading(false);
@@ -734,6 +758,27 @@ export default function Settings() {
   }
 
   if (!schema) {
+    if (mfaEnrollmentRequired) {
+      return (
+        <PageContainer size="wide">
+          <InlineNotice
+            tone="warning"
+            title="MFA enrollment required"
+            description="Operator settings are protected. Complete 2FA enrollment before accessing this control surface."
+            action={
+              <button
+                type="button"
+                onClick={() => navigate('/2fa-setup')}
+                className="rounded-lg border border-amber-500/30 bg-amber-500/15 px-4 py-2 text-sm font-medium text-amber-100 transition hover:border-amber-400/40 hover:bg-amber-500/20"
+              >
+                Open 2FA setup
+              </button>
+            }
+          />
+        </PageContainer>
+      );
+    }
+
     return (
       <PageContainer size="wide">
         <InlineNotice

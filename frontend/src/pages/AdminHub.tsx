@@ -5,7 +5,7 @@ import api from '../api';
 import { PageContainer } from '../components/PageContainer';
 import {
     EmptyState,
-  InlineNotice,
+    InlineNotice,
     PlatformPageHeader,
     PlatformPanel,
     PlatformStatCard,

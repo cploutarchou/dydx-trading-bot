@@ -3,12 +3,7 @@ import { Copy, GitBranchPlus, KeyRound, Loader2, ShieldX, Users, WalletCards } f
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api, { CreateIBInvitationTokenPayload, IBInvitationToken } from '../api';
-import {
-  BACKOFFICE_ROLES,
-  IB_ROLES,
-  getUserWorkspaceRole,
-  roleMatches,
-} from '../auth/roles';
+import { BACKOFFICE_ROLES, IB_ROLES, getUserWorkspaceRole, roleMatches } from '../auth/roles';
 import { useToastStore } from '../components/ErrorBoundary';
 import { PageContainer } from '../components/PageContainer';
 import { InlineNotice } from '../components/ui/PlatformUI';
@@ -129,7 +124,10 @@ export const IBPortalPage = () => {
     },
     onError: (error: unknown) => {
       if (getApiErrorCode(error) === 'mfa_required') {
-        errorToast('MFA enrollment required', 'Complete 2FA enrollment to create invitation tokens.');
+        errorToast(
+          'MFA enrollment required',
+          'Complete 2FA enrollment to create invitation tokens.'
+        );
         return;
       }
       errorToast(
@@ -147,7 +145,10 @@ export const IBPortalPage = () => {
     },
     onError: (error: unknown) => {
       if (getApiErrorCode(error) === 'mfa_required') {
-        errorToast('MFA enrollment required', 'Complete 2FA enrollment to revoke invitation tokens.');
+        errorToast(
+          'MFA enrollment required',
+          'Complete 2FA enrollment to revoke invitation tokens.'
+        );
         return;
       }
       errorToast(

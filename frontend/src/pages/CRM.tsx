@@ -162,7 +162,10 @@ export const CRMPage = () => {
     },
     onError: (error: unknown) => {
       if (getApiErrorCode(error) === 'mfa_required') {
-        errorToast('MFA enrollment required', 'Complete 2FA enrollment to update commission metrics.');
+        errorToast(
+          'MFA enrollment required',
+          'Complete 2FA enrollment to update commission metrics.'
+        );
         return;
       }
       errorToast(

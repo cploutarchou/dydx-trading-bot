@@ -1,0 +1,144 @@
+name: dydx-trading-bot
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${APP_DB_NAME:-app}
+      POSTGRES_USER: ${APP_DB_USER:-app}
+      POSTGRES_PASSWORD: ${APP_DB_PASSWORD:-change-me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${APP_DB_USER:-app} -d ${APP_DB_NAME:-app}
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - "--appendonly"
+      - "yes"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  bot:
+    image: ghcr.io/cploutarchou/dydx-trading-bot/api:20260603225645
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      APP_CONFIG_ENV: ${APP_CONFIG_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SECRET_KEY: ${SECRET_KEY:-replace-me-strong-secret}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-replace-me-strong-jwt-secret}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-replace-me-strong-encryption-key}
+      BOT_DB_CUTOVER_MODE: shared
+      BOT_API_TOKEN: ${ENCRYPTION_KEY:-replace-me-strong-encryption-key}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${APP_DB_NAME:-app}
+      DB_USER: ${APP_DB_USER:-app}
+      DB_PASSWORD: ${APP_DB_PASSWORD:-change-me}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    expose:
+      - "8889"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8889/ready')" >/dev/null
+          2>&1 || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: ghcr.io/cploutarchou/dydx-trading-bot/backend:20260603225645
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      bot:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      APP_ENV: ${APP_ENV:-production}
+      APP_CONFIG_ENV: ${APP_CONFIG_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      API_PORT: 8888
+      SECRET_KEY: ${SECRET_KEY:-replace-me-strong-secret}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-replace-me-strong-jwt-secret}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-replace-me-strong-encryption-key}
+      FRONTEND_URL: https://${APP_DOMAIN:-app.example.com}
+      CORS_ALLOWED_ORIGINS: https://${APP_DOMAIN:-app.example.com}
+      AUTH_COOKIE_SAMESITE: ${AUTH_COOKIE_SAMESITE:-lax}
+      AUTH_COOKIE_DOMAIN: ${AUTH_COOKIE_DOMAIN:-}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${APP_DB_NAME:-app}
+      DB_USER: ${APP_DB_USER:-app}
+      DB_PASSWORD: ${APP_DB_PASSWORD:-change-me}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      BOT_API_URL: http://bot:8889
+      BOT_API_USE_SERVICE_TOKEN: "true"
+      BOT_API_TOKEN: ${ENCRYPTION_KEY:-replace-me-strong-encryption-key}
+      BOT_DB_CUTOVER_MODE: shared
+    ports:
+      - "8888:8888"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:8888/ready >/dev/null 2>&1 || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    image: ghcr.io/cploutarchou/dydx-trading-bot/frontend:20260603225645
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-https://api.example.com}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://api.example.com}
+        VITE_AUTH_BASE_URL: ${VITE_AUTH_BASE_URL:-https://api.example.com}
+        VITE_CLIENT_HOST: ${VITE_CLIENT_HOST:-app.example.com}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "5173:80"
+
+volumes:
+  postgres_data: null
+  redis_data: null

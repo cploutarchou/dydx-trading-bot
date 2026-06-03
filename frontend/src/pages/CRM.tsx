@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, Clock3, Loader2, Network, ShieldAlert, WalletCards } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api, { PartnerApplication } from '../api';
 import { useToastStore } from '../components/ErrorBoundary';
 import { PageContainer } from '../components/PageContainer';
+import { InlineNotice } from '../components/ui/PlatformUI';
 
 const statusTone: Record<string, string> = {
   pending: 'border-amber-500/30 bg-amber-500/10 text-amber-200',
@@ -27,6 +29,26 @@ const buildNextStatus = (application: PartnerApplication): 'reviewing' | 'approv
   application.status === 'pending' ? 'reviewing' : 'approved';
 
 export const CRMPage = () => {
+  const navigate = useNavigate();
+
+  const getApiErrorCode = (error: unknown): string | null => {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'response' in error &&
+      typeof (error as { response?: unknown }).response === 'object' &&
+      (error as { response?: unknown }).response !== null
+    ) {
+      const response = (error as { response?: { data?: { code?: unknown } } }).response;
+      const code = response?.data?.code;
+      if (typeof code === 'string' && code.trim().length > 0) {
+        return code.trim().toLowerCase();
+      }
+    }
+
+    return null;
+  };
+
   const queryClient = useQueryClient();
   const successToast = useToastStore((state) => state.success);
   const errorToast = useToastStore((state) => state.error);
@@ -109,6 +131,10 @@ export const CRMPage = () => {
       void queryClient.invalidateQueries({ queryKey: ['crm', 'hierarchy'] });
     },
     onError: (error: unknown) => {
+      if (getApiErrorCode(error) === 'mfa_required') {
+        errorToast('MFA enrollment required', 'Complete 2FA enrollment to review applications.');
+        return;
+      }
       errorToast('Review failed', error instanceof Error ? error.message : 'Unknown error');
     },
   });
@@ -135,6 +161,10 @@ export const CRMPage = () => {
       });
     },
     onError: (error: unknown) => {
+      if (getApiErrorCode(error) === 'mfa_required') {
+        errorToast('MFA enrollment required', 'Complete 2FA enrollment to update commission metrics.');
+        return;
+      }
       errorToast(
         'Commission update failed',
         error instanceof Error ? error.message : 'Unknown error'
@@ -146,6 +176,37 @@ export const CRMPage = () => {
   const users = usersQuery.data?.users ?? [];
   const relationships = hierarchyQuery.data?.relationships ?? [];
   const securityEvents = securityEventsQuery.data?.events ?? [];
+  const mfaEnrollmentRequired = [
+    summaryQuery.error,
+    applicationsQuery.error,
+    usersQuery.error,
+    hierarchyQuery.error,
+    securityEventsQuery.error,
+    commissionQuery.error,
+  ]
+    .map(getApiErrorCode)
+    .some((code) => code === 'mfa_required');
+
+  if (mfaEnrollmentRequired) {
+    return (
+      <PageContainer size="wide" className="space-y-6">
+        <InlineNotice
+          tone="warning"
+          title="MFA enrollment required"
+          description="CRM backoffice operations are protected. Complete 2FA enrollment before accessing this workspace."
+          action={
+            <button
+              type="button"
+              onClick={() => navigate('/2fa-setup')}
+              className="rounded-lg border border-amber-500/30 bg-amber-500/15 px-4 py-2 text-sm font-medium text-amber-100 transition hover:border-amber-400/40 hover:bg-amber-500/20"
+            >
+              Open 2FA setup
+            </button>
+          }
+        />
+      </PageContainer>
+    );
+  }
 
   const ibCandidates = useMemo(
     () => users.filter((user) => user.role === 'ib' || user.role === 'sub_ib'),

@@ -156,16 +156,6 @@ const clientNavItems: WorkspaceNavItem[] = [
     icon: Settings,
     shortcut: 'G ,',
   },
-  {
-    label: 'Celery Ops',
-    path: '/admin/celery',
-    description: 'Admin-only Celery task, queue, worker, and failure inspection.',
-    section: 'Administration',
-    keywords: ['celery', 'tasks', 'workers', 'queues', 'debug'],
-    exact: true,
-    icon: Server,
-    allowedRoles: ['admin', 'super_admin', 'backoffice_admin'],
-  },
 ];
 
 const backofficeNavItems: WorkspaceNavItem[] = [

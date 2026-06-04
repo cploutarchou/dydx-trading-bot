@@ -22,15 +22,15 @@ const STORAGE_KEYS = {
 
 const DEFAULTS: Record<PortalKind, PortalSubdomainConfig> = {
   crm: {
-    enabled: true,
+    enabled: false,
     host: import.meta.env.VITE_CRM_HOST || 'crm.localhost',
   },
   ib: {
-    enabled: true,
+    enabled: false,
     host: import.meta.env.VITE_IB_PORTAL_HOST || 'ib.localhost',
   },
   client: {
-    enabled: true,
+    enabled: false,
     host: import.meta.env.VITE_CLIENT_HOST || 'app.localhost',
   },
 };

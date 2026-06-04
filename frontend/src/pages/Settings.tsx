@@ -39,6 +39,7 @@ import {
 } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import apiClient from '../api';
+import { getCurrentPortalType } from '../app/portal';
 import { BACKOFFICE_ROLES, getUserWorkspaceRole, roleMatches } from '../auth/roles';
 import { AdminAccessControlSettings } from '../components/AdminAccessControlSettings';
 import { AIMarketSettings } from '../components/AIMarketSettings';
@@ -361,8 +362,11 @@ const hasAnyFieldErrors = (errors: FieldErrors): boolean =>
 export default function Settings() {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
-  const isAdminUser = Boolean(user?.is_admin);
-  const canManageBackofficeSettings = roleMatches(getUserWorkspaceRole(user), BACKOFFICE_ROLES);
+  const portal = getCurrentPortalType();
+  const isBackofficeSettingsSurface = portal === 'backoffice';
+  const isAdminUser = isBackofficeSettingsSurface && Boolean(user?.is_admin);
+  const canManageBackofficeSettings =
+    isBackofficeSettingsSurface && roleMatches(getUserWorkspaceRole(user), BACKOFFICE_ROLES);
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedSection = searchParams.get('section')?.trim().toLowerCase() || '';
   const [schema, setSchema] = useState<SettingsSchema | null>(null);

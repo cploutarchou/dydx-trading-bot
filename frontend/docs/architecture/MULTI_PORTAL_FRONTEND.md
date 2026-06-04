@@ -8,6 +8,8 @@
 
 Portal route registration is centralized in `src/app/routeManifest.tsx`. Each entry owns its route path, allowed workspace roles, and lazy-loaded element so `src/App.tsx` can apply one consistent protected-route wrapper.
 
+Admin and client surfaces remain separate portal concerns. Client routes must stay in the client route list; admin/backoffice pages must stay in the backoffice route list and corresponding `backofficeNavItems` navigation. Admin users may enter the client portal for normal user workflows, but admin configuration is not rendered in client `/settings`.
+
 ## Shared Packages
 
 - `packages/shared-ui`: UI primitives, page containers, and feedback surfaces
@@ -26,6 +28,10 @@ Shared API exports now include `src/api/normalizers.ts` for envelope/list extrac
 - CRM / Backoffice: `admin`, `super_admin`, `backoffice`, `operations_admin`, `finance_admin`, `support_agent`
 
 The frontend prevents accidental cross-portal access with route guards and `/unauthorized`. The backend remains responsible for enforcing authorization on every endpoint.
+
+Admin/backoffice users see a workspace topbar switch from client or IB surfaces into the CRM / Backoffice portal. In the backoffice portal the same control returns to the Client Portal. The switch uses `VITE_CRM_HOST`, `VITE_CLIENT_HOST`, and the portal subdomain settings helpers, so production deployments must keep those host values accurate.
+
+In Vite development, the switch stays on the same origin and adds `?portal=backoffice` or `?portal=client`. This preserves the localStorage-backed dev session, avoiding a forced login when moving between `localhost` and `crm.localhost`.
 
 ## Deployment Mapping
 
@@ -46,3 +52,14 @@ VITE_IB_PORTAL_HOST=ib.example.com
 ```
 
 `VITE_API_URL` remains a compatibility fallback for older profiles.
+
+## Adding Routes
+
+- Add client pages to `clientRoutes` in `src/app/routeManifest.tsx` and `clientNavItems` in `src/navigation/workspaceNav.ts`.
+- Add admin/backoffice pages to `backofficeRoutes` and `backofficeNavItems`.
+- Add IB pages to `ibRoutes` and `ibNavItems`.
+- Keep backend authorization aligned with the route owner. Admin settings and mutations should use the existing backend RBAC/MFA middleware where the backend has a database-backed permission boundary.
+
+## Coming Soon and Admin Access
+
+Coming Soon mode is a client-portal public launch gate only. It does not block the backoffice or IB builds. In the client portal, `/admin...` paths bypass the Coming Soon page so auth and route guards can redirect anonymous users to login or authenticated users to the correct unauthorized/client flow without a loop.

@@ -91,6 +91,9 @@ const COMING_SOON_AUTH_BYPASS_PATHS = new Set([
   '/unauthorized',
 ]);
 
+const isComingSoonBypassPath = (pathname: string): boolean =>
+  COMING_SOON_AUTH_BYPASS_PATHS.has(pathname) || pathname.startsWith('/admin');
+
 const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: WorkspaceRole[] }> = ({
   children,
   allowedRoles,
@@ -176,7 +179,7 @@ const ComingSoonGate: React.FC<{ children: React.ReactNode }> = ({ children }) =
     return <>{children}</>;
   }
 
-  const isAuthBypassPath = COMING_SOON_AUTH_BYPASS_PATHS.has(location.pathname);
+  const isAuthBypassPath = isComingSoonBypassPath(location.pathname);
   if (isAuthenticated || isAuthBypassPath) {
     return <>{children}</>;
   }

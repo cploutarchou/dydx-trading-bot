@@ -103,16 +103,12 @@ const clientRoutes: PortalRouteDefinition[] = [
     element: <Navigate to="/settings?section=dydx_keys" replace />,
   },
   { path: '/settings', allowedRoles: CLIENT_ROLES, element: <SettingsPage /> },
-  {
-    path: '/admin/celery',
-    allowedRoles: ['admin', 'super_admin', 'backoffice_admin'],
-    element: <AdminCeleryPage />,
-  },
 ];
 
 const backofficeRoutes: PortalRouteDefinition[] = [
   { path: '/dashboard', allowedRoles: BACKOFFICE_ROLES, element: <AdminHubPage /> },
   { path: '/admin', allowedRoles: BACKOFFICE_ROLES, element: <AdminHubPage /> },
+  { path: '/admin/settings', allowedRoles: BACKOFFICE_ROLES, element: <SettingsPage /> },
   {
     path: '/admin/celery',
     allowedRoles: ['admin', 'super_admin', 'backoffice_admin'],
@@ -120,7 +116,6 @@ const backofficeRoutes: PortalRouteDefinition[] = [
   },
   { path: '/crm/*', allowedRoles: BACKOFFICE_ROLES, element: <CRMRouter /> },
   { path: '/ib-portal/*', allowedRoles: BACKOFFICE_ROLES, element: <IBRouter /> },
-  { path: '/settings', allowedRoles: BACKOFFICE_ROLES, element: <SettingsPage /> },
 ];
 
 const ibPortalRoles: WorkspaceRole[] = [...IB_ROLES, ...BACKOFFICE_ROLES];

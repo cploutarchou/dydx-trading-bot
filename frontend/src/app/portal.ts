@@ -2,6 +2,8 @@ import { BACKOFFICE_ROLES, CLIENT_ROLES, IB_ROLES, type WorkspaceRole } from '..
 
 export type AppPortalType = 'client' | 'backoffice' | 'ib';
 
+const DEV_PORTAL_OVERRIDE_KEY = 'dev.portal.override';
+
 const normalizePortalType = (value?: string | null): AppPortalType | null => {
   const normalized = String(value ?? '')
     .trim()
@@ -13,11 +15,41 @@ const normalizePortalType = (value?: string | null): AppPortalType | null => {
   return null;
 };
 
+const getDevPortalOverride = (): AppPortalType | null => {
+  if (!import.meta.env.DEV || typeof window === 'undefined') {
+    return null;
+  }
+
+  const requested = normalizePortalType(new URLSearchParams(window.location.search).get('portal'));
+  if (requested) {
+    try {
+      window.localStorage.setItem(DEV_PORTAL_OVERRIDE_KEY, requested);
+    } catch {
+      // Ignore storage failures; the query parameter still applies for this load.
+    }
+    return requested;
+  }
+
+  try {
+    return normalizePortalType(window.localStorage.getItem(DEV_PORTAL_OVERRIDE_KEY));
+  } catch {
+    return null;
+  }
+};
+
 export const getCurrentPortalType = (): AppPortalType => {
-  const configured = normalizePortalType(import.meta.env.VITE_APP_PORTAL_TYPE);
-  if (configured) return configured;
+  const devOverride = getDevPortalOverride();
+  if (devOverride) return devOverride;
 
   if (typeof window === 'undefined') return 'client';
+
+  const pathname = window.location.pathname.toLowerCase();
+  if (pathname.startsWith('/crm/')) return 'backoffice';
+  if (pathname.startsWith('/ib-portal/')) return 'ib';
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) return 'backoffice';
+
+  const configured = normalizePortalType(import.meta.env.VITE_APP_PORTAL_TYPE);
+  if (configured) return configured;
 
   const hostname = window.location.hostname.toLowerCase();
   if (hostname.startsWith('crm.')) return 'backoffice';

@@ -232,7 +232,7 @@ show_final_info() {
     echo "  🔴 Redis:       redis://localhost:6379"
     echo ""
     echo "${GREEN}Login Credentials:${NC}"
-    echo "  Email:    admin@example.com"
+    echo "  Email:    admin@executionlab.io"
     echo "  Password: password"
     echo ""
     echo "${GREEN}Features Enabled:${NC}"

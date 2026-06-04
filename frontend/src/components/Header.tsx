@@ -1,20 +1,13 @@
-import {
-  ChevronRight,
-  Command,
-  Languages,
-  Menu,
-  Search,
-  ShieldCheck,
-  Wifi,
-  WifiOff,
-} from 'lucide-react';
+import { ChevronRight, Command, Menu, Search, ShieldCheck, Wifi, WifiOff } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { getCurrentPortalType } from '../app/portal';
+import { clientPortalHref } from '../app/portalLinks';
+import { BACKOFFICE_ROLES, getUserWorkspaceRole, roleMatches } from '../auth/roles';
 import { useI18n } from '../i18n/useI18n';
 import { getWorkspaceBreadcrumbs, getWorkspaceNavItems } from '../navigation/workspaceNav';
 import { useAuthStore } from '../store/auth';
-import { useUIPreferencesStore } from '../store/uiPreferences';
+import { ThemeToggle } from './ThemeToggle';
 
 interface HeaderProps {
   onMenuToggle: () => void;
@@ -24,8 +17,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalette }) => {
   const location = useLocation();
   const user = useAuthStore((state) => state.user);
-  const { language, locale, t, tr } = useI18n();
-  const setLanguage = useUIPreferencesStore((state) => state.setLanguage);
+  const { locale, t, tr } = useI18n();
   const controlCls =
     'border-slate-700/70 bg-slate-950/70 text-slate-300 hover:border-cyan-500/30 hover:text-white';
   const environmentLabel = import.meta.env.DEV
@@ -35,6 +27,20 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
   const [now, setNow] = useState(() => new Date());
   const [isOnline, setIsOnline] = useState(() => window.navigator.onLine);
   const portal = getCurrentPortalType();
+  const workspaceRole = getUserWorkspaceRole(user);
+  const canOpenBackoffice = roleMatches(workspaceRole, BACKOFFICE_ROLES);
+  const portalSwitch =
+    canOpenBackoffice && portal === 'backoffice'
+      ? {
+          label: t('Client area', 'Περιοχή πελάτη'),
+          href: clientPortalHref('/dashboard'),
+        }
+      : canOpenBackoffice
+        ? {
+            label: t('Admin', 'Διαχείριση'),
+            href: '/admin',
+          }
+        : null;
 
   useEffect(() => {
     const timerId = window.setInterval(() => setNow(new Date()), 1000);
@@ -112,6 +118,16 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
         </div>
 
         <div className="flex items-center gap-3">
+          {portalSwitch && (
+            <a
+              href={portalSwitch.href}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-semibold transition ${controlCls}`}
+            >
+              <ShieldCheck className="h-4 w-4" />
+              <span className="hidden sm:inline">{portalSwitch.label}</span>
+            </a>
+          )}
+
           <button
             type="button"
             onClick={onOpenCommandPalette}
@@ -119,32 +135,13 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
           >
             <Search className="h-4 w-4 opacity-60" />
             <span className="hidden lg:inline">{t('Jump anywhere', 'Μεταπήδηση παντού')}</span>
-            <span
-              className="inline-flex items-center gap-1 rounded-lg border border-stone-700 bg-stone-950 px-2 py-1 text-[10px] uppercase text-stone-500"
-            >
+            <span className="inline-flex items-center gap-1 rounded-lg border border-stone-700 bg-stone-950 px-2 py-1 text-[10px] uppercase text-stone-500">
               <Command className="h-3 w-3" />K
             </span>
           </button>
 
           <div className="hidden items-center gap-2 lg:flex">
-            <label
-              className={`inline-flex items-center gap-2 rounded-lg border px-2 py-2 text-xs ${controlCls}`}
-            >
-              <Languages className="h-4 w-4" />
-              <select
-                value={language}
-                onChange={(event) => setLanguage(event.target.value === 'el' ? 'el' : 'en')}
-                className="bg-transparent text-xs text-stone-200 outline-none"
-                aria-label="Language"
-              >
-                <option value="en" className="bg-slate-900 text-slate-100">
-                  EN
-                </option>
-                <option value="el" className="bg-slate-900 text-slate-100">
-                  EL
-                </option>
-              </select>
-            </label>
+            <ThemeToggle />
           </div>
 
           <div className="hidden min-w-0 items-center gap-1.5 xl:flex">
@@ -169,9 +166,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
               <p className="text-[10px] uppercase text-slate-500">
                 {t('Local time', 'Τοπική ώρα')}
               </p>
-              <p
-                className="mt-1 text-sm font-medium text-cyan-300"
-              >
+              <p className="mt-1 text-sm font-medium text-cyan-300">
                 {now.toLocaleTimeString(locale, {
                   hour: '2-digit',
                   minute: '2-digit',
@@ -181,9 +176,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
             </div>
             <div className="workspace-card min-w-0 px-3 py-2.5">
               <p className="text-[10px] uppercase text-slate-500">{t('Operator', 'Χειριστής')}</p>
-              <p
-                className="mt-1 max-w-28 truncate text-sm font-medium text-white"
-              >
+              <p className="mt-1 max-w-28 truncate text-sm font-medium text-white">
                 {user?.full_name || user?.username || t('Trader', 'Trader')}
               </p>
             </div>

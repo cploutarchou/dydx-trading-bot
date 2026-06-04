@@ -7,6 +7,7 @@ import {
     type Time,
 } from 'lightweight-charts';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useUIPreferencesStore } from '../store/uiPreferences';
 import { createTradingChart } from './charts/lightweightTheme';
 
 export interface PnlPoint {
@@ -46,6 +47,7 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
   const latestDataRef = useRef<PnlPoint[]>([]);
   const hasFittedContentRef = useRef(false);
   const [hoverPoint, setHoverPoint] = useState<PnlPoint | null>(null);
+  const resolvedTheme = useUIPreferencesStore((state) => state.resolvedTheme);
 
   const normalizedData = useMemo(
     () =>
@@ -75,9 +77,8 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
 
     const chart = createTradingChart(container, height, {
       leftPriceScale: { visible: false },
-      rightPriceScale: { visible: true, borderColor: '#334155' },
+      rightPriceScale: { visible: true },
       timeScale: {
-        borderColor: '#334155',
         timeVisible: false,
         secondsVisible: false,
       },
@@ -120,7 +121,7 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
       chartRef.current = null;
       chart.remove();
     };
-  }, [height]);
+  }, [height, resolvedTheme]);
 
   useEffect(() => {
     const areaSeries = areaSeriesRef.current;

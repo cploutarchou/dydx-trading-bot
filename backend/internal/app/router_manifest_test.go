@@ -49,6 +49,7 @@ func TestBuildRouterRegistersCriticalCompatibilityRoutes(t *testing.T) {
 		"GET /metrics",
 		"POST /api/v1/auth/login",
 		"GET /api/v1/auth/session",
+		"GET /api/v1/public/app-config",
 		"GET /api/v1/me",
 		"GET /api/v1/backtests",
 		"POST /api/v1/backtests/run",

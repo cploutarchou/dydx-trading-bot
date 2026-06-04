@@ -15,33 +15,33 @@ import { PublicMarketPulsePanel } from '../components/PublicMarketPulse';
 import PublicSiteShell from '../components/PublicSiteShell';
 
 const pathItems = [
-  [Waypoints, 'Frame', 'Validate scope, risk, and constraints before build work starts'],
-  [ShieldCheck, 'Harden', 'Complete account readiness with clear security expectations'],
-  [TrendingUp, 'Execute', 'Move into automation and runtime when the plan is ready'],
+  [Waypoints, 'Research', 'Frame markets, pairs, assumptions, and execution constraints first'],
+  [ShieldCheck, 'Validate', 'Backtest strategy logic with risk controls before runtime promotion'],
+  [TrendingUp, 'Execute', 'Move into dYdX bot operations only when readiness is visible'],
 ] as const;
 
 const valueItems = [
   [
     Radar,
-    'Execution confidence',
-    'Compare system direction with risk context before teams spend effort on build decisions.',
+    'Strategy confidence',
+    'Compare market context, backtest evidence, and operating risk before a strategy moves live.',
   ],
   [
     ShieldCheck,
-    'Secure onboarding',
-    'Keep account setup, pricing, and execution expectations plain and transparent.',
+    'Secure operator entry',
+    'Keep account setup, MFA posture, and credential readiness visible before trading workflows.',
   ],
   [
     Sparkles,
     'Runtime clarity',
-    'Make system state readable the moment a workflow transitions from evaluation into operation.',
+    'Make bot state, backtest progress, and degraded conditions readable the moment they change.',
   ],
 ] as const;
 
 const proofItems = [
-  ['Scope discipline', 'Requirements, constraints, and risk reviewed before execution'],
-  ['Operational control', 'Runtime state, health, and action paths kept close together'],
-  ['Delivery clarity', 'Product, automation, and admin workflows connected under one workspace'],
+  ['Validation first', 'Research and backtest evidence reviewed before live runtime'],
+  ['Operational control', 'Bot state, health, and action paths kept close together'],
+  ['Execution clarity', 'Market intel, strategies, backtests, and admin workflows connected'],
 ] as const;
 
 const trustItems = [
@@ -50,8 +50,8 @@ const trustItems = [
     'Credential checks, environment confirmation, and operator gating before runtime actions',
   ],
   [
-    'Transparent operating model',
-    'Evaluation first, then execution terms when the delivery path is measurable',
+    'Validation-led operating model',
+    'Research and backtests first, then execution only when risk context is measurable',
   ],
   [
     'Audit-ready operations',
@@ -60,10 +60,10 @@ const trustItems = [
 ] as const;
 
 const riskItems = [
-  'Technical delivery carries risk, including scope change, integration uncertainty, and operational complexity.',
-  'Prototype and test outcomes are evidence for planning, not guarantees of production behavior.',
-  'Execution quality depends on clear requirements, data access, reliable systems, and timely decisions.',
-  'Operators remain responsible for business, security, compliance, and jurisdiction requirements.',
+  'Crypto trading carries risk, including volatility, liquidity gaps, fees, latency, and execution uncertainty.',
+  'Backtests are evidence for planning, not guarantees of live production behavior.',
+  'Runtime quality depends on reliable systems, valid credentials, market data, and disciplined operator decisions.',
+  'Operators remain responsible for wallet security, compliance, jurisdiction, and capital risk decisions.',
 ] as const;
 
 export const LandingPage: React.FC = () => {
@@ -75,14 +75,14 @@ export const LandingPage: React.FC = () => {
             <MotionReveal className="public-modern-copy" distancePx={18}>
               <div className="surface-label">
                 <Radar className="h-3.5 w-3.5" />
-                Modern technical execution lab
+                DeFi execution intelligence
               </div>
               <h1>
-                Build. Test. Execute. Premium technical delivery without the noise.
+                ExecutionLab
               </h1>
               <p>
-                ExecutionLab turns ideas into shipped systems with disciplined discovery,
-                production-minded engineering, automation, and clear runtime visibility.
+                Research markets, validate crypto strategies, and operate dYdX execution workflows
+                from a controlled fintech-grade workspace.
               </p>
 
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
@@ -90,7 +90,7 @@ export const LandingPage: React.FC = () => {
                   to="/register"
                   className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3.5 text-sm font-semibold text-white"
                 >
-                  Start execution review
+                  Request platform access
                   <ArrowRight className="h-4 w-4" />
                 </Link>
                 <Link
@@ -147,7 +147,7 @@ export const LandingPage: React.FC = () => {
             <PublicMarketPulsePanel
               eyebrow="Market intelligence"
               title="Scope, build, test, and launch readiness stay close to every execution decision."
-              description="Compare workstreams, watch quality gates, and keep implementation context visible before a system moves toward runtime."
+              description="Compare market context, validation quality, and runtime readiness before a strategy moves toward live execution."
             />
           </MotionReveal>
         </section>
@@ -156,10 +156,11 @@ export const LandingPage: React.FC = () => {
           <div className="public-modern-container public-modern-split">
             <MotionReveal className="public-modern-section-copy" distancePx={18}>
               <div className="surface-label">Evaluation path</div>
-              <h2>Move from signal confidence to shipped system without losing context.</h2>
+              <h2>Move from market signal to controlled runtime without losing context.</h2>
               <p>
                 The experience matches the ExecutionLab promise: research, account readiness,
-                pricing, automation, and runtime all sit in one intentional journey.
+                strategy validation, bot operations, and admin control sit in one intentional
+                journey.
               </p>
             </MotionReveal>
 
@@ -186,10 +187,10 @@ export const LandingPage: React.FC = () => {
               <CheckCircle2 className="h-3.5 w-3.5" />
               Product promise
             </div>
-            <h2>Confidence before the first build action. Clarity after every handoff.</h2>
+            <h2>Confidence before deployment. Clarity after every runtime change.</h2>
             <p>
-              Each surface helps serious operators understand evidence, access, and action priority
-              without feeling like they entered a disconnected portal.
+              Each surface helps serious DeFi operators understand evidence, access, and action
+              priority without feeling like they entered a disconnected portal.
             </p>
           </MotionReveal>
 
@@ -216,10 +217,10 @@ export const LandingPage: React.FC = () => {
                 <ShieldCheck className="h-4 w-4" />
                 Ready for execution review
               </div>
-              <h2>Start with context. Continue into disciplined execution.</h2>
+              <h2>Start with context. Continue into disciplined DeFi execution.</h2>
               <p>
-                Review engagement options, align on security expectations, and complete onboarding
-                before runtime workflows or partner operations begin.
+                Review access options, align on security expectations, and complete onboarding
+                before backtests, runtime workflows, or partner operations begin.
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -227,7 +228,7 @@ export const LandingPage: React.FC = () => {
                 to="/register"
                 className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3 text-sm font-semibold text-white"
               >
-                Start execution review
+                Request platform access
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <Link
@@ -245,8 +246,8 @@ export const LandingPage: React.FC = () => {
             <div className="surface-label">Risk disclosure</div>
             <h2>Clear risk language before execution begins.</h2>
             <p>
-              We keep expectations explicit so operators can evaluate delivery quality, risk
-              posture, and operational readiness with no hidden assumptions.
+              We keep expectations explicit so operators can evaluate execution quality, risk
+              posture, and runtime readiness with no hidden assumptions.
             </p>
           </MotionReveal>
 

@@ -4,10 +4,10 @@ import { useNavigate } from 'react-router-dom';
 import { getCurrentPortalType } from '../app/portal';
 import { getUserWorkspaceRole } from '../auth/roles';
 import {
-  filterNavItemsForRole,
-  getWorkspaceNavItems,
-  getWorkspaceQuickActions,
-  type WorkspaceNavItem,
+    filterNavItemsForRole,
+    getWorkspaceNavItems,
+    getWorkspaceQuickActions,
+    type WorkspaceNavItem,
 } from '../navigation/workspaceNav';
 import { useAuthStore } from '../store/auth';
 
@@ -128,7 +128,7 @@ export const WorkspaceCommandPalette: React.FC<WorkspaceCommandPaletteProps> = (
   return (
     <div className="fixed inset-0 z-90 flex items-start justify-center bg-slate-950/75 px-2 pt-3 sm:px-4 sm:pt-[12vh] backdrop-blur-sm">
       <button type="button" className="absolute inset-0 cursor-default" onClick={onClose} />
-      <div className="relative w-full max-w-2xl overflow-hidden rounded-2xl sm:rounded-[28px] border border-slate-800 bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.98))] shadow-[0_24px_80px_rgba(2,6,23,0.55)]">
+      <div className="light-dark-surface relative w-full max-w-2xl overflow-hidden rounded-2xl sm:rounded-[28px] border border-slate-800 bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.98))] shadow-[0_24px_80px_rgba(2,6,23,0.55)]">
         <div className="border-b border-slate-800 p-3 sm:p-4">
           <div className="flex items-center gap-3 rounded-2xl border border-slate-800 bg-slate-950/75 px-4 py-3">
             <Search className="h-4 w-4 text-slate-500" />

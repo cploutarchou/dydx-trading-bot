@@ -1,17 +1,17 @@
 import {
-  ChevronRight,
-  Command,
-  Languages,
-  Menu,
-  Search,
-  ShieldCheck,
-  Wifi,
-  WifiOff,
+    ChevronRight,
+    Command,
+    Languages,
+    Menu,
+    Search,
+    ShieldCheck,
+    Wifi,
+    WifiOff,
 } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { getCurrentPortalType } from '../app/portal';
-import { backofficePortalHref, clientPortalHref } from '../app/portalLinks';
+import { clientPortalHref } from '../app/portalLinks';
 import { BACKOFFICE_ROLES, getUserWorkspaceRole, roleMatches } from '../auth/roles';
 import { useI18n } from '../i18n/useI18n';
 import { getWorkspaceBreadcrumbs, getWorkspaceNavItems } from '../navigation/workspaceNav';
@@ -49,7 +49,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
       : canOpenBackoffice
         ? {
             label: t('Admin', 'Διαχείριση'),
-            href: backofficePortalHref('/dashboard'),
+            href: '/admin',
           }
         : null;
 
@@ -146,9 +146,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
           >
             <Search className="h-4 w-4 opacity-60" />
             <span className="hidden lg:inline">{t('Jump anywhere', 'Μεταπήδηση παντού')}</span>
-            <span
-              className="inline-flex items-center gap-1 rounded-lg border border-stone-700 bg-stone-950 px-2 py-1 text-[10px] uppercase text-stone-500"
-            >
+            <span className="inline-flex items-center gap-1 rounded-lg border border-stone-700 bg-stone-950 px-2 py-1 text-[10px] uppercase text-stone-500">
               <Command className="h-3 w-3" />K
             </span>
           </button>
@@ -197,9 +195,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
               <p className="text-[10px] uppercase text-slate-500">
                 {t('Local time', 'Τοπική ώρα')}
               </p>
-              <p
-                className="mt-1 text-sm font-medium text-cyan-300"
-              >
+              <p className="mt-1 text-sm font-medium text-cyan-300">
                 {now.toLocaleTimeString(locale, {
                   hour: '2-digit',
                   minute: '2-digit',
@@ -209,9 +205,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
             </div>
             <div className="workspace-card min-w-0 px-3 py-2.5">
               <p className="text-[10px] uppercase text-slate-500">{t('Operator', 'Χειριστής')}</p>
-              <p
-                className="mt-1 max-w-28 truncate text-sm font-medium text-white"
-              >
+              <p className="mt-1 max-w-28 truncate text-sm font-medium text-white">
                 {user?.full_name || user?.username || t('Trader', 'Trader')}
               </p>
             </div>

@@ -4202,7 +4202,9 @@ h6 {
 }
 
 :root[data-theme='light'] .premium-sidebar :where(a, button)[class*='hover:text-white']:hover,
-:root[data-theme='light'] .premium-sidebar :where(a, button)[class*='group-hover:text-white']:hover {
+:root[data-theme='light']
+  .premium-sidebar
+  :where(a, button)[class*='group-hover:text-white']:hover {
   color: #0f172a !important;
 }
 
@@ -4212,6 +4214,38 @@ h6 {
 
 :root[data-theme='light'] .platform-panel a.group:hover .text-cyan-300 {
   color: #155e75 !important;
+}
+
+/* Keep readable text on intentionally dark feature surfaces in light mode */
+:root[data-theme='light'] .light-dark-surface {
+  color: #e2e8f0;
+}
+
+:root[data-theme='light'] .light-dark-surface [class~='text-white'],
+:root[data-theme='light'] .light-dark-surface [class~='text-slate-100'] {
+  color: #f8fafc !important;
+}
+
+:root[data-theme='light'] .light-dark-surface [class~='text-slate-200'] {
+  color: #e2e8f0 !important;
+}
+
+:root[data-theme='light'] .light-dark-surface [class~='text-slate-300'] {
+  color: #cbd5e1 !important;
+}
+
+:root[data-theme='light'] .light-dark-surface [class~='text-slate-400'] {
+  color: #94a3b8 !important;
+}
+
+:root[data-theme='light'] .light-dark-surface [class~='text-slate-500'] {
+  color: #64748b !important;
+}
+
+:root[data-theme='light'] .light-dark-surface [class~='text-cyan-100'],
+:root[data-theme='light'] .light-dark-surface [class~='text-cyan-200'],
+:root[data-theme='light'] .light-dark-surface [class~='text-cyan-300'] {
+  color: #67e8f9 !important;
 }
 
 :root[data-theme='light'] .execution-brand-symbol {

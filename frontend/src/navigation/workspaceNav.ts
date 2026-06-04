@@ -253,7 +253,7 @@ const backofficeNavItems: WorkspaceNavItem[] = [
   },
   {
     label: 'Operator Settings',
-    path: '/settings',
+    path: '/admin/settings',
     description:
       'Access control, registration policy, integrations, API, Redis, and trading config.',
     section: 'Administration',
@@ -350,7 +350,10 @@ const ibNavItems: WorkspaceNavItem[] = [
 ];
 
 export const workspaceNavItemsByPortal: Record<AppPortalType, WorkspaceNavItem[]> = {
-  client: clientNavItems.map((item) => ({ ...item, allowedRoles: item.allowedRoles || CLIENT_ROLES })),
+  client: clientNavItems.map((item) => ({
+    ...item,
+    allowedRoles: item.allowedRoles || CLIENT_ROLES,
+  })),
   backoffice: backofficeNavItems,
   ib: ibNavItems,
 };

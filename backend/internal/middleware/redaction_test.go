@@ -51,7 +51,7 @@ func TestIsAllowedBrowserOriginUsesCORSConfig(t *testing.T) {
 	if !IsAllowedBrowserOrigin("https://executionlab.io") {
 		t.Fatal("expected configured origin to be allowed")
 	}
-	if IsAllowedBrowserOrigin("https://evil.example.com") {
+	if IsAllowedBrowserOrigin("https://evil.executionlab.io") {
 		t.Fatal("expected unconfigured origin to be rejected")
 	}
 	if !IsAllowedBrowserOrigin("") {

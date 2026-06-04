@@ -242,7 +242,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="your.email@example.com"
+              placeholder="your.email@executionlab.io"
               disabled={saving}
               className="premium-input"
             />

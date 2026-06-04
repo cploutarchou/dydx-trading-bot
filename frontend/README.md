@@ -91,16 +91,16 @@ Use these variables for local or deployed builds:
 VITE_APP_PORTAL_TYPE=client
 VITE_API_BASE_URL=http://localhost:8888
 VITE_AUTH_BASE_URL=http://localhost:8888
-VITE_CLIENT_HOST=app.example.com
-VITE_CRM_HOST=crm.example.com
-VITE_IB_PORTAL_HOST=ib.example.com
+VITE_CLIENT_HOST=app.executionlab.io
+VITE_CRM_HOST=crm.executionlab.io
+VITE_IB_PORTAL_HOST=ib.executionlab.io
 ```
 
 Suggested deployment mapping:
 
-- `app.example.com` -> `npm run build:client`
-- `crm.example.com` -> `npm run build:backoffice`
-- `ib.example.com` -> `npm run build:ib`
+- `app.executionlab.io` -> `npm run build:client`
+- `crm.executionlab.io` -> `npm run build:backoffice`
+- `ib.executionlab.io` -> `npm run build:ib`
 
 `VITE_API_URL` is still supported as a compatibility fallback, but new deployments should use `VITE_API_BASE_URL`.
 

@@ -1,11 +1,4 @@
-import { getPortalSubdomainConfig, type PortalKind } from '../utils/portalSubdomainSettings';
 import { getCurrentPortalType, type AppPortalType } from './portal';
-
-const PORTAL_TO_CONFIG_KIND: Record<AppPortalType, PortalKind> = {
-  backoffice: 'crm',
-  client: 'client',
-  ib: 'ib',
-};
 
 const normalizePath = (path: string): string => {
   const trimmed = path.trim();
@@ -19,6 +12,28 @@ const withDevPortalOverride = (path: string, portal: AppPortalType): string => {
   return `${url.pathname}${url.search}${url.hash}`;
 };
 
+const withPortalPathPrefix = (portal: AppPortalType, path: string): string => {
+  if (portal === 'backoffice') {
+    return path === '/crm' || path.startsWith('/crm/') ? path : `/crm${path === '/' ? '' : path}`;
+  }
+
+  if (portal === 'ib') {
+    return path === '/ib-portal' || path.startsWith('/ib-portal/')
+      ? path
+      : `/ib-portal${path === '/' ? '' : path}`;
+  }
+
+  if (path.startsWith('/crm/')) {
+    return path.replace(/^\/crm/, '') || '/';
+  }
+
+  if (path.startsWith('/ib-portal/')) {
+    return path.replace(/^\/ib-portal/, '') || '/';
+  }
+
+  return path;
+};
+
 export const portalHref = (portal: AppPortalType, path: string = '/dashboard'): string => {
   const normalizedPath = normalizePath(path);
   if (typeof window === 'undefined') {
@@ -27,26 +42,19 @@ export const portalHref = (portal: AppPortalType, path: string = '/dashboard'): 
 
   const currentPortal = getCurrentPortalType();
   if (import.meta.env.DEV) {
-    return currentPortal === portal ? normalizedPath : withDevPortalOverride(normalizedPath, portal);
+    return currentPortal === portal
+      ? normalizedPath
+      : withDevPortalOverride(normalizedPath, portal);
   }
 
-  const config = getPortalSubdomainConfig(PORTAL_TO_CONFIG_KIND[portal]);
-  if (!config.enabled || currentPortal === portal) {
+  if (currentPortal === portal) {
     return normalizedPath;
   }
 
-  const host = config.host.trim();
-  if (!host) {
-    return normalizedPath;
-  }
-
-  const { protocol, port } = window.location;
-  const portPart = port ? `:${port}` : '';
-  return `${protocol}//${host}${portPart}${normalizedPath}`;
+  return withPortalPathPrefix(portal, normalizedPath);
 };
 
-export const clientPortalHref = (path: string = '/dashboard'): string =>
-  portalHref('client', path);
+export const clientPortalHref = (path: string = '/dashboard'): string => portalHref('client', path);
 
 export const backofficePortalHref = (path: string = '/dashboard'): string =>
   portalHref('backoffice', path);

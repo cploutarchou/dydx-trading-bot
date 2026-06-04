@@ -65,8 +65,8 @@
   --app-primary-strong: #075985;
   --app-secondary: #6d28d9;
   --app-accent: #0f766e;
-  --app-border: rgba(148, 163, 184, 0.36);
-  --app-card: rgba(255, 255, 255, 0.86);
+  --app-border: rgba(100, 116, 139, 0.42);
+  --app-card: rgba(255, 255, 255, 0.94);
   --app-surface: rgba(248, 250, 252, 0.9);
   --app-surface-strong: rgba(255, 255, 255, 0.96);
   --app-input: rgba(255, 255, 255, 0.94);
@@ -84,7 +84,7 @@
   --panel-highlight: rgba(3, 105, 161, 0.16);
   --execution-bg: #f6f8fb;
   --execution-surface: #ffffff;
-  --execution-elevated: #f1f5f9;
+  --execution-elevated: #e8eef5;
   --execution-primary: #0369a1;
   --execution-primary-dark: #075985;
   --execution-secondary: #6d28d9;
@@ -104,7 +104,27 @@
   --shell-sidebar-bg-end: rgba(241, 245, 249, 0.98);
   --workspace-card-bg-start: rgba(255, 255, 255, 0.9);
   --workspace-card-bg-end: rgba(248, 250, 252, 0.96);
-  --workspace-chip-bg: rgba(226, 232, 240, 0.72);
+  --workspace-chip-bg: rgba(226, 232, 240, 0.9);
+  --light-accent-info-border: rgba(14, 116, 144, 0.32);
+  --light-accent-info-bg: rgba(14, 116, 144, 0.12);
+  --light-accent-info-hover: rgba(14, 116, 144, 0.16);
+  --light-accent-info-text: #0f4c5c;
+  --light-accent-success-border: rgba(5, 150, 105, 0.3);
+  --light-accent-success-bg: rgba(5, 150, 105, 0.12);
+  --light-accent-success-hover: rgba(5, 150, 105, 0.16);
+  --light-accent-success-text: #166534;
+  --light-accent-warning-border: rgba(217, 119, 6, 0.3);
+  --light-accent-warning-bg: rgba(217, 119, 6, 0.12);
+  --light-accent-warning-hover: rgba(217, 119, 6, 0.16);
+  --light-accent-warning-text: #92400e;
+  --light-accent-danger-border: rgba(225, 29, 72, 0.28);
+  --light-accent-danger-bg: rgba(225, 29, 72, 0.11);
+  --light-accent-danger-hover: rgba(225, 29, 72, 0.15);
+  --light-accent-danger-text: #9f1239;
+  --light-accent-violet-border: rgba(109, 40, 217, 0.3);
+  --light-accent-violet-bg: rgba(109, 40, 217, 0.12);
+  --light-accent-violet-hover: rgba(109, 40, 217, 0.16);
+  --light-accent-violet-text: #5b21b6;
 }
 
 *,
@@ -4097,11 +4117,11 @@ h6 {
 :root[data-theme='light'] .public-market-chart-card {
   border-color: var(--app-border) !important;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.24) 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.62) 42%),
     var(--app-card) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 18px 46px rgba(15, 23, 42, 0.09) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 14px 34px rgba(15, 23, 42, 0.12) !important;
 }
 
 :root[data-theme='light'] .premium-hero,
@@ -4214,6 +4234,236 @@ h6 {
 
 :root[data-theme='light'] .platform-panel a.group:hover .text-cyan-300 {
   color: #155e75 !important;
+}
+
+:root[data-theme='light'] .backtest-control-shell {
+  border-color: var(--app-border) !important;
+  background:
+    radial-gradient(circle at top left, rgba(16, 185, 129, 0.08), transparent 28%),
+    radial-gradient(circle at top right, rgba(14, 165, 233, 0.1), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.9)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    0 14px 34px rgba(15, 23, 42, 0.12) !important;
+}
+
+:root[data-theme='light']
+  .backtest-control-shell
+  :where(span, a, button)[class~='uppercase'][class*='rounded-full'] {
+  letter-spacing: 0.1em !important;
+}
+
+:root[data-theme='light'] .backtest-control-shell [class*='border-cyan-500/'] {
+  border-color: var(--light-accent-info-border) !important;
+}
+
+:root[data-theme='light'] .backtest-control-shell [class*='border-emerald-500/'] {
+  border-color: var(--light-accent-success-border) !important;
+}
+
+:root[data-theme='light'] .backtest-control-shell [class*='border-blue-500/'] {
+  border-color: rgba(37, 99, 235, 0.3) !important;
+}
+
+:root[data-theme='light'] .backtest-control-shell [class*='border-rose-500/'] {
+  border-color: var(--light-accent-danger-border) !important;
+}
+
+:root[data-theme='light'] .backtest-control-shell [class*='border-amber-500/'] {
+  border-color: var(--light-accent-warning-border) !important;
+}
+
+:root[data-theme='light'] .backtest-control-shell [class*='border-violet-500/'] {
+  border-color: var(--light-accent-violet-border) !important;
+}
+
+:root[data-theme='light'] .backtest-control-shell [class*='bg-cyan-500/10'] {
+  background-color: var(--light-accent-info-bg) !important;
+}
+
+:root[data-theme='light'] .backtest-control-shell [class*='bg-emerald-500/10'] {
+  background-color: var(--light-accent-success-bg) !important;
+}
+
+:root[data-theme='light'] .backtest-control-shell [class*='bg-blue-500/15'] {
+  background-color: rgba(37, 99, 235, 0.1) !important;
+}
+
+:root[data-theme='light'] .backtest-control-shell [class*='bg-rose-500/15'],
+:root[data-theme='light'] .backtest-control-shell [class*='bg-rose-500/10'] {
+  background-color: var(--light-accent-danger-bg) !important;
+}
+
+:root[data-theme='light'] .backtest-control-shell [class*='bg-amber-500/15'],
+:root[data-theme='light'] .backtest-control-shell [class*='bg-amber-500/10'] {
+  background-color: var(--light-accent-warning-bg) !important;
+}
+
+:root[data-theme='light'] .backtest-control-shell [class*='bg-violet-500/10'],
+:root[data-theme='light'] .backtest-control-shell [class*='bg-violet-500/15'] {
+  background-color: var(--light-accent-violet-bg) !important;
+}
+
+:root[data-theme='light'] .backtest-control-shell [class*='text-cyan-100'],
+:root[data-theme='light'] .backtest-control-shell [class*='text-cyan-200'],
+:root[data-theme='light'] .backtest-control-shell [class*='text-cyan-300'] {
+  color: var(--light-accent-info-text) !important;
+}
+
+:root[data-theme='light'] .backtest-control-shell [class*='text-emerald-100'],
+:root[data-theme='light'] .backtest-control-shell [class*='text-emerald-200'],
+:root[data-theme='light'] .backtest-control-shell [class*='text-emerald-300'] {
+  color: var(--light-accent-success-text) !important;
+}
+
+:root[data-theme='light'] .backtest-control-shell [class*='text-blue-200'],
+:root[data-theme='light'] .backtest-control-shell [class*='text-blue-300'] {
+  color: #1e40af !important;
+}
+
+:root[data-theme='light'] .backtest-control-shell [class*='text-rose-100'],
+:root[data-theme='light'] .backtest-control-shell [class*='text-rose-200'],
+:root[data-theme='light'] .backtest-control-shell [class*='text-rose-300'] {
+  color: var(--light-accent-danger-text) !important;
+}
+
+:root[data-theme='light'] .backtest-control-shell [class*='text-amber-100'],
+:root[data-theme='light'] .backtest-control-shell [class*='text-amber-200'],
+:root[data-theme='light'] .backtest-control-shell [class*='text-amber-300'] {
+  color: var(--light-accent-warning-text) !important;
+}
+
+:root[data-theme='light'] .backtest-control-shell [class*='text-violet-100'],
+:root[data-theme='light'] .backtest-control-shell [class*='text-violet-200'],
+:root[data-theme='light'] .backtest-control-shell [class*='text-violet-300'] {
+  color: var(--light-accent-violet-text) !important;
+}
+
+:root[data-theme='light']
+  .backtest-control-shell
+  :where(button, a)[class*='hover:bg-cyan-500/20']:hover {
+  background-color: var(--light-accent-info-hover) !important;
+}
+
+:root[data-theme='light']
+  .backtest-control-shell
+  :where(button, a)[class*='hover:bg-emerald-500/20']:hover {
+  background-color: var(--light-accent-success-hover) !important;
+}
+
+:root[data-theme='light']
+  .backtest-control-shell
+  :where(button, a)[class*='hover:bg-rose-500/20']:hover {
+  background-color: var(--light-accent-danger-hover) !important;
+}
+
+:root[data-theme='light']
+  .backtest-control-shell
+  :where(button, a)[class*='hover:bg-amber-500/20']:hover {
+  background-color: var(--light-accent-warning-hover) !important;
+}
+
+:root[data-theme='light']
+  .backtest-control-shell
+  :where(button, a)[class*='hover:bg-violet-500/20']:hover {
+  background-color: var(--light-accent-violet-hover) !important;
+}
+
+/* Backtests / operator surfaces: improve light-mode readability */
+:root[data-theme='light'] .operator-status-pill {
+  border-color: rgba(100, 116, 139, 0.38);
+  background: rgba(241, 245, 249, 0.9);
+  color: #334155;
+}
+
+:root[data-theme='light'] .operator-status-pill[data-tone='accent'] {
+  border-color: var(--light-accent-info-border);
+  background: var(--light-accent-info-bg);
+  color: var(--light-accent-info-text);
+}
+
+:root[data-theme='light'] .operator-status-pill[data-tone='positive'] {
+  border-color: var(--light-accent-success-border);
+  background: var(--light-accent-success-bg);
+  color: var(--light-accent-success-text);
+}
+
+:root[data-theme='light'] .operator-status-pill[data-tone='warning'] {
+  border-color: var(--light-accent-warning-border);
+  background: var(--light-accent-warning-bg);
+  color: var(--light-accent-warning-text);
+}
+
+:root[data-theme='light'] .operator-status-pill[data-tone='danger'] {
+  border-color: var(--light-accent-danger-border);
+  background: var(--light-accent-danger-bg);
+  color: var(--light-accent-danger-text);
+}
+
+:root[data-theme='light']
+  :where(
+    .operator-hero,
+    .operator-hero-panel,
+    .operator-stat-card,
+    .operator-action-card,
+    .operator-section-card
+  )
+  [class~='text-slate-300'] {
+  color: #334155 !important;
+}
+
+:root[data-theme='light']
+  :where(
+    .operator-hero,
+    .operator-hero-panel,
+    .operator-stat-card,
+    .operator-action-card,
+    .operator-section-card
+  )
+  [class~='text-slate-400'] {
+  color: #475569 !important;
+}
+
+:root[data-theme='light']
+  :where(
+    .operator-hero,
+    .operator-hero-panel,
+    .operator-stat-card,
+    .operator-action-card,
+    .operator-section-card
+  )
+  [class~='text-slate-500'] {
+  color: #334155 !important;
+}
+
+:root[data-theme='light'] .operator-section-card :where(button, a)[class~='text-emerald-200'] {
+  color: var(--light-accent-success-text) !important;
+}
+
+:root[data-theme='light'] .operator-section-card :where(button, a)[class~='text-cyan-200'] {
+  color: var(--light-accent-info-text) !important;
+}
+
+:root[data-theme='light'] .operator-section-card :where(button, a)[class~='text-violet-200'] {
+  color: var(--light-accent-violet-text) !important;
+}
+
+:root[data-theme='light'] .operator-section-card :where(button, a)[class*='border-violet-500/'] {
+  border-color: var(--light-accent-violet-border) !important;
+}
+
+:root[data-theme='light'] .operator-section-card :where(button, a)[class*='bg-violet-500/10'] {
+  background-color: var(--light-accent-violet-bg) !important;
+}
+
+:root[data-theme='light']
+  .operator-section-card
+  :where(button, a)[class*='hover:bg-violet-500/20']:hover {
+  background-color: var(--light-accent-violet-hover) !important;
+}
+
+:root[data-theme='light'] .operator-section-card :where(button, a)[class~='text-slate-200'] {
+  color: #334155 !important;
 }
 
 /* Keep readable text on intentionally dark feature surfaces in light mode */
@@ -4660,19 +4910,19 @@ h6 {
     a,
     button
   )[class~='text-stone-500'] {
-  color: #64748b !important;
+  color: #475569 !important;
 }
 
 :root[data-theme='light'] :where(a, button)[class~='text-slate-400'],
 :root[data-theme='light'] :where(a, button)[class~='text-gray-400'],
 :root[data-theme='light'] :where(a, button)[class~='text-stone-400'] {
-  color: #475569 !important;
+  color: #334155 !important;
 }
 
 :root[data-theme='light'] :where(a, button)[class~='text-slate-500'],
 :root[data-theme='light'] :where(a, button)[class~='text-gray-500'],
 :root[data-theme='light'] :where(a, button)[class~='text-stone-500'] {
-  color: #334155 !important;
+  color: #1e293b !important;
 }
 
 :root[data-theme='light'] [class~='text-cyan-50'],
@@ -4682,7 +4932,7 @@ h6 {
 :root[data-theme='light'] [class~='text-cyan-400'],
 :root[data-theme='light'] [class~='text-blue-300'],
 :root[data-theme='light'] [class~='text-blue-400'] {
-  color: #0369a1 !important;
+  color: #075985 !important;
 }
 
 :root[data-theme='light'] :where(a, button)[class~='text-cyan-200'],

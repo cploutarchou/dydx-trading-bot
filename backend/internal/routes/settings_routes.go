@@ -18,6 +18,11 @@ func RegisterSettingsRoutes(router *gin.Engine, database *db.Database) {
 
 	v1 := router.Group("/api/v1")
 	{
+		public := v1.Group("/public")
+		{
+			public.GET("/app-config", settingsHandler.GetPublicAppConfig)
+		}
+
 		settings := v1.Group("/settings")
 		settings.Use(middleware.RequireAuth())
 		settings.Use(middleware.RequireMFA(database.DB))

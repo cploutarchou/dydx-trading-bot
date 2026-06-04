@@ -58,6 +58,7 @@ under sandboxed shells with `snap-confine` capability errors before tests start.
 
 The separated React portals use first-class API namespaces:
 
+- Public bootstrap: `GET /api/v1/public/app-config`
 - Client/session: `GET /api/v1/me`, `GET /api/v1/auth/session`
 - Backoffice/CRM: `/api/v1/backoffice/*`
 - IB Portal: `/api/v1/ib/*`
@@ -105,6 +106,18 @@ Core IB endpoints:
 - `GET /api/v1/ib/invitations/:id/validate`
 
 The legacy dummy CRM seeding route is no longer registered. Production portal flows should use real users, invitation tokens, partner relationships, and commission records.
+
+## Public App Config and Coming Soon
+
+Coming Soon mode is persisted in `bot_settings` as `platform.coming_soon_enabled`.
+
+- Public read contract: `GET /api/v1/public/app-config`
+- Admin update contract: `PUT /api/v1/settings` with `{ "platform.coming_soon_enabled": true|false }`
+- Admin UI location: Backoffice/Admin Hub -> Settings -> Access Control -> Platform Access
+
+The public config response exposes only safe launch metadata and does not include secrets, internal URLs, admin-only settings, or infrastructure configuration. Mutating the flag remains protected by the existing settings middleware chain: auth, privileged MFA when enabled, and `crm.admin.manage`.
+
+Migration `000060_add_coming_soon_setting` seeds the setting for PostgreSQL deployments.
 
 ## Health and Validation
 

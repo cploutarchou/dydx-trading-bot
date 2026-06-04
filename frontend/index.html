@@ -8,6 +8,29 @@
       name="description"
       content="ExecutionLab is a modern technical execution lab for building, testing, automating, and shipping production-grade systems."
     />
+    <script>
+      (() => {
+        const isTheme = (value) => value === 'light' || value === 'dark' || value === 'system';
+        let stored = null;
+        let legacy = null;
+        try {
+          stored = localStorage.getItem('ui.theme');
+          legacy = localStorage.getItem('ui.publicTheme');
+        } catch {
+          stored = null;
+          legacy = null;
+        }
+        const preference = isTheme(stored) ? stored : isTheme(legacy) ? legacy : 'system';
+        const systemTheme =
+          window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches
+            ? 'light'
+            : 'dark';
+        const resolved = preference === 'system' ? systemTheme : preference;
+        document.documentElement.dataset.theme = resolved;
+        document.documentElement.dataset.themePreference = preference;
+        document.documentElement.style.colorScheme = resolved;
+      })();
+    </script>
     <title>ExecutionLab | Build. Test. Execute.</title>
   </head>
   <body>

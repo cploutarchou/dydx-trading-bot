@@ -3,6 +3,27 @@
 
 :root {
   --app-bg: #050816;
+  --app-foreground: #f8fafc;
+  --app-muted: #94a3b8;
+  --app-subtle: #64748b;
+  --app-primary: #00d4ff;
+  --app-primary-strong: #0284c7;
+  --app-secondary: #7c3aed;
+  --app-accent: #14b8a6;
+  --app-border: rgba(30, 41, 59, 0.92);
+  --app-card: rgba(15, 23, 42, 0.88);
+  --app-surface: rgba(8, 13, 16, 0.78);
+  --app-surface-strong: rgba(2, 6, 23, 0.82);
+  --app-input: rgba(7, 10, 11, 0.9);
+  --app-success: #22c55e;
+  --app-warning: #f59e0b;
+  --app-danger: #ef4444;
+  --app-info: #38bdf8;
+  --chart-bg: #0f172a;
+  --chart-text: #cbd5e1;
+  --chart-grid: rgba(51, 65, 85, 0.25);
+  --chart-border: #334155;
+  --chart-crosshair: rgba(148, 163, 184, 0.35);
   --panel-bg: rgba(15, 23, 42, 0.88);
   /* motion duration tokens */
   --duration-fast: 200ms;
@@ -33,6 +54,57 @@
   --workspace-card-bg-start: rgba(15, 23, 42, 0.82);
   --workspace-card-bg-end: rgba(5, 8, 22, 0.94);
   --workspace-chip-bg: rgba(15, 23, 42, 0.7);
+}
+
+:root[data-theme='light'] {
+  --app-bg: #f6f8fb;
+  --app-foreground: #0f172a;
+  --app-muted: #475569;
+  --app-subtle: #64748b;
+  --app-primary: #0369a1;
+  --app-primary-strong: #075985;
+  --app-secondary: #6d28d9;
+  --app-accent: #0f766e;
+  --app-border: rgba(148, 163, 184, 0.36);
+  --app-card: rgba(255, 255, 255, 0.86);
+  --app-surface: rgba(248, 250, 252, 0.9);
+  --app-surface-strong: rgba(255, 255, 255, 0.96);
+  --app-input: rgba(255, 255, 255, 0.94);
+  --app-success: #047857;
+  --app-warning: #b45309;
+  --app-danger: #be123c;
+  --app-info: #0369a1;
+  --chart-bg: #ffffff;
+  --chart-text: #334155;
+  --chart-grid: rgba(148, 163, 184, 0.3);
+  --chart-border: #cbd5e1;
+  --chart-crosshair: rgba(71, 85, 105, 0.38);
+  --panel-bg: rgba(255, 255, 255, 0.88);
+  --panel-border: rgba(148, 163, 184, 0.38);
+  --panel-highlight: rgba(3, 105, 161, 0.16);
+  --execution-bg: #f6f8fb;
+  --execution-surface: #ffffff;
+  --execution-elevated: #f1f5f9;
+  --execution-primary: #0369a1;
+  --execution-primary-dark: #075985;
+  --execution-secondary: #6d28d9;
+  --execution-success: #047857;
+  --execution-text: #0f172a;
+  --execution-muted: #64748b;
+  --execution-border: #cbd5e1;
+  --text-primary: #0f172a;
+  --text-muted: #475569;
+  --body-grid-vertical: rgba(3, 105, 161, 0.055);
+  --body-grid-horizontal: rgba(100, 116, 139, 0.055);
+  --body-gradient-start: #f8fafc;
+  --body-gradient-mid: #f3f6fb;
+  --body-gradient-end: #eef2f7;
+  --shell-topbar-bg: rgba(255, 255, 255, 0.9);
+  --shell-sidebar-bg-start: rgba(255, 255, 255, 0.96);
+  --shell-sidebar-bg-end: rgba(241, 245, 249, 0.98);
+  --workspace-card-bg-start: rgba(255, 255, 255, 0.9);
+  --workspace-card-bg-end: rgba(248, 250, 252, 0.96);
+  --workspace-chip-bg: rgba(226, 232, 240, 0.72);
 }
 
 *,
@@ -3946,6 +4018,429 @@ h6 {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.03),
     0 12px 32px rgba(2, 8, 23, 0.18);
+}
+
+/* ═══════════════════════════════════════════════════
+   Theme-aware compatibility layer
+   ═══════════════════════════════════════════════════ */
+
+.theme-toggle {
+  border-color: var(--app-border);
+  background: var(--workspace-chip-bg);
+  color: var(--app-muted);
+}
+
+.theme-toggle:hover,
+.theme-toggle:focus-within {
+  border-color: color-mix(in srgb, var(--execution-primary) 38%, transparent);
+  color: var(--app-foreground);
+}
+
+.theme-toggle select {
+  color: inherit;
+}
+
+.theme-toggle option {
+  background: var(--execution-surface);
+  color: var(--execution-text);
+}
+
+:root[data-theme='light'] {
+  scrollbar-color: rgba(100, 116, 139, 0.36) transparent;
+}
+
+:root[data-theme='light'] body {
+  color: var(--app-foreground);
+}
+
+:root[data-theme='light'] .gradient-text {
+  background: linear-gradient(135deg, #0f172a, #0369a1, #6d28d9);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+:root[data-theme='light'] .premium-panel,
+:root[data-theme='light'] .auth-panel,
+:root[data-theme='light'] .workspace-card,
+:root[data-theme='light'] .platform-hero,
+:root[data-theme='light'] .platform-panel,
+:root[data-theme='light'] .platform-stat-card,
+:root[data-theme='light'] .operator-hero,
+:root[data-theme='light'] .operator-hero-panel,
+:root[data-theme='light'] .operator-stat-card,
+:root[data-theme='light'] .operator-action-card,
+:root[data-theme='light'] .operator-section-card,
+:root[data-theme='light'] .micro-panel,
+:root[data-theme='light'] .signal-card,
+:root[data-theme='light'] .metric-tile,
+:root[data-theme='light'] .public-hero-panel,
+:root[data-theme='light'] .public-section-panel,
+:root[data-theme='light'] .public-metric-card,
+:root[data-theme='light'] .public-tile-card,
+:root[data-theme='light'] .public-outcome-card,
+:root[data-theme='light'] .public-note-card,
+:root[data-theme='light'] .public-proof-item,
+:root[data-theme='light'] .public-capability-card,
+:root[data-theme='light'] .public-readiness-step,
+:root[data-theme='light'] .public-outcome-modern,
+:root[data-theme='light'] .public-note-modern,
+:root[data-theme='light'] .public-modern-cta-inner,
+:root[data-theme='light'] .auth-modern-panel,
+:root[data-theme='light'] .auth-readiness-card,
+:root[data-theme='light'] .auth-command-visual,
+:root[data-theme='light'] .auth-highlight-card,
+:root[data-theme='light'] .auth-commercial-row,
+:root[data-theme='light'] .pricing-modern-model,
+:root[data-theme='light'] .pricing-modern-plan,
+:root[data-theme='light'] .public-market-panel,
+:root[data-theme='light'] .public-market-chart-card {
+  border-color: var(--app-border) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.24) 42%),
+    var(--app-card) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 18px 46px rgba(15, 23, 42, 0.09) !important;
+}
+
+:root[data-theme='light'] .premium-hero,
+:root[data-theme='light'] .platform-hero,
+:root[data-theme='light'] .landing-product-path,
+:root[data-theme='light'] .landing-value,
+:root[data-theme='light'] .landing-cta-inner,
+:root[data-theme='light'] .pricing-hero-grid,
+:root[data-theme='light'] .service-hero-grid,
+:root[data-theme='light'] .public-modern-hero,
+:root[data-theme='light'] .public-modern-band,
+:root[data-theme='light'] .auth-modern-stage,
+:root[data-theme='light'] .public-site-shell,
+:root[data-theme='light'] .auth-stage {
+  background:
+    linear-gradient(rgba(3, 105, 161, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(3, 105, 161, 0.045) 1px, transparent 1px),
+    radial-gradient(circle at 12% 18%, rgba(3, 105, 161, 0.1), transparent 30rem),
+    radial-gradient(circle at 86% 16%, rgba(109, 40, 217, 0.07), transparent 28rem),
+    linear-gradient(135deg, #ffffff 0%, #f6f8fb 54%, #eef2f7 100%) !important;
+  color: var(--app-foreground);
+}
+
+:root[data-theme='light'] .public-site-shell::before,
+:root[data-theme='light'] .public-site-shell::after,
+:root[data-theme='light'] .premium-shell::after,
+:root[data-theme='light'] .auth-modern-stage::before,
+:root[data-theme='light'] .public-modern-band::before {
+  opacity: 0.55;
+  background:
+    radial-gradient(circle at 18% 18%, rgba(3, 105, 161, 0.08), transparent 25rem),
+    radial-gradient(circle at 92% 52%, rgba(15, 118, 110, 0.06), transparent 28rem);
+}
+
+:root[data-theme='light'] .premium-input {
+  border-color: var(--app-border);
+  background: var(--app-input);
+  color: var(--app-foreground);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+:root[data-theme='light'] .premium-input::placeholder {
+  color: #94a3b8;
+}
+
+:root[data-theme='light'] .premium-button-primary,
+:root[data-theme='light'] .platform-button-primary,
+:root[data-theme='light'] .public-cta-primary {
+  border-color: rgba(3, 105, 161, 0.32);
+  background: linear-gradient(135deg, #075985 0%, #0284c7 58%, #6d28d9 100%);
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 14px 34px rgba(3, 105, 161, 0.2);
+}
+
+:root[data-theme='light'] .premium-button-secondary,
+:root[data-theme='light'] .platform-button-secondary {
+  border-color: var(--app-border);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--app-foreground);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 10px 28px rgba(15, 23, 42, 0.08);
+}
+
+:root[data-theme='light'] .premium-topbar,
+:root[data-theme='light'] .portal-subnav,
+:root[data-theme='light'] .public-market-tape {
+  border-color: var(--app-border);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.06);
+}
+
+:root[data-theme='light'] .premium-sidebar {
+  border-color: var(--app-border);
+  box-shadow: 18px 0 48px rgba(15, 23, 42, 0.08);
+}
+
+:root[data-theme='light'] .execution-brand-symbol {
+  background:
+    linear-gradient(rgba(3, 105, 161, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(3, 105, 161, 0.1) 1px, transparent 1px),
+    linear-gradient(145deg, rgba(3, 105, 161, 0.12), rgba(109, 40, 217, 0.1)),
+    rgba(255, 255, 255, 0.94);
+}
+
+:root[data-theme='light'] .surface-label,
+:root[data-theme='light'] .premium-kicker,
+:root[data-theme='light'] .public-text-link,
+:root[data-theme='light'] .landing-path-heading span,
+:root[data-theme='light'] .landing-path-item > span,
+:root[data-theme='light'] .landing-value-item > span,
+:root[data-theme='light'] .pricing-model-step,
+:root[data-theme='light'] .pricing-modern-plan-top > span,
+:root[data-theme='light'] .pricing-modern-meta span,
+:root[data-theme='light'] .public-market-tape-label,
+:root[data-theme='light'] .public-market-pair span,
+:root[data-theme='light'] .public-market-chart-header span,
+:root[data-theme='light'] .public-proof-item span,
+:root[data-theme='light'] .public-capability-card span,
+:root[data-theme='light'] .public-readiness-step span,
+:root[data-theme='light'] .public-outcome-modern span,
+:root[data-theme='light'] .public-note-modern span,
+:root[data-theme='light'] .auth-highlight-card span,
+:root[data-theme='light'] .auth-command-line span,
+:root[data-theme='light'] .auth-readiness-rows span,
+:root[data-theme='light'] .auth-commercial-heading span,
+:root[data-theme='light'] .auth-plan-grid span {
+  color: #0369a1 !important;
+}
+
+:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-white'],
+:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-slate-50'],
+:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-slate-100'],
+:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-gray-50'],
+:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-gray-100'],
+:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-stone-50'],
+:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-stone-100'] {
+  color: #0f172a !important;
+}
+
+:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-slate-200'],
+:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-slate-300'],
+:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-gray-200'],
+:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-gray-300'],
+:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-stone-200'],
+:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-stone-300'] {
+  color: #334155 !important;
+}
+
+:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre, a, button)[class~='text-slate-400'],
+:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre, a, button)[class~='text-slate-500'],
+:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre, a, button)[class~='text-gray-400'],
+:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre, a, button)[class~='text-gray-500'],
+:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre, a, button)[class~='text-stone-400'],
+:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre, a, button)[class~='text-stone-500'] {
+  color: #64748b !important;
+}
+
+:root[data-theme='light'] [class~='text-cyan-50'],
+:root[data-theme='light'] [class~='text-cyan-100'],
+:root[data-theme='light'] [class~='text-cyan-200'],
+:root[data-theme='light'] [class~='text-cyan-300'],
+:root[data-theme='light'] [class~='text-cyan-400'],
+:root[data-theme='light'] [class~='text-blue-300'],
+:root[data-theme='light'] [class~='text-blue-400'] {
+  color: #0369a1 !important;
+}
+
+:root[data-theme='light'] [class~='text-emerald-100'],
+:root[data-theme='light'] [class~='text-emerald-200'],
+:root[data-theme='light'] [class~='text-emerald-300'],
+:root[data-theme='light'] [class~='text-emerald-400'],
+:root[data-theme='light'] [class~='text-green-300'],
+:root[data-theme='light'] [class~='text-green-400'] {
+  color: #047857 !important;
+}
+
+:root[data-theme='light'] [class~='text-amber-100'],
+:root[data-theme='light'] [class~='text-amber-200'],
+:root[data-theme='light'] [class~='text-amber-300'],
+:root[data-theme='light'] [class~='text-yellow-300'],
+:root[data-theme='light'] [class~='text-yellow-400'] {
+  color: #b45309 !important;
+}
+
+:root[data-theme='light'] [class~='text-rose-100'],
+:root[data-theme='light'] [class~='text-rose-200'],
+:root[data-theme='light'] [class~='text-rose-300'],
+:root[data-theme='light'] [class~='text-rose-400'],
+:root[data-theme='light'] [class~='text-red-200'],
+:root[data-theme='light'] [class~='text-red-300'],
+:root[data-theme='light'] [class~='text-red-400'] {
+  color: #be123c !important;
+}
+
+:root[data-theme='light'] [class~='placeholder:text-slate-500']::placeholder,
+:root[data-theme='light'] [class~='placeholder-slate-500']::placeholder,
+:root[data-theme='light'] [class~='placeholder:text-slate-600']::placeholder {
+  color: #94a3b8 !important;
+}
+
+:root[data-theme='light'] [class~='bg-slate-950'],
+:root[data-theme='light'] [class~='bg-slate-950/28'],
+:root[data-theme='light'] [class~='bg-slate-950/30'],
+:root[data-theme='light'] [class~='bg-slate-950/35'],
+:root[data-theme='light'] [class~='bg-slate-950/40'],
+:root[data-theme='light'] [class~='bg-slate-950/45'],
+:root[data-theme='light'] [class~='bg-slate-950/50'],
+:root[data-theme='light'] [class~='bg-slate-950/55'],
+:root[data-theme='light'] [class~='bg-slate-950/60'],
+:root[data-theme='light'] [class~='bg-slate-950/65'],
+:root[data-theme='light'] [class~='bg-slate-950/70'],
+:root[data-theme='light'] [class~='bg-slate-950/75'],
+:root[data-theme='light'] [class~='bg-slate-950/80'],
+:root[data-theme='light'] [class~='bg-slate-950/85'],
+:root[data-theme='light'] [class~='bg-slate-950/95'],
+:root[data-theme='light'] [class~='bg-slate-950/96'],
+:root[data-theme='light'] [class~='bg-stone-950'],
+:root[data-theme='light'] [class~='bg-stone-950/30'],
+:root[data-theme='light'] [class~='bg-stone-950/45'],
+:root[data-theme='light'] [class~='bg-stone-950/55'],
+:root[data-theme='light'] [class~='bg-stone-950/60'],
+:root[data-theme='light'] [class~='bg-stone-950/62'],
+:root[data-theme='light'] [class~='bg-stone-950/70'],
+:root[data-theme='light'] [class~='bg-stone-950/78'],
+:root[data-theme='light'] [class~='bg-stone-950/80'],
+:root[data-theme='light'] [class~='bg-stone-950/95'] {
+  background-color: rgba(255, 255, 255, 0.88) !important;
+}
+
+:root[data-theme='light'] [class~='bg-gray-900'],
+:root[data-theme='light'] [class~='bg-slate-900'],
+:root[data-theme='light'] [class~='bg-slate-900/20'],
+:root[data-theme='light'] [class~='bg-slate-900/30'],
+:root[data-theme='light'] [class~='bg-slate-900/35'],
+:root[data-theme='light'] [class~='bg-slate-900/40'],
+:root[data-theme='light'] [class~='bg-slate-900/45'],
+:root[data-theme='light'] [class~='bg-slate-900/50'],
+:root[data-theme='light'] [class~='bg-slate-900/55'],
+:root[data-theme='light'] [class~='bg-slate-900/60'],
+:root[data-theme='light'] [class~='bg-slate-900/70'],
+:root[data-theme='light'] [class~='bg-slate-900/75'],
+:root[data-theme='light'] [class~='bg-slate-900/80'],
+:root[data-theme='light'] [class~='bg-slate-900/85'],
+:root[data-theme='light'] [class~='bg-slate-900/95'],
+:root[data-theme='light'] [class~='bg-stone-900'],
+:root[data-theme='light'] [class~='bg-stone-900/80'] {
+  background-color: rgba(248, 250, 252, 0.86) !important;
+}
+
+:root[data-theme='light'] [class~='bg-slate-800'],
+:root[data-theme='light'] [class~='bg-slate-800/20'],
+:root[data-theme='light'] [class~='bg-slate-800/30'],
+:root[data-theme='light'] [class~='bg-slate-800/40'],
+:root[data-theme='light'] [class~='bg-slate-800/45'],
+:root[data-theme='light'] [class~='bg-slate-800/50'],
+:root[data-theme='light'] [class~='bg-slate-800/60'],
+:root[data-theme='light'] [class~='bg-slate-800/70'],
+:root[data-theme='light'] [class~='bg-slate-800/80'],
+:root[data-theme='light'] [class~='bg-slate-800/90'],
+:root[data-theme='light'] [class~='bg-slate-700'],
+:root[data-theme='light'] [class~='bg-slate-700/30'],
+:root[data-theme='light'] [class~='bg-slate-700/40'],
+:root[data-theme='light'] [class~='bg-slate-700/50'],
+:root[data-theme='light'] [class~='bg-slate-700/60'],
+:root[data-theme='light'] [class~='bg-slate-700/70'],
+:root[data-theme='light'] [class~='bg-slate-700/80'],
+:root[data-theme='light'] [class~='bg-slate-700/90'] {
+  background-color: rgba(226, 232, 240, 0.74) !important;
+}
+
+:root[data-theme='light'] .fixed[class*='bg-slate-950/'],
+:root[data-theme='light'] .absolute[class*='bg-slate-950/'] {
+  background-color: rgba(15, 23, 42, 0.62) !important;
+}
+
+:root[data-theme='light'] [class*='bg-[#050816]'] {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+}
+
+:root[data-theme='light'] [class~='border-slate-600'],
+:root[data-theme='light'] [class~='border-slate-600/50'],
+:root[data-theme='light'] [class~='border-slate-600/60'],
+:root[data-theme='light'] [class~='border-slate-600/70'],
+:root[data-theme='light'] [class~='border-slate-600/80'],
+:root[data-theme='light'] [class~='border-slate-700'],
+:root[data-theme='light'] [class~='border-slate-700/40'],
+:root[data-theme='light'] [class~='border-slate-700/50'],
+:root[data-theme='light'] [class~='border-slate-700/60'],
+:root[data-theme='light'] [class~='border-slate-700/70'],
+:root[data-theme='light'] [class~='border-slate-700/80'],
+:root[data-theme='light'] [class~='border-slate-800'],
+:root[data-theme='light'] [class~='border-slate-800/60'],
+:root[data-theme='light'] [class~='border-slate-800/70'],
+:root[data-theme='light'] [class~='border-slate-800/80'],
+:root[data-theme='light'] [class~='border-slate-800/90'],
+:root[data-theme='light'] [class~='border-stone-700'],
+:root[data-theme='light'] [class~='border-stone-700/80'],
+:root[data-theme='light'] [class~='border-stone-800'] {
+  border-color: var(--app-border) !important;
+}
+
+:root[data-theme='light'] [class~='divide-slate-800'] > :not([hidden]) ~ :not([hidden]),
+:root[data-theme='light'] [class~='divide-slate-700'] > :not([hidden]) ~ :not([hidden]),
+:root[data-theme='light'] [class~='divide-slate-700/50'] > :not([hidden]) ~ :not([hidden]),
+:root[data-theme='light'] [class~='divide-slate-700/60'] > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--app-border) !important;
+}
+
+:root[data-theme='light'] [class*='hover:bg-slate-900']:hover,
+:root[data-theme='light'] [class*='hover:bg-stone-900']:hover,
+:root[data-theme='light'] [class*='hover:bg-slate-800']:hover,
+:root[data-theme='light'] [class*='hover:bg-stone-800']:hover,
+:root[data-theme='light'] [class*='hover:bg-slate-700']:hover {
+  background-color: rgba(226, 232, 240, 0.78) !important;
+}
+
+:root[data-theme='light'] [class*='hover:text-white']:hover,
+:root[data-theme='light'] [class*='hover:text-slate-100']:hover,
+:root[data-theme='light'] [class*='hover:text-slate-200']:hover {
+  color: #0f172a !important;
+}
+
+:root[data-theme='light'] input:not([type='checkbox']):not([type='radio']),
+:root[data-theme='light'] select,
+:root[data-theme='light'] textarea {
+  background-color: var(--app-input);
+  color: var(--app-foreground);
+  border-color: var(--app-border);
+}
+
+:root[data-theme='light'] input[type='checkbox'],
+:root[data-theme='light'] input[type='radio'] {
+  background-color: #ffffff;
+  border-color: #94a3b8;
+}
+
+:root[data-theme='light'] table {
+  color: var(--app-foreground);
+}
+
+:root[data-theme='light'] thead,
+:root[data-theme='light'] [class*='sticky'][class*='top-0'][class*='bg-slate-950'] {
+  background-color: rgba(241, 245, 249, 0.96) !important;
+}
+
+:root[data-theme='light'] tbody tr:hover {
+  background-color: rgba(226, 232, 240, 0.68);
+}
+
+:root[data-theme='light'] .skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(148, 163, 184, 0.12) 0%,
+    rgba(148, 163, 184, 0.28) 50%,
+    rgba(148, 163, 184, 0.12) 100%
+  );
 }
 
 @media (prefers-reduced-motion: reduce) {

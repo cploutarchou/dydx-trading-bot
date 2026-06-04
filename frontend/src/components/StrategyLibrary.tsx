@@ -119,7 +119,7 @@ export default function StrategyLibrary() {
   const [backtestEndDate, setBacktestEndDate] = useState('');
   const [runError, setRunError] = useState<string | null>(null);
   const secondaryActionButtonClass =
-    'flex-1 rounded-xl border border-slate-700/70 bg-slate-900/70 px-3 py-2 text-sm font-medium text-white transition hover:border-cyan-500/35 hover:bg-slate-900';
+    'strategy-secondary-action flex-1 rounded-xl border border-slate-700/70 bg-slate-900/70 px-3 py-2 text-sm font-medium text-white transition hover:border-cyan-500/35 hover:bg-slate-900';
   const statsTileClass = 'workspace-card px-4 py-4';
 
   const strategiesQuery = useQuery({
@@ -347,7 +347,7 @@ export default function StrategyLibrary() {
   }
 
   return (
-    <PageContainer size="wide">
+    <PageContainer size="wide" className="strategy-library-page">
       <section className="premium-hero mb-8 px-6 py-7 sm:px-8">
         <div className="premium-orb -right-10 top-0 h-40 w-40 bg-cyan-500/10" />
         <div className="premium-orb -left-6 bottom-0 h-36 w-36 bg-emerald-500/10" />
@@ -479,7 +479,7 @@ export default function StrategyLibrary() {
             return (
               <div
                 key={strategy.id}
-                className="premium-panel premium-panel-hover animate-fade-slide-up p-6"
+                className="strategy-library-card premium-panel premium-panel-hover animate-fade-slide-up p-6"
               >
                 {/* Header: Name + Status badges */}
                 <div className="mb-4 flex items-start justify-between">
@@ -493,32 +493,32 @@ export default function StrategyLibrary() {
                   {/* Status & Risk badges */}
                   <div className="ml-3 flex shrink-0 flex-wrap justify-end gap-2">
                     {/* Category badge */}
-                    <span className="inline-flex items-center gap-1 rounded-lg border border-slate-700/60 bg-slate-900/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-300">
+                    <span className="strategy-badge inline-flex items-center gap-1 rounded-lg border border-slate-700/60 bg-slate-900/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-300">
                       <Layers3 className="h-2.5 w-2.5" />
                       {strategy.category}
                     </span>
 
                     {/* Capital readiness indicator */}
                     {isReadyForCapital && (
-                      <span className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
+                      <span className="strategy-badge inline-flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
                         ✓ Ready
                       </span>
                     )}
                     {!isReadyForCapital && isHighRisk && (
-                      <span className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-rose-300">
+                      <span className="strategy-badge inline-flex items-center gap-1 rounded-lg border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-rose-300">
                         <AlertTriangle className="h-2.5 w-2.5" />
                         High Risk
                       </span>
                     )}
                     {!isReadyForCapital && isMediumRisk && !isHighRisk && (
-                      <span className="inline-flex items-center gap-1 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+                      <span className="strategy-badge inline-flex items-center gap-1 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-300">
                         ⚠ Medium Risk
                       </span>
                     )}
 
                     {/* Public badge */}
                     {strategy.is_public && (
-                      <span className="inline-flex items-center gap-1 rounded-lg border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-blue-300">
+                      <span className="strategy-badge inline-flex items-center gap-1 rounded-lg border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-blue-300">
                         🌐 Public
                       </span>
                     )}

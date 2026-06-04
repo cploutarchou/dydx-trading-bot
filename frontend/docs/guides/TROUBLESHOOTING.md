@@ -23,7 +23,7 @@ ssh -T git@github.com
 
 ```bash
 git config --global user.name "Your Name"
-git config --global user.email "your.email@example.com"
+git config --global user.email "your.email@executionlab.io"
 ```
 
 ## npm & Dependencies

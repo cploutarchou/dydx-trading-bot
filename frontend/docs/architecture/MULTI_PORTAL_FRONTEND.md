@@ -2,9 +2,9 @@
 
 ## Apps
 
-- Client Portal: `VITE_APP_PORTAL_TYPE=client`, deployed at `app.example.com`
-- CRM / Backoffice: `VITE_APP_PORTAL_TYPE=backoffice`, deployed at `crm.example.com`
-- IB Portal: `VITE_APP_PORTAL_TYPE=ib`, deployed at `ib.example.com`
+- Client Portal: `VITE_APP_PORTAL_TYPE=client`, deployed at `app.executionlab.io`
+- CRM / Backoffice: `VITE_APP_PORTAL_TYPE=backoffice`, deployed at `crm.executionlab.io`
+- IB Portal: `VITE_APP_PORTAL_TYPE=ib`, deployed at `ib.executionlab.io`
 
 Portal route registration is centralized in `src/app/routeManifest.tsx`. Each entry owns its route path, allowed workspace roles, and lazy-loaded element so `src/App.tsx` can apply one consistent protected-route wrapper.
 
@@ -36,19 +36,19 @@ In Vite development, the switch stays on the same origin and adds `?portal=backo
 ## Deployment Mapping
 
 ```bash
-npm run build:client      # app.example.com
-npm run build:backoffice  # crm.example.com
-npm run build:ib          # ib.example.com
+npm run build:client      # app.executionlab.io
+npm run build:backoffice  # crm.executionlab.io
+npm run build:ib          # ib.executionlab.io
 ```
 
 Runtime variables:
 
 ```bash
-VITE_API_BASE_URL=https://api.example.com
-VITE_AUTH_BASE_URL=https://api.example.com
-VITE_CLIENT_HOST=app.example.com
-VITE_CRM_HOST=crm.example.com
-VITE_IB_PORTAL_HOST=ib.example.com
+VITE_API_BASE_URL=https://api.executionlab.io
+VITE_AUTH_BASE_URL=https://api.executionlab.io
+VITE_CLIENT_HOST=app.executionlab.io
+VITE_CRM_HOST=crm.executionlab.io
+VITE_IB_PORTAL_HOST=ib.executionlab.io
 ```
 
 `VITE_API_URL` remains a compatibility fallback for older profiles.

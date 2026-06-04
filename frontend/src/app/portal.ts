@@ -41,10 +41,15 @@ export const getCurrentPortalType = (): AppPortalType => {
   const devOverride = getDevPortalOverride();
   if (devOverride) return devOverride;
 
+  if (typeof window === 'undefined') return 'client';
+
+  const pathname = window.location.pathname.toLowerCase();
+  if (pathname.startsWith('/crm/')) return 'backoffice';
+  if (pathname.startsWith('/ib-portal/')) return 'ib';
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) return 'backoffice';
+
   const configured = normalizePortalType(import.meta.env.VITE_APP_PORTAL_TYPE);
   if (configured) return configured;
-
-  if (typeof window === 'undefined') return 'client';
 
   const hostname = window.location.hostname.toLowerCase();
   if (hostname.startsWith('crm.')) return 'backoffice';

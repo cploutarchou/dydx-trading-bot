@@ -8,6 +8,7 @@ interface ImportMetaEnv {
   readonly VITE_CRM_HOST?: string;
   readonly VITE_IB_PORTAL_HOST?: string;
   readonly VITE_CLIENT_HOST?: string;
+  readonly VITE_ENABLE_SUBDOMAIN_PORTAL_NAV?: string;
   /**
    * Cloudflare Turnstile site key for a Managed widget.
    * Widget mode is configured in Cloudflare, not in the client render options.

@@ -20,7 +20,7 @@ func TestValidateSecurityBaseline_AllowsNonProductionWithoutStrictSettings(t *te
 
 func TestValidateSecurityBaseline_BlocksProductionPlaceholderJWT(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
-	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.executionlab.io")
 
 	cfg := &config.Config{}
 	cfg.Auth.JWTSecretKey = "your-super-secret-key-change-in-production"
@@ -45,7 +45,7 @@ func TestValidateSecurityBaseline_BlocksProductionMissingCORSAllowlist(t *testin
 
 func TestValidateSecurityBaseline_AllowsProductionWithStrictSettings(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
-	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com,https://ops.example.com")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.executionlab.io,https://ops.executionlab.io")
 
 	cfg := &config.Config{}
 	cfg.Auth.JWTSecretKey = "super-long-real-secret-value"

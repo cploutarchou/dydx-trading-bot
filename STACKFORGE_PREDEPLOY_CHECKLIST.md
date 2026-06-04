@@ -14,7 +14,7 @@ Use this checklist for `stackforge-cluster` where infra is already installed and
 
 ## 2) Env hygiene (`.env.stackforge`)
 
-- [x] No placeholder secrets remain (`replace-with`, `change-me`, `example.com`)
+- [x] No placeholder secrets remain (`replace-with`, `change-me`, `executionlab.io`)
 - [x] `APP_DOMAIN` and `API_DOMAIN` are real production domains
 - [x] `APP_DB_PASSWORD` is strong and unique
 - [x] If using registries, registry credentials are present and valid

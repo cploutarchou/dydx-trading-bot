@@ -292,7 +292,7 @@ func ibRevokeInvitationTokenHandler(database *sql.DB) gin.HandlerFunc {
 func ibReferralLinksHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role := models.NormalizeUserRole(c.GetString("role"), c.GetBool("is_admin"))
-		baseURL := strings.TrimRight(c.DefaultQuery("base_url", "https://app.example.com/register"), "/")
+		baseURL := strings.TrimRight(c.DefaultQuery("base_url", "https://app.executionlab.io/register"), "/")
 		tokenRepo := repository.NewInvitationTokenRepository(database)
 		tokens, err := tokenRepo.List(500, 0)
 		if err != nil {

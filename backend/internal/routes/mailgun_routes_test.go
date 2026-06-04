@@ -140,8 +140,8 @@ func TestMailgunRoutes_SaveAndStatus(t *testing.T) {
 	payload, _ := json.Marshal(map[string]string{
 		"api_key":    "key-live-mailgun-test-1234567890",
 		"label":      "Primary",
-		"domain":     "mg.example.com",
-		"from_email": "noreply@example.com",
+		"domain":     "mg.executionlab.io",
+		"from_email": "noreply@executionlab.io",
 		"from_name":  "dYdX Bot",
 		"region":     "us",
 	})
@@ -179,7 +179,7 @@ func TestMailgunRoutes_SaveAndStatus(t *testing.T) {
 	if !body.Data.Configured || !body.Data.SharedKeyPresent {
 		t.Fatalf("expected mailgun configured status")
 	}
-	if body.Data.Domain != "mg.example.com" || body.Data.FromEmail != "noreply@example.com" {
+	if body.Data.Domain != "mg.executionlab.io" || body.Data.FromEmail != "noreply@executionlab.io" {
 		t.Fatalf("unexpected mailgun settings in status: %+v", body.Data)
 	}
 }

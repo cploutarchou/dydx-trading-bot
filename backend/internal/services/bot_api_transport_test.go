@@ -77,7 +77,7 @@ func TestBotAPITransportError_Unwrap_ChainWorks(t *testing.T) {
 	transportErr := &BotAPITransportError{
 		StatusCode: http.StatusGatewayTimeout,
 		Message:    "timed out",
-		Endpoint:   "http://example.com",
+		Endpoint:   "http://executionlab.io",
 		Cause:      context.DeadlineExceeded,
 	}
 
@@ -328,7 +328,7 @@ func TestNewBotAPIClient_LoadsStructuredServiceTokenWhenEnvMissing(t *testing.T)
 	t.Setenv("BOT_API_TOKEN", "")
 	t.Setenv("BOT_API_USE_SERVICE_TOKEN", "")
 
-	client := NewBotAPIClient("http://example.com", "")
+	client := NewBotAPIClient("http://executionlab.io", "")
 	if got := client.AuthToken(); got != "structured-service-token" {
 		t.Fatalf("expected client to hydrate service token from structured config, got %q", got)
 	}

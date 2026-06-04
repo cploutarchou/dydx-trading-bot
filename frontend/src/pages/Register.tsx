@@ -290,7 +290,7 @@ export const RegisterPage: React.FC = () => {
             value={formData.email}
             onChange={(event) => setFormData({ ...formData, email: event.target.value })}
             className={`premium-input ${validationErrors.email ? 'border-red-500' : ''}`}
-            placeholder="operator@example.com"
+            placeholder="operator@executionlab.io"
             disabled={loading}
           />
           {validationErrors.email && (

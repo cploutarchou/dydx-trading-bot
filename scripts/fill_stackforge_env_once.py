@@ -20,7 +20,7 @@ from pathlib import Path
 PLACEHOLDER_TOKENS = (
     "replace-with",
     "change-me",
-    "example.com",
+    "executionlab.io",
     "__required",
 )
 

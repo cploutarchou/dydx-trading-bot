@@ -42,7 +42,7 @@ func TestCORSMiddlewareRejectsUnconfiguredOrigin(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
-	req.Header.Set("Origin", "https://evil.example.com")
+	req.Header.Set("Origin", "https://evil.executionlab.io")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

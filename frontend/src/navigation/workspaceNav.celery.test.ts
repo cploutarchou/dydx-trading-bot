@@ -9,7 +9,7 @@ describe('Celery admin navigation', () => {
     expect(filterNavItemsForRole(backofficeItems, 'admin').some((item) => item.path === '/admin/celery')).toBe(true);
     expect(filterNavItemsForRole(backofficeItems, 'backoffice').some((item) => item.path === '/admin/celery')).toBe(false);
     expect(filterNavItemsForRole(backofficeItems, 'client').some((item) => item.path === '/admin/celery')).toBe(false);
-    expect(filterNavItemsForRole(clientItems, 'admin').some((item) => item.path === '/admin/celery')).toBe(true);
+    expect(filterNavItemsForRole(clientItems, 'admin').some((item) => item.path === '/admin/celery')).toBe(false);
     expect(filterNavItemsForRole(clientItems, 'client').some((item) => item.path === '/admin/celery')).toBe(false);
   });
 });

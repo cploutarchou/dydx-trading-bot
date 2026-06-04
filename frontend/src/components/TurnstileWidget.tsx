@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useUIPreferencesStore } from '../store/uiPreferences';
 
 const TURNSTILE_SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() ?? '';
@@ -144,6 +145,7 @@ export const TurnstileWidget: React.FC<TurnstileWidgetProps> = ({
   const lastResetSignalRef = useRef(resetSignal);
   const [status, setStatus] = useState<TurnstileStatus>('loading');
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  const resolvedTheme = useUIPreferencesStore((state) => state.resolvedTheme);
 
   useEffect(() => {
     let cancelled = false;
@@ -176,7 +178,7 @@ export const TurnstileWidget: React.FC<TurnstileWidgetProps> = ({
         widgetIdRef.current = window.turnstile.render(containerRef.current, {
           sitekey: TURNSTILE_SITE_KEY,
           action,
-          theme: 'dark',
+          theme: resolvedTheme,
           size: 'normal',
           callback: (token: string) => {
             onTokenChange(token);
@@ -216,7 +218,7 @@ export const TurnstileWidget: React.FC<TurnstileWidgetProps> = ({
         widgetIdRef.current = null;
       }
     };
-  }, [action, onTokenChange, verificationDisabled]);
+  }, [action, onTokenChange, resolvedTheme, verificationDisabled]);
 
   useEffect(() => {
     if (verificationDisabled) {

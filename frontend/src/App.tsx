@@ -3,8 +3,16 @@
  * Enhanced with React Query, Error Boundaries, and Toast Notifications
  */
 
+import { useQuery } from '@tanstack/react-query';
 import React, { Suspense, lazy, useEffect, useRef } from 'react';
-import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
+import {
+  Navigate,
+  Route,
+  BrowserRouter as Router,
+  Routes,
+  useLocation,
+} from 'react-router-dom';
+import api from './api';
 import { QueryProvider } from './api/QueryProvider';
 import { getCurrentPortalType } from './app/portal';
 import { getPortalRouteManifest } from './app/routeManifest';
@@ -21,6 +29,7 @@ import {
 } from './components/ErrorBoundary';
 import { MainLayout } from './components/MainLayout';
 import { RegistrationDisabledLoginGate } from './components/RegistrationDisabledLoginGate';
+import { ThemeProvider } from './components/ThemeProvider';
 import { LandingPage } from './pages/Landing';
 import { LoginPage } from './pages/Login';
 import { PricingPage } from './pages/Pricing';
@@ -71,6 +80,19 @@ const TwoFactorAuthPage = lazy(() =>
 const UnauthorizedPage = lazy(() =>
   import('./pages/Unauthorized').then((module) => ({ default: module.UnauthorizedPage }))
 );
+const ComingSoonPage = lazy(() =>
+  import('./pages/ComingSoon').then((module) => ({ default: module.ComingSoonPage }))
+);
+
+const COMING_SOON_AUTH_BYPASS_PATHS = new Set([
+  '/login',
+  '/2fa-setup',
+  '/force-password',
+  '/unauthorized',
+]);
+
+const isComingSoonBypassPath = (pathname: string): boolean =>
+  COMING_SOON_AUTH_BYPASS_PATHS.has(pathname) || pathname.startsWith('/admin');
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: WorkspaceRole[] }> = ({
   children,
@@ -130,7 +152,40 @@ const PasswordRotationRoute: React.FC = () => {
   return <ForcePasswordChangePage />;
 };
 
+const ComingSoonGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const portal = getCurrentPortalType();
+  const location = useLocation();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
+  const appConfigQuery = useQuery({
+    queryKey: ['public', 'app-config'],
+    queryFn: async () => {
+      const response = await api.getPublicAppConfig();
+      return response.data;
+    },
+    staleTime: 30_000,
+    retry: 1,
+    enabled: portal === 'client',
+  });
 
+  if (portal !== 'client') {
+    return <>{children}</>;
+  }
+
+  if (appConfigQuery.isLoading) {
+    return <AuthSkeleton />;
+  }
+
+  if (appConfigQuery.isError || !appConfigQuery.data?.coming_soon_enabled) {
+    return <>{children}</>;
+  }
+
+  const isAuthBypassPath = isComingSoonBypassPath(location.pathname);
+  if (isAuthenticated || isAuthBypassPath) {
+    return <>{children}</>;
+  }
+
+  return <ComingSoonPage />;
+};
 
 export const App: React.FC = () => {
   const portal = getCurrentPortalType();
@@ -142,7 +197,6 @@ export const App: React.FC = () => {
   const refreshWarningLastShownRef = useRef(0);
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', 'dark');
     document.documentElement.setAttribute('lang', language === 'el' ? 'el' : 'en');
   }, [language]);
 
@@ -203,51 +257,55 @@ export const App: React.FC = () => {
   }, [logout, toastWarning]);
 
   return (
-    <QueryProvider>
-      <EnhancedErrorBoundary>
-        <Router>
-          <ToastContainer />
-          <RegistrationDisabledLoginGate />
-          <Suspense fallback={<AuthSkeleton />}>
-            <Routes>
-              <Route
-                path="/"
-                element={
-                  portal === 'client' ? <LandingPage /> : <Navigate to="/dashboard" replace />
-                }
-              />
-              <Route path="/services/:slug" element={<PublicServicePage />} />
-              <Route path="/pricing" element={<PricingPage />} />
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/register" element={<RegisterPage />} />
-              <Route path="/2fa-setup" element={<TwoFactorAuthPage />} />
-              <Route path="/force-password" element={<PasswordRotationRoute />} />
-              <Route
-                path="/unauthorized"
-                element={
-                  <ProtectedRoute>
-                    <UnauthorizedPage />
-                  </ProtectedRoute>
-                }
-              />
+    <ThemeProvider>
+      <QueryProvider>
+        <EnhancedErrorBoundary>
+          <Router>
+            <ToastContainer />
+            <RegistrationDisabledLoginGate />
+            <Suspense fallback={<AuthSkeleton />}>
+              <ComingSoonGate>
+                <Routes>
+                  <Route
+                    path="/"
+                    element={
+                      portal === 'client' ? <LandingPage /> : <Navigate to="/dashboard" replace />
+                    }
+                  />
+                  <Route path="/services/:slug" element={<PublicServicePage />} />
+                  <Route path="/pricing" element={<PricingPage />} />
+                  <Route path="/login" element={<LoginPage />} />
+                  <Route path="/register" element={<RegisterPage />} />
+                  <Route path="/2fa-setup" element={<TwoFactorAuthPage />} />
+                  <Route path="/force-password" element={<PasswordRotationRoute />} />
+                  <Route
+                    path="/unauthorized"
+                    element={
+                      <ProtectedRoute>
+                        <UnauthorizedPage />
+                      </ProtectedRoute>
+                    }
+                  />
 
-              {portalRoutes.map((route) => (
-                <Route
-                  key={`${portal}:${route.path}`}
-                  path={route.path}
-                  element={
-                    <ProtectedRoute allowedRoles={route.allowedRoles}>
-                      {route.element}
-                    </ProtectedRoute>
-                  }
-                />
-              ))}
+                  {portalRoutes.map((route) => (
+                    <Route
+                      key={`${portal}:${route.path}`}
+                      path={route.path}
+                      element={
+                        <ProtectedRoute allowedRoles={route.allowedRoles}>
+                          {route.element}
+                        </ProtectedRoute>
+                      }
+                    />
+                  ))}
 
-              <Route path="*" element={<Navigate to="/unauthorized" replace />} />
-            </Routes>
-          </Suspense>
-        </Router>
-      </EnhancedErrorBoundary>
-    </QueryProvider>
+                  <Route path="*" element={<Navigate to="/unauthorized" replace />} />
+                </Routes>
+              </ComingSoonGate>
+            </Suspense>
+          </Router>
+        </EnhancedErrorBoundary>
+      </QueryProvider>
+    </ThemeProvider>
   );
 };

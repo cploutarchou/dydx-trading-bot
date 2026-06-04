@@ -22,7 +22,7 @@ func makeAccessToken(t *testing.T, secret string, expiresIn time.Duration) strin
 		RefreshExpiryDays: 1,
 	})
 
-	token, _, err := mgr.CreateAccessToken(7, "alice", "alice@example.com", true, expiresIn)
+	token, _, err := mgr.CreateAccessToken(7, "alice", "alice@executionlab.io", true, expiresIn)
 	if err != nil {
 		t.Fatalf("create access token: %v", err)
 	}
@@ -87,8 +87,8 @@ func TestRequireAuth_AllowsValidBearerAndSetsClaims(t *testing.T) {
 	if body["username"] != "alice" {
 		t.Fatalf("expected username alice, got %v", body["username"])
 	}
-	if body["email"] != "alice@example.com" {
-		t.Fatalf("expected email alice@example.com, got %v", body["email"])
+	if body["email"] != "alice@executionlab.io" {
+		t.Fatalf("expected email alice@executionlab.io, got %v", body["email"])
 	}
 	if body["is_admin"] != true {
 		t.Fatalf("expected is_admin=true, got %v", body["is_admin"])
@@ -107,7 +107,7 @@ func TestRequireAuth_AllowsOpaqueSessionCookie(t *testing.T) {
 		auth.SessionData{
 			UserID:   42,
 			Username: "session-user",
-			Email:    "session@example.com",
+			Email:    "session@executionlab.io",
 			Role:     "admin",
 			IsAdmin:  true,
 		},
@@ -134,8 +134,8 @@ func TestRequireAuth_AllowsOpaqueSessionCookie(t *testing.T) {
 	if body["username"] != "session-user" {
 		t.Fatalf("expected session-user, got %v", body["username"])
 	}
-	if body["email"] != "session@example.com" {
-		t.Fatalf("expected session@example.com, got %v", body["email"])
+	if body["email"] != "session@executionlab.io" {
+		t.Fatalf("expected session@executionlab.io, got %v", body["email"])
 	}
 	if body["is_admin"] != true {
 		t.Fatalf("expected is_admin=true, got %v", body["is_admin"])

@@ -78,7 +78,7 @@ describe('auth store session bootstrap', () => {
       data: {
         id: 7,
         username: 'admin',
-        email: 'admin@example.com',
+        email: 'admin@executionlab.io',
         role: 'admin',
         is_active: true,
         is_admin: true,

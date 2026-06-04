@@ -300,13 +300,13 @@ variable "log_level" {
 variable "app_domain" {
   type        = string
   description = "Public frontend domain"
-  default     = "app.example.com"
+  default     = "app.executionlab.io"
 }
 
 variable "api_domain" {
   type        = string
   description = "Public backend API domain"
-  default     = "api.example.com"
+  default     = "api.executionlab.io"
 }
 
 variable "frontend_image" {

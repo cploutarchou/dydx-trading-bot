@@ -11,10 +11,13 @@ import {
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { getCurrentPortalType } from '../app/portal';
+import { backofficePortalHref, clientPortalHref } from '../app/portalLinks';
+import { BACKOFFICE_ROLES, getUserWorkspaceRole, roleMatches } from '../auth/roles';
 import { useI18n } from '../i18n/useI18n';
 import { getWorkspaceBreadcrumbs, getWorkspaceNavItems } from '../navigation/workspaceNav';
 import { useAuthStore } from '../store/auth';
 import { useUIPreferencesStore } from '../store/uiPreferences';
+import { ThemeToggle } from './ThemeToggle';
 
 interface HeaderProps {
   onMenuToggle: () => void;
@@ -35,6 +38,20 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
   const [now, setNow] = useState(() => new Date());
   const [isOnline, setIsOnline] = useState(() => window.navigator.onLine);
   const portal = getCurrentPortalType();
+  const workspaceRole = getUserWorkspaceRole(user);
+  const canOpenBackoffice = roleMatches(workspaceRole, BACKOFFICE_ROLES);
+  const portalSwitch =
+    canOpenBackoffice && portal === 'backoffice'
+      ? {
+          label: t('Client area', 'Περιοχή πελάτη'),
+          href: clientPortalHref('/dashboard'),
+        }
+      : canOpenBackoffice
+        ? {
+            label: t('Admin', 'Διαχείριση'),
+            href: backofficePortalHref('/dashboard'),
+          }
+        : null;
 
   useEffect(() => {
     const timerId = window.setInterval(() => setNow(new Date()), 1000);
@@ -112,6 +129,16 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
         </div>
 
         <div className="flex items-center gap-3">
+          {portalSwitch && (
+            <a
+              href={portalSwitch.href}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-semibold transition ${controlCls}`}
+            >
+              <ShieldCheck className="h-4 w-4" />
+              <span className="hidden sm:inline">{portalSwitch.label}</span>
+            </a>
+          )}
+
           <button
             type="button"
             onClick={onOpenCommandPalette}
@@ -127,6 +154,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
           </button>
 
           <div className="hidden items-center gap-2 lg:flex">
+            <ThemeToggle />
             <label
               className={`inline-flex items-center gap-2 rounded-lg border px-2 py-2 text-xs ${controlCls}`}
             >

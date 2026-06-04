@@ -36,14 +36,14 @@ describe('backend origin helpers', () => {
     expect(
       resolveBackendWebSocketUrl('/ws/strategies', 'jwt-token', '', {
         protocol: 'https:',
-        host: 'app.example.com',
+        host: 'app.executionlab.io',
       })
-    ).toBe('wss://app.example.com/ws/strategies?access_token=jwt-token');
+    ).toBe('wss://app.executionlab.io/ws/strategies?access_token=jwt-token');
   });
 
   it('preserves explicit websocket URLs while normalizing auth query params', () => {
-    expect(resolveBackendWebSocketUrl('wss://backend.example.com/ws/bots/bot-1', 'jwt-token')).toBe(
-      'wss://backend.example.com/ws/bots/bot-1?access_token=jwt-token'
+    expect(resolveBackendWebSocketUrl('wss://backend.executionlab.io/ws/bots/bot-1', 'jwt-token')).toBe(
+      'wss://backend.executionlab.io/ws/bots/bot-1?access_token=jwt-token'
     );
   });
 

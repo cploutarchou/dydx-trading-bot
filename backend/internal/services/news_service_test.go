@@ -62,7 +62,7 @@ func TestNewsServiceParsesCoinDeskRSS(t *testing.T) {
       <pubDate>Sun, 05 Apr 2026 14:00:00 +0000</pubDate>
       <description><![CDATA[Test summary]]></description>
       <dc:creator>CoinDesk Reporter</dc:creator>
-      <media:content url="https://img.example.com/story.jpg" type="image/*" medium="image"/>
+      <media:content url="https://img.executionlab.io/story.jpg" type="image/*" medium="image"/>
       <category>Markets</category>
       <category>News</category>
     </item>

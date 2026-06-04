@@ -2,9 +2,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
 import {
 	ChevronDown,
+	EyeOff,
 	Loader2,
 	LockKeyhole,
 	RotateCcw,
+	Rocket,
 	ShieldCheck,
 	Trash2,
 	UserCog,
@@ -73,7 +75,7 @@ const ACCESS_CONTROL_SUBMENU_ITEMS: AccessControlSubmenuItem[] = [
   {
     key: 'platform_access',
     label: 'Platform Access',
-    description: 'MFA, registration, portals',
+    description: 'MFA, launch, registration, portals',
   },
   {
     key: 'team_access',
@@ -171,6 +173,7 @@ export function AdminAccessControlSettings() {
   const [registrationModeDraft, setRegistrationModeDraft] = useState<RegistrationMode>('open');
   const [invitationCodeDraft, setInvitationCodeDraft] = useState('');
   const [privilegedMfaRequiredDraft, setPrivilegedMfaRequiredDraft] = useState(false);
+  const [comingSoonEnabledDraft, setComingSoonEnabledDraft] = useState(false);
   const [crmSubdomainEnabledDraft, setCrmSubdomainEnabledDraft] = useState(true);
   const [crmSubdomainHostDraft, setCrmSubdomainHostDraft] = useState('crm.localhost');
   const [ibSubdomainEnabledDraft, setIbSubdomainEnabledDraft] = useState(true);
@@ -275,6 +278,9 @@ export function AdminAccessControlSettings() {
   useEffect(() => {
     setPrivilegedMfaRequiredDraft(
       readBooleanPlatformSetting(platformSettingsQuery.data, 'require_privileged_mfa', false)
+    );
+    setComingSoonEnabledDraft(
+      readBooleanPlatformSetting(platformSettingsQuery.data, 'coming_soon_enabled', false)
     );
 
     setCrmSubdomainEnabledDraft(
@@ -480,6 +486,28 @@ export function AdminAccessControlSettings() {
     },
     onError: (error: unknown) => {
       errorToast('Failed to update MFA policy', getErrorMessage(error));
+    },
+  });
+
+  const updateComingSoonMutation = useMutation({
+    mutationFn: async (enabled: boolean) =>
+      api.updateSettings({
+        'platform.coming_soon_enabled': enabled,
+      }),
+    onSuccess: (_, enabled) => {
+      successToast(
+        enabled ? 'Coming Soon mode enabled' : 'Coming Soon mode disabled',
+        enabled
+          ? 'Unauthenticated public client-portal traffic now sees the launch page.'
+          : 'Public client-portal pages are available again.'
+      );
+      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      void queryClient.invalidateQueries({ queryKey: ['settings', 'platform'] });
+      void queryClient.invalidateQueries({ queryKey: ['settings', 'platform', 'access-control'] });
+      void queryClient.invalidateQueries({ queryKey: ['public', 'app-config'] });
+    },
+    onError: (error: unknown) => {
+      errorToast('Failed to update Coming Soon mode', getErrorMessage(error));
     },
   });
 
@@ -818,6 +846,19 @@ export function AdminAccessControlSettings() {
 
           <div className="rounded-2xl border border-slate-700/60 bg-slate-950/50 p-4">
             <div className="flex items-center gap-2 text-slate-200">
+              <EyeOff className="h-4 w-4 text-violet-300" />
+              Public launch mode
+            </div>
+            <p className="mt-3 text-2xl font-semibold text-white">
+              {comingSoonEnabledDraft ? 'Coming Soon' : 'Live'}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Controls the unauthenticated client-portal experience.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-700/60 bg-slate-950/50 p-4">
+            <div className="flex items-center gap-2 text-slate-200">
               <Users className="h-4 w-4 text-emerald-300" />
               Total users
             </div>
@@ -827,7 +868,7 @@ export function AdminAccessControlSettings() {
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-700/60 bg-slate-950/50 p-4">
+          <div className="rounded-2xl border border-slate-700/60 bg-slate-950/50 p-4 xl:col-span-1">
             <div className="flex items-center gap-2 text-slate-200">
               <ShieldCheck className="h-4 w-4 text-amber-300" />
               Active admins
@@ -905,6 +946,52 @@ export function AdminAccessControlSettings() {
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   'Save MFA policy'
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-violet-500/25 bg-violet-500/10 p-4">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Rocket className="h-4 w-4 text-violet-200" />
+                  <p className="text-sm font-semibold text-white">Coming Soon mode</p>
+                </div>
+                <p className="mt-1 text-sm leading-6 text-slate-300">
+                  Show the public launch page for unauthenticated client-portal traffic while
+                  keeping sign-in, admin, CRM, and IB portals reachable.
+                </p>
+              </div>
+              <label className="flex items-center gap-3 text-sm text-slate-100">
+                <input
+                  type="checkbox"
+                  checked={comingSoonEnabledDraft}
+                  onChange={(event) => setComingSoonEnabledDraft(event.target.checked)}
+                  disabled={updateComingSoonMutation.isPending || platformSettingsQuery.isLoading}
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-violet-500"
+                />
+                Enable public launch page
+              </label>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-slate-700/60 bg-slate-950/40 p-3 text-sm text-slate-300">
+              {comingSoonEnabledDraft
+                ? 'Public visitors will see the branded launch page. Existing operators can still sign in.'
+                : 'Public visitors can access the normal website and onboarding routes.'}
+            </div>
+
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => updateComingSoonMutation.mutate(comingSoonEnabledDraft)}
+                disabled={updateComingSoonMutation.isPending || platformSettingsQuery.isLoading}
+                className="inline-flex min-w-42.5 items-center justify-center rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500"
+              >
+                {updateComingSoonMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  'Save launch mode'
                 )}
               </button>
             </div>

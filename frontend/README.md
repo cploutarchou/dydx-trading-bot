@@ -56,8 +56,8 @@ npm run test:contracts
 
 The portal shell is selected with `VITE_APP_PORTAL_TYPE=client|backoffice|ib`.
 
-- Client Portal (`apps/client-portal`): dashboard, client area, strategies, backtests, bot operations, profile, security, and wallet/API key management. It does not register CRM, IB admin, Admin Hub, global settings, access-control, or integration routes.
-- CRM / Backoffice (`apps/backoffice`): Admin Hub, CRM clients, registration pipeline, hierarchy, commissions, security events, IB oversight, and operator settings for access control, registration policy, Mailgun, Telegram, Market News, API, Redis, and trading configuration.
+- Client Portal (`apps/client-portal`): dashboard, client area, strategies, backtests, bot operations, profile, security, Telegram, and wallet/API key management. It does not register CRM, IB admin, Admin Hub, global settings, access-control, Celery Ops, or operator integration routes.
+- CRM / Backoffice (`apps/backoffice`): Admin Hub, CRM clients, registration pipeline, hierarchy, commissions, security events, IB oversight, Celery Ops, and operator settings for access control, registration policy, Mailgun, Telegram, Market News, API, Redis, and trading configuration.
 - IB Portal (`apps/ib-portal`): IB dashboard, client tree, applications/invitations, commission metrics, reports, referral tokens where role-authorized, profile, and security.
 
 Shared boundaries are exposed under:
@@ -79,7 +79,7 @@ The client portal is organized around the automation workflow:
 - Bots: live/paper runtime management, health, start/stop/restart/delete actions, positions, logs, and deployment review.
 - Market Intel: Codex token intelligence and Market News research. Legacy `/codex` and `/news` links redirect into this section.
 - Client Area / Account: role progression, onboarding state, and partner application timeline.
-- Settings: profile, security, dYdX keys/wallet/API credentials, Telegram, and integrations.
+- Settings: profile, security, dYdX keys/wallet/API credentials, and user Telegram delivery. Admin/operator settings stay in the backoffice portal even when an admin account opens client `/settings`.
 
 Client portal product flow should remain: `Research -> Strategy -> Backtest -> Deploy Bot -> Monitor Dashboard`.
 
@@ -91,16 +91,16 @@ Use these variables for local or deployed builds:
 VITE_APP_PORTAL_TYPE=client
 VITE_API_BASE_URL=http://localhost:8888
 VITE_AUTH_BASE_URL=http://localhost:8888
-VITE_CLIENT_HOST=app.example.com
-VITE_CRM_HOST=crm.example.com
-VITE_IB_PORTAL_HOST=ib.example.com
+VITE_CLIENT_HOST=app.executionlab.io
+VITE_CRM_HOST=crm.executionlab.io
+VITE_IB_PORTAL_HOST=ib.executionlab.io
 ```
 
 Suggested deployment mapping:
 
-- `app.example.com` -> `npm run build:client`
-- `crm.example.com` -> `npm run build:backoffice`
-- `ib.example.com` -> `npm run build:ib`
+- `app.executionlab.io` -> `npm run build:client`
+- `crm.executionlab.io` -> `npm run build:backoffice`
+- `ib.executionlab.io` -> `npm run build:ib`
 
 `VITE_API_URL` is still supported as a compatibility fallback, but new deployments should use `VITE_API_BASE_URL`.
 
@@ -110,10 +110,13 @@ Client routes allow `client` and `user`. IB routes allow `ib` and `sub_ib`; admi
 
 Unauthorized authenticated users land on `/unauthorized`. Backend endpoints must continue to enforce the same role boundaries; frontend guards are a UX and accidental-access layer, not the source of authorization truth.
 
+Admin/backoffice users get a topbar switch into the CRM / Backoffice portal. Backoffice users get a matching topbar switch back to the Client Portal. Add new admin pages to `src/app/routeManifest.tsx` under the backoffice route list and `src/navigation/workspaceNav.ts` under `backofficeNavItems`; add new client pages to the client route list and `clientNavItems`. Do not add admin-only pages to the client route list unless the route is a deliberate compatibility redirect and is still backend guarded.
+
 ## Backend/API Notes
 
 The current portal builds consume these backend namespaces:
 
+- public app bootstrap flags: `/api/v1/public/app-config`
 - client/session and shared account state: `/api/v1/me`, `/api/v1/auth/session`
 - partner/client portal data: `/api/v1/portal/*`
 - CRM/backoffice operations: `/api/v1/backoffice/*`
@@ -122,6 +125,24 @@ The current portal builds consume these backend namespaces:
 - platform and trading settings: `/api/v1/settings/*`
 
 Backend role checks must enforce the same portal assumptions listed above, especially for `/api/v1/backoffice/*`, `/api/v1/ib/*`, `/api/v1/portal/*`, and `/api/v1/settings/*`.
+
+## Coming Soon Mode
+
+Public launch mode is controlled by the backend setting `platform.coming_soon_enabled`.
+
+- Safe public bootstrap endpoint: `GET /api/v1/public/app-config`
+- Admin mutation path: Backoffice/Admin Hub -> Settings -> Access Control -> Platform Access -> Coming Soon mode
+- Direct API mutation, for admin automation only: `PUT /api/v1/settings` with `{ "platform.coming_soon_enabled": true }`
+
+When enabled in the client portal:
+
+- unauthenticated public traffic sees the branded Coming Soon page
+- `/login`, `/2fa-setup`, `/force-password`, and `/unauthorized` remain routable
+- `/admin...` attempts are allowed to reach auth/route guards so admin deep links do not get replaced by the Coming Soon page
+- authenticated sessions continue through existing protected route guards
+- backoffice and IB portal builds are not blocked
+
+If the public app config endpoint fails to load, the frontend fails open to the existing app so operators are not locked out by a bootstrap outage.
 
 ## Key Directories
 
@@ -173,6 +194,24 @@ The current UI direction is production DeFi:
   - live/realtime: cyan
   - warning/recovering: amber
   - negative/failure: rose/red
+- theme selection supports Light, Dark, and System modes through
+  `src/store/uiPreferences.ts`, `src/components/ThemeProvider.tsx`, and the
+  header `ThemeToggle`. The selected preference is stored in `localStorage`
+  under `ui.theme`; no backend storage is used because the current backend
+  settings endpoints are platform/admin/trading settings rather than per-user
+  visual preferences.
+- theme tokens live in `src/index.css` as CSS variables for backgrounds,
+  foreground text, muted text, primary/secondary/accent, borders, cards,
+  surfaces, inputs, semantic states, and chart colors. Tailwind's
+  `execution.*` colors resolve to those variables.
+- new theme-aware components should prefer shared primitives such as
+  `PlatformPageHeader`, `PlatformPanel`, `PlatformStatCard`,
+  `TerminalDataGrid`, `premium-*`, `operator-*`, and `workspace-*`. For custom
+  CSS, use the semantic variables instead of adding new dark-only `slate` or
+  `stone` color literals.
+- charts should be created through `createTradingChart` from
+  `src/components/charts/lightweightTheme.ts` so chart backgrounds, grid lines,
+  labels, borders, and crosshairs follow the selected theme.
 - operator density preferences should persist across pages via `localStorage` key
   `operator-ui-density` using `src/hooks/usePersistentPreference.ts`.
   Backtest operator pages read this shared preference to keep comfort/dense layouts consistent.

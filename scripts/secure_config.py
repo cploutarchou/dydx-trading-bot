@@ -26,7 +26,7 @@ DEFAULT_KEY_FILE = ROOT / ".configkey.bin"
 PLAINTEXT_SUFFIX = ".config.json"
 ENCRYPTED_SUFFIX = ".config.enc.json"
 RUN_JSON_PATH = ROOT / "run.json"
-EXAMPLE_PROFILE_PATH = PROFILES_DIR / "example.config.json"
+EXAMPLE_PROFILE_PATH = PROFILES_DIR / "executionlab.ionfig.json"
 DEFAULT_BACKUP_KEY_FILE = ROOT / ".configkey.bin.bak"
 
 

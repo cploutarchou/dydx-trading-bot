@@ -15,6 +15,7 @@ import { useI18n } from '../i18n/useI18n';
 import { getWorkspaceBreadcrumbs, getWorkspaceNavItems } from '../navigation/workspaceNav';
 import { useAuthStore } from '../store/auth';
 import { useUIPreferencesStore } from '../store/uiPreferences';
+import { ThemeToggle } from './ThemeToggle';
 
 interface HeaderProps {
   onMenuToggle: () => void;
@@ -127,6 +128,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
           </button>
 
           <div className="hidden items-center gap-2 lg:flex">
+            <ThemeToggle />
             <label
               className={`inline-flex items-center gap-2 rounded-lg border px-2 py-2 text-xs ${controlCls}`}
             >

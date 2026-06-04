@@ -114,6 +114,7 @@ Unauthorized authenticated users land on `/unauthorized`. Backend endpoints must
 
 The current portal builds consume these backend namespaces:
 
+- public app bootstrap flags: `/api/v1/public/app-config`
 - client/session and shared account state: `/api/v1/me`, `/api/v1/auth/session`
 - partner/client portal data: `/api/v1/portal/*`
 - CRM/backoffice operations: `/api/v1/backoffice/*`
@@ -122,6 +123,23 @@ The current portal builds consume these backend namespaces:
 - platform and trading settings: `/api/v1/settings/*`
 
 Backend role checks must enforce the same portal assumptions listed above, especially for `/api/v1/backoffice/*`, `/api/v1/ib/*`, `/api/v1/portal/*`, and `/api/v1/settings/*`.
+
+## Coming Soon Mode
+
+Public launch mode is controlled by the backend setting `platform.coming_soon_enabled`.
+
+- Safe public bootstrap endpoint: `GET /api/v1/public/app-config`
+- Admin mutation path: Backoffice/Admin Hub -> Settings -> Access Control -> Platform Access -> Coming Soon mode
+- Direct API mutation, for admin automation only: `PUT /api/v1/settings` with `{ "platform.coming_soon_enabled": true }`
+
+When enabled in the client portal:
+
+- unauthenticated public traffic sees the branded Coming Soon page
+- `/login`, `/2fa-setup`, `/force-password`, and `/unauthorized` remain routable
+- authenticated sessions continue through existing protected route guards
+- backoffice and IB portal builds are not blocked
+
+If the public app config endpoint fails to load, the frontend fails open to the existing app so operators are not locked out by a bootstrap outage.
 
 ## Key Directories
 
@@ -173,6 +191,24 @@ The current UI direction is production DeFi:
   - live/realtime: cyan
   - warning/recovering: amber
   - negative/failure: rose/red
+- theme selection supports Light, Dark, and System modes through
+  `src/store/uiPreferences.ts`, `src/components/ThemeProvider.tsx`, and the
+  header `ThemeToggle`. The selected preference is stored in `localStorage`
+  under `ui.theme`; no backend storage is used because the current backend
+  settings endpoints are platform/admin/trading settings rather than per-user
+  visual preferences.
+- theme tokens live in `src/index.css` as CSS variables for backgrounds,
+  foreground text, muted text, primary/secondary/accent, borders, cards,
+  surfaces, inputs, semantic states, and chart colors. Tailwind's
+  `execution.*` colors resolve to those variables.
+- new theme-aware components should prefer shared primitives such as
+  `PlatformPageHeader`, `PlatformPanel`, `PlatformStatCard`,
+  `TerminalDataGrid`, `premium-*`, `operator-*`, and `workspace-*`. For custom
+  CSS, use the semantic variables instead of adding new dark-only `slate` or
+  `stone` color literals.
+- charts should be created through `createTradingChart` from
+  `src/components/charts/lightweightTheme.ts` so chart backgrounds, grid lines,
+  labels, borders, and crosshairs follow the selected theme.
 - operator density preferences should persist across pages via `localStorage` key
   `operator-ui-density` using `src/hooks/usePersistentPreference.ts`.
   Backtest operator pages read this shared preference to keep comfort/dense layouts consistent.

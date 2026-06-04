@@ -24,6 +24,17 @@ export const RegistrationDisabledLoginGate: React.FC = () => {
 
   const isAuthRoute = location.pathname === '/login' || location.pathname === '/register';
 
+  const appConfigQuery = useQuery({
+    queryKey: ['public', 'app-config'],
+    queryFn: async () => {
+      const response = await api.getPublicAppConfig();
+      return response.data;
+    },
+    staleTime: 30_000,
+    retry: 1,
+    enabled: !isAuthenticated && isAuthRoute,
+  });
+
   useEffect(() => {
     if (!isAuthRoute || isAuthenticated) {
       setAllowRegistrationFetch(false);
@@ -67,7 +78,9 @@ export const RegistrationDisabledLoginGate: React.FC = () => {
   });
 
   const shouldGate =
-    !isAuthenticated && isRegistrationDisabledByAdministrator(registrationStatusQuery.data);
+    !isAuthenticated &&
+    !appConfigQuery.data?.coming_soon_enabled &&
+    isRegistrationDisabledByAdministrator(registrationStatusQuery.data);
   const visibleError = error;
 
   useEffect(() => {

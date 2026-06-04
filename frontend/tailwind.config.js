@@ -8,14 +8,14 @@ export default {
     extend: {
       colors: {
         execution: {
-          bg: '#050816',
-          surface: '#0F172A',
-          elevated: '#111827',
-          primary: '#00D4FF',
-          primaryDark: '#0284C7',
-          violet: '#7C3AED',
-          signal: '#22C55E',
-          border: '#1E293B',
+          bg: 'var(--execution-bg)',
+          surface: 'var(--execution-surface)',
+          elevated: 'var(--execution-elevated)',
+          primary: 'var(--execution-primary)',
+          primaryDark: 'var(--execution-primary-dark)',
+          violet: 'var(--execution-secondary)',
+          signal: 'var(--execution-success)',
+          border: 'var(--execution-border)',
         },
       },
       fontFamily: {

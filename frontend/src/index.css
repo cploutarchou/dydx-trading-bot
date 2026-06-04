@@ -4214,32 +4214,398 @@ h6 {
   color: #0369a1 !important;
 }
 
-:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-white'],
-:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-slate-50'],
-:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-slate-100'],
-:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-gray-50'],
-:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-gray-100'],
-:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-stone-50'],
-:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-stone-100'] {
+:root[data-theme='light']
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    td,
+    th,
+    li,
+    strong,
+    code,
+    pre
+  )[class~='text-white'],
+:root[data-theme='light']
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    td,
+    th,
+    li,
+    strong,
+    code,
+    pre
+  )[class~='text-slate-50'],
+:root[data-theme='light']
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    td,
+    th,
+    li,
+    strong,
+    code,
+    pre
+  )[class~='text-slate-100'],
+:root[data-theme='light']
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    td,
+    th,
+    li,
+    strong,
+    code,
+    pre
+  )[class~='text-gray-50'],
+:root[data-theme='light']
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    td,
+    th,
+    li,
+    strong,
+    code,
+    pre
+  )[class~='text-gray-100'],
+:root[data-theme='light']
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    td,
+    th,
+    li,
+    strong,
+    code,
+    pre
+  )[class~='text-stone-50'],
+:root[data-theme='light']
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    td,
+    th,
+    li,
+    strong,
+    code,
+    pre
+  )[class~='text-stone-100'] {
   color: #0f172a !important;
 }
 
-:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-slate-200'],
-:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-slate-300'],
-:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-gray-200'],
-:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-gray-300'],
-:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-stone-200'],
-:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre)[class~='text-stone-300'] {
+:root[data-theme='light']
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    td,
+    th,
+    li,
+    strong,
+    code,
+    pre
+  )[class~='text-slate-200'],
+:root[data-theme='light']
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    td,
+    th,
+    li,
+    strong,
+    code,
+    pre
+  )[class~='text-slate-300'],
+:root[data-theme='light']
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    td,
+    th,
+    li,
+    strong,
+    code,
+    pre
+  )[class~='text-gray-200'],
+:root[data-theme='light']
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    td,
+    th,
+    li,
+    strong,
+    code,
+    pre
+  )[class~='text-gray-300'],
+:root[data-theme='light']
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    td,
+    th,
+    li,
+    strong,
+    code,
+    pre
+  )[class~='text-stone-200'],
+:root[data-theme='light']
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    td,
+    th,
+    li,
+    strong,
+    code,
+    pre
+  )[class~='text-stone-300'] {
   color: #334155 !important;
 }
 
-:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre, a, button)[class~='text-slate-400'],
-:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre, a, button)[class~='text-slate-500'],
-:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre, a, button)[class~='text-gray-400'],
-:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre, a, button)[class~='text-gray-500'],
-:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre, a, button)[class~='text-stone-400'],
-:root[data-theme='light'] :where(h1, h2, h3, h4, h5, h6, p, span, div, label, td, th, li, strong, code, pre, a, button)[class~='text-stone-500'] {
+:root[data-theme='light']
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    td,
+    th,
+    li,
+    strong,
+    code,
+    pre,
+    a,
+    button
+  )[class~='text-slate-400'],
+:root[data-theme='light']
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    td,
+    th,
+    li,
+    strong,
+    code,
+    pre,
+    a,
+    button
+  )[class~='text-slate-500'],
+:root[data-theme='light']
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    td,
+    th,
+    li,
+    strong,
+    code,
+    pre,
+    a,
+    button
+  )[class~='text-gray-400'],
+:root[data-theme='light']
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    td,
+    th,
+    li,
+    strong,
+    code,
+    pre,
+    a,
+    button
+  )[class~='text-gray-500'],
+:root[data-theme='light']
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    td,
+    th,
+    li,
+    strong,
+    code,
+    pre,
+    a,
+    button
+  )[class~='text-stone-400'],
+:root[data-theme='light']
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    td,
+    th,
+    li,
+    strong,
+    code,
+    pre,
+    a,
+    button
+  )[class~='text-stone-500'] {
   color: #64748b !important;
+}
+
+:root[data-theme='light'] :where(a, button)[class~='text-slate-400'],
+:root[data-theme='light'] :where(a, button)[class~='text-gray-400'],
+:root[data-theme='light'] :where(a, button)[class~='text-stone-400'] {
+  color: #475569 !important;
+}
+
+:root[data-theme='light'] :where(a, button)[class~='text-slate-500'],
+:root[data-theme='light'] :where(a, button)[class~='text-gray-500'],
+:root[data-theme='light'] :where(a, button)[class~='text-stone-500'] {
+  color: #334155 !important;
 }
 
 :root[data-theme='light'] [class~='text-cyan-50'],
@@ -4250,6 +4616,14 @@ h6 {
 :root[data-theme='light'] [class~='text-blue-300'],
 :root[data-theme='light'] [class~='text-blue-400'] {
   color: #0369a1 !important;
+}
+
+:root[data-theme='light'] :where(a, button)[class~='text-cyan-200'],
+:root[data-theme='light'] :where(a, button)[class~='text-cyan-300'],
+:root[data-theme='light'] :where(a, button)[class~='text-cyan-400'],
+:root[data-theme='light'] :where(a, button)[class~='text-blue-300'],
+:root[data-theme='light'] :where(a, button)[class~='text-blue-400'] {
+  color: #075985 !important;
 }
 
 :root[data-theme='light'] [class~='text-emerald-100'],

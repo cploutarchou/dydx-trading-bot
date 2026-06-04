@@ -1,13 +1,4 @@
-import {
-    ChevronRight,
-    Command,
-    Languages,
-    Menu,
-    Search,
-    ShieldCheck,
-    Wifi,
-    WifiOff,
-} from 'lucide-react';
+import { ChevronRight, Command, Menu, Search, ShieldCheck, Wifi, WifiOff } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { getCurrentPortalType } from '../app/portal';
@@ -16,7 +7,6 @@ import { BACKOFFICE_ROLES, getUserWorkspaceRole, roleMatches } from '../auth/rol
 import { useI18n } from '../i18n/useI18n';
 import { getWorkspaceBreadcrumbs, getWorkspaceNavItems } from '../navigation/workspaceNav';
 import { useAuthStore } from '../store/auth';
-import { useUIPreferencesStore } from '../store/uiPreferences';
 import { ThemeToggle } from './ThemeToggle';
 
 interface HeaderProps {
@@ -27,8 +17,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalette }) => {
   const location = useLocation();
   const user = useAuthStore((state) => state.user);
-  const { language, locale, t, tr } = useI18n();
-  const setLanguage = useUIPreferencesStore((state) => state.setLanguage);
+  const { locale, t, tr } = useI18n();
   const controlCls =
     'border-slate-700/70 bg-slate-950/70 text-slate-300 hover:border-cyan-500/30 hover:text-white';
   const environmentLabel = import.meta.env.DEV
@@ -153,24 +142,6 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
 
           <div className="hidden items-center gap-2 lg:flex">
             <ThemeToggle />
-            <label
-              className={`inline-flex items-center gap-2 rounded-lg border px-2 py-2 text-xs ${controlCls}`}
-            >
-              <Languages className="h-4 w-4" />
-              <select
-                value={language}
-                onChange={(event) => setLanguage(event.target.value === 'el' ? 'el' : 'en')}
-                className="bg-transparent text-xs text-stone-200 outline-none"
-                aria-label="Language"
-              >
-                <option value="en" className="bg-slate-900 text-slate-100">
-                  EN
-                </option>
-                <option value="el" className="bg-slate-900 text-slate-100">
-                  EL
-                </option>
-              </select>
-            </label>
           </div>
 
           <div className="hidden min-w-0 items-center gap-1.5 xl:flex">

@@ -1192,7 +1192,8 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 	}
 
 	requireAdminAccess := func(c *gin.Context) bool {
-		if c.GetBool("is_admin") {
+		role := models.NormalizeUserRole(c.GetString("role"), c.GetBool("is_admin"))
+		if c.GetBool("is_admin") || role == "admin" || role == "super_admin" || role == "backoffice_admin" {
 			return true
 		}
 

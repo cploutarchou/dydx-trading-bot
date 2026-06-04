@@ -56,8 +56,8 @@ npm run test:contracts
 
 The portal shell is selected with `VITE_APP_PORTAL_TYPE=client|backoffice|ib`.
 
-- Client Portal (`apps/client-portal`): dashboard, client area, strategies, backtests, bot operations, profile, security, and wallet/API key management. It does not register CRM, IB admin, Admin Hub, global settings, access-control, or integration routes.
-- CRM / Backoffice (`apps/backoffice`): Admin Hub, CRM clients, registration pipeline, hierarchy, commissions, security events, IB oversight, and operator settings for access control, registration policy, Mailgun, Telegram, Market News, API, Redis, and trading configuration.
+- Client Portal (`apps/client-portal`): dashboard, client area, strategies, backtests, bot operations, profile, security, Telegram, and wallet/API key management. It does not register CRM, IB admin, Admin Hub, global settings, access-control, Celery Ops, or operator integration routes.
+- CRM / Backoffice (`apps/backoffice`): Admin Hub, CRM clients, registration pipeline, hierarchy, commissions, security events, IB oversight, Celery Ops, and operator settings for access control, registration policy, Mailgun, Telegram, Market News, API, Redis, and trading configuration.
 - IB Portal (`apps/ib-portal`): IB dashboard, client tree, applications/invitations, commission metrics, reports, referral tokens where role-authorized, profile, and security.
 
 Shared boundaries are exposed under:
@@ -79,7 +79,7 @@ The client portal is organized around the automation workflow:
 - Bots: live/paper runtime management, health, start/stop/restart/delete actions, positions, logs, and deployment review.
 - Market Intel: Codex token intelligence and Market News research. Legacy `/codex` and `/news` links redirect into this section.
 - Client Area / Account: role progression, onboarding state, and partner application timeline.
-- Settings: profile, security, dYdX keys/wallet/API credentials, Telegram, and integrations.
+- Settings: profile, security, dYdX keys/wallet/API credentials, and user Telegram delivery. Admin/operator settings stay in the backoffice portal even when an admin account opens client `/settings`.
 
 Client portal product flow should remain: `Research -> Strategy -> Backtest -> Deploy Bot -> Monitor Dashboard`.
 
@@ -110,6 +110,8 @@ Client routes allow `client` and `user`. IB routes allow `ib` and `sub_ib`; admi
 
 Unauthorized authenticated users land on `/unauthorized`. Backend endpoints must continue to enforce the same role boundaries; frontend guards are a UX and accidental-access layer, not the source of authorization truth.
 
+Admin/backoffice users get a topbar switch into the CRM / Backoffice portal. Backoffice users get a matching topbar switch back to the Client Portal. Add new admin pages to `src/app/routeManifest.tsx` under the backoffice route list and `src/navigation/workspaceNav.ts` under `backofficeNavItems`; add new client pages to the client route list and `clientNavItems`. Do not add admin-only pages to the client route list unless the route is a deliberate compatibility redirect and is still backend guarded.
+
 ## Backend/API Notes
 
 The current portal builds consume these backend namespaces:
@@ -136,6 +138,7 @@ When enabled in the client portal:
 
 - unauthenticated public traffic sees the branded Coming Soon page
 - `/login`, `/2fa-setup`, `/force-password`, and `/unauthorized` remain routable
+- `/admin...` attempts are allowed to reach auth/route guards so admin deep links do not get replaced by the Coming Soon page
 - authenticated sessions continue through existing protected route guards
 - backoffice and IB portal builds are not blocked
 

@@ -91,6 +91,7 @@ const isPublicUnauthenticatedRoute = (url: string): boolean =>
   url.includes('/auth/refresh') ||
   url.includes('/auth/token') ||
   url.includes('/auth/registration-status') ||
+  url.includes('/public/app-config') ||
   url.includes('/health') ||
   url.includes('/ready');
 
@@ -243,6 +244,13 @@ export interface RegistrationStatusResponse extends Record<string, unknown> {
   reason: string;
   mode: 'open' | 'disabled' | 'invitation_only' | string;
   invitation_required: boolean;
+}
+
+export interface PublicAppConfigResponse extends Record<string, unknown> {
+  app_name: string;
+  brand_name: string;
+  coming_soon_enabled: boolean;
+  public_launch_message?: string;
 }
 
 interface UserProfile extends Record<string, unknown> {
@@ -1703,7 +1711,8 @@ class ApiClient {
           !url.includes('/auth/login') &&
           !url.includes('/auth/logout') &&
           !url.includes('/auth/refresh') &&
-          !url.includes('/auth/registration-status')
+          !url.includes('/auth/registration-status') &&
+          !url.includes('/public/app-config')
         ) {
           if (!this.shouldAttemptCookieRefresh()) {
             return Promise.reject(error);
@@ -2054,6 +2063,13 @@ class ApiClient {
   async getRegistrationStatus(): Promise<ApiResponse<RegistrationStatusResponse>> {
     const response = await this.client.get<ApiResponse<RegistrationStatusResponse>>(
       '/api/v1/auth/registration-status'
+    );
+    return response.data;
+  }
+
+  async getPublicAppConfig(): Promise<ApiResponse<PublicAppConfigResponse>> {
+    const response = await this.client.get<ApiResponse<PublicAppConfigResponse>>(
+      '/api/v1/public/app-config'
     );
     return response.data;
   }

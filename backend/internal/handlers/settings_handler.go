@@ -115,11 +115,61 @@ func toBool(value interface{}, fallback bool) bool {
 	}
 }
 
+func parseSettingBoolValue(value string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true", "1", "yes", "on":
+		return true
+	case "false", "0", "no", "off", "":
+		return false
+	default:
+		return fallback
+	}
+}
+
+func isMissingSettingsStoreError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "no such table") ||
+		strings.Contains(lower, "does not exist") ||
+		strings.Contains(lower, "no such column")
+}
+
 // NewSettingsHandler creates a new settings handler
 func NewSettingsHandler(service services.SettingsServiceIface) *SettingsHandler {
 	return &SettingsHandler{
 		service: service,
 	}
+}
+
+// GetPublicAppConfig returns safe bootstrap flags for unauthenticated frontend routing.
+func (h *SettingsHandler) GetPublicAppConfig(c *gin.Context) {
+	comingSoonEnabled := false
+	setting, err := h.service.GetBotSetting("platform", "coming_soon_enabled")
+	if err != nil {
+		if !isMissingSettingsStoreError(err) {
+			c.JSON(http.StatusInternalServerError, APIResponse{
+				Success:   false,
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+				Error:     "Failed to load public app configuration",
+			})
+			return
+		}
+	} else if setting != nil {
+		comingSoonEnabled = parseSettingBoolValue(setting.Value, false)
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"app_name":              "ExecutionLab",
+			"brand_name":            "ExecutionLab",
+			"coming_soon_enabled":   comingSoonEnabled,
+			"public_launch_message": "ExecutionLab is preparing its DeFi execution workspace.",
+		},
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
 // ============ BotSetting Endpoints ============
@@ -533,6 +583,15 @@ func (h *SettingsHandler) Initialize(c *gin.Context) {
 		},
 		{
 			section:      "platform",
+			key:          "coming_soon_enabled",
+			value:        "false",
+			valueType:    "boolean",
+			description:  "Show the public Coming Soon launch page while keeping authenticated admin access available",
+			defaultValue: "false",
+			isActive:     true,
+		},
+		{
+			section:      "platform",
 			key:          "crm_subdomain_enabled",
 			value:        "true",
 			valueType:    "boolean",
@@ -710,6 +769,14 @@ func (h *SettingsHandler) GetSchema(c *gin.Context) {
 						"label":         "Require Privileged MFA",
 						"value_type":    "boolean",
 						"description":   "Require MFA for admin and CRM operators before privileged actions",
+						"default_value": false,
+						"required":      false,
+					},
+					{
+						"key":           "coming_soon_enabled",
+						"label":         "Coming Soon Mode",
+						"value_type":    "boolean",
+						"description":   "Show the public Coming Soon page while preserving authenticated admin access",
 						"default_value": false,
 						"required":      false,
 					},
@@ -915,6 +982,15 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 				value:        "false",
 				valueType:    "boolean",
 				description:  "Require MFA enrollment before privileged admin and CRM actions",
+				defaultValue: "false",
+				isActive:     true,
+			},
+			{
+				section:      "platform",
+				key:          "coming_soon_enabled",
+				value:        "false",
+				valueType:    "boolean",
+				description:  "Show the public Coming Soon launch page while keeping authenticated admin access available",
 				defaultValue: "false",
 				isActive:     true,
 			},

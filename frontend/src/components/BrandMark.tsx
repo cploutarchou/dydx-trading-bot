@@ -9,7 +9,7 @@ interface BrandMarkProps {
 export const BrandMark: React.FC<BrandMarkProps> = ({
   compact = false,
   className = '',
-  subtitle = 'Technical execution lab',
+  subtitle = 'DeFi execution lab',
 }) => {
   return (
     <div className={`execution-brand-mark ${compact ? 'is-compact' : ''} ${className}`.trim()}>

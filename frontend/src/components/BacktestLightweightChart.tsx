@@ -11,6 +11,7 @@ import {
     type Time,
 } from 'lightweight-charts';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useUIPreferencesStore } from '../store/uiPreferences';
 import { createTradingChart } from './charts/lightweightTheme';
 
 export interface BacktestChartPoint {
@@ -65,6 +66,7 @@ export const BacktestLightweightChart: React.FC<BacktestLightweightChartProps> =
   const latestDataRef = useRef<BacktestChartPoint[]>([]);
   const hasFittedContentRef = useRef(false);
   const [hoverPoint, setHoverPoint] = useState<BacktestChartPoint | null>(null);
+  const resolvedTheme = useUIPreferencesStore((state) => state.resolvedTheme);
 
   const normalizedData = useMemo(() => {
     const byDay = new Map<string, BacktestChartPoint>();
@@ -126,7 +128,6 @@ export const BacktestLightweightChart: React.FC<BacktestLightweightChartProps> =
     const chart = createTradingChart(container, height, {
       leftPriceScale: {
         visible: true,
-        borderColor: '#334155',
       },
     });
 
@@ -197,7 +198,7 @@ export const BacktestLightweightChart: React.FC<BacktestLightweightChartProps> =
       chartRef.current = null;
       chart.remove();
     };
-  }, [height]);
+  }, [height, resolvedTheme]);
 
   useEffect(() => {
     const areaSeries = areaSeriesRef.current;

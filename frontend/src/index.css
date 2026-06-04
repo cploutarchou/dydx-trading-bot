@@ -4168,6 +4168,12 @@ h6 {
     0 10px 28px rgba(15, 23, 42, 0.08);
 }
 
+:root[data-theme='light'] .platform-button-secondary:hover {
+  border-color: rgba(3, 105, 161, 0.3);
+  background: rgba(240, 249, 255, 0.92);
+  color: #0f172a;
+}
+
 :root[data-theme='light'] .premium-topbar,
 :root[data-theme='light'] .portal-subnav,
 :root[data-theme='light'] .public-market-tape {
@@ -4179,6 +4185,33 @@ h6 {
 :root[data-theme='light'] .premium-sidebar {
   border-color: var(--app-border);
   box-shadow: 18px 0 48px rgba(15, 23, 42, 0.08);
+}
+
+/* Sidebar + workspace action polish (light mode) */
+:root[data-theme='light'] .premium-sidebar :where(a, button)[class*='text-slate-400'] {
+  color: #334155 !important;
+}
+
+:root[data-theme='light'] .premium-sidebar :where(a, button)[class*='text-slate-500'] {
+  color: #475569 !important;
+}
+
+:root[data-theme='light'] .premium-sidebar :where(a, button)[class*='text-cyan-200'],
+:root[data-theme='light'] .premium-sidebar :where(a, button)[class*='text-cyan-300'] {
+  color: #0e7490 !important;
+}
+
+:root[data-theme='light'] .premium-sidebar :where(a, button)[class*='hover:text-white']:hover,
+:root[data-theme='light'] .premium-sidebar :where(a, button)[class*='group-hover:text-white']:hover {
+  color: #0f172a !important;
+}
+
+:root[data-theme='light'] .platform-panel a.group .text-cyan-300 {
+  color: #0e7490 !important;
+}
+
+:root[data-theme='light'] .platform-panel a.group:hover .text-cyan-300 {
+  color: #155e75 !important;
 }
 
 :root[data-theme='light'] .execution-brand-symbol {

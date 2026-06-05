@@ -1,3 +1,4 @@
+// Package config loads and manages application configuration from environment variables.
 package config
 
 import (
@@ -89,7 +90,7 @@ func (db *DatabaseSettings) MigrationsPath() string {
 type RedisSettings struct {
 	Host            string
 	Port            int
-	Db              int
+	DB              int
 	Password        string
 	SSL             bool
 	Timeout         int
@@ -175,7 +176,7 @@ func LoadConfig() error {
 	redis := RedisSettings{
 		Host:            getEnv("REDIS_HOST", "localhost"),
 		Port:            getEnvIntAny([]string{"REDIS_PORT"}, 6379),
-		Db:              getEnvInt("REDIS_DB", 0),
+		DB:              getEnvInt("REDIS_DB", 0),
 		Password:        os.Getenv("REDIS_PASSWORD"),
 		SSL:             getEnvBool("REDIS_SSL", false),
 		Timeout:         getEnvInt("REDIS_TIMEOUT", 5),

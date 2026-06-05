@@ -4,7 +4,7 @@
  * Handles responsive design and mobile menu state
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { memo, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
@@ -18,7 +18,7 @@ interface MainLayoutProps {
   children: React.ReactNode;
 }
 
-export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
+const MainLayoutContent: React.FC<MainLayoutProps> = ({ children }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [recentPaths, setRecentPaths] = useState<string[]>([]);
@@ -95,3 +95,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     </div>
   );
 };
+
+export const MainLayout = memo(MainLayoutContent);
+MainLayout.displayName = 'MainLayout';

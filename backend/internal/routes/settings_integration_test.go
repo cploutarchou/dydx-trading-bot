@@ -447,7 +447,7 @@ func TestSettings_GetRedisSetting_FallsBackToRuntimeConfig(t *testing.T) {
 			Enabled: true,
 			Host:    "localhost",
 			Port:    6379,
-			Db:      0,
+			DB:      0,
 			SSL:     false,
 		},
 	}
@@ -458,7 +458,7 @@ func TestSettings_GetRedisSetting_FallsBackToRuntimeConfig(t *testing.T) {
 		Enabled: true,
 		Host:    "localhost",
 		Port:    6379,
-		Db:      0,
+		DB:      0,
 		SSL:     false,
 	}
 
@@ -577,7 +577,7 @@ func TestSettings_TestRedisConnection_UsesRuntimeConfigFallback(t *testing.T) {
 			Enabled: true,
 			Host:    "127.0.0.2",
 			Port:    19999,
-			Db:      0,
+			DB:      0,
 			SSL:     false,
 		},
 	}
@@ -588,7 +588,7 @@ func TestSettings_TestRedisConnection_UsesRuntimeConfigFallback(t *testing.T) {
 		Enabled: true,
 		Host:    "127.0.0.2",
 		Port:    19999,
-		Db:      0,
+		DB:      0,
 		SSL:     false,
 	}
 

@@ -93,7 +93,7 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 			cfg.Redis.Host,
 			cfg.Redis.Port,
 			cfg.Redis.Password,
-			cfg.Redis.Db,
+			cfg.Redis.DB,
 		)
 	}
 
@@ -103,7 +103,7 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 			cfg.Redis.Host,
 			cfg.Redis.Port,
 			cfg.Redis.Password,
-			cfg.Redis.Db,
+			cfg.Redis.DB,
 		)
 	}
 

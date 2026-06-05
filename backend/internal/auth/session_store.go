@@ -60,7 +60,7 @@ func NewSessionStore(cfg *config.Config) *SessionStore {
 	opts := &redis.Options{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port),
 		Password:     cfg.Redis.Password,
-		DB:           cfg.Redis.Db,
+		DB:           cfg.Redis.DB,
 		Protocol:     2,
 		PoolSize:     cfg.Redis.MaxConnections,
 		DialTimeout:  time.Duration(cfg.Redis.Timeout) * time.Second,
@@ -84,7 +84,7 @@ func NewSessionStore(cfg *config.Config) *SessionStore {
 	}
 
 	store.redisClient = client
-	log.Printf("Auth sessions using Redis at %s db=%d", opts.Addr, cfg.Redis.Db)
+	log.Printf("Auth sessions using Redis at %s db=%d", opts.Addr, cfg.Redis.DB)
 	return store
 }
 

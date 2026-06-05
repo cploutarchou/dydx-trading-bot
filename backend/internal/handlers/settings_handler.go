@@ -40,7 +40,7 @@ func (h *SettingsHandler) resolveEffectiveRedisSetting() (*models.RedisSetting, 
 		Enabled:  config.ConfigInstance.Redis.Enabled,
 		Host:     config.ConfigInstance.Redis.Host,
 		Port:     config.ConfigInstance.Redis.Port,
-		Db:       config.ConfigInstance.Redis.Db,
+		Db:       config.ConfigInstance.Redis.DB,
 		Password: config.ConfigInstance.Redis.Password,
 		SSL:      config.ConfigInstance.Redis.SSL,
 	}, nil

@@ -68,7 +68,9 @@ def test_update_market_data_applies_cached_price_and_broadcasts(monkeypatch):
     async def _fake_broadcast(bot_instance_id, payload):
         broadcasts.append((bot_instance_id, payload))
 
-    monkeypatch.setattr(realtime_data_service, "broadcast_market_update", _fake_broadcast)
+    monkeypatch.setattr(
+        realtime_data_service, "broadcast_market_update", _fake_broadcast
+    )
 
     market_rows = [
         SimpleNamespace(
@@ -100,7 +102,7 @@ def test_update_market_data_applies_cached_price_and_broadcasts(monkeypatch):
     ]
     uow = _FakeUow(market_rows)
 
-    asyncio.run(service._update_market_data(7, uow))
+    asyncio.run(service._update_market_data(7, uow))  # type: ignore[arg-type]
 
     assert len(uow.market_data.upserts) == 1
     assert uow.market_data.upserts[0]["symbol"] == "BTC-USD"

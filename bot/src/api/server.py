@@ -35,12 +35,99 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, PlainTextResponse
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
-from src.shared.env_loader import load_repo_env
 from starlette.concurrency import run_in_threadpool
+
+from src.shared.env_loader import load_repo_env
 
 # Load structured config BEFORE importing project modules that initialize config/database.
 load_repo_env(__file__)
 
+# Import authentication modules
+from src.api.v1.auth import router as auth_router  # noqa: E402
+
+# Import bot models and manager
+from src.infrastructure.domain.bot_api_models import (  # noqa: E402
+    BotCredentials,
+    BotInstanceConfig,
+    BotInstanceList,
+    BotInstanceStatus,
+    BotOperationResult,
+    BotStatus,
+    TradingParameters,
+)
+from src.infrastructure.domain.models.auth_models import User  # noqa: E402
+from src.middleware.auth_middleware import (  # noqa: E402
+    authenticate_bearer_token,
+    get_admin_user,
+    get_current_active_user,
+)
+
+try:
+    from src.bot_instance_manager import bot_manager  # noqa: E402
+except Exception as bot_manager_import_error:  # pragma: no cover
+    logger.warning(
+        "Bot instance manager unavailable at startup: {}", bot_manager_import_error
+    )
+    bot_manager = None
+
+from internal.domain.models import BacktestRun, BotStatusEnum  # noqa: E402
+from src.api.realtime_serializers import (  # noqa: E402
+    serialize_market_core,
+    serialize_realtime_position,
+    serialize_stats_risk_fields,
+)
+from src.api.websocket_server import (  # noqa: E402
+    WebSocketServer,
+    broadcast_strategy_status,
+    build_strategy_snapshot_message,
+    manager,
+)
+
+# Import database utilities
+from src.infrastructure.database import DatabaseConfig, db  # noqa: E402
+from src.infrastructure.domain.cointegration_storage import pair_storage  # noqa: E402
+
+# Import backtest modules
+from src.infrastructure.domain.models_backtest import (  # noqa: E402
+    BacktestConfigRequest,
+    BacktestDetailResponse,
+    BacktestListResponse,
+    BacktestResponse,
+)
+from src.infrastructure.persistence.repository import UnitOfWork  # noqa: E402
+from src.infrastructure.persistence.repository_backtest import (  # noqa: E402
+    BacktestRepository,
+)
+from src.infrastructure.persistence.repository_realtime import (  # noqa: E402
+    UnitOfWorkRealtime,
+)
+from src.infrastructure.use_cases.async_job_manager import (  # noqa: E402
+    async_job_manager,
+)
+from src.infrastructure.use_cases.service_backtest import BacktestService  # noqa: E402
+from src.infrastructure.workers.celery_monitor import (  # noqa: E402
+    celery_health,
+    get_celery_task,
+    list_celery_queues,
+    list_celery_tasks,
+    list_celery_workers,
+    retry_celery_task,
+    revoke_celery_task,
+)
+from src.shared.logging_setup import setup_logging  # noqa: E402
+from src.shared.notifications import TelegramMessenger  # noqa: E402
+from src.shared.time_utils import utc_now_iso  # noqa: E402
+from src.trading.arbitrage_observability import snapshot_metrics  # noqa: E402
+from src.trading.arbitrage_runtime_config import (  # noqa: E402
+    get_feature_flags,
+    get_runtime_settings,
+    is_pair_priority_engine_enabled,
+    update_runtime_settings,
+)
+from src.trading.dydx_client import connect_dydx, connect_dydx_runtime  # noqa: E402
+from src.trading.pair_priority import prioritize_pairs, score_pair  # noqa: E402
+
+# Filter noisy third-party warnings after imports
 _original_stderr = sys.stderr
 
 
@@ -63,87 +150,6 @@ class _FilteredStderr:
 
 
 sys.stderr = _FilteredStderr(_original_stderr)
-
-# Import authentication modules
-from src.api.v1.auth import router as auth_router
-
-# Import bot models and manager
-from src.infrastructure.domain.bot_api_models import (
-    BotCredentials,
-    BotInstanceConfig,
-    BotInstanceList,
-    BotInstanceStatus,
-    BotOperationResult,
-    BotStatus,
-    TradingParameters,
-)
-from src.infrastructure.domain.models.auth_models import User
-from src.middleware.auth_middleware import (
-    authenticate_bearer_token,
-    get_admin_user,
-    get_current_active_user,
-)
-
-try:
-    from src.bot_instance_manager import bot_manager
-except Exception as bot_manager_import_error:  # pragma: no cover
-    logger.warning(
-        "Bot instance manager unavailable at startup: {}", bot_manager_import_error
-    )
-    bot_manager = None
-
-from internal.domain.models import BacktestRun, BotStatusEnum
-from src.api.realtime_serializers import (
-    serialize_market_core,
-    serialize_realtime_position,
-    serialize_stats_risk_fields,
-)
-from src.api.websocket_server import (
-    WebSocketServer,
-    broadcast_strategy_status,
-    build_strategy_snapshot_message,
-    manager,
-)
-
-# Import database utilities
-from src.infrastructure.database import DatabaseConfig, db
-from src.infrastructure.domain.cointegration_storage import pair_storage
-
-# Import backtest modules
-from src.infrastructure.domain.models_backtest import (
-    BacktestConfigRequest,
-    BacktestDetailResponse,
-    BacktestListResponse,
-    BacktestResponse,
-)
-from src.infrastructure.persistence.repository import UnitOfWork
-from src.infrastructure.persistence.repository_backtest import BacktestRepository
-from src.infrastructure.persistence.repository_realtime import UnitOfWorkRealtime
-from src.infrastructure.use_cases.async_job_manager import async_job_manager
-from src.infrastructure.use_cases.service_backtest import BacktestService
-from src.infrastructure.workers.celery_monitor import (
-    celery_health,
-    get_celery_task,
-    list_celery_queues,
-    list_celery_tasks,
-    list_celery_workers,
-    retry_celery_task,
-    revoke_celery_task,
-)
-from src.shared.logging_setup import setup_logging
-from src.shared.notifications import TelegramMessenger
-from src.shared.time_utils import utc_now_iso
-from src.trading.arbitrage_observability import snapshot_metrics
-from src.trading.arbitrage_runtime_config import (
-    get_feature_flags,
-    get_runtime_settings,
-    is_pair_priority_engine_enabled,
-    update_runtime_settings,
-)
-from src.trading.dydx_client import connect_dydx, connect_dydx_runtime
-from src.trading.pair_priority import prioritize_pairs, score_pair
-
-sys.stderr = _original_stderr
 
 # Setup logging (Loguru + stdlib bridge)
 setup_logging()
@@ -2093,9 +2099,6 @@ async def runtime_preflight(
             },
             message="Runtime readiness evaluated with blockers",
         )
-    if trace_id:
-        response.headers["X-Trace-Id"] = trace_id
-    return response
 
 
 def _resolve_operator_name(current_user: Optional[User]) -> str:
@@ -2263,7 +2266,9 @@ async def request_trace_logging_middleware(request: Request, call_next):
                 )
                 if response.status_code >= 500:
                     logger.error(log_message, *log_args)
-                elif _is_expected_strategy_runtime_probe_404(request, response.status_code):
+                elif _is_expected_strategy_runtime_probe_404(
+                    request, response.status_code
+                ):
                     logger.debug(log_message, *log_args)
                 elif response.status_code >= 400:
                     logger.warning(log_message, *log_args)
@@ -3856,7 +3861,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
         running_instances = len([i for i in instances if i.status == BotStatus.RUNNING])
 
         # System resource usage
-        import psutil
+        import psutil  # type: ignore[import-untyped]
 
         cpu_usage = psutil.cpu_percent()
         memory = psutil.virtual_memory()

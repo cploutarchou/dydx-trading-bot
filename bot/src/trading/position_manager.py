@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import pandas as pd
 from loguru import logger
+
 from src.constants import (
     CLOSE_AT_ZSCORE_CROSS,
     DYDX_API_THROTTLE_SECONDS,
@@ -370,7 +371,7 @@ async def _close_orphan_exchange_leg(
         return False
 
 
-async def open_positions(client):
+async def open_positions(client) -> None:
     """
     Manage finding triggers for trade entry.
 
@@ -846,7 +847,7 @@ async def open_positions(client):
     logger.info("arbitrage_scan_cycle_complete cycle_id={}", scan_cycle_id)
 
 
-async def manage_trade_exits(client):
+async def manage_trade_exits(client) -> str | None:
     """
     Manage exiting open positions based on exit criteria.
 

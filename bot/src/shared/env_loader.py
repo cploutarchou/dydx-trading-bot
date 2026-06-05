@@ -13,7 +13,9 @@ PathLike = Union[str, Path]
 
 
 def _is_structured_config_root(candidate: Path) -> bool:
-    return (candidate / "config" / "profiles").exists() or (candidate / "run.json").exists()
+    return (candidate / "config" / "profiles").exists() or (
+        candidate / "run.json"
+    ).exists()
 
 
 def find_repo_root(anchor: PathLike) -> Path:
@@ -22,9 +24,9 @@ def find_repo_root(anchor: PathLike) -> Path:
 
     for candidate in (search_from, *search_from.parents):
         if (
-                (candidate / ".github").exists()
-                and (candidate / "AGENTS.md").exists()
-                and _is_structured_config_root(candidate)
+            (candidate / ".github").exists()
+            and (candidate / "AGENTS.md").exists()
+            and _is_structured_config_root(candidate)
         ):
             return candidate
 
@@ -173,6 +175,9 @@ def load_file_env_values(override: bool = True) -> None:
             continue
 
         secret_path = Path(path).expanduser()
+        # Skip if the file doesn't exist (e.g., VS Code debugger artifacts)
+        if not secret_path.exists():
+            continue
         os.environ[target] = secret_path.read_text(encoding="utf-8").rstrip("\r\n")
 
 

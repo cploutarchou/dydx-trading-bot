@@ -89,8 +89,10 @@ def test_sync_market_candles_async_writes_active_markets(monkeypatch):
     async def _fake_connect_dydx():
         return _FakeClient()
 
-    fake_dydx_module.connect_dydx = _fake_connect_dydx
-    monkeypatch.setitem(__import__("sys").modules, "src.trading.dydx_client", fake_dydx_module)
+    fake_dydx_module.connect_dydx = _fake_connect_dydx  # type: ignore[attr-defined]
+    monkeypatch.setitem(
+        __import__("sys").modules, "src.trading.dydx_client", fake_dydx_module
+    )
 
     result = asyncio.run(market_sync_tasks._sync_market_candles_async())
 

@@ -66,7 +66,7 @@ def test_current_positions_resolves_strategy_instance_id(monkeypatch):
     response = asyncio.run(
         server.get_current_positions(
             "strategy-1-2",
-            current_user=SimpleNamespace(username="operator"),
+            current_user=SimpleNamespace(username="operator"),  # type: ignore
         )
     )
     payload = _json_body(response)

@@ -61,6 +61,20 @@ type DatabaseSettings struct {
 }
 
 func (db *DatabaseSettings) DSN() string {
+	// Generate database connection string based on database type
+	if db.Type == "mysql" {
+		// MySQL/MariaDB DSN format: user:password@tcp(host:port)/dbname
+		dsn := db.User
+		if db.Password != "" {
+			dsn += ":" + db.Password
+		}
+		dsn += "@tcp(" + db.Host + ":" + strconv.Itoa(db.Port) + ")/" + db.Dbname
+		// Add charset parameter for proper UTF-8 handling
+		dsn += "?charset=utf8mb4&parseTime=true"
+		return dsn
+	}
+
+	// PostgreSQL DSN format (default)
 	sslMode := "disable"
 	if db.SSL {
 		sslMode = "require"
@@ -82,8 +96,11 @@ func (db *DatabaseSettings) DSN() string {
 	return strings.Join(parts, " ")
 }
 
-// MigrationsPath returns the PostgreSQL migrations directory.
+// MigrationsPath returns the migrations directory based on database type.
 func (db *DatabaseSettings) MigrationsPath() string {
+	if db.Type == "mysql" {
+		return "migrations/mysql"
+	}
 	return "migrations/postgres"
 }
 
@@ -152,15 +169,23 @@ func LoadConfig() error {
 	}
 
 	dbType := strings.ToLower(getEnv("DB_TYPE", "postgresql"))
-	if dbType != "postgres" && dbType != "postgresql" {
-		return fmt.Errorf("unsupported DB_TYPE %q: only PostgreSQL is supported", dbType)
-	}
+	var normalizedDBType string
+	var defaultPort int
 
-	normalizedDBType := "postgres"
+	switch dbType {
+	case "postgres", "postgresql":
+		normalizedDBType = "postgres"
+		defaultPort = 5432
+	case "mysql", "mariadb":
+		normalizedDBType = "mysql"
+		defaultPort = 3306
+	default:
+		return fmt.Errorf("unsupported DB_TYPE %q: supported types are postgres, postgresql, mysql, mariadb", dbType)
+	}
 
 	database := DatabaseSettings{
 		Host:           getEnvAny([]string{"DB_HOST"}, "localhost"),
-		Port:           getEnvIntAny([]string{"DB_PORT", "POSTGRES_PORT"}, 5432),
+		Port:           getEnvIntAny([]string{"DB_PORT", "POSTGRES_PORT"}, defaultPort),
 		Dbname:         getEnvAny([]string{"DB_NAME", "POSTGRES_DB"}, "dydx_bot"),
 		User:           getEnvAny([]string{"DB_USER", "POSTGRES_USER"}, "dydx_bot"),
 		Type:           normalizedDBType,

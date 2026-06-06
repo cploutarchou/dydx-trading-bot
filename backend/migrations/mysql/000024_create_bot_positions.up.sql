@@ -1,7 +1,7 @@
 -- Migration 000024: Create bot_positions table for bot runtime position tracking
 CREATE TABLE IF NOT EXISTS bot_positions (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  bot_instance_id INTEGER NOT NULL REFERENCES bot_instances(id) ON DELETE CASCADE,
+  bot_instance_id INTEGER NOT NULL,
   position_id TEXT NOT NULL UNIQUE,
   market_1 TEXT NOT NULL,
   market_2 TEXT NOT NULL,

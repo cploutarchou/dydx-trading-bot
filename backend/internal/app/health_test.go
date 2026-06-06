@@ -45,7 +45,7 @@ func TestBuildBotReadinessSummary_ClassifiesMissingBotMigrations(t *testing.T) {
 
 func TestBuildDependencySnapshot_RedactsSecretsFromURLAndPayload(t *testing.T) {
 	payload := map[string]interface{}{
-		"database_url": "postgres://bot_user:super-secret@db.local:5432/bot",
+		"database_url": "mysql://bot_user:super-secret@db.local:3306/bot",
 		"message":      "password=super-secret token=abc123",
 		"data": map[string]interface{}{
 			"api_key": "abc123",
@@ -67,5 +67,16 @@ func TestBuildDependencySnapshot_RedactsSecretsFromURLAndPayload(t *testing.T) {
 	gotURL := sanitizeDependencyURL("http://user:secret@bot.local:8889/ready?token=abc&debug=true")
 	if gotURL != "http://bot.local:8889/ready?debug=true&token=redacted" {
 		t.Fatalf("unexpected sanitized URL: %q", gotURL)
+	}
+}
+
+func TestBuildDependencySnapshot_RedactsPostgreSQLSecrets(t *testing.T) {
+	payload := map[string]interface{}{
+		"database_url": "postgres://bot_user:super-secret@db.local:5432/bot",
+	}
+
+	sanitized := sanitizeDependencyPayload(payload).(map[string]interface{})
+	if sanitized["database_url"] != "redacted" {
+		t.Fatalf("expected PostgreSQL database_url to be redacted, got %+v", sanitized)
 	}
 }

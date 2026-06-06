@@ -377,7 +377,7 @@ func (r *UserRepository) ListFiltered(filters UserListFilters) ([]*models.User, 
 	args := []interface{}{}
 	nextArg := func(value interface{}) string {
 		args = append(args, value)
-		return fmt.Sprintf("$%d", len(args))
+		return "?"
 	}
 
 	if search := strings.TrimSpace(strings.ToLower(filters.Search)); search != "" {
@@ -410,8 +410,8 @@ func (r *UserRepository) ListFiltered(filters UserListFilters) ([]*models.User, 
 		FROM users
 		WHERE %s
 		ORDER BY created_at DESC
-		LIMIT $%d OFFSET $%d
-	`, r.selectUserColumns(), whereSQL, len(queryArgs)-1, len(queryArgs))
+		LIMIT ? OFFSET ?
+	`, r.selectUserColumns(), whereSQL)
 
 	rows, err := r.db.Query(query, queryArgs...)
 	if err != nil {
@@ -498,41 +498,41 @@ func (r *UserRepository) Update(user *models.User) error {
 
 	if r.hasPasswordChangeRequiredColumn() {
 		args = append(args, user.PasswordChangeRequired)
-		setClauses = append(setClauses, fmt.Sprintf("password_change_required = $%d", len(args)))
+		setClauses = append(setClauses, "password_change_required = ?")
 	}
 	if r.hasMaxActiveBacktestsColumn() {
 		if user.MaxActiveBacktests <= 0 {
 			user.MaxActiveBacktests = 10
 		}
 		args = append(args, user.MaxActiveBacktests)
-		setClauses = append(setClauses, fmt.Sprintf("max_active_backtests = $%d", len(args)))
+		setClauses = append(setClauses, "max_active_backtests = ?")
 	}
 	if r.hasMaxStrategiesColumn() {
 		if user.MaxStrategies <= 0 {
 			user.MaxStrategies = 10
 		}
 		args = append(args, user.MaxStrategies)
-		setClauses = append(setClauses, fmt.Sprintf("max_strategies = $%d", len(args)))
+		setClauses = append(setClauses, "max_strategies = ?")
 	}
 	if r.hasMaxBotInstancesColumn() {
 		if user.MaxBotInstances <= 0 {
 			user.MaxBotInstances = 10
 		}
 		args = append(args, user.MaxBotInstances)
-		setClauses = append(setClauses, fmt.Sprintf("max_bot_instances = $%d", len(args)))
+		setClauses = append(setClauses, "max_bot_instances = ?")
 	}
 
 	args = append(args, user.LastLogin)
-	setClauses = append(setClauses, fmt.Sprintf("last_login = $%d", len(args)))
+	setClauses = append(setClauses, "last_login = ?")
 	args = append(args, now)
-	setClauses = append(setClauses, fmt.Sprintf("updated_at = $%d", len(args)))
+	setClauses = append(setClauses, "updated_at = ?")
 	args = append(args, user.ID)
 
 	query := fmt.Sprintf(`
 		UPDATE users
 		SET %s
-		WHERE id = $%d
-	`, strings.Join(setClauses, ", "), len(args))
+		WHERE id = ?
+	`, strings.Join(setClauses, ", "))
 
 	result, err := r.db.Exec(query, args...)
 

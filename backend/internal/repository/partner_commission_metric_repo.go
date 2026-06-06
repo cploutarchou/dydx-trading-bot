@@ -173,8 +173,8 @@ func (r *PartnerCommissionMetricRepository) AggregateByUsers(userIDs []int) (*mo
 
 	placeholders := make([]string, 0, len(userIDs))
 	args := make([]interface{}, 0, len(userIDs))
-	for idx, userID := range userIDs {
-		placeholders = append(placeholders, fmt.Sprintf("$%d", idx+1))
+	for _, userID := range userIDs {
+		placeholders = append(placeholders, "?")
 		args = append(args, userID)
 	}
 

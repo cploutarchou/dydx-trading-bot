@@ -79,8 +79,8 @@ def upgrade() -> None:
             sa.text("UPDATE jobs SET progress_pct = 0.0 WHERE progress_pct IS NULL")
         )
 
-    # ── event_logs: json → jsonb ──────────────────────────────────────────────
-    # jsonb allows GIN indexing and is faster for queries.
+    # ── event_logs: json → jsonb (PostgreSQL-only) ──────────────────────────────
+    # jsonb allows GIN indexing and is faster for queries (PostgreSQL only; skip for MySQL).
     # ⚠️  If any `details` value is malformed JSON this will fail. Validate first:
     #     SELECT id FROM event_logs WHERE details IS NOT NULL
     #       AND details::text !~ '^[\[\{]';

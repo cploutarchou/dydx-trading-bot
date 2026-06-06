@@ -25,7 +25,7 @@ def test_api_database_integration():
     try:
         db.create_all_tables()
     except OperationalError as exc:
-        pytest.skip(f"PostgreSQL is not reachable for integration test: {exc}")
+        pytest.skip(f"Database is not reachable for integration test: {exc}")
 
     session = db.get_session()
     uow = UnitOfWork(session)

@@ -1,0 +1,2 @@
+-- Rollback for 000032_add_pair_selection_mode_to_backtest_strategies
+-- Review manually - rollback not auto-generated

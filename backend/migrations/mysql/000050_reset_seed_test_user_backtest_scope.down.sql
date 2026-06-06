@@ -1,0 +1,2 @@
+-- Rollback for 000050_reset_seed_test_user_backtest_scope
+-- Review manually - rollback not auto-generated

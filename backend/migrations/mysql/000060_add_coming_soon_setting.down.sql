@@ -1,0 +1,2 @@
+-- Rollback for 000060_add_coming_soon_setting
+-- Review manually - rollback not auto-generated

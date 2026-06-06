@@ -20,7 +20,7 @@ func (r *ExternalAPICredentialRepository) GetByUserAndProvider(userID int, provi
 	query := `
 		SELECT id, user_id, provider, label, encrypted_api_key, COALESCE(api_key_hash, ''), COALESCE(api_key_masked, ''), is_active, created_at, updated_at
 		FROM external_api_credentials
-		WHERE user_id = $1 AND provider = $2
+		WHERE user_id = ? AND provider = ?
 		LIMIT 1
 	`
 
@@ -51,7 +51,7 @@ func (r *ExternalAPICredentialRepository) Upsert(credential *models.ExternalAPIC
 	now := time.Now().UTC()
 	query := `
 		INSERT INTO external_api_credentials (user_id, provider, label, encrypted_api_key, api_key_hash, api_key_masked, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (user_id, provider)
 		DO UPDATE SET
 			label = EXCLUDED.label,
@@ -93,7 +93,7 @@ func (r *ExternalAPICredentialRepository) Upsert(credential *models.ExternalAPIC
 
 func (r *ExternalAPICredentialRepository) Deactivate(userID int, provider string) error {
 	result, err := r.db.Exec(
-		`UPDATE external_api_credentials SET is_active = false, updated_at = $1 WHERE user_id = $2 AND provider = $3`,
+		`UPDATE external_api_credentials SET is_active = false, updated_at = ? WHERE user_id = ? AND provider = ?`,
 		time.Now().UTC(),
 		userID,
 		provider,

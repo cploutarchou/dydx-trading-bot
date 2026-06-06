@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/lib/pq"
+	_ "github.com/go-sql-driver/mysql"
 
 	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/database/mysql"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
@@ -334,13 +334,15 @@ func validateConfig(cfg *Config) error {
 	validDrivers := map[string]bool{
 		"postgres":   true,
 		"postgresql": true,
+		"mysql":      true,
+		"mariadb":    true,
 	}
 
 	d := strings.ToLower(strings.TrimSpace(cfg.Driver))
 	if d == "" {
-		cfg.Driver = "postgres"
+		cfg.Driver = "mysql"
 	} else if !validDrivers[d] {
-		return fmt.Errorf("%w: %s (supported: postgres)", ErrInvalidDriver, cfg.Driver)
+		return fmt.Errorf("%w: %s (supported: postgres, mysql, mariadb)", ErrInvalidDriver, cfg.Driver)
 	} else {
 		cfg.Driver = runtimeSQLDriver(d)
 	}
@@ -380,7 +382,7 @@ func setConfigDefaults(cfg *Config) {
 		cfg.QueryTimeout = 30 * time.Second
 	}
 	if cfg.MigrationsPath == "" {
-		cfg.MigrationsPath = "migrations/postgres"
+		cfg.MigrationsPath = "migrations/mysql"
 	}
 }
 
@@ -526,6 +528,21 @@ func BuildMigrateDatabaseURL(cfg Config) (string, error) {
 			return "", fmt.Errorf("failed to parse postgres dsn: %w", err)
 		}
 		return u, nil
+	}
+
+	if strings.Contains(driver, "mysql") || strings.Contains(driver, "mariadb") {
+		// If already a URL, return as-is (golang-migrate for MySQL uses tcp://)
+		if strings.HasPrefix(dsn, "mysql://") {
+			return dsn, nil
+		}
+
+		// go-sql-driver/mysql DSN is typically: user:password@tcp(localhost:3306)/dbname
+		// golang-migrate expects: mysql://user:password@tcp(localhost:3306)/dbname
+		if strings.HasPrefix(dsn, "tcp(") || strings.Contains(dsn, "@tcp(") {
+			return "mysql://" + dsn, nil
+		}
+
+		return "mysql://" + dsn, nil
 	}
 
 	return "", fmt.Errorf("unsupported driver for migrations: %s", cfg.Driver)

@@ -51,12 +51,11 @@ func (r *StrategyRepository) CreateStrategy(strategy *models.BacktestStrategy) e
 			rebalance_interval_hours, position_timeout_hours, transaction_fee,
 			slippage, starting_balance, candle_resolution, max_history_days,
 			benchmark_symbol, risk_free_rate, initial_amount, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38)
-		RETURNING id, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	now := time.Now()
-	err := r.db.QueryRow(
+	result, err := r.db.Exec(
 		query,
 		strategy.UserID, strategy.Name, strategy.Description, strategy.Category,
 		strategy.IsPublic, strategy.IsDefault, strategy.RuntimeStrategy, strategy.RuntimeNetwork, strategy.RuntimeSubaccount, strategy.PairSelectionMode, strategy.SelectedMarkets, strategy.ZscoreThreshold,
@@ -69,11 +68,20 @@ func (r *StrategyRepository) CreateStrategy(strategy *models.BacktestStrategy) e
 		strategy.StartingBalance, strategy.CandleResolution, strategy.MaxHistoryDays,
 		strategy.BenchmarkSymbol, strategy.RiskFreeRate, strategy.InitialAmount,
 		now, now,
-	).Scan(&strategy.ID, &strategy.CreatedAt, &strategy.UpdatedAt)
+	)
 
 	if err != nil {
 		return fmt.Errorf("failed to create strategy: %w", err)
 	}
+
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get last insert ID: %w", err)
+	}
+
+	strategy.ID = int(lastID)
+	strategy.CreatedAt = now
+	strategy.UpdatedAt = now
 
 	return nil
 }
@@ -93,7 +101,7 @@ func (r *StrategyRepository) GetStrategyByID(id int) (*models.BacktestStrategy, 
 		       benchmark_symbol, risk_free_rate, initial_amount, usage_count,
 		       last_used_at, deleted_at, created_at, updated_at
 		FROM backtest_strategies
-		WHERE id = $1
+		WHERE id = ?
 		LIMIT 1
 	`
 
@@ -139,7 +147,7 @@ func (r *StrategyRepository) GetStrategiesByUser(userID int) ([]models.BacktestS
 		       benchmark_symbol, risk_free_rate, initial_amount, usage_count,
 		       last_used_at, deleted_at, created_at, updated_at
 		FROM backtest_strategies
-		WHERE user_id = $1 AND deleted_at IS NULL
+		WHERE user_id = ? AND deleted_at IS NULL
 		ORDER BY created_at DESC
 	`
 
@@ -183,7 +191,7 @@ func (r *StrategyRepository) GetStrategiesByUser(userID int) ([]models.BacktestS
 func (r *StrategyRepository) CountStrategiesByUser(userID int) (int, error) {
 	var count int
 	err := r.db.QueryRow(
-		`SELECT COUNT(*) FROM backtest_strategies WHERE user_id = $1 AND deleted_at IS NULL`,
+		`SELECT COUNT(*) FROM backtest_strategies WHERE user_id = ? AND deleted_at IS NULL`,
 		userID,
 	).Scan(&count)
 	if err != nil {
@@ -212,18 +220,18 @@ func (r *StrategyRepository) UpdateStrategy(strategy *models.BacktestStrategy) e
 
 	query := `
 		UPDATE backtest_strategies
-		SET name = $1, description = $2, category = $3, is_public = $4,
-		    runtime_strategy = $5, runtime_network = $6, runtime_subaccount = $7, pair_selection_mode = $8, selected_markets = $9, zscore_threshold = $10, stats_window = $11, max_half_life = $12,
-		    usd_per_trade = $13, usd_min_collateral = $14, close_at_zscore_cross = $15,
-		    find_cointegrated_pairs = $16, manage_exits = $17, place_trades = $18,
-		    abort_all_positions = $19, max_positions = $20, max_drawdown_pct = $21,
-		    stop_loss_pct = $22, take_profit_pct = $23, trailing_stop_pct = $24,
-		    rebalance_interval_hours = $25, position_timeout_hours = $26,
-		    transaction_fee = $27, slippage = $28, starting_balance = $29,
-		    candle_resolution = $30, max_history_days = $31, benchmark_symbol = $32,
-		    risk_free_rate = $33, initial_amount = $34, usage_count = $35, last_used_at = $36,
-		    updated_at = $37
-		WHERE id = $38
+		SET name = ?, description = ?, category = ?, is_public = ?,
+		    runtime_strategy = ?, runtime_network = ?, runtime_subaccount = ?, pair_selection_mode = ?, selected_markets = ?, zscore_threshold = ?0, stats_window = ?1, max_half_life = ?2,
+		    usd_per_trade = ?3, usd_min_collateral = ?4, close_at_zscore_cross = ?5,
+		    find_cointegrated_pairs = ?6, manage_exits = ?7, place_trades = ?8,
+		    abort_all_positions = ?9, max_positions = ?0, max_drawdown_pct = ?1,
+		    stop_loss_pct = ?2, take_profit_pct = ?3, trailing_stop_pct = ?4,
+		    rebalance_interval_hours = ?5, position_timeout_hours = ?6,
+		    transaction_fee = ?7, slippage = ?8, starting_balance = ?9,
+		    candle_resolution = ?0, max_history_days = ?1, benchmark_symbol = ?2,
+		    risk_free_rate = ?3, initial_amount = ?4, usage_count = ?5, last_used_at = ?6,
+		    updated_at = ?7
+		WHERE id = ?8
 	`
 
 	result, err := r.db.Exec(
@@ -259,7 +267,7 @@ func (r *StrategyRepository) UpdateStrategy(strategy *models.BacktestStrategy) e
 
 // DeleteStrategy marks a strategy as deleted
 func (r *StrategyRepository) DeleteStrategy(id int) error {
-	query := `UPDATE backtest_strategies SET deleted_at = $1 WHERE id = $2`
+	query := `UPDATE backtest_strategies SET deleted_at = ? WHERE id = ?`
 
 	result, err := r.db.Exec(query, time.Now(), id)
 	if err != nil {
@@ -286,7 +294,7 @@ func (r *StrategyRepository) GetExecutionState(strategyID int) (*models.Strategy
 	query := `
 		SELECT id, strategy_id, is_running, last_run_at, next_run_at, state, created_at, updated_at
 		FROM strategy_execution_states
-		WHERE strategy_id = $1
+		WHERE strategy_id = ?
 		LIMIT 1
 	`
 
@@ -311,23 +319,27 @@ func (r *StrategyRepository) CreateExecutionState(state *models.StrategyExecutio
 
 	query := `
 		INSERT INTO strategy_execution_states (strategy_id, is_running, created_at, updated_at)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, created_at, updated_at
+		VALUES (?, ?, ?, ?)
 	`
 
 	now := time.Now()
 	var err error
+	var result sql.Result
 	for attempt := 0; attempt < 5; attempt++ {
-		err = r.db.QueryRow(query, state.StrategyID, state.IsRunning, now, now).Scan(
-			&state.ID, &state.CreatedAt, &state.UpdatedAt,
-		)
+		result, err = r.db.Exec(query, state.StrategyID, state.IsRunning, now, now)
 		if err == nil {
-			return nil
+			lastID, _ := result.LastInsertId()
+			state.ID = int(lastID)
+			state.CreatedAt = now
+			state.UpdatedAt = now
+			if err == nil {
+				return nil
+			}
+			if !isRetryableSchemaChangeError(err) {
+				return fmt.Errorf("failed to create execution state: %w", err)
+			}
+			time.Sleep(time.Duration(attempt+1) * 50 * time.Millisecond)
 		}
-		if !isRetryableSchemaChangeError(err) {
-			return fmt.Errorf("failed to create execution state: %w", err)
-		}
-		time.Sleep(time.Duration(attempt+1) * 50 * time.Millisecond)
 	}
 
 	return fmt.Errorf("failed to create execution state: %w", err)
@@ -338,8 +350,8 @@ func (r *StrategyRepository) UpdateExecutionState(state *models.StrategyExecutio
 
 	query := `
 		UPDATE strategy_execution_states
-		SET is_running = $1, last_run_at = $2, next_run_at = $3, state = $4, updated_at = $5
-		WHERE id = $6
+		SET is_running = ?, last_run_at = ?, next_run_at = ?, state = ?, updated_at = ?
+		WHERE id = ?
 	`
 
 	var (
@@ -401,16 +413,27 @@ func (r *StrategyRepository) CreateVersionHistory(history *models.StrategyVersio
 		INSERT INTO strategy_version_history (
 			strategy_id, created_by_user_id, version_number, change_description, config_snapshot, created_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id, created_at
+		VALUES (?, ?, ?, ?, ?, ?)
 	`
 
 	now := time.Now()
-	err := r.db.QueryRow(
+	result, err := r.db.Exec(
 		query,
 		history.StrategyID, history.CreatedByUserID, history.Version,
 		history.ChangeLog, configSnapshot, now,
-	).Scan(&history.ID, &history.CreatedAt)
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to create version history: %w", err)
+	}
+
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get last insert ID: %w", err)
+	}
+
+	history.ID = int(lastID)
+	history.CreatedAt = now
 
 	if err != nil {
 		return fmt.Errorf("failed to create version history: %w", err)
@@ -428,7 +451,7 @@ func (r *StrategyRepository) GetVersionHistoryByStrategy(strategyID int) ([]mode
 		SELECT id, strategy_id, COALESCE(created_by_user_id, 0), version_number,
 		       config_snapshot, COALESCE(change_description, ''), created_at, created_at AS updated_at
 		FROM strategy_version_history
-		WHERE strategy_id = $1
+		WHERE strategy_id = ?
 		ORDER BY version_number DESC
 	`
 

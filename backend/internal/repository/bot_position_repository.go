@@ -26,29 +26,37 @@ func (r *BotPositionRepository) CreateBotPosition(position *models.BotPosition) 
 			side_1, side_2, size_1, size_2, hedge_ratio,
 			current_price_1, current_price_2, current_zscore, unrealized_pnl,
 			unrealized_pnl_pct, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-			$15, $16, $17, $18, $19, $20, $21, $22)
-		RETURNING id, created_at, updated_at
-	`
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+				?, ?, ?, ?, ?, ?, ?, ?)
+		`
 
-	err := r.db.QueryRow(
+	now := time.Now()
+	result, err := r.db.Exec(
 		query,
 		position.BotInstanceID, position.PositionID, position.Market1, position.Market2,
 		position.Status, position.IsActive, position.EntryTimestamp, position.EntryPrice1,
 		position.EntryPrice2, position.EntryZScore, position.Side1, position.Side2,
 		position.Size1, position.Size2, position.HedgeRatio, position.CurrentPrice1,
 		position.CurrentPrice2, position.CurrentZScore, position.UnrealizedPnL,
-		position.UnrealizedPnLPct, time.Now(), time.Now(),
-	).Scan(&position.ID, &position.CreatedAt, &position.UpdatedAt)
+		position.UnrealizedPnLPct, now, now,
+	)
 
 	if err != nil {
 		return fmt.Errorf("failed to create bot position: %w", err)
 	}
 
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get last insert ID: %w", err)
+	}
+
+	position.ID = int(lastID)
+	position.CreatedAt = now
+	position.UpdatedAt = now
+
 	return nil
 }
 
-// GetBotPositionByPositionID retrieves a bot position by position_id
 func (r *BotPositionRepository) GetBotPositionByPositionID(positionID string) (*models.BotPosition, error) {
 	position := &models.BotPosition{}
 
@@ -61,7 +69,7 @@ func (r *BotPositionRepository) GetBotPositionByPositionID(positionID string) (*
 			exit_zscore, realized_pnl, realized_pnl_pct, duration_hours,
 			created_at, updated_at
 		FROM bot_positions
-		WHERE position_id = $1
+		WHERE position_id = ?
 	`
 
 	err := r.db.QueryRow(query, positionID).Scan(
@@ -97,13 +105,13 @@ func (r *BotPositionRepository) ListBotPositionsByInstanceID(instanceID int, sta
 			exit_zscore, realized_pnl, realized_pnl_pct, duration_hours,
 			created_at, updated_at
 		FROM bot_positions
-		WHERE bot_instance_id = $1
+		WHERE bot_instance_id = ?
 	`
 
 	args := []interface{}{instanceID}
 
 	if status != "" {
-		query += ` AND status = $2`
+		query += ` AND status = ?`
 		args = append(args, status)
 	}
 
@@ -151,9 +159,9 @@ func (r *BotPositionRepository) ListBotPositionsByInstanceID(instanceID int, sta
 func (r *BotPositionRepository) UpdateBotPosition(position *models.BotPosition) error {
 	query := `
 		UPDATE bot_positions
-		SET current_price_1 = $1, current_price_2 = $2, current_zscore = $3,
-			unrealized_pnl = $4, unrealized_pnl_pct = $5, updated_at = $6
-		WHERE position_id = $7
+		SET current_price_1 = ?, current_price_2 = ?, current_zscore = ?,
+			unrealized_pnl = ?, unrealized_pnl_pct = ?, updated_at = ?
+		WHERE position_id = ?
 	`
 
 	result, err := r.db.Exec(
@@ -181,10 +189,10 @@ func (r *BotPositionRepository) UpdateBotPosition(position *models.BotPosition) 
 func (r *BotPositionRepository) CloseBotPosition(position *models.BotPosition) error {
 	query := `
 		UPDATE bot_positions
-		SET status = 'closed', is_active = 0, exit_timestamp = $1, exit_price_1 = $2,
-			exit_price_2 = $3, exit_zscore = $4, realized_pnl = $5, realized_pnl_pct = $6,
-			duration_hours = $7, updated_at = $8
-		WHERE position_id = $9
+		SET status = 'closed', is_active = 0, exit_timestamp = ?, exit_price_1 = ?,
+			exit_price_2 = ?, exit_zscore = ?, realized_pnl = ?, realized_pnl_pct = ?,
+			duration_hours = ?, updated_at = ?
+		WHERE position_id = ?
 	`
 
 	result, err := r.db.Exec(
@@ -211,7 +219,7 @@ func (r *BotPositionRepository) CloseBotPosition(position *models.BotPosition) e
 
 // DeleteBotPosition deletes a bot position
 func (r *BotPositionRepository) DeleteBotPosition(positionID string) error {
-	query := `DELETE FROM bot_positions WHERE position_id = $1`
+	query := `DELETE FROM bot_positions WHERE position_id = ?`
 
 	result, err := r.db.Exec(query, positionID)
 	if err != nil {
@@ -241,7 +249,7 @@ func (r *BotPositionRepository) GetOpenPositionsByInstanceID(instanceID int) ([]
 			exit_zscore, realized_pnl, realized_pnl_pct, duration_hours,
 			created_at, updated_at
 		FROM bot_positions
-		WHERE bot_instance_id = $1 AND status = 'open'
+		WHERE bot_instance_id = ? AND status = 'open'
 		ORDER BY entry_timestamp DESC
 	`
 

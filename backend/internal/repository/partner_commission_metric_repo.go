@@ -32,16 +32,15 @@ func (r *PartnerCommissionMetricRepository) Upsert(metric *models.PartnerCommiss
 			created_at,
 			updated_at
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)
-		ON CONFLICT (user_id, period_start, period_end) DO UPDATE SET
-			direct_clients = EXCLUDED.direct_clients,
-			sub_ib_count = EXCLUDED.sub_ib_count,
-			notional_volume_usd = EXCLUDED.notional_volume_usd,
-			gross_commission_usd = EXCLUDED.gross_commission_usd,
-			rebate_usd = EXCLUDED.rebate_usd,
-			net_commission_usd = EXCLUDED.net_commission_usd,
-			updated_at = EXCLUDED.updated_at
-		RETURNING id, created_at, updated_at
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)
+		ON DUPLICATE KEY UPDATE
+			direct_clients = VALUES(direct_clients),
+			sub_ib_count = VALUES(sub_ib_count),
+			notional_volume_usd = VALUES(notional_volume_usd),
+			gross_commission_usd = VALUES(gross_commission_usd),
+			rebate_usd = VALUES(rebate_usd),
+			net_commission_usd = VALUES(net_commission_usd),
+			updated_at = VALUES(updated_at)
 	`
 
 	now := time.Now().UTC()
@@ -52,7 +51,7 @@ func (r *PartnerCommissionMetricRepository) Upsert(metric *models.PartnerCommiss
 		metric.PeriodEnd = now
 	}
 
-	if err := r.db.QueryRow(
+	result, err := r.db.Exec(
 		query,
 		metric.UserID,
 		metric.PeriodStart,
@@ -64,9 +63,21 @@ func (r *PartnerCommissionMetricRepository) Upsert(metric *models.PartnerCommiss
 		metric.RebateUSD,
 		metric.NetCommissionUSD,
 		now,
-	).Scan(&metric.ID, &metric.CreatedAt, &metric.UpdatedAt); err != nil {
+		now,
+	)
+
+	if err != nil {
 		return fmt.Errorf("failed to upsert partner commission metric: %w", err)
 	}
+
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get last insert ID: %w", err)
+	}
+
+	metric.ID = int(lastID)
+	metric.CreatedAt = now
+	metric.UpdatedAt = now
 
 	return nil
 }
@@ -77,7 +88,7 @@ func (r *PartnerCommissionMetricRepository) GetLatestByUser(userID int) (*models
 		       notional_volume_usd, gross_commission_usd, rebate_usd, net_commission_usd,
 		       created_at, updated_at
 		FROM partner_commission_metrics
-		WHERE user_id = $1
+		WHERE user_id = ?
 		ORDER BY period_end DESC, updated_at DESC
 		LIMIT 1
 	`
@@ -118,9 +129,9 @@ func (r *PartnerCommissionMetricRepository) ListByUser(userID int, limit int, of
 		       notional_volume_usd, gross_commission_usd, rebate_usd, net_commission_usd,
 		       created_at, updated_at
 		FROM partner_commission_metrics
-		WHERE user_id = $1
+		WHERE user_id = ?
 		ORDER BY period_end DESC, updated_at DESC
-		LIMIT $2 OFFSET $3
+		LIMIT ? OFFSET ?
 	`, userID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list commission metrics: %w", err)

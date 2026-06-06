@@ -559,7 +559,7 @@ func crmSecurityEventsHandler(database *sql.DB) gin.HandlerFunc {
 			`SELECT id, user_id, username, event_type, outcome, reason, ip_address, user_agent, created_at
 			 FROM security_login_events
 			 ORDER BY created_at DESC
-			 LIMIT $1 OFFSET $2`,
+			 LIMIT ? OFFSET ?`,
 			limit,
 			offset,
 		)

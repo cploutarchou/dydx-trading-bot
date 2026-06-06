@@ -24,12 +24,11 @@ func (r *PartnerApplicationRepository) Create(application *models.PartnerApplica
 			business_name, notes, review_notes, reviewed_by_user_id, reviewed_at,
 			created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		RETURNING id, created_at, updated_at
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	now := time.Now().UTC()
-	if err := r.db.QueryRow(
+	result, err := r.db.Exec(
 		query,
 		application.ApplicantUserID,
 		application.SponsorUserID,
@@ -42,9 +41,20 @@ func (r *PartnerApplicationRepository) Create(application *models.PartnerApplica
 		application.ReviewedAt,
 		now,
 		now,
-	).Scan(&application.ID, &application.CreatedAt, &application.UpdatedAt); err != nil {
+	)
+
+	if err != nil {
 		return fmt.Errorf("failed to create partner application: %w", err)
 	}
+
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get last insert ID: %w", err)
+	}
+
+	application.ID = int(lastID)
+	application.CreatedAt = now
+	application.UpdatedAt = now
 
 	return nil
 }
@@ -55,7 +65,7 @@ func (r *PartnerApplicationRepository) GetByID(id int) (*models.PartnerApplicati
 		       business_name, notes, review_notes, reviewed_by_user_id, reviewed_at,
 		       created_at, updated_at
 		FROM partner_applications
-		WHERE id = $1
+		WHERE id = ?
 		LIMIT 1
 	`
 
@@ -90,7 +100,7 @@ func (r *PartnerApplicationRepository) List(limit int, offset int) ([]*models.Pa
 		       created_at, updated_at
 		FROM partner_applications
 		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2
+		LIMIT ? OFFSET ?
 	`
 	return r.queryMany(query, limit, offset)
 }
@@ -101,9 +111,9 @@ func (r *PartnerApplicationRepository) ListByApplicant(applicantUserID int, limi
 		       business_name, notes, review_notes, reviewed_by_user_id, reviewed_at,
 		       created_at, updated_at
 		FROM partner_applications
-		WHERE applicant_user_id = $1
+		WHERE applicant_user_id = ?
 		ORDER BY created_at DESC
-		LIMIT $2 OFFSET $3
+		LIMIT ? OFFSET ?
 	`
 	return r.queryMany(query, applicantUserID, limit, offset)
 }
@@ -114,9 +124,9 @@ func (r *PartnerApplicationRepository) ListBySponsor(sponsorUserID int, limit in
 		       business_name, notes, review_notes, reviewed_by_user_id, reviewed_at,
 		       created_at, updated_at
 		FROM partner_applications
-		WHERE sponsor_user_id = $1
+		WHERE sponsor_user_id = ?
 		ORDER BY created_at DESC
-		LIMIT $2 OFFSET $3
+		LIMIT ? OFFSET ?
 	`
 	return r.queryMany(query, sponsorUserID, limit, offset)
 }
@@ -132,12 +142,12 @@ func (r *PartnerApplicationRepository) CountPending() (int, error) {
 func (r *PartnerApplicationRepository) UpdateReview(application *models.PartnerApplication) error {
 	query := `
 		UPDATE partner_applications
-		SET status = $1,
-		    review_notes = $2,
-		    reviewed_by_user_id = $3,
-		    reviewed_at = $4,
-		    updated_at = $5
-		WHERE id = $6
+		SET status = ?,
+		    review_notes = ?,
+		    reviewed_by_user_id = ?,
+		    reviewed_at = ?,
+		    updated_at = ?
+		WHERE id = ?
 	`
 
 	now := time.Now().UTC()

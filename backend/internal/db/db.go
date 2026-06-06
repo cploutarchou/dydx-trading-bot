@@ -232,6 +232,13 @@ func (d *Database) GetStats() sql.DBStats {
 	return sql.DBStats{}
 }
 
+// Driver returns the database driver name (e.g., "mysql", "postgres")
+func (d *Database) Driver() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.config.Driver
+}
+
 // Query executes a SELECT query with timeout and validation
 func (d *Database) Query(query string, args ...interface{}) (*sql.Rows, error) {
 	d.mu.RLock()

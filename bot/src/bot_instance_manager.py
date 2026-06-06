@@ -358,7 +358,7 @@ class BotInstanceManager:
                            process_id,
                            created_at,
                            updated_at,
-                           CAST(status AS TEXT) AS status
+                           status
                     FROM bot_instances
                     """)).mappings()
 

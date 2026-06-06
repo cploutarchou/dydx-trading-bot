@@ -25,12 +25,11 @@ func NewSettingsRepository(db *sql.DB) *SettingsRepository {
 func (r *SettingsRepository) CreateBotSetting(setting *models.BotSetting) error {
 	query := `
 		INSERT INTO bot_settings (section, key, value, value_type, description, default_value, is_active, version, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		RETURNING id, created_at, updated_at
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	now := time.Now()
-	err := r.db.QueryRow(
+	result, err := r.db.Exec(
 		query,
 		setting.Section,
 		setting.Key,
@@ -42,11 +41,20 @@ func (r *SettingsRepository) CreateBotSetting(setting *models.BotSetting) error 
 		setting.Version,
 		now,
 		now,
-	).Scan(&setting.ID, &setting.CreatedAt, &setting.UpdatedAt)
+	)
 
 	if err != nil {
 		return fmt.Errorf("failed to create bot setting: %w", err)
 	}
+
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get last insert ID: %w", err)
+	}
+
+	setting.ID = int(lastID)
+	setting.CreatedAt = now
+	setting.UpdatedAt = now
 
 	return nil
 }
@@ -56,7 +64,7 @@ func (r *SettingsRepository) GetBotSettingByID(id int) (*models.BotSetting, erro
 	query := `
 		SELECT id, section, key, value, value_type, description, default_value, is_active, version, created_at, updated_at
 		FROM bot_settings
-		WHERE id = $1
+		WHERE id = ?
 		LIMIT 1
 	`
 
@@ -90,7 +98,7 @@ func (r *SettingsRepository) GetBotSettingBySectionAndKey(section, key string) (
 	query := `
 		SELECT id, section, key, value, value_type, description, default_value, is_active, version, created_at, updated_at
 		FROM bot_settings
-		WHERE section = $1 AND key = $2
+		WHERE section = ? AND key = ?
 		LIMIT 1
 	`
 
@@ -124,7 +132,7 @@ func (r *SettingsRepository) GetBotSettingsBySection(section string) ([]models.B
 	query := `
 		SELECT id, section, key, value, value_type, description, default_value, is_active, version, created_at, updated_at
 		FROM bot_settings
-		WHERE section = $1
+		WHERE section = ?
 		ORDER BY key ASC
 	`
 
@@ -210,8 +218,8 @@ func (r *SettingsRepository) GetAllBotSettings() ([]models.BotSetting, error) {
 func (r *SettingsRepository) UpdateBotSetting(setting *models.BotSetting) error {
 	query := `
 		UPDATE bot_settings
-		SET value = $1, description = $2, is_active = $3, version = $4, updated_at = $5
-		WHERE id = $6
+		SET value = ?, description = ?, is_active = ?, version = ?, updated_at = ?
+		WHERE id = ?
 	`
 
 	now := time.Now()
@@ -235,7 +243,7 @@ func (r *SettingsRepository) UpdateBotSetting(setting *models.BotSetting) error 
 
 // DeleteBotSetting deletes a bot setting
 func (r *SettingsRepository) DeleteBotSetting(id int) error {
-	query := `DELETE FROM bot_settings WHERE id = $1`
+	query := `DELETE FROM bot_settings WHERE id = ?`
 
 	result, err := r.db.Exec(query, id)
 	if err != nil {
@@ -260,12 +268,11 @@ func (r *SettingsRepository) DeleteBotSetting(id int) error {
 func (r *SettingsRepository) CreateRedisSetting(setting *models.RedisSetting) error {
 	query := `
 		INSERT INTO redis_settings (enabled, host, port, db, password, ssl, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, created_at, updated_at
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	now := time.Now()
-	err := r.db.QueryRow(
+	result, err := r.db.Exec(
 		query,
 		setting.Enabled,
 		setting.Host,
@@ -275,11 +282,20 @@ func (r *SettingsRepository) CreateRedisSetting(setting *models.RedisSetting) er
 		setting.SSL,
 		now,
 		now,
-	).Scan(&setting.ID, &setting.CreatedAt, &setting.UpdatedAt)
+	)
 
 	if err != nil {
 		return fmt.Errorf("failed to create redis setting: %w", err)
 	}
+
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get last insert ID: %w", err)
+	}
+
+	setting.ID = int(lastID)
+	setting.CreatedAt = now
+	setting.UpdatedAt = now
 
 	return nil
 }
@@ -319,8 +335,8 @@ func (r *SettingsRepository) GetRedisSetting() (*models.RedisSetting, error) {
 func (r *SettingsRepository) UpdateRedisSetting(setting *models.RedisSetting) error {
 	query := `
 		UPDATE redis_settings
-		SET enabled = $1, host = $2, port = $3, db = $4, password = $5, ssl = $6, updated_at = $7
-		WHERE id = $8
+		SET enabled = ?, host = ?, port = ?, db = ?, password = ?, ssl = ?, updated_at = ?
+		WHERE id = ?
 	`
 
 	now := time.Now()

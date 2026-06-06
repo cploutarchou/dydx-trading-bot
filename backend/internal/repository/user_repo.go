@@ -161,20 +161,28 @@ func (r *UserRepository) Create(user *models.User) error {
 
 	placeholders := make([]string, len(args))
 	for i := range args {
-		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		placeholders[i] = "?"
 	}
 
 	query := fmt.Sprintf(`
 		INSERT INTO users (%s)
 		VALUES (%s)
-		RETURNING id, created_at, updated_at
 	`, strings.Join(columns, ", "), strings.Join(placeholders, ", "))
 
-	err := r.db.QueryRow(query, args...).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
+	result, err := r.db.Exec(query, args...)
 
 	if err != nil {
 		return fmt.Errorf("failed to create user: %w", err)
 	}
+
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get last insert ID: %w", err)
+	}
+
+	user.ID = int(lastID)
+	user.CreatedAt = now
+	user.UpdatedAt = now
 
 	return nil
 }
@@ -184,7 +192,7 @@ func (r *UserRepository) GetByID(id int) (*models.User, error) {
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM users
-		WHERE id = $1
+		WHERE id = ?
 	`, r.selectUserColumns())
 
 	user := &models.User{}
@@ -223,7 +231,7 @@ func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM users
-		WHERE username = $1
+		WHERE username = ?
 	`, r.selectUserColumns())
 
 	user := &models.User{}
@@ -262,7 +270,7 @@ func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM users
-		WHERE email = $1
+		WHERE email = ?
 	`, r.selectUserColumns())
 
 	user := &models.User{}
@@ -302,7 +310,7 @@ func (r *UserRepository) List(limit int, offset int) ([]*models.User, error) {
 		SELECT %s
 		FROM users
 		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2
+		LIMIT ? OFFSET ?
 	`, r.selectUserColumns())
 
 	rows, err := r.db.Query(query, limit, offset)
@@ -478,14 +486,14 @@ func (r *UserRepository) Update(user *models.User) error {
 		user.IsAdmin,
 	}
 	setClauses := []string{
-		"username = $1",
-		"email = $2",
-		"role = $3",
-		"full_name = $4",
-		"avatar = $5",
-		"hashed_password = $6",
-		"is_active = $7",
-		"is_admin = $8",
+		"username = ?",
+		"email = ?",
+		"role = ?",
+		"full_name = ?",
+		"avatar = ?",
+		"hashed_password = ?",
+		"is_active = ?",
+		"is_admin = ?",
 	}
 
 	if r.hasPasswordChangeRequiredColumn() {
@@ -547,7 +555,7 @@ func (r *UserRepository) Update(user *models.User) error {
 
 // Delete deletes a user by ID
 func (r *UserRepository) Delete(id int) error {
-	query := "DELETE FROM users WHERE id = $1"
+	query := "DELETE FROM users WHERE id = ?"
 
 	result, err := r.db.Exec(query, id)
 	if err != nil {
@@ -568,7 +576,7 @@ func (r *UserRepository) Delete(id int) error {
 
 // UpdateLastLogin updates the last login time
 func (r *UserRepository) UpdateLastLogin(id int) error {
-	query := "UPDATE users SET last_login = $1 WHERE id = $2"
+	query := "UPDATE users SET last_login = ? WHERE id = ?"
 
 	now := time.Now()
 	result, err := r.db.Exec(query, now, id)
@@ -592,7 +600,7 @@ func (r *UserRepository) SetMFAEnabled(id int, enabled bool) error {
 	if !r.hasMFAEnabledColumn() {
 		return nil
 	}
-	result, err := r.db.Exec(`UPDATE users SET mfa_enabled = $1, updated_at = $2 WHERE id = $3`, enabled, time.Now(), id)
+	result, err := r.db.Exec(`UPDATE users SET mfa_enabled = ?, updated_at = ? WHERE id = ?`, enabled, time.Now(), id)
 	if err != nil {
 		return fmt.Errorf("failed to update mfa_enabled: %w", err)
 	}

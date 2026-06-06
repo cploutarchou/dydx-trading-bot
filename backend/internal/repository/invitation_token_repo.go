@@ -25,12 +25,11 @@ func (r *InvitationTokenRepository) Create(token *models.InvitationToken) error 
 			created_by_user_id, last_used_by_user_id, expires_at, last_used_at, revoked_at,
 			created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-		RETURNING id, created_at, updated_at
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	now := time.Now().UTC()
-	if err := r.db.QueryRow(
+	result, err := r.db.Exec(
 		query,
 		token.TokenCode,
 		token.Label,
@@ -45,9 +44,20 @@ func (r *InvitationTokenRepository) Create(token *models.InvitationToken) error 
 		token.RevokedAt,
 		now,
 		now,
-	).Scan(&token.ID, &token.CreatedAt, &token.UpdatedAt); err != nil {
+	)
+
+	if err != nil {
 		return fmt.Errorf("failed to create invitation token: %w", err)
 	}
+
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get last insert ID: %w", err)
+	}
+
+	token.ID = int(lastID)
+	token.CreatedAt = now
+	token.UpdatedAt = now
 
 	return nil
 }
@@ -59,7 +69,7 @@ func (r *InvitationTokenRepository) List(limit int, offset int) ([]*models.Invit
 		       created_at, updated_at
 		FROM invitation_tokens
 		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2
+		LIMIT ? OFFSET ?
 	`
 
 	rows, err := r.db.Query(query, limit, offset)
@@ -113,7 +123,7 @@ func (r *InvitationTokenRepository) GetByID(id int) (*models.InvitationToken, er
 		       created_by_user_id, last_used_by_user_id, expires_at, last_used_at, revoked_at,
 		       created_at, updated_at
 		FROM invitation_tokens
-		WHERE id = $1
+		WHERE id = ?
 		LIMIT 1
 	`
 
@@ -148,7 +158,7 @@ func (r *InvitationTokenRepository) GetByTokenCode(tokenCode string) (*models.In
 		       created_by_user_id, last_used_by_user_id, expires_at, last_used_at, revoked_at,
 		       created_at, updated_at
 		FROM invitation_tokens
-		WHERE token_code = $1
+		WHERE token_code = ?
 		LIMIT 1
 	`
 
@@ -180,8 +190,8 @@ func (r *InvitationTokenRepository) GetByTokenCode(tokenCode string) (*models.In
 func (r *InvitationTokenRepository) RevokeByTokenCode(tokenCode string) error {
 	query := `
 		UPDATE invitation_tokens
-		SET revoked_at = $1, updated_at = $1
-		WHERE token_code = $2 AND revoked_at IS NULL
+		SET revoked_at = ?, updated_at = ?
+		WHERE token_code = ? AND revoked_at IS NULL
 	`
 
 	now := time.Now().UTC()
@@ -207,12 +217,12 @@ func (r *InvitationTokenRepository) Redeem(tokenCode string, usedByUserID int) (
 	query := `
 		UPDATE invitation_tokens
 		SET used_count = used_count + 1,
-		    last_used_at = $1,
-		    last_used_by_user_id = $2,
-		    updated_at = $1
-		WHERE token_code = $3
+		    last_used_at = ?,
+		    last_used_by_user_id = ?,
+		    updated_at = ?
+		WHERE token_code = ?
 		  AND revoked_at IS NULL
-		  AND (expires_at IS NULL OR expires_at > $1)
+		  AND (expires_at IS NULL OR expires_at > ?)
 		  AND used_count < max_uses
 	`
 

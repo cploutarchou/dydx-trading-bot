@@ -7,19 +7,19 @@ IMAGE_TAG ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo latest)
 DEPLOY_TAG ?= $(shell date +%Y%m%d%H%M%S)
 
 DEV_INFRA_NETWORK ?= dydx-dev-infra
-DEV_PG_CONTAINER ?= dydx-dev-postgres
-DEV_BOT_PG_CONTAINER ?= dydx-dev-bot-postgres
+DEV_MARIADB_CONTAINER ?= dydx-dev-mariadb
+DEV_BOT_MARIADB_CONTAINER ?= dydx-dev-bot-mariadb
 DEV_REDIS_CONTAINER ?= dydx-dev-redis
-DEV_PG_VOLUME ?= dydx-dev-postgres-data
-DEV_BOT_PG_VOLUME ?= dydx-dev-bot-postgres-data
-DEV_PG_USER ?= dydx_bot
-DEV_PG_PASSWORD ?= change-me-db-password
-DEV_PG_DB ?= dydx_bot
-DEV_PG_PORT ?= 5432
-DEV_BOT_PG_USER ?= dydx_bot
-DEV_BOT_PG_PASSWORD ?= change-me-db-password
-DEV_BOT_PG_DB ?= dydx_bot
-DEV_BOT_PG_PORT ?= 5433
+DEV_MARIADB_VOLUME ?= dydx-dev-mariadb-data
+DEV_BOT_MARIADB_VOLUME ?= dydx-dev-bot-mariadb-data
+DEV_MARIADB_USER ?= dydx_bot
+DEV_MARIADB_PASSWORD ?= change-me-db-password
+DEV_MARIADB_DB ?= dydx_bot
+DEV_MARIADB_PORT ?= 3306
+DEV_BOT_MARIADB_USER ?= dydx_bot
+DEV_BOT_MARIADB_PASSWORD ?= change-me-db-password
+DEV_BOT_MARIADB_DB ?= dydx_bot
+DEV_BOT_MARIADB_PORT ?= 3307
 DEV_REDIS_PORT ?= 6379
 
 # Default target - show help when running just 'make'
@@ -32,7 +32,7 @@ help: ## Show this help message
 	@echo "  1. make config-keygen   # Create .configkey.bin and print the shareable token"
 	@echo "  2. make dev-config      # Edit the encrypted development profile"
 	@echo "  3. make dev             # Decrypt development profile into run.json"
-	@echo "  4. make infra-up        # Start shared postgres + redis only"
+	@echo "  4. make infra-up        # Start shared mariadb + redis only"
 	@echo "  5. Start your service from its own workspace/devcontainer"
 	@echo ""
 	@echo "Integration quick start:"
@@ -457,7 +457,7 @@ db-down: ## Stop backend DB services (postgres + redis) via Docker Compose
 		exit 0; \
 	fi
 
-infra-up: ## Start shared infra only (postgres + redis) for local service development
+infra-up: ## Start shared infra only (mariadb + redis) for local service development
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		if [ ! -f "$(INFRA_COMPOSE_FILE)" ]; then \
 			echo "❌ Missing $(INFRA_COMPOSE_FILE)."; \
@@ -465,7 +465,7 @@ infra-up: ## Start shared infra only (postgres + redis) for local service develo
 			exit 1; \
 		fi; \
 		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE) up -d --remove-orphans; \
-		echo "✅ Infra started (postgres:5432, redis:6379)"; \
+		echo "✅ Infra started (mariadb:3306, redis:6379)"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot start infra"; \
 		exit 0; \
@@ -484,11 +484,11 @@ infra-down: ## Stop shared infra only (postgres + redis)
 		exit 0; \
 	fi
 
-infra-logs: ## Follow logs for shared infra services (postgres + redis)
+infra-logs: ## Follow logs for shared infra services (mariadb + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		if [ ! -f "$(INFRA_COMPOSE_FILE)" ]; then \
 			echo "❌ Missing $(INFRA_COMPOSE_FILE)."; \
-			echo "   Tip: use docker logs for dev-infra containers ($(DEV_PG_CONTAINER), $(DEV_BOT_PG_CONTAINER), $(DEV_REDIS_CONTAINER))."; \
+			echo "   Tip: use docker logs for dev-infra containers ($(DEV_MARIADB_CONTAINER), $(DEV_BOT_MARIADB_CONTAINER), $(DEV_REDIS_CONTAINER))."; \
 			exit 1; \
 		fi; \
 		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE) logs -f --tail=100; \
@@ -510,7 +510,7 @@ infra-ps: ## Show status for shared infra services (postgres + redis)
 		exit 0; \
 	fi
 
-dev-infra: ## Start local backend Postgres + bot Postgres + Redis and print matching runtime config
+dev-infra: ## Start local backend MariaDB + bot MariaDB + Redis and print matching runtime config
 	@if ! command -v docker >/dev/null 2>&1; then \
 		echo "⚠️  Docker CLI is not installed"; \
 		exit 0; \
@@ -522,31 +522,33 @@ dev-infra: ## Start local backend Postgres + bot Postgres + Redis and print matc
 	else \
 		set -e; \
 		docker network inspect $(DEV_INFRA_NETWORK) >/dev/null 2>&1 || docker network create $(DEV_INFRA_NETWORK); \
-		docker volume inspect $(DEV_PG_VOLUME) >/dev/null 2>&1 || docker volume create $(DEV_PG_VOLUME) >/dev/null; \
-		docker volume inspect $(DEV_BOT_PG_VOLUME) >/dev/null 2>&1 || docker volume create $(DEV_BOT_PG_VOLUME) >/dev/null; \
-		if docker ps -a --format '{{.Names}}' | grep -qx '$(DEV_PG_CONTAINER)'; then \
-			docker start $(DEV_PG_CONTAINER) >/dev/null; \
+		docker volume inspect $(DEV_MARIADB_VOLUME) >/dev/null 2>&1 || docker volume create $(DEV_MARIADB_VOLUME) >/dev/null; \
+		docker volume inspect $(DEV_BOT_MARIADB_VOLUME) >/dev/null 2>&1 || docker volume create $(DEV_BOT_MARIADB_VOLUME) >/dev/null; \
+		if docker ps -a --format '{{.Names}}' | grep -qx '$(DEV_MARIADB_CONTAINER)'; then \
+			docker start $(DEV_MARIADB_CONTAINER) >/dev/null; \
 		else \
-			docker run -d --name $(DEV_PG_CONTAINER) \
+			docker run -d --name $(DEV_MARIADB_CONTAINER) \
 				--network $(DEV_INFRA_NETWORK) \
-				-p $(DEV_PG_PORT):5432 \
-				-e POSTGRES_USER=$(DEV_PG_USER) \
-				-e POSTGRES_PASSWORD=$(DEV_PG_PASSWORD) \
-				-e POSTGRES_DB=$(DEV_PG_DB) \
-				-v $(DEV_PG_VOLUME):/var/lib/postgresql/data \
-				postgres:16-alpine >/dev/null; \
+				-p $(DEV_MARIADB_PORT):3306 \
+				-e MYSQL_USER=$(DEV_MARIADB_USER) \
+				-e MYSQL_PASSWORD=$(DEV_MARIADB_PASSWORD) \
+				-e MYSQL_DATABASE=$(DEV_MARIADB_DB) \
+				-e MYSQL_ROOT_PASSWORD=$(DEV_MARIADB_PASSWORD) \
+				-v $(DEV_MARIADB_VOLUME):/var/lib/mysql \
+				mariadb:11 >/dev/null; \
 		fi; \
-		if docker ps -a --format '{{.Names}}' | grep -qx '$(DEV_BOT_PG_CONTAINER)'; then \
-			docker start $(DEV_BOT_PG_CONTAINER) >/dev/null; \
+		if docker ps -a --format '{{.Names}}' | grep -qx '$(DEV_BOT_MARIADB_CONTAINER)'; then \
+			docker start $(DEV_BOT_MARIADB_CONTAINER) >/dev/null; \
 		else \
-			docker run -d --name $(DEV_BOT_PG_CONTAINER) \
+			docker run -d --name $(DEV_BOT_MARIADB_CONTAINER) \
 				--network $(DEV_INFRA_NETWORK) \
-				-p $(DEV_BOT_PG_PORT):5432 \
-				-e POSTGRES_USER=$(DEV_BOT_PG_USER) \
-				-e POSTGRES_PASSWORD=$(DEV_BOT_PG_PASSWORD) \
-				-e POSTGRES_DB=$(DEV_BOT_PG_DB) \
-				-v $(DEV_BOT_PG_VOLUME):/var/lib/postgresql/data \
-				postgres:16-alpine >/dev/null; \
+				-p $(DEV_BOT_MARIADB_PORT):3306 \
+				-e MYSQL_USER=$(DEV_BOT_MARIADB_USER) \
+				-e MYSQL_PASSWORD=$(DEV_BOT_MARIADB_PASSWORD) \
+				-e MYSQL_DATABASE=$(DEV_BOT_MARIADB_DB) \
+				-e MYSQL_ROOT_PASSWORD=$(DEV_BOT_MARIADB_PASSWORD) \
+				-v $(DEV_BOT_MARIADB_VOLUME):/var/lib/mysql \
+				mariadb:11 >/dev/null; \
 		fi; \
 		if docker ps -a --format '{{.Names}}' | grep -qx '$(DEV_REDIS_CONTAINER)'; then \
 			docker start $(DEV_REDIS_CONTAINER) >/dev/null; \
@@ -557,35 +559,35 @@ dev-infra: ## Start local backend Postgres + bot Postgres + Redis and print matc
 				redis:7-alpine >/dev/null; \
 		fi; \
 		for i in 1 2 3 4 5 6 7 8 9 10; do \
-			docker exec $(DEV_PG_CONTAINER) pg_isready -U $(DEV_PG_USER) -d $(DEV_PG_DB) >/dev/null 2>&1 && break; \
+			docker exec $(DEV_MARIADB_CONTAINER) mysqladmin ping -u $(DEV_MARIADB_USER) -p$(DEV_MARIADB_PASSWORD) >/dev/null 2>&1 && break; \
 			sleep 1; \
 		done; \
 		for i in 1 2 3 4 5 6 7 8 9 10; do \
-			docker exec $(DEV_BOT_PG_CONTAINER) pg_isready -U $(DEV_BOT_PG_USER) -d $(DEV_BOT_PG_DB) >/dev/null 2>&1 && break; \
+			docker exec $(DEV_BOT_MARIADB_CONTAINER) mysqladmin ping -u $(DEV_BOT_MARIADB_USER) -p$(DEV_BOT_MARIADB_PASSWORD) >/dev/null 2>&1 && break; \
 			sleep 1; \
 		done; \
-		echo "✅ Dev infra ready: backend-postgres=$(DEV_PG_CONTAINER):$(DEV_PG_PORT), bot-postgres=$(DEV_BOT_PG_CONTAINER):$(DEV_BOT_PG_PORT), redis=$(DEV_REDIS_CONTAINER):$(DEV_REDIS_PORT)"; \
+		echo "✅ Dev infra ready: backend-mariadb=$(DEV_MARIADB_CONTAINER):$(DEV_MARIADB_PORT), bot-mariadb=$(DEV_BOT_MARIADB_CONTAINER):$(DEV_BOT_MARIADB_PORT), redis=$(DEV_REDIS_CONTAINER):$(DEV_REDIS_PORT)"; \
 		echo "Use this runtime config:"; \
 		echo '  "database": {'; \
-		echo '    "DB_TYPE": "postgres",'; \
+		echo '    "DB_TYPE": "mysql",'; \
 		echo '    "DB_HOST": "localhost",'; \
-		echo '    "DB_PORT": '$(DEV_PG_PORT)','; \
-		echo '    "DB_NAME": "$(DEV_PG_DB)",'; \
-		echo '    "DB_USER": "$(DEV_PG_USER)",'; \
-		echo '    "DB_PASSWORD": "$(DEV_PG_PASSWORD)",'; \
-		echo '    "POSTGRES_HOST": "localhost",'; \
-		echo '    "POSTGRES_PORT": '$(DEV_PG_PORT)','; \
-		echo '    "POSTGRES_DB": "$(DEV_PG_DB)",'; \
-		echo '    "POSTGRES_USER": "$(DEV_PG_USER)",'; \
-		echo '    "POSTGRES_PASSWORD": "$(DEV_PG_PASSWORD)"'; \
+		echo '    "DB_PORT": '$(DEV_MARIADB_PORT)','; \
+		echo '    "DB_NAME": "$(DEV_MARIADB_DB)",'; \
+		echo '    "DB_USER": "$(DEV_MARIADB_USER)",'; \
+		echo '    "DB_PASSWORD": "$(DEV_MARIADB_PASSWORD)",'; \
+		echo '    "MYSQL_HOST": "localhost",'; \
+		echo '    "MYSQL_PORT": '$(DEV_MARIADB_PORT)','; \
+		echo '    "MYSQL_DATABASE": "$(DEV_MARIADB_DB)",'; \
+		echo '    "MYSQL_USER": "$(DEV_MARIADB_USER)",'; \
+		echo '    "MYSQL_PASSWORD": "$(DEV_MARIADB_PASSWORD)"'; \
 		echo '  },'; \
 		echo '  "bot_database": {'; \
 		echo '    "BOT_DB_CUTOVER_MODE": "dedicated",'; \
 		echo '    "BOT_DB_HOST": "localhost",'; \
-		echo '    "BOT_DB_PORT": '$(DEV_BOT_PG_PORT)','; \
-		echo '    "BOT_DB_NAME": "$(DEV_BOT_PG_DB)",'; \
-		echo '    "BOT_DB_USER": "$(DEV_BOT_PG_USER)",'; \
-		echo '    "BOT_DB_PASSWORD": "$(DEV_BOT_PG_PASSWORD)"'; \
+		echo '    "BOT_DB_PORT": '$(DEV_BOT_MARIADB_PORT)','; \
+		echo '    "BOT_DB_NAME": "$(DEV_BOT_MARIADB_DB)",'; \
+		echo '    "BOT_DB_USER": "$(DEV_BOT_MARIADB_USER)",'; \
+		echo '    "BOT_DB_PASSWORD": "$(DEV_BOT_MARIADB_PASSWORD)"'; \
 		echo '  },'; \
 		echo '  "redis": {'; \
 		echo '    "REDIS_ENABLED": true,'; \
@@ -596,7 +598,7 @@ dev-infra: ## Start local backend Postgres + bot Postgres + Redis and print matc
 		echo '  }'; \
 	fi
 
-dev-infra-down: ## Stop/remove local backend Postgres + bot Postgres + Redis created by dev-infra
+dev-infra-down: ## Stop/remove local backend MariaDB + bot MariaDB + Redis created by dev-infra
 	@if ! command -v docker >/dev/null 2>&1; then \
 		echo "⚠️  Docker CLI is not installed"; \
 		exit 0; \
@@ -605,12 +607,12 @@ dev-infra-down: ## Stop/remove local backend Postgres + bot Postgres + Redis cre
 		echo "   If the error is 'permission denied' on /var/run/docker.sock, add your user to the docker group and re-login."; \
 		exit 0; \
 	else \
-		docker rm -f $(DEV_PG_CONTAINER) $(DEV_BOT_PG_CONTAINER) $(DEV_REDIS_CONTAINER) >/dev/null 2>&1 || true; \
+		docker rm -f $(DEV_MARIADB_CONTAINER) $(DEV_BOT_MARIADB_CONTAINER) $(DEV_REDIS_CONTAINER) >/dev/null 2>&1 || true; \
 		echo "✅ Dev infra containers removed"; \
-		echo "ℹ️  Volumes $(DEV_PG_VOLUME) and $(DEV_BOT_PG_VOLUME) were kept (data preserved)."; \
+		echo "ℹ️  Volumes $(DEV_MARIADB_VOLUME) and $(DEV_BOT_MARIADB_VOLUME) were kept (data preserved)."; \
 	fi
 
-stack-up-dev: ## Start full integration stack (api + worker + frontend dev + postgres + redis)
+stack-up-dev: ## Start full integration stack (api + worker + frontend dev + mariadb + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		if [ ! -f "$(STACK_COMPOSE_FILE)" ]; then \
 			echo "❌ Missing $(STACK_COMPOSE_FILE)."; \

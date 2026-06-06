@@ -1,0 +1,2 @@
+-- Rollback for 000018_add_missing_fields
+-- Review manually - rollback not auto-generated

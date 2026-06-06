@@ -332,7 +332,7 @@ func backofficeAuditLogsHandler(database *sql.DB) gin.HandlerFunc {
 			SELECT id, user_id, action, resource_type, resource_id, details, status, ip_address, created_at
 			FROM audit_logs
 			ORDER BY created_at DESC
-			LIMIT $1 OFFSET $2
+			LIMIT ? OFFSET ?
 		`, limit, offset)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load audit logs: %v", err)})
@@ -388,7 +388,7 @@ func backofficeAuditLogsHandler(database *sql.DB) gin.HandlerFunc {
 func upsertPlatformSetting(database *sql.DB, key string, value string, valueType string, description string) error {
 	_, err := database.Exec(`
 		INSERT INTO bot_settings (section, key, value, value_type, description, default_value, is_active, version, created_at, updated_at)
-		VALUES ('platform', $1, $2, $3, $4, $2, TRUE, 1, $5, $5)
+		VALUES ('platform', ?, ?, ?, ?, ?, TRUE, 1, ?, ?)
 		ON CONFLICT (section, key) DO UPDATE SET
 			value = EXCLUDED.value,
 			value_type = EXCLUDED.value_type,

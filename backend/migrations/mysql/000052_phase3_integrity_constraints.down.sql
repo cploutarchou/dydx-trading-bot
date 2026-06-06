@@ -1,0 +1,2 @@
+-- Rollback for 000052_phase3_integrity_constraints
+-- Review manually - rollback not auto-generated

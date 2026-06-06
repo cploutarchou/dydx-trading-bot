@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -17,11 +18,40 @@ import (
 
 type BacktestRepository struct {
 	db             *sql.DB
+	dbDriver       string // Store driver name to determine parameter syntax
 	admissionLocks sync.Map
 }
 
+// NewBacktestRepository creates a BacktestRepository with automatic driver detection
 func NewBacktestRepository(db *sql.DB) *BacktestRepository {
-	return &BacktestRepository{db: db}
+	// Detect database driver from environment
+	// Try DB_TYPE first (used by config), then DB_DRIVER, default to postgres
+	driver := os.Getenv("DB_TYPE")
+	if driver == "" {
+		driver = os.Getenv("DB_DRIVER")
+	}
+	if driver == "" {
+		driver = "postgres" // Default fallback
+	}
+
+	return &BacktestRepository{
+		db:       db,
+		dbDriver: driver,
+	}
+}
+
+// NewBacktestRepositoryWithDriver creates a BacktestRepository with explicit driver information
+func NewBacktestRepositoryWithDriver(db *sql.DB, driver string) *BacktestRepository {
+	return &BacktestRepository{
+		db:       db,
+		dbDriver: driver,
+	}
+}
+
+// isMysql checks if the repository is using MySQL or MariaDB
+func (r *BacktestRepository) isMysql() bool {
+	return strings.Contains(strings.ToLower(r.dbDriver), "mysql") ||
+		strings.Contains(strings.ToLower(r.dbDriver), "mariadb")
 }
 
 var errAdvisoryLockUnsupported = errors.New("named locks unsupported")
@@ -43,8 +73,13 @@ func isAdvisoryLockUnsupportedError(err error) bool {
 		return true
 	}
 	// MySQL: GET_LOCK doesn't exist
-	if strings.Contains(lower, "unknown function") && strings.Contains(lower, "get_lock") {
-		return true
+	// Handles both:
+	// - "Error 1305 (42000): FUNCTION get_lock does not exist"
+	// - "unknown function get_lock"
+	if strings.Contains(lower, "get_lock") {
+		if strings.Contains(lower, "does not exist") || strings.Contains(lower, "unknown function") {
+			return true
+		}
 	}
 	return false
 }
@@ -176,26 +211,26 @@ func (r *BacktestRepository) GetCandles(filter CandleFilter) ([]models.BacktestC
 	argNum := 2
 
 	if filter.Market != "" {
-		query += fmt.Sprintf(" AND market = $%d", argNum)
+		query += " AND market = ?"
 		args = append(args, filter.Market)
 		argNum++
 	}
 
 	if filter.StartDate != nil {
-		query += fmt.Sprintf(" AND timestamp >= $%d", argNum)
+		query += " AND timestamp >= ?"
 		args = append(args, filter.StartDate)
 		argNum++
 	}
 
 	if filter.EndDate != nil {
-		query += fmt.Sprintf(" AND timestamp <= $%d", argNum)
+		query += " AND timestamp <= ?"
 		args = append(args, filter.EndDate)
 		argNum++
 	}
 
 	query += " ORDER BY timestamp"
 	if filter.Limit > 0 {
-		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argNum, argNum+1)
+		query += " LIMIT ? OFFSET ?"
 		args = append(args, filter.Limit, filter.Skip)
 	}
 
@@ -284,19 +319,19 @@ func (r *BacktestRepository) GetPositions(filter PositionFilter) ([]models.Backt
 	argNum := 2
 
 	if filter.Status != "" && filter.Status != "ALL" {
-		query += fmt.Sprintf(" AND status = $%d", argNum)
+		query += " AND status = ?"
 		args = append(args, filter.Status)
 		argNum++
 	}
 
 	if filter.Market1 != "" {
-		query += fmt.Sprintf(" AND market_1 = $%d", argNum)
+		query += " AND market_1 = ?"
 		args = append(args, filter.Market1)
 		argNum++
 	}
 
 	if filter.Market2 != "" {
-		query += fmt.Sprintf(" AND market_2 = $%d", argNum)
+		query += " AND market_2 = ?"
 		args = append(args, filter.Market2)
 	}
 
@@ -405,19 +440,19 @@ func (r *BacktestRepository) GetTrades(filter TradeFilter) ([]models.BacktestTra
 	argNum := 2
 
 	if filter.Market1 != "" {
-		query += fmt.Sprintf(" AND market_1 = $%d", argNum)
+		query += " AND market_1 = ?"
 		args = append(args, filter.Market1)
 		argNum++
 	}
 
 	if filter.Market2 != "" {
-		query += fmt.Sprintf(" AND market_2 = $%d", argNum)
+		query += " AND market_2 = ?"
 		args = append(args, filter.Market2)
 		argNum++
 	}
 
 	query += " ORDER BY entry_timestamp"
-	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argNum, argNum+1)
+	query += " LIMIT ? OFFSET ?"
 	args = append(args, filter.Limit, filter.Skip)
 
 	rows, err := r.db.Query(query, args...)
@@ -485,13 +520,13 @@ func (r *BacktestRepository) GetTradesCount(runID int, market1, market2 string) 
 	argNum := 2
 
 	if market1 != "" {
-		query += fmt.Sprintf(" AND market_1 = $%d", argNum)
+		query += " AND market_1 = ?"
 		args = append(args, market1)
 		argNum++
 	}
 
 	if market2 != "" {
-		query += fmt.Sprintf(" AND market_2 = $%d", argNum)
+		query += " AND market_2 = ?"
 		args = append(args, market2)
 	}
 
@@ -956,16 +991,32 @@ func (r *BacktestRepository) GetRunsByStrategyID(userID int, strategyID int, lim
 }
 
 func (r *BacktestRepository) CountActiveRunsByUserID(userID int) (int, error) {
-	query := `
-		SELECT COUNT(*)
-		FROM backtest_runs
-		WHERE user_id = $1
-		  AND LOWER(COALESCE(status, '')) IN (
-			'pending', 'queued', 'created', 'scheduled',
-			'running', 'in_progress', 'processing', 'active',
-			'paused', 'retry', 'retrying'
-		  )
-	`
+	var query string
+	if r.isMysql() {
+		// MySQL/MariaDB syntax uses ? for parameters
+		query = `
+			SELECT COUNT(*)
+			FROM backtest_runs
+			WHERE user_id = ?
+			  AND LOWER(COALESCE(status, '')) IN (
+				'pending', 'queued', 'created', 'scheduled',
+				'running', 'in_progress', 'processing', 'active',
+				'paused', 'retry', 'retrying'
+			  )
+		`
+	} else {
+		// PostgreSQL syntax uses $1, $2, etc.
+		query = `
+			SELECT COUNT(*)
+			FROM backtest_runs
+			WHERE user_id = $1
+			  AND LOWER(COALESCE(status, '')) IN (
+				'pending', 'queued', 'created', 'scheduled',
+				'running', 'in_progress', 'processing', 'active',
+				'paused', 'retry', 'retrying'
+			  )
+		`
+	}
 
 	var count int
 	if err := r.db.QueryRow(query, userID).Scan(&count); err != nil {

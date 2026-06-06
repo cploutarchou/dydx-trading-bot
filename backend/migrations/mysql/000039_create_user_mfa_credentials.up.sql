@@ -1,9 +1,9 @@
 CREATE TABLE IF NOT EXISTS user_mfa_credentials (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    user_id BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    user_id BIGINT NOT NULL UNIQUE,
     encrypted_secret TEXT NOT NULL,
     encrypted_backup_codes TEXT NOT NULL DEFAULT '',
-    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    enabled TINYINT(1) NOT NULL DEFAULT 0,
     verified_at TIMESTAMP NULL,
     last_used_at TIMESTAMP NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),

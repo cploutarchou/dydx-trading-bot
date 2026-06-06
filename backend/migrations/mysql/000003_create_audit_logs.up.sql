@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS audit_logs
   status        VARCHAR(20)  DEFAULT NULL,
   ip_address    VARCHAR(50)  DEFAULT NULL,
   created_at    TIMESTAMP    NULL DEFAULT NULL,
-  FOREIGN KEY (user_id) REFERENCES users (id)
+  FOREIGN KEY (user_id)
 );
 
 CREATE INDEX idx_audit_resource ON audit_logs (resource_type, resource_id);

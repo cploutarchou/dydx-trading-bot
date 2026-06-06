@@ -5,17 +5,17 @@
 CREATE TABLE IF NOT EXISTS bot_settings (
 	id INT AUTO_INCREMENT PRIMARY KEY,
 	section VARCHAR(50) NOT NULL,
-	key VARCHAR(100) NOT NULL,
+	`key` VARCHAR(100) NOT NULL,
 	value LONGTEXT NOT NULL,
 	value_type VARCHAR(20) NOT NULL,
 	description LONGTEXT DEFAULT NULL,
 	default_value LONGTEXT DEFAULT NULL,
-	is_active BOOLEAN DEFAULT NULL,
+	is_active TINYINT(1) DEFAULT NULL,
 	version INTEGER DEFAULT NULL,
 	created_at TIMESTAMP NULL DEFAULT NULL,
 	updated_at TIMESTAMP NULL DEFAULT NULL,
 	updated_by INTEGER DEFAULT NULL,
-	FOREIGN KEY (updated_by) REFERENCES users (id),
+	FOREIGN KEY (updated_by),
 	UNIQUE (section, key)
 );
 
@@ -35,7 +35,7 @@ CREATE INDEX ix_bot_settings_section ON bot_settings (section);
 -- MariaDB: Use INSERT IGNORE instead of ON CONFLICT DO NOTHING
 INSERT IGNORE INTO bot_settings (
 	section,
-	key,
+	`key`,
 	value,
 	value_type,
 	description,
@@ -53,7 +53,7 @@ VALUES
 		'integer',
 		'Maximum position size per trade',
 		'1000',
-		true,
+		1,
 		1,
 		CURRENT_TIMESTAMP,
 		CURRENT_TIMESTAMP
@@ -65,7 +65,7 @@ VALUES
 		'float',
 		'Stop loss percentage',
 		'2.0',
-		true,
+		1,
 		1,
 		CURRENT_TIMESTAMP,
 		CURRENT_TIMESTAMP
@@ -77,7 +77,7 @@ VALUES
 		'float',
 		'Take profit percentage',
 		'5.0',
-		true,
+		1,
 		1,
 		CURRENT_TIMESTAMP,
 		CURRENT_TIMESTAMP
@@ -89,7 +89,7 @@ VALUES
 		'float',
 		'Maximum daily loss limit',
 		'5000',
-		true,
+		1,
 		1,
 		CURRENT_TIMESTAMP,
 		CURRENT_TIMESTAMP

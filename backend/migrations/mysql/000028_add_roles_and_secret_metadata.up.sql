@@ -1,5 +1,5 @@
 ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) NOT NULL DEFAULT 'client';
-UPDATE users SET role = CASE WHEN is_admin THEN 'admin' ELSE 'client' END WHERE role IS NULL OR BTRIM(role) = '';
+UPDATE users SET role = CASE WHEN is_admin THEN 'admin' ELSE 'client' END WHERE role IS NULL OR TRIM(role) = '';
 
 ALTER TABLE dydx_keys ADD COLUMN IF NOT EXISTS secret_hash TEXT NOT NULL DEFAULT '';
 ALTER TABLE dydx_keys ADD COLUMN IF NOT EXISTS secret_masked TEXT NOT NULL DEFAULT '';

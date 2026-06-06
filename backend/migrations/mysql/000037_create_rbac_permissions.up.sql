@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS permissions (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     permission_key VARCHAR(100) NOT NULL UNIQUE,
     description LONGTEXT NOT NULL DEFAULT '',
-    is_sensitive BOOLEAN NOT NULL DEFAULT FALSE,
+    is_sensitive TINYINT(1) NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS role_permissions (
     permission_key VARCHAR(100) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(role, permission_key),
-    FOREIGN KEY (permission_key) REFERENCES permissions(permission_key) ON DELETE CASCADE
+    FOREIGN KEY (permission_key) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS user_permission_overrides (
@@ -28,11 +28,11 @@ CREATE TABLE IF NOT EXISTS user_permission_overrides (
     reason LONGTEXT NOT NULL DEFAULT '',
     granted_by_user_id BIGINT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, permission_key),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (permission_key) REFERENCES permissions(permission_key) ON DELETE CASCADE,
-    FOREIGN KEY (granted_by_user_id) REFERENCES users(id)
+    FOREIGN KEY (user_id),
+    FOREIGN KEY (permission_key),
+    FOREIGN KEY (granted_by_user_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_role_permissions_role ON role_permissions(role);
@@ -40,19 +40,19 @@ CREATE INDEX IF NOT EXISTS idx_user_permission_overrides_user ON user_permission
 
 -- Insert permissions using INSERT IGNORE instead of ON CONFLICT DO NOTHING
 INSERT IGNORE INTO permissions (permission_key, description, is_sensitive) VALUES
-    ('crm.read', 'Read CRM dashboards and operational datasets', FALSE),
-    ('crm.write', 'Write CRM operational data', TRUE),
-    ('users.read', 'Read user records', FALSE),
-    ('users.update', 'Update user records', TRUE),
-    ('users.disable', 'Disable user accounts', TRUE),
-    ('kyc.read', 'Read KYC and verification information', TRUE),
-    ('kyc.review', 'Approve or reject KYC/review actions', TRUE),
-    ('finance.read', 'Read finance and commission information', TRUE),
-    ('finance.manage', 'Manage finance and commission information', TRUE),
-    ('audit.read', 'Read audit events and sensitive action traces', TRUE),
-    ('security.events.read', 'Read authentication and security event streams', TRUE),
-    ('roles.manage', 'Manage roles and permission assignments', TRUE),
-    ('crm.admin.manage', 'Manage CRM operators and admin-level CRM settings', TRUE);
+    ('crm.read', 'Read CRM dashboards and operational datasets', 0),
+    ('crm.write', 'Write CRM operational data', 1),
+    ('users.read', 'Read user records', 0),
+    ('users.update', 'Update user records', 1),
+    ('users.disable', 'Disable user accounts', 1),
+    ('kyc.read', 'Read KYC and verification information', 1),
+    ('kyc.review', 'Approve or reject KYC/review actions', 1),
+    ('finance.read', 'Read finance and commission information', 1),
+    ('finance.manage', 'Manage finance and commission information', 1),
+    ('audit.read', 'Read audit events and sensitive action traces', 1),
+    ('security.events.read', 'Read authentication and security event streams', 1),
+    ('roles.manage', 'Manage roles and permission assignments', 1),
+    ('crm.admin.manage', 'Manage CRM operators and admin-level CRM settings', 1);
 
 -- Insert role permissions using INSERT IGNORE
 -- This approach mimics the PostgreSQL VALUES clause behavior

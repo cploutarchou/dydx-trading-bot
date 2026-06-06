@@ -51,19 +51,32 @@ def upgrade() -> None:
 
     now = datetime.now(timezone.utc)
 
-    # Single INSERT ... SELECT — avoids row-by-row Python dict serialization
-    # issues with psycopg2 + sa.text() and is safe to re-run (ON CONFLICT DO NOTHING).
-    bind.execute(
-        sa.text("""
-            INSERT INTO backtest_run_requests (run_id, request_json, created_at, updated_at)
-            SELECT run_id, request_json, :now, :now
-            FROM backtest_runtime_runs
-            WHERE request_json IS NOT NULL
-              AND request_json::text NOT IN ('null', '{}', '')
-            ON CONFLICT (run_id) DO NOTHING
-        """),
-        {"now": now},
-    )
+    # Insert request payloads from backtest runs (database-compatible syntax)
+    # PostgreSQL uses ON CONFLICT; MySQL uses ON DUPLICATE KEY UPDATE.
+    if bind.dialect.name == "postgresql":
+        bind.execute(
+            sa.text("""
+                INSERT INTO backtest_run_requests (run_id, request_json, created_at, updated_at)
+                SELECT run_id, request_json, :now, :now
+                FROM backtest_runtime_runs
+                WHERE request_json IS NOT NULL
+                  AND request_json::text NOT IN ('null', '{}', '')
+                ON CONFLICT (run_id) DO NOTHING
+            """),
+            {"now": now},
+        )
+    else:
+        # MySQL version (skip duplicates with INSERT IGNORE)
+        bind.execute(
+            sa.text("""
+                INSERT IGNORE INTO backtest_run_requests (run_id, request_json, created_at, updated_at)
+                SELECT run_id, request_json, :now, :now
+                FROM backtest_runtime_runs
+                WHERE request_json IS NOT NULL
+                  AND request_json NOT IN ('null', '{}', '')
+            """),
+            {"now": now},
+        )
 
 
 def downgrade() -> None:

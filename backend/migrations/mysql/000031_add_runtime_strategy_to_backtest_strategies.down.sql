@@ -1,0 +1,2 @@
+-- Rollback for 000031_add_runtime_strategy_to_backtest_strategies
+-- Review manually - rollback not auto-generated

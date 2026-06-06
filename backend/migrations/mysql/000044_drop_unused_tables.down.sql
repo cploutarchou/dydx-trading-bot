@@ -1,0 +1,2 @@
+-- Rollback for 000044_drop_unused_tables
+-- Review manually - rollback not auto-generated

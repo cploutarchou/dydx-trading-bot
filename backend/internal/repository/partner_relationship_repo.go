@@ -28,18 +28,17 @@ func (r *PartnerRelationshipRepository) Upsert(relationship *models.PartnerRelat
 			created_at,
 			updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $6)
-		ON CONFLICT (partner_user_id) DO UPDATE SET
-			sponsor_user_id = EXCLUDED.sponsor_user_id,
-			relationship_type = EXCLUDED.relationship_type,
-			source_application_id = EXCLUDED.source_application_id,
-			is_active = EXCLUDED.is_active,
-			updated_at = EXCLUDED.updated_at
-		RETURNING id, created_at, updated_at
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE
+			sponsor_user_id = VALUES(sponsor_user_id),
+			relationship_type = VALUES(relationship_type),
+			source_application_id = VALUES(source_application_id),
+			is_active = VALUES(is_active),
+			updated_at = VALUES(updated_at)
 	`
 
 	now := time.Now().UTC()
-	if err := r.db.QueryRow(
+	result, err := r.db.Exec(
 		query,
 		relationship.SponsorUserID,
 		relationship.PartnerUserID,
@@ -47,9 +46,21 @@ func (r *PartnerRelationshipRepository) Upsert(relationship *models.PartnerRelat
 		relationship.SourceApplicationID,
 		relationship.IsActive,
 		now,
-	).Scan(&relationship.ID, &relationship.CreatedAt, &relationship.UpdatedAt); err != nil {
+		now,
+	)
+
+	if err != nil {
 		return fmt.Errorf("failed to upsert partner relationship: %w", err)
 	}
+
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get last insert ID: %w", err)
+	}
+
+	relationship.ID = int(lastID)
+	relationship.CreatedAt = now
+	relationship.UpdatedAt = now
 
 	return nil
 }
@@ -59,7 +70,7 @@ func (r *PartnerRelationshipRepository) List(limit int, offset int) ([]*models.P
 		SELECT id, sponsor_user_id, partner_user_id, relationship_type, source_application_id, is_active, created_at, updated_at
 		FROM partner_relationships
 		ORDER BY updated_at DESC
-		LIMIT $1 OFFSET $2
+		LIMIT ? OFFSET ?
 	`
 	return r.queryMany(query, limit, offset)
 }
@@ -68,9 +79,9 @@ func (r *PartnerRelationshipRepository) ListBySponsor(sponsorUserID int, limit i
 	query := `
 		SELECT id, sponsor_user_id, partner_user_id, relationship_type, source_application_id, is_active, created_at, updated_at
 		FROM partner_relationships
-		WHERE sponsor_user_id = $1
+		WHERE sponsor_user_id = ?
 		ORDER BY updated_at DESC
-		LIMIT $2 OFFSET $3
+		LIMIT ? OFFSET ?
 	`
 	return r.queryMany(query, sponsorUserID, limit, offset)
 }
@@ -79,7 +90,7 @@ func (r *PartnerRelationshipRepository) GetByPartner(partnerUserID int) (*models
 	query := `
 		SELECT id, sponsor_user_id, partner_user_id, relationship_type, source_application_id, is_active, created_at, updated_at
 		FROM partner_relationships
-		WHERE partner_user_id = $1
+		WHERE partner_user_id = ?
 		LIMIT 1
 	`
 
@@ -105,7 +116,7 @@ func (r *PartnerRelationshipRepository) GetByPartner(partnerUserID int) (*models
 
 func (r *PartnerRelationshipRepository) CountDirectPartners(sponsorUserID int) (int, error) {
 	var count int
-	query := `SELECT COUNT(*) FROM partner_relationships WHERE sponsor_user_id = $1 AND is_active = TRUE`
+	query := `SELECT COUNT(*) FROM partner_relationships WHERE sponsor_user_id = ? AND is_active = TRUE`
 	if err := r.db.QueryRow(query, sponsorUserID).Scan(&count); err != nil {
 		return 0, fmt.Errorf("failed to count direct partners: %w", err)
 	}
@@ -114,7 +125,7 @@ func (r *PartnerRelationshipRepository) CountDirectPartners(sponsorUserID int) (
 
 func (r *PartnerRelationshipRepository) DeactivateByPartner(partnerUserID int) error {
 	result, err := r.db.Exec(
-		`UPDATE partner_relationships SET is_active = FALSE, updated_at = $1 WHERE partner_user_id = $2 AND is_active = TRUE`,
+		`UPDATE partner_relationships SET is_active = FALSE, updated_at = ? WHERE partner_user_id = ? AND is_active = TRUE`,
 		time.Now().UTC(),
 		partnerUserID,
 	)

@@ -55,13 +55,13 @@ class DatabaseConfig:
             )
 
         raw_db_type = (
-            self._env("BOT_DB_TYPE", self._env("DB_TYPE", "postgresql")).strip().lower()
+            self._env("BOT_DB_TYPE", self._env("DB_TYPE", "mysql")).strip().lower()
         )
-        if raw_db_type not in {"postgres", "postgresql"}:
+        if raw_db_type not in {"mysql", "mariadb", "postgresql"}:
             raise ValueError(
-                f"Unsupported DB_TYPE '{raw_db_type}'. Only PostgreSQL is supported."
+                f"Unsupported DB_TYPE '{raw_db_type}'. Supported: mysql, mariadb, postgresql."
             )
-        self.db_type = "postgresql"
+        self.db_type = raw_db_type
         self.connection_source = "constructed_fields"
         self.field_source = "shared_db_fields"
         self.database_url = self._resolve_database_url()
@@ -90,26 +90,38 @@ class DatabaseConfig:
         parsed = urlparse(normalized)
         db_name = parsed.path.lstrip("/") or "dydx_bot"
         host = parsed.hostname or "localhost"
-        port = str(parsed.port or 5432)
-        user = parsed.username or "postgres"
+        # Determine default port based on database type
+        default_port = 3306 if "mysql" in normalized.lower() else 5432
+        port = str(parsed.port or default_port)
+        user = parsed.username or "app"
         password = parsed.password or ""
         return db_name, host, port, user, password
 
     @staticmethod
     def _normalize_database_url(raw_url: str) -> str:
-        """Normalize postgres URL for SQLAlchemy and enforce supported engine."""
+        """Normalize database URL for SQLAlchemy with support for PostgreSQL and MariaDB."""
         candidate = (raw_url or "").strip()
         if not candidate:
             return ""
         lowered = candidate.lower()
+        # PostgreSQL URLs
         if lowered.startswith("postgresql+psycopg2://"):
             return candidate
         if lowered.startswith("postgresql://"):
             return "postgresql+psycopg2://" + candidate[len("postgresql://") :]
         if lowered.startswith("postgres://"):
             return "postgresql+psycopg2://" + candidate[len("postgres://") :]
+        # MySQL/MariaDB URLs
+        if lowered.startswith("mysql+asyncmy://"):
+            return candidate
+        if lowered.startswith("mysql://"):
+            return "mysql+asyncmy://" + candidate[len("mysql://") :]
+        if lowered.startswith("mariadb+asyncmy://"):
+            return candidate
+        if lowered.startswith("mariadb://"):
+            return "mysql+asyncmy://" + candidate[len("mariadb://") :]
         raise ValueError(
-            "Unsupported database URL scheme. Only PostgreSQL URLs are supported."
+            "Unsupported database URL scheme. Supported: postgresql, mysql, mariadb."
         )
 
     def _resolve_database_url(self) -> str:
@@ -144,6 +156,10 @@ class DatabaseConfig:
 
     def _resolve_db_fields(self) -> tuple[str, str, str, str, str]:
         """Resolve host/port/name/user/password based on cutover mode."""
+        # Determine default port based on database type
+        default_port = "3306" if self.db_type in {"mysql", "mariadb"} else "5432"
+        default_user = "app" if self.db_type in {"mysql", "mariadb"} else "postgres"
+        
         if self.cutover_mode == "shared":
             self.field_source = "shared_db_fields"
             shared_url = self._normalize_database_url(os.getenv("DATABASE_URL", ""))
@@ -155,8 +171,8 @@ class DatabaseConfig:
             return (
                 self._env("DB_NAME", self._env("POSTGRES_DB", "dydx_bot")),
                 self._env("DB_HOST", self._env("POSTGRES_HOST", "localhost")),
-                self._env("DB_PORT", self._env("POSTGRES_PORT", "5432")),
-                self._env("DB_USER", self._env("POSTGRES_USER", "postgres")),
+                self._env("DB_PORT", self._env("POSTGRES_PORT", default_port)),
+                self._env("DB_USER", self._env("POSTGRES_USER", default_user)),
                 self._env("DB_PASSWORD", self._env("POSTGRES_PASSWORD", "")),
             )
 
@@ -195,8 +211,8 @@ class DatabaseConfig:
         return (
             self._env("DB_NAME", self._env("POSTGRES_DB", "dydx_bot")),
             self._env("DB_HOST", self._env("POSTGRES_HOST", "localhost")),
-            self._env("DB_PORT", self._env("POSTGRES_PORT", "5432")),
-            self._env("DB_USER", self._env("POSTGRES_USER", "postgres")),
+            self._env("DB_PORT", self._env("POSTGRES_PORT", default_port)),
+            self._env("DB_USER", self._env("POSTGRES_USER", default_user)),
             self._env("DB_PASSWORD", self._env("POSTGRES_PASSWORD", "")),
         )
 
@@ -299,13 +315,36 @@ class DatabaseConfig:
         """Generate database connection string"""
         if self.database_url:
             return self.database_url
+        
+        # Use appropriate driver based on DB type
+        if self.db_type in {"mysql", "mariadb"}:
+            driver = "mysql+asyncmy"
+        else:
+            driver = "postgresql+psycopg2"
+        
         return (
-            f"postgresql+psycopg2://{self.db_user}:{self.db_password}"
+            f"{driver}://{self.db_user}:{self.db_password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
         )
 
     def get_engine_kwargs(self) -> dict:
-        """Get SQLAlchemy engine kwargs for PostgreSQL."""
+        """Get SQLAlchemy engine kwargs based on database type."""
+        connect_args = {
+            "connect_timeout": self.timeout_seconds,
+        }
+        
+        # Add database-specific connection arguments
+        if self.db_type in {"mysql", "mariadb"}:
+            # MySQL/MariaDB specific arguments
+            connect_args["charset"] = "utf8mb4"
+        else:
+            # PostgreSQL specific arguments
+            connect_args.update({
+                "keepalives": 1,
+                "keepalives_idle": 30,
+                **({"sslmode": "require"} if self.ssl_mode else {}),
+            })
+        
         return {
             "echo": self.echo_sql,
             "future": True,
@@ -314,12 +353,7 @@ class DatabaseConfig:
             "max_overflow": self.max_overflow,
             "pool_recycle": self.pool_recycle,
             "pool_timeout": self.timeout_seconds,
-            "connect_args": {
-                "connect_timeout": self.timeout_seconds,
-                "keepalives": 1,
-                "keepalives_idle": 30,
-                **({"sslmode": "require"} if self.ssl_mode else {}),
-            },
+            "connect_args": connect_args,
         }
 
 

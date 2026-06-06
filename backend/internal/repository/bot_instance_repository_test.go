@@ -9,8 +9,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/lib/pq"
 )
 
 func TestUpdateBotInstanceErrorUpdatesMatchingInstance(t *testing.T) {
@@ -64,7 +62,7 @@ func TestUpdateBotInstanceErrorFallbackUsesInstanceID(t *testing.T) {
 					t.Fatalf("expected WHERE arg to be bot-1, got %#v", args[4].Value)
 				}
 			},
-			err: &pq.Error{Code: "42703"},
+			err: fmt.Errorf("Error 1054: Unknown column in field list"),
 		},
 		{
 			op:            "exec",
@@ -106,7 +104,7 @@ func TestListBotInstancesByUserIDUndefinedUserIDFailsClosed(t *testing.T) {
 					t.Fatalf("expected user_id arg 42, got %#v", args[0].Value)
 				}
 			},
-			err: &pq.Error{Code: "42703"},
+			err: fmt.Errorf("Error 1054: Unknown column in field list"),
 		},
 	})
 	defer func() { _ = db.Close() }()

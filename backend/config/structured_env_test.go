@@ -38,6 +38,39 @@ func TestFindRepoRootPrefersMonorepoRootWithStructuredConfig(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_SupportedDatabases(t *testing.T) {
+	testCases := []struct {
+		inputType  string
+		expectType string
+	}{
+		{"postgres", "postgres"},
+		{"mysql", "mysql"},
+		{"mariadb", "mysql"}, // mariadb is normalized to mysql
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.inputType, func(t *testing.T) {
+			t.Setenv("APP_ENV", "test")
+			t.Setenv("DB_TYPE", tc.inputType)
+
+			defer func() {
+				ConfigInstance = nil
+			}()
+
+			if err := LoadConfig(); err != nil {
+				t.Fatalf("LoadConfig returned error for %s: %v", tc.inputType, err)
+			}
+
+			if ConfigInstance == nil {
+				t.Fatal("expected ConfigInstance to be initialized")
+			}
+			if got := ConfigInstance.Database.Type; got != tc.expectType {
+				t.Fatalf("expected %s database type for input %s, got %q", tc.expectType, tc.inputType, got)
+			}
+		})
+	}
+}
+
 func TestLoadConfig_UsesPostgresByDefault(t *testing.T) {
 	t.Setenv("APP_ENV", "test")
 	t.Setenv("DB_TYPE", "postgres")

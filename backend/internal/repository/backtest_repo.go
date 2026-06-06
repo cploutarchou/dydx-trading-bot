@@ -43,8 +43,13 @@ func isAdvisoryLockUnsupportedError(err error) bool {
 		return true
 	}
 	// MySQL: GET_LOCK doesn't exist
-	if strings.Contains(lower, "unknown function") && strings.Contains(lower, "get_lock") {
-		return true
+	// Handles both:
+	// - "Error 1305 (42000): FUNCTION get_lock does not exist"
+	// - "unknown function get_lock"
+	if strings.Contains(lower, "get_lock") {
+		if strings.Contains(lower, "does not exist") || strings.Contains(lower, "unknown function") {
+			return true
+		}
 	}
 	return false
 }

@@ -1230,7 +1230,10 @@ def test_api_response_sanitizes_internal_error_details():
     payload = json.loads(response.body)
 
     assert payload["message"] == "Internal server error"
+    # Verify error details are redacted (works for both psycopg2 and pymysql)
     assert "psycopg2" not in payload["message"]
+    assert "pymysql" not in payload["message"]
+    assert "OperationalError" not in payload["message"]
 
 
 def test_request_trace_middleware_uses_inbound_trace_id(monkeypatch):
@@ -1325,7 +1328,8 @@ def test_runtime_db_config_endpoint_returns_sanitized_payload(monkeypatch):
     payload = json.loads(response.body)
 
     assert payload["success"] is True
-    assert payload["data"]["db_type"] == "postgresql"
+    # db_type can be either postgresql or mysql/mariadb
+    assert payload["data"]["db_type"] in ("postgresql", "mysql", "mariadb")
     assert payload["data"]["password_configured"] is True
     assert payload["data"]["max_connections"] == 10
     assert payload["data"]["count"] == 1

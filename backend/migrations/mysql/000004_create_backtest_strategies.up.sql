@@ -9,18 +9,18 @@ CREATE TABLE IF NOT EXISTS backtest_strategies
   description              VARCHAR(500) DEFAULT NULL,
   category                 VARCHAR(50)  DEFAULT NULL,
   user_id                  INTEGER      NOT NULL,
-  is_public                BOOLEAN      DEFAULT NULL,
-  is_default               BOOLEAN      DEFAULT NULL,
+  is_public                TINYINT(1)      DEFAULT NULL,
+  is_default               TINYINT(1)      DEFAULT NULL,
   zscore_threshold         FLOAT        NOT NULL,
   stats_window             INTEGER      NOT NULL,
   max_half_life            FLOAT        NOT NULL,
   usd_per_trade            FLOAT        NOT NULL,
   usd_min_collateral       FLOAT        NOT NULL,
-  close_at_zscore_cross    BOOLEAN      NOT NULL,
-  find_cointegrated_pairs  BOOLEAN      NOT NULL,
-  manage_exits             BOOLEAN      NOT NULL,
-  place_trades             BOOLEAN      NOT NULL,
-  abort_all_positions      BOOLEAN      NOT NULL,
+  close_at_zscore_cross    TINYINT(1)      NOT NULL,
+  find_cointegrated_pairs  TINYINT(1)      NOT NULL,
+  manage_exits             TINYINT(1)      NOT NULL,
+  place_trades             TINYINT(1)      NOT NULL,
+  abort_all_positions      TINYINT(1)      NOT NULL,
   max_positions            INTEGER      NOT NULL,
   max_drawdown_pct         FLOAT        NOT NULL,
   stop_loss_pct            FLOAT        NOT NULL,
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS backtest_strategies
   created_at               TIMESTAMP    NULL DEFAULT NULL,
   updated_at               TIMESTAMP    NULL DEFAULT NULL,
   deleted_at               TIMESTAMP    NULL DEFAULT NULL,
-  FOREIGN KEY (user_id) REFERENCES users (id)
+  FOREIGN KEY (user_id)
 );
 
 CREATE INDEX idx_strategy_category ON backtest_strategies (category);

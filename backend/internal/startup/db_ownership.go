@@ -82,8 +82,48 @@ func parsePostgresTarget(rawURL string, source string) (*DatabaseTarget, bool) {
 	return &target, true
 }
 
+func parseMySQLTarget(rawURL string, source string) (*DatabaseTarget, bool) {
+	candidate := strings.TrimSpace(rawURL)
+	if candidate == "" {
+		return nil, false
+	}
+
+	parsed, err := url.Parse(candidate)
+	if err != nil {
+		return nil, false
+	}
+
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "mysql" && scheme != "mariadb" {
+		return nil, false
+	}
+
+	target := normalizeDBTarget(DatabaseTarget{
+		Host:   parsed.Hostname(),
+		Port:   parsed.Port(),
+		Name:   strings.TrimPrefix(parsed.Path, "/"),
+		Source: source,
+	})
+	if target.Port == "" {
+		target.Port = "3306"
+	}
+	return &target, true
+}
+
+func parseAnyDatabaseTarget(rawURL string, source string) (*DatabaseTarget, bool) {
+	// Try PostgreSQL first
+	if target, ok := parsePostgresTarget(rawURL, source); ok {
+		return target, true
+	}
+	// Then try MySQL/MariaDB
+	if target, ok := parseMySQLTarget(rawURL, source); ok {
+		return target, true
+	}
+	return nil, false
+}
+
 func resolveSharedDBTargetFromEnv() (*DatabaseTarget, bool) {
-	if target, ok := parsePostgresTarget(os.Getenv("DATABASE_URL"), "shared_database_url"); ok {
+	if target, ok := parseAnyDatabaseTarget(os.Getenv("DATABASE_URL"), "shared_database_url"); ok {
 		return target, true
 	}
 
@@ -118,7 +158,7 @@ func hasBotDBFieldTarget() bool {
 }
 
 func resolveBotDBTargetFromEnv(mode string) (*DatabaseTarget, bool) {
-	if target, ok := parsePostgresTarget(os.Getenv("BOT_DATABASE_URL"), "bot_database_url"); ok {
+	if target, ok := parseAnyDatabaseTarget(os.Getenv("BOT_DATABASE_URL"), "bot_database_url"); ok {
 		return target, true
 	}
 

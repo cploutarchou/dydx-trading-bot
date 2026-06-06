@@ -37,9 +37,9 @@ CREATE TABLE IF NOT EXISTS backtest_runs
   strategy_id         INTEGER     DEFAULT NULL,
   strategy_snapshot   JSON        DEFAULT NULL,
   strategy_version_id INTEGER     DEFAULT NULL,
-  FOREIGN KEY (strategy_id) REFERENCES backtest_strategies (id),
-  FOREIGN KEY (strategy_version_id) REFERENCES strategy_version_history (id),
-  FOREIGN KEY (user_id) REFERENCES users (id)
+  FOREIGN KEY (strategy_id),
+  FOREIGN KEY (strategy_version_id),
+  FOREIGN KEY (user_id)
 );
 
 CREATE INDEX idx_run_date_range ON backtest_runs (start_date, end_date);

@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS backtest_positions
   hedge_ratio     FLOAT         NOT NULL,
   unrealized_pnl  FLOAT     DEFAULT NULL,
   realized_pnl    FLOAT     DEFAULT NULL,
-  FOREIGN KEY (run_id_fk) REFERENCES backtest_runs (id)
+  FOREIGN KEY (run_id_fk)
 );
 
 CREATE INDEX idx_backtest_position_run_time ON backtest_positions (run_id_fk, entry_timestamp);

@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS backtest_logs
   message    TEXT    NOT NULL,
   level      VARCHAR(20) DEFAULT NULL,
   created_at TIMESTAMP    DEFAULT NULL,
-  FOREIGN KEY (run_id_fk) REFERENCES backtest_runs (id)
+  FOREIGN KEY (run_id_fk)
 );
 
 CREATE INDEX idx_backtest_log_run_created ON backtest_logs (run_id_fk, created_at);

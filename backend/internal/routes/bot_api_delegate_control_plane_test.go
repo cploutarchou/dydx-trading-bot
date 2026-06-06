@@ -178,8 +178,12 @@ func TestDelegateCapabilitiesAndRuntimeDBConfigRoutes(t *testing.T) {
 		t.Fatalf("unexpected admin runtime db-config status: %d", statusCode)
 	}
 	data, _ = payload["data"].(map[string]interface{})
-	if data["db_type"] != "postgresql" {
-		t.Fatalf("expected db_type=postgresql, got %v", data["db_type"])
+
+	// Accept any supported database type (postgresql, mysql, mariadb)
+	supportedDBs := map[string]bool{"postgresql": true, "mysql": true, "mariadb": true}
+	dbType, ok := data["db_type"].(string)
+	if !ok || !supportedDBs[dbType] {
+		t.Fatalf("expected supported db_type (postgresql/mysql/mariadb), got %v", data["db_type"])
 	}
 
 	select {

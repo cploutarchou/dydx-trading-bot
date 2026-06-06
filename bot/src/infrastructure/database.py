@@ -428,6 +428,7 @@ class DatabaseManager:
         )
 
         self._engine = create_engine(connection_string, **engine_kwargs)
+        self.config = config
 
         self._session_factory = sessionmaker(
             bind=self._engine,
@@ -637,34 +638,66 @@ class DatabaseManager:
                 logger.info(
                     "Applying compatibility fix: normalizing backtest runtime statuses"
                 )
-                connection.execute(text("""
-                        UPDATE backtest_runtime_runs
-                        SET status = CASE
-                            WHEN status IS NULL THEN 'pending'
-                            ELSE CASE LOWER(CAST(status AS TEXT))
-                            WHEN 'created' THEN 'pending'
-                            WHEN 'queued' THEN 'pending'
-                            WHEN 'scheduled' THEN 'pending'
-                            WHEN 'in_progress' THEN 'running'
-                            WHEN 'processing' THEN 'running'
-                            WHEN 'active' THEN 'running'
-                            WHEN 'succeeded' THEN 'completed'
-                            WHEN 'success' THEN 'completed'
-                            WHEN 'done' THEN 'completed'
-                            WHEN 'error' THEN 'failed'
-                            WHEN 'timed_out' THEN 'timeout'
-                            WHEN 'stalled' THEN 'stale'
-                            WHEN 'canceled' THEN 'cancelled'
-                            ELSE LOWER(CAST(status AS TEXT))
+                if self.config.db_type in {"mysql", "mariadb"}:
+                    # MySQL/MariaDB syntax
+                    connection.execute(text("""
+                            UPDATE backtest_runtime_runs
+                            SET status = CASE
+                                WHEN status IS NULL THEN 'pending'
+                                ELSE CASE LOWER(status)
+                                WHEN 'created' THEN 'pending'
+                                WHEN 'queued' THEN 'pending'
+                                WHEN 'scheduled' THEN 'pending'
+                                WHEN 'in_progress' THEN 'running'
+                                WHEN 'processing' THEN 'running'
+                                WHEN 'active' THEN 'running'
+                                WHEN 'succeeded' THEN 'completed'
+                                WHEN 'success' THEN 'completed'
+                                WHEN 'done' THEN 'completed'
+                                WHEN 'error' THEN 'failed'
+                                WHEN 'timed_out' THEN 'timeout'
+                                WHEN 'stalled' THEN 'stale'
+                                WHEN 'canceled' THEN 'cancelled'
+                                ELSE LOWER(status)
+                                END
                             END
-                        END
-                        WHERE status IS NULL
-                           OR LOWER(CAST(status AS TEXT)) IN (
-                                'created', 'queued', 'scheduled', 'in_progress',
-                                'processing', 'active', 'succeeded', 'success',
-                                'done', 'error', 'timed_out', 'stalled', 'canceled'
-                           )
-                        """))
+                            WHERE status IS NULL
+                               OR LOWER(status) IN (
+                                    'created', 'queued', 'scheduled', 'in_progress',
+                                    'processing', 'active', 'succeeded', 'success',
+                                    'done', 'error', 'timed_out', 'stalled', 'canceled'
+                               )
+                            """))
+                else:
+                    # PostgreSQL syntax
+                    connection.execute(text("""
+                            UPDATE backtest_runtime_runs
+                            SET status = CASE
+                                WHEN status IS NULL THEN 'pending'
+                                ELSE CASE LOWER(CAST(status AS TEXT))
+                                WHEN 'created' THEN 'pending'
+                                WHEN 'queued' THEN 'pending'
+                                WHEN 'scheduled' THEN 'pending'
+                                WHEN 'in_progress' THEN 'running'
+                                WHEN 'processing' THEN 'running'
+                                WHEN 'active' THEN 'running'
+                                WHEN 'succeeded' THEN 'completed'
+                                WHEN 'success' THEN 'completed'
+                                WHEN 'done' THEN 'completed'
+                                WHEN 'error' THEN 'failed'
+                                WHEN 'timed_out' THEN 'timeout'
+                                WHEN 'stalled' THEN 'stale'
+                                WHEN 'canceled' THEN 'cancelled'
+                                ELSE LOWER(CAST(status AS TEXT))
+                                END
+                            END
+                            WHERE status IS NULL
+                               OR LOWER(CAST(status AS TEXT)) IN (
+                                    'created', 'queued', 'scheduled', 'in_progress',
+                                    'processing', 'active', 'succeeded', 'success',
+                                    'done', 'error', 'timed_out', 'stalled', 'canceled'
+                               )
+                            """))
 
     def verify_required_tables(self) -> dict:
         """Verify runtime-critical tables are present in the active bot database."""

@@ -1,5 +1,5 @@
 import { ChevronRight, Command, Menu, Search, ShieldCheck, Wifi, WifiOff } from 'lucide-react';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { memo, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { getCurrentPortalType } from '../app/portal';
 import { clientPortalHref } from '../app/portalLinks';
@@ -9,22 +9,37 @@ import { getWorkspaceBreadcrumbs, getWorkspaceNavItems } from '../navigation/wor
 import { useAuthStore } from '../store/auth';
 import { ThemeToggle } from './ThemeToggle';
 
+// Memoized clock display component to prevent parent re-renders
+const ClockDisplay = memo(function ClockDisplay() {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timerId = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timerId);
+  }, []);
+
+  return (
+    <div className="mt-1 text-sm font-medium text-cyan-300">
+      {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+    </div>
+  );
+});
+
 interface HeaderProps {
   onMenuToggle: () => void;
   onOpenCommandPalette: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalette }) => {
+const HeaderContent: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalette }) => {
   const location = useLocation();
   const user = useAuthStore((state) => state.user);
-  const { locale, t, tr } = useI18n();
+  const { t, tr } = useI18n();
   const controlCls =
     'border-slate-700/70 bg-slate-950/70 text-slate-300 hover:border-cyan-500/30 hover:text-white';
   const environmentLabel = import.meta.env.DEV
     ? t('Development', 'Ανάπτυξη')
     : t('Production', 'Παραγωγή');
   const environmentTone = import.meta.env.DEV ? 'text-amber-300' : 'text-emerald-300';
-  const [now, setNow] = useState(() => new Date());
   const [isOnline, setIsOnline] = useState(() => window.navigator.onLine);
   const portal = getCurrentPortalType();
   const workspaceRole = getUserWorkspaceRole(user);
@@ -43,13 +58,11 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
         : null;
 
   useEffect(() => {
-    const timerId = window.setInterval(() => setNow(new Date()), 1000);
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     return () => {
-      window.clearInterval(timerId);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
@@ -166,13 +179,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
               <p className="text-[10px] uppercase text-slate-500">
                 {t('Local time', 'Τοπική ώρα')}
               </p>
-              <p className="mt-1 text-sm font-medium text-cyan-300">
-                {now.toLocaleTimeString(locale, {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  second: '2-digit',
-                })}
-              </p>
+              <ClockDisplay />
             </div>
             <div className="workspace-card min-w-0 px-3 py-2.5">
               <p className="text-[10px] uppercase text-slate-500">{t('Operator', 'Χειριστής')}</p>
@@ -186,3 +193,6 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
     </header>
   );
 };
+
+export const Header = memo(HeaderContent);
+Header.displayName = 'Header';

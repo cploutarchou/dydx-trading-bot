@@ -23,32 +23,40 @@ func (r *BotTradeRepository) CreateBotTrade(trade *models.BotTrade) error {
 		INSERT INTO bot_trades (
 			bot_instance_id, trade_id, market_1, market_2, entry_timestamp,
 			entry_price_1, entry_price_2, entry_zscore, side_1, side_2,
-			size_1, size_2, hedge_ratio, exit_timestamp, exit_price_1, 
+			size_1, size_2, hedge_ratio, exit_timestamp, exit_price_1,
 			exit_price_2, exit_zscore, pnl, pnl_pct, duration_hours,
 			strategy_zscore_threshold, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 
-			$14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
-		RETURNING id, created_at, updated_at
-	`
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+				?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`
 
-	err := r.db.QueryRow(
+	now := time.Now()
+	result, err := r.db.Exec(
 		query,
 		trade.BotInstanceID, trade.TradeID, trade.Market1, trade.Market2,
 		trade.EntryTimestamp, trade.EntryPrice1, trade.EntryPrice2, trade.EntryZScore,
 		trade.Side1, trade.Side2, trade.Size1, trade.Size2, trade.HedgeRatio,
 		trade.ExitTimestamp, trade.ExitPrice1, trade.ExitPrice2, trade.ExitZScore,
 		trade.PnL, trade.PnLPct, trade.DurationHours, trade.StrategyZscoreThreshold,
-		time.Now(), time.Now(),
-	).Scan(&trade.ID, &trade.CreatedAt, &trade.UpdatedAt)
+		now, now,
+	)
 
 	if err != nil {
 		return fmt.Errorf("failed to create bot trade: %w", err)
 	}
 
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get last insert ID: %w", err)
+	}
+
+	trade.ID = int(lastID)
+	trade.CreatedAt = now
+	trade.UpdatedAt = now
+
 	return nil
 }
 
-// GetBotTradeByTradeID retrieves a bot trade by trade_id
 func (r *BotTradeRepository) GetBotTradeByTradeID(tradeID string) (*models.BotTrade, error) {
 	trade := &models.BotTrade{}
 
@@ -59,7 +67,7 @@ func (r *BotTradeRepository) GetBotTradeByTradeID(tradeID string) (*models.BotTr
 			exit_price_2, exit_zscore, pnl, pnl_pct, duration_hours,
 			strategy_zscore_threshold, created_at, updated_at
 		FROM bot_trades
-		WHERE trade_id = $1
+		WHERE trade_id = ?
 	`
 
 	err := r.db.QueryRow(query, tradeID).Scan(
@@ -90,9 +98,9 @@ func (r *BotTradeRepository) ListBotTradesByInstanceID(instanceID int, limit int
 			exit_price_2, exit_zscore, pnl, pnl_pct, duration_hours,
 			strategy_zscore_threshold, created_at, updated_at
 		FROM bot_trades
-		WHERE bot_instance_id = $1
+		WHERE bot_instance_id = ?
 		ORDER BY entry_timestamp DESC
-		LIMIT $2 OFFSET $3
+		LIMIT ? OFFSET ?
 	`
 
 	rows, err := r.db.Query(query, instanceID, limit, offset)
@@ -133,10 +141,10 @@ func (r *BotTradeRepository) ListBotTradesByInstanceID(instanceID int, limit int
 func (r *BotTradeRepository) UpdateBotTrade(trade *models.BotTrade) error {
 	query := `
 		UPDATE bot_trades
-		SET exit_timestamp = $1, exit_price_1 = $2, exit_price_2 = $3,
-			exit_zscore = $4, pnl = $5, pnl_pct = $6, duration_hours = $7,
-			updated_at = $8
-		WHERE trade_id = $9
+		SET exit_timestamp = ?, exit_price_1 = ?, exit_price_2 = ?,
+			exit_zscore = ?, pnl = ?, pnl_pct = ?, duration_hours = ?,
+			updated_at = ?
+		WHERE trade_id = ?
 	`
 
 	result, err := r.db.Exec(
@@ -162,7 +170,7 @@ func (r *BotTradeRepository) UpdateBotTrade(trade *models.BotTrade) error {
 
 // DeleteBotTrade deletes a bot trade
 func (r *BotTradeRepository) DeleteBotTrade(tradeID string) error {
-	query := `DELETE FROM bot_trades WHERE trade_id = $1`
+	query := `DELETE FROM bot_trades WHERE trade_id = ?`
 
 	result, err := r.db.Exec(query, tradeID)
 	if err != nil {
@@ -184,7 +192,7 @@ func (r *BotTradeRepository) DeleteBotTrade(tradeID string) error {
 // GetBotTradeStats retrieves statistics for trades of an instance
 func (r *BotTradeRepository) GetBotTradeStats(instanceID int) (map[string]interface{}, error) {
 	query := `
-		SELECT 
+		SELECT
 			COUNT(*) as total_trades,
 			COUNT(CASE WHEN pnl > 0 THEN 1 END) as winning_trades,
 			COUNT(CASE WHEN pnl <= 0 THEN 1 END) as losing_trades,
@@ -193,7 +201,7 @@ func (r *BotTradeRepository) GetBotTradeStats(instanceID int) (map[string]interf
 			COALESCE(SUM(pnl), 0) as total_pnl,
 			COALESCE(AVG(pnl), 0) as avg_pnl
 		FROM bot_trades
-		WHERE bot_instance_id = $1 AND exit_timestamp IS NOT NULL
+		WHERE bot_instance_id = ? AND exit_timestamp IS NOT NULL
 	`
 
 	var totalTrades, winningTrades, losingTrades int

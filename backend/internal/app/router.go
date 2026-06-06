@@ -93,7 +93,7 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 			cfg.Redis.Host,
 			cfg.Redis.Port,
 			cfg.Redis.Password,
-			cfg.Redis.Db,
+			cfg.Redis.DB,
 		)
 	}
 
@@ -103,7 +103,7 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 			cfg.Redis.Host,
 			cfg.Redis.Port,
 			cfg.Redis.Password,
-			cfg.Redis.Db,
+			cfg.Redis.DB,
 		)
 	}
 
@@ -204,7 +204,7 @@ func registerDebugRoutes(router *gin.Engine, database *db.Database) {
 		reviewingByPrefix := map[string]int64{}
 		for _, prefix := range seedPrefixes {
 			var userCount int64
-			_ = database.DB.QueryRow(`SELECT COUNT(*) FROM users WHERE username LIKE $1`, prefix).Scan(&userCount)
+			_ = database.DB.QueryRow(`SELECT COUNT(*) FROM users WHERE username LIKE ?`, prefix).Scan(&userCount)
 			usersByPrefix[prefix] = userCount
 
 			var appCount int64
@@ -212,7 +212,7 @@ func registerDebugRoutes(router *gin.Engine, database *db.Database) {
 				SELECT COUNT(*)
 				FROM partner_applications pa
 				LEFT JOIN users u ON u.id = pa.applicant_user_id
-				WHERE u.username LIKE $1 OR pa.business_name LIKE REPLACE($1, '%', '') || '%'
+				WHERE u.username LIKE ? OR pa.business_name LIKE REPLACE(?, '%', '') || '%'
 			`, prefix).Scan(&appCount)
 			applicationsByPrefix[prefix] = appCount
 
@@ -222,7 +222,7 @@ func registerDebugRoutes(router *gin.Engine, database *db.Database) {
 				FROM partner_applications pa
 				LEFT JOIN users u ON u.id = pa.applicant_user_id
 				WHERE pa.status = 'reviewing'
-				  AND (u.username LIKE $1 OR pa.business_name LIKE REPLACE($1, '%', '') || '%')
+				  AND (u.username LIKE ? OR pa.business_name LIKE REPLACE(?, '%', '') || '%')
 			`, prefix).Scan(&reviewingCount)
 			reviewingByPrefix[prefix] = reviewingCount
 		}

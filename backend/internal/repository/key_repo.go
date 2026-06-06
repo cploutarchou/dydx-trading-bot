@@ -20,12 +20,11 @@ func NewKeyRepository(db *sql.DB) *KeyRepository {
 func (r *KeyRepository) CreateKey(key *models.DYDXKey) error {
 	query := `
 		INSERT INTO dydx_keys (user_id, network, chain_address, encrypted_secret, secret_hash, secret_masked, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id, created_at, updated_at
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	now := time.Now()
-	err := r.db.QueryRow(
+	result, err := r.db.Exec(
 		query,
 		key.UserID,
 		key.Network,
@@ -36,11 +35,20 @@ func (r *KeyRepository) CreateKey(key *models.DYDXKey) error {
 		true,
 		now,
 		now,
-	).Scan(&key.ID, &key.CreatedAt, &key.UpdatedAt)
+	)
 
 	if err != nil {
 		return fmt.Errorf("failed to create key: %w", err)
 	}
+
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get last insert ID: %w", err)
+	}
+
+	key.ID = int(lastID)
+	key.CreatedAt = now
+	key.UpdatedAt = now
 
 	return nil
 }
@@ -49,7 +57,7 @@ func (r *KeyRepository) GetKeyByUserAndNetwork(userID int, network string) (*mod
 	query := `
 		SELECT id, user_id, network, chain_address, encrypted_secret, COALESCE(secret_hash, ''), COALESCE(secret_masked, ''), is_active, created_at, updated_at
 		FROM dydx_keys
-		WHERE user_id = $1 AND network = $2 AND is_active = true
+		WHERE user_id = ? AND network = ? AND is_active = true
 		LIMIT 1
 	`
 
@@ -81,7 +89,7 @@ func (r *KeyRepository) GetActiveKeysByUser(userID int) ([]models.DYDXKey, error
 	query := `
 		SELECT id, user_id, network, chain_address, encrypted_secret, COALESCE(secret_hash, ''), COALESCE(secret_masked, ''), is_active, created_at, updated_at
 		FROM dydx_keys
-		WHERE user_id = $1 AND is_active = true
+		WHERE user_id = ? AND is_active = true
 		ORDER BY created_at DESC
 	`
 
@@ -126,13 +134,12 @@ func (r *KeyRepository) GetActiveKeysByUser(userID int) ([]models.DYDXKey, error
 func (r *KeyRepository) UpdateKey(key *models.DYDXKey) error {
 	query := `
 		UPDATE dydx_keys
-		SET chain_address = $1, encrypted_secret = $2, secret_hash = $3, secret_masked = $4, updated_at = $5
-		WHERE id = $6 AND user_id = $7
-		RETURNING updated_at
+		SET chain_address = ?, encrypted_secret = ?, secret_hash = ?, secret_masked = ?, updated_at = ?
+		WHERE id = ? AND user_id = ?
 	`
 
 	now := time.Now()
-	err := r.db.QueryRow(
+	result, err := r.db.Exec(
 		query,
 		key.ChainAddress,
 		key.EncryptedSecret,
@@ -141,14 +148,22 @@ func (r *KeyRepository) UpdateKey(key *models.DYDXKey) error {
 		now,
 		key.ID,
 		key.UserID,
-	).Scan(&key.UpdatedAt)
+	)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return fmt.Errorf("key not found or unauthorized")
-		}
 		return fmt.Errorf("failed to update key: %w", err)
 	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("key not found or unauthorized")
+	}
+
+	key.UpdatedAt = now
 
 	return nil
 }
@@ -156,8 +171,8 @@ func (r *KeyRepository) UpdateKey(key *models.DYDXKey) error {
 func (r *KeyRepository) DeleteKey(userID int, network string) error {
 	query := `
 		UPDATE dydx_keys
-		SET is_active = false, updated_at = $1
-		WHERE user_id = $2 AND network = $3
+		SET is_active = false, updated_at = ?
+		WHERE user_id = ? AND network = ?
 	`
 
 	result, err := r.db.Exec(query, time.Now(), userID, network)

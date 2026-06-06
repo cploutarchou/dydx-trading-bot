@@ -1,0 +1,2 @@
+-- Rollback for 000058_cleanup_non_production_seed_data
+-- Review manually - rollback not auto-generated

@@ -32,7 +32,7 @@ func (r *RBACRepository) GetUserPermissionOverride(userID int, permissionKey str
 
 	var effect string
 	err := r.db.QueryRow(
-		`SELECT effect FROM user_permission_overrides WHERE user_id = $1 AND permission_key = $2 LIMIT 1`,
+		`SELECT effect FROM user_permission_overrides WHERE user_id = ? AND permission_key = ? LIMIT 1`,
 		userID,
 		permissionKey,
 	).Scan(&effect)
@@ -54,7 +54,7 @@ func (r *RBACRepository) RoleHasAnyPermissions(role string) (bool, error) {
 
 	var exists int
 	err := r.db.QueryRow(
-		`SELECT 1 FROM role_permissions WHERE role = $1 LIMIT 1`,
+		`SELECT 1 FROM role_permissions WHERE role = ? LIMIT 1`,
 		role,
 	).Scan(&exists)
 	if err == sql.ErrNoRows || isRBACSchemaMissing(err) {
@@ -76,7 +76,7 @@ func (r *RBACRepository) RoleHasPermission(role, permissionKey string) (bool, er
 
 	var exists int
 	err := r.db.QueryRow(
-		`SELECT 1 FROM role_permissions WHERE role = $1 AND permission_key = $2 LIMIT 1`,
+		`SELECT 1 FROM role_permissions WHERE role = ? AND permission_key = ? LIMIT 1`,
 		role,
 		permissionKey,
 	).Scan(&exists)
@@ -149,7 +149,7 @@ func (r *RBACRepository) UpsertCustomRole(role, displayName, description string)
 
 	_, err := r.db.Exec(`
 		INSERT INTO custom_roles (role, display_name, description, is_system, created_at, updated_at)
-		VALUES ($1, $2, $3, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		VALUES (?, ?, ?, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		ON CONFLICT (role) DO UPDATE
 		SET display_name = EXCLUDED.display_name,
 		    description = EXCLUDED.description,
@@ -172,7 +172,7 @@ func (r *RBACRepository) DeleteCustomRole(role string) error {
 	}
 
 	var isSystem bool
-	err := r.db.QueryRow(`SELECT is_system FROM custom_roles WHERE role = $1 LIMIT 1`, role).Scan(&isSystem)
+	err := r.db.QueryRow(`SELECT is_system FROM custom_roles WHERE role = ? LIMIT 1`, role).Scan(&isSystem)
 	if err == sql.ErrNoRows {
 		return nil
 	}
@@ -187,14 +187,14 @@ func (r *RBACRepository) DeleteCustomRole(role string) error {
 	}
 
 	var assignedUsers int
-	if err := r.db.QueryRow(`SELECT COUNT(*) FROM users WHERE LOWER(COALESCE(role, '')) = $1`, role).Scan(&assignedUsers); err != nil {
+	if err := r.db.QueryRow(`SELECT COUNT(*) FROM users WHERE LOWER(COALESCE(role, '')) = ?`, role).Scan(&assignedUsers); err != nil {
 		return fmt.Errorf("failed to inspect role assignments: %w", err)
 	}
 	if assignedUsers > 0 {
 		return fmt.Errorf("role is assigned to %d user(s)", assignedUsers)
 	}
 
-	if _, err := r.db.Exec(`DELETE FROM custom_roles WHERE role = $1 AND is_system = FALSE`, role); err != nil {
+	if _, err := r.db.Exec(`DELETE FROM custom_roles WHERE role = ? AND is_system = FALSE`, role); err != nil {
 		return fmt.Errorf("failed to delete custom role: %w", err)
 	}
 	return nil
@@ -216,7 +216,7 @@ func (r *RBACRepository) ReplaceRolePermissions(role string, permissionKeys []st
 		}
 	}()
 
-	if _, err = tx.Exec(`DELETE FROM role_permissions WHERE role = $1`, role); err != nil {
+	if _, err = tx.Exec(`DELETE FROM role_permissions WHERE role = ?`, role); err != nil {
 		return fmt.Errorf("failed to clear role permissions: %w", err)
 	}
 
@@ -232,9 +232,9 @@ func (r *RBACRepository) ReplaceRolePermissions(role string, permissionKeys []st
 		seen[permissionKey] = struct{}{}
 		if _, err = tx.Exec(
 			`INSERT INTO role_permissions (role, permission_key, created_at)
-			 SELECT $1, permission_key, CURRENT_TIMESTAMP
+			 SELECT ?, permission_key, CURRENT_TIMESTAMP
 			 FROM permissions
-			 WHERE permission_key = $2
+			 WHERE permission_key = ?
 			 ON CONFLICT (role, permission_key) DO NOTHING`,
 			role,
 			permissionKey,

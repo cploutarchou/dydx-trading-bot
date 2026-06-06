@@ -1,0 +1,2 @@
+-- Rollback for 000047_backtest_list_perf_index
+-- Review manually - rollback not auto-generated

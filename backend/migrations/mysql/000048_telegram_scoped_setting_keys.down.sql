@@ -1,0 +1,2 @@
+-- Rollback for 000048_telegram_scoped_setting_keys
+-- Review manually - rollback not auto-generated

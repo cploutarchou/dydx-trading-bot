@@ -35,7 +35,7 @@ def test_update_position_prices_calculates_two_leg_unrealized_pnl():
         def commit(self):
             calls["commits"] += 1
 
-    repo = PositionRepository(FakeSession())
+    repo = PositionRepository(FakeSession())  # type: ignore[arg-type]
 
     repo.update_position_prices("pos-1", current_price1=110.0, current_price2=45.0)
 

@@ -88,7 +88,7 @@ func resetBootstrapAdminLockState(conn *sql.DB, userID int) {
 		return
 	}
 	if _, err := conn.Exec(
-		`UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = $1`,
+		`UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?`,
 		userID,
 	); err != nil {
 		log.Printf("Bootstrap admin lock reset skipped for user_id=%d: %v", userID, err)

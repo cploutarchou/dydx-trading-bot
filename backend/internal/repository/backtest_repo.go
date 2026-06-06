@@ -290,7 +290,7 @@ func (r *BacktestRepository) GetPositions(filter PositionFilter) ([]models.Backt
 	}
 
 	if filter.Market1 != "" {
-		query += fmt.Sprintf(" AND market_1 = ?", argNum)
+		query += " AND market_1 = ?"
 		args = append(args, filter.Market1)
 		argNum++
 	}

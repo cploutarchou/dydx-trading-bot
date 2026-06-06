@@ -221,17 +221,17 @@ func (r *StrategyRepository) UpdateStrategy(strategy *models.BacktestStrategy) e
 	query := `
 		UPDATE backtest_strategies
 		SET name = ?, description = ?, category = ?, is_public = ?,
-		    runtime_strategy = ?, runtime_network = ?, runtime_subaccount = ?, pair_selection_mode = ?, selected_markets = ?, zscore_threshold = ?0, stats_window = ?1, max_half_life = ?2,
-		    usd_per_trade = ?3, usd_min_collateral = ?4, close_at_zscore_cross = ?5,
-		    find_cointegrated_pairs = ?6, manage_exits = ?7, place_trades = ?8,
-		    abort_all_positions = ?9, max_positions = ?0, max_drawdown_pct = ?1,
-		    stop_loss_pct = ?2, take_profit_pct = ?3, trailing_stop_pct = ?4,
-		    rebalance_interval_hours = ?5, position_timeout_hours = ?6,
-		    transaction_fee = ?7, slippage = ?8, starting_balance = ?9,
-		    candle_resolution = ?0, max_history_days = ?1, benchmark_symbol = ?2,
-		    risk_free_rate = ?3, initial_amount = ?4, usage_count = ?5, last_used_at = ?6,
-		    updated_at = ?7
-		WHERE id = ?8
+		    runtime_strategy = ?, runtime_network = ?, runtime_subaccount = ?, pair_selection_mode = ?, selected_markets = ?, zscore_threshold = ?, stats_window = ?, max_half_life = ?,
+		    usd_per_trade = ?, usd_min_collateral = ?, close_at_zscore_cross = ?,
+		    find_cointegrated_pairs = ?, manage_exits = ?, place_trades = ?,
+		    abort_all_positions = ?, max_positions = ?, max_drawdown_pct = ?,
+		    stop_loss_pct = ?, take_profit_pct = ?, trailing_stop_pct = ?,
+		    rebalance_interval_hours = ?, position_timeout_hours = ?,
+		    transaction_fee = ?, slippage = ?, starting_balance = ?,
+		    candle_resolution = ?, max_history_days = ?, benchmark_symbol = ?,
+		    risk_free_rate = ?, initial_amount = ?, usage_count = ?, last_used_at = ?,
+		    updated_at = ?
+		WHERE id = ?
 	`
 
 	result, err := r.db.Exec(

@@ -111,15 +111,21 @@ class DatabaseConfig:
             return "postgresql+psycopg2://" + candidate[len("postgresql://") :]
         if lowered.startswith("postgres://"):
             return "postgresql+psycopg2://" + candidate[len("postgres://") :]
-        # MySQL/MariaDB URLs
+        # MySQL/MariaDB URLs - use pymysql for synchronous connections
+        if lowered.startswith("mysql+pymysql://"):
+            return candidate
         if lowered.startswith("mysql+asyncmy://"):
-            return candidate
+            # Convert asyncmy URLs to pymysql for sync usage
+            return "mysql+pymysql://" + candidate[len("mysql+asyncmy://") :]
         if lowered.startswith("mysql://"):
-            return "mysql+asyncmy://" + candidate[len("mysql://") :]
-        if lowered.startswith("mariadb+asyncmy://"):
+            return "mysql+pymysql://" + candidate[len("mysql://") :]
+        if lowered.startswith("mariadb+pymysql://"):
             return candidate
+        if lowered.startswith("mariadb+asyncmy://"):
+            # Convert asyncmy URLs to pymysql for sync usage
+            return "mysql+pymysql://" + candidate[len("mariadb+asyncmy://") :]
         if lowered.startswith("mariadb://"):
-            return "mysql+asyncmy://" + candidate[len("mariadb://") :]
+            return "mysql+pymysql://" + candidate[len("mariadb://") :]
         raise ValueError(
             "Unsupported database URL scheme. Supported: postgresql, mysql, mariadb."
         )
@@ -318,7 +324,8 @@ class DatabaseConfig:
         
         # Use appropriate driver based on DB type
         if self.db_type in {"mysql", "mariadb"}:
-            driver = "mysql+asyncmy"
+            # Use pymysql for synchronous MySQL connections (asyncmy requires async_engine)
+            driver = "mysql+pymysql"
         else:
             driver = "postgresql+psycopg2"
         
@@ -335,8 +342,11 @@ class DatabaseConfig:
         
         # Add database-specific connection arguments
         if self.db_type in {"mysql", "mariadb"}:
-            # MySQL/MariaDB specific arguments
-            connect_args["charset"] = "utf8mb4"
+            # MySQL/MariaDB specific arguments for pymysql driver
+            connect_args.update({
+                "charset": "utf8mb4",
+                "autocommit": False,
+            })
         else:
             # PostgreSQL specific arguments
             connect_args.update({
@@ -479,14 +489,21 @@ class DatabaseManager:
                 logger.info(
                     "Applying compatibility fix: normalizing bot_instances.status values"
                 )
-                status_udt = connection.execute(text("""
-                        SELECT c.udt_name
-                        FROM information_schema.columns c
-                        WHERE c.table_name = 'bot_instances'
-                          AND c.column_name = 'status' LIMIT 1
-                        """)).scalar()
+                
+                # Only query information_schema for PostgreSQL (MariaDB doesn't have udt_name)
+                if self.config.db_type == "postgresql":
+                    status_udt = connection.execute(text("""
+                            SELECT c.udt_name
+                            FROM information_schema.columns c
+                            WHERE c.table_name = 'bot_instances'
+                              AND c.column_name = 'status' LIMIT 1
+                            """)).scalar()
+                else:
+                    # For MySQL/MariaDB, always treat as non-enum VARCHAR
+                    status_udt = None
 
                 if status_udt == "botstatusenum":
+                    # PostgreSQL enum handling
                     connection.execute(text("""
                             UPDATE bot_instances
                             SET status = CASE UPPER(CAST(status AS TEXT))
@@ -498,16 +515,31 @@ class DatabaseManager:
                                OR CAST(status AS TEXT) IN ('FAILED', 'failed', 'PAUSED', 'paused')
                             """))
                 else:
-                    connection.execute(text("""
-                            UPDATE bot_instances
-                            SET status = CASE UPPER(CAST(status AS TEXT))
-                                             WHEN 'FAILED' THEN 'ERROR'
-                                             WHEN 'PAUSED' THEN 'STOPPED'
-                                             ELSE UPPER(CAST(status AS TEXT))
-                                END
-                            WHERE UPPER(CAST(status AS TEXT)) <> CAST(status AS TEXT)
-                               OR CAST(status AS TEXT) IN ('FAILED', 'failed', 'PAUSED', 'paused')
-                            """))
+                    # Non-enum (VARCHAR) handling for MariaDB and PostgreSQL varchar columns
+                    if self.config.db_type in {"mysql", "mariadb"}:
+                        # MariaDB/MySQL syntax
+                        connection.execute(text("""
+                                UPDATE bot_instances
+                                SET status = CASE UPPER(status)
+                                                 WHEN 'FAILED' THEN 'ERROR'
+                                                 WHEN 'PAUSED' THEN 'STOPPED'
+                                                 ELSE UPPER(status)
+                                            END
+                                WHERE UPPER(status) <> status
+                                   OR LOWER(status) IN ('failed', 'paused')
+                                """))
+                    else:
+                        # PostgreSQL non-enum syntax (keep existing)
+                        connection.execute(text("""
+                                UPDATE bot_instances
+                                SET status = CASE UPPER(CAST(status AS TEXT))
+                                                 WHEN 'FAILED' THEN 'ERROR'
+                                                 WHEN 'PAUSED' THEN 'STOPPED'
+                                                 ELSE UPPER(CAST(status AS TEXT))
+                                            END
+                                WHERE UPPER(CAST(status AS TEXT)) <> CAST(status AS TEXT)
+                                   OR CAST(status AS TEXT) IN ('FAILED', 'failed', 'PAUSED', 'paused')
+                                """))
 
             if inspector.has_table("backtest_strategies"):
                 columns = {

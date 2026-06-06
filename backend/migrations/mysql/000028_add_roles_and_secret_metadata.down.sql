@@ -1,0 +1,2 @@
+-- Rollback for 000028_add_roles_and_secret_metadata
+-- Review manually - rollback not auto-generated

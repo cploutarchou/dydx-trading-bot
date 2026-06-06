@@ -341,9 +341,9 @@ class ConfigurationManager:
     def _build_database_settings_from_env(self) -> DatabaseSettings:
         """Build database settings from environment variables."""
         db_type = _get_env("BOT_DB_TYPE", "DB_TYPE", default="postgresql").strip().lower()
-        if db_type not in {"postgres", "postgresql"}:
+        if db_type not in {"postgres", "postgresql", "mysql", "mariadb"}:
             raise ValueError(
-                f"Unsupported DB_TYPE '{db_type}'. Only PostgreSQL is supported."
+                f"Unsupported DB_TYPE '{db_type}'. Supported: postgresql, mysql, mariadb."
             )
 
         cutover_mode = (

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"log"
 	"sort"
 	"strings"
@@ -25,12 +24,10 @@ func NewBacktestRepository(db *sql.DB) *BacktestRepository {
 	return &BacktestRepository{db: db}
 }
 
-var errAdvisoryLockUnsupported = errors.New("postgres advisory locks unsupported")
+var errAdvisoryLockUnsupported = errors.New("named locks unsupported")
 
-func backtestAdmissionLockKey(userID int) int64 {
-	hasher := fnv.New64a()
-	_, _ = fmt.Fprintf(hasher, "backtest-admission:%d", userID)
-	return int64(hasher.Sum64())
+func backtestAdmissionLockKey(userID int) string {
+	return fmt.Sprintf("backtest-admission:%d", userID)
 }
 
 func isAdvisoryLockUnsupportedError(err error) bool {
@@ -38,10 +35,18 @@ func isAdvisoryLockUnsupportedError(err error) bool {
 		return false
 	}
 	lower := strings.ToLower(err.Error())
+	// PostgreSQL: pg_try_advisory_lock doesn't exist
 	if strings.Contains(lower, "function pg_try_advisory_lock") && strings.Contains(lower, "does not exist") {
 		return true
 	}
-	return strings.Contains(lower, "no such function") && strings.Contains(lower, "pg_try_advisory_lock")
+	if strings.Contains(lower, "no such function") && strings.Contains(lower, "pg_try_advisory_lock") {
+		return true
+	}
+	// MySQL: GET_LOCK doesn't exist
+	if strings.Contains(lower, "unknown function") && strings.Contains(lower, "get_lock") {
+		return true
+	}
+	return false
 }
 
 func (r *BacktestRepository) withInProcessAdmissionLock(userID int, fn func() error) error {
@@ -52,7 +57,7 @@ func (r *BacktestRepository) withInProcessAdmissionLock(userID int, fn func() er
 	return fn()
 }
 
-func (r *BacktestRepository) withPostgresAdvisoryAdmissionLock(ctx context.Context, userID int, fn func() error) error {
+func (r *BacktestRepository) withNamedAdmissionLock(ctx context.Context, userID int, fn func() error) error {
 	if r == nil || r.db == nil {
 		return errAdvisoryLockUnsupported
 	}
@@ -64,28 +69,24 @@ func (r *BacktestRepository) withPostgresAdvisoryAdmissionLock(ctx context.Conte
 	defer func() { _ = conn.Close() }()
 
 	lockKey := backtestAdmissionLockKey(userID)
-	for {
-		var acquired bool
-		if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1)`, lockKey).Scan(&acquired); err != nil {
-			if isAdvisoryLockUnsupportedError(err) {
-				return errAdvisoryLockUnsupported
-			}
-			return fmt.Errorf("failed to acquire postgres advisory lock for user %d: %w", userID, err)
-		}
-		if acquired {
-			break
-		}
 
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("timed out waiting for admission lock for user %d: %w", userID, ctx.Err())
-		case <-time.After(50 * time.Millisecond):
+	// Try to acquire lock with 30-second timeout
+	var acquired int
+	if err := conn.QueryRowContext(ctx, `SELECT GET_LOCK(?, ?)`, lockKey, 30).Scan(&acquired); err != nil {
+		if isAdvisoryLockUnsupportedError(err) {
+			return errAdvisoryLockUnsupported
 		}
+		return fmt.Errorf("failed to acquire lock for user %d: %w", userID, err)
+	}
+
+	// GET_LOCK returns 1 on success, 0 on timeout, NULL on error
+	if acquired != 1 {
+		return fmt.Errorf("failed to acquire admission lock for user %d: lock acquisition returned %d", userID, acquired)
 	}
 
 	defer func() {
-		if _, unlockErr := conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, lockKey); unlockErr != nil {
-			log.Printf("failed to release postgres advisory lock for user %d: %v", userID, unlockErr)
+		if _, unlockErr := conn.ExecContext(context.Background(), `SELECT RELEASE_LOCK(?)`, lockKey); unlockErr != nil {
+			log.Printf("failed to release admission lock for user %d: %v", userID, unlockErr)
 		}
 	}()
 
@@ -95,7 +96,7 @@ func (r *BacktestRepository) withPostgresAdvisoryAdmissionLock(ctx context.Conte
 // WithUserAdmissionLock serializes admission checks per user.
 //
 // Behavior:
-// - PostgreSQL: uses pg advisory locks (cross-replica safe).
+// - MariaDB: uses named locks via GET_LOCK/RELEASE_LOCK (cross-replica safe).
 // - Other engines/test setups: falls back to in-process mutex lock.
 func (r *BacktestRepository) WithUserAdmissionLock(ctx context.Context, userID int, fn func() error) error {
 	if userID <= 0 {
@@ -108,7 +109,7 @@ func (r *BacktestRepository) WithUserAdmissionLock(ctx context.Context, userID i
 		ctx = context.Background()
 	}
 
-	if err := r.withPostgresAdvisoryAdmissionLock(ctx, userID, fn); err != nil {
+	if err := r.withNamedAdmissionLock(ctx, userID, fn); err != nil {
 		if errors.Is(err, errAdvisoryLockUnsupported) {
 			return r.withInProcessAdmissionLock(userID, fn)
 		}

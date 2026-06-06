@@ -27,22 +27,29 @@ func (r *TradeLogRepository) CreateTradeLog(tradeLog *models.TradeLog) error {
 			exit_price_1, exit_price_2, quantity_1, quantity_2,
 			side_1, side_2, pnl, pnl_usd, entry_zscore, exit_zscore,
 			entry_timestamp, exit_timestamp, created_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-		RETURNING id, created_at
-	`
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`
 
 	now := time.Now()
-	err := r.db.QueryRow(
+	result, err := r.db.Exec(
 		query,
 		tradeLog.ResultIDFK, tradeLog.TradeNumber, tradeLog.EntryPrice1, tradeLog.EntryPrice2,
 		tradeLog.ExitPrice1, tradeLog.ExitPrice2, tradeLog.Quantity1, tradeLog.Quantity2,
 		tradeLog.Side1, tradeLog.Side2, tradeLog.Pnl, tradeLog.PnlUSD, tradeLog.EntryZScore,
 		tradeLog.ExitZScore, tradeLog.EntryTimestamp, tradeLog.ExitTimestamp, now,
-	).Scan(&tradeLog.ID, &tradeLog.CreatedAt)
+	)
 
 	if err != nil {
 		return fmt.Errorf("failed to create trade log: %w", err)
 	}
+
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get last insert ID: %w", err)
+	}
+
+	tradeLog.ID = int(lastID)
+	tradeLog.CreatedAt = now
 
 	return nil
 }
@@ -55,7 +62,7 @@ func (r *TradeLogRepository) GetTradeLogByID(id int) (*models.TradeLog, error) {
 		       pnl, pnl_usd, entry_zscore, exit_zscore, entry_timestamp,
 		       exit_timestamp, created_at
 		FROM trade_logs
-		WHERE id = $1
+		WHERE id = ?
 		LIMIT 1
 	`
 
@@ -86,7 +93,7 @@ func (r *TradeLogRepository) GetTradeLogsByResult(resultIDFK int) ([]models.Trad
 		       pnl, pnl_usd, entry_zscore, exit_zscore, entry_timestamp,
 		       exit_timestamp, created_at
 		FROM trade_logs
-		WHERE result_id_fk = $1
+		WHERE result_id_fk = ?
 		ORDER BY trade_number ASC
 	`
 
@@ -123,11 +130,11 @@ func (r *TradeLogRepository) GetTradeLogsByResult(resultIDFK int) ([]models.Trad
 func (r *TradeLogRepository) UpdateTradeLog(tradeLog *models.TradeLog) error {
 	query := `
 		UPDATE trade_logs
-		SET trade_number = $1, entry_price_1 = $2, entry_price_2 = $3,
-		    exit_price_1 = $4, exit_price_2 = $5, quantity_1 = $6, quantity_2 = $7,
-		    side_1 = $8, side_2 = $9, pnl = $10, pnl_usd = $11, entry_zscore = $12,
-		    exit_zscore = $13, exit_timestamp = $14
-		WHERE id = $15
+		SET trade_number = ?, entry_price_1 = ?, entry_price_2 = ?,
+		    exit_price_1 = ?, exit_price_2 = ?, quantity_1 = ?, quantity_2 = ?,
+		    side_1 = ?, side_2 = ?, pnl = ?0, pnl_usd = ?1, entry_zscore = ?2,
+		    exit_zscore = ?3, exit_timestamp = ?4
+		WHERE id = ?5
 	`
 
 	result, err := r.db.Exec(
@@ -156,7 +163,7 @@ func (r *TradeLogRepository) UpdateTradeLog(tradeLog *models.TradeLog) error {
 
 // DeleteTradeLog deletes a trade log
 func (r *TradeLogRepository) DeleteTradeLog(id int) error {
-	query := `DELETE FROM trade_logs WHERE id = $1`
+	query := `DELETE FROM trade_logs WHERE id = ?`
 
 	result, err := r.db.Exec(query, id)
 	if err != nil {
@@ -184,7 +191,7 @@ func (r *TradeLogRepository) GetTradeLogsByBacktestRun(runID int) ([]models.Trad
 		       tl.entry_timestamp, tl.exit_timestamp, tl.created_at
 		FROM trade_logs tl
 		JOIN backtest_results br ON tl.result_id_fk = br.id
-		WHERE br.run_id = $1
+		WHERE br.run_id = ?
 		ORDER BY tl.entry_timestamp ASC
 	`
 

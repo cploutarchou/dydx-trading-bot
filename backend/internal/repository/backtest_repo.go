@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -17,11 +18,40 @@ import (
 
 type BacktestRepository struct {
 	db             *sql.DB
+	dbDriver       string // Store driver name to determine parameter syntax
 	admissionLocks sync.Map
 }
 
+// NewBacktestRepository creates a BacktestRepository with automatic driver detection
 func NewBacktestRepository(db *sql.DB) *BacktestRepository {
-	return &BacktestRepository{db: db}
+	// Detect database driver from environment
+	// Try DB_TYPE first (used by config), then DB_DRIVER, default to postgres
+	driver := os.Getenv("DB_TYPE")
+	if driver == "" {
+		driver = os.Getenv("DB_DRIVER")
+	}
+	if driver == "" {
+		driver = "postgres" // Default fallback
+	}
+
+	return &BacktestRepository{
+		db:       db,
+		dbDriver: driver,
+	}
+}
+
+// NewBacktestRepositoryWithDriver creates a BacktestRepository with explicit driver information
+func NewBacktestRepositoryWithDriver(db *sql.DB, driver string) *BacktestRepository {
+	return &BacktestRepository{
+		db:       db,
+		dbDriver: driver,
+	}
+}
+
+// isMysql checks if the repository is using MySQL or MariaDB
+func (r *BacktestRepository) isMysql() bool {
+	return strings.Contains(strings.ToLower(r.dbDriver), "mysql") ||
+		strings.Contains(strings.ToLower(r.dbDriver), "mariadb")
 }
 
 var errAdvisoryLockUnsupported = errors.New("named locks unsupported")
@@ -961,16 +991,32 @@ func (r *BacktestRepository) GetRunsByStrategyID(userID int, strategyID int, lim
 }
 
 func (r *BacktestRepository) CountActiveRunsByUserID(userID int) (int, error) {
-	query := `
-		SELECT COUNT(*)
-		FROM backtest_runs
-		WHERE user_id = $1
-		  AND LOWER(COALESCE(status, '')) IN (
-			'pending', 'queued', 'created', 'scheduled',
-			'running', 'in_progress', 'processing', 'active',
-			'paused', 'retry', 'retrying'
-		  )
-	`
+	var query string
+	if r.isMysql() {
+		// MySQL/MariaDB syntax uses ? for parameters
+		query = `
+			SELECT COUNT(*)
+			FROM backtest_runs
+			WHERE user_id = ?
+			  AND LOWER(COALESCE(status, '')) IN (
+				'pending', 'queued', 'created', 'scheduled',
+				'running', 'in_progress', 'processing', 'active',
+				'paused', 'retry', 'retrying'
+			  )
+		`
+	} else {
+		// PostgreSQL syntax uses $1, $2, etc.
+		query = `
+			SELECT COUNT(*)
+			FROM backtest_runs
+			WHERE user_id = $1
+			  AND LOWER(COALESCE(status, '')) IN (
+				'pending', 'queued', 'created', 'scheduled',
+				'running', 'in_progress', 'processing', 'active',
+				'paused', 'retry', 'retrying'
+			  )
+		`
+	}
 
 	var count int
 	if err := r.db.QueryRow(query, userID).Scan(&count); err != nil {

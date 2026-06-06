@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS backtest_metrics
   max_consecutive_losses   INTEGER NOT NULL,
   avg_trade_duration_hours FLOAT    NOT NULL,
   created_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (run_id) REFERENCES backtest_runs (id)
+  FOREIGN KEY (run_id)
 );
 
 -- Create indexes for backtest_metrics

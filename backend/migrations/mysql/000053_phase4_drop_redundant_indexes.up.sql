@@ -85,7 +85,7 @@ DROP INDEX IF EXISTS ix_dydx_keys_user_id;
 -- ─────────────────────────────────────────────────────────────────────────────
 -- bot_settings — 2 redundant indexes
 -- PK covers ix_bot_settings_id
--- bot_settings_section_key_key (UNIQUE section, key) covers idx_bot_setting_section_key
+-- bot_settings_section_key_key (UNIQUE section, key) covers idx_bot_setting_section_`key`
 -- ─────────────────────────────────────────────────────────────────────────────
 DROP INDEX IF EXISTS ix_bot_settings_id;
 DROP INDEX IF EXISTS idx_bot_setting_section_key;

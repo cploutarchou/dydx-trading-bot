@@ -26,8 +26,8 @@ CREATE TABLE IF NOT EXISTS bot_trades (
   duration_hours DOUBLE PRECISION,
   strategy_zscore_threshold DOUBLE PRECISION,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (bot_instance_id) REFERENCES bot_instances(id) ON DELETE CASCADE
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (bot_instance_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_bot_trades_bot_instance_id ON bot_trades (bot_instance_id);

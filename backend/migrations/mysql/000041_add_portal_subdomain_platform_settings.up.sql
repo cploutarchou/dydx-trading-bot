@@ -1,6 +1,6 @@
-INSERT INTO bot_settings (
+INSERT IGNORE INTO bot_settings (
   section,
-  key,
+  `key`,
   value,
   value_type,
   description,
@@ -14,11 +14,11 @@ VALUES
   (
     'platform',
     'crm_subdomain_enabled',
-    'true',
+    '1',
     'boolean',
     'Enable CRM subdomain routing shortcuts',
-    'true',
-    true,
+    '1',
+    1,
     1,
     CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP
@@ -30,7 +30,7 @@ VALUES
     'string',
     'CRM subdomain host used for cross-portal links',
     'crm.localhost',
-    true,
+    1,
     1,
     CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP
@@ -38,11 +38,11 @@ VALUES
   (
     'platform',
     'ib_subdomain_enabled',
-    'true',
+    '1',
     'boolean',
     'Enable IB portal subdomain routing shortcuts',
-    'true',
-    true,
+    '1',
+    1,
     1,
     CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP
@@ -54,9 +54,8 @@ VALUES
     'string',
     'IB portal subdomain host used for cross-portal links',
     'ib-portal.localhost',
-    true,
+    1,
     1,
     CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP
-  )
-ON CONFLICT (section, key) DO NOTHING;
+  );

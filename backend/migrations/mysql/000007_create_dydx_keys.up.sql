@@ -11,10 +11,10 @@ CREATE TABLE IF NOT EXISTS dydx_keys
   encrypted_secret LONGTEXT     NOT NULL,
   secret_hash      LONGTEXT     NOT NULL DEFAULT '',
   secret_masked    LONGTEXT     NOT NULL DEFAULT '',
-  is_active        BOOLEAN      NOT NULL,
+  is_active        TINYINT(1)      NOT NULL,
   created_at       TIMESTAMP    NOT NULL,
   updated_at       TIMESTAMP    NOT NULL,
-  FOREIGN KEY (user_id) REFERENCES users (id),
+  FOREIGN KEY (user_id),
   UNIQUE (user_id, network)
 );
 

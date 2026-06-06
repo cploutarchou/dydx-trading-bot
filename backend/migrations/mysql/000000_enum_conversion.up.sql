@@ -74,15 +74,15 @@ INSERT IGNORE INTO trade_status_enum (value, description) VALUES
 --
 -- ALTER TABLE bot_instance
 --   ADD CONSTRAINT fk_bot_instance_status
---   FOREIGN KEY (status) REFERENCES bot_status_enum(value);
+--   FOREIGN KEY (status);
 --
 -- ALTER TABLE background_jobs
 --   ADD CONSTRAINT fk_job_status
---   FOREIGN KEY (status) REFERENCES job_status_enum(value);
+--   FOREIGN KEY (status);
 --
 -- ALTER TABLE bot_trades
 --   ADD CONSTRAINT fk_trade_status
---   FOREIGN KEY (status) REFERENCES trade_status_enum(value);
+--   FOREIGN KEY (status);
 
 -- ============================================================================
 -- Verification Queries

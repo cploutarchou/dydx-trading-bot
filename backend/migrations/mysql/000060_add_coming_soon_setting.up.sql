@@ -1,6 +1,6 @@
-INSERT INTO bot_settings (
+INSERT IGNORE INTO bot_settings (
   section,
-  key,
+  `key`,
   value,
   value_type,
   description,
@@ -13,13 +13,12 @@ INSERT INTO bot_settings (
 VALUES (
   'platform',
   'coming_soon_enabled',
-  'false',
+  '0',
   'boolean',
   'Show the public Coming Soon launch page while keeping authenticated admin access available',
-  'false',
-  true,
+  '0',
+  1,
   1,
   CURRENT_TIMESTAMP,
   CURRENT_TIMESTAMP
-)
-ON CONFLICT (section, key) DO NOTHING;
+);

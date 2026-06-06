@@ -17,11 +17,11 @@ CREATE TABLE IF NOT EXISTS backtest_comparisons
   comparison_metrics  JSON         DEFAULT NULL,
   created_at          TIMESTAMP     DEFAULT NULL,
   updated_at          TIMESTAMP     DEFAULT NULL,
-  FOREIGN KEY (run_id_1) REFERENCES backtest_runs (id),
-  FOREIGN KEY (run_id_2) REFERENCES backtest_runs (id),
-  FOREIGN KEY (strategy_id_1) REFERENCES backtest_strategies (id),
-  FOREIGN KEY (strategy_id_2) REFERENCES backtest_strategies (id),
-  FOREIGN KEY (user_id) REFERENCES users (id)
+  FOREIGN KEY (run_id_1),
+  FOREIGN KEY (run_id_2),
+  FOREIGN KEY (strategy_id_1),
+  FOREIGN KEY (strategy_id_2),
+  FOREIGN KEY (user_id)
 );
 
 CREATE INDEX idx_comparison_runs ON backtest_comparisons (run_id_1, run_id_2);

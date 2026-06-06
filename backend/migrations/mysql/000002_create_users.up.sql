@@ -11,9 +11,9 @@ CREATE TABLE IF NOT EXISTS users
   hashed_password VARCHAR(500) NOT NULL,
   full_name       VARCHAR(100) DEFAULT NULL,
   avatar          LONGTEXT     DEFAULT '',
-  is_active       BOOLEAN      DEFAULT NULL,
-  is_admin        BOOLEAN      DEFAULT NULL,
-  password_change_required BOOLEAN NOT NULL DEFAULT FALSE,
+  is_active       TINYINT(1)      DEFAULT NULL,
+  is_admin        TINYINT(1)      DEFAULT NULL,
+  password_change_required TINYINT(1) NOT NULL DEFAULT 0,
   created_at      TIMESTAMP    NULL DEFAULT NULL,
   updated_at      TIMESTAMP    NULL DEFAULT NULL,
   last_login      TIMESTAMP    NULL DEFAULT NULL

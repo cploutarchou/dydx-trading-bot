@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS backtest_candles
   volume       FLOAT         NOT NULL,
   trades_count INTEGER     DEFAULT NULL,
   created_at   TIMESTAMP    DEFAULT NULL,
-  FOREIGN KEY (run_id_fk) REFERENCES backtest_runs (id)
+  FOREIGN KEY (run_id_fk)
 );
 
 CREATE INDEX idx_backtest_candle_market_time ON backtest_candles (market, timestamp);

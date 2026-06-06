@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS strategy_execution_states
 (
   id                       INT AUTO_INCREMENT PRIMARY KEY,
   strategy_id              INTEGER NOT NULL UNIQUE,
-  enabled                  BOOLEAN      DEFAULT NULL,
+  enabled                  TINYINT(1)      DEFAULT NULL,
   status                   VARCHAR(20)  DEFAULT NULL,
   trades_executed          INTEGER      DEFAULT NULL,
   pnl                      FLOAT         DEFAULT NULL,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS strategy_execution_states
   win_rate                 FLOAT         DEFAULT NULL,
   created_at               TIMESTAMP     DEFAULT NULL,
   updated_at               TIMESTAMP     DEFAULT NULL,
-  FOREIGN KEY (strategy_id) REFERENCES backtest_strategies (id)
+  FOREIGN KEY (strategy_id)
 );
 
 CREATE INDEX idx_execution_state_status ON strategy_execution_states (strategy_id, status);

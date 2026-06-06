@@ -1,7 +1,7 @@
 -- Migration 000025: Create bot_alerts table for bot runtime alert tracking
 CREATE TABLE IF NOT EXISTS bot_alerts (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  bot_instance_id INTEGER NOT NULL REFERENCES bot_instances(id) ON DELETE CASCADE,
+  bot_instance_id INTEGER NOT NULL,
   alert_type TEXT NOT NULL,
   severity TEXT NOT NULL DEFAULT 'info',
   title TEXT NOT NULL,

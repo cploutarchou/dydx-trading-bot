@@ -53,4 +53,4 @@ CREATE INDEX IF NOT EXISTS idx_backtest_runs_user_status_time
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Note: FULLTEXT indexes require MATCH() operators, so we use BTREE for general purpose
 CREATE INDEX IF NOT EXISTS idx_strategy_selected_markets
-    ON backtest_strategies (selected_markets(100));
+    ON backtest_strategies (selected_markets(50));

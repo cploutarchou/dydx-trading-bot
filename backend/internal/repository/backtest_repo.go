@@ -176,26 +176,26 @@ func (r *BacktestRepository) GetCandles(filter CandleFilter) ([]models.BacktestC
 	argNum := 2
 
 	if filter.Market != "" {
-		query += fmt.Sprintf(" AND market = $%d", argNum)
+		query += " AND market = ?"
 		args = append(args, filter.Market)
 		argNum++
 	}
 
 	if filter.StartDate != nil {
-		query += fmt.Sprintf(" AND timestamp >= $%d", argNum)
+		query += " AND timestamp >= ?"
 		args = append(args, filter.StartDate)
 		argNum++
 	}
 
 	if filter.EndDate != nil {
-		query += fmt.Sprintf(" AND timestamp <= $%d", argNum)
+		query += " AND timestamp <= ?"
 		args = append(args, filter.EndDate)
 		argNum++
 	}
 
 	query += " ORDER BY timestamp"
 	if filter.Limit > 0 {
-		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argNum, argNum+1)
+		query += " LIMIT ? OFFSET ?"
 		args = append(args, filter.Limit, filter.Skip)
 	}
 
@@ -284,19 +284,19 @@ func (r *BacktestRepository) GetPositions(filter PositionFilter) ([]models.Backt
 	argNum := 2
 
 	if filter.Status != "" && filter.Status != "ALL" {
-		query += fmt.Sprintf(" AND status = $%d", argNum)
+		query += " AND status = ?"
 		args = append(args, filter.Status)
 		argNum++
 	}
 
 	if filter.Market1 != "" {
-		query += fmt.Sprintf(" AND market_1 = $%d", argNum)
+		query += fmt.Sprintf(" AND market_1 = ?", argNum)
 		args = append(args, filter.Market1)
 		argNum++
 	}
 
 	if filter.Market2 != "" {
-		query += fmt.Sprintf(" AND market_2 = $%d", argNum)
+		query += " AND market_2 = ?"
 		args = append(args, filter.Market2)
 	}
 
@@ -405,19 +405,19 @@ func (r *BacktestRepository) GetTrades(filter TradeFilter) ([]models.BacktestTra
 	argNum := 2
 
 	if filter.Market1 != "" {
-		query += fmt.Sprintf(" AND market_1 = $%d", argNum)
+		query += " AND market_1 = ?"
 		args = append(args, filter.Market1)
 		argNum++
 	}
 
 	if filter.Market2 != "" {
-		query += fmt.Sprintf(" AND market_2 = $%d", argNum)
+		query += " AND market_2 = ?"
 		args = append(args, filter.Market2)
 		argNum++
 	}
 
 	query += " ORDER BY entry_timestamp"
-	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argNum, argNum+1)
+	query += " LIMIT ? OFFSET ?"
 	args = append(args, filter.Limit, filter.Skip)
 
 	rows, err := r.db.Query(query, args...)
@@ -485,13 +485,13 @@ func (r *BacktestRepository) GetTradesCount(runID int, market1, market2 string) 
 	argNum := 2
 
 	if market1 != "" {
-		query += fmt.Sprintf(" AND market_1 = $%d", argNum)
+		query += " AND market_1 = ?"
 		args = append(args, market1)
 		argNum++
 	}
 
 	if market2 != "" {
-		query += fmt.Sprintf(" AND market_2 = $%d", argNum)
+		query += " AND market_2 = ?"
 		args = append(args, market2)
 	}
 

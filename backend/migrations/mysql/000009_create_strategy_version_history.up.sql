@@ -12,8 +12,8 @@ CREATE TABLE IF NOT EXISTS strategy_version_history
   backtest_count       INTEGER      DEFAULT NULL,
   best_backtest_pnl    FLOAT         DEFAULT NULL,
   average_backtest_pnl FLOAT         DEFAULT NULL,
-  FOREIGN KEY (created_by_user_id) REFERENCES users (id),
-  FOREIGN KEY (strategy_id) REFERENCES backtest_strategies (id),
+  FOREIGN KEY (created_by_user_id),
+  FOREIGN KEY (strategy_id),
   UNIQUE (strategy_id, version_number)
 );
 

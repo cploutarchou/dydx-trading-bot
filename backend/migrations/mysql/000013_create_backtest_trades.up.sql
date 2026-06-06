@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS backtest_trades
   hedge_ratio     FLOAT         NOT NULL,
   transaction_fee FLOAT         NOT NULL,
   slippage        FLOAT         NOT NULL,
-  FOREIGN KEY (run_id_fk) REFERENCES backtest_runs (id)
+  FOREIGN KEY (run_id_fk)
 );
 
 CREATE INDEX idx_backtest_trade_market ON backtest_trades (market_1, market_2);

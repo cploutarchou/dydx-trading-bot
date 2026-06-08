@@ -32,9 +32,9 @@
 		"API_BYPASS_AUTH": false
 	},
 	"database": {
-		"DB_TYPE": "postgresql",
+		"DB_TYPE": "mysql",
 		"DB_HOST": "localhost",
-		"DB_PORT": 5432,
+		"DB_PORT": 3306,
 		"DB_NAME": "dydx_bot",
 		"DB_USER": "dydx_bot",
 		"DB_PASSWORD": "change-me-db-password",
@@ -44,17 +44,12 @@
 		"DB_MAX_CONNECTIONS": 90,
 		"DB_MAX_OVERFLOW": 60,
 		"SSL_MODE": false,
-		"DB_ECHO_SQL": false,
-		"POSTGRES_HOST": "localhost",
-		"POSTGRES_PORT": 5432,
-		"POSTGRES_DB": "dydx_bot",
-		"POSTGRES_USER": "dydx_bot",
-		"POSTGRES_PASSWORD": "change-me-db-password"
+		"DB_ECHO_SQL": false
 	},
 	"bot_database": {
 		"BOT_DB_CUTOVER_MODE": "dedicated",
 		"BOT_DB_HOST": "localhost",
-		"BOT_DB_PORT": 5433,
+		"BOT_DB_PORT": 3307,
 		"BOT_DB_NAME": "dydx_bot",
 		"BOT_DB_USER": "dydx_bot",
 		"BOT_DB_PASSWORD": "change-me-db-password"

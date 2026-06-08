@@ -11,7 +11,7 @@ If you currently run the compose stack on ports `5173` / `8888`, stop it before 
 
 ## Files
 
-- `dydx-trading-bot.nomad.hcl` — Nomad job definition (`frontend`, `backend`, `bot`, `postgres`, `redis`)
+- `dydx-trading-bot.nomad.hcl` — Nomad job definition (`frontend`, `backend`, `bot`, backend MariaDB, bot MariaDB, `redis`)
 - `production.nomad.vars.hcl.example` — variables template (copy and fill with real values)
 
 ## 1) Prepare vars file

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -142,8 +141,8 @@ func New(cfg Config) (*Database, error) {
 
 func runtimeSQLDriver(configDriver string) string {
 	d := strings.ToLower(strings.TrimSpace(configDriver))
-	if d == "postgresql" || d == "postgres" {
-		return "postgres"
+	if d == "mariadb" {
+		return "mysql"
 	}
 	return d
 }
@@ -232,7 +231,7 @@ func (d *Database) GetStats() sql.DBStats {
 	return sql.DBStats{}
 }
 
-// Driver returns the database driver name (e.g., "mysql", "postgres")
+// Driver returns the database driver name.
 func (d *Database) Driver() string {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -339,17 +338,15 @@ func validateConfig(cfg *Config) error {
 	}
 
 	validDrivers := map[string]bool{
-		"postgres":   true,
-		"postgresql": true,
-		"mysql":      true,
-		"mariadb":    true,
+		"mysql":   true,
+		"mariadb": true,
 	}
 
 	d := strings.ToLower(strings.TrimSpace(cfg.Driver))
 	if d == "" {
 		cfg.Driver = "mysql"
 	} else if !validDrivers[d] {
-		return fmt.Errorf("%w: %s (supported: postgres, mysql, mariadb)", ErrInvalidDriver, cfg.Driver)
+		return fmt.Errorf("%w: %s (supported: mysql, mariadb)", ErrInvalidDriver, cfg.Driver)
 	} else {
 		cfg.Driver = runtimeSQLDriver(d)
 	}
@@ -523,20 +520,6 @@ func BuildMigrateDatabaseURL(cfg Config) (string, error) {
 	driver := strings.ToLower(cfg.Driver)
 	dsn := strings.TrimSpace(cfg.DSN)
 
-	if strings.Contains(driver, "postgres") {
-		// If already a URL, return as-is
-		if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
-			return dsn, nil
-		}
-
-		// Attempt to parse typical lib/pq key=value DSN and convert to URL form
-		u, err := parsePostgresKeyValueDSN(dsn)
-		if err != nil {
-			return "", fmt.Errorf("failed to parse postgres dsn: %w", err)
-		}
-		return u, nil
-	}
-
 	if strings.Contains(driver, "mysql") || strings.Contains(driver, "mariadb") {
 		// If already a URL, return as-is (golang-migrate for MySQL uses tcp://)
 		if strings.HasPrefix(dsn, "mysql://") {
@@ -555,76 +538,8 @@ func BuildMigrateDatabaseURL(cfg Config) (string, error) {
 	return "", fmt.Errorf("unsupported driver for migrations: %s", cfg.Driver)
 }
 
-// parsePostgresKeyValueDSN converts a lib/pq-style DSN (key=value ...) into a postgres:// URL
-func parsePostgresKeyValueDSN(dsn string) (string, error) {
-	// Split tokens by space, simple approach since DSNs are usually tokenized by spaces
-	tokens := strings.Fields(dsn)
-	m := map[string]string{}
-	for _, t := range tokens {
-		parts := strings.SplitN(t, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		k := strings.TrimSpace(parts[0])
-		v := strings.Trim(parts[1], "'\" ")
-		m[k] = v
-	}
-
-	host := m["host"]
-	port := m["port"]
-	user := m["user"]
-	password := m["password"]
-	dbname := m["dbname"]
-	sslmode := m["sslmode"]
-
-	if host == "" {
-		host = "localhost"
-	}
-	if port == "" {
-		port = "5432"
-	}
-	if dbname == "" {
-		return "", fmt.Errorf("dbname is required in postgres DSN")
-	}
-
-	u := &url.URL{
-		Scheme: "postgres",
-		Host:   fmt.Sprintf("%s:%s", host, port),
-		Path:   "/" + dbname,
-	}
-	if user != "" {
-		if password != "" {
-			u.User = url.UserPassword(user, password)
-		} else {
-			u.User = url.User(user)
-		}
-	}
-
-	q := url.Values{}
-	if sslmode != "" {
-		q.Set("sslmode", sslmode)
-	}
-	// Preserve additional params like connect_timeout
-	for k, v := range m {
-		if k == "host" || k == "port" || k == "user" || k == "password" || k == "dbname" {
-			continue
-		}
-		if v == "" {
-			continue
-		}
-		// only add known params or keep others as query params
-		q.Set(k, v)
-	}
-	if len(q) > 0 {
-		u.RawQuery = q.Encode()
-	}
-
-	return u.String(), nil
-}
-
 // sanitizeDSN removes sensitive information from DSN for logging
 func sanitizeDSN(dsn string) string {
-	// For PostgreSQL connection strings
 	if strings.Contains(dsn, "password=") {
 		parts := strings.Split(dsn, " ")
 		for i, part := range parts {
@@ -637,7 +552,6 @@ func sanitizeDSN(dsn string) string {
 
 	// For URLs with passwords
 	if strings.Contains(dsn, "://") && strings.Contains(dsn, "@") {
-		// postgres://user:password@host/db -> postgres://user:***@host/db
 		parts := strings.SplitN(dsn, "://", 2)
 		if len(parts) == 2 {
 			userParts := strings.SplitN(parts[1], "@", 2)

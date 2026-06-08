@@ -170,28 +170,28 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 
 		updateQuery := `
 		UPDATE backtest_runs
-		SET status = $1,
-			user_id = $2,
-			start_date = $3,
-			end_date = $4,
-			num_pairs = $5,
-			total_markets = $6,
-			resolution = $7,
-			config = $8,
-			started_at = COALESCE($9, started_at),
-			completed_at = COALESCE($10, completed_at),
-			duration_seconds = COALESCE($11, duration_seconds),
-			error_message = COALESCE(CAST($12 AS TEXT), error_message),
-			total_trades = COALESCE($13, total_trades),
-			profitable_trades = COALESCE($14, profitable_trades),
-			losing_trades = COALESCE($15, losing_trades),
-			win_rate = COALESCE($16, win_rate),
-			total_pnl = COALESCE($17, total_pnl),
-			total_pnl_usd = COALESCE($18, total_pnl_usd),
-			sharpe_ratio = COALESCE($19, sharpe_ratio),
-			max_drawdown = COALESCE($20, max_drawdown),
-			strategy_id = COALESCE($21, strategy_id)
-		WHERE run_id = $22
+		SET status = ?,
+			user_id = ?,
+			start_date = ?,
+			end_date = ?,
+			num_pairs = ?,
+			total_markets = ?,
+			resolution = ?,
+			config = ?,
+			started_at = COALESCE(?, started_at),
+			completed_at = COALESCE(?, completed_at),
+			duration_seconds = COALESCE(?, duration_seconds),
+			error_message = COALESCE(?, error_message),
+			total_trades = COALESCE(?, total_trades),
+			profitable_trades = COALESCE(?, profitable_trades),
+			losing_trades = COALESCE(?, losing_trades),
+			win_rate = COALESCE(?, win_rate),
+			total_pnl = COALESCE(?, total_pnl),
+			total_pnl_usd = COALESCE(?, total_pnl_usd),
+			sharpe_ratio = COALESCE(?, sharpe_ratio),
+			max_drawdown = COALESCE(?, max_drawdown),
+			strategy_id = COALESCE(?, strategy_id)
+		WHERE run_id = ?
 	`
 
 		result, err := r.db.Exec(
@@ -239,11 +239,11 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 			total_pnl, total_pnl_usd, sharpe_ratio, max_drawdown,
 			error_message, user_id, strategy_id
 		) VALUES (
-			$1, $2, $3, $4, $5, $6,
-			$7, $8, $9, $10, $11, $12,
-			$13, $14, $15, $16,
-			$17, $18, $19, $20,
-			$21, $22, $23
+			?, ?, ?, ?, ?, ?,
+			?, ?, ?, ?, ?, ?,
+			?, ?, ?, ?,
+			?, ?, ?, ?,
+			?, ?, ?
 		)
 	`
 
@@ -320,34 +320,34 @@ func (r *BacktestSyncRepository) UpsertBacktestTrades(runID string, items []Back
 				exit_timestamp, exit_price_1, exit_price_2, exit_z_score,
 				pnl, pnl_pct, duration_hours, hedge_ratio, transaction_fee, slippage
 			) VALUES (
-				$1, $2, $3, $4, $5,
-				$6, $7, $8,
-				$9, $10, $11, $12,
-				$13, $14, $15, $16,
-				$17, $18, $19, $20, $21, $22
+				?, ?, ?, ?, ?,
+				?, ?, ?,
+				?, ?, ?, ?,
+				?, ?, ?, ?,
+				?, ?, ?, ?, ?, ?
 			)
-			ON CONFLICT (trade_id) DO UPDATE SET
-				%s = EXCLUDED.%s,
-				market_1 = EXCLUDED.market_1,
-				market_2 = EXCLUDED.market_2,
-				entry_timestamp = EXCLUDED.entry_timestamp,
-				entry_price_1 = EXCLUDED.entry_price_1,
-				entry_price_2 = EXCLUDED.entry_price_2,
-				entry_z_score = EXCLUDED.entry_z_score,
-				side_1 = EXCLUDED.side_1,
-				side_2 = EXCLUDED.side_2,
-				size_1 = EXCLUDED.size_1,
-				size_2 = EXCLUDED.size_2,
-				exit_timestamp = EXCLUDED.exit_timestamp,
-				exit_price_1 = EXCLUDED.exit_price_1,
-				exit_price_2 = EXCLUDED.exit_price_2,
-				exit_z_score = EXCLUDED.exit_z_score,
-				pnl = EXCLUDED.pnl,
-				pnl_pct = EXCLUDED.pnl_pct,
-				duration_hours = EXCLUDED.duration_hours,
-				hedge_ratio = EXCLUDED.hedge_ratio,
-				transaction_fee = EXCLUDED.transaction_fee,
-				slippage = EXCLUDED.slippage
+			ON DUPLICATE KEY UPDATE
+				%s = VALUES(%s),
+				market_1 = VALUES(market_1),
+				market_2 = VALUES(market_2),
+				entry_timestamp = VALUES(entry_timestamp),
+				entry_price_1 = VALUES(entry_price_1),
+				entry_price_2 = VALUES(entry_price_2),
+				entry_z_score = VALUES(entry_z_score),
+				side_1 = VALUES(side_1),
+				side_2 = VALUES(side_2),
+				size_1 = VALUES(size_1),
+				size_2 = VALUES(size_2),
+				exit_timestamp = VALUES(exit_timestamp),
+				exit_price_1 = VALUES(exit_price_1),
+				exit_price_2 = VALUES(exit_price_2),
+				exit_z_score = VALUES(exit_z_score),
+				pnl = VALUES(pnl),
+				pnl_pct = VALUES(pnl_pct),
+				duration_hours = VALUES(duration_hours),
+				hedge_ratio = VALUES(hedge_ratio),
+				transaction_fee = VALUES(transaction_fee),
+				slippage = VALUES(slippage)
 		`, fkColumn, fkColumn, fkColumn)
 
 			if _, err := r.db.Exec(
@@ -426,33 +426,33 @@ func (r *BacktestSyncRepository) UpsertBacktestPositions(runID string, items []B
 				size_1, size_2, side_1, side_2, hedge_ratio,
 				unrealized_pnl, realized_pnl
 			) VALUES (
-				$1, $2, $3, $4, $5,
-				$6, $7,
-				$8, $9, $10,
-				$11, $12, $13,
-				$14, $15, $16, $17, $18,
-				$19, $20
+				?, ?, ?, ?, ?,
+				?, ?,
+				?, ?, ?,
+				?, ?, ?,
+				?, ?, ?, ?, ?,
+				?, ?
 			)
-			ON CONFLICT (position_id) DO UPDATE SET
-				%s = EXCLUDED.%s,
-				market_1 = EXCLUDED.market_1,
-				market_2 = EXCLUDED.market_2,
-				status = EXCLUDED.status,
-				entry_timestamp = EXCLUDED.entry_timestamp,
-				close_timestamp = EXCLUDED.close_timestamp,
-				entry_price_1 = EXCLUDED.entry_price_1,
-				entry_price_2 = EXCLUDED.entry_price_2,
-				entry_z_score = EXCLUDED.entry_z_score,
-				current_price_1 = EXCLUDED.current_price_1,
-				current_price_2 = EXCLUDED.current_price_2,
-				current_z_score = EXCLUDED.current_z_score,
-				size_1 = EXCLUDED.size_1,
-				size_2 = EXCLUDED.size_2,
-				side_1 = EXCLUDED.side_1,
-				side_2 = EXCLUDED.side_2,
-				hedge_ratio = EXCLUDED.hedge_ratio,
-				unrealized_pnl = EXCLUDED.unrealized_pnl,
-				realized_pnl = EXCLUDED.realized_pnl
+			ON DUPLICATE KEY UPDATE
+				%s = VALUES(%s),
+				market_1 = VALUES(market_1),
+				market_2 = VALUES(market_2),
+				status = VALUES(status),
+				entry_timestamp = VALUES(entry_timestamp),
+				close_timestamp = VALUES(close_timestamp),
+				entry_price_1 = VALUES(entry_price_1),
+				entry_price_2 = VALUES(entry_price_2),
+				entry_z_score = VALUES(entry_z_score),
+				current_price_1 = VALUES(current_price_1),
+				current_price_2 = VALUES(current_price_2),
+				current_z_score = VALUES(current_z_score),
+				size_1 = VALUES(size_1),
+				size_2 = VALUES(size_2),
+				side_1 = VALUES(side_1),
+				side_2 = VALUES(side_2),
+				hedge_ratio = VALUES(hedge_ratio),
+				unrealized_pnl = VALUES(unrealized_pnl),
+				realized_pnl = VALUES(realized_pnl)
 		`, fkColumn, fkColumn, fkColumn)
 
 			if _, err := r.db.Exec(
@@ -509,17 +509,17 @@ func (r *BacktestSyncRepository) UpsertBacktestCandles(runID string, items []Bac
 				%s, market, timestamp, resolution, open_price,
 				high_price, low_price, close_price, volume, trades_count, created_at
 			) VALUES (
-				$1, $2, $3, $4, $5,
-				$6, $7, $8, $9, $10, $11
+				?, ?, ?, ?, ?,
+				?, ?, ?, ?, ?, ?
 			)
-			ON CONFLICT (%s, market, timestamp, resolution) DO UPDATE SET
-				open_price = EXCLUDED.open_price,
-				high_price = EXCLUDED.high_price,
-				low_price = EXCLUDED.low_price,
-				close_price = EXCLUDED.close_price,
-				volume = EXCLUDED.volume,
-				trades_count = EXCLUDED.trades_count
-		`, fkColumn, fkColumn)
+			ON DUPLICATE KEY UPDATE
+				open_price = VALUES(open_price),
+				high_price = VALUES(high_price),
+				low_price = VALUES(low_price),
+				close_price = VALUES(close_price),
+				volume = VALUES(volume),
+				trades_count = VALUES(trades_count)
+		`, fkColumn)
 			if _, err := r.db.Exec(
 				upsertQuery,
 				runPK,
@@ -559,7 +559,7 @@ func (r *BacktestSyncRepository) getRunPrimaryKey(runID string) (int, error) {
 		return 0, fmt.Errorf("run_id is required")
 	}
 	var id int
-	err := r.db.QueryRow(`SELECT id FROM backtest_runs WHERE run_id = $1 LIMIT 1`, runID).Scan(&id)
+	err := r.db.QueryRow(`SELECT id FROM backtest_runs WHERE run_id = ? LIMIT 1`, runID).Scan(&id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return 0, fmt.Errorf("backtest run not found for run_id=%s", runID)
@@ -611,14 +611,14 @@ func (r *BacktestSyncRepository) GetSyncHealthByRun(userID int, runID string, li
 	query := `
 		SELECT id, run_id, COALESCE(status, ''), created_at
 		FROM backtest_runs
-		WHERE user_id = $1
+		WHERE user_id = ?
 	`
 	args := []interface{}{userID}
 	if strings.TrimSpace(runID) != "" {
-		query += " AND run_id = $2"
+		query += " AND run_id = ?"
 		args = append(args, runID)
 	}
-	query += " ORDER BY created_at DESC LIMIT $" + fmt.Sprintf("%d", len(args)+1)
+	query += " ORDER BY created_at DESC LIMIT ?"
 	args = append(args, limit)
 
 	rows, err := r.db.Query(query, args...)
@@ -708,7 +708,7 @@ func (r *BacktestSyncRepository) countRowsForRunByRunID(tableName string, runID 
 			SELECT COUNT(*)
 			FROM %s c
 			JOIN backtest_runs r ON c.%s = r.id
-			WHERE r.run_id = $1 AND r.user_id = $2
+			WHERE r.run_id = ? AND r.user_id = ?
 		`, tableName, fkColumn)
 		var count int
 		err := r.db.QueryRow(query, runID, userID).Scan(&count)
@@ -730,9 +730,9 @@ func (r *BacktestSyncRepository) countRowsForRunByRunID(tableName string, runID 
 
 func (r *BacktestSyncRepository) countDataQualityIssuesByRunID(runID string, userID int) (int, error) {
 	queries := []string{
-		`SELECT COUNT(*) FROM backtest_trades c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = $1 AND r.user_id = $2 AND (c.market_1 = 'UNKNOWN' OR c.market_2 = 'UNKNOWN')`,
-		`SELECT COUNT(*) FROM backtest_positions c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = $1 AND r.user_id = $2 AND (c.market_1 = 'UNKNOWN' OR c.market_2 = 'UNKNOWN')`,
-		`SELECT COUNT(*) FROM backtest_candles c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = $1 AND r.user_id = $2 AND c.market = 'UNKNOWN'`,
+		`SELECT COUNT(*) FROM backtest_trades c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = ? AND r.user_id = ? AND (c.market_1 = 'UNKNOWN' OR c.market_2 = 'UNKNOWN')`,
+		`SELECT COUNT(*) FROM backtest_positions c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = ? AND r.user_id = ? AND (c.market_1 = 'UNKNOWN' OR c.market_2 = 'UNKNOWN')`,
+		`SELECT COUNT(*) FROM backtest_candles c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = ? AND r.user_id = ? AND c.market = 'UNKNOWN'`,
 	}
 	total := 0
 	for _, query := range queries {
@@ -752,9 +752,9 @@ func (r *BacktestSyncRepository) countDataQualityIssuesByRunID(runID string, use
 
 func (r *BacktestSyncRepository) getLastSyncedAtByRunID(runID string, userID int) (*time.Time, error) {
 	candidates := []string{
-		`SELECT MAX(c.entry_timestamp) FROM backtest_trades c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = $1 AND r.user_id = $2`,
-		`SELECT MAX(c.entry_timestamp) FROM backtest_positions c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = $1 AND r.user_id = $2`,
-		`SELECT MAX(c.timestamp) FROM backtest_candles c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = $1 AND r.user_id = $2`,
+		`SELECT MAX(c.entry_timestamp) FROM backtest_trades c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = ? AND r.user_id = ?`,
+		`SELECT MAX(c.entry_timestamp) FROM backtest_positions c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = ? AND r.user_id = ?`,
+		`SELECT MAX(c.timestamp) FROM backtest_candles c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = ? AND r.user_id = ?`,
 	}
 	var latest time.Time
 	found := false

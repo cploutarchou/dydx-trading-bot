@@ -29,11 +29,11 @@ Use this file when the task is primarily inside the Go backend service.
 ## Prompts
 
 - `.github/prompts/delegated-bot-api-review.prompt.md`
-- `.github/prompts/postgres-migration-review.prompt.md`
+- `.github/prompts/mysql-migration-review.prompt.md`
 - `.github/prompts/trading-risk-review.prompt.md`
 
 ## Current implementation hotspots (2026-05)
 
 - `internal/routes/bot_api_delegate_routes.go` — delegated contract normalization + backtest route ownership.
 - `internal/repository/backtest_repo.go` — DB-backed backtest list and user-scoped run retrieval.
-- `migrations/postgres/000047`, `000051`, `000053` — transaction-safe index migration posture.
+- `migrations/mysql/000047`, `000051`, `000053` — transaction-safe index migration posture.

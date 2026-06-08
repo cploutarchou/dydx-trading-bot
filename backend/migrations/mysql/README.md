@@ -1,16 +1,16 @@
 # MariaDB/MySQL Migrations
 
-This directory contains database migrations for MariaDB 11.4+ (converted from PostgreSQL).
+This directory contains database migrations for MariaDB 11.4+ (converted from legacy).
 
 ## Structure
 
 - `000N_*.up.sql` — Migration to apply
 - `000N_*.down.sql` — Migration to rollback
 
-## Key Changes from PostgreSQL
+## Key Changes from legacy
 
 ### 1. ENUM Types → Lookup Tables
-PostgreSQL ENUM types have been converted to VARCHAR columns with FOREIGN KEY constraints to lookup tables.
+legacy ENUM types have been converted to VARCHAR columns with FOREIGN KEY constraints to lookup tables.
 
 **Example**:
 ```sql
@@ -25,34 +25,34 @@ ALTER TABLE bot_instance
   ADD CONSTRAINT fk_bot_status FOREIGN KEY (status) REFERENCES bot_status_enum(value);
 ```
 
-### 2. SERIAL/BIGSERIAL → AUTO_INCREMENT
+### 2. AUTO_INCREMENT/BIGINT AUTO_INCREMENT → AUTO_INCREMENT
 All auto-increment columns have been updated:
 ```sql
--- PostgreSQL
-id SERIAL PRIMARY KEY
+-- legacy
+id AUTO_INCREMENT PRIMARY KEY
 
 -- MariaDB
 id INT AUTO_INCREMENT PRIMARY KEY
 ```
 
-### 3. RETURNING Clauses Removed
-PostgreSQL's `RETURNING` clause is not supported in MariaDB. Applications must use `LAST_INSERT_ID()` instead.
+### 3. generated id retrieval Clauses Removed
+legacy's `generated id retrieval` clause is not supported in MariaDB. Applications must use `LAST_INSERT_ID()` instead.
 
-### 4. ON CONFLICT → ON DUPLICATE KEY UPDATE
+### 4. MariaDB duplicate-key handling → ON DUPLICATE KEY UPDATE
 Upsert operations have been converted:
 ```sql
--- PostgreSQL
-ON CONFLICT (column) DO UPDATE SET ...
+-- legacy
+MariaDB duplicate-key handling (column) DO UPDATE SET ...
 
 -- MariaDB
 ON DUPLICATE KEY UPDATE ...
 ```
 
-### 5. JSONB → JSON
+### 5. JSON → JSON
 JSON operations remain similar but some operators and indexes differ.
 
 ### 6. GIN Indexes → FULLTEXT Indexes
-PostgreSQL's GIN (Generalized Inverted Index) has been converted to FULLTEXT where applicable.
+legacy's GIN (Generalized Inverted Index) has been converted to FULLTEXT where applicable.
 
 ## Running Migrations
 
@@ -81,7 +81,7 @@ Each migration should be tested independently:
 
 ## CRITICAL NOTES
 
-⚠️ **Financial Precision**: All DECIMAL(18,8) columns must be tested thoroughly. MariaDB decimal handling differs slightly from PostgreSQL.
+⚠️ **Financial Precision**: All DECIMAL(18,8) columns must be tested thoroughly. MariaDB decimal handling differs slightly from legacy.
 
 ⚠️ **Transaction Isolation**: MariaDB uses different isolation levels by default. Verify backtest concurrency behavior.
 

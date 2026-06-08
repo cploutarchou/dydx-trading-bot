@@ -150,11 +150,10 @@ func (r *RBACRepository) UpsertCustomRole(role, displayName, description string)
 	_, err := r.db.Exec(`
 		INSERT INTO custom_roles (role, display_name, description, is_system, created_at, updated_at)
 		VALUES (?, ?, ?, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-		ON CONFLICT (role) DO UPDATE
-		SET display_name = EXCLUDED.display_name,
-		    description = EXCLUDED.description,
-		    updated_at = CURRENT_TIMESTAMP
-		WHERE custom_roles.is_system = FALSE
+		ON DUPLICATE KEY UPDATE
+			display_name = IF(is_system = FALSE, VALUES(display_name), display_name),
+			description = IF(is_system = FALSE, VALUES(description), description),
+			updated_at = IF(is_system = FALSE, CURRENT_TIMESTAMP, updated_at)
 	`, role, displayName, description)
 	if err != nil {
 		if isRBACSchemaMissing(err) {
@@ -235,7 +234,7 @@ func (r *RBACRepository) ReplaceRolePermissions(role string, permissionKeys []st
 			 SELECT ?, permission_key, CURRENT_TIMESTAMP
 			 FROM permissions
 			 WHERE permission_key = ?
-			 ON CONFLICT (role, permission_key) DO NOTHING`,
+			 ON DUPLICATE KEY UPDATE role = role`,
 			role,
 			permissionKey,
 		); err != nil {

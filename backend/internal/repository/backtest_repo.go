@@ -24,14 +24,13 @@ type BacktestRepository struct {
 
 // NewBacktestRepository creates a BacktestRepository with automatic driver detection
 func NewBacktestRepository(db *sql.DB) *BacktestRepository {
-	// Detect database driver from environment
-	// Try DB_TYPE first (used by config), then DB_DRIVER, default to postgres
+	// Detect database driver from environment.
 	driver := os.Getenv("DB_TYPE")
 	if driver == "" {
 		driver = os.Getenv("DB_DRIVER")
 	}
 	if driver == "" {
-		driver = "postgres" // Default fallback
+		driver = "mysql"
 	}
 
 	return &BacktestRepository{
@@ -48,12 +47,6 @@ func NewBacktestRepositoryWithDriver(db *sql.DB, driver string) *BacktestReposit
 	}
 }
 
-// isMysql checks if the repository is using MySQL or MariaDB
-func (r *BacktestRepository) isMysql() bool {
-	return strings.Contains(strings.ToLower(r.dbDriver), "mysql") ||
-		strings.Contains(strings.ToLower(r.dbDriver), "mariadb")
-}
-
 var errAdvisoryLockUnsupported = errors.New("named locks unsupported")
 
 func backtestAdmissionLockKey(userID int) string {
@@ -65,17 +58,6 @@ func isAdvisoryLockUnsupportedError(err error) bool {
 		return false
 	}
 	lower := strings.ToLower(err.Error())
-	// PostgreSQL: pg_try_advisory_lock doesn't exist
-	if strings.Contains(lower, "function pg_try_advisory_lock") && strings.Contains(lower, "does not exist") {
-		return true
-	}
-	if strings.Contains(lower, "no such function") && strings.Contains(lower, "pg_try_advisory_lock") {
-		return true
-	}
-	// MySQL: GET_LOCK doesn't exist
-	// Handles both:
-	// - "Error 1305 (42000): FUNCTION get_lock does not exist"
-	// - "unknown function get_lock"
 	if strings.Contains(lower, "get_lock") {
 		if strings.Contains(lower, "does not exist") || strings.Contains(lower, "unknown function") {
 			return true
@@ -164,7 +146,7 @@ type CandleFilter struct {
 }
 
 func (r *BacktestRepository) GetRunByID(runID string) (*models.BacktestRun, error) {
-	query := "SELECT id FROM backtest_runs WHERE run_id = $1 LIMIT 1"
+	query := "SELECT id FROM backtest_runs WHERE run_id = ? LIMIT 1"
 
 	run := &models.BacktestRun{}
 	err := r.db.QueryRow(query, runID).Scan(&run.ID)
@@ -179,7 +161,7 @@ func (r *BacktestRepository) GetRunByID(runID string) (*models.BacktestRun, erro
 }
 
 func (r *BacktestRepository) GetRunOwnerID(runID string) (*int, error) {
-	query := "SELECT user_id FROM backtest_runs WHERE run_id = $1 LIMIT 1"
+	query := "SELECT user_id FROM backtest_runs WHERE run_id = ? LIMIT 1"
 
 	var owner sql.NullInt64
 	err := r.db.QueryRow(query, runID).Scan(&owner)
@@ -205,27 +187,23 @@ func (r *BacktestRepository) GetCandles(filter CandleFilter) ([]models.BacktestC
 	query := fmt.Sprintf(`
 		SELECT id, %s AS run_id, market, timestamp, resolution, open_price, high_price, low_price, close_price, volume, trades_count
 		FROM backtest_candles
-		WHERE %s = $1
+		WHERE %s = ?
 	`, fkColumn, fkColumn)
 	args := []interface{}{filter.RunID}
-	argNum := 2
 
 	if filter.Market != "" {
 		query += " AND market = ?"
 		args = append(args, filter.Market)
-		argNum++
 	}
 
 	if filter.StartDate != nil {
 		query += " AND timestamp >= ?"
 		args = append(args, filter.StartDate)
-		argNum++
 	}
 
 	if filter.EndDate != nil {
 		query += " AND timestamp <= ?"
 		args = append(args, filter.EndDate)
-		argNum++
 	}
 
 	query += " ORDER BY timestamp"
@@ -313,21 +291,18 @@ func (r *BacktestRepository) GetPositions(filter PositionFilter) ([]models.Backt
 		       side_1, side_2, size_1, size_2, hedge_ratio,
 		       unrealized_pnl, realized_pnl, entry_timestamp, %s AS exit_timestamp
 		FROM backtest_positions
-		WHERE %s = $1
+		WHERE %s = ?
 	`, fkColumn, exitPrice1Expr, exitPrice2Expr, exitTimestampExpr, fkColumn)
 	args := []interface{}{filter.RunID}
-	argNum := 2
 
 	if filter.Status != "" && filter.Status != "ALL" {
 		query += " AND status = ?"
 		args = append(args, filter.Status)
-		argNum++
 	}
 
 	if filter.Market1 != "" {
 		query += " AND market_1 = ?"
 		args = append(args, filter.Market1)
-		argNum++
 	}
 
 	if filter.Market2 != "" {
@@ -394,8 +369,8 @@ func (r *BacktestRepository) GetPositionCountsByStatus(runID int) (open, closed 
 		return 0, 0, err
 	}
 
-	openQuery := fmt.Sprintf("SELECT COUNT(*) FROM backtest_positions WHERE %s = $1 AND status = 'OPEN'", fkColumn)
-	closedQuery := fmt.Sprintf("SELECT COUNT(*) FROM backtest_positions WHERE %s = $1 AND status = 'CLOSED'", fkColumn)
+	openQuery := fmt.Sprintf("SELECT COUNT(*) FROM backtest_positions WHERE %s = ? AND status = 'OPEN'", fkColumn)
+	closedQuery := fmt.Sprintf("SELECT COUNT(*) FROM backtest_positions WHERE %s = ? AND status = 'CLOSED'", fkColumn)
 
 	err = r.db.QueryRow(openQuery, runID).Scan(&open)
 	if err != nil {
@@ -434,21 +409,18 @@ func (r *BacktestRepository) GetTrades(filter TradeFilter) ([]models.BacktestTra
 		       entry_timestamp, exit_timestamp,
 		       strategy_id, strategy_name, strategy_zscore_threshold
 		FROM backtest_trades
-		WHERE %s = $1
+		WHERE %s = ?
 	`, fkColumn, fkColumn)
 	args := []interface{}{filter.RunID}
-	argNum := 2
 
 	if filter.Market1 != "" {
 		query += " AND market_1 = ?"
 		args = append(args, filter.Market1)
-		argNum++
 	}
 
 	if filter.Market2 != "" {
 		query += " AND market_2 = ?"
 		args = append(args, filter.Market2)
-		argNum++
 	}
 
 	query += " ORDER BY entry_timestamp"
@@ -515,14 +487,12 @@ func (r *BacktestRepository) GetTradesCount(runID int, market1, market2 string) 
 		return 0, err
 	}
 
-	query := fmt.Sprintf("SELECT COUNT(*) FROM backtest_trades WHERE %s = $1", fkColumn)
+	query := fmt.Sprintf("SELECT COUNT(*) FROM backtest_trades WHERE %s = ?", fkColumn)
 	args := []interface{}{runID}
-	argNum := 2
 
 	if market1 != "" {
 		query += " AND market_1 = ?"
 		args = append(args, market1)
-		argNum++
 	}
 
 	if market2 != "" {
@@ -545,7 +515,7 @@ func (r *BacktestRepository) GetUniqueMarkets(runID int) ([]string, error) {
 		return nil, err
 	}
 
-	query := fmt.Sprintf("SELECT DISTINCT market FROM backtest_candles WHERE %s = $1 ORDER BY market", fkColumn)
+	query := fmt.Sprintf("SELECT DISTINCT market FROM backtest_candles WHERE %s = ? ORDER BY market", fkColumn)
 
 	rows, err := r.db.Query(query, runID)
 	if err != nil {
@@ -628,9 +598,9 @@ func (r *BacktestRepository) GetRunsByUserID(userID int, skip int, limit int) ([
 		       COALESCE(error_message, ''), started_at, completed_at, duration_seconds,
 		       created_at
 		FROM backtest_runs
-		WHERE user_id = $1
+		WHERE user_id = ?
 		ORDER BY created_at DESC
-		LIMIT $2 OFFSET $3
+		LIMIT ? OFFSET ?
 	`
 
 	rows, err := r.db.Query(query, userID, limit, skip)
@@ -694,7 +664,7 @@ func (r *BacktestRepository) GetRunsByUserID(userID int, skip int, limit int) ([
 
 func (r *BacktestRepository) CountRunsByUserID(userID int) (int, error) {
 	var count int
-	if err := r.db.QueryRow(`SELECT COUNT(*) FROM backtest_runs WHERE user_id = $1`, userID).Scan(&count); err != nil {
+	if err := r.db.QueryRow(`SELECT COUNT(*) FROM backtest_runs WHERE user_id = ?`, userID).Scan(&count); err != nil {
 		return 0, fmt.Errorf("failed to count backtest runs: %w", err)
 	}
 	return count, nil
@@ -713,9 +683,9 @@ func (r *BacktestRepository) GetExperimentGroupsByUserID(userID int, runScanLimi
 		       COALESCE(total_trades, 0), COALESCE(total_pnl_usd, 0), win_rate,
 		       config, strategy_snapshot
 		FROM backtest_runs
-		WHERE user_id = $1
+		WHERE user_id = ?
 		ORDER BY created_at DESC
-		LIMIT $2
+		LIMIT ?
 	`
 
 	rows, err := r.db.Query(query, userID, runScanLimit)
@@ -949,11 +919,11 @@ func (r *BacktestRepository) GetRunsByStrategyID(userID int, strategyID int, lim
 		       COALESCE(error_message, ''), started_at, completed_at, duration_seconds,
 		       created_at
 		FROM backtest_runs
-		WHERE user_id = $1
-		  AND strategy_id = $2
+		WHERE user_id = ?
+		  AND strategy_id = ?
 		  AND LOWER(COALESCE(status, '')) IN ('completed', 'finished', 'done', 'success', 'succeeded')
 		ORDER BY created_at DESC
-		LIMIT $3
+		LIMIT ?
 	`
 	rows, err := r.db.Query(query, userID, strategyID, limit)
 	if err != nil {
@@ -991,10 +961,7 @@ func (r *BacktestRepository) GetRunsByStrategyID(userID int, strategyID int, lim
 }
 
 func (r *BacktestRepository) CountActiveRunsByUserID(userID int) (int, error) {
-	var query string
-	if r.isMysql() {
-		// MySQL/MariaDB syntax uses ? for parameters
-		query = `
+	query := `
 			SELECT COUNT(*)
 			FROM backtest_runs
 			WHERE user_id = ?
@@ -1004,19 +971,6 @@ func (r *BacktestRepository) CountActiveRunsByUserID(userID int) (int, error) {
 				'paused', 'retry', 'retrying'
 			  )
 		`
-	} else {
-		// PostgreSQL syntax uses $1, $2, etc.
-		query = `
-			SELECT COUNT(*)
-			FROM backtest_runs
-			WHERE user_id = $1
-			  AND LOWER(COALESCE(status, '')) IN (
-				'pending', 'queued', 'created', 'scheduled',
-				'running', 'in_progress', 'processing', 'active',
-				'paused', 'retry', 'retrying'
-			  )
-		`
-	}
 
 	var count int
 	if err := r.db.QueryRow(query, userID).Scan(&count); err != nil {

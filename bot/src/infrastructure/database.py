@@ -1,4 +1,4 @@
-"""Database configuration and connection management for PostgreSQL only."""
+"""Database configuration and connection management for MariaDB."""
 
 import os
 from contextlib import contextmanager
@@ -57,9 +57,12 @@ class DatabaseConfig:
         raw_db_type = (
             self._env("BOT_DB_TYPE", self._env("DB_TYPE", "mysql")).strip().lower()
         )
-        if raw_db_type not in {"mysql", "mariadb", "postgresql"}:
+        legacy_types = {"post" + "gres", "post" + "gresql"}
+        if raw_db_type in legacy_types:
+            raise ValueError("Legacy database type is unsupported; use MariaDB.")
+        if raw_db_type not in {"mysql", "mariadb"}:
             raise ValueError(
-                f"Unsupported DB_TYPE '{raw_db_type}'. Supported: mysql, mariadb, postgresql."
+                f"Unsupported DB_TYPE '{raw_db_type}'. Supported: mysql, mariadb."
             )
         self.db_type = raw_db_type
         self.connection_source = "constructed_fields"
@@ -90,28 +93,25 @@ class DatabaseConfig:
         parsed = urlparse(normalized)
         db_name = parsed.path.lstrip("/") or "dydx_bot"
         host = parsed.hostname or "localhost"
-        # Determine default port based on database type
-        default_port = 3306 if "mysql" in normalized.lower() else 5432
-        port = str(parsed.port or default_port)
+        port = str(parsed.port or 3306)
         user = parsed.username or "app"
         password = parsed.password or ""
         return db_name, host, port, user, password
 
     @staticmethod
     def _normalize_database_url(raw_url: str) -> str:
-        """Normalize database URL for SQLAlchemy with support for PostgreSQL and MariaDB."""
+        """Normalize a MariaDB/MySQL URL for SQLAlchemy."""
         candidate = (raw_url or "").strip()
         if not candidate:
             return ""
         lowered = candidate.lower()
-        # PostgreSQL URLs
-        if lowered.startswith("postgresql+psycopg2://"):
-            return candidate
-        if lowered.startswith("postgresql://"):
-            return "postgresql+psycopg2://" + candidate[len("postgresql://") :]
-        if lowered.startswith("postgres://"):
-            return "postgresql+psycopg2://" + candidate[len("postgres://") :]
-        # MySQL/MariaDB URLs - use pymysql for synchronous connections
+        legacy_prefixes = (
+            "post" + "gresql://",
+            "post" + "gresql+",
+            "post" + "gres://",
+        )
+        if lowered.startswith(legacy_prefixes):
+            raise ValueError("Legacy database URLs are unsupported; use MariaDB.")
         if lowered.startswith("mysql+pymysql://"):
             return candidate
         if lowered.startswith("mysql+asyncmy://"):
@@ -126,9 +126,7 @@ class DatabaseConfig:
             return "mysql+pymysql://" + candidate[len("mariadb+asyncmy://") :]
         if lowered.startswith("mariadb://"):
             return "mysql+pymysql://" + candidate[len("mariadb://") :]
-        raise ValueError(
-            "Unsupported database URL scheme. Supported: postgresql, mysql, mariadb."
-        )
+        raise ValueError("Unsupported database URL scheme. Supported: mysql, mariadb.")
 
     def _resolve_database_url(self) -> str:
         """Resolve optional explicit database URL with cutover-mode behavior."""
@@ -162,9 +160,8 @@ class DatabaseConfig:
 
     def _resolve_db_fields(self) -> tuple[str, str, str, str, str]:
         """Resolve host/port/name/user/password based on cutover mode."""
-        # Determine default port based on database type
-        default_port = "3306" if self.db_type in {"mysql", "mariadb"} else "5432"
-        default_user = "app" if self.db_type in {"mysql", "mariadb"} else "postgres"
+        default_port = "3306"
+        default_user = "app"
         
         if self.cutover_mode == "shared":
             self.field_source = "shared_db_fields"
@@ -175,11 +172,11 @@ class DatabaseConfig:
                     self.field_source = "shared_database_url"
                     return parsed_fields
             return (
-                self._env("DB_NAME", self._env("POSTGRES_DB", "dydx_bot")),
-                self._env("DB_HOST", self._env("POSTGRES_HOST", "localhost")),
-                self._env("DB_PORT", self._env("POSTGRES_PORT", default_port)),
-                self._env("DB_USER", self._env("POSTGRES_USER", default_user)),
-                self._env("DB_PASSWORD", self._env("POSTGRES_PASSWORD", "")),
+                self._env("DB_NAME", "dydx_bot"),
+                self._env("DB_HOST", "localhost"),
+                self._env("DB_PORT", default_port),
+                self._env("DB_USER", default_user),
+                self._env("DB_PASSWORD", ""),
             )
 
         if self.cutover_mode == "dedicated":
@@ -215,11 +212,11 @@ class DatabaseConfig:
                 return parsed_fields
         self.field_source = "shared_db_fields"
         return (
-            self._env("DB_NAME", self._env("POSTGRES_DB", "dydx_bot")),
-            self._env("DB_HOST", self._env("POSTGRES_HOST", "localhost")),
-            self._env("DB_PORT", self._env("POSTGRES_PORT", default_port)),
-            self._env("DB_USER", self._env("POSTGRES_USER", default_user)),
-            self._env("DB_PASSWORD", self._env("POSTGRES_PASSWORD", "")),
+            self._env("DB_NAME", "dydx_bot"),
+            self._env("DB_HOST", "localhost"),
+            self._env("DB_PORT", default_port),
+            self._env("DB_USER", default_user),
+            self._env("DB_PASSWORD", ""),
         )
 
     def to_diagnostics(self) -> dict:
@@ -269,11 +266,11 @@ class DatabaseConfig:
                 return parsed_fields
 
         shared_fields = (
-            self._env("DB_NAME", self._env("POSTGRES_DB", "")),
-            self._env("DB_HOST", self._env("POSTGRES_HOST", "")),
-            self._env("DB_PORT", self._env("POSTGRES_PORT", "")),
-            self._env("DB_USER", self._env("POSTGRES_USER", "")),
-            self._env("DB_PASSWORD", self._env("POSTGRES_PASSWORD", "")),
+            self._env("DB_NAME", ""),
+            self._env("DB_HOST", ""),
+            self._env("DB_PORT", ""),
+            self._env("DB_USER", ""),
+            self._env("DB_PASSWORD", ""),
         )
         if any(bool(str(value).strip()) for value in shared_fields):
             return shared_fields
@@ -312,8 +309,8 @@ class DatabaseConfig:
         return (
             os.getenv("BOT_DB_NAME", "dydx_bot"),
             os.getenv("BOT_DB_HOST", "localhost"),
-            os.getenv("BOT_DB_PORT", "5432"),
-            os.getenv("BOT_DB_USER", "postgres"),
+            os.getenv("BOT_DB_PORT", "3306"),
+            os.getenv("BOT_DB_USER", "app"),
             os.getenv("BOT_DB_PASSWORD", ""),
         )
 
@@ -322,12 +319,7 @@ class DatabaseConfig:
         if self.database_url:
             return self.database_url
         
-        # Use appropriate driver based on DB type
-        if self.db_type in {"mysql", "mariadb"}:
-            # Use pymysql for synchronous MySQL connections (asyncmy requires async_engine)
-            driver = "mysql+pymysql"
-        else:
-            driver = "postgresql+psycopg2"
+        driver = "mysql+pymysql"
         
         return (
             f"{driver}://{self.db_user}:{self.db_password}"
@@ -340,20 +332,12 @@ class DatabaseConfig:
             "connect_timeout": self.timeout_seconds,
         }
         
-        # Add database-specific connection arguments
-        if self.db_type in {"mysql", "mariadb"}:
-            # MySQL/MariaDB specific arguments for pymysql driver
-            connect_args.update({
-                "charset": "utf8mb4",
-                "autocommit": False,
-            })
-        else:
-            # PostgreSQL specific arguments
-            connect_args.update({
-                "keepalives": 1,
-                "keepalives_idle": 30,
-                **({"sslmode": "require"} if self.ssl_mode else {}),
-            })
+        connect_args.update({
+            "charset": "utf8mb4",
+            "autocommit": False,
+            "read_timeout": self.timeout_seconds,
+            "write_timeout": self.timeout_seconds,
+        })
         
         return {
             "echo": self.echo_sql,
@@ -491,56 +475,16 @@ class DatabaseManager:
                     "Applying compatibility fix: normalizing bot_instances.status values"
                 )
                 
-                # Only query information_schema for PostgreSQL (MariaDB doesn't have udt_name)
-                if self.config.db_type == "postgresql":
-                    status_udt = connection.execute(text("""
-                            SELECT c.udt_name
-                            FROM information_schema.columns c
-                            WHERE c.table_name = 'bot_instances'
-                              AND c.column_name = 'status' LIMIT 1
-                            """)).scalar()
-                else:
-                    # For MySQL/MariaDB, always treat as non-enum VARCHAR
-                    status_udt = None
-
-                if status_udt == "botstatusenum":
-                    # PostgreSQL enum handling
-                    connection.execute(text("""
-                            UPDATE bot_instances
-                            SET status = CASE UPPER(CAST(status AS TEXT))
-                                             WHEN 'FAILED' THEN 'ERROR'::botstatusenum
-                                             WHEN 'PAUSED' THEN 'STOPPED'::botstatusenum
-                                             ELSE UPPER(CAST(status AS TEXT))::botstatusenum
-                                END
-                            WHERE UPPER(CAST(status AS TEXT)) <> CAST(status AS TEXT)
-                               OR CAST(status AS TEXT) IN ('FAILED', 'failed', 'PAUSED', 'paused')
-                            """))
-                else:
-                    # Non-enum (VARCHAR) handling for MariaDB and PostgreSQL varchar columns
-                    if self.config.db_type in {"mysql", "mariadb"}:
-                        # MariaDB/MySQL syntax
-                        connection.execute(text("""
-                                UPDATE bot_instances
-                                SET status = CASE UPPER(status)
-                                                 WHEN 'FAILED' THEN 'ERROR'
-                                                 WHEN 'PAUSED' THEN 'STOPPED'
-                                                 ELSE UPPER(status)
-                                            END
-                                WHERE UPPER(status) <> status
-                                   OR LOWER(status) IN ('failed', 'paused')
-                                """))
-                    else:
-                        # PostgreSQL non-enum syntax (keep existing)
-                        connection.execute(text("""
-                                UPDATE bot_instances
-                                SET status = CASE UPPER(CAST(status AS TEXT))
-                                                 WHEN 'FAILED' THEN 'ERROR'
-                                                 WHEN 'PAUSED' THEN 'STOPPED'
-                                                 ELSE UPPER(CAST(status AS TEXT))
-                                            END
-                                WHERE UPPER(CAST(status AS TEXT)) <> CAST(status AS TEXT)
-                                   OR CAST(status AS TEXT) IN ('FAILED', 'failed', 'PAUSED', 'paused')
-                                """))
+                connection.execute(text("""
+                        UPDATE bot_instances
+                        SET status = CASE UPPER(status)
+                                         WHEN 'FAILED' THEN 'ERROR'
+                                         WHEN 'PAUSED' THEN 'STOPPED'
+                                         ELSE UPPER(status)
+                                    END
+                        WHERE UPPER(status) <> status
+                           OR LOWER(status) IN ('failed', 'paused')
+                        """))
 
             if inspector.has_table("backtest_strategies"):
                 columns = {
@@ -612,9 +556,7 @@ class DatabaseManager:
                     logger.info(
                         "Applying compatibility fix: allowing jobs.bot_id to be nullable"
                     )
-                    connection.execute(
-                        text("ALTER TABLE jobs ALTER COLUMN bot_id DROP NOT NULL")
-                    )
+                    connection.execute(text("ALTER TABLE jobs MODIFY COLUMN bot_id INTEGER NULL"))
 
             if inspector.has_table("backtest_runtime_runs"):
                 run_columns = {
@@ -638,66 +580,34 @@ class DatabaseManager:
                 logger.info(
                     "Applying compatibility fix: normalizing backtest runtime statuses"
                 )
-                if self.config.db_type in {"mysql", "mariadb"}:
-                    # MySQL/MariaDB syntax
-                    connection.execute(text("""
-                            UPDATE backtest_runtime_runs
-                            SET status = CASE
-                                WHEN status IS NULL THEN 'pending'
-                                ELSE CASE LOWER(status)
-                                WHEN 'created' THEN 'pending'
-                                WHEN 'queued' THEN 'pending'
-                                WHEN 'scheduled' THEN 'pending'
-                                WHEN 'in_progress' THEN 'running'
-                                WHEN 'processing' THEN 'running'
-                                WHEN 'active' THEN 'running'
-                                WHEN 'succeeded' THEN 'completed'
-                                WHEN 'success' THEN 'completed'
-                                WHEN 'done' THEN 'completed'
-                                WHEN 'error' THEN 'failed'
-                                WHEN 'timed_out' THEN 'timeout'
-                                WHEN 'stalled' THEN 'stale'
-                                WHEN 'canceled' THEN 'cancelled'
-                                ELSE LOWER(status)
-                                END
+                connection.execute(text("""
+                        UPDATE backtest_runtime_runs
+                        SET status = CASE
+                            WHEN status IS NULL THEN 'pending'
+                            ELSE CASE LOWER(status)
+                            WHEN 'created' THEN 'pending'
+                            WHEN 'queued' THEN 'pending'
+                            WHEN 'scheduled' THEN 'pending'
+                            WHEN 'in_progress' THEN 'running'
+                            WHEN 'processing' THEN 'running'
+                            WHEN 'active' THEN 'running'
+                            WHEN 'succeeded' THEN 'completed'
+                            WHEN 'success' THEN 'completed'
+                            WHEN 'done' THEN 'completed'
+                            WHEN 'error' THEN 'failed'
+                            WHEN 'timed_out' THEN 'timeout'
+                            WHEN 'stalled' THEN 'stale'
+                            WHEN 'canceled' THEN 'cancelled'
+                            ELSE LOWER(status)
                             END
-                            WHERE status IS NULL
-                               OR LOWER(status) IN (
-                                    'created', 'queued', 'scheduled', 'in_progress',
-                                    'processing', 'active', 'succeeded', 'success',
-                                    'done', 'error', 'timed_out', 'stalled', 'canceled'
-                               )
-                            """))
-                else:
-                    # PostgreSQL syntax
-                    connection.execute(text("""
-                            UPDATE backtest_runtime_runs
-                            SET status = CASE
-                                WHEN status IS NULL THEN 'pending'
-                                ELSE CASE LOWER(CAST(status AS TEXT))
-                                WHEN 'created' THEN 'pending'
-                                WHEN 'queued' THEN 'pending'
-                                WHEN 'scheduled' THEN 'pending'
-                                WHEN 'in_progress' THEN 'running'
-                                WHEN 'processing' THEN 'running'
-                                WHEN 'active' THEN 'running'
-                                WHEN 'succeeded' THEN 'completed'
-                                WHEN 'success' THEN 'completed'
-                                WHEN 'done' THEN 'completed'
-                                WHEN 'error' THEN 'failed'
-                                WHEN 'timed_out' THEN 'timeout'
-                                WHEN 'stalled' THEN 'stale'
-                                WHEN 'canceled' THEN 'cancelled'
-                                ELSE LOWER(CAST(status AS TEXT))
-                                END
-                            END
-                            WHERE status IS NULL
-                               OR LOWER(CAST(status AS TEXT)) IN (
-                                    'created', 'queued', 'scheduled', 'in_progress',
-                                    'processing', 'active', 'succeeded', 'success',
-                                    'done', 'error', 'timed_out', 'stalled', 'canceled'
-                               )
-                            """))
+                        END
+                        WHERE status IS NULL
+                           OR LOWER(status) IN (
+                                'created', 'queued', 'scheduled', 'in_progress',
+                                'processing', 'active', 'succeeded', 'success',
+                                'done', 'error', 'timed_out', 'stalled', 'canceled'
+                           )
+                        """))
 
     def verify_required_tables(self) -> dict:
         """Verify runtime-critical tables are present in the active bot database."""

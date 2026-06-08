@@ -1,6 +1,6 @@
 ---
 name: "Go Backend Test Conventions"
-description: "Use when creating or modifying Go tests for backend routes, handlers, services, repositories, middleware, delegated bot API behavior, or PostgreSQL-backed behavior in this dYdX backend. Covers test scope, fixtures, auth context, HTTP assertions, persistence checks, and trading-safety edge cases."
+description: "Use when creating or modifying Go tests for backend routes, handlers, services, repositories, middleware, delegated bot API behavior, or MariaDB-backed behavior in this dYdX backend. Covers test scope, fixtures, auth context, HTTP assertions, persistence checks, and trading-safety edge cases."
 applyTo: ["cmd/**/*_test.go", "config/**/*_test.go", "internal/**/*_test.go"]
 ---
 

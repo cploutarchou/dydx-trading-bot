@@ -231,7 +231,6 @@ func buildBotReadinessSummary(snapshot gin.H) gin.H {
 		action = "run or repair the bot service database migrations before marking the backend ready"
 	} else if strings.Contains(reasonText, "database") ||
 		strings.Contains(reasonText, "db") ||
-		strings.Contains(reasonText, "postgres") ||
 		strings.Contains(reasonText, "connection refused") ||
 		strings.Contains(reasonText, "connect") {
 		reason = "bot_database_unavailable"

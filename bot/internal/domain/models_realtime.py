@@ -103,9 +103,7 @@ class MarketData(Base):
     )
 
     __table_args__ = (
-        {
-            "schema": None
-        },  # Uses the default PostgreSQL schema unless configured otherwise.
+        {"schema": None},
     )
 
 

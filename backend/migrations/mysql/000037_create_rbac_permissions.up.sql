@@ -1,6 +1,4 @@
 -- Migration 000037: Create RBAC permissions tables (MySQL/MariaDB version)
--- Converted from: backend/migrations/postgres/000037_create_rbac_permissions.up.sql
--- Changes: BIGSERIAL → BIGINT AUTO_INCREMENT, ON CONFLICT → INSERT IGNORE
 
 CREATE TABLE IF NOT EXISTS permissions (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -17,7 +15,7 @@ CREATE TABLE IF NOT EXISTS role_permissions (
     permission_key VARCHAR(100) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(role, permission_key),
-    FOREIGN KEY (permission_key) ON DELETE CASCADE
+    KEY idx_fk_permission_key (permission_key)
 );
 
 CREATE TABLE IF NOT EXISTS user_permission_overrides (
@@ -30,15 +28,15 @@ CREATE TABLE IF NOT EXISTS user_permission_overrides (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, permission_key),
-    FOREIGN KEY (user_id),
-    FOREIGN KEY (permission_key),
-    FOREIGN KEY (granted_by_user_id)
+    KEY idx_fk_user_id (user_id),
+    KEY idx_fk_permission_key (permission_key),
+    KEY idx_fk_granted_by_user_id (granted_by_user_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_role_permissions_role ON role_permissions(role);
 CREATE INDEX IF NOT EXISTS idx_user_permission_overrides_user ON user_permission_overrides(user_id);
 
--- Insert permissions using INSERT IGNORE instead of ON CONFLICT DO NOTHING
+-- Insert permissions using INSERT IGNORE instead of idempotent duplicate handling
 INSERT IGNORE INTO permissions (permission_key, description, is_sensitive) VALUES
     ('crm.read', 'Read CRM dashboards and operational datasets', 0),
     ('crm.write', 'Write CRM operational data', 1),
@@ -55,7 +53,7 @@ INSERT IGNORE INTO permissions (permission_key, description, is_sensitive) VALUE
     ('crm.admin.manage', 'Manage CRM operators and admin-level CRM settings', 1);
 
 -- Insert role permissions using INSERT IGNORE
--- This approach mimics the PostgreSQL VALUES clause behavior
+-- This approach mimics the legacy VALUES clause behavior
 INSERT IGNORE INTO role_permissions (role, permission_key) VALUES
     ('admin', 'crm.read'),
     ('admin', 'crm.write'),

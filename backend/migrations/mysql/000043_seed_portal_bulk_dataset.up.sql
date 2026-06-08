@@ -1,2 +1,2 @@
--- Migration disabled: Complex PostgreSQL-specific syntax
+-- Migration disabled: Complex legacy syntax
 -- Original migration: 000043_seed_portal_bulk_dataset.up.sql

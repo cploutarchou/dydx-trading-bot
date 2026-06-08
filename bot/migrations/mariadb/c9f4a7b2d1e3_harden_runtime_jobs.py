@@ -17,7 +17,7 @@ Lock/performance risk:
 - Low for normal bot-service table sizes; ALTER TABLE takes brief metadata locks.
 
 Downgrade plan:
-- Drops the observability-only columns added by this revision. Compatibility columns and PostgreSQL enum values are
+- Drops the observability-only columns added by this revision. Compatibility columns are
   intentionally retained because older deployments may already depend on them.
 
 Rollout and rollback notes:
@@ -56,15 +56,8 @@ def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
 
-    if bind.dialect.name == "postgresql":
-        for value in ("RECOVERING", "DEGRADED", "SAFEGUARDED"):
-            op.execute(sa.text(f"ALTER TYPE botstatusenum ADD VALUE IF NOT EXISTS '{value}'"))
-        op.execute(sa.text("ALTER TYPE jobstatusenum ADD VALUE IF NOT EXISTS 'PENDING'"))
-
     if inspector.has_table("jobs"):
-        metadata_default = (
-            sa.text("'{}'::json") if bind.dialect.name == "postgresql" else sa.text("'{}'")
-        )
+        metadata_default = sa.text("'{}'")
         _add_column_if_missing("jobs", "bot_id", sa.Column("bot_id", sa.Integer(), nullable=True))
         _add_column_if_missing("jobs", "config", sa.Column("config", sa.JSON(), nullable=True))
         _add_column_if_missing("jobs", "error_traceback", sa.Column("error_traceback", sa.Text(), nullable=True))
@@ -84,7 +77,7 @@ def upgrade() -> None:
         _add_column_if_missing("jobs", "updated_at", sa.Column("updated_at", sa.DateTime(), nullable=True))
 
         columns = {item["name"] for item in sa.inspect(bind).get_columns("jobs")}
-        if "bot_id" in columns and bind.dialect.name == "postgresql":
+        if "bot_id" in columns:
             op.alter_column("jobs", "bot_id", existing_type=sa.Integer(), nullable=True)
         if "bot_instance_id" in columns and "bot_id" in columns:
             op.execute(sa.text("UPDATE jobs SET bot_id = COALESCE(bot_id, bot_instance_id)"))

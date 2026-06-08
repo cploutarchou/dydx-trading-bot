@@ -8,7 +8,7 @@ The bot service is the Python runtime that manages bot instances, live strategy 
 - manage bot and strategy runtime lifecycles
 - connect to dYdX testnet or mainnet
 - execute live trading and backtest workflows
-- persist runtime state into the bot-dedicated PostgreSQL database
+- persist runtime state into the bot-dedicated MariaDB database
 - publish websocket events for runtime and backtest progress
 
 ## Entry Points
@@ -22,7 +22,7 @@ The bot service is the Python runtime that manages bot instances, live strategy 
 ## Local Runtime
 
 - API port: `8889`
-- dedicated database: bot PostgreSQL on `5433`
+- dedicated database: bot MariaDB on `3307`
 - config source: root `run.json`
 - preferred DB mode: `BOT_DB_CUTOVER_MODE=dedicated`
 
@@ -59,7 +59,7 @@ Suggested daily workflow:
 
 ## Runtime Model
 
-The bot manager owns process lifecycle. Bot instances run as isolated subprocesses; PostgreSQL is the source of truth for
+The bot manager owns process lifecycle. Bot instances run as isolated subprocesses; MariaDB is the source of truth for
 instance status, lifecycle events, supervised job state, and backtest progress. `bot_states/` is kept only for generated
 subprocess log output and temporary/debug state artifacts.
 

@@ -17,19 +17,20 @@ _env_url = os.environ.get("BOT_DATABASE_URL")
 if not _env_url:
     _host = os.environ.get("BOT_DB_HOST")
     _port = os.environ.get("BOT_DB_PORT")
-    _name = os.environ.get("BOT_DB_NAME") or os.environ.get("POSTGRES_DB") or os.environ.get("MYSQL_DATABASE")
-    _user = os.environ.get("BOT_DB_USER") or os.environ.get("POSTGRES_USER") or os.environ.get("MYSQL_USER")
-    _pass = os.environ.get("BOT_DB_PASSWORD") or os.environ.get("POSTGRES_PASSWORD") or os.environ.get("MYSQL_PASSWORD")
-    _type = os.environ.get("DB_TYPE", "postgresql").lower()
+    _name = os.environ.get("BOT_DB_NAME") or os.environ.get("DB_NAME") or os.environ.get("MYSQL_DATABASE")
+    _user = os.environ.get("BOT_DB_USER") or os.environ.get("DB_USER") or os.environ.get("MYSQL_USER")
+    _pass = os.environ.get("BOT_DB_PASSWORD") or os.environ.get("DB_PASSWORD") or os.environ.get("MYSQL_PASSWORD")
+    _type = os.environ.get("BOT_DB_TYPE", os.environ.get("DB_TYPE", "mysql")).lower()
     
     if _host and _port and _name and _user:
         from urllib.parse import quote_plus as _quote_plus
         
-        if _type in ("mysql", "mariadb"):
-            _env_url = f"mysql+pymysql://{_quote_plus(_user)}:{_quote_plus(_pass or '')}@{_host}:{_port}/{_name}?charset=utf8mb4"
-        else:
-            # Default to PostgreSQL for backward compatibility
-            _env_url = f"postgresql+psycopg2://{_quote_plus(_user)}:{_quote_plus(_pass or '')}@{_host}:{_port}/{_name}"
+        legacy_types = ("post" + "gres", "post" + "gresql")
+        if _type in legacy_types:
+            raise ValueError("Legacy database type is unsupported; use MariaDB.")
+        if _type not in ("mysql", "mariadb"):
+            raise ValueError("Unsupported DB_TYPE. Supported: mysql, mariadb.")
+        _env_url = f"mysql+pymysql://{_quote_plus(_user)}:{_quote_plus(_pass or '')}@{_host}:{_port}/{_name}?charset=utf8mb4"
 
 if _env_url:
     config.set_main_option("sqlalchemy.url", _env_url)

@@ -11,7 +11,7 @@ import (
 )
 
 // StrategyRepository handles strategy database operations.
-// Schema is fully managed by PostgreSQL migrations — no runtime ALTER TABLE patching.
+// Schema is fully managed by MariaDB migrations — no runtime ALTER TABLE patching.
 type StrategyRepository struct {
 	db *sql.DB
 }

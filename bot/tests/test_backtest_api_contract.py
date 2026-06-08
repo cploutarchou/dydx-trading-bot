@@ -1224,14 +1224,13 @@ def test_api_response_sanitizes_internal_error_details():
 
     response = server.api_response(
         success=False,
-        message="Internal server error: (psycopg2.OperationalError) db exploded",
+        message="Internal server error: (pymysql.OperationalError) db exploded",
         status_code=500,
     )
     payload = json.loads(response.body)
 
     assert payload["message"] == "Internal server error"
-    # Verify error details are redacted (works for both psycopg2 and pymysql)
-    assert "psycopg2" not in payload["message"]
+    # Verify error details are redacted.
     assert "pymysql" not in payload["message"]
     assert "OperationalError" not in payload["message"]
 
@@ -1304,13 +1303,13 @@ def test_runtime_db_config_endpoint_returns_sanitized_payload(monkeypatch):
     class _FakeDbConfig:
         def to_diagnostics(self):
             return {
-                "db_type": "postgresql",
+                "db_type": "mariadb",
                 "cutover_mode": "shared",
                 "connection_source": "shared_db_fields",
                 "field_source": "shared_db_fields",
                 "database_url_configured": False,
                 "host": "localhost",
-                "port": "5432",
+                "port": "3306",
                 "name": "dydx_bot",
                 "user": "dydx_bot",
                 "password_configured": True,
@@ -1328,8 +1327,7 @@ def test_runtime_db_config_endpoint_returns_sanitized_payload(monkeypatch):
     payload = json.loads(response.body)
 
     assert payload["success"] is True
-    # db_type can be either postgresql or mysql/mariadb
-    assert payload["data"]["db_type"] in ("postgresql", "mysql", "mariadb")
+    assert payload["data"]["db_type"] in ("mysql", "mariadb")
     assert payload["data"]["password_configured"] is True
     assert payload["data"]["max_connections"] == 10
     assert payload["data"]["count"] == 1

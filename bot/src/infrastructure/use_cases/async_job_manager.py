@@ -181,7 +181,6 @@ class AsyncJobManager:
                 "DATABASE_URL",
                 "BOT_DB_HOST",
                 "DB_HOST",
-                "POSTGRES_HOST",
             )
         )
 

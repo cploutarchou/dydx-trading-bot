@@ -49,39 +49,6 @@ func normalizeDBTarget(target DatabaseTarget) DatabaseTarget {
 	return target
 }
 
-func parsePostgresTarget(rawURL string, source string) (*DatabaseTarget, bool) {
-	candidate := strings.TrimSpace(rawURL)
-	if candidate == "" {
-		return nil, false
-	}
-
-	// Keep postgres:// compatibility with existing env conventions.
-	if strings.HasPrefix(strings.ToLower(candidate), "postgres://") {
-		candidate = "postgresql://" + candidate[len("postgres://"):]
-	}
-
-	parsed, err := url.Parse(candidate)
-	if err != nil {
-		return nil, false
-	}
-
-	scheme := strings.ToLower(parsed.Scheme)
-	if scheme != "postgres" && scheme != "postgresql" {
-		return nil, false
-	}
-
-	target := normalizeDBTarget(DatabaseTarget{
-		Host:   parsed.Hostname(),
-		Port:   parsed.Port(),
-		Name:   strings.TrimPrefix(parsed.Path, "/"),
-		Source: source,
-	})
-	if target.Port == "" {
-		target.Port = "5432"
-	}
-	return &target, true
-}
-
 func parseMySQLTarget(rawURL string, source string) (*DatabaseTarget, bool) {
 	candidate := strings.TrimSpace(rawURL)
 	if candidate == "" {
@@ -111,11 +78,6 @@ func parseMySQLTarget(rawURL string, source string) (*DatabaseTarget, bool) {
 }
 
 func parseAnyDatabaseTarget(rawURL string, source string) (*DatabaseTarget, bool) {
-	// Try PostgreSQL first
-	if target, ok := parsePostgresTarget(rawURL, source); ok {
-		return target, true
-	}
-	// Then try MySQL/MariaDB
 	if target, ok := parseMySQLTarget(rawURL, source); ok {
 		return target, true
 	}
@@ -127,9 +89,9 @@ func resolveSharedDBTargetFromEnv() (*DatabaseTarget, bool) {
 		return target, true
 	}
 
-	host := strings.TrimSpace(firstNonEmpty(os.Getenv("DB_HOST"), os.Getenv("POSTGRES_HOST"), "localhost"))
-	port := strings.TrimSpace(firstNonEmpty(os.Getenv("DB_PORT"), os.Getenv("POSTGRES_PORT"), "5432"))
-	name := strings.TrimSpace(firstNonEmpty(os.Getenv("DB_NAME"), os.Getenv("POSTGRES_DB"), "dydx_bot"))
+	host := strings.TrimSpace(firstNonEmpty(os.Getenv("DB_HOST"), "localhost"))
+	port := strings.TrimSpace(firstNonEmpty(os.Getenv("DB_PORT"), "3306"))
+	name := strings.TrimSpace(firstNonEmpty(os.Getenv("DB_NAME"), "dydx_bot"))
 
 	target := normalizeDBTarget(DatabaseTarget{
 		Host:   host,

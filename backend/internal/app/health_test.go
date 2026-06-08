@@ -12,7 +12,7 @@ func TestBuildBotReadinessSummary_ClassifiesBotDatabaseUnavailable(t *testing.T)
 		"error":       "",
 		"payload": map[string]interface{}{
 			"ready":   false,
-			"message": "bot database unavailable: dial tcp 10.0.0.5:5432: connect: connection refused",
+			"message": "bot database unavailable: dial tcp 10.0.0.5:3306: connect: connection refused",
 		},
 	}
 
@@ -70,13 +70,13 @@ func TestBuildDependencySnapshot_RedactsSecretsFromURLAndPayload(t *testing.T) {
 	}
 }
 
-func TestBuildDependencySnapshot_RedactsPostgreSQLSecrets(t *testing.T) {
+func TestBuildDependencySnapshot_RedactsDatabaseURLSecrets(t *testing.T) {
 	payload := map[string]interface{}{
-		"database_url": "postgres://bot_user:super-secret@db.local:5432/bot",
+		"database_url": "mysql://bot_user:super-secret@db.local:3306/bot",
 	}
 
 	sanitized := sanitizeDependencyPayload(payload).(map[string]interface{})
 	if sanitized["database_url"] != "redacted" {
-		t.Fatalf("expected PostgreSQL database_url to be redacted, got %+v", sanitized)
+		t.Fatalf("expected database_url to be redacted, got %+v", sanitized)
 	}
 }

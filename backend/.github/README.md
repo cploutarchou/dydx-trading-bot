@@ -13,7 +13,7 @@ These customizations are split into three types:
 ### Skills
 
 - [`skills/go-api-db-crypto-trading/SKILL.md`](./skills/go-api-db-crypto-trading/SKILL.md)
-  - Main senior-backend workflow for Go API, PostgreSQL, delegated bot API behavior, and crypto trading tasks
+  - Main senior-backend workflow for Go API, MariaDB, delegated bot API behavior, and crypto trading tasks
   - Use for implementation, debugging, design review, migrations, and trading-aware backend changes
   - Invoke with `/go-api-db-crypto-trading`
 
@@ -23,9 +23,9 @@ These customizations are split into three types:
   - Focused review for execution safety, retries, idempotency, precision, and trading-domain risk
   - Invoke with `/trading-risk-review`
 
-- [`prompts/postgres-migration-review.prompt.md`](./prompts/postgres-migration-review.prompt.md)
+- [`prompts/mysql-migration-review.prompt.md`](./prompts/mysql-migration-review.prompt.md)
   - Focused review for migrations, schema changes, indexes, constraints, and rollout safety
-  - Invoke with `/postgres-migration-review`
+  - Invoke with `/mysql-migration-review`
 
 - [`prompts/delegated-bot-api-review.prompt.md`](./prompts/delegated-bot-api-review.prompt.md)
   - Focused review for delegated bot API behavior, upstream proxying, auth forwarding, service-token mode, WebSocket relays, and compatibility routes
@@ -35,7 +35,7 @@ These customizations are split into three types:
 
 - [`instructions/go-backend-api.instructions.md`](./instructions/go-backend-api.instructions.md)
   - Auto-applies to backend Go code under `cmd/**/*.go`, `config/**/*.go`, and `internal/**/*.go`
-  - Reinforces layered architecture, Gin auth context, PostgreSQL-safe changes, delegated bot API behavior, and trading safety
+  - Reinforces layered architecture, Gin auth context, MariaDB-safe changes, delegated bot API behavior, and trading safety
 
 - [`instructions/go-tests.instructions.md`](./instructions/go-tests.instructions.md)
   - Auto-applies to backend Go test files under `cmd/**/*_test.go`, `config/**/*_test.go`, and `internal/**/*_test.go`
@@ -60,7 +60,7 @@ Prompts are best for focused reviews.
 Examples:
 
 - `/trading-risk-review review the bot instance changes for duplicate execution risk`
-- `/postgres-migration-review review this migration for rollout and index safety`
+- `/mysql-migration-review review this migration for rollout and index safety`
 - `/delegated-bot-api-review inspect bot_api_delegate_routes.go for auth forwarding and websocket compatibility`
 
 ## When things load automatically

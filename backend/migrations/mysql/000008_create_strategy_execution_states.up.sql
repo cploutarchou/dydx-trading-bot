@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS strategy_execution_states
   win_rate                 FLOAT         DEFAULT NULL,
   created_at               TIMESTAMP     DEFAULT NULL,
   updated_at               TIMESTAMP     DEFAULT NULL,
-  FOREIGN KEY (strategy_id)
+  KEY idx_fk_strategy_id (strategy_id)
 );
 
 CREATE INDEX idx_execution_state_status ON strategy_execution_states (strategy_id, status);

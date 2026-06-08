@@ -1,6 +1,4 @@
 -- Create audit_logs table (MySQL/MariaDB version)
--- Converted from: backend/migrations/postgres/000003_create_audit_logs.up.sql
--- Changes: SERIAL → AUTO_INCREMENT, JSON column type
 
 CREATE TABLE IF NOT EXISTS audit_logs
 (
@@ -13,7 +11,7 @@ CREATE TABLE IF NOT EXISTS audit_logs
   status        VARCHAR(20)  DEFAULT NULL,
   ip_address    VARCHAR(50)  DEFAULT NULL,
   created_at    TIMESTAMP    NULL DEFAULT NULL,
-  FOREIGN KEY (user_id)
+  KEY idx_fk_user_id (user_id)
 );
 
 CREATE INDEX idx_audit_resource ON audit_logs (resource_type, resource_id);

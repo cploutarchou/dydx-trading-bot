@@ -87,7 +87,7 @@ This document provides a comprehensive assessment of all agents, skills, prompts
 | Prompt | Service | Status |
 |--------|---------|--------|
 | `backend/.github/prompts/delegated-bot-api-review.prompt.md` | Backend | ✅ Active |
-| `backend/.github/prompts/postgres-migration-review.prompt.md` | Backend | ✅ Active |
+| `backend/.github/prompts/mysql-migration-review.prompt.md` | Backend | ✅ Active |
 | `backend/.github/prompts/trading-risk-review.prompt.md` | Backend | ✅ Active |
 | `bot/.github/prompts/improve-project.prompt.md` | Bot | ✅ Active |
 | `bot/.github/prompts/review-migration.prompt.md` | Bot | ✅ Active |
@@ -178,7 +178,7 @@ This document provides a comprehensive assessment of all agents, skills, prompts
 | API & backend orchestration | `senior-go-defi-backend`, `go-api-db-crypto-trading` | ✅ Complete |
 | Frontend UX & dashboards | `senior-react-defi-product`, `senior-ux-designer` | ✅ Complete |
 | CI/CD & deployments | `senior-deploy-github-actions`, `deployment-github-actions` | ✅ Complete |
-| Database & persistence | `go-api-db-crypto-trading`, `postgres-migration-review` | ✅ Complete |
+| Database & persistence | `go-api-db-crypto-trading`, `mysql-migration-review` | ✅ Complete |
 | Live data & websockets | `frontend-live-data-safety`, `delegated-bot-api-review` | ✅ Complete |
 | Production audits & risk | `senior-prod-backtest-defi-auditor`, `defi-risk-review` | ✅ Complete |
 | Configuration management | None (candidate for new skill) | ⚠️ Partial |

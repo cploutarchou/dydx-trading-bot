@@ -11,13 +11,13 @@ from pathlib import Path
 from secure_config import load_json, normalize_environment_name, resolve_profile_file
 
 REQUIRED_KEYS = [
-    "POSTGRES_PORT",
+    "DB_PORT",
     "REDIS_PORT",
     "API_PORT",
     "PROXY_HTTP_PORT",
-    "POSTGRES_USER",
-    "POSTGRES_PASSWORD",
-    "POSTGRES_DB",
+    "DB_USER",
+    "DB_PASSWORD",
+    "DB_NAME",
     "SECRET_KEY",
     "API_BYPASS_AUTH",
     "ENVIRONMENT",

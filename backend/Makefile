@@ -1,6 +1,6 @@
 # Makefile for dYdX Trading Bot Backend
 
-.PHONY: help help-check doctor build run test clean lint lint-full fmt vet install-tools docker-build docker-run migrate-up migrate-down dev dev-env tasks-summary tasks-validate tasks-governance
+.PHONY: help help-check doctor build run test clean lint lint-full fmt vet install-tools docker-build docker-run migrate-up migrate-down migrate-status dev dev-env tasks-summary tasks-validate tasks-governance
 
 # Variables
 BINARY_NAME=dydx-bot
@@ -87,9 +87,7 @@ doctor:
 	else \
 		echo "$(CYAN)migrate CLI not installed; run make install-tools if you need manual migrations$(NC)"; \
 	fi
-	@if [ -z "$$DATABASE_URL" ]; then \
-		echo "$(CYAN)DATABASE_URL is not set; make migrate-up/down will require it$(NC)"; \
-	fi
+	@echo "$(CYAN)MariaDB is the only supported production database; set DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD$(NC)"
 	@echo "$(GREEN)✓ Doctor checks complete$(NC)"
 
 ## build: Build the application binary
@@ -216,9 +214,9 @@ install-tools:
 	@if ! command -v air > /dev/null; then \
 		go install github.com/air-verse/air@v1.61.7; \
 	fi
-	@echo "Installing golang-migrate..."
+	@echo "Installing golang-migrate with MariaDB/MySQL support..."
 	@if ! command -v migrate > /dev/null; then \
-		go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.0; \
+		go install -tags 'mysql' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.0; \
 	fi
 	@echo "Installing mockgen..."
 	@if ! command -v mockgen > /dev/null; then \
@@ -229,22 +227,18 @@ install-tools:
 ## migrate-up: Run database migrations up
 migrate-up:
 	@echo "$(CYAN)Running migrations up...$(NC)"
-	@if [ -z "$$DATABASE_URL" ]; then \
-		echo "$(RED)DATABASE_URL must be set for PostgreSQL migrations$(NC)"; \
-		exit 1; \
-	fi; \
-	$(MIGRATE) -path migrations/postgres -database "$$DATABASE_URL" up
+	$(GO) run ./cmd/migrate up
 	@echo "$(GREEN)✓ Migrations complete$(NC)"
 
 ## migrate-down: Rollback database migrations
 migrate-down:
 	@echo "$(CYAN)Rolling back migrations...$(NC)"
-	@if [ -z "$$DATABASE_URL" ]; then \
-		echo "$(RED)DATABASE_URL must be set for PostgreSQL migrations$(NC)"; \
-		exit 1; \
-	fi; \
-	$(MIGRATE) -path migrations/postgres -database "$$DATABASE_URL" down 1
+	$(GO) run ./cmd/migrate down 1
 	@echo "$(GREEN)✓ Rollback complete$(NC)"
+
+## migrate-status: Show current database migration version
+migrate-status:
+	$(GO) run ./cmd/migrate status
 
 ## migrate-create: Create new migration file (usage: make migrate-create NAME=migration_name)
 migrate-create:
@@ -253,7 +247,7 @@ migrate-create:
 		exit 1; \
 	fi
 	@echo "$(CYAN)Creating migration: $(NAME)...$(NC)"
-	$(MIGRATE) create -ext sql -dir migrations/postgres -seq $(NAME)
+	$(MIGRATE) create -ext sql -dir migrations/mysql -seq $(NAME)
 	@echo "$(GREEN)✓ Migration files created$(NC)"
 
 ## tasks-summary: Recompute Completed/Pending summary counts in backend/bot/frontend tasks.md files

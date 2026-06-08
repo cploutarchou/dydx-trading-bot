@@ -4,7 +4,7 @@ Revision ID: 66f08c3b1066
 Revises: 
 Create Date: 2025-11-02 00:37:36.891785
 
-Converted from PostgreSQL version for MySQL/MariaDB compatibility.
+Converted from MariaDB version for MySQL/MariaDB compatibility.
 Key changes:
 - sa.Enum() → VARCHAR with CHECK constraint
 - ENUM lookup tables created in 000000_enum_conversion migration

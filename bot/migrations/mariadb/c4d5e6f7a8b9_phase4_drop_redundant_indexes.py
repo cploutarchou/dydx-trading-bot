@@ -6,8 +6,8 @@ Create Date: 2026-05-01 00:00:00.000000
 
 Audit source: DBA audit report 2026-05-01, Section 3.1.
 
-⚠️  PREREQUISITE: Verify idx_scan = 0 for all listed indexes via pg_stat_user_indexes
-    over a representative window of ≥ 2 weeks on the live database before applying.
+PREREQUISITE: Verify the listed indexes are redundant for MariaDB query plans
+over a representative window of at least 2 weeks on the live database before applying.
 
 Changes (Alembic-managed tables only):
 - jobs: drop ix_jobs_job_id is UNIQUE — KEEP (functionally required). Drop ix_job_created
@@ -40,7 +40,13 @@ depends_on: Union[str, Sequence[str], None] = None
 def _index_exists(bind, index_name: str) -> bool:
     result = bind.execute(
         sa.text(
-            "SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = :name"
+            """
+            SELECT 1
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND INDEX_NAME = :name
+            LIMIT 1
+            """
         ),
         {"name": index_name},
     )
@@ -73,21 +79,17 @@ _DROPS = [
 
 def upgrade() -> None:
     bind = op.get_bind()
-    if bind.dialect.name != "postgresql":
-        return
 
     for table_name, index_name, _restore_sql in _DROPS:
         if not _table_exists(bind, table_name):
             continue
         if not _index_exists(bind, index_name):
             continue
-        op.execute(sa.text(f"DROP INDEX IF EXISTS {index_name}"))
+        op.execute(sa.text(f"DROP INDEX {index_name} ON {table_name}"))
 
 
 def downgrade() -> None:
     bind = op.get_bind()
-    if bind.dialect.name != "postgresql":
-        return
 
     for table_name, index_name, restore_sql in _DROPS:
         if not _table_exists(bind, table_name):

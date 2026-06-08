@@ -1,6 +1,4 @@
 -- Create dydx_keys table (MySQL/MariaDB version)
--- Converted from: backend/migrations/postgres/000007_create_dydx_keys.up.sql
--- Changes: SERIAL → AUTO_INCREMENT
 
 CREATE TABLE IF NOT EXISTS dydx_keys
 (
@@ -14,7 +12,7 @@ CREATE TABLE IF NOT EXISTS dydx_keys
   is_active        TINYINT(1)      NOT NULL,
   created_at       TIMESTAMP    NOT NULL,
   updated_at       TIMESTAMP    NOT NULL,
-  FOREIGN KEY (user_id),
+  KEY idx_fk_user_id (user_id),
   UNIQUE (user_id, network)
 );
 

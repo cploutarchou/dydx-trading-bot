@@ -22,9 +22,9 @@ func TestUpsertBacktestRunPreservesErrorMessageWhenPayloadNil(t *testing.T) {
 				if len(args) < 12 {
 					t.Fatalf("expected at least 12 args for UPDATE, got %d", len(args))
 				}
-				// $12 is the error_message value; must be nil when ErrorMessage.Valid == false
+				// ? is the error_message value; must be nil when ErrorMessage.Valid == false
 				if args[11].Value != nil {
-					t.Fatalf("expected error_message arg $12 to be nil, got %#v", args[11].Value)
+					t.Fatalf("expected error_message arg ? to be nil, got %#v", args[11].Value)
 				}
 			},
 			result: driver.RowsAffected(1),
@@ -68,7 +68,7 @@ func TestUpsertBacktestRunInsertsWhenNoRowsUpdated(t *testing.T) {
 			assertArgs: func(t *testing.T, args []driver.NamedValue) {
 				t.Helper()
 				if len(args) < 1 || args[0].Value != "run-new-1" {
-					t.Fatalf("expected run_id run-new-1 as $1, got %#v", args[0].Value)
+					t.Fatalf("expected run_id run-new-1 as ?, got %#v", args[0].Value)
 				}
 			},
 			result: driver.RowsAffected(1),

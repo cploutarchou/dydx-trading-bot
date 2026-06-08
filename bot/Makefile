@@ -255,7 +255,7 @@ logs-api: ## Show API server logs
 
 .PHONY: logs-db
 logs-db: ## Show database logs
-	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) logs -f postgres
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) logs -f mariadb
 
 .PHONY: logs-nginx
 logs-nginx: ## Show Nginx logs
@@ -268,13 +268,13 @@ logs-nginx: ## Show Nginx logs
 .PHONY: db-shell
 db-shell: ## Connect to database shell
 	@echo "$(CYAN)🗄️  Connecting to database...$(RESET)"
-	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec postgres psql -U botuser -d dydx_trading_bot
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec mariadb mariadb -u botuser -pdydx_trading_bot dydx_trading_bot
 
 .PHONY: db-backup
 db-backup: ## Backup database
 	@echo "$(CYAN)💾 Creating database backup...$(RESET)"
 	@mkdir -p backups
-	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec postgres pg_dump -U botuser -d dydx_trading_bot | gzip > backups/backup_$(shell date +%Y%m%d_%H%M%S).sql.gz
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec mariadb mariadb-dump -u botuser -pdydx_trading_bot dydx_trading_bot | gzip > backups/backup_$(shell date +%Y%m%d_%H%M%S).sql.gz
 	@echo "$(GREEN)✅ Database backup created in backups/$(RESET)"
 
 .PHONY: db-reset
@@ -283,10 +283,10 @@ db-reset: ## Reset database (WARNING: deletes all data)
 	@read -p "Are you sure you want to reset the database? (y/N): " -n 1 -r; \
 	echo; \
 	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
-		docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) stop postgres; \
-		docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) rm -f postgres; \
-		docker volume rm $(PROJECT_NAME)_postgres_data || true; \
-		docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) up -d postgres; \
+		docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) stop mariadb; \
+		docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) rm -f mariadb; \
+		docker volume rm $(PROJECT_NAME)_mariadb_data || true; \
+		docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) up -d mariadb; \
 		sleep 10; \
 		$(MAKE) init-auth; \
 		echo "$(GREEN)✅ Database reset complete$(RESET)"; \
@@ -308,7 +308,7 @@ shell-nginx: ## Open shell in Nginx container
 
 .PHONY: shell-db
 shell-db: ## Open shell in database container
-	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec postgres /bin/bash
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec mariadb /bin/bash
 
 # =============================================================================
 # SECURITY COMMANDS
@@ -334,7 +334,7 @@ health: ## Check health of all services
 	@curl -s http://localhost:8000/auth/health | jq '.' 2>/dev/null || echo "  ❌ Not accessible"
 	@echo ""
 	@echo "$(GREEN)Database:$(RESET)"
-	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec postgres pg_isready -U botuser 2>/dev/null && echo "  ✅ Healthy" || echo "  ❌ Not healthy"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec mariadb mariadb-admin ping -h 127.0.0.1 -u botuser -pdydx_trading_bot --silent 2>/dev/null && echo "  ✅ Healthy" || echo "  ❌ Not healthy"
 	@echo ""
 
 # =============================================================================

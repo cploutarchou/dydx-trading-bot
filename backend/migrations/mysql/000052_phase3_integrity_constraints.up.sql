@@ -1,4 +1,4 @@
--- Migration 000052 disabled: Complex PostgreSQL-specific constraints (DO blocks, pg_constraint checks)
+-- Migration 000052 disabled: Complex legacy constraints (DO blocks)
 -- These constraints can be applied manually if needed after schema is stable
--- Original PostgreSQL migration had DO block constraints and pg_constraint checks
+-- Original legacy migration had DO block constraints
 -- This migration is optional for basic functionality

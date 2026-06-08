@@ -1,6 +1,4 @@
 -- Create backtest_strategies table (MySQL/MariaDB version)
--- Converted from: backend/migrations/postgres/000004_create_backtest_strategies.up.sql
--- Changes: SERIAL → AUTO_INCREMENT, REAL → FLOAT
 
 CREATE TABLE IF NOT EXISTS backtest_strategies
 (
@@ -41,7 +39,7 @@ CREATE TABLE IF NOT EXISTS backtest_strategies
   created_at               TIMESTAMP    NULL DEFAULT NULL,
   updated_at               TIMESTAMP    NULL DEFAULT NULL,
   deleted_at               TIMESTAMP    NULL DEFAULT NULL,
-  FOREIGN KEY (user_id)
+  KEY idx_fk_user_id (user_id)
 );
 
 CREATE INDEX idx_strategy_category ON backtest_strategies (category);

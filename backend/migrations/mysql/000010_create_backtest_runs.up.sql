@@ -1,6 +1,4 @@
 -- Create backtest_runs table (MySQL/MariaDB version)
--- Converted from: backend/migrations/postgres/000010_create_backtest_runs.up.sql
--- Changes: SERIAL → AUTO_INCREMENT, REAL → FLOAT, TEXT → LONGTEXT
 
 CREATE TABLE IF NOT EXISTS backtest_runs
 (
@@ -37,9 +35,9 @@ CREATE TABLE IF NOT EXISTS backtest_runs
   strategy_id         INTEGER     DEFAULT NULL,
   strategy_snapshot   JSON        DEFAULT NULL,
   strategy_version_id INTEGER     DEFAULT NULL,
-  FOREIGN KEY (strategy_id),
-  FOREIGN KEY (strategy_version_id),
-  FOREIGN KEY (user_id)
+  KEY idx_fk_strategy_id (strategy_id),
+  KEY idx_fk_strategy_version_id (strategy_version_id),
+  KEY idx_fk_user_id (user_id)
 );
 
 CREATE INDEX idx_run_date_range ON backtest_runs (start_date, end_date);

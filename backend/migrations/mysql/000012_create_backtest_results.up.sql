@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS backtest_results
   zscore_mean                FLOAT     DEFAULT NULL,
   zscore_std                 FLOAT     DEFAULT NULL,
   created_at                 TIMESTAMP DEFAULT NULL,
-  FOREIGN KEY (run_id_fk)
+  KEY idx_fk_run_id_fk (run_id_fk)
 );
 
 CREATE INDEX idx_result_pair ON backtest_results (market_1, market_2);

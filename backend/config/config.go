@@ -61,47 +61,21 @@ type DatabaseSettings struct {
 }
 
 func (db *DatabaseSettings) DSN() string {
-	// Generate database connection string based on database type
-	if db.Type == "mysql" {
-		// MySQL/MariaDB DSN format: user:password@tcp(host:port)/dbname
-		dsn := db.User
-		if db.Password != "" {
-			dsn += ":" + db.Password
-		}
-		dsn += "@tcp(" + db.Host + ":" + strconv.Itoa(db.Port) + ")/" + db.Dbname
-		// Add charset parameter for proper UTF-8 handling
-		dsn += "?charset=utf8mb4&parseTime=true"
-		return dsn
-	}
-
-	// PostgreSQL DSN format (default)
-	sslMode := "disable"
-	if db.SSL {
-		sslMode = "require"
-	}
-
-	parts := []string{
-		"host=" + db.Host,
-		"port=" + strconv.Itoa(db.Port),
-		"user=" + db.User,
-		"dbname=" + db.Dbname,
-	}
+	dsn := db.User
 	if db.Password != "" {
-		parts = append(parts, "password="+db.Password)
+		dsn += ":" + db.Password
 	}
-	parts = append(parts,
-		"sslmode="+sslMode,
-		"connect_timeout="+strconv.Itoa(db.Timeout),
-	)
-	return strings.Join(parts, " ")
+	dsn += "@tcp(" + db.Host + ":" + strconv.Itoa(db.Port) + ")/" + db.Dbname
+	dsn += "?charset=utf8mb4&parseTime=true&loc=UTC"
+	dsn += "&timeout=" + strconv.Itoa(db.Timeout) + "s"
+	dsn += "&readTimeout=" + strconv.Itoa(db.Timeout) + "s"
+	dsn += "&writeTimeout=" + strconv.Itoa(db.Timeout) + "s"
+	return dsn
 }
 
 // MigrationsPath returns the migrations directory based on database type.
 func (db *DatabaseSettings) MigrationsPath() string {
-	if db.Type == "mysql" {
-		return "migrations/mysql"
-	}
-	return "migrations/postgres"
+	return "migrations/mysql"
 }
 
 type RedisSettings struct {
@@ -168,28 +142,25 @@ func LoadConfig() error {
 		Labels:   parseLabels(os.Getenv("LOKI_LABELS")),
 	}
 
-	dbType := strings.ToLower(getEnv("DB_TYPE", "postgresql"))
+	dbType := strings.ToLower(getEnv("DB_TYPE", "mysql"))
 	var normalizedDBType string
 	var defaultPort int
 
 	switch dbType {
-	case "postgres", "postgresql":
-		normalizedDBType = "postgres"
-		defaultPort = 5432
 	case "mysql", "mariadb":
 		normalizedDBType = "mysql"
 		defaultPort = 3306
 	default:
-		return fmt.Errorf("unsupported DB_TYPE %q: supported types are postgres, postgresql, mysql, mariadb", dbType)
+		return fmt.Errorf("unsupported DB_TYPE %q: production database support is MariaDB/MySQL only", dbType)
 	}
 
 	database := DatabaseSettings{
 		Host:           getEnvAny([]string{"DB_HOST"}, "localhost"),
-		Port:           getEnvIntAny([]string{"DB_PORT", "POSTGRES_PORT"}, defaultPort),
-		Dbname:         getEnvAny([]string{"DB_NAME", "POSTGRES_DB"}, "dydx_bot"),
-		User:           getEnvAny([]string{"DB_USER", "POSTGRES_USER"}, "dydx_bot"),
+		Port:           getEnvInt("DB_PORT", defaultPort),
+		Dbname:         getEnv("DB_NAME", "dydx_bot"),
+		User:           getEnv("DB_USER", "dydx_bot"),
 		Type:           normalizedDBType,
-		Password:       getEnvAny([]string{"DB_PASSWORD", "POSTGRES_PASSWORD"}, ""),
+		Password:       getEnv("DB_PASSWORD", ""),
 		SSL:            getEnvBool("SSL_MODE", false),
 		Timeout:        getEnvInt("DB_TIMEOUT", 5),
 		MaxConnections: getEnvInt("DB_MAX_CONNECTIONS", 10),

@@ -61,7 +61,7 @@ traefik:
   dashboard_basic_auth: true
 
 database:
-  engine: postgres
+  engine: mariadb
   mode: single
   backup_enabled: true
   backup_schedule: "0 3 * * *"

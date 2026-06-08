@@ -7,7 +7,7 @@ The backend is the public application API for the platform. It is the only servi
 - authenticate and authorize frontend traffic
 - expose the stable app-facing HTTP contract
 - proxy and normalize bot HTTP and websocket traffic
-- persist app-owned state in backend PostgreSQL
+- persist app-owned state in backend MariaDB
 - coordinate strategy, bot, and backtest control flows
 
 ## Entry Point
@@ -17,7 +17,7 @@ The backend is the public application API for the platform. It is the only servi
 ## Local Runtime
 
 - default port: `8888`
-- database: backend PostgreSQL on `5432`
+- database: backend MariaDB on `3306`
 - upstream bot API: `BOT_API_URL` or default `http://127.0.0.1:8889`
 
 ## Key Packages
@@ -30,7 +30,7 @@ The backend is the public application API for the platform. It is the only servi
 - `internal/repository` for persistence
 - `internal/middleware` for auth, tracing, CORS, and logging
 - `internal/auth` for JWT/session auth helpers
-- `migrations/postgres` for the runtime migration set
+- `migrations/mysql` for the runtime migration set
 
 ## Core Commands
 
@@ -117,7 +117,7 @@ Coming Soon mode is persisted in `bot_settings` as `platform.coming_soon_enabled
 
 The public config response exposes only safe launch metadata and does not include secrets, internal URLs, admin-only settings, or infrastructure configuration. Mutating the flag remains protected by the existing settings middleware chain: auth, privileged MFA when enabled, and `crm.admin.manage`.
 
-Migration `000060_add_coming_soon_setting` seeds the setting for PostgreSQL deployments.
+Migration `000060_add_coming_soon_setting` seeds the setting for MariaDB deployments.
 
 ## Health and Validation
 
@@ -127,9 +127,9 @@ Migration `000060_add_coming_soon_setting` seeds the setting for PostgreSQL depl
 
 ## Database Migration Posture
 
-PostgreSQL migrations in `migrations/postgres` are the only runtime migration
+MariaDB migrations in `migrations/mysql` are the only runtime migration
 source of truth. New migrations should be created with
-`make migrate-create NAME=...`, which writes to `migrations/postgres`.
+`make migrate-create NAME=...`, which writes to `migrations/mysql`.
 
 ## Related Docs
 

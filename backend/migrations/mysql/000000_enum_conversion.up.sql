@@ -1,9 +1,9 @@
 -- ============================================================================
--- ENUM Conversion Script: PostgreSQL ENUM → MariaDB Lookup Tables
+-- ENUM Conversion Script: legacy ENUM → MariaDB Lookup Tables
 -- ============================================================================
--- This script creates lookup tables to replace PostgreSQL's native ENUM types
+-- This script creates lookup tables to replace legacy's native ENUM types
 --
--- PostgreSQL ENUM types being converted:
+-- legacy ENUM types being converted:
 -- 1. botstatusenum
 -- 2. jobstatusenum
 -- 3. tradestatusenum

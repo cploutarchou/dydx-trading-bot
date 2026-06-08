@@ -43,7 +43,6 @@ func TestLoadConfig_SupportedDatabases(t *testing.T) {
 		inputType  string
 		expectType string
 	}{
-		{"postgres", "postgres"},
 		{"mysql", "mysql"},
 		{"mariadb", "mysql"}, // mariadb is normalized to mysql
 	}
@@ -71,9 +70,8 @@ func TestLoadConfig_SupportedDatabases(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_UsesPostgresByDefault(t *testing.T) {
+func TestLoadConfig_UsesMariaDBByDefault(t *testing.T) {
 	t.Setenv("APP_ENV", "test")
-	t.Setenv("DB_TYPE", "postgres")
 
 	defer func() {
 		ConfigInstance = nil
@@ -86,8 +84,8 @@ func TestLoadConfig_UsesPostgresByDefault(t *testing.T) {
 	if ConfigInstance == nil {
 		t.Fatal("expected ConfigInstance to be initialized")
 	}
-	if got := ConfigInstance.Database.Type; got != "postgres" {
-		t.Fatalf("expected postgres database type, got %q", got)
+	if got := ConfigInstance.Database.Type; got != "mysql" {
+		t.Fatalf("expected mysql database type, got %q", got)
 	}
 }
 
@@ -107,19 +105,19 @@ func TestLoadConfig_ReturnsErrorForUnsupportedDBType(t *testing.T) {
 
 func TestDatabaseSettingsDSN_OmitsEmptyPasswordAndDisablesSSL(t *testing.T) {
 	db := DatabaseSettings{
-		Host:    "pgpool",
-		Port:    5432,
+		Host:    "mariadb",
+		Port:    3306,
 		Dbname:  "dydx_bot",
 		User:    "dydx_bot",
 		Timeout: 5,
 	}
 
 	dsn := db.DSN()
-	if strings.Contains(dsn, "password=") {
+	if strings.Contains(dsn, "password") {
 		t.Fatalf("expected empty password to be omitted from DSN, got %q", dsn)
 	}
-	if !strings.Contains(dsn, "sslmode=disable") {
-		t.Fatalf("expected sslmode=disable in DSN, got %q", dsn)
+	if !strings.Contains(dsn, "charset=utf8mb4") || !strings.Contains(dsn, "parseTime=true") || !strings.Contains(dsn, "loc=UTC") {
+		t.Fatalf("expected MariaDB DSN options in DSN, got %q", dsn)
 	}
 }
 

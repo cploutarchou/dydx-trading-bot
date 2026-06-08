@@ -13,10 +13,8 @@ Changes:
 - trades: add composite (bot_id/bot_instance_id, status, created_at/opened_at DESC) for trade history queries
 
 Implementation note:
-Automatic startup migrations run inside Alembic's normal transaction. These index
-builds intentionally use transaction-safe CREATE INDEX IF NOT EXISTS so local/API
-startup cannot wedge between autocommit DDL steps. On very large production
-tables, run equivalent CREATE INDEX CONCURRENTLY statements manually in a
+MariaDB DDL causes implicit commits and can take metadata locks. On very large
+production tables, run equivalent online index operations in a controlled
 maintenance workflow before applying this revision.
 
 Rollback: drops only the indexes added in this migration.
@@ -37,7 +35,13 @@ depends_on: Union[str, Sequence[str], None] = None
 def _index_exists(bind, index_name: str) -> bool:
     result = bind.execute(
         sa.text(
-            "SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = :name"
+            """
+            SELECT 1
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND INDEX_NAME = :name
+            LIMIT 1
+            """
         ),
         {"name": index_name},
     )
@@ -114,11 +118,6 @@ _INDEXES = [
 def upgrade() -> None:
     bind = op.get_bind()
 
-    # Runtime migrations are PostgreSQL-only; guard offline tooling from
-    # applying PostgreSQL-specific DDL against the wrong dialect.
-    if bind.dialect.name != "postgresql":
-        return
-
     for index_name, table_name in _INDEXES:
         if not _table_exists(bind, table_name):
             continue
@@ -132,10 +131,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
-    if bind.dialect.name != "postgresql":
-        return
 
-    for index_name, _table_name in _INDEXES:
+    for index_name, table_name in _INDEXES:
         if not _index_exists(bind, index_name):
             continue
-        op.execute(sa.text(f"DROP INDEX IF EXISTS {index_name}"))
+        op.execute(sa.text(f"DROP INDEX {index_name} ON {table_name}"))

@@ -17,30 +17,20 @@ _ensure_path(BOT_ROOT)
 
 
 # ============================================================================
-# Database Helper Functions (Phase 4, Task 4)
-# Support both PostgreSQL and MySQL/MariaDB test environments
+# MariaDB database helper functions
 # ============================================================================
 
 def get_expected_db_dialect() -> str:
-    """Return the expected database dialect for current environment.
-    
-    Returns:
-        "mysql" if DB_TYPE env var indicates MySQL/MariaDB, otherwise "postgresql"
-    """
-    db_type = os.getenv("DB_TYPE", "postgresql").lower()
+    """Return the expected database dialect for current environment."""
+    db_type = os.getenv("DB_TYPE", "mysql").lower()
     if db_type in ("mysql", "mariadb"):
         return "mysql"
-    return "postgresql"
+    raise AssertionError(f"Unsupported test DB_TYPE: {db_type}")
 
 
 def get_driver_name() -> str:
-    """Return the appropriate Python driver name for current database.
-    
-    Returns:
-        "pymysql" for MySQL/MariaDB, "psycopg2" for PostgreSQL
-    """
-    dialect = get_expected_db_dialect()
-    return "pymysql" if dialect == "mysql" else "psycopg2"
+    """Return the Python driver name for MariaDB tests."""
+    return "pymysql"
 
 
 def assert_connection_string_valid(conn_str: str) -> None:
@@ -69,20 +59,15 @@ def assert_db_type_supported(db_type_str: str) -> None:
     Raises:
         AssertionError: If db_type is not a supported database type
     """
-    supported = ("postgresql", "mysql", "mariadb")
+    supported = ("mysql", "mariadb")
     assert db_type_str in supported, (
         f"Unsupported db_type: {db_type_str}. Supported: {supported}"
     )
 
 
 def get_test_db_port() -> str:
-    """Get the test database port for current environment.
-    
-    Returns:
-        "5432" for PostgreSQL, "3307" for MySQL (bot-specific port)
-    """
-    dialect = get_expected_db_dialect()
-    return "3307" if dialect == "mysql" else "5432"
+    """Get the bot test MariaDB port."""
+    return "3307"
 
 
 def get_test_connection_string(
@@ -102,11 +87,5 @@ def get_test_connection_string(
     Returns:
         Full connection string with appropriate dialect and driver
     """
-    dialect = get_expected_db_dialect()
-    driver = get_driver_name()
     port = get_test_db_port()
-    
-    if dialect == "mysql":
-        return f"mysql://{user}:{password}@{host}:{port}/{db_name}"
-    else:
-        return f"postgresql://{user}:{password}@{host}:5432/{db_name}"
+    return f"mysql://{user}:{password}@{host}:{port}/{db_name}"

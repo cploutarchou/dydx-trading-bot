@@ -1,40 +1,28 @@
 # MariaDB Alembic Migrations (Bot)
 
-This directory will contain Alembic migration scripts converted from PostgreSQL to MariaDB.
+This directory contains the active Alembic migration scripts for the bot MariaDB schema.
 
 ## Status
 
-🔄 **In Progress**: Phase 1 preparation
+Active. Alembic is configured to read this directory through `version_locations`.
 
 ## Migration File Naming
 
-MariaDB migration files follow the same Alembic naming convention as PostgreSQL:
+MariaDB migration files follow the existing Alembic naming convention:
 - `<revision_id>_<description>.py`
 
-## Key Differences from PostgreSQL
+## MariaDB Rules
 
-### 1. ENUM Types
-PostgreSQL native ENUMs have been converted to MariaDB VARCHAR columns with lookup tables:
+### 1. Status Values
+Prefer reviewable string columns or explicit lookup tables:
 
-**PostgreSQL**:
-```python
-sa.Enum('CREATED', 'RUNNING', 'STOPPED', name='botstatusenum')
-```
-
-**MariaDB**:
 ```python
 sa.String(20)  # with FK to lookup table
 ```
 
-### 2. SERIAL/BIGSERIAL
-Auto-increment columns use different definitions:
+### 2. Auto-Increment IDs
+Use SQLAlchemy auto-increment columns for generated integer IDs:
 
-**PostgreSQL**:
-```python
-sa.Column('id', sa.Integer(), autoincrement=True)
-```
-
-**MariaDB**:
 ```python
 sa.Column('id', sa.Integer(), autoincrement=True)  # Identical in SQLAlchemy
 ```
@@ -47,29 +35,17 @@ sa.Column('entry_price', sa.Numeric(18, 8))  # Compatible with both
 ```
 
 ### 4. JSON Operations
-JSONB operations must use MariaDB's JSON functions instead of PostgreSQL operators:
+Use MariaDB JSON functions:
 
-**PostgreSQL**:
-```sql
-WHERE selected_markets @> '{"BTC": true}'::jsonb
-```
-
-**MariaDB**:
 ```sql
 WHERE JSON_CONTAINS(selected_markets, '{"BTC": true}')
 ```
 
-### 5. GIN Indexes
-Generalized Inverted Indexes are not available in MariaDB:
+### 5. JSON Indexing
+Review generated columns or normal relational tables before adding JSON indexes:
 
-**PostgreSQL**:
 ```python
-sa.Index('idx_markets_gin', 'selected_markets', postgresql_using='gin')
-```
-
-**MariaDB**:
-```python
-sa.Index('idx_markets_ft', 'selected_markets')  # Use FULLTEXT if appropriate
+sa.Index('idx_market_symbol', 'market_symbol')
 ```
 
 ## Running Migrations
@@ -93,6 +69,6 @@ Each migration should be tested:
 
 ⚠️ **Numeric Precision Testing**: All Numeric(18,8) columns must preserve financial precision.
 
-⚠️ **ENUM Conversion**: New lookup tables must be populated before data migration.
+⚠️ **Status Value Changes**: New lookup rows or allowed values must be populated before data migration.
 
-⚠️ **Advisory Locks**: PostgreSQL advisory locks have been replaced. Test bot instance concurrency.
+⚠️ **Migration Locks**: Test bot instance concurrency against MariaDB before production rollout.

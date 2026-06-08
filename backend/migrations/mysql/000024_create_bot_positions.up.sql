@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS bot_positions (
   position_id TEXT NOT NULL UNIQUE,
   market_1 TEXT NOT NULL,
   market_2 TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'open',
+  status VARCHAR(32) NOT NULL DEFAULT 'open',
   is_active INTEGER NOT NULL DEFAULT 1,
   entry_timestamp TIMESTAMP NOT NULL,
   entry_price_1 DOUBLE PRECISION NOT NULL,

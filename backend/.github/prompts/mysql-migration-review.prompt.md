@@ -1,11 +1,11 @@
 ---
-name: "PostgreSQL Migration Review"
-description: "Review PostgreSQL migrations, schema changes, repository query updates, indexes, constraints, and rollout safety in this dYdX backend. Use when auditing migrations, database refactors, persistence changes, or production rollout risks."
+name: "MariaDB Migration Review"
+description: "Review MariaDB migrations, schema changes, repository query updates, indexes, constraints, and rollout safety in this dYdX backend. Use when auditing migrations, database refactors, persistence changes, or production rollout risks."
 argument-hint: "Describe the migration, schema change, repository diff, or rollout concern to review"
 agent: "agent"
 ---
 
-Perform a focused PostgreSQL migration review for this repository.
+Perform a focused MariaDB migration review for this repository.
 
 Use the repository guidance in [Go API, Database, and Crypto Trading Backend](../skills/go-api-db-crypto-trading/SKILL.md) and [Go Backend API Conventions](../instructions/go-backend-api.instructions.md).
 

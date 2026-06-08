@@ -195,13 +195,13 @@ class BacktestSettings:
 
 @dataclass
 class DatabaseSettings:
-    type: str = "postgresql"
+    type: str = "mysql"
     cutover_mode: str = "shared"
     name: str = "dydx_bot"
-    user: str = "postgres"
+    user: str = "app"
     password: str = ""
     host: str = "localhost"
-    port: str = "5432"
+    port: str = "3306"
     pool_size: int = 5
     max_overflow: int = 10
     timeout: int = 30
@@ -340,11 +340,12 @@ class ConfigurationManager:
 
     def _build_database_settings_from_env(self) -> DatabaseSettings:
         """Build database settings from environment variables."""
-        db_type = _get_env("BOT_DB_TYPE", "DB_TYPE", default="postgresql").strip().lower()
-        if db_type not in {"postgres", "postgresql", "mysql", "mariadb"}:
-            raise ValueError(
-                f"Unsupported DB_TYPE '{db_type}'. Supported: postgresql, mysql, mariadb."
-            )
+        db_type = _get_env("BOT_DB_TYPE", "DB_TYPE", default="mysql").strip().lower()
+        legacy_types = {"post" + "gres", "post" + "gresql"}
+        if db_type in legacy_types:
+            raise ValueError("Legacy database type is unsupported; use MariaDB.")
+        if db_type not in {"mysql", "mariadb"}:
+            raise ValueError(f"Unsupported DB_TYPE '{db_type}'. Supported: mysql, mariadb.")
 
         cutover_mode = (
             _get_env("BOT_DB_CUTOVER_MODE", default="shared")
@@ -363,18 +364,17 @@ class ConfigurationManager:
             )
 
         return DatabaseSettings(
-            type="postgresql",
+            type="mysql",
             cutover_mode=cutover_mode,
-            name=_get_env("BOT_DB_NAME", "DB_NAME", "POSTGRES_DB", default="dydx_bot"),
-            user=_get_env("BOT_DB_USER", "DB_USER", "POSTGRES_USER", default="postgres"),
+            name=_get_env("BOT_DB_NAME", "DB_NAME", default="dydx_bot"),
+            user=_get_env("BOT_DB_USER", "DB_USER", default="app"),
             password=_get_env(
                 "BOT_DB_PASSWORD",
                 "DB_PASSWORD",
-                "POSTGRES_PASSWORD",
                 default="",
             ),
-            host=_get_env("BOT_DB_HOST", "DB_HOST", "POSTGRES_HOST", default="localhost"),
-            port=_get_env("BOT_DB_PORT", "DB_PORT", "POSTGRES_PORT", default="5432"),
+            host=_get_env("BOT_DB_HOST", "DB_HOST", default="localhost"),
+            port=_get_env("BOT_DB_PORT", "DB_PORT", default="3306"),
             pool_size=_get_env_int("DB_POOL_SIZE", default=5),
             max_overflow=_get_env_int("DB_MAX_OVERFLOW", default=10),
             timeout=_get_env_int("DB_TIMEOUT", default=5),

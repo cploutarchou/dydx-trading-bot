@@ -119,7 +119,7 @@ func TestDelegateCapabilitiesAndRuntimeDBConfigRoutes(t *testing.T) {
 	upstreamMux.HandleFunc("/api/v1/runtime/db-config", func(w http.ResponseWriter, r *http.Request) {
 		runtimeAuthHeader <- r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"db_type":"postgresql","cutover_mode":"dedicated","connection_source":"BOT_DATABASE_URL","count":1},"timestamp":"2026-04-04T00:00:00Z"}`))
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"db_type":"mariadb","cutover_mode":"dedicated","connection_source":"BOT_DATABASE_URL","count":1},"timestamp":"2026-04-04T00:00:00Z"}`))
 	})
 	upstreamMux.HandleFunc("/api/v1/arbitrage/improvement-metrics", func(w http.ResponseWriter, r *http.Request) {
 		arbitrageMetricsAuthHeader <- r.Header.Get("Authorization")
@@ -179,11 +179,10 @@ func TestDelegateCapabilitiesAndRuntimeDBConfigRoutes(t *testing.T) {
 	}
 	data, _ = payload["data"].(map[string]interface{})
 
-	// Accept any supported database type (postgresql, mysql, mariadb)
-	supportedDBs := map[string]bool{"postgresql": true, "mysql": true, "mariadb": true}
+	supportedDBs := map[string]bool{"mysql": true, "mariadb": true}
 	dbType, ok := data["db_type"].(string)
 	if !ok || !supportedDBs[dbType] {
-		t.Fatalf("expected supported db_type (postgresql/mysql/mariadb), got %v", data["db_type"])
+		t.Fatalf("expected supported db_type (mysql/mariadb), got %v", data["db_type"])
 	}
 
 	select {

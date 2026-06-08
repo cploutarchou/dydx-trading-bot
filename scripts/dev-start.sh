@@ -120,27 +120,27 @@ setup_env_files() {
     echo ""
 }
 
-# Start Docker containers (PostgreSQL & Redis)
+# Start Docker containers (MariaDB & Redis)
 start_docker_services() {
-    echo "${BLUE}[4/6] Starting Docker services (PostgreSQL & Redis)...${NC}"
+    echo "${BLUE}[4/6] Starting Docker services (MariaDB & Redis)...${NC}"
     
     # Check if already running
     if docker ps | grep -q dydx_backtest_db; then
-        echo "  ✓ PostgreSQL already running"
+        echo "  ✓ MariaDB already running"
     else
-        echo "  Starting PostgreSQL and Redis..."
+        echo "  Starting MariaDB and Redis..."
         cd "$PROJECT_ROOT"
-        docker-compose -f docker-compose.full-stack.yml up -d postgres redis
+        docker-compose -f docker-compose.full-stack.yml up -d mariadb redis
         
-        # Wait for PostgreSQL to be ready
-        echo "  Waiting for PostgreSQL to be ready..."
+        # Wait for MariaDB to be ready
+        echo "  Waiting for MariaDB to be ready..."
         for i in {1..30}; do
-            if docker exec dydx_backtest_db pg_isready -U postgres &> /dev/null; then
-                echo "  ✓ PostgreSQL is ready"
+            if docker exec dydx_backtest_db mariadb-admin ping -h 127.0.0.1 --silent &> /dev/null; then
+                echo "  ✓ MariaDB is ready"
                 break
             fi
             if [ $i -eq 30 ]; then
-                echo "${RED}  ✗ PostgreSQL failed to start${NC}"
+                echo "${RED}  ✗ MariaDB failed to start${NC}"
                 exit 1
             fi
             sleep 1
@@ -228,7 +228,7 @@ show_final_info() {
     echo "  🌐 Frontend:    http://localhost:5173"
     echo "  🔌 Backend:     http://localhost:8000"
     echo "  📚 API Docs:    http://localhost:8000/docs"
-    echo "  💾 Database:    postgresql://localhost:5432/dydx_backtest"
+    echo "  💾 Database:    mysql://localhost:3306/dydx_backtest"
     echo "  🔴 Redis:       redis://localhost:6379"
     echo ""
     echo "${GREEN}Login Credentials:${NC}"
@@ -247,7 +247,7 @@ show_final_info() {
     echo "${YELLOW}Useful Commands:${NC}"
     echo "  • View backend logs:     tail -f /tmp/backend.log"
     echo "  • View frontend logs:    tail -f /tmp/frontend.log"
-    echo "  • Reset database:        docker-compose down -v && docker-compose up postgres redis"
+    echo "  • Reset database:        docker-compose down -v && docker-compose up mariadb redis"
     echo "  • Test API endpoint:     curl http://localhost:8000/health"
     echo ""
     echo "${BLUE}Development workflow:${NC}"

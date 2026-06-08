@@ -118,7 +118,7 @@ show_endpoints() {
     echo "  🌐 Frontend:   ${GREEN}http://localhost:3000${NC} (or http://localhost:5173 for dev)"
     echo "  🔌 Backend API: ${GREEN}http://localhost:8000${NC}"
     echo "  📚 API Docs:   ${GREEN}http://localhost:8000/docs${NC}"
-    echo "  💾 Database:   ${GREEN}postgres://postgres:password@localhost:5432/dydx_backtest${NC}"
+    echo "  💾 Database:   ${GREEN}mysql://dydx_bot:password@localhost:3306/dydx_backtest${NC}"
     echo "  🔴 Redis:      ${GREEN}redis://localhost:6379${NC}"
     echo ""
     echo "Default Login:"

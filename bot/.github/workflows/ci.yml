@@ -19,6 +19,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check active database patterns
+        run: python3 scripts/check_no_legacy_database.py
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -45,8 +48,26 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_DATABASE: bot_db
+          MARIADB_USER: bot
+          MARIADB_PASSWORD: bot
+          MARIADB_ROOT_PASSWORD: root
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd="mariadb-admin ping -h 127.0.0.1 -ubot -pbot --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check active database patterns
+        run: python3 scripts/check_no_legacy_database.py
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -60,9 +81,16 @@ jobs:
           pip install -r bot/requirements.txt
 
       - name: Run tests with pytest
+        env:
+          DB_TYPE: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: "3307"
+          DB_NAME: bot_db
+          DB_USER: bot
+          DB_PASSWORD: bot
+          BOT_DB_CUTOVER_MODE: shared
         run: |
-          cd bot && python -m pytest tests/ -v --tb=short 2>&1 | head -200 || true
-        continue-on-error: true
+          cd bot && python -m pytest tests/ -v --tb=short
 
   build:
     name: Build Docker Image

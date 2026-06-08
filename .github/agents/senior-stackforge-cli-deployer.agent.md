@@ -77,7 +77,7 @@ When asked to deploy, use this sequence unless user explicitly requests another 
 
 ## Database-specific guidance
 
-- StackForge live install currently supports PostgreSQL in practice.
+- StackForge live install currently supports MariaDB in practice.
 - Before app deploy, verify DB service is healthy and not publicly exposed.
 - If db changes are risky, insist on backup first.
 - Use restore only with explicit user confirmation due to destructive risk.

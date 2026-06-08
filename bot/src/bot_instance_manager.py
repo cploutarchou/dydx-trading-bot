@@ -186,7 +186,6 @@ class BotInstanceManager:
                 "DATABASE_URL",
                 "BOT_DB_HOST",
                 "DB_HOST",
-                "POSTGRES_HOST",
             )
         ):
             return True
@@ -336,7 +335,7 @@ class BotInstanceManager:
             return False
 
     def _load_existing_instances_from_db(self) -> Optional[int]:
-        """Hydrate manager state from persisted bot instances in PostgreSQL."""
+        """Hydrate manager state from persisted bot instances in the database."""
         if not self._db_persistence_enabled():
             logger.info(
                 "Skipping bot instance DB recovery: no explicit database target configured"
@@ -640,7 +639,7 @@ class BotInstanceManager:
                 session.close()
 
     def _persist_instances_to_db(self):
-        """Sync runtime state back into PostgreSQL so it stays authoritative across restarts."""
+        """Sync runtime state back into the database so it stays authoritative across restarts."""
         if not self._db_persistence_enabled():
             return
 
@@ -1629,7 +1628,7 @@ class BotInstanceManager:
         return instance.to_api_status()
 
     def _update_instance_trading_stats(self, instance_id: str):
-        """Update trading statistics from PostgreSQL-backed trade state."""
+        """Update trading statistics from database-backed trade state."""
         if instance_id not in self.instances:
             return
         if not self._db_persistence_enabled():
@@ -1641,7 +1640,7 @@ class BotInstanceManager:
             stats = uow.bots.get_statistics(instance_id)
             if stats:
                 self.instances[instance_id].trading_stats.update(stats)
-                self.instances[instance_id].trading_stats["source"] = "postgres"
+                self.instances[instance_id].trading_stats["source"] = "database"
         except Exception as e:
             logger.warning(
                 "Error updating DB-backed trading stats for {}: {}", instance_id, e

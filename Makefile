@@ -431,9 +431,9 @@ db-migrate-legacy: ## Run legacy migration (migrate_db.py)
 # UTILITY
 # ============================================================================
 
-db-up: ## Start backend DB services (postgres + redis) via Docker Compose
+db-up: ## Start backend DB services (mariadb + redis) via Docker Compose
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		docker compose -f backend/docker-compose.yml up -d postgres redis; \
+		docker compose -f backend/docker-compose.yml up -d mariadb redis; \
 		echo "✅ Backend DB services started"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot start DB services"; \
@@ -442,15 +442,15 @@ db-up: ## Start backend DB services (postgres + redis) via Docker Compose
 
 db-status: ## Show backend DB services status via Docker Compose
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		docker compose -f backend/docker-compose.yml ps postgres redis; \
+		docker compose -f backend/docker-compose.yml ps mariadb redis; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot query DB service status"; \
 		exit 0; \
 	fi
 
-db-down: ## Stop backend DB services (postgres + redis) via Docker Compose
+db-down: ## Stop backend DB services (mariadb + redis) via Docker Compose
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		docker compose -f backend/docker-compose.yml stop postgres redis; \
+		docker compose -f backend/docker-compose.yml stop mariadb redis; \
 		echo "✅ Backend DB services stopped"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot stop DB services"; \
@@ -471,7 +471,7 @@ infra-up: ## Start shared infra only (mariadb + redis) for local service develop
 		exit 0; \
 	fi
 
-infra-down: ## Stop shared infra only (postgres + redis)
+infra-down: ## Stop shared infra only (mariadb + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		if [ ! -f "$(INFRA_COMPOSE_FILE)" ]; then \
 			echo "❌ Missing $(INFRA_COMPOSE_FILE). Nothing to stop via infra commands."; \
@@ -497,7 +497,7 @@ infra-logs: ## Follow logs for shared infra services (mariadb + redis)
 		exit 0; \
 	fi
 
-infra-ps: ## Show status for shared infra services (postgres + redis)
+infra-ps: ## Show status for shared infra services (mariadb + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		if [ ! -f "$(INFRA_COMPOSE_FILE)" ]; then \
 			echo "❌ Missing $(INFRA_COMPOSE_FILE)."; \
@@ -509,6 +509,9 @@ infra-ps: ## Show status for shared infra services (postgres + redis)
 		echo "⚠️  Docker daemon unavailable; cannot fetch infra status"; \
 		exit 0; \
 	fi
+
+check-no-legacy-db: ## Fail if active code/config contains legacy database patterns
+	python3 scripts/check_no_legacy_database.py
 
 dev-infra: ## Start local backend MariaDB + bot MariaDB + Redis and print matching runtime config
 	@if ! command -v docker >/dev/null 2>&1; then \
@@ -628,7 +631,7 @@ stack-up-dev: ## Start full integration stack (api + worker + frontend dev + mar
 		exit 0; \
 	fi
 
-stack-up-prod: ## Start split app stack (api + worker + frontend preview + postgres + redis)
+stack-up-prod: ## Start split app stack (api + worker + frontend preview + mariadb + redis)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		if [ ! -f "$(STACK_COMPOSE_FILE)" ]; then \
 			echo "❌ Missing $(STACK_COMPOSE_FILE)."; \

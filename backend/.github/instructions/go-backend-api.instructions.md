@@ -1,6 +1,6 @@
 ---
 name: "Go Backend API Conventions"
-description: "Use when creating or modifying Go backend routes, handlers, services, repositories, middleware, config, database logic, migrations, or delegated bot API behavior in this dYdX backend. Covers layered architecture, auth context, PostgreSQL, response handling, and trading-safety conventions."
+description: "Use when creating or modifying Go backend routes, handlers, services, repositories, middleware, config, database logic, migrations, or delegated bot API behavior in this dYdX backend. Covers layered architecture, auth context, MariaDB, response handling, and trading-safety conventions."
 applyTo: ["cmd/**/*.go", "config/**/*.go", "internal/**/*.go"]
 ---
 
@@ -32,7 +32,7 @@ Follow these conventions when editing backend Go code in this repository.
 
 ## Repositories and database behavior
 
-- PostgreSQL is the primary runtime target; prefer patterns that are safe for PostgreSQL behavior.
+- MariaDB is the primary runtime target; prefer patterns that are safe for MariaDB behavior.
 - Keep SQL and data access explicit and understandable.
 - Wrap database errors with context using `%w`.
 - Think about indexes, uniqueness, nullability, foreign keys, and transaction boundaries before changing persistence logic.

@@ -38,9 +38,14 @@ job "dydx-trading-bot" {
         to = 8889
       }
 
-      port "postgres" {
-        static = 5432
-        to = 5432
+      port "mariadb" {
+        static = 3306
+        to = 3306
+      }
+
+      port "botdb" {
+        static = 3307
+        to = 3306
       }
 
       port "redis" {
@@ -56,24 +61,25 @@ job "dydx-trading-bot" {
       mode     = "delay"
     }
 
-    task "postgres" {
+    task "mariadb" {
       driver = "docker"
 
       config {
-        image = "postgres:16"
-        ports = ["postgres"]
+        image = "mariadb:11.4"
+        ports = ["mariadb"]
 
         mount {
           type   = "volume"
-          source = "dydx-postgres-data"
-          target = "/var/lib/postgresql/data"
+          source = "dydx-mariadb-data"
+          target = "/var/lib/mysql"
         }
       }
 
       env {
-        POSTGRES_DB       = "${var.app_db_name}"
-        POSTGRES_USER     = "${var.app_db_user}"
-        POSTGRES_PASSWORD = "${var.app_db_password}"
+        MARIADB_DATABASE      = "${var.app_db_name}"
+        MARIADB_USER          = "${var.app_db_user}"
+        MARIADB_PASSWORD      = "${var.app_db_password}"
+        MARIADB_ROOT_PASSWORD = "${var.app_db_root_password}"
       }
 
       resources {
@@ -82,11 +88,50 @@ job "dydx-trading-bot" {
       }
 
       service {
-        name = "dydx-postgres"
-        port = "postgres"
+        name = "dydx-mariadb"
+        port = "mariadb"
 
         check {
-          name     = "postgres-tcp"
+          name     = "mariadb-tcp"
+          type     = "tcp"
+          interval = "20s"
+          timeout  = "3s"
+        }
+      }
+    }
+
+    task "bot-mariadb" {
+      driver = "docker"
+
+      config {
+        image = "mariadb:11.4"
+        ports = ["botdb"]
+
+        mount {
+          type   = "volume"
+          source = "dydx-bot-mariadb-data"
+          target = "/var/lib/mysql"
+        }
+      }
+
+      env {
+        MARIADB_DATABASE      = "${var.bot_db_name}"
+        MARIADB_USER          = "${var.bot_db_user}"
+        MARIADB_PASSWORD      = "${var.bot_db_password}"
+        MARIADB_ROOT_PASSWORD = "${var.bot_db_root_password}"
+      }
+
+      resources {
+        cpu    = 600
+        memory = 768
+      }
+
+      service {
+        name = "dydx-bot-mariadb"
+        port = "botdb"
+
+        check {
+          name     = "bot-mariadb-tcp"
           type     = "tcp"
           interval = "20s"
           timeout  = "3s"
@@ -144,13 +189,15 @@ job "dydx-trading-bot" {
         JWT_SECRET_KEY     = "${var.jwt_secret_key}"
         ENCRYPTION_KEY     = "${var.encryption_key}"
         BOT_API_TOKEN      = "${var.bot_api_token}"
-        BOT_DB_CUTOVER_MODE = "shared"
+        DB_TYPE             = "mysql"
+        BOT_DB_TYPE         = "mysql"
+        BOT_DB_CUTOVER_MODE = "dedicated"
 
-        DB_HOST     = "127.0.0.1"
-        DB_PORT     = "${NOMAD_PORT_postgres}"
-        DB_NAME     = "${var.app_db_name}"
-        DB_USER     = "${var.app_db_user}"
-        DB_PASSWORD = "${var.app_db_password}"
+        BOT_DB_HOST     = "127.0.0.1"
+        BOT_DB_PORT     = "${NOMAD_PORT_botdb}"
+        BOT_DB_NAME     = "${var.bot_db_name}"
+        BOT_DB_USER     = "${var.bot_db_user}"
+        BOT_DB_PASSWORD = "${var.bot_db_password}"
 
         REDIS_HOST = "127.0.0.1"
         REDIS_PORT = "${NOMAD_PORT_redis}"
@@ -196,8 +243,9 @@ job "dydx-trading-bot" {
         JWT_SECRET_KEY = "${var.jwt_secret_key}"
         ENCRYPTION_KEY = "${var.encryption_key}"
 
+        DB_TYPE     = "mysql"
         DB_HOST     = "127.0.0.1"
-        DB_PORT     = "${NOMAD_PORT_postgres}"
+        DB_PORT     = "${NOMAD_PORT_mariadb}"
         DB_NAME     = "${var.app_db_name}"
         DB_USER     = "${var.app_db_user}"
         DB_PASSWORD = "${var.app_db_password}"
@@ -208,7 +256,12 @@ job "dydx-trading-bot" {
         BOT_API_URL               = "http://127.0.0.1:${NOMAD_PORT_botapi}"
         BOT_API_USE_SERVICE_TOKEN = "true"
         BOT_API_TOKEN             = "${var.bot_api_token}"
-        BOT_DB_CUTOVER_MODE       = "shared"
+        BOT_DB_CUTOVER_MODE       = "dedicated"
+        BOT_DB_HOST               = "127.0.0.1"
+        BOT_DB_PORT               = "${NOMAD_PORT_botdb}"
+        BOT_DB_NAME               = "${var.bot_db_name}"
+        BOT_DB_USER               = "${var.bot_db_user}"
+        BOT_DB_PASSWORD           = "${var.bot_db_password}"
 
         FRONTEND_URL         = "https://${var.app_domain}"
         CORS_ALLOWED_ORIGINS = "https://${var.app_domain}"
@@ -338,6 +391,31 @@ variable "app_db_user" {
 }
 
 variable "app_db_password" {
+  type    = string
+  default = "REPLACE_ME"
+}
+
+variable "app_db_root_password" {
+  type    = string
+  default = "REPLACE_ME"
+}
+
+variable "bot_db_name" {
+  type    = string
+  default = "bot"
+}
+
+variable "bot_db_user" {
+  type    = string
+  default = "bot"
+}
+
+variable "bot_db_password" {
+  type    = string
+  default = "REPLACE_ME"
+}
+
+variable "bot_db_root_password" {
   type    = string
   default = "REPLACE_ME"
 }

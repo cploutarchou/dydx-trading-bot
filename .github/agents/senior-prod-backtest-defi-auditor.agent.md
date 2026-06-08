@@ -194,4 +194,4 @@ The task is complete only when the system has a bounded behavior for the reporte
 
 - Backtest operator visibility improvements are now implemented in frontend dashboard surfaces (active-run status/progress/freshness cues).
 - Backend delegated route normalization and DB-backed run listing are critical audit targets for active-run visibility issues.
-- Recent migration hardening addressed transaction-block compatibility concerns in PostgreSQL index migrations.
+- Recent migration hardening addressed transaction-block compatibility concerns in MariaDB index migrations.

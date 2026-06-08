@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS external_api_credentials (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INTEGER NOT NULL,
-    provider TEXT NOT NULL,
+    provider VARCHAR(64) NOT NULL,
     label TEXT NOT NULL DEFAULT '',
     encrypted_api_key TEXT NOT NULL,
     api_key_hash TEXT NOT NULL DEFAULT '',

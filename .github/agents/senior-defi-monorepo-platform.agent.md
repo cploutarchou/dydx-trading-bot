@@ -103,7 +103,7 @@ Key files:
 - `backend/internal/routes/` — route registration
 - `backend/internal/auth/` — JWT middleware
 - `backend/internal/middleware/` — CORS, rate limiting
-- `backend/migrations/postgres/` — PostgreSQL runtime migration set
+- `backend/migrations/mysql/` — MariaDB runtime migration set
 
 ### Frontend (`frontend/`) — React 19 + TypeScript 6 + Vite 8, port 5173
 
@@ -169,4 +169,4 @@ Tech stack: React 19, TypeScript 6, Vite 8, TanStack Query v5, Zustand 5, Tailwi
 
 - Frontend backtest operations are centered in `frontend/src/pages/Backtests.tsx` and `frontend/src/components/StrategyManager.tsx`.
 - Backend delegated normalization + backtest list ownership is centered in `backend/internal/routes/bot_api_delegate_routes.go` and repository-backed list queries.
-- Migration safety currently assumes transaction-safe SQL in startup flow for PostgreSQL migrations.
+- Migration safety currently assumes transaction-safe SQL in startup flow for MariaDB migrations.

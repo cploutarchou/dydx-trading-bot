@@ -1,6 +1,4 @@
 -- Create users table (MySQL/MariaDB version)
--- Converted from: backend/migrations/postgres/000002_create_users.up.sql
--- Changes: SERIAL → AUTO_INCREMENT
 
 CREATE TABLE IF NOT EXISTS users
 (

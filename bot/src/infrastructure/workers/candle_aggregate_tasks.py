@@ -12,7 +12,7 @@ from src.infrastructure.workers.celery_app import celery_app
 def aggregate_backtest_candles(run_id: str) -> Dict[str, Any]:
     """Import-safe aggregation hook.
 
-    The backend falls back to PostgreSQL when Redis aggregation is unavailable, so
+    The backend falls back to the database when Redis aggregation is unavailable, so
     this task intentionally preserves that behavior until a concrete aggregation
     implementation is added.
     """

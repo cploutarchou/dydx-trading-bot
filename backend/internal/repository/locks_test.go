@@ -207,39 +207,6 @@ func TestWithUserAdmissionLock_HandlesContextCancellation(t *testing.T) {
 	}
 }
 
-func TestIsAdvisoryLockUnsupportedError_DetectsPostgreSQLErrors(t *testing.T) {
-	tests := []struct {
-		name              string
-		err               error
-		expectUnsupported bool
-	}{
-		{
-			name:              "pg_try_advisory_lock_does_not_exist",
-			err:               errors.New("ERROR: function pg_try_advisory_lock does not exist"),
-			expectUnsupported: true,
-		},
-		{
-			name:              "no_such_function_pg_try_advisory_lock",
-			err:               errors.New("no such function pg_try_advisory_lock"),
-			expectUnsupported: true,
-		},
-		{
-			name:              "other_postgres_error",
-			err:               errors.New("ERROR: syntax error in SQL"),
-			expectUnsupported: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isAdvisoryLockUnsupportedError(tt.err)
-			if got != tt.expectUnsupported {
-				t.Fatalf("expected %v, got %v", tt.expectUnsupported, got)
-			}
-		})
-	}
-}
-
 func TestIsAdvisoryLockUnsupportedError_DetectsMySQLErrors(t *testing.T) {
 	tests := []struct {
 		name              string

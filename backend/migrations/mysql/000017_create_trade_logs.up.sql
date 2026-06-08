@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS trade_logs
   entry_zscore    FLOAT     DEFAULT NULL,
   exit_zscore     FLOAT     DEFAULT NULL,
   created_at      TIMESTAMP DEFAULT NULL,
-  FOREIGN KEY (result_id_fk)
+  KEY idx_fk_result_id_fk (result_id_fk)
 );
 
 CREATE INDEX idx_trade_result ON trade_logs (result_id_fk, entry_timestamp);

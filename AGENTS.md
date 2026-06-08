@@ -31,4 +31,4 @@ Repository-level startup guidance for coding agents working in this monorepo.
 - Frontend now has a dedicated `Backtests` intelligence surface with dashboard/new/runs views and an **Active Runs Quick Access** panel with live status polling + freshness indicators.
 - Strategy operations UX is centered in `frontend/src/components/StrategyManager.tsx` with runtime heartbeat visibility and operator/analyst density presets.
 - Backend delegated backtest routes in `backend/internal/routes/bot_api_delegate_routes.go` normalize status/progress fields for compatibility and expose DB-backed backtest list responses via `backtest_runs`.
-- Recent PostgreSQL migrations were hardened for transactional execution (no `CONCURRENTLY` assumptions in startup migration flow).
+- Recent MariaDB migrations were hardened for explicit deployment execution; do not depend on startup schema changes.

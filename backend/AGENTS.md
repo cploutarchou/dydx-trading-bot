@@ -15,7 +15,7 @@
 
 ## Critical Runtime Behavior
 - `cmd/server/main.go` auto-loads structured runtime config from repo-root `run.json` or `config/profiles/{environment}.config(.enc).json` before `config.LoadConfig()`, then validates DB ownership and starts DB with `AutoMigrate: true` using `config.Database.MigrationsPath()`.
-- The backend runtime supports PostgreSQL only; `config.LoadConfig()` rejects other `DB_TYPE` values and normalizes runtime usage to `postgres`.
+- The backend runtime supports MariaDB only; `config.LoadConfig()` rejects other `DB_TYPE` values and normalizes runtime usage to `mysql`.
 - Health endpoint `/health` checks both local DB health and upstream bot API reachability.
 - Readiness endpoint `/ready` is stricter than `/health`: it blocks on DB ownership violations, local DB health, and upstream bot `/ready`; `/metrics` exposes local DB stats plus proxied bot metrics.
 - Startup and readiness both enforce backend-vs-bot database ownership via `internal/startup/db_ownership.go` using `BOT_DB_CUTOVER_MODE`, `BOT_DATABASE_URL`, and `BOT_DB_*` envs.
@@ -29,8 +29,8 @@
 - dYdX key secrets are encrypted with AES-256-GCM in `internal/services/key_service.go` using `ENCRYPTION_KEY` (padded/truncated to 32 bytes).
 
 ## Database and Migrations
-- PostgreSQL is the only supported SQL database for local and production use.
-- Backend migrations run from `migrations/postgres`.
+- MariaDB is the only supported SQL database for local and production use.
+- Backend migrations run from `migrations/mysql`.
 - `internal/db/db.go` wraps connection retries, pool settings, query timeouts, and migration recovery for dirty/already-exists states.
 - Repo code currently uses raw `*sql.DB` in many places (for example `repository.NewKeyRepository(database.DB)`), so preserve existing style within a feature unless refactoring broadly.
 
@@ -64,8 +64,8 @@
 - Session auth is now the primary browser contract (`dydx_session` cookie + session store); keep JWT compatibility behavior opt-in and do not assume bearer tokens are always present.
 - Backoffice/admin portal flows depend on database-backed RBAC, privileged MFA, invitation tokens, partner relationships, and commission metrics rather than dummy seed-only handlers.
 - Recent index migration hardening touched:
-  - `migrations/postgres/000047_backtest_list_perf_index.up.sql`
-  - `migrations/postgres/000051_phase1_missing_indexes.{up,down}.sql`
-  - `migrations/postgres/000053_phase4_drop_redundant_indexes.up.sql`
-  - `migrations/postgres/000054_backtest_sync_idempotency_indexes.{up,down}.sql`
-  - `migrations/postgres/000055_add_user_resource_quotas.{up,down}.sql`
+  - `migrations/mysql/000047_backtest_list_perf_index.up.sql`
+  - `migrations/mysql/000051_phase1_missing_indexes.{up,down}.sql`
+  - `migrations/mysql/000053_phase4_drop_redundant_indexes.up.sql`
+  - `migrations/mysql/000054_backtest_sync_idempotency_indexes.{up,down}.sql`
+  - `migrations/mysql/000055_add_user_resource_quotas.{up,down}.sql`

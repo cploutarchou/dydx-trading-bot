@@ -1,6 +1,4 @@
 -- Migration 000023: Create bot_trades table for bot runtime trade tracking (MySQL/MariaDB version)
--- Converted from: backend/migrations/postgres/000023_create_bot_trades.up.sql
--- Changes: SERIAL → AUTO_INCREMENT, TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 
 CREATE TABLE IF NOT EXISTS bot_trades (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -27,7 +25,7 @@ CREATE TABLE IF NOT EXISTS bot_trades (
   strategy_zscore_threshold DOUBLE PRECISION,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (bot_instance_id) ON DELETE CASCADE
+  KEY idx_fk_bot_instance_id (bot_instance_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_bot_trades_bot_instance_id ON bot_trades (bot_instance_id);

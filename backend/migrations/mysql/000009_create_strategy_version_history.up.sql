@@ -12,8 +12,8 @@ CREATE TABLE IF NOT EXISTS strategy_version_history
   backtest_count       INTEGER      DEFAULT NULL,
   best_backtest_pnl    FLOAT         DEFAULT NULL,
   average_backtest_pnl FLOAT         DEFAULT NULL,
-  FOREIGN KEY (created_by_user_id),
-  FOREIGN KEY (strategy_id),
+  KEY idx_fk_created_by_user_id (created_by_user_id),
+  KEY idx_fk_strategy_id (strategy_id),
   UNIQUE (strategy_id, version_number)
 );
 
@@ -21,5 +21,4 @@ CREATE INDEX idx_strategy_version ON strategy_version_history (strategy_id, vers
 CREATE INDEX idx_strategy_version_created ON strategy_version_history (strategy_id, created_at);
 CREATE INDEX ix_strategy_version_history_created_at ON strategy_version_history (created_at);
 CREATE INDEX ix_strategy_version_history_id ON strategy_version_history (id);
-CREATE INDEX ix_strategy_version_history_strategy_id ON strategy_version_history (strategy_id);
 

@@ -1,6 +1,4 @@
 -- Migration 000022: Create bot_instances table for bot runtime endpoints (MySQL/MariaDB version)
--- Converted from: backend/migrations/postgres/000022_create_bot_instances.up.sql
--- Changes: SERIAL → AUTO_INCREMENT, TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 
 CREATE TABLE IF NOT EXISTS bot_instances (
   id INT AUTO_INCREMENT PRIMARY KEY,

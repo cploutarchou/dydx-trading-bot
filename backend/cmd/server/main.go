@@ -22,6 +22,15 @@ func loadStructuredConfigEnv() {
 	log.Printf("Loaded structured config from %s", profilePath)
 }
 
+func autoMigrateEnabled() bool {
+	switch os.Getenv("DB_AUTO_MIGRATE") {
+	case "1", "true", "TRUE", "yes", "YES", "on", "ON":
+		return true
+	default:
+		return false
+	}
+}
+
 func main() {
 	startTime := time.Now()
 	if err := config.LoadFileEnvValues(true); err != nil {
@@ -50,7 +59,7 @@ func main() {
 	database, err := db.New(db.Config{
 		Driver:         config.ConfigInstance.Database.Type,
 		DSN:            config.ConfigInstance.Database.DSN(),
-		AutoMigrate:    true,
+		AutoMigrate:    autoMigrateEnabled(),
 		MigrationsPath: config.ConfigInstance.Database.MigrationsPath(),
 		MaxOpenConns:   25,
 		MaxIdleConns:   5,

@@ -1,5 +1,5 @@
 ---
-description: "Use when: building or reviewing Go backend routes, handlers, services, repositories, auth, delegated bot integration, PostgreSQL migrations, websocket proxying, or frontend-facing contracts. Trigger phrases: backend, gin, go api, repository, migration, proxy, auth, websocket, delegated bot."
+description: "Use when: building or reviewing Go backend routes, handlers, services, repositories, auth, delegated bot integration, MariaDB migrations, websocket proxying, or frontend-facing contracts. Trigger phrases: backend, gin, go api, repository, migration, proxy, auth, websocket, delegated bot."
 name: "Senior Go DeFi Backend"
 tools: [read, edit, search, execute, todo]
 user-invocable: true
@@ -51,4 +51,4 @@ This service is the only public application API for the frontend. Your job is to
 
 - Backtest list route ownership is DB-backed in backend (`GetRunsByUserID`/`CountRunsByUserID`) for frontend dashboard usage.
 - Delegated backtest payload/status/progress normalization remains centralized in `internal/routes/bot_api_delegate_routes.go`.
-- PostgreSQL migration changes should remain transaction-safe in standard startup migration paths.
+- MariaDB migration changes should remain transaction-safe in standard startup migration paths.

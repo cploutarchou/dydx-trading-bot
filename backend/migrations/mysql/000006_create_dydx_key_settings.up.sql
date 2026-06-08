@@ -1,6 +1,4 @@
 -- Create dydx_key_settings table (MySQL/MariaDB version)
--- Converted from: backend/migrations/postgres/000006_create_dydx_key_settings.up.sql
--- Changes: SERIAL → AUTO_INCREMENT
 
 CREATE TABLE IF NOT EXISTS dydx_key_settings
 (
@@ -10,7 +8,7 @@ CREATE TABLE IF NOT EXISTS dydx_key_settings
   auto_switch_testnet TINYINT(1)     NOT NULL,
   created_at          TIMESTAMP    NOT NULL,
   updated_at          TIMESTAMP    NOT NULL,
-  FOREIGN KEY (user_id)
+  KEY idx_fk_user_id (user_id)
 );
 
 CREATE INDEX ix_dydx_key_settings_id ON dydx_key_settings (id);

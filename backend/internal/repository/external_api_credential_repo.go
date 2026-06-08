@@ -49,17 +49,20 @@ func (r *ExternalAPICredentialRepository) GetByUserAndProvider(userID int, provi
 
 func (r *ExternalAPICredentialRepository) Upsert(credential *models.ExternalAPICredential) error {
 	now := time.Now().UTC()
+	if r.usesSQLite() {
+		return r.upsertSQLite(credential, now)
+	}
+
 	query := `
 		INSERT INTO external_api_credentials (user_id, provider, label, encrypted_api_key, api_key_hash, api_key_masked, is_active, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (user_id, provider)
-		DO UPDATE SET
-			label = EXCLUDED.label,
-			encrypted_api_key = EXCLUDED.encrypted_api_key,
-			api_key_hash = EXCLUDED.api_key_hash,
-			api_key_masked = EXCLUDED.api_key_masked,
-			is_active = EXCLUDED.is_active,
-			updated_at = EXCLUDED.updated_at
+		ON DUPLICATE KEY UPDATE
+			label = VALUES(label),
+			encrypted_api_key = VALUES(encrypted_api_key),
+			api_key_hash = VALUES(api_key_hash),
+			api_key_masked = VALUES(api_key_masked),
+			is_active = VALUES(is_active),
+			updated_at = VALUES(updated_at)
 	`
 
 	if _, err := r.db.Exec(
@@ -85,6 +88,65 @@ func (r *ExternalAPICredentialRepository) Upsert(credential *models.ExternalAPIC
 		return fmt.Errorf("external api credential was not found after upsert")
 	}
 
+	credential.ID = stored.ID
+	credential.CreatedAt = stored.CreatedAt
+	credential.UpdatedAt = stored.UpdatedAt
+	return nil
+}
+
+func (r *ExternalAPICredentialRepository) usesSQLite() bool {
+	if r == nil || r.db == nil {
+		return false
+	}
+	var version string
+	return r.db.QueryRow(`SELECT sqlite_version()`).Scan(&version) == nil
+}
+
+func (r *ExternalAPICredentialRepository) upsertSQLite(credential *models.ExternalAPICredential, now time.Time) error {
+	existing, err := r.GetByUserAndProvider(credential.UserID, credential.Provider)
+	if err != nil {
+		return fmt.Errorf("failed to check external api credential before sqlite upsert: %w", err)
+	}
+
+	if existing == nil {
+		if _, err := r.db.Exec(
+			`INSERT INTO external_api_credentials (user_id, provider, label, encrypted_api_key, api_key_hash, api_key_masked, is_active, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			credential.UserID,
+			credential.Provider,
+			credential.Label,
+			credential.EncryptedAPIKey,
+			credential.APIKeyHash,
+			credential.APIKeyMasked,
+			credential.IsActive,
+			now,
+			now,
+		); err != nil {
+			return fmt.Errorf("failed to insert external api credential in sqlite test db: %w", err)
+		}
+	} else if _, err := r.db.Exec(
+		`UPDATE external_api_credentials
+		SET label = ?, encrypted_api_key = ?, api_key_hash = ?, api_key_masked = ?, is_active = ?, updated_at = ?
+		WHERE user_id = ? AND provider = ?`,
+		credential.Label,
+		credential.EncryptedAPIKey,
+		credential.APIKeyHash,
+		credential.APIKeyMasked,
+		credential.IsActive,
+		now,
+		credential.UserID,
+		credential.Provider,
+	); err != nil {
+		return fmt.Errorf("failed to update external api credential in sqlite test db: %w", err)
+	}
+
+	stored, err := r.GetByUserAndProvider(credential.UserID, credential.Provider)
+	if err != nil {
+		return fmt.Errorf("failed to reload external api credential after sqlite upsert: %w", err)
+	}
+	if stored == nil {
+		return fmt.Errorf("external api credential was not found after sqlite upsert")
+	}
 	credential.ID = stored.ID
 	credential.CreatedAt = stored.CreatedAt
 	credential.UpdatedAt = stored.UpdatedAt

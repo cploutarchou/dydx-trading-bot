@@ -123,9 +123,9 @@ make infra-up
 make infra-logs
 ```
 
-### PostgreSQL connection fails
+### MariaDB connection fails
 
-**Problem:** Cannot connect to PostgreSQL at localhost:5432.
+**Problem:** Cannot connect to MariaDB at localhost:3306.
 
 **Solutions:**
 
@@ -137,11 +137,11 @@ make infra-ps
 make infra-logs
 
 # Verify connection parameters
-# User: postgres
-# Password: postgres
+# User: dydx_bot
+# Password: configured DB_PASSWORD
 # Database: dydx_trading
 # Host: localhost
-# Port: 5432
+# Port: 3306
 
 # Start shared infra if needed
 make infra-up
@@ -329,7 +329,7 @@ echo $VITE_API_URL
 make stack-logs
 
 # Check firewall rules
-# Ensure ports 8888 (UI backend), 5432, 6379 are accessible
+# Ensure ports 8888 (UI backend), 3306, 6379 are accessible
 ```
 
 ## Other Issues

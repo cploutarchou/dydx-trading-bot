@@ -1,6 +1,4 @@
 -- Migration 000051: Phase 1 — Add missing performance indexes (MySQL/MariaDB version)
--- Converted from: backend/migrations/postgres/000051_phase1_missing_indexes.up.sql
--- Changes: GIN indexes → BTREE indexes (MariaDB limitation), NULLS FIRST not supported (MySQL handles NULL sorting natively)
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- bot_trades: composite covering index for trade history queries per bot
@@ -47,7 +45,7 @@ CREATE INDEX IF NOT EXISTS idx_backtest_runs_user_status_time
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- backtest_strategies: FULLTEXT index on selected_markets (JSON array)
--- MariaDB doesn't support GIN indexes like PostgreSQL, but FULLTEXT can be used for JSON search.
+-- MariaDB doesn't support GIN indexes like legacy, but FULLTEXT can be used for JSON search.
 -- For better JSON array search, consider using JSON_CONTAINS() with BTREE index on parent rows.
 -- Alternative: Use BTREE index if JSON_EXTRACT performance is acceptable
 -- ─────────────────────────────────────────────────────────────────────────────

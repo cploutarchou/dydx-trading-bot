@@ -1,19 +1,38 @@
 name: dydx-trading-bot
 
 services:
-  postgres:
-    image: postgres:16
+  mariadb:
+    image: mariadb:11.4
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${APP_DB_NAME:-app}
-      POSTGRES_USER: ${APP_DB_USER:-app}
-      POSTGRES_PASSWORD: ${APP_DB_PASSWORD:-change-me}
+      MARIADB_DATABASE: ${APP_DB_NAME:-app}
+      MARIADB_USER: ${APP_DB_USER:-app}
+      MARIADB_PASSWORD: ${APP_DB_PASSWORD:-change-me}
+      MARIADB_ROOT_PASSWORD: ${APP_DB_ROOT_PASSWORD:-change-me-root}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - mariadb_data:/var/lib/mysql
     healthcheck:
       test:
         - CMD-SHELL
-        - pg_isready -U ${APP_DB_USER:-app} -d ${APP_DB_NAME:-app}
+        - mariadb-admin ping -h 127.0.0.1 -u${APP_DB_USER:-app} -p${APP_DB_PASSWORD:-change-me} --silent
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  bot-mariadb:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${BOT_DB_NAME:-bot}
+      MARIADB_USER: ${BOT_DB_USER:-bot}
+      MARIADB_PASSWORD: ${BOT_DB_PASSWORD:-change-me}
+      MARIADB_ROOT_PASSWORD: ${BOT_DB_ROOT_PASSWORD:-change-me-root}
+    volumes:
+      - bot_mariadb_data:/var/lib/mysql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - mariadb-admin ping -h 127.0.0.1 -u${BOT_DB_USER:-bot} -p${BOT_DB_PASSWORD:-change-me} --silent
       interval: 10s
       timeout: 5s
       retries: 10
@@ -43,7 +62,7 @@ services:
       dockerfile: docker/Dockerfile.api
     restart: unless-stopped
     depends_on:
-      postgres:
+      bot-mariadb:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -54,13 +73,15 @@ services:
       SECRET_KEY: ${SECRET_KEY:-replace-me-strong-secret}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-replace-me-strong-jwt-secret}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-replace-me-strong-encryption-key}
-      BOT_DB_CUTOVER_MODE: shared
+      DB_TYPE: mysql
+      BOT_DB_TYPE: mysql
+      BOT_DB_CUTOVER_MODE: dedicated
       BOT_API_TOKEN: ${ENCRYPTION_KEY:-replace-me-strong-encryption-key}
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: ${APP_DB_NAME:-app}
-      DB_USER: ${APP_DB_USER:-app}
-      DB_PASSWORD: ${APP_DB_PASSWORD:-change-me}
+      BOT_DB_HOST: bot-mariadb
+      BOT_DB_PORT: 3306
+      BOT_DB_NAME: ${BOT_DB_NAME:-bot}
+      BOT_DB_USER: ${BOT_DB_USER:-bot}
+      BOT_DB_PASSWORD: ${BOT_DB_PASSWORD:-change-me}
       REDIS_HOST: redis
       REDIS_PORT: 6379
     expose:
@@ -82,7 +103,7 @@ services:
       dockerfile: docker/Dockerfile.backend
     restart: unless-stopped
     depends_on:
-      postgres:
+      mariadb:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -98,8 +119,9 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-replace-me-strong-encryption-key}
       FRONTEND_URL: https://${APP_DOMAIN:-app.executionlab.io}
       CORS_ALLOWED_ORIGINS: https://${APP_DOMAIN:-app.executionlab.io}
-      DB_HOST: postgres
-      DB_PORT: 5432
+      DB_TYPE: mysql
+      DB_HOST: mariadb
+      DB_PORT: 3306
       DB_NAME: ${APP_DB_NAME:-app}
       DB_USER: ${APP_DB_USER:-app}
       DB_PASSWORD: ${APP_DB_PASSWORD:-change-me}
@@ -108,7 +130,12 @@ services:
       BOT_API_URL: http://bot:8889
       BOT_API_USE_SERVICE_TOKEN: "true"
       BOT_API_TOKEN: ${ENCRYPTION_KEY:-replace-me-strong-encryption-key}
-      BOT_DB_CUTOVER_MODE: shared
+      BOT_DB_CUTOVER_MODE: dedicated
+      BOT_DB_HOST: bot-mariadb
+      BOT_DB_PORT: 3306
+      BOT_DB_NAME: ${BOT_DB_NAME:-bot}
+      BOT_DB_USER: ${BOT_DB_USER:-bot}
+      BOT_DB_PASSWORD: ${BOT_DB_PASSWORD:-change-me}
     ports:
       - "8888:8888"
     healthcheck:
@@ -139,5 +166,6 @@ services:
       - "5173:80"
 
 volumes:
-  postgres_data: null
+  mariadb_data: null
+  bot_mariadb_data: null
   redis_data: null

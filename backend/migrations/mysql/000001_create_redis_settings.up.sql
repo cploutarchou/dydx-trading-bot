@@ -1,6 +1,4 @@
 -- Create redis_settings table (MySQL/MariaDB version)
--- Converted from: backend/migrations/postgres/000001_create_redis_settings.up.sql
--- Changes: SERIAL → AUTO_INCREMENT
 
 CREATE TABLE IF NOT EXISTS redis_settings
 (
@@ -10,7 +8,7 @@ CREATE TABLE IF NOT EXISTS redis_settings
   port                   INTEGER      DEFAULT NULL,
   db                     INTEGER      DEFAULT NULL,
   password               VARCHAR(255) DEFAULT NULL,
-  ssl                    TINYINT(1)      DEFAULT NULL,
+  `ssl`                    TINYINT(1)      DEFAULT NULL,
   timeout                INTEGER      DEFAULT NULL,
   max_connections        INTEGER      DEFAULT NULL,
   cache_ttl_seconds      INTEGER      DEFAULT NULL,

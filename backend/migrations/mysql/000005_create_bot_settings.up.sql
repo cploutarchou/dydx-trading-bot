@@ -1,6 +1,4 @@
 -- Create bot_settings table (MySQL/MariaDB version)
--- Converted from: backend/migrations/postgres/000005_create_bot_settings.up.sql
--- Changes: SERIAL → AUTO_INCREMENT, ON CONFLICT DO NOTHING → ON DUPLICATE KEY UPDATE with INSERT IGNORE
 
 CREATE TABLE IF NOT EXISTS bot_settings (
 	id INT AUTO_INCREMENT PRIMARY KEY,
@@ -15,24 +13,24 @@ CREATE TABLE IF NOT EXISTS bot_settings (
 	created_at TIMESTAMP NULL DEFAULT NULL,
 	updated_at TIMESTAMP NULL DEFAULT NULL,
 	updated_by INTEGER DEFAULT NULL,
-	FOREIGN KEY (updated_by),
-	UNIQUE (section, key)
+	KEY idx_fk_updated_by (updated_by),
+	UNIQUE (section, `key`)
 );
 
 CREATE INDEX idx_bot_setting_active ON bot_settings (is_active);
 
-CREATE INDEX idx_bot_setting_section_key ON bot_settings (section, key);
+CREATE INDEX idx_bot_setting_section_key ON bot_settings (section, `key`);
 
 CREATE INDEX ix_bot_settings_id ON bot_settings (id);
 
 CREATE INDEX ix_bot_settings_is_active ON bot_settings (is_active);
 
-CREATE INDEX ix_bot_settings_key ON bot_settings (key);
+CREATE INDEX ix_bot_settings_key ON bot_settings (`key`);
 
 CREATE INDEX ix_bot_settings_section ON bot_settings (section);
 
 -- Insert default settings
--- MariaDB: Use INSERT IGNORE instead of ON CONFLICT DO NOTHING
+-- MariaDB: Use INSERT IGNORE instead of idempotent duplicate handling
 INSERT IGNORE INTO bot_settings (
 	section,
 	`key`,

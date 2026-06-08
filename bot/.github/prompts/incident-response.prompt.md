@@ -233,7 +233,7 @@ Provide details about the incident:
 
 ```
 1. BACKUP: Export database backup before any changes
-   pg_dump bot_db > bot_db_backup_$(date +%s).sql
+   mariadb-dump bot_db > bot_db_backup_$(date +%s).sql
 
 2. Identify the inconsistency
    SELECT * FROM <table> WHERE <bad_condition>;
@@ -294,7 +294,7 @@ curl -s http://localhost:8889/api/v1/ready            # Readiness check
 curl -X POST http://localhost:8889/api/v1/bot/<id>/stop  # Stop instance
 
 # Database
-psql bot_db -U bot_user                               # Connect to database
+mariadb bot_db -u bot_user                               # Connect to database
 \dt                                                    # List tables
 SELECT * FROM positions WHERE instance_id = '<id>';   # Check positions
 SELECT * FROM orders WHERE instance_id = '<id>' ORDER BY created_at DESC LIMIT 10;

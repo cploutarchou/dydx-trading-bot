@@ -50,7 +50,7 @@ def upgrade() -> None:
             UPDATE backtest_runtime_runs
             SET status = CASE
                 WHEN status IS NULL THEN 'pending'
-                ELSE CASE LOWER(CAST(status AS TEXT))
+                ELSE CASE LOWER(CAST(status AS CHAR))
                     WHEN 'created' THEN 'pending'
                     WHEN 'queued' THEN 'pending'
                     WHEN 'scheduled' THEN 'pending'
@@ -64,11 +64,11 @@ def upgrade() -> None:
                     WHEN 'timed_out' THEN 'timeout'
                     WHEN 'stalled' THEN 'stale'
                     WHEN 'canceled' THEN 'cancelled'
-                    ELSE LOWER(CAST(status AS TEXT))
+                    ELSE LOWER(CAST(status AS CHAR))
                 END
             END
             WHERE status IS NULL
-               OR LOWER(CAST(status AS TEXT)) IN (
+               OR LOWER(CAST(status AS CHAR)) IN (
                     'created', 'queued', 'scheduled', 'in_progress',
                     'processing', 'active', 'succeeded', 'success',
                     'done', 'error', 'timed_out', 'stalled', 'canceled'

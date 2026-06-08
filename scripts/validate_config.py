@@ -27,11 +27,11 @@ def check_env_vars() -> bool:
         "DATABASE_URL",
         "BOT_DATABASE_URL",
         "DB_HOST",
-        "POSTGRES_HOST",
+        "DB_HOST",
         "DB_NAME",
-        "POSTGRES_DB",
+        "DB_NAME",
         "DB_USER",
-        "POSTGRES_USER",
+        "DB_USER",
     ]
     redis_vars = ["REDIS_ENABLED", "REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD"]
 

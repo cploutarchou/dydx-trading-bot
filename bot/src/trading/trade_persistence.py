@@ -18,7 +18,6 @@ def _db_persistence_enabled() -> bool:
                 "DATABASE_URL",
                 "BOT_DB_HOST",
                 "DB_HOST",
-                "POSTGRES_HOST",
             )
     ):
         return True

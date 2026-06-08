@@ -21,5 +21,4 @@ CREATE INDEX idx_strategy_version ON strategy_version_history (strategy_id, vers
 CREATE INDEX idx_strategy_version_created ON strategy_version_history (strategy_id, created_at);
 CREATE INDEX ix_strategy_version_history_created_at ON strategy_version_history (created_at);
 CREATE INDEX ix_strategy_version_history_id ON strategy_version_history (id);
-CREATE INDEX ix_strategy_version_history_strategy_id ON strategy_version_history (strategy_id);
 

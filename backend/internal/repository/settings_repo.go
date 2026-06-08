@@ -23,10 +23,7 @@ func NewSettingsRepository(db *sql.DB) *SettingsRepository {
 
 // CreateBotSetting creates a new bot setting
 func (r *SettingsRepository) CreateBotSetting(setting *models.BotSetting) error {
-	query := `
-		INSERT INTO bot_settings (section, key, value, value_type, description, default_value, is_active, version, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`
+	query := "INSERT INTO bot_settings (section, `key`, value, value_type, description, default_value, is_active, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 
 	now := time.Now()
 	result, err := r.db.Exec(
@@ -61,12 +58,7 @@ func (r *SettingsRepository) CreateBotSetting(setting *models.BotSetting) error 
 
 // GetBotSettingByID retrieves a bot setting by ID
 func (r *SettingsRepository) GetBotSettingByID(id int) (*models.BotSetting, error) {
-	query := `
-		SELECT id, section, key, value, value_type, description, default_value, is_active, version, created_at, updated_at
-		FROM bot_settings
-		WHERE id = ?
-		LIMIT 1
-	`
+	query := "SELECT id, section, `key`, value, value_type, description, default_value, is_active, version, created_at, updated_at FROM bot_settings WHERE id = ? LIMIT 1"
 
 	setting := &models.BotSetting{}
 	err := r.db.QueryRow(query, id).Scan(
@@ -95,12 +87,7 @@ func (r *SettingsRepository) GetBotSettingByID(id int) (*models.BotSetting, erro
 
 // GetBotSettingBySectionAndKey retrieves a bot setting by section and key
 func (r *SettingsRepository) GetBotSettingBySectionAndKey(section, key string) (*models.BotSetting, error) {
-	query := `
-		SELECT id, section, key, value, value_type, description, default_value, is_active, version, created_at, updated_at
-		FROM bot_settings
-		WHERE section = ? AND key = ?
-		LIMIT 1
-	`
+	query := "SELECT id, section, `key`, value, value_type, description, default_value, is_active, version, created_at, updated_at FROM bot_settings WHERE section = ? AND `key` = ? LIMIT 1"
 
 	setting := &models.BotSetting{}
 	err := r.db.QueryRow(query, section, key).Scan(
@@ -129,12 +116,7 @@ func (r *SettingsRepository) GetBotSettingBySectionAndKey(section, key string) (
 
 // GetBotSettingsBySection retrieves all settings in a section
 func (r *SettingsRepository) GetBotSettingsBySection(section string) ([]models.BotSetting, error) {
-	query := `
-		SELECT id, section, key, value, value_type, description, default_value, is_active, version, created_at, updated_at
-		FROM bot_settings
-		WHERE section = ?
-		ORDER BY key ASC
-	`
+	query := "SELECT id, section, `key`, value, value_type, description, default_value, is_active, version, created_at, updated_at FROM bot_settings WHERE section = ? ORDER BY `key` ASC"
 
 	rows, err := r.db.Query(query, section)
 	if err != nil {
@@ -173,11 +155,7 @@ func (r *SettingsRepository) GetBotSettingsBySection(section string) ([]models.B
 
 // GetAllBotSettings retrieves all bot settings
 func (r *SettingsRepository) GetAllBotSettings() ([]models.BotSetting, error) {
-	query := `
-		SELECT id, section, key, value, value_type, description, default_value, is_active, version, created_at, updated_at
-		FROM bot_settings
-		ORDER BY section, key ASC
-	`
+	query := "SELECT id, section, `key`, value, value_type, description, default_value, is_active, version, created_at, updated_at FROM bot_settings ORDER BY section, `key` ASC"
 
 	rows, err := r.db.Query(query)
 	if err != nil {

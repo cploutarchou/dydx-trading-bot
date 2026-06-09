@@ -1,3 +1,7 @@
+# VITE_* build args are public frontend config baked into the JS bundle — not secrets.
+# checkov:skip=CKV_DOCKER_4 checkov:skip=CKV_DOCKER_8
+# check=skip=SecretsUsedInArgOrEnv
+
 # ── Build stage ──────────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 

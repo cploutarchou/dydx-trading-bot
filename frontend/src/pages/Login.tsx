@@ -3,6 +3,7 @@ import { ArrowRight, Loader, ShieldCheck, Sparkles } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
+import { BACKOFFICE_ROLES, IB_ROLES, getUserWorkspaceRole } from '../auth/roles';
 import AuthExperienceShell from '../components/AuthExperienceShell';
 import { useAuthStore } from '../store/auth';
 import { perfMark, perfMeasure } from '../utils/perf';
@@ -52,6 +53,20 @@ export const LoginPage: React.FC = () => {
 
     try {
       await login(username, password);
+
+      const authenticatedUser = useAuthStore.getState().user;
+      const workspaceRole = getUserWorkspaceRole(authenticatedUser);
+
+      if (BACKOFFICE_ROLES.includes(workspaceRole)) {
+        navigate('/admin');
+        return;
+      }
+
+      if (IB_ROLES.includes(workspaceRole)) {
+        navigate('/ib-portal');
+        return;
+      }
+
       navigate('/dashboard');
     } catch (err) {
       console.error('Login failed:', err);

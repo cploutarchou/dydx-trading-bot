@@ -121,6 +121,9 @@ func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient 
 	routes.RegisterPortalRoutes(router, database.DB)
 	routes.RegisterIBPortalRoutes(router, database.DB)
 	routes.RegisterIBTierRatesRoutes(router, database.DB)
+	routes.RegisterSettingsRoutes(router, database)
+
+	router.Use(middleware.ComingSoonMiddleware(database.DB))
 
 	log.Printf("Initialized bot API client pointing to: %s", apiClient.BaseURL())
 	backtestSyncRepo := repository.NewBacktestSyncRepository(database.DB)
@@ -131,7 +134,6 @@ func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient 
 	routes.RegisterAIMarketRoutes(router, database, apiClient)
 	routes.RegisterKeyRoutes(router, database)
 	routes.RegisterPairStorageRoutes(router)
-	routes.RegisterSettingsRoutes(router, database)
 	routes.RegisterArbitrageSettingsRoutes(router, database, apiClient)
 	routes.RegisterMailgunRoutes(router, database)
 	routes.RegisterTelegramRoutes(router, database)

@@ -35,6 +35,8 @@ func RegisterSettingsRoutes(router *gin.Engine, database *db.Database) {
 			// Get all settings
 			settings.GET("", settingsHandler.GetSettings)
 			settings.PUT("", settingsHandler.UpdateSettings)
+			settings.GET("/platform/coming-soon", settingsHandler.GetComingSoonSetting)
+			settings.PUT("/platform/coming-soon", settingsHandler.UpdateComingSoonSetting)
 			settings.POST("/test-connection", settingsHandler.TestRedisConnection)
 
 			// BotSetting routes

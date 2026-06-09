@@ -18,6 +18,7 @@ import { getCurrentPortalType } from './app/portal';
 import { getPortalRouteManifest } from './app/routeManifest';
 import {
   BACKOFFICE_ROLES,
+  canBypassComingSoon,
   getUserWorkspaceRole,
   roleMatches,
   type WorkspaceRole,
@@ -155,7 +156,7 @@ const PasswordRotationRoute: React.FC = () => {
 const ComingSoonGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const portal = getCurrentPortalType();
   const location = useLocation();
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
+  const user = useAuthStore((state) => state.user);
   const appConfigQuery = useQuery({
     queryKey: ['public', 'app-config'],
     queryFn: async () => {
@@ -180,11 +181,11 @@ const ComingSoonGate: React.FC<{ children: React.ReactNode }> = ({ children }) =
   }
 
   const isAuthBypassPath = isComingSoonBypassPath(location.pathname);
-  if (isAuthenticated || isAuthBypassPath) {
+  if (canBypassComingSoon(user) || isAuthBypassPath) {
     return <>{children}</>;
   }
 
-  return <ComingSoonPage />;
+  return <ComingSoonPage message={appConfigQuery.data.public_launch_message} />;
 };
 
 export const App: React.FC = () => {

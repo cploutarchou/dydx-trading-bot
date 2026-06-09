@@ -1,2 +1,3 @@
--- Rollback for 000060_add_coming_soon_setting
--- Review manually - rollback not auto-generated
+DELETE FROM bot_settings
+WHERE section = 'platform'
+  AND `key` = 'coming_soon_enabled';

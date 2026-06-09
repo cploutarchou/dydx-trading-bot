@@ -85,25 +85,26 @@ func extractBearerTokenFromAuthorizationHeader(c *gin.Context) string {
 	return strings.TrimSpace(parts[1])
 }
 
-func RequireAuth() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if jwtManager == nil {
-			log.Printf("RequireAuth: jwt manager is not initialized")
+func authenticateRequest(c *gin.Context, abortOnFailure bool) bool {
+	if jwtManager == nil {
+		log.Printf("RequireAuth: jwt manager is not initialized")
+		if abortOnFailure {
 			c.JSON(500, gin.H{"error": "authentication service unavailable"})
 			c.Abort()
-			return
 		}
+		return false
+	}
 
-		traceID := strings.TrimSpace(c.GetHeader("X-Trace-Id"))
-		if traceID == "" {
-			traceID = strings.TrimSpace(c.GetHeader("X-Request-Id"))
-		}
+	traceID := strings.TrimSpace(c.GetHeader("X-Trace-Id"))
+	if traceID == "" {
+		traceID = strings.TrimSpace(c.GetHeader("X-Request-Id"))
+	}
 
-		rawAuthorization := strings.TrimSpace(c.GetHeader("Authorization"))
-		sessionCookie, sessionCookieErr := c.Cookie(auth.SessionCookieName)
-		hasSessionCookie := sessionCookieErr == nil && strings.TrimSpace(sessionCookie) != ""
-		bearerToken := extractBearerTokenFromAuthorizationHeader(c)
-		// Do not log raw auth header/token values.
+	rawAuthorization := strings.TrimSpace(c.GetHeader("Authorization"))
+	sessionCookie, sessionCookieErr := c.Cookie(auth.SessionCookieName)
+	hasSessionCookie := sessionCookieErr == nil && strings.TrimSpace(sessionCookie) != ""
+	bearerToken := extractBearerTokenFromAuthorizationHeader(c)
+	if abortOnFailure {
 		log.Printf(
 			"RequireAuth: trace_id=%s has_authorization=%t has_session_cookie=%t has_bearer=%t RemoteAddr=%s ClientIP=%s",
 			traceID,
@@ -113,64 +114,90 @@ func RequireAuth() gin.HandlerFunc {
 			c.Request.RemoteAddr,
 			c.ClientIP(),
 		)
+	}
 
-		if hasSessionCookie && sessionStore != nil {
-			ctx := c.Request.Context()
-			sessionData, err := sessionStore.Get(ctx, strings.TrimSpace(sessionCookie))
-			if err == nil && sessionData != nil {
+	if hasSessionCookie && sessionStore != nil {
+		ctx := c.Request.Context()
+		sessionData, err := sessionStore.Get(ctx, strings.TrimSpace(sessionCookie))
+		if err == nil && sessionData != nil {
+			if abortOnFailure {
 				log.Printf("RequireAuth: trace_id=%s authenticated via session cookie", traceID)
-				setAuthContextFromSession(c, sessionData)
-				c.Next()
-				return
 			}
+			setAuthContextFromSession(c, sessionData)
+			return true
+		}
+		if abortOnFailure {
 			if err != nil && !errors.Is(err, auth.ErrSessionNotFound) {
 				log.Printf("RequireAuth: trace_id=%s session lookup failed: %v", traceID, err)
 			} else {
 				log.Printf("RequireAuth: trace_id=%s session cookie not found in store", traceID)
 			}
 		}
+	}
 
-		if bearerToken == "" {
+	if bearerToken == "" {
+		if abortOnFailure {
 			c.JSON(401, gin.H{"error": "missing authentication credentials"})
 			c.Abort()
-			return
 		}
+		return false
+	}
 
-		tokenString := bearerToken
-		if sessionStore != nil {
-			ctx := c.Request.Context()
-			sessionData, err := sessionStore.Get(ctx, tokenString)
-			if err == nil && sessionData != nil {
+	tokenString := bearerToken
+	if sessionStore != nil {
+		ctx := c.Request.Context()
+		sessionData, err := sessionStore.Get(ctx, tokenString)
+		if err == nil && sessionData != nil {
+			if abortOnFailure {
 				log.Printf("RequireAuth: trace_id=%s authenticated via bearer session token", traceID)
-				setAuthContextFromSession(c, sessionData)
-				c.Next()
-				return
 			}
-			if err != nil && !errors.Is(err, auth.ErrSessionNotFound) {
+			setAuthContextFromSession(c, sessionData)
+			return true
+		}
+		if err != nil && !errors.Is(err, auth.ErrSessionNotFound) {
+			if abortOnFailure {
 				log.Printf("RequireAuth: trace_id=%s session lookup failed: %v", traceID, err)
 				c.JSON(401, gin.H{"error": "invalid session"})
 				c.Abort()
-				return
 			}
+			return false
 		}
+	}
 
-		claims, err := jwtManager.VerifyToken(tokenString, "access")
-		if err != nil {
-			// Log underlying verification error as well
+	claims, err := jwtManager.VerifyToken(tokenString, "access")
+	if err != nil {
+		if abortOnFailure {
 			log.Printf("RequireAuth: trace_id=%s token verification failed: %v", traceID, err)
 			if strings.Contains(strings.ToLower(err.Error()), "token is expired") || strings.Contains(strings.ToLower(err.Error()), "token expired") {
 				c.JSON(401, gin.H{"error": "access token expired", "code": "token_expired"})
 				c.Abort()
-				return
+				return false
 			}
 			c.JSON(401, gin.H{"error": "invalid token"})
 			c.Abort()
+		}
+		return false
+	}
+
+	if abortOnFailure {
+		log.Printf("RequireAuth: trace_id=%s authenticated via bearer jwt", traceID)
+	}
+	setAuthContextFromClaims(c, claims)
+	return true
+}
+
+func TrySetAuthContext(c *gin.Context) bool {
+	if _, exists := c.Get("user_id"); exists {
+		return true
+	}
+	return authenticateRequest(c, false)
+}
+
+func RequireAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !authenticateRequest(c, true) {
 			return
 		}
-
-		log.Printf("RequireAuth: trace_id=%s authenticated via bearer jwt", traceID)
-		setAuthContextFromClaims(c, claims)
-
 		c.Next()
 	}
 }

@@ -35,7 +35,7 @@ const HeaderContent: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
   const user = useAuthStore((state) => state.user);
   const { t, tr } = useI18n();
   const controlCls =
-    'border-slate-700/70 bg-slate-950/70 text-slate-300 hover:border-cyan-500/30 hover:text-white';
+    'header-control border-slate-700/70 bg-slate-950/70 text-slate-300 hover:border-cyan-500/30 hover:text-white';
   const environmentLabel = import.meta.env.DEV
     ? t('Development', 'Ανάπτυξη')
     : t('Production', 'Παραγωγή');

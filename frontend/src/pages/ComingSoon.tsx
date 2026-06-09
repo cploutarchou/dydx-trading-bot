@@ -5,10 +5,18 @@ import BrandMark from '../components/BrandMark';
 const readinessItems = [
   ['DeFi research', 'Market intelligence, pair context, and strategy framing before capital moves.'],
   ['Backtest validation', 'Evidence-first promotion from hypothesis to controlled runtime.'],
-  ['Operator access', 'Role-based entry, MFA posture, and credential hygiene before live workflows.'],
+  ['Operator access', 'Role-based entry, MFA posture, and credential controls before live workflows.'],
 ] as const;
 
-export const ComingSoonPage = () => {
+interface ComingSoonPageProps {
+  message?: string;
+}
+
+export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
+  const description =
+    message?.trim() ||
+    'Public access is paused while the platform is prepared for launch. Authorized administrators can continue through sign-in.';
+
   return (
     <main className="premium-shell min-h-screen overflow-hidden text-white">
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-6 sm:px-6 lg:px-8">
@@ -30,12 +38,10 @@ export const ComingSoonPage = () => {
               Controlled launch in progress
             </div>
             <h1 className="mt-5 max-w-4xl text-4xl font-semibold leading-tight text-white sm:text-5xl lg:text-6xl">
-              ExecutionLab is preparing its DeFi execution workspace.
+              ExecutionLab is coming soon.
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-7 text-slate-400 sm:text-lg">
-              We are finalizing the research, backtesting, strategy validation, and runtime control
-              surfaces for serious crypto operators. Public access is paused while the platform is
-              prepared for launch.
+              {description}
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
@@ -47,7 +53,7 @@ export const ComingSoonPage = () => {
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <span className="inline-flex items-center justify-center rounded-lg border border-slate-700/70 bg-slate-950/60 px-5 py-3 text-sm font-medium text-slate-300">
-                Public onboarding opens soon
+                Public access currently paused
               </span>
             </div>
           </div>
@@ -58,7 +64,7 @@ export const ComingSoonPage = () => {
                 <p className="text-sm font-semibold text-white">Launch readiness</p>
                 <p className="mt-2 text-sm leading-6 text-slate-400">
                   The public site is in controlled-release mode. Admin and operator access remains
-                  available through authenticated routes.
+                  available through sign-in.
                 </p>
               </div>
               <span className="rounded-lg border border-cyan-500/25 bg-cyan-500/10 p-2 text-cyan-200">
@@ -95,9 +101,9 @@ export const ComingSoonPage = () => {
               </div>
               <div className="rounded-lg border border-violet-500/25 bg-violet-500/10 p-4">
                 <WalletCards className="h-5 w-5 text-violet-200" />
-                <p className="mt-3 text-sm font-semibold text-violet-100">No custody claim</p>
+                <p className="mt-3 text-sm font-semibold text-violet-100">Credentials protected</p>
                 <p className="mt-1 text-xs leading-5 text-violet-100/70">
-                  Runtime access is prepared with credential hygiene first.
+                  Runtime access remains behind authenticated controls.
                 </p>
               </div>
             </div>

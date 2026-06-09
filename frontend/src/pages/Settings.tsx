@@ -42,6 +42,7 @@ import apiClient from '../api';
 import { getCurrentPortalType } from '../app/portal';
 import { BACKOFFICE_ROLES, getUserWorkspaceRole, roleMatches } from '../auth/roles';
 import { AdminAccessControlSettings } from '../components/AdminAccessControlSettings';
+import { AdminComingSoonSettings } from '../components/AdminComingSoonSettings';
 import { AIMarketSettings } from '../components/AIMarketSettings';
 import { ArbitrageRuntimeSettings } from '../components/ArbitrageRuntimeSettings';
 import { AuthSettingsComponent } from '../components/AuthSettings';
@@ -60,15 +61,13 @@ import {
 	StatusBadge,
 } from '../components/ui/PlatformUI';
 import { useAuthStore } from '../store/auth';
-
-type SettingValue =
-  | string
-  | number
-  | boolean
-  | null
-  | undefined
-  | Record<string, unknown>
-  | unknown[];
+import {
+  createSettingsDataLoader,
+  type SettingField,
+  type SettingSection,
+  type SettingValue,
+  type SettingsSchema,
+} from './settingsData';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -98,38 +97,6 @@ const getApiErrorCode = (error: unknown): string | null => {
 
   return null;
 };
-
-interface SettingField {
-  key: string;
-  label: string;
-  description: string;
-  value_type: string;
-  default_value: SettingValue;
-  required: boolean;
-  value?: SettingValue;
-  min_value?: number;
-  max_value?: number;
-  options?: string[];
-  placeholder?: string;
-}
-
-interface SettingSection {
-  section: string;
-  title: string;
-  description: string;
-  fields: SettingField[];
-}
-
-interface SettingsSchema {
-  sections: SettingSection[];
-}
-
-interface SavedSettings {
-  sections: Array<{
-    section: string;
-    settings: SettingField[];
-  }>;
-}
 
 type FieldErrors = Record<string, Record<string, string>>;
 
@@ -162,6 +129,7 @@ const MANUAL_SECTION_IDS = new Set([
   'dydx_keys',
   'security',
   'access_control',
+  'coming_soon',
   'arbitrage_runtime',
   'botsettings',
   'backtesting',
@@ -181,6 +149,7 @@ const SECTION_ICON_MAP: Record<string, ComponentType<{ className?: string }>> = 
   mailgun: Mail,
   market_news: Newspaper,
   security: ShieldCheck,
+  coming_soon: ShieldCheck,
 };
 const getSectionIcon = (id: string): ComponentType<{ className?: string }> =>
   SECTION_ICON_MAP[id] ?? SlidersHorizontal;
@@ -193,6 +162,7 @@ const SIDEBAR_GROUPS: Array<{ label: string; sectionIds: string[] }> = [
     label: 'Integrations',
     sectionIds: ['access_control', 'telegram', 'mailgun', 'market_news', 'arbitrage_runtime'],
   },
+  { label: 'Platform', sectionIds: ['coming_soon'] },
 ];
 
 interface SidebarNavGroup {
@@ -376,12 +346,14 @@ export default function Settings() {
   >({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [settingsLoadError, setSettingsLoadError] = useState<string | null>(null);
   const [mfaEnrollmentRequired, setMfaEnrollmentRequired] = useState(false);
   const [activeSection, setActiveSection] = useState<string>(requestedSection || 'profile');
   const [pendingFocusTarget, setPendingFocusTarget] = useState<PendingFocusTarget | null>(null);
   const [sectionSearchQuery, setSectionSearchQuery] = useState('');
   const [testingConnection, setTestingConnection] = useState(false);
   const fieldRefs = useRef<Record<string, HTMLInputElement | HTMLSelectElement | null>>({});
+  const settingsDataLoaderRef = useRef(createSettingsDataLoader(apiClient));
   const hasRestoredSectionRef = useRef(false);
   const urlSyncEnabledRef = useRef(true);
   const lastRequestedSectionRef = useRef(requestedSection);
@@ -422,6 +394,11 @@ export default function Settings() {
               description: 'Roles & registration',
             },
             { section: 'mailgun', title: 'Mailgun', description: 'Outbound email' },
+            {
+              section: 'coming_soon',
+              title: 'Coming Soon',
+              description: 'Public launch gate',
+            },
             { section: 'market_news', title: 'Market News', description: 'CoinDesk feed' },
             {
               section: 'arbitrage_runtime',
@@ -468,6 +445,7 @@ export default function Settings() {
   const fetchSettingsData = useCallback(async () => {
     try {
       setLoading(true);
+      setSettingsLoadError(null);
       setMfaEnrollmentRequired(false);
 
       if (!canManageBackofficeSettings) {
@@ -477,47 +455,16 @@ export default function Settings() {
         return;
       }
 
-      // First, try to initialize settings (idempotent - no-op if already initialized)
-      try {
-        await apiClient.initializeSettings();
-      } catch {
-        // Initialization might fail if settings already exist, which is fine
-      }
-
-      const [schemaResponse, settingsResponse] = await Promise.all([
-        apiClient.getSettingsSchema(),
-        apiClient.getSettings(),
-      ]);
-
-      const schemaData = schemaResponse.data as unknown as SettingsSchema;
-      const settingsData = settingsResponse.data as unknown as SavedSettings;
-
-      setSchema(schemaData);
-
-      // Build formValues from saved settings
-      const formVals: Record<string, Record<string, SettingValue>> = {};
-      settingsData.sections.forEach((section) => {
-        formVals[section.section] = {};
-        section.settings.forEach((setting) => {
-          // Parse JSON values
-          let value = setting.value;
-          if (typeof value === 'string') {
-            try {
-              value = JSON.parse(value);
-            } catch {
-              // Not JSON, keep as string
-            }
-          }
-          formVals[section.section][setting.key] =
-            value !== undefined ? value : setting.default_value;
-        });
-      });
+      const { schema: schemaData, formValues: formVals } = await settingsDataLoaderRef.current();
 
       setFormValues(formVals);
       setInitialFormValues(formVals);
+      setSchema(schemaData);
     } catch (error: unknown) {
       const apiErrorCode = getApiErrorCode(error);
       if (apiErrorCode === 'mfa_required') {
+        setSchema(null);
+        setSettingsLoadError('Complete 2FA enrollment to access operator settings.');
         setMfaEnrollmentRequired(true);
         errorToast(
           'MFA enrollment required',
@@ -526,7 +473,10 @@ export default function Settings() {
         return;
       }
 
-      errorToast('Failed to load settings', getApiErrorMessage(error, 'Unknown error'));
+      const message = getApiErrorMessage(error, 'Unknown error');
+      setSchema(null);
+      setSettingsLoadError(message);
+      errorToast('Failed to load settings', message);
     } finally {
       setLoading(false);
     }
@@ -788,7 +738,10 @@ export default function Settings() {
         <InlineNotice
           tone="danger"
           title="Settings could not be loaded"
-          description="The control surface is unavailable right now. Retry the request and confirm the backend is healthy if the problem continues."
+          description={
+            settingsLoadError ||
+            'The control surface is unavailable right now. Retry the request and confirm the backend is healthy if the problem continues.'
+          }
           action={
             <button
               type="button"
@@ -977,6 +930,9 @@ export default function Settings() {
           {activeSection === 'codex_io' && isAdminUser && <CodexSettings />}
           {activeSection === 'access_control' && canManageBackofficeSettings && (
             <AdminAccessControlSettings />
+          )}
+          {activeSection === 'coming_soon' && canManageBackofficeSettings && (
+            <AdminComingSoonSettings />
           )}
           {activeSection === 'mailgun' && canManageBackofficeSettings && <MailgunSettings />}
           {activeSection === 'telegram' && <TelegramSettings />}

@@ -83,10 +83,32 @@ print_connectivity_diagnostics() {
   fi
 }
 
+get_config_value() {
+  local field="$1"
+  python3 - <<'PY' "${CONFIG_FILE}" "${field}"
+import re, sys
+from pathlib import Path
+text = Path(sys.argv[1]).read_text()
+field = sys.argv[2]
+patterns = {
+    "address":        r"(?m)^\s*address:\s*([^\s#]+)\s*$",
+    "public_address": r"(?m)^\s*public_address:\s*([^\s#]+)\s*$",
+}
+m = re.search(patterns[field], text)
+print(m.group(1) if m else "")
+PY
+}
+
 ensure_private_ssh_for_live_ops() {
   local private_ip public_ip
   private_ip="$(get_inventory_ip "private_ip")"
   public_ip="$(get_inventory_ip "public_ip")"
+
+  # Fall back to stackforge.yaml node addresses when inventory is absent
+  if [[ -z "${private_ip}" ]] && [[ -f "${CONFIG_FILE}" ]]; then
+    private_ip="$(get_config_value address)"
+    public_ip="$(get_config_value public_address)"
+  fi
 
   if [[ -z "${private_ip}" ]]; then
     return 0

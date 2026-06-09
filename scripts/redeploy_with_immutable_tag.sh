@@ -52,8 +52,13 @@ remote_stackforge_deploy() {
   public_address="${STACKFORGE_PUBLIC_HOST:-$(get_stackforge_config_value public_address)}"
 
   if [[ -z "${NOMAD_SERVICE_HOST_STRATEGY}" ]]; then
-    NOMAD_SERVICE_HOST_STRATEGY="node-public"
-    echo "[INFO] No NOMAD_SERVICE_HOST_STRATEGY set; defaulting to node-public for remote fallback" >&2
+    NOMAD_SERVICE_HOST_STRATEGY="node-address"
+    echo "[INFO] No NOMAD_SERVICE_HOST_STRATEGY set; defaulting to node-address for remote fallback" >&2
+  fi
+
+  if [[ -z "${NOMAD_PREFLIGHT_PROBE_MODE}" ]]; then
+    NOMAD_PREFLIGHT_PROBE_MODE="host-network"
+    echo "[INFO] No NOMAD_PREFLIGHT_PROBE_MODE set; defaulting to host-network for remote fallback" >&2
   fi
 
   if [[ -z "${public_address}" ]]; then
@@ -93,11 +98,10 @@ deploy_args=(
   deploy
   --confirm-production
   --yes
-  --mode nomad
+  --mode compose
+  --no-build
   --file "${REMOTE_MANIFEST}"
   --env-file "${REMOTE_ENV}"
-  --nomad-address https://127.0.0.1:4646
-  --nomad-cacert /etc/nomad.d/tls/ca.pem
 )
 
 if [[ "${WAIT}" == "true" ]]; then
@@ -204,11 +208,10 @@ deploy_args=(
   deploy
   --confirm-production
   --yes
-  --mode nomad
+  --mode compose
+  --no-build
   --file "${REMOTE_MANIFEST}"
   --env-file "${REMOTE_ENV}"
-  --nomad-address https://127.0.0.1:4646
-  --nomad-cacert /etc/nomad.d/tls/ca.pem
 )
 
 if [[ "${WAIT}" == "true" ]]; then

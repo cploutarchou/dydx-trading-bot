@@ -3,9 +3,15 @@ import { Link } from 'react-router-dom';
 import BrandMark from '../components/BrandMark';
 
 const readinessItems = [
-  ['DeFi research', 'Market intelligence, pair context, and strategy framing before capital moves.'],
+  [
+    'DeFi research',
+    'Market intelligence, pair context, and strategy framing before capital moves.',
+  ],
   ['Backtest validation', 'Evidence-first promotion from hypothesis to controlled runtime.'],
-  ['Operator access', 'Role-based entry, MFA posture, and credential controls before live workflows.'],
+  [
+    'Operator access',
+    'Role-based entry, MFA posture, and credential controls before live workflows.',
+  ],
 ] as const;
 
 interface ComingSoonPageProps {
@@ -15,7 +21,7 @@ interface ComingSoonPageProps {
 export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
   const description =
     message?.trim() ||
-    'Public access is paused while the platform is prepared for launch. Authorized administrators can continue through sign-in.';
+    'Public access is paused while the platform is prepared for launch. Existing operators can still sign in, but the workspace remains hidden until launch.';
 
   return (
     <main className="premium-shell min-h-screen overflow-hidden text-white">
@@ -63,8 +69,8 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
               <div>
                 <p className="text-sm font-semibold text-white">Launch readiness</p>
                 <p className="mt-2 text-sm leading-6 text-slate-400">
-                  The public site is in controlled-release mode. Admin and operator access remains
-                  available through sign-in.
+                  The public site is in controlled-release mode. Only sign-in and required account
+                  recovery pages remain available while launch is paused.
                 </p>
               </div>
               <span className="rounded-lg border border-cyan-500/25 bg-cyan-500/10 p-2 text-cyan-200">

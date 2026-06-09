@@ -82,7 +82,6 @@ services:
       BOT_DB_NAME: ${BOT_DB_NAME:-bot}
       BOT_DB_USER: ${BOT_DB_USER:-bot}
       BOT_DB_PASSWORD: ${BOT_DB_PASSWORD:-change-me}
-      BOT_DB_PASSWORD: ${BOT_DB_PASSWORD:-change-me}
       REDIS_HOST: redis
       REDIS_PORT: 6379
     expose:

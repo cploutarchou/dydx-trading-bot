@@ -26,6 +26,15 @@ export const LoginPage: React.FC = () => {
     // Keep LoginPage subscribed to cached data without issuing a second request.
     enabled: false,
   });
+  const appConfigQuery = useQuery({
+    queryKey: ['public', 'app-config'],
+    queryFn: async () => {
+      const response = await api.getPublicAppConfig();
+      return response.data;
+    },
+    staleTime: 30_000,
+    enabled: false,
+  });
 
   useEffect(() => {
     usernameInputRef.current?.focus();
@@ -79,6 +88,102 @@ export const LoginPage: React.FC = () => {
       : registrationStatusQuery.data?.enabled === false
         ? 'Registration paused'
         : 'Open review';
+
+  const comingSoonEnabled = appConfigQuery.data?.coming_soon_enabled === true;
+
+  if (comingSoonEnabled) {
+    return (
+      <main className="premium-shell min-h-screen text-white">
+        <div className="mx-auto flex min-h-screen w-full max-w-md items-center px-4 py-8 sm:px-6 lg:px-8">
+          <section className="w-full rounded-2xl border border-slate-700 bg-slate-900/90 p-6 shadow-2xl shadow-black/40 backdrop-blur">
+            <div className="surface-label">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Coming soon access
+            </div>
+
+            <h1 className="mt-5 text-3xl font-semibold leading-tight text-white sm:text-4xl">
+              Sign in with existing credentials
+            </h1>
+
+            <p className="mt-4 text-sm leading-6 text-slate-400 sm:text-base">
+              The workspace is hidden while launch is paused. Use an approved account to continue.
+            </p>
+
+            <div className="mt-5 rounded-lg border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-300">
+              Only sign-in and required account recovery pages remain available.
+            </div>
+
+            {error && (
+              <div
+                ref={errorAlertRef}
+                tabIndex={-1}
+                role="alert"
+                aria-live="assertive"
+                className="mt-5 rounded-lg border border-red-700 bg-red-950/55 p-4 text-red-200"
+              >
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+              <div>
+                <label
+                  htmlFor="login-username"
+                  className="mb-2 block text-sm font-medium text-slate-300"
+                >
+                  Username
+                </label>
+                <input
+                  id="login-username"
+                  type="text"
+                  autoComplete="username"
+                  ref={usernameInputRef}
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  className="premium-input"
+                  placeholder="Enter your operator username"
+                  required
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="login-password"
+                  className="mb-2 block text-sm font-medium text-slate-300"
+                >
+                  Password
+                </label>
+                <input
+                  id="login-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="premium-input"
+                  placeholder="Enter your password"
+                  required
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="premium-button premium-button-primary w-full disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading && <Loader className="h-4 w-4 animate-spin" />}
+                {loading ? 'Signing in...' : 'Enter workspace'}
+              </button>
+            </form>
+
+            <div className="mt-5 flex items-center justify-between gap-3 text-xs text-slate-500">
+              <span>Launch is paused for the public site.</span>
+              <span>Existing credentials only.</span>
+            </div>
+          </section>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <AuthExperienceShell

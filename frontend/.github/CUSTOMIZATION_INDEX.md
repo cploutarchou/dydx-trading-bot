@@ -13,10 +13,28 @@ Use this file when the task is primarily inside the React frontend service.
 
 - `.github/agents/senior-react-defi-product.agent.md`
   Use for product UI, public website, operator UX, live views, tables, charts, and responsive work.
+- `.github/agents/api-integration-specialist.agent.md`
+  Use for API integration, React Query hook architecture, endpoint contract handling, and cache/invalidation behavior.
 
 ## Instructions
 
 - `.github/copilot-instructions.md`
+
+## Skills
+
+- `.github/skills/frontend-live-data-safety/SKILL.md`
+- `.github/skills/senior-ux-designer/SKILL.md`
+- `.github/skills/react-query-patterns/SKILL.md`
+- `.github/skills/tailwind-dark-theme-fintech/SKILL.md`
+- `.github/skills/portal-routing-guardrails/SKILL.md`
+- `.github/skills/error-observability-patterns/SKILL.md`
+
+## Prompts
+
+- `.github/prompts/fintech-copy-tone.prompt.md`
+- `.github/prompts/testing-and-contracts.prompt.md`
+- `.github/prompts/responsive-mobile-first-qa.prompt.md`
+- `.github/prompts/release-readiness.prompt.md`
 
 ## Supporting docs
 

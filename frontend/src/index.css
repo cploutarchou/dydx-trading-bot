@@ -2,6 +2,34 @@
 @import 'tailwindcss';
 
 :root {
+  --color-page-bg: #050816;
+  --color-surface-elevated: rgba(15, 23, 42, 0.9);
+  --color-surface-secondary: rgba(8, 13, 16, 0.78);
+  --color-sidebar-bg: rgba(8, 14, 31, 0.98);
+  --color-header-bg: rgba(5, 8, 22, 0.88);
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #cbd5e1;
+  --color-text-muted: #94a3b8;
+  --color-border: rgba(30, 41, 59, 0.92);
+  --color-divider: rgba(30, 41, 59, 0.78);
+  --color-action-primary: #00d4ff;
+  --color-action-secondary: #7c3aed;
+  --color-state-hover: rgba(15, 23, 42, 0.82);
+  --color-state-active: rgba(34, 211, 238, 0.16);
+  --color-focus-ring: rgba(34, 211, 238, 0.82);
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #38bdf8;
+  --color-disabled-bg: rgba(51, 65, 85, 0.62);
+  --color-disabled-text: #64748b;
+  --color-overlay: rgba(2, 6, 23, 0.78);
+  --shadow-elevated: 0 18px 48px rgba(2, 8, 23, 0.28);
+  --shadow-soft: 0 10px 28px rgba(2, 8, 23, 0.18);
+  --table-header-bg: rgba(2, 6, 23, 0.95);
+  --table-row-bg: rgba(15, 23, 42, 0.5);
+  --table-row-hover-bg: rgba(15, 23, 42, 0.82);
+  --input-bg: rgba(7, 10, 11, 0.9);
   --app-bg: #050816;
   --app-foreground: #f8fafc;
   --app-muted: #94a3b8;
@@ -57,6 +85,34 @@
 }
 
 :root[data-theme='light'] {
+  --color-page-bg: #f4f7fb;
+  --color-surface-elevated: #ffffff;
+  --color-surface-secondary: #eef3f8;
+  --color-sidebar-bg: #f8fafc;
+  --color-header-bg: rgba(255, 255, 255, 0.92);
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #334155;
+  --color-text-muted: #64748b;
+  --color-border: rgba(100, 116, 139, 0.34);
+  --color-divider: rgba(148, 163, 184, 0.38);
+  --color-action-primary: #0369a1;
+  --color-action-secondary: #475569;
+  --color-state-hover: rgba(226, 232, 240, 0.78);
+  --color-state-active: rgba(3, 105, 161, 0.12);
+  --color-focus-ring: rgba(3, 105, 161, 0.82);
+  --color-success: #047857;
+  --color-warning: #b45309;
+  --color-error: #be123c;
+  --color-info: #0369a1;
+  --color-disabled-bg: rgba(226, 232, 240, 0.72);
+  --color-disabled-text: #64748b;
+  --color-overlay: rgba(15, 23, 42, 0.48);
+  --shadow-elevated: 0 16px 36px rgba(15, 23, 42, 0.12);
+  --shadow-soft: 0 8px 22px rgba(15, 23, 42, 0.08);
+  --table-header-bg: rgba(241, 245, 249, 0.96);
+  --table-row-bg: rgba(255, 255, 255, 0.78);
+  --table-row-hover-bg: rgba(226, 232, 240, 0.64);
+  --input-bg: #ffffff;
   --app-bg: #f6f8fb;
   --app-foreground: #0f172a;
   --app-muted: #475569;
@@ -198,7 +254,7 @@ h6 {
 }
 
 :where(a, button, input, select, textarea):focus-visible {
-  outline: 2px solid rgba(34, 211, 238, 0.8);
+  outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
 }
 
@@ -5294,6 +5350,202 @@ h6 {
     rgba(148, 163, 184, 0.28) 50%,
     rgba(148, 163, 184, 0.12) 100%
   );
+}
+
+/* Semantic app surfaces shared by shell, settings, tables, modals, and public gates */
+.app-shell {
+  color: var(--color-text-primary);
+}
+
+.header-control {
+  border-color: var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-elevated) 78%, transparent);
+  color: var(--color-text-secondary);
+}
+
+.header-control:hover {
+  border-color: color-mix(in srgb, var(--color-action-primary) 34%, transparent);
+  background: var(--color-state-hover);
+  color: var(--color-text-primary);
+}
+
+button:disabled,
+select:disabled,
+input:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+}
+
+:where(button, select, input, textarea):disabled {
+  opacity: 0.68;
+}
+
+:root[data-theme='light'] .app-shell {
+  background: var(--color-page-bg);
+  color: var(--color-text-primary);
+}
+
+:root[data-theme='light'] .app-sidebar {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.98)),
+    var(--color-sidebar-bg) !important;
+}
+
+:root[data-theme='light'] .app-sidebar .workspace-card,
+:root[data-theme='light'] .premium-topbar .workspace-card {
+  border-color: var(--color-border) !important;
+  background: rgba(255, 255, 255, 0.82) !important;
+  box-shadow: var(--shadow-soft) !important;
+}
+
+:root[data-theme='light'] .app-sidebar button[aria-label='Close navigation'] {
+  background: var(--color-surface-elevated) !important;
+  color: var(--color-text-secondary) !important;
+}
+
+:root[data-theme='light'] .app-sidebar nav button {
+  border-color: transparent;
+}
+
+:root[data-theme='light'] .app-sidebar nav button:hover {
+  background: var(--color-state-hover) !important;
+}
+
+:root[data-theme='light'] .app-sidebar nav button[class*='bg-teal-500'] {
+  border-color: rgba(3, 105, 161, 0.3) !important;
+  background: var(--color-state-active) !important;
+  color: var(--color-text-primary) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme='light'] .app-sidebar [class*='bg-red-600'] {
+  background: #be123c !important;
+  color: #ffffff !important;
+}
+
+:root[data-theme='light'] .premium-topbar {
+  background: var(--color-header-bg) !important;
+}
+
+:root[data-theme='light'] .premium-topbar h1,
+:root[data-theme='light'] .premium-topbar nav span {
+  color: var(--color-text-primary) !important;
+}
+
+:root[data-theme='light'] .workspace-chip {
+  border-color: var(--color-border) !important;
+  background: var(--workspace-chip-bg) !important;
+  color: #075985 !important;
+}
+
+:root[data-theme='light'] .terminal-data-grid {
+  border-color: var(--color-border) !important;
+  background: var(--color-surface-elevated) !important;
+  box-shadow: var(--shadow-elevated) !important;
+}
+
+:root[data-theme='light'] .terminal-data-grid > div {
+  border-color: var(--color-divider) !important;
+}
+
+:root[data-theme='light'] .terminal-data-grid table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+:root[data-theme='light'] .terminal-data-grid thead th {
+  border-color: var(--color-divider) !important;
+  background: var(--table-header-bg) !important;
+  color: var(--color-text-muted) !important;
+}
+
+:root[data-theme='light'] .terminal-data-grid tbody tr {
+  border-color: var(--color-divider) !important;
+  background: var(--table-row-bg) !important;
+}
+
+:root[data-theme='light'] .terminal-data-grid tbody tr:hover {
+  background: var(--table-row-hover-bg) !important;
+}
+
+:root[data-theme='light'] .terminal-data-grid input,
+:root[data-theme='light'] .terminal-data-grid select,
+:root[data-theme='light'] .terminal-data-grid button,
+:root[data-theme='light'] .terminal-data-grid span[class*='bg-slate-950'] {
+  border-color: var(--color-border) !important;
+  background: var(--color-surface-elevated) !important;
+  color: var(--color-text-secondary) !important;
+}
+
+:root[data-theme='light'] .action-dialog > button[aria-label='Close dialog'] {
+  background: var(--color-overlay) !important;
+}
+
+:root[data-theme='light'] .action-dialog > div {
+  border-color: var(--color-border) !important;
+  background: var(--color-surface-elevated) !important;
+  color: var(--color-text-primary) !important;
+  box-shadow: 0 32px 90px rgba(15, 23, 42, 0.22) !important;
+}
+
+:root[data-theme='light'] .action-dialog [class*='bg-slate-900'],
+:root[data-theme='light'] .action-dialog [class*='bg-slate-950'] {
+  background: var(--color-surface-secondary) !important;
+}
+
+:root[data-theme='light'] [role='switch'][aria-checked='false'] {
+  border-color: #94a3b8 !important;
+  background: #cbd5e1 !important;
+}
+
+:root[data-theme='light'] [role='switch'][aria-checked='true'] {
+  border-color: var(--color-action-primary) !important;
+  background: var(--color-action-primary) !important;
+}
+
+:root[data-theme='light'] .premium-panel [class*='border-red'],
+:root[data-theme='light'] .platform-panel [class*='border-red'],
+:root[data-theme='light'] .premium-panel [class*='border-rose'],
+:root[data-theme='light'] .platform-panel [class*='border-rose'] {
+  border-color: rgba(190, 18, 60, 0.34) !important;
+}
+
+:root[data-theme='light'] .premium-panel [class*='bg-red'],
+:root[data-theme='light'] .platform-panel [class*='bg-red'],
+:root[data-theme='light'] .premium-panel [class*='bg-rose'],
+:root[data-theme='light'] .platform-panel [class*='bg-rose'] {
+  background-color: rgba(225, 29, 72, 0.1) !important;
+}
+
+:root[data-theme='light'] .premium-panel [class*='border-amber'],
+:root[data-theme='light'] .platform-panel [class*='border-amber'] {
+  border-color: rgba(180, 83, 9, 0.34) !important;
+}
+
+:root[data-theme='light'] .premium-panel [class*='bg-amber'],
+:root[data-theme='light'] .platform-panel [class*='bg-amber'] {
+  background-color: rgba(245, 158, 11, 0.12) !important;
+}
+
+:root[data-theme='light'] .premium-panel [class*='border-emerald'],
+:root[data-theme='light'] .platform-panel [class*='border-emerald'] {
+  border-color: rgba(4, 120, 87, 0.34) !important;
+}
+
+:root[data-theme='light'] .premium-panel [class*='bg-emerald'],
+:root[data-theme='light'] .platform-panel [class*='bg-emerald'] {
+  background-color: rgba(16, 185, 129, 0.11) !important;
+}
+
+@media (max-width: 767px) {
+  .premium-panel .grid.grid-cols-5 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .premium-panel .grid.grid-cols-5 > .col-span-2,
+  .premium-panel .grid.grid-cols-5 > .col-span-3 {
+    grid-column: auto;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

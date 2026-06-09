@@ -59,7 +59,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
       {isOpen && <div className="fixed inset-0 z-40 bg-black/55 lg:hidden" onClick={onClose} />}
 
       <aside
-        className={`premium-sidebar fixed z-50 flex h-screen w-76 shrink-0 flex-col border-r border-slate-800/80 transition-transform duration-300 lg:sticky lg:top-0 lg:self-start ${
+        className={`premium-sidebar app-sidebar fixed z-50 flex h-screen w-76 shrink-0 flex-col border-r border-slate-800/80 transition-transform duration-300 lg:sticky lg:top-0 lg:self-start ${
           isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >

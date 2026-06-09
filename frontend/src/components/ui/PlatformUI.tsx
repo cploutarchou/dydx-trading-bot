@@ -315,7 +315,7 @@ export const ActionDialog = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center px-4 py-6">
+    <div className="action-dialog fixed inset-0 z-[70] flex items-center justify-center px-4 py-6">
       <button
         type="button"
         aria-label="Close dialog"

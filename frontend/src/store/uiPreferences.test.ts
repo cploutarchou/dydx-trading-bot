@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { resolveTheme } from './uiPreferences';
 
 describe('ui preference theme helpers', () => {
-  it('resolves explicit light and dark themes without changing behavior', () => {
-    expect(resolveTheme('light')).toBe('light');
+  it('forces dark mode while light mode is temporarily disabled', () => {
+    expect(resolveTheme('light')).toBe('dark');
     expect(resolveTheme('dark')).toBe('dark');
+    expect(resolveTheme('system')).toBe('dark');
   });
 });

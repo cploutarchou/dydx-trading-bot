@@ -5,28 +5,21 @@
 
 import { useQuery } from '@tanstack/react-query';
 import React, { Suspense, lazy, useEffect, useRef } from 'react';
-import {
-  Navigate,
-  Route,
-  BrowserRouter as Router,
-  Routes,
-  useLocation,
-} from 'react-router-dom';
+import { Navigate, Route, BrowserRouter as Router, Routes, useLocation } from 'react-router-dom';
 import api from './api';
 import { QueryProvider } from './api/QueryProvider';
 import { getCurrentPortalType } from './app/portal';
 import { getPortalRouteManifest } from './app/routeManifest';
 import {
-  BACKOFFICE_ROLES,
-  canBypassComingSoon,
-  getUserWorkspaceRole,
-  roleMatches,
-  type WorkspaceRole,
+    BACKOFFICE_ROLES,
+    getUserWorkspaceRole,
+    roleMatches,
+    type WorkspaceRole,
 } from './auth/roles';
 import {
-  ErrorBoundary as EnhancedErrorBoundary,
-  ToastContainer,
-  useToastStore,
+    ErrorBoundary as EnhancedErrorBoundary,
+    ToastContainer,
+    useToastStore,
 } from './components/ErrorBoundary';
 import { MainLayout } from './components/MainLayout';
 import { RegistrationDisabledLoginGate } from './components/RegistrationDisabledLoginGate';
@@ -85,15 +78,10 @@ const ComingSoonPage = lazy(() =>
   import('./pages/ComingSoon').then((module) => ({ default: module.ComingSoonPage }))
 );
 
-const COMING_SOON_AUTH_BYPASS_PATHS = new Set([
-  '/login',
-  '/2fa-setup',
-  '/force-password',
-  '/unauthorized',
-]);
+const COMING_SOON_AUTH_BYPASS_PATHS = new Set(['/login', '/2fa-setup', '/force-password']);
 
 const isComingSoonBypassPath = (pathname: string): boolean =>
-  COMING_SOON_AUTH_BYPASS_PATHS.has(pathname) || pathname.startsWith('/admin');
+  COMING_SOON_AUTH_BYPASS_PATHS.has(pathname);
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: WorkspaceRole[] }> = ({
   children,
@@ -181,7 +169,7 @@ const ComingSoonGate: React.FC<{ children: React.ReactNode }> = ({ children }) =
   }
 
   const isAuthBypassPath = isComingSoonBypassPath(location.pathname);
-  if (canBypassComingSoon(user) || isAuthBypassPath) {
+  if (isAuthBypassPath) {
     return <>{children}</>;
   }
 

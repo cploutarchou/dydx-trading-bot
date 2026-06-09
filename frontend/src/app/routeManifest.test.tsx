@@ -18,6 +18,7 @@ const stubLocation = (search = '') => {
   vi.stubGlobal('window', {
     location: {
       hostname: 'localhost',
+      pathname: '/',
       port: '5173',
       protocol: 'http:',
       search,

@@ -145,7 +145,7 @@ export function TerminalDataGrid<T>({
   };
 
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/80 shadow-[0_16px_60px_rgba(2,6,23,0.3)]">
+    <div className="terminal-data-grid rounded-lg border border-slate-800 bg-slate-900/80 shadow-[0_16px_60px_rgba(2,6,23,0.3)]">
       <div className="border-b border-slate-800 px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>

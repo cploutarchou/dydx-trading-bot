@@ -3,6 +3,8 @@ import React from 'react';
 import { useI18n } from '../i18n/useI18n';
 import { type ThemeMode, useUIPreferencesStore } from '../store/uiPreferences';
 
+const LIGHT_MODE_TEMPORARILY_DISABLED = true;
+
 const themeOptions: Array<{ value: ThemeMode; icon: LucideIcon }> = [
   { value: 'system', icon: Monitor },
   { value: 'dark', icon: Moon },
@@ -33,7 +35,11 @@ export const ThemeToggle: React.FC = () => {
         aria-label={t('Theme', 'Θέμα')}
       >
         {themeOptions.map((option) => (
-          <option key={option.value} value={option.value}>
+          <option
+            key={option.value}
+            value={option.value}
+            disabled={LIGHT_MODE_TEMPORARILY_DISABLED && option.value === 'light'}
+          >
             {labels[option.value]}
           </option>
         ))}

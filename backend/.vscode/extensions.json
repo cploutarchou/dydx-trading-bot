@@ -1,7 +1,29 @@
 {
 	"recommendations": [
 		"golang.go",
-		"tooltitudeteam.tooltitude",
-		"ms-vscode.makefile-tools"
+		"ms-vscode.makefile-tools",
+		"ms-vscode.vscode-typescript-next",
+		"ms-vscode.github-copilot",
+		"ms-vscode-remote.vscode-remote-extensionpack",
+		"ms-vscode-remote.remote-containers",
+		"ms-vscode-remote.remote-ssh",
+		"eamodio.gitlens",
+		"GitHub.copilot-chat",
+		"humao.rest-client",
+		"mtxr.sqltools",
+		"mtxr.sqltools-driver-mysql",
+		"ms-mssql.mssql",
+		"formulahendry.docker-explorer",
+		"ms-vscode-remote.remote-containers",
+		"redhat.vscode-yaml",
+		"DavidAnson.vscode-markdownlint",
+		"streetsidesoftware.code-spell-checker",
+		"ms-vscode.extension-test-runner",
+		"golang.go-template",
+		"esbenp.prettier-vscode",
+		"ms-vscode.standard-sql-formatter",
+		"eamodio.gitlens",
+		"GitHub.vscode-pull-request-github",
+		"postman.postman-for-vscode"
 	]
 }

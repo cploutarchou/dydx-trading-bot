@@ -15,6 +15,7 @@ interface UIPreferencesState {
 
 const THEME_KEY = 'ui.theme';
 const LANGUAGE_KEY = 'ui.language';
+const FORCE_DARK_THEME = true;
 
 const getLocalStorageValue = (key: string): string | null => {
   if (typeof window === 'undefined') {
@@ -59,8 +60,21 @@ export const getSystemTheme = (): ResolvedTheme => {
   return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
 };
 
-export const resolveTheme = (theme: ThemeMode): ResolvedTheme =>
-  theme === 'system' ? getSystemTheme() : theme;
+const normalizeThemeMode = (theme: ThemeMode): ThemeMode => {
+  if (!FORCE_DARK_THEME) {
+    return theme;
+  }
+
+  return theme === 'light' ? 'dark' : theme;
+};
+
+export const resolveTheme = (theme: ThemeMode): ResolvedTheme => {
+  if (FORCE_DARK_THEME) {
+    return 'dark';
+  }
+
+  return theme === 'system' ? getSystemTheme() : theme;
+};
 
 const getStoredTheme = (): ThemeMode => {
   if (typeof window === 'undefined') {
@@ -69,14 +83,15 @@ const getStoredTheme = (): ThemeMode => {
 
   const stored = getLocalStorageValue(THEME_KEY);
   if (isThemeMode(stored)) {
-    return stored;
+    return normalizeThemeMode(stored);
   }
 
   const legacyPublicTheme = getLocalStorageValue('ui.publicTheme');
   if (isThemeMode(legacyPublicTheme)) {
-    setLocalStorageValue(THEME_KEY, legacyPublicTheme);
+    const normalized = normalizeThemeMode(legacyPublicTheme);
+    setLocalStorageValue(THEME_KEY, normalized);
     removeLocalStorageValue('ui.publicTheme');
-    return legacyPublicTheme;
+    return normalized;
   }
 
   return 'system';
@@ -96,8 +111,9 @@ export const useUIPreferencesStore = create<UIPreferencesState>((set) => {
     resolvedTheme: resolveTheme(initialTheme),
     language: getStoredLanguage(),
     setTheme: (theme) => {
-      setLocalStorageValue(THEME_KEY, theme);
-      set({ theme, resolvedTheme: resolveTheme(theme) });
+      const normalizedTheme = normalizeThemeMode(theme);
+      setLocalStorageValue(THEME_KEY, normalizedTheme);
+      set({ theme: normalizedTheme, resolvedTheme: resolveTheme(normalizedTheme) });
     },
     setResolvedTheme: (theme) => {
       set({ resolvedTheme: theme });

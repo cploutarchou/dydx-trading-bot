@@ -116,7 +116,6 @@ func (r *SettingsRepository) CreateBotSetting(setting *models.BotSetting) error 
 		now,
 		now,
 	)
-
 	if err != nil {
 		return fmt.Errorf("failed to create bot setting: %w", err)
 	}
@@ -267,10 +266,7 @@ func (r *SettingsRepository) DeleteBotSetting(id int) error {
 
 // CreateRedisSetting creates a new redis setting
 func (r *SettingsRepository) CreateRedisSetting(setting *models.RedisSetting) error {
-	query := `
-		INSERT INTO redis_settings (enabled, host, port, db, password, ssl, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`
+	query := "\n\t\tINSERT INTO redis_settings (enabled, host, port, db, password, `ssl`, created_at, updated_at)\n\t\tVALUES (?, ?, ?, ?, ?, ?, ?, ?)\n\t"
 
 	now := time.Now()
 	result, err := r.db.Exec(
@@ -284,7 +280,6 @@ func (r *SettingsRepository) CreateRedisSetting(setting *models.RedisSetting) er
 		now,
 		now,
 	)
-
 	if err != nil {
 		return fmt.Errorf("failed to create redis setting: %w", err)
 	}
@@ -303,11 +298,7 @@ func (r *SettingsRepository) CreateRedisSetting(setting *models.RedisSetting) er
 
 // GetRedisSetting retrieves redis settings (usually only one row)
 func (r *SettingsRepository) GetRedisSetting() (*models.RedisSetting, error) {
-	query := `
-		SELECT id, enabled, host, port, db, password, ssl, created_at, updated_at
-		FROM redis_settings
-		LIMIT 1
-	`
+	query := "\n\t\tSELECT id, enabled, host, port, db, password, `ssl`, created_at, updated_at\n\t\tFROM redis_settings\n\t\tLIMIT 1\n\t"
 
 	setting := &models.RedisSetting{}
 	err := r.db.QueryRow(query).Scan(
@@ -321,7 +312,6 @@ func (r *SettingsRepository) GetRedisSetting() (*models.RedisSetting, error) {
 		&setting.CreatedAt,
 		&setting.UpdatedAt,
 	)
-
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -334,11 +324,7 @@ func (r *SettingsRepository) GetRedisSetting() (*models.RedisSetting, error) {
 
 // UpdateRedisSetting updates redis settings
 func (r *SettingsRepository) UpdateRedisSetting(setting *models.RedisSetting) error {
-	query := `
-		UPDATE redis_settings
-		SET enabled = ?, host = ?, port = ?, db = ?, password = ?, ssl = ?, updated_at = ?
-		WHERE id = ?
-	`
+	query := "\n\t\tUPDATE redis_settings\n\t\tSET enabled = ?, host = ?, port = ?, db = ?, password = ?, `ssl` = ?, updated_at = ?\n\t\tWHERE id = ?\n\t"
 
 	now := time.Now()
 	result, err := r.db.Exec(query, setting.Enabled, setting.Host, setting.Port, setting.Db, setting.Password, setting.SSL, now, setting.ID)

@@ -80,4 +80,4 @@ mock_*.go
 # Application specific
 app/backtest_results/*.json
 app/pair_history/*.json
-
+__debug*

@@ -33,7 +33,7 @@ export const LoginPage: React.FC = () => {
       return response.data;
     },
     staleTime: 30_000,
-    enabled: false,
+    enabled: true,
   });
 
   useEffect(() => {
@@ -98,11 +98,11 @@ export const LoginPage: React.FC = () => {
           <section className="w-full rounded-2xl border border-slate-700 bg-slate-900/90 p-6 shadow-2xl shadow-black/40 backdrop-blur">
             <div className="surface-label">
               <ShieldCheck className="h-3.5 w-3.5" />
-              Coming soon access
+              Simple access
             </div>
 
             <h1 className="mt-5 text-3xl font-semibold leading-tight text-white sm:text-4xl">
-              Sign in with existing credentials
+              Use existing credentials to continue.
             </h1>
 
             <p className="mt-4 text-sm leading-6 text-slate-400 sm:text-base">
@@ -171,7 +171,7 @@ export const LoginPage: React.FC = () => {
                 className="premium-button premium-button-primary w-full disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading && <Loader className="h-4 w-4 animate-spin" />}
-                {loading ? 'Signing in...' : 'Enter workspace'}
+                {loading ? 'Signing in...' : 'Sign in'}
               </button>
             </form>
 

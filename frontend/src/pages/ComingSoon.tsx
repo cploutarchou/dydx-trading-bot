@@ -32,7 +32,7 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
             to="/login"
             className="inline-flex items-center gap-2 rounded-lg border border-slate-700/70 bg-slate-950/70 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-cyan-500/40 hover:text-white"
           >
-            Operator sign in
+            Existing credentials sign in
             <ArrowRight className="h-4 w-4" />
           </Link>
         </header>
@@ -55,7 +55,7 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
                 to="/login"
                 className="premium-button premium-button-primary justify-center px-6 py-3 text-sm text-white"
               >
-                Existing operator sign in
+                Use existing credentials
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <span className="inline-flex items-center justify-center rounded-lg border border-slate-700/70 bg-slate-950/60 px-5 py-3 text-sm font-medium text-slate-300">

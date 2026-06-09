@@ -3,11 +3,22 @@ package services
 import (
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 )
+
+func isDuplicateBotSettingError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "duplicate") ||
+		strings.Contains(lower, "unique constraint") ||
+		strings.Contains(lower, "constraint failed")
+}
 
 // SettingsService manages bot and redis settings
 type SettingsService struct {
@@ -44,6 +55,19 @@ func (s *SettingsService) CreateBotSetting(section, key, value, valueType, descr
 	}
 
 	if err := s.repo.CreateBotSetting(setting); err != nil {
+		if isDuplicateBotSettingError(err) {
+			existing, getErr := s.repo.GetBotSettingBySectionAndKey(section, key)
+			if getErr != nil {
+				return nil, fmt.Errorf("failed to get existing bot setting after duplicate create: %w", getErr)
+			}
+			if existing != nil {
+				s.mu.Lock()
+				cacheKey := fmt.Sprintf("%s:%s", section, key)
+				s.cache[cacheKey] = existing
+				s.mu.Unlock()
+				return existing, nil
+			}
+		}
 		return nil, fmt.Errorf("failed to create bot setting: %w", err)
 	}
 

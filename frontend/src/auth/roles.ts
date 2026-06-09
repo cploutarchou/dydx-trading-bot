@@ -18,7 +18,7 @@ export type WorkspaceRole =
   | 'agent'
   | (string & {});
 
-interface RoleLike {
+export interface RoleLike {
   role?: string;
   is_admin?: boolean;
 }
@@ -115,3 +115,6 @@ export const roleMatches = (role: WorkspaceRole, allowedRoles?: WorkspaceRole[])
   }
   return allowedRoles.includes(role);
 };
+
+export const canBypassComingSoon = (user?: RoleLike | null): boolean =>
+  roleMatches(getUserWorkspaceRole(user), BACKOFFICE_ROLES);

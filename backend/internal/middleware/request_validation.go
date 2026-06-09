@@ -444,23 +444,36 @@ func RequestLoggingMiddleware() gin.HandlerFunc {
 
 		// Get response details
 		statusCode := c.Writer.Status()
-		method := c.Request.Method
-		path := c.Request.URL.Path
-		clientIP := c.ClientIP()
-		traceID := GetTraceID(c)
+		requestCtx := buildRequestLogContext(c)
 
 		// Log request
 		rawQuery := RedactSensitiveRawQuery(c.Request.URL.RawQuery)
 		log.Printf(
 			"request trace_id=%s method=%s path=%s query=%s status=%d duration_ms=%d client_ip=%s",
-			traceID,
-			method,
-			path,
+			requestCtx.TraceID,
+			requestCtx.Method,
+			requestCtx.Path,
 			rawQuery,
 			statusCode,
 			duration,
-			clientIP,
+			requestCtx.ClientIP,
 		)
+
+		if statusCode >= http.StatusInternalServerError || requestCtx.ErrorCount > 0 {
+			log.Printf(
+				"request_error trace_id=%s method=%s path=%s route=%s handler=%s status=%d duration_ms=%d client_ip=%s error_count=%d last_error=%q",
+				requestCtx.TraceID,
+				requestCtx.Method,
+				requestCtx.Path,
+				requestCtx.Route,
+				requestCtx.Handler,
+				statusCode,
+				duration,
+				requestCtx.ClientIP,
+				requestCtx.ErrorCount,
+				requestCtx.LastError,
+			)
+		}
 	}
 }
 

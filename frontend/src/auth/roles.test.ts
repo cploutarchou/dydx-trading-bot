@@ -1,0 +1,19 @@
+import { describe, expect, it } from 'vitest';
+import { canBypassComingSoon, getUserWorkspaceRole, roleMatches } from './roles';
+
+describe('workspace role helpers', () => {
+  it('allows only admin and backoffice roles to bypass Coming Soon mode', () => {
+    expect(canBypassComingSoon({ role: 'admin', is_admin: true })).toBe(true);
+    expect(canBypassComingSoon({ role: 'operations_admin', is_admin: false })).toBe(true);
+    expect(canBypassComingSoon({ role: 'backoffice', is_admin: false })).toBe(true);
+    expect(canBypassComingSoon({ role: 'client', is_admin: false })).toBe(false);
+    expect(canBypassComingSoon({ role: 'user', is_admin: false })).toBe(false);
+    expect(canBypassComingSoon(null)).toBe(false);
+  });
+
+  it('keeps admin role matching behavior unchanged', () => {
+    expect(getUserWorkspaceRole({ role: 'super_admin', is_admin: true })).toBe('super_admin');
+    expect(roleMatches('admin', ['client'])).toBe(true);
+    expect(roleMatches('client', ['admin'])).toBe(false);
+  });
+});

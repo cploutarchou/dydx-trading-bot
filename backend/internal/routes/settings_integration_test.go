@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -25,6 +26,9 @@ type mockSettingsService struct {
 	botSettings  map[string]*models.BotSetting // keyed "section:key"
 	redisSetting *models.RedisSetting
 	nextBotID    int
+	getAllErr    error
+	getBotErr    error
+	createErr    error
 
 	// call-capture fields
 	createdBot   []*models.BotSetting
@@ -46,6 +50,14 @@ func (m *mockSettingsService) key(section, k string) string {
 func (m *mockSettingsService) CreateBotSetting(section, key, value, valueType, description, defaultValue string, isActive bool) (*models.BotSetting, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.createErr != nil {
+		return nil, m.createErr
+	}
+	for _, existing := range m.botSettings {
+		if existing.ID >= m.nextBotID {
+			m.nextBotID = existing.ID + 1
+		}
+	}
 	s := &models.BotSetting{
 		ID:           m.nextBotID,
 		Section:      section,
@@ -68,6 +80,9 @@ func (m *mockSettingsService) CreateBotSetting(section, key, value, valueType, d
 func (m *mockSettingsService) GetBotSetting(section, key string) (*models.BotSetting, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.getBotErr != nil {
+		return nil, m.getBotErr
+	}
 	return m.botSettings[m.key(section, key)], nil
 }
 
@@ -86,6 +101,9 @@ func (m *mockSettingsService) GetBotSettingsBySection(section string) ([]models.
 func (m *mockSettingsService) GetAllBotSettings() ([]models.BotSetting, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.getAllErr != nil {
+		return nil, m.getAllErr
+	}
 	var out []models.BotSetting
 	for _, s := range m.botSettings {
 		out = append(out, *s)
@@ -183,6 +201,8 @@ func setupSettingsRouter(svc *mockSettingsService) (*gin.Engine, string) {
 	settings.Use(middleware.RequireAuth())
 	settings.GET("", settingsHandler.GetSettings)
 	settings.PUT("", settingsHandler.UpdateSettings)
+	settings.GET("/platform/coming-soon", settingsHandler.GetComingSoonSetting)
+	settings.PUT("/platform/coming-soon", settingsHandler.UpdateComingSoonSetting)
 	settings.POST("/test-connection", settingsHandler.TestRedisConnection)
 	settings.POST("/bot", settingsHandler.CreateBotSetting)
 	settings.GET("/bot", settingsHandler.GetBotSetting)
@@ -195,6 +215,245 @@ func setupSettingsRouter(svc *mockSettingsService) (*gin.Engine, string) {
 	settings.GET("/cache/stats", settingsHandler.GetCacheStats)
 
 	return router, token
+}
+
+func TestSettings_ComingSoonReadAndUpdate(t *testing.T) {
+	svc := newMockSettingsService()
+	router, token := setupSettingsRouter(svc)
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/settings/platform/coming-soon", nil)
+	getReq.Header.Set("Authorization", authHeader(token))
+	getRes := httptest.NewRecorder()
+	router.ServeHTTP(getRes, getReq)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("expected initial read 200, got %d body=%s", getRes.Code, getRes.Body.String())
+	}
+
+	var initial struct {
+		Data struct {
+			ComingSoonEnabled bool `json:"coming_soon_enabled"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(getRes.Body.Bytes(), &initial); err != nil {
+		t.Fatalf("decode initial response: %v", err)
+	}
+	if initial.Data.ComingSoonEnabled {
+		t.Fatal("expected initial coming soon state to be disabled")
+	}
+
+	updateReq := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/settings/platform/coming-soon",
+		bytes.NewReader([]byte(`{"coming_soon_enabled":true}`)),
+	)
+	updateReq.Header.Set("Authorization", authHeader(token))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateRes := httptest.NewRecorder()
+	router.ServeHTTP(updateRes, updateReq)
+	if updateRes.Code != http.StatusOK {
+		t.Fatalf("expected update 200, got %d body=%s", updateRes.Code, updateRes.Body.String())
+	}
+
+	setting, err := svc.GetBotSetting("platform", "coming_soon_enabled")
+	if err != nil {
+		t.Fatalf("get saved setting: %v", err)
+	}
+	if setting == nil || setting.Value != "true" {
+		t.Fatalf("expected persisted coming soon setting true, got %+v", setting)
+	}
+}
+
+func TestSettings_ComingSoonUpdateRequiresAuth(t *testing.T) {
+	svc := newMockSettingsService()
+	router, _ := setupSettingsRouter(svc)
+
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/settings/platform/coming-soon",
+		bytes.NewReader([]byte(`{"coming_soon_enabled":true}`)),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthenticated update, got %d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestSettings_InitializeEmptyDatabaseThenGetSettings(t *testing.T) {
+	svc := newMockSettingsService()
+	router, token := setupSettingsRouter(svc)
+
+	initReq := httptest.NewRequest(http.MethodPost, "/api/v1/settings/initialize", nil)
+	initReq.Header.Set("Authorization", authHeader(token))
+	initRes := httptest.NewRecorder()
+	router.ServeHTTP(initRes, initReq)
+	if initRes.Code != http.StatusOK {
+		t.Fatalf("expected initialize 200, got %d body=%s", initRes.Code, initRes.Body.String())
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil)
+	getReq.Header.Set("Authorization", authHeader(token))
+	getRes := httptest.NewRecorder()
+	router.ServeHTTP(getRes, getReq)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("expected get settings 200 after initialize, got %d body=%s", getRes.Code, getRes.Body.String())
+	}
+
+	var body struct {
+		Data struct {
+			Sections []struct {
+				Section  string `json:"section"`
+				Settings []struct {
+					Key   string      `json:"key"`
+					Value interface{} `json:"value"`
+				} `json:"settings"`
+			} `json:"sections"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(getRes.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode settings response: %v", err)
+	}
+
+	foundComingSoon := false
+	for _, section := range body.Data.Sections {
+		if section.Section != "platform" {
+			continue
+		}
+		for _, setting := range section.Settings {
+			if setting.Key == "coming_soon_enabled" {
+				foundComingSoon = true
+				if setting.Value != "false" {
+					t.Fatalf("expected coming soon default false, got %#v", setting.Value)
+				}
+			}
+		}
+	}
+	if !foundComingSoon {
+		t.Fatal("expected platform.coming_soon_enabled in settings response")
+	}
+}
+
+func TestSettings_InitializeIsIdempotent(t *testing.T) {
+	svc := newMockSettingsService()
+	router, token := setupSettingsRouter(svc)
+
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/settings/initialize", nil)
+		req.Header.Set("Authorization", authHeader(token))
+		res := httptest.NewRecorder()
+		router.ServeHTTP(res, req)
+		if res.Code != http.StatusOK {
+			t.Fatalf("expected initialize attempt %d to return 200, got %d body=%s", i+1, res.Code, res.Body.String())
+		}
+	}
+
+	seen := map[string]int{}
+	for _, setting := range svc.createdBot {
+		seen[setting.Section+":"+setting.Key]++
+	}
+	for key, count := range seen {
+		if count != 1 {
+			t.Fatalf("expected one create for %s, got %d", key, count)
+		}
+	}
+}
+
+func TestSettings_InitializePreservesExistingComingSoonValue(t *testing.T) {
+	svc := newMockSettingsService()
+	_, _ = svc.CreateBotSetting("platform", "coming_soon_enabled", "true", "boolean", "Existing launch gate", "false", true)
+	router, token := setupSettingsRouter(svc)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/settings/initialize", nil)
+	req.Header.Set("Authorization", authHeader(token))
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected initialize 200, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	setting, err := svc.GetBotSetting("platform", "coming_soon_enabled")
+	if err != nil {
+		t.Fatalf("get coming soon: %v", err)
+	}
+	if setting == nil || setting.Value != "true" {
+		t.Fatalf("expected existing coming soon value to be preserved, got %+v", setting)
+	}
+}
+
+func TestSettings_GetSettingsRequiresAuth(t *testing.T) {
+	svc := newMockSettingsService()
+	router, _ := setupSettingsRouter(svc)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthenticated settings read, got %d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestSettings_ComingSoonMalformedStoredValueDefaultsDisabled(t *testing.T) {
+	svc := newMockSettingsService()
+	_, _ = svc.CreateBotSetting("platform", "coming_soon_enabled", "definitely-not-a-bool", "boolean", "Coming soon", "false", true)
+	router, token := setupSettingsRouter(svc)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/settings/platform/coming-soon", nil)
+	req.Header.Set("Authorization", authHeader(token))
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	var body struct {
+		Data struct {
+			ComingSoonEnabled bool `json:"coming_soon_enabled"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Data.ComingSoonEnabled {
+		t.Fatal("expected malformed stored Coming Soon value to resolve disabled")
+	}
+}
+
+func TestSettings_GetSettingsOmitsSensitiveValues(t *testing.T) {
+	svc := newMockSettingsService()
+	_, _ = svc.CreateBotSetting("platform", "registration_invitation_code", "join-secret", "string", "Invitation code", "", true)
+	_, _ = svc.CreateBotSetting("platform", "coming_soon_enabled", "false", "boolean", "Coming soon", "false", true)
+	svc.redisSetting = &models.RedisSetting{Host: "redis-srv", Port: 6379, Password: "redis-secret", Enabled: true}
+	router, token := setupSettingsRouter(svc)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil)
+	req.Header.Set("Authorization", authHeader(token))
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", res.Code, res.Body.String())
+	}
+	if strings.Contains(res.Body.String(), "redis-secret") {
+		t.Fatalf("settings response exposed redis password: %s", res.Body.String())
+	}
+}
+
+func TestSettings_GetSettingsReturnsDatabaseError(t *testing.T) {
+	svc := newMockSettingsService()
+	svc.getAllErr = fmt.Errorf("database offline")
+	router, token := setupSettingsRouter(svc)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil)
+	req.Header.Set("Authorization", authHeader(token))
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d body=%s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), "Failed to retrieve settings") {
+		t.Fatalf("expected database error response, got %s", res.Body.String())
+	}
 }
 
 func authHeader(token string) string {

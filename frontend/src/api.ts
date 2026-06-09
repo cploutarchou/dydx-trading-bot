@@ -209,7 +209,7 @@ export const classifyApiError = (error: unknown): ApiFailureInfo => {
   return { kind: 'unknown', statusCode: null, message: String(error) };
 };
 
-interface ApiResponse<T extends Record<string, unknown> | Token = Record<string, unknown>> {
+export interface ApiResponse<T extends Record<string, unknown> | Token = Record<string, unknown>> {
   success: boolean;
   message: string;
   data?: T;
@@ -251,6 +251,14 @@ export interface PublicAppConfigResponse extends Record<string, unknown> {
   brand_name: string;
   coming_soon_enabled: boolean;
   public_launch_message?: string;
+}
+
+export interface ComingSoonSettingResponse extends Record<string, unknown> {
+  section: 'platform' | string;
+  key: 'coming_soon_enabled' | string;
+  coming_soon_enabled: boolean;
+  updated_at?: string;
+  setting?: Record<string, unknown>;
 }
 
 interface UserProfile extends Record<string, unknown> {
@@ -2072,6 +2080,29 @@ class ApiClient {
       '/api/v1/public/app-config'
     );
     return response.data;
+  }
+
+  async getComingSoonSetting(): Promise<ApiResponse<ComingSoonSettingResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<ComingSoonSettingResponse>>(
+      '/api/v1/settings/platform/coming-soon'
+    );
+    return response.data;
+  }
+
+  async updateComingSoonSetting(
+    comingSoonEnabled: boolean
+  ): Promise<ApiResponse<ComingSoonSettingResponse>> {
+    this.ensureTokenLoaded();
+    try {
+      const response = await this.client.put<ApiResponse<ComingSoonSettingResponse>>(
+        '/api/v1/settings/platform/coming-soon',
+        { coming_soon_enabled: comingSoonEnabled }
+      );
+      return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
   }
 
   async login(data: LoginRequest): Promise<Token> {

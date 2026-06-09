@@ -63,7 +63,7 @@ const MainLayoutContent: React.FC<MainLayoutProps> = ({ children }) => {
   }, []);
 
   return (
-    <div className="premium-shell flex h-screen overflow-hidden text-white">
+    <div className="premium-shell app-shell flex h-screen overflow-hidden">
       {/* Sidebar */}
       <Sidebar
         isOpen={isMobileMenuOpen}

@@ -14,9 +14,86 @@ type SettingsRepository struct {
 	db *sql.DB
 }
 
+type settingScanner interface {
+	Scan(dest ...interface{}) error
+}
+
 // NewSettingsRepository creates a new settings repository
 func NewSettingsRepository(db *sql.DB) *SettingsRepository {
 	return &SettingsRepository{db: db}
+}
+
+func scanBotSetting(scanner settingScanner) (*models.BotSetting, error) {
+	var (
+		section      sql.NullString
+		key          sql.NullString
+		value        sql.NullString
+		valueType    sql.NullString
+		description  sql.NullString
+		defaultValue sql.NullString
+		isActive     sql.NullBool
+		version      sql.NullInt64
+		createdAt    sql.NullTime
+		updatedAt    sql.NullTime
+	)
+
+	setting := &models.BotSetting{}
+	err := scanner.Scan(
+		&setting.ID,
+		&section,
+		&key,
+		&value,
+		&valueType,
+		&description,
+		&defaultValue,
+		&isActive,
+		&version,
+		&createdAt,
+		&updatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	setting.Section = "general"
+	if section.Valid && section.String != "" {
+		setting.Section = section.String
+	}
+	if key.Valid {
+		setting.Key = key.String
+	}
+	if value.Valid {
+		setting.Value = value.String
+	}
+	setting.ValueType = "string"
+	if valueType.Valid && valueType.String != "" {
+		setting.ValueType = valueType.String
+	}
+	if description.Valid {
+		setting.Description = description.String
+	}
+	if defaultValue.Valid {
+		setting.DefaultValue = defaultValue.String
+	}
+	setting.IsActive = true
+	if isActive.Valid {
+		setting.IsActive = isActive.Bool
+	}
+	setting.Version = 1
+	if version.Valid && version.Int64 > 0 {
+		setting.Version = int(version.Int64)
+	}
+	setting.CreatedAt = now
+	if createdAt.Valid {
+		setting.CreatedAt = createdAt.Time
+	}
+	setting.UpdatedAt = setting.CreatedAt
+	if updatedAt.Valid {
+		setting.UpdatedAt = updatedAt.Time
+	}
+
+	return setting, nil
 }
 
 // ============ BotSetting Operations ============
@@ -60,21 +137,7 @@ func (r *SettingsRepository) CreateBotSetting(setting *models.BotSetting) error 
 func (r *SettingsRepository) GetBotSettingByID(id int) (*models.BotSetting, error) {
 	query := "SELECT id, section, `key`, value, value_type, description, default_value, is_active, version, created_at, updated_at FROM bot_settings WHERE id = ? LIMIT 1"
 
-	setting := &models.BotSetting{}
-	err := r.db.QueryRow(query, id).Scan(
-		&setting.ID,
-		&setting.Section,
-		&setting.Key,
-		&setting.Value,
-		&setting.ValueType,
-		&setting.Description,
-		&setting.DefaultValue,
-		&setting.IsActive,
-		&setting.Version,
-		&setting.CreatedAt,
-		&setting.UpdatedAt,
-	)
-
+	setting, err := scanBotSetting(r.db.QueryRow(query, id))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -89,21 +152,7 @@ func (r *SettingsRepository) GetBotSettingByID(id int) (*models.BotSetting, erro
 func (r *SettingsRepository) GetBotSettingBySectionAndKey(section, key string) (*models.BotSetting, error) {
 	query := "SELECT id, section, `key`, value, value_type, description, default_value, is_active, version, created_at, updated_at FROM bot_settings WHERE section = ? AND `key` = ? LIMIT 1"
 
-	setting := &models.BotSetting{}
-	err := r.db.QueryRow(query, section, key).Scan(
-		&setting.ID,
-		&setting.Section,
-		&setting.Key,
-		&setting.Value,
-		&setting.ValueType,
-		&setting.Description,
-		&setting.DefaultValue,
-		&setting.IsActive,
-		&setting.Version,
-		&setting.CreatedAt,
-		&setting.UpdatedAt,
-	)
-
+	setting, err := scanBotSetting(r.db.QueryRow(query, section, key))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -130,24 +179,11 @@ func (r *SettingsRepository) GetBotSettingsBySection(section string) ([]models.B
 
 	var settings []models.BotSetting
 	for rows.Next() {
-		setting := models.BotSetting{}
-		err := rows.Scan(
-			&setting.ID,
-			&setting.Section,
-			&setting.Key,
-			&setting.Value,
-			&setting.ValueType,
-			&setting.Description,
-			&setting.DefaultValue,
-			&setting.IsActive,
-			&setting.Version,
-			&setting.CreatedAt,
-			&setting.UpdatedAt,
-		)
+		setting, err := scanBotSetting(rows)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan bot setting: %w", err)
 		}
-		settings = append(settings, setting)
+		settings = append(settings, *setting)
 	}
 
 	return settings, rows.Err()
@@ -169,24 +205,11 @@ func (r *SettingsRepository) GetAllBotSettings() ([]models.BotSetting, error) {
 
 	var settings []models.BotSetting
 	for rows.Next() {
-		setting := models.BotSetting{}
-		err := rows.Scan(
-			&setting.ID,
-			&setting.Section,
-			&setting.Key,
-			&setting.Value,
-			&setting.ValueType,
-			&setting.Description,
-			&setting.DefaultValue,
-			&setting.IsActive,
-			&setting.Version,
-			&setting.CreatedAt,
-			&setting.UpdatedAt,
-		)
+		setting, err := scanBotSetting(rows)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan bot setting: %w", err)
 		}
-		settings = append(settings, setting)
+		settings = append(settings, *setting)
 	}
 
 	return settings, rows.Err()

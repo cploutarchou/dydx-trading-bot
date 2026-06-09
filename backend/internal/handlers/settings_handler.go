@@ -126,6 +126,38 @@ func parseSettingBoolValue(value string, fallback bool) bool {
 	}
 }
 
+func isSensitiveSettingsKey(section, key string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(section + "." + key))
+	sensitiveFragments := []string{
+		"api_key",
+		"bot_token",
+		"invitation_code",
+		"password",
+		"private",
+		"secret",
+		"token",
+	}
+	for _, fragment := range sensitiveFragments {
+		if strings.Contains(normalized, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func comingSoonSettingPayload(setting *models.BotSetting, enabled bool) map[string]interface{} {
+	payload := map[string]interface{}{
+		"section":             "platform",
+		"key":                 "coming_soon_enabled",
+		"coming_soon_enabled": enabled,
+	}
+	if setting != nil {
+		payload["setting"] = setting.ToDict()
+		payload["updated_at"] = setting.UpdatedAt.Format(time.RFC3339)
+	}
+	return payload
+}
+
 func isMissingSettingsStoreError(err error) bool {
 	if err == nil {
 		return false
@@ -141,6 +173,26 @@ func NewSettingsHandler(service services.SettingsServiceIface) *SettingsHandler 
 	return &SettingsHandler{
 		service: service,
 	}
+}
+
+func (h *SettingsHandler) ensureComingSoonDefault() error {
+	existing, err := h.service.GetBotSetting("platform", "coming_soon_enabled")
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		return nil
+	}
+	_, err = h.service.CreateBotSetting(
+		"platform",
+		"coming_soon_enabled",
+		"false",
+		"boolean",
+		"Show the public Coming Soon launch page while keeping authenticated admin access available",
+		"false",
+		true,
+	)
+	return err
 }
 
 // GetPublicAppConfig returns safe bootstrap flags for unauthenticated frontend routing.
@@ -168,6 +220,90 @@ func (h *SettingsHandler) GetPublicAppConfig(c *gin.Context) {
 			"coming_soon_enabled":   comingSoonEnabled,
 			"public_launch_message": "ExecutionLab is preparing its DeFi execution workspace.",
 		},
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+// GetComingSoonSetting returns the authoritative Coming Soon state for admins.
+func (h *SettingsHandler) GetComingSoonSetting(c *gin.Context) {
+	setting, err := h.service.GetBotSetting("platform", "coming_soon_enabled")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to load Coming Soon setting: %v", err),
+		})
+		return
+	}
+
+	enabled := false
+	if setting != nil {
+		enabled = parseSettingBoolValue(setting.Value, false)
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      comingSoonSettingPayload(setting, enabled),
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+// UpdateComingSoonSetting updates the authoritative Coming Soon state.
+func (h *SettingsHandler) UpdateComingSoonSetting(c *gin.Context) {
+	var req struct {
+		Enabled *bool `json:"coming_soon_enabled" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil || req.Enabled == nil {
+		c.JSON(http.StatusBadRequest, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "coming_soon_enabled must be a boolean",
+		})
+		return
+	}
+
+	nextValue := "false"
+	if *req.Enabled {
+		nextValue = "true"
+	}
+
+	setting, err := h.service.GetBotSetting("platform", "coming_soon_enabled")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to load Coming Soon setting: %v", err),
+		})
+		return
+	}
+
+	if setting == nil {
+		setting, err = h.service.CreateBotSetting(
+			"platform",
+			"coming_soon_enabled",
+			nextValue,
+			"boolean",
+			"Show the public Coming Soon launch page while keeping authenticated admin access available",
+			"false",
+			true,
+		)
+	} else {
+		setting, err = h.service.UpdateBotSetting(setting.ID, nextValue, setting.Description, setting.IsActive)
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to persist Coming Soon setting: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      comingSoonSettingPayload(setting, *req.Enabled),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
@@ -649,14 +785,22 @@ func (h *SettingsHandler) Initialize(c *gin.Context) {
 	// Try to create default settings
 	for _, setting := range defaultSettings {
 		// Check if setting already exists
-		existing, _ := h.service.GetBotSetting(setting.section, setting.key)
+		existing, err := h.service.GetBotSetting(setting.section, setting.key)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, APIResponse{
+				Success:   false,
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+				Error:     fmt.Sprintf("Failed to check setting %s.%s: %v", setting.section, setting.key, err),
+			})
+			return
+		}
 		if existing != nil {
 			// Setting already exists, skip
 			continue
 		}
 
 		// Try to create the setting
-		_, _ = h.service.CreateBotSetting(
+		if _, err := h.service.CreateBotSetting(
 			setting.section,
 			setting.key,
 			setting.value,
@@ -664,7 +808,14 @@ func (h *SettingsHandler) Initialize(c *gin.Context) {
 			setting.description,
 			setting.defaultValue,
 			setting.isActive,
-		)
+		); err != nil {
+			c.JSON(http.StatusInternalServerError, APIResponse{
+				Success:   false,
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+				Error:     fmt.Sprintf("Failed to create setting %s.%s: %v", setting.section, setting.key, err),
+			})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, APIResponse{
@@ -1074,10 +1225,32 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 		allSettings, _ = h.service.GetAllBotSettings()
 	}
 
+	if err := h.ensureComingSoonDefault(); err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to initialize Coming Soon setting: %v", err),
+		})
+		return
+	}
+	allSettings, err = h.service.GetAllBotSettings()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to retrieve settings: %v", err),
+		})
+		return
+	}
+
 	// Convert to sections structure matching the schema
 	settingsBySection := make(map[string][]map[string]interface{})
 
 	for _, setting := range allSettings {
+		if isSensitiveSettingsKey(setting.Section, setting.Key) {
+			continue
+		}
+
 		dict := setting.ToDict()
 
 		// Ensure all fields have non-null values
@@ -1171,16 +1344,6 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 				"value_type":    "integer",
 				"description":   "Redis database number",
 				"default_value": 0,
-				"is_active":     true,
-			},
-			{
-				"id":            0,
-				"section":       "redis",
-				"key":           "password",
-				"value":         redisSetting.Password,
-				"value_type":    "string",
-				"description":   "Redis server password (optional)",
-				"default_value": "",
 				"is_active":     true,
 			},
 			{

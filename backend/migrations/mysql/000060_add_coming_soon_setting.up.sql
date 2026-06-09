@@ -13,10 +13,10 @@ INSERT IGNORE INTO bot_settings (
 VALUES (
   'platform',
   'coming_soon_enabled',
-  '0',
+  'false',
   'boolean',
   'Show the public Coming Soon launch page while keeping authenticated admin access available',
-  '0',
+  'false',
   1,
   1,
   CURRENT_TIMESTAMP,

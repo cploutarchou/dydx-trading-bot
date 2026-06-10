@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -250,7 +251,60 @@ func buildBotReadinessSummary(snapshot gin.H) gin.H {
 	}
 }
 
+func firstNonEmptyEnv(keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func buildServiceMetadata(startTime time.Time) gin.H {
+	buildTag := firstNonEmptyEnv("APP_BUILD_TAG", "IMAGE_TAG")
+	if buildTag == "" {
+		buildTag = "unknown"
+	}
+
+	buildCommit := firstNonEmptyEnv("APP_BUILD_COMMIT", "GIT_COMMIT", "SOURCE_COMMIT")
+	if buildCommit == "" {
+		buildCommit = "unknown"
+	}
+
+	buildTime := firstNonEmptyEnv("APP_BUILD_TIME", "BUILD_TIME")
+	if buildTime == "" {
+		buildTime = "unknown"
+	}
+
+	return gin.H{
+		"name":           "backend",
+		"version":        "1.0.0",
+		"environment":    config.ResolveAppConfigEnvironment(),
+		"uptime_seconds": time.Since(startTime).Seconds(),
+		"started_at_utc": startTime.UTC().Format(time.RFC3339),
+		"build": gin.H{
+			"tag":      buildTag,
+			"commit":   buildCommit,
+			"built_at": buildTime,
+		},
+	}
+}
+
 func registerHealthRoutes(router *gin.Engine, cfg *config.Config, database *db.Database, botAPIURL string, startTime time.Time) {
+	router.GET("/version", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "ok",
+			"service": buildServiceMetadata(startTime),
+		})
+	})
+
+	router.GET("/api/v1/version", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "ok",
+			"service": buildServiceMetadata(startTime),
+		})
+	})
+
 	router.GET("/health", func(c *gin.Context) {
 		dbOwnership := startup.BuildDatabaseOwnershipDiagnostics(cfg)
 		dbHealthy := true
@@ -290,10 +344,7 @@ func registerHealthRoutes(router *gin.Engine, cfg *config.Config, database *db.D
 				"max_idle_closed":     stats.MaxIdleClosed,
 				"max_lifetime_closed": stats.MaxLifetimeClosed,
 			},
-			"service": gin.H{
-				"version":        "1.0.0",
-				"uptime_seconds": time.Since(startTime).Seconds(),
-			},
+			"service": buildServiceMetadata(startTime),
 		})
 	})
 
@@ -369,10 +420,7 @@ func registerHealthRoutes(router *gin.Engine, cfg *config.Config, database *db.D
 			},
 			"bot_api":        botSnapshot,
 			"bot_api_client": services.BotAPIStats(),
-			"service": gin.H{
-				"version":     "1.0.0",
-				"environment": config.ResolveAppConfigEnvironment(),
-			},
+			"service":        buildServiceMetadata(startTime),
 		})
 	})
 }

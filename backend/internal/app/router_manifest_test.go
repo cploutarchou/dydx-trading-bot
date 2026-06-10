@@ -44,6 +44,8 @@ func TestBuildRouterRegistersCriticalCompatibilityRoutes(t *testing.T) {
 	}
 
 	expected := []string{
+		"GET /version",
+		"GET /api/v1/version",
 		"GET /health",
 		"GET /ready",
 		"GET /metrics",

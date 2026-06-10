@@ -1,21 +1,32 @@
 [
-  {
-    "routeKey": "dashboard",
-    "path": "/dashboard",
-    "requiresAuth": true,
-    "notes": "Use an authenticated browser profile with seeded or dev mock data visible."
-  },
-  {
-    "routeKey": "backtest-details",
-    "path": "/backtest/mock-run-aabb1122",
-    "requiresAuth": true,
-    "notes": "Uses the mock backtest detail route for deterministic responsive capture."
-  },
-  {
-    "routeKey": "settings",
-    "path": "/settings",
-    "requiresAuth": true,
-    "notes": "Capture with the default settings section loaded."
-  }
+	{
+		"routeKey": "dashboard",
+		"path": "/dashboard",
+		"requiresAuth": true,
+		"notes": "Use an authenticated browser profile with seeded or dev mock data visible."
+	},
+	{
+		"routeKey": "backtest-details",
+		"path": "/backtest/mock-run-aabb1122",
+		"requiresAuth": true,
+		"notes": "Uses the mock backtest detail route for deterministic responsive capture."
+	},
+	{
+		"routeKey": "settings",
+		"path": "/settings",
+		"requiresAuth": true,
+		"notes": "Capture with the default settings section loaded."
+	},
+	{
+		"routeKey": "login-coming-soon",
+		"path": "/login",
+		"requiresAuth": false,
+		"notes": "Requires platform Coming Soon mode enabled (coming_soon_enabled=true) to capture dark-mode credential gate state."
+	},
+	{
+		"routeKey": "unauthorized-coming-soon",
+		"path": "/unauthorized",
+		"requiresAuth": false,
+		"notes": "Requires platform Coming Soon mode enabled (coming_soon_enabled=true); route should render Coming Soon page through global gate."
+	}
 ]
-

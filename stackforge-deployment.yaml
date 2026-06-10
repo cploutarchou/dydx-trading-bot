@@ -4,6 +4,8 @@ services:
   mariadb:
     image: mariadb:11.4
     restart: unless-stopped
+    cpus: 2.0
+    mem_limit: 3g
     environment:
       MARIADB_DATABASE: ${APP_DB_NAME:-app}
       MARIADB_USER: ${APP_DB_USER:-app}
@@ -22,6 +24,8 @@ services:
   bot-mariadb:
     image: mariadb:11.4
     restart: unless-stopped
+    cpus: 1.5
+    mem_limit: 2g
     environment:
       MARIADB_DATABASE: ${BOT_DB_NAME:-bot}
       MARIADB_USER: ${BOT_DB_USER:-bot}
@@ -82,7 +86,6 @@ services:
       BOT_DB_NAME: ${BOT_DB_NAME:-bot}
       BOT_DB_USER: ${BOT_DB_USER:-bot}
       BOT_DB_PASSWORD: ${BOT_DB_PASSWORD:-change-me}
-      BOT_DB_PASSWORD: ${BOT_DB_PASSWORD:-change-me}
       REDIS_HOST: redis
       REDIS_PORT: 6379
     expose:
@@ -139,6 +142,8 @@ services:
       BOT_DB_PORT: 3306
       BOT_DB_NAME: ${BOT_DB_NAME:-bot}
       BOT_DB_USER: ${BOT_DB_USER:-bot}
+      APP_BUILD_TAG: ${APP_BUILD_TAG:-unknown}
+      APP_BUILD_COMMIT: ${APP_BUILD_COMMIT:-unknown}
     ports:
       - "8888:8888"
     healthcheck:

@@ -121,9 +121,11 @@ function ensureDirectory(targetPath) {
   fs.mkdirSync(targetPath, { recursive: true });
 }
 
-function cloneProfile(userDataDir, profileDirectory) {
+function createCaptureProfile(userDataDir, profileDirectory) {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dydx-responsive-capture-'));
+
   if (!userDataDir) {
-    return '';
+    return tempRoot;
   }
 
   const resolvedUserDataDir = path.resolve(userDataDir);
@@ -131,7 +133,6 @@ function cloneProfile(userDataDir, profileDirectory) {
     throw new Error(`User data directory not found: ${resolvedUserDataDir}`);
   }
 
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dydx-responsive-capture-'));
   const localStateSource = path.join(resolvedUserDataDir, 'Local State');
   if (fs.existsSync(localStateSource)) {
     fs.copyFileSync(localStateSource, path.join(tempRoot, 'Local State'));
@@ -161,6 +162,13 @@ function runCapture(browserPath, args, dryRun) {
   }
 }
 
+function buildCaptureUrl(baseUrl, routePath) {
+  const base = baseUrl.replace(/\/$/, '');
+  const url = new URL(`${base}${routePath}`);
+  url.searchParams.set('qa_screenshots', '1');
+  return url.toString();
+}
+
 function main() {
   if (process.platform === 'win32') {
     throw new Error('This script supports macOS and Linux only.');
@@ -181,7 +189,7 @@ function main() {
   let captureUserDataDir = '';
 
   try {
-    captureUserDataDir = cloneProfile(options.userDataDir, options.profileDirectory);
+    captureUserDataDir = createCaptureProfile(options.userDataDir, options.profileDirectory);
 
     console.log(`Using browser: ${browserPath}`);
     console.log(`Manifest: ${manifestFullPath}`);
@@ -193,7 +201,7 @@ function main() {
     for (const route of routes) {
       for (const viewport of VIEWPORTS) {
         const fileName = `${route.routeKey}-${viewport.width}.png`;
-        const targetUrl = `${options.baseUrl.replace(/\/$/, '')}${route.path}`;
+        const targetUrl = buildCaptureUrl(options.baseUrl, route.path);
         const targetOutput = path.join(outputFullPath, fileName);
         const args = [
           '--headless=new',
@@ -209,9 +217,7 @@ function main() {
           `--screenshot=${targetOutput}`,
         ];
 
-        if (captureUserDataDir) {
-          args.unshift(`--user-data-dir=${captureUserDataDir}`);
-        }
+        args.unshift(`--user-data-dir=${captureUserDataDir}`);
 
         if (options.profileDirectory) {
           args.unshift(`--profile-directory=${options.profileDirectory}`);

@@ -12,24 +12,24 @@ Use this one-page checklist to capture the exact responsive QA evidence files ex
 
 ### Dashboard
 
-- [ ] `docs/screenshots/responsive/dashboard-375.png`
-- [ ] `docs/screenshots/responsive/dashboard-768.png`
-- [ ] `docs/screenshots/responsive/dashboard-1024.png`
-- [ ] `docs/screenshots/responsive/dashboard-1440.png`
+- [x] `docs/screenshots/responsive/dashboard-375.png`
+- [x] `docs/screenshots/responsive/dashboard-768.png`
+- [x] `docs/screenshots/responsive/dashboard-1024.png`
+- [x] `docs/screenshots/responsive/dashboard-1440.png`
 
 ### Backtest Details
 
-- [ ] `docs/screenshots/responsive/backtest-details-375.png`
-- [ ] `docs/screenshots/responsive/backtest-details-768.png`
-- [ ] `docs/screenshots/responsive/backtest-details-1024.png`
-- [ ] `docs/screenshots/responsive/backtest-details-1440.png`
+- [x] `docs/screenshots/responsive/backtest-details-375.png`
+- [x] `docs/screenshots/responsive/backtest-details-768.png`
+- [x] `docs/screenshots/responsive/backtest-details-1024.png`
+- [x] `docs/screenshots/responsive/backtest-details-1440.png`
 
 ### Settings
 
-- [ ] `docs/screenshots/responsive/settings-375.png`
-- [ ] `docs/screenshots/responsive/settings-768.png`
-- [ ] `docs/screenshots/responsive/settings-1024.png`
-- [ ] `docs/screenshots/responsive/settings-1440.png`
+- [x] `docs/screenshots/responsive/settings-375.png`
+- [x] `docs/screenshots/responsive/settings-768.png`
+- [x] `docs/screenshots/responsive/settings-1024.png`
+- [x] `docs/screenshots/responsive/settings-1440.png`
 
 ## Recommended route mapping
 

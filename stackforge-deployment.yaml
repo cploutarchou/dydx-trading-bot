@@ -4,6 +4,8 @@ services:
   mariadb:
     image: mariadb:11.4
     restart: unless-stopped
+    cpus: 2.0
+    mem_limit: 3g
     environment:
       MARIADB_DATABASE: ${APP_DB_NAME:-app}
       MARIADB_USER: ${APP_DB_USER:-app}
@@ -22,6 +24,8 @@ services:
   bot-mariadb:
     image: mariadb:11.4
     restart: unless-stopped
+    cpus: 1.5
+    mem_limit: 2g
     environment:
       MARIADB_DATABASE: ${BOT_DB_NAME:-bot}
       MARIADB_USER: ${BOT_DB_USER:-bot}

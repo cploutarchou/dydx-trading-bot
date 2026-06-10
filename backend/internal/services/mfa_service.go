@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image/png"
+	"net/url"
 	"strings"
 	"time"
 
@@ -31,6 +32,33 @@ func NewMFAService(repo *repository.UserMFARepository) *MFAService {
 	return &MFAService{repo: repo, secret: loadEncryptionSecret()}
 }
 
+func buildTOTPQRCode(secret, accountName string) (string, error) {
+	otpauthURL := fmt.Sprintf(
+		"otpauth://totp/%s:%s?secret=%s&issuer=%s&algorithm=SHA1&digits=6&period=30",
+		url.QueryEscape("dYdX Trading Bot"),
+		url.QueryEscape(accountName),
+		url.QueryEscape(secret),
+		url.QueryEscape("dYdX Trading Bot"),
+	)
+
+	key, err := otp.NewKeyFromURL(otpauthURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to build otp key from url: %w", err)
+	}
+
+	image, err := key.Image(256, 256)
+	if err != nil {
+		return "", fmt.Errorf("failed to render qr code: %w", err)
+	}
+
+	var pngBuffer bytes.Buffer
+	if err := png.Encode(&pngBuffer, image); err != nil {
+		return "", fmt.Errorf("failed to encode qr image: %w", err)
+	}
+
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(pngBuffer.Bytes()), nil
+}
+
 func (s *MFAService) Setup(user *models.User) (*MFASetupResult, error) {
 	if user == nil || user.ID <= 0 {
 		return nil, fmt.Errorf("user is required")
@@ -42,6 +70,34 @@ func (s *MFAService) Setup(user *models.User) (*MFASetupResult, error) {
 	}
 	if accountName == "" {
 		accountName = fmt.Sprintf("user-%d", user.ID)
+	}
+
+	existingCredential, err := s.repo.GetByUserID(user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	if existingCredential != nil {
+		if existingCredential.Enabled {
+			return nil, fmt.Errorf("2fa is already enabled for this account")
+		}
+
+		existingSecret, err := decryptString(s.secret, existingCredential.EncryptedSecret)
+		if err == nil && strings.TrimSpace(existingSecret) != "" {
+			qrCode, qrErr := buildTOTPQRCode(existingSecret, accountName)
+			if qrErr != nil {
+				return nil, qrErr
+			}
+
+			backupCodes := []string{}
+			if strings.TrimSpace(existingCredential.EncryptedBackupCodes) != "" {
+				if decryptedBackupCodes, decryptErr := decryptString(s.secret, existingCredential.EncryptedBackupCodes); decryptErr == nil {
+					_ = json.Unmarshal([]byte(decryptedBackupCodes), &backupCodes)
+				}
+			}
+
+			return &MFASetupResult{Secret: existingSecret, QRCode: qrCode, BackupCodes: backupCodes}, nil
+		}
 	}
 
 	key, err := totp.Generate(totp.GenerateOpts{
@@ -86,15 +142,10 @@ func (s *MFAService) Setup(user *models.User) (*MFASetupResult, error) {
 		return nil, fmt.Errorf("failed to persist mfa secret: %w", err)
 	}
 
-	image, err := key.Image(256, 256)
+	qrCode, err := buildTOTPQRCode(key.Secret(), accountName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to render qr code: %w", err)
+		return nil, err
 	}
-	var pngBuffer bytes.Buffer
-	if err := png.Encode(&pngBuffer, image); err != nil {
-		return nil, fmt.Errorf("failed to encode qr image: %w", err)
-	}
-	qrCode := "data:image/png;base64," + base64.StdEncoding.EncodeToString(pngBuffer.Bytes())
 
 	return &MFASetupResult{Secret: key.Secret(), QRCode: qrCode, BackupCodes: backupCodes}, nil
 }
@@ -113,9 +164,10 @@ func (s *MFAService) Verify(userID int, token string) error {
 		return fmt.Errorf("failed to decrypt mfa secret: %w", err)
 	}
 
-	valid, err := totp.ValidateCustom(strings.TrimSpace(token), secret, time.Now().UTC(), totp.ValidateOpts{
+	trimmedToken := strings.TrimSpace(token)
+	valid, err := totp.ValidateCustom(trimmedToken, secret, time.Now().UTC(), totp.ValidateOpts{
 		Period:    30,
-		Skew:      1,
+		Skew:      2,
 		Digits:    otp.DigitsSix,
 		Algorithm: otp.AlgorithmSHA1,
 	})
@@ -123,7 +175,7 @@ func (s *MFAService) Verify(userID int, token string) error {
 		return fmt.Errorf("failed to validate token: %w", err)
 	}
 	if !valid {
-		return fmt.Errorf("invalid authenticator code")
+		return fmt.Errorf("invalid authenticator code (use the latest 6-digit code and ensure your device time is automatic)")
 	}
 
 	if err := s.repo.MarkVerified(userID, time.Now().UTC()); err != nil {

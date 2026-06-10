@@ -81,7 +81,14 @@ func (r *UserMFARepository) Upsert(credential *models.UserMFA) error {
 }
 
 func (r *UserMFARepository) MarkVerified(userID int, verifiedAt time.Time) error {
-	_, err := r.db.Exec(`UPDATE user_mfa_credentials SET enabled = TRUE, verified_at = ?, last_used_at = ?, updated_at = ? WHERE user_id = ?`, userID, verifiedAt)
+	now := time.Now().UTC()
+	_, err := r.db.Exec(
+		`UPDATE user_mfa_credentials SET enabled = TRUE, verified_at = ?, last_used_at = ?, updated_at = ? WHERE user_id = ?`,
+		verifiedAt,
+		now,
+		now,
+		userID,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to mark mfa verified: %w", err)
 	}

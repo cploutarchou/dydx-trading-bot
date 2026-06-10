@@ -96,15 +96,6 @@ export const LoginPage: React.FC = () => {
       <main className="premium-shell light-dark-surface coming-soon-surface min-h-screen text-white">
         <div className="mx-auto flex min-h-screen w-full max-w-md items-center px-4 py-8 sm:px-6 lg:px-8">
           <section className="light-dark-surface coming-soon-surface w-full rounded-2xl border border-slate-700 bg-slate-900/90 p-6 shadow-2xl shadow-black/40 backdrop-blur">
-            <button
-              type="button"
-              onClick={() => navigate('/dashboard')}
-              className="dashboard-back-action inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back to dashboard
-            </button>
-
             <div className="surface-label">
               <ShieldCheck className="h-3.5 w-3.5" />
               Simple access
@@ -188,6 +179,17 @@ export const LoginPage: React.FC = () => {
               <span>Launch is paused for the public site.</span>
               <span>Existing credentials only.</span>
             </div>
+
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard')}
+                className="dashboard-back-action inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back to dashboard
+              </button>
+            </div>
           </section>
         </div>
       </main>
@@ -200,15 +202,6 @@ export const LoginPage: React.FC = () => {
       title="Sign in to the execution workspace"
       description="Return to research, automation, runtime, and command surfaces with clear access cues and disciplined technical trust messaging."
     >
-      <button
-        type="button"
-        onClick={() => navigate('/dashboard')}
-        className="dashboard-back-action mb-4 inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to dashboard
-      </button>
-
       {error && (
         <div
           ref={errorAlertRef}
@@ -270,7 +263,7 @@ export const LoginPage: React.FC = () => {
             placeholder="Enter your password"
             required
           />
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="login-support-copy mt-2 text-xs text-slate-500">
             Operators move through account checks before reaching the workspace.
           </p>
         </div>
@@ -284,6 +277,17 @@ export const LoginPage: React.FC = () => {
           {loading ? 'Signing in...' : 'Enter workspace'}
         </button>
       </form>
+
+      <div className="mt-4 flex justify-end">
+        <button
+          type="button"
+          onClick={() => navigate('/dashboard')}
+          className="dashboard-back-action inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to dashboard
+        </button>
+      </div>
 
       <div className="signal-card mt-6 px-4 py-4">
         <div className="grid gap-4 sm:grid-cols-[1fr,auto] sm:items-center">

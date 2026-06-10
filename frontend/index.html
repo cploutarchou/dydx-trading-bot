@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -28,6 +28,9 @@
         const resolved = preference === 'system' ? systemTheme : preference;
         document.documentElement.dataset.theme = resolved;
         document.documentElement.dataset.themePreference = preference;
+        if (new URLSearchParams(window.location.search).has('qa_screenshots')) {
+          document.documentElement.dataset.qaScreenshots = '1';
+        }
         document.documentElement.style.colorScheme = resolved;
       })();
     </script>

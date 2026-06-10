@@ -138,6 +138,8 @@ services:
       BOT_DB_PORT: 3306
       BOT_DB_NAME: ${BOT_DB_NAME:-bot}
       BOT_DB_USER: ${BOT_DB_USER:-bot}
+      APP_BUILD_TAG: ${APP_BUILD_TAG:-unknown}
+      APP_BUILD_COMMIT: ${APP_BUILD_COMMIT:-unknown}
     ports:
       - "8888:8888"
     healthcheck:

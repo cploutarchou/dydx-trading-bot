@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { getSystemTheme, useUIPreferencesStore } from '../store/uiPreferences';
+import { resolveTheme, useUIPreferencesStore } from '../store/uiPreferences';
 
 interface ThemeProviderProps {
   children: React.ReactNode;
@@ -23,7 +23,7 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     }
 
     const mediaQuery = window.matchMedia('(prefers-color-scheme: light)');
-    const handleChange = () => setResolvedTheme(getSystemTheme());
+    const handleChange = () => setResolvedTheme(resolveTheme('system'));
     handleChange();
     mediaQuery.addEventListener('change', handleChange);
     return () => mediaQuery.removeEventListener('change', handleChange);

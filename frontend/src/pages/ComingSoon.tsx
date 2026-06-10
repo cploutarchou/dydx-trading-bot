@@ -64,7 +64,7 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
             </div>
           </div>
 
-          <div className="platform-panel light-dark-surface coming-soon-surface p-5 sm:p-6">
+          <div className="platform-panel light-dark-surface coming-soon-surface coming-soon-panel-card p-5 sm:p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-sm font-semibold text-white">Launch readiness</p>

@@ -17,6 +17,7 @@ BUILD_SCRIPT="${REPO_ROOT}/scripts/build_all_service_images.sh"
 
 IMAGE_REGISTRY="${IMAGE_REGISTRY:-ghcr.io/cploutarchou/dydx-trading-bot}"
 IMAGE_TAG="${IMAGE_TAG:-$(date +%Y%m%d%H%M%S)}"
+BUILD_COMMIT="${BUILD_COMMIT:-$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)}"
 BUILD_PUSH=false
 ALSO_LATEST=false
 WAIT=false
@@ -79,7 +80,7 @@ remote_stackforge_deploy() {
   echo "==> Falling back to host-side StackForge deploy via ${ssh_target}"
 
   ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "${ssh_target}" "umask 077 && cat > '${remote_manifest}'" < "${TMP_MANIFEST}"
-  ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "${ssh_target}" "umask 077 && cat > '${remote_env}'" < "${ENV_FILE}"
+  ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "${ssh_target}" "umask 077 && cat > '${remote_env}'" < "${RENDERED_ENV_FILE}"
   ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "${ssh_target}" "umask 077 && cat > '${remote_config}'" < "${STACKFORGE_CONFIG}"
 
   if [[ "${DRY_RUN}" == "true" ]]; then
@@ -365,7 +366,16 @@ if [[ "${BUILD_PUSH}" == "true" ]]; then
 fi
 
 TMP_MANIFEST="$(mktemp "${REPO_ROOT}/.stackforge-deployment.XXXXXX.yaml")"
-trap 'rm -f "${TMP_MANIFEST}"' EXIT
+TMP_ENV="$(mktemp "${REPO_ROOT}/.stackforge-env.XXXXXX")"
+trap 'rm -f "${TMP_MANIFEST}" "${TMP_ENV}"' EXIT
+
+{
+  grep -v -E '^(APP_BUILD_TAG|APP_BUILD_COMMIT)=' "${ENV_FILE}" || true
+  echo "APP_BUILD_TAG=${IMAGE_TAG}"
+  echo "APP_BUILD_COMMIT=${BUILD_COMMIT}"
+} > "${TMP_ENV}"
+
+RENDERED_ENV_FILE="${TMP_ENV}"
 
 echo "==> Rendering temporary manifest with immutable tags"
 python3 - <<'PY' "${BASE_MANIFEST}" "${TMP_MANIFEST}" "${IMAGE_REGISTRY}" "${IMAGE_TAG}"
@@ -400,7 +410,7 @@ deploy_args=(
   --yes
   --mode nomad
   --file "${TMP_MANIFEST}"
-  --env-file "${ENV_FILE}"
+  --env-file "${RENDERED_ENV_FILE}"
   --nomad-address https://127.0.0.1:4646
   --nomad-cacert /etc/nomad.d/tls/ca.pem
 )
@@ -456,4 +466,5 @@ echo
 echo "Done."
 echo "IMAGE_REGISTRY=${IMAGE_REGISTRY}"
 echo "IMAGE_TAG=${IMAGE_TAG}"
+echo "BUILD_COMMIT=${BUILD_COMMIT}"
 echo "Temporary manifest: ${TMP_MANIFEST} (auto-cleaned on exit)"

@@ -95,7 +95,7 @@ export const LoginPage: React.FC = () => {
     return (
       <main className="premium-shell light-dark-surface coming-soon-surface min-h-screen text-white">
         <div className="mx-auto flex min-h-screen w-full max-w-md items-center px-4 py-8 sm:px-6 lg:px-8">
-          <section className="light-dark-surface coming-soon-surface w-full rounded-2xl border border-slate-700 bg-slate-900/90 p-6 shadow-2xl shadow-black/40 backdrop-blur">
+          <section className="light-dark-surface coming-soon-surface coming-soon-login-card w-full rounded-2xl border border-slate-700 bg-slate-900/90 p-6 shadow-2xl shadow-black/40 backdrop-blur">
             <div className="surface-label">
               <ShieldCheck className="h-3.5 w-3.5" />
               Simple access

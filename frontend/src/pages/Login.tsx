@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Loader, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Loader, ShieldCheck, Sparkles } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
@@ -93,9 +93,18 @@ export const LoginPage: React.FC = () => {
 
   if (comingSoonEnabled) {
     return (
-      <main className="premium-shell min-h-screen text-white">
+      <main className="premium-shell light-dark-surface coming-soon-surface min-h-screen text-white">
         <div className="mx-auto flex min-h-screen w-full max-w-md items-center px-4 py-8 sm:px-6 lg:px-8">
-          <section className="w-full rounded-2xl border border-slate-700 bg-slate-900/90 p-6 shadow-2xl shadow-black/40 backdrop-blur">
+          <section className="light-dark-surface coming-soon-surface w-full rounded-2xl border border-slate-700 bg-slate-900/90 p-6 shadow-2xl shadow-black/40 backdrop-blur">
+            <button
+              type="button"
+              onClick={() => navigate('/dashboard')}
+              className="dashboard-back-action inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to dashboard
+            </button>
+
             <div className="surface-label">
               <ShieldCheck className="h-3.5 w-3.5" />
               Simple access
@@ -105,11 +114,11 @@ export const LoginPage: React.FC = () => {
               Use existing credentials to continue.
             </h1>
 
-            <p className="mt-4 text-sm leading-6 text-slate-400 sm:text-base">
+            <p className="coming-soon-muted mt-4 text-sm leading-6 text-slate-400 sm:text-base">
               The workspace is hidden while launch is paused. Use an approved account to continue.
             </p>
 
-            <div className="mt-5 rounded-lg border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-300">
+            <div className="coming-soon-muted mt-5 rounded-lg border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-300">
               Only sign-in and required account recovery pages remain available.
             </div>
 
@@ -175,7 +184,7 @@ export const LoginPage: React.FC = () => {
               </button>
             </form>
 
-            <div className="mt-5 flex items-center justify-between gap-3 text-xs text-slate-500">
+            <div className="coming-soon-login-helper mt-5 flex items-center justify-between gap-3 text-sm text-slate-300">
               <span>Launch is paused for the public site.</span>
               <span>Existing credentials only.</span>
             </div>
@@ -191,6 +200,15 @@ export const LoginPage: React.FC = () => {
       title="Sign in to the execution workspace"
       description="Return to research, automation, runtime, and command surfaces with clear access cues and disciplined technical trust messaging."
     >
+      <button
+        type="button"
+        onClick={() => navigate('/dashboard')}
+        className="dashboard-back-action mb-4 inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back to dashboard
+      </button>
+
       {error && (
         <div
           ref={errorAlertRef}

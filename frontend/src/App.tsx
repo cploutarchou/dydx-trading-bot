@@ -173,6 +173,12 @@ const ComingSoonGate: React.FC<{ children: React.ReactNode }> = ({ children }) =
     return <>{children}</>;
   }
 
+  // Authenticated users always bypass the coming-soon gate so they can
+  // reach the dashboard and admin surfaces normally.
+  if (user) {
+    return <>{children}</>;
+  }
+
   return <ComingSoonPage message={appConfigQuery.data.public_launch_message} />;
 };
 

@@ -1,27 +1,89 @@
 import { ArrowRight, LockKeyhole, Radar, ShieldCheck, WalletCards } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import BrandMark from '../components/BrandMark';
 
+type PreviewMode = 'operator' | 'strategy' | 'security';
+
 const readinessItems = [
-  [
-    'DeFi research',
-    'Market intelligence, pair context, and strategy framing before capital moves.',
-  ],
-  ['Backtest validation', 'Evidence-first promotion from hypothesis to controlled runtime.'],
-  [
-    'Operator access',
-    'Role-based entry, MFA posture, and credential controls before live workflows.',
-  ],
+  {
+    title: 'DeFi research',
+    body: 'Market intelligence, pair context, and strategy framing before capital moves.',
+    progress: 86,
+    status: 'Active',
+  },
+  {
+    title: 'Backtest validation',
+    body: 'Evidence-first promotion from hypothesis to controlled runtime.',
+    progress: 91,
+    status: 'Reviewing',
+  },
+  {
+    title: 'Operator access',
+    body: 'Role-based entry, MFA posture, and credential controls before live workflows.',
+    progress: 78,
+    status: 'Hardening',
+  },
 ] as const;
+
+const previewModes: Array<{ id: PreviewMode; label: string }> = [
+  { id: 'operator', label: 'Operator cockpit' },
+  { id: 'strategy', label: 'Strategy lab' },
+  { id: 'security', label: 'Security controls' },
+];
+
+const previewModeContent: Record<
+  PreviewMode,
+  {
+    headline: string;
+    description: string;
+    metrics: Array<{ label: string; value: string }>;
+  }
+> = {
+  operator: {
+    headline: 'Live command center',
+    description:
+      'Track strategy state, health, and execution confidence from one operator-first surface.',
+    metrics: [
+      { label: 'Live runtimes', value: '24/7' },
+      { label: 'Status visibility', value: 'Sub-second' },
+      { label: 'Signal density', value: 'High' },
+    ],
+  },
+  strategy: {
+    headline: 'Research to runtime',
+    description:
+      'Move from hypothesis to validated execution using a guided backtest and promotion flow.',
+    metrics: [
+      { label: 'Backtest coverage', value: 'Multi-market' },
+      { label: 'Promotion flow', value: 'Structured' },
+      { label: 'Risk checks', value: 'Built-in' },
+    ],
+  },
+  security: {
+    headline: 'Access with safeguards',
+    description:
+      'Layered auth, role controls, and credential boundaries keep operations protected by design.',
+    metrics: [
+      { label: 'MFA posture', value: 'Required' },
+      { label: 'Role scoping', value: 'Granular' },
+      { label: 'Credential flow', value: 'Backend-only' },
+    ],
+  },
+};
 
 interface ComingSoonPageProps {
   message?: string;
 }
 
 export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
+  const [previewMode, setPreviewMode] = useState<PreviewMode>('operator');
+
   const description =
     message?.trim() ||
     'Public access is paused while the platform is prepared for launch. Existing operators can still sign in, but the workspace remains hidden until launch.';
+
+  const activePreview = useMemo(() => previewModeContent[previewMode], [previewMode]);
 
   return (
     <main className="premium-shell light-dark-surface coming-soon-surface min-h-screen overflow-hidden text-white">
@@ -49,6 +111,47 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
             <p className="mt-5 max-w-2xl text-base leading-7 text-slate-400 sm:text-lg">
               {description}
             </p>
+
+            <div className="mt-7">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                Product preview
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {previewModes.map((mode) => {
+                  const isActive = mode.id === previewMode;
+                  return (
+                    <button
+                      key={mode.id}
+                      type="button"
+                      onClick={() => setPreviewMode(mode.id)}
+                      className={`rounded-lg border px-3 py-2 text-xs font-semibold transition sm:text-sm ${
+                        isActive
+                          ? 'border-cyan-400/60 bg-cyan-500/10 text-cyan-200'
+                          : 'border-slate-700/70 bg-slate-950/60 text-slate-300 hover:border-slate-500/80 hover:text-white'
+                      }`}
+                    >
+                      {mode.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-slate-700/70 bg-slate-950/55 p-4 sm:p-5">
+              <p className="text-sm font-semibold text-white">{activePreview.headline}</p>
+              <p className="mt-2 text-sm leading-6 text-slate-400">{activePreview.description}</p>
+              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                {activePreview.metrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="rounded-lg border border-slate-700/70 bg-slate-900/70 p-3"
+                  >
+                    <p className="text-xs uppercase tracking-wide text-slate-400">{metric.label}</p>
+                    <p className="mt-1 text-sm font-semibold text-cyan-200">{metric.value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link
@@ -79,9 +182,9 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
             </div>
 
             <div className="mt-6 grid gap-3">
-              {readinessItems.map(([title, body], index) => (
+              {readinessItems.map((item, index) => (
                 <div
-                  key={title}
+                  key={item.title}
                   className="rounded-lg border border-slate-700/60 bg-slate-950/55 p-4"
                 >
                   <div className="flex items-start gap-3">
@@ -89,8 +192,19 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
                       {String(index + 1).padStart(2, '0')}
                     </span>
                     <div>
-                      <p className="text-sm font-semibold text-white">{title}</p>
-                      <p className="mt-1 text-sm leading-6 text-slate-400">{body}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold text-white">{item.title}</p>
+                        <span className="rounded-md border border-slate-700/70 bg-slate-900/70 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-slate-300">
+                          {item.status}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm leading-6 text-slate-400">{item.body}</p>
+                      <div className="mt-3 h-1.5 w-full rounded-full bg-slate-800">
+                        <div
+                          className="h-1.5 rounded-full bg-gradient-to-r from-cyan-400/85 to-violet-400/80"
+                          style={{ width: `${item.progress}%` }}
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>

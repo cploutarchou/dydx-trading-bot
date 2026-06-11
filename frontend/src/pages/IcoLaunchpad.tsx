@@ -56,7 +56,10 @@ export const IcoLaunchpadPage = () => {
     const dubaiTimezone = 'Asia/Dubai';
 
     const formatGoogleTimestamp = (value: Date): string =>
-      value.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+      value
+        .toISOString()
+        .replace(/[-:]/g, '')
+        .replace(/\.\d{3}Z$/, 'Z');
 
     const escapeIcsText = (value: string): string =>
       value.replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
@@ -172,7 +175,9 @@ export const IcoLaunchpadPage = () => {
 
             <div className="fintech-soft-strip mt-5 px-4 py-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-white">{icoLaunchpadContent.countdownLabel}</p>
+                <p className="text-sm font-semibold text-white">
+                  {icoLaunchpadContent.countdownLabel}
+                </p>
                 <span className="fintech-pill inline-flex px-2 py-0.5 text-[11px] text-slate-300">
                   {countdown.isLive ? 'Live now' : 'Pending'}
                 </span>
@@ -180,9 +185,14 @@ export const IcoLaunchpadPage = () => {
 
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {countdown.parts.map((part) => (
-                  <div key={part.label} className="rounded-lg border border-slate-700/60 bg-slate-900/70 px-3 py-2">
+                  <div
+                    key={part.label}
+                    className="rounded-lg border border-slate-700/60 bg-slate-900/70 px-3 py-2"
+                  >
                     <p className="text-lg font-semibold text-white">{part.value}</p>
-                    <p className="text-[11px] uppercase tracking-wide text-slate-400">{part.label}</p>
+                    <p className="text-[11px] uppercase tracking-wide text-slate-400">
+                      {part.label}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -270,7 +280,10 @@ export const IcoLaunchpadPage = () => {
               <p className="text-sm font-semibold text-white">Launch resources</p>
             </div>
 
-            <form onSubmit={handleWhitelistSubmit} className="fintech-soft-strip space-y-3 px-4 py-4">
+            <form
+              onSubmit={handleWhitelistSubmit}
+              className="fintech-soft-strip space-y-3 px-4 py-4"
+            >
               <div>
                 <p className="text-sm font-semibold text-white">Whitelist request</p>
                 <p className="mt-1 text-xs leading-5 text-slate-400">
@@ -279,7 +292,10 @@ export const IcoLaunchpadPage = () => {
               </div>
 
               <div>
-                <label htmlFor="ico-whitelist-email" className="mb-2 block text-xs font-medium text-slate-300">
+                <label
+                  htmlFor="ico-whitelist-email"
+                  className="mb-2 block text-xs font-medium text-slate-300"
+                >
                   Contact email
                 </label>
                 <input

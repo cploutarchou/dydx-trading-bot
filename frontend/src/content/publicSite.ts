@@ -25,6 +25,19 @@ export interface LaunchTickerItem {
   stage: string;
 }
 
+export interface IcoResourceItem {
+  title: string;
+  description: string;
+  href?: string;
+  ctaLabel: string;
+}
+
+export interface IcoTimelineItem {
+  phase: string;
+  window: string;
+  status: string;
+}
+
 export const servicePages: ServicePageData[] = [
   {
     slug: 'research',
@@ -239,4 +252,74 @@ export const comingSoonMarketingContent: {
     { symbol: 'SOL', price: '$241', change: '+4.9%', stage: 'Market' },
     { symbol: 'ICO', price: 'Soon', change: 'TBA', stage: 'Allocation' },
   ],
+};
+
+/**
+ * ICO page campaign content lives here.
+ * Update links/copy without editing page JSX.
+ */
+export const icoLaunchpadContent: {
+  pageKicker: string;
+  pageTitle: string;
+  pageSummary: string;
+  tokenName: string;
+  tokenSymbol: string;
+  network: string;
+  saleStatus: string;
+  totalSupply: string;
+  publicAllocation: string;
+  targetRaise: string;
+  softCap: string;
+  hardCap: string;
+  utilityHighlights: string[];
+  timeline: IcoTimelineItem[];
+  resources: IcoResourceItem[];
+  legalNote: string;
+} = {
+  pageKicker: 'ExecutionLab token launch',
+  pageTitle: 'Initial Coin Offering (ICO) briefing',
+  pageSummary:
+    'Explore token utility, sale phases, governance scope, and launch documentation before public access opens.',
+  tokenName: 'ExecutionLab Token',
+  tokenSymbol: 'EXL',
+  network: 'Ethereum + L2 settlement',
+  saleStatus: 'Pre-sale onboarding',
+  totalSupply: '1,000,000,000 EXL',
+  publicAllocation: '25% public sale',
+  targetRaise: '$18M',
+  softCap: '$6M',
+  hardCap: '$24M',
+  utilityHighlights: [
+    'Fee tier discounts for active runtime operators',
+    'Governance voting on strategy market additions and platform parameters',
+    'Staking-based priority access for new automation modules',
+    'Research vault rewards for verified signal contributors',
+  ],
+  timeline: [
+    { phase: 'Whitelist registration', window: 'Q3 2026', status: 'Open soon' },
+    { phase: 'Public sale round', window: 'Q3 2026', status: 'Planned' },
+    { phase: 'Token generation event', window: 'Q4 2026', status: 'Planned' },
+    { phase: 'Exchange listings + utility unlock', window: 'Q4 2026', status: 'Planned' },
+  ],
+  resources: [
+    {
+      title: 'Whitepaper (preview)',
+      description: 'Token thesis, protocol architecture, economics, and risk disclosures.',
+      href: 'https://github.com/cploutarchou/dydx-trading-bot/tree/master/frontend/docs',
+      ctaLabel: 'Open whitepaper preview',
+    },
+    {
+      title: 'Tokenomics overview',
+      description: 'Allocation model, vesting principles, treasury policy, and unlock schedule.',
+      href: 'https://github.com/cploutarchou/dydx-trading-bot/tree/master/frontend/docs/architecture',
+      ctaLabel: 'View tokenomics notes',
+    },
+    {
+      title: 'KYC and participation policy',
+      description: 'Participation eligibility, jurisdiction constraints, and compliance checklist.',
+      ctaLabel: 'Publishing soon',
+    },
+  ],
+  legalNote:
+    'This page is informational only and does not constitute investment advice or an offer where prohibited by law. Final terms will be published before sale activation.',
 };

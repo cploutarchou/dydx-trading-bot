@@ -32,7 +32,8 @@ export const servicePages: ServicePageData[] = [
     navLabel: 'Research',
     kicker: 'Discovery Lab',
     title: 'Validate technical direction before execution work starts.',
-    summary: 'Research, system framing, and comparative analysis for disciplined product decisions.',
+    summary:
+      'Research, system framing, and comparative analysis for disciplined product decisions.',
     heroIntro:
       'Turn ambiguous ideas into evidence-backed execution plans by clarifying scope, risk, system constraints, and the next build decision.',
     heroStats: [

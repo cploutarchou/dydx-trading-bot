@@ -177,7 +177,7 @@ export const LoginPage: React.FC = () => {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1, duration: 0.3 }}
-              className="mt-4 inline-flex items-center gap-2 rounded-full border border-violet-400/35 bg-violet-500/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-violet-200"
+              className="launch-announcement-pill mt-4"
             >
               Crypto launch signal • {comingSoonMarketingContent.icoAnnouncement}
             </motion.div>
@@ -270,7 +270,7 @@ export const LoginPage: React.FC = () => {
               </button>
             </form>
 
-            <div className="fintech-flow-divider coming-soon-login-helper mt-5 flex items-center justify-between gap-3 pt-4 text-sm text-slate-300">
+            <div className="fintech-flow-divider coming-soon-login-helper mt-5 flex flex-col items-start gap-2 pt-4 text-sm text-slate-300 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
               <span>Launch is paused for the public site.</span>
               <span>Existing credentials only.</span>
             </div>
@@ -373,7 +373,7 @@ export const LoginPage: React.FC = () => {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.06, duration: 0.35, ease: 'easeOut' }}
-        className="mt-4 inline-flex w-full items-center justify-center rounded-full border border-violet-400/35 bg-violet-500/10 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-violet-200"
+        className="launch-announcement-pill mt-4 w-full"
       >
         {comingSoonMarketingContent.icoAnnouncement}
       </motion.div>

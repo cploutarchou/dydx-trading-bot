@@ -183,6 +183,17 @@ export const LoginPage: React.FC = () => {
                 Crypto launch signal • {comingSoonMarketingContent.icoAnnouncement}
               </motion.div>
 
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={() => navigate('/ico')}
+                  className="premium-button premium-button-secondary inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm"
+                >
+                  View ICO briefing
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
+
               <div className="fintech-flow-divider mt-5 pt-4">
                 <p className="fintech-kicker">Entry profile</p>
                 <div className="mt-3 flex flex-wrap gap-2">

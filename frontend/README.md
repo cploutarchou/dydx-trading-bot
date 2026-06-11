@@ -157,6 +157,9 @@ Update these fields for campaign changes:
 - `launchTicker` (ticker symbols, price text, change text, and stage labels)
 - `icoLaunchpadContent.resources` (whitepaper/tokenomics/KYC links)
 - `icoLaunchpadContent.timeline` (sale phases and status labels)
+- `icoLaunchpadContent.countdownTargetUtc` + `countdownLabel` (public-sale timer)
+- `icoLaunchpadContent.whitelistContactEmail` + `whitelistCtaLabel` + `whitelistHelperCopy` (whitelist CTA behavior)
+- `icoLaunchpadContent.calendar*` fields (Google Calendar + ICS reminder event metadata)
 
 Do not edit campaign strings directly in `src/pages/Login.tsx` or `src/pages/ComingSoon.tsx`; those pages consume shared content from `publicSite.ts`.
 

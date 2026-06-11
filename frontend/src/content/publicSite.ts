@@ -262,6 +262,8 @@ export const icoLaunchpadContent: {
   pageKicker: string;
   pageTitle: string;
   pageSummary: string;
+  countdownLabel: string;
+  countdownTargetUtc: string;
   tokenName: string;
   tokenSymbol: string;
   network: string;
@@ -274,12 +276,23 @@ export const icoLaunchpadContent: {
   utilityHighlights: string[];
   timeline: IcoTimelineItem[];
   resources: IcoResourceItem[];
+  whitelistContactEmail: string;
+  whitelistCtaLabel: string;
+  whitelistHelperCopy: string;
+  calendarCtaLabel: string;
+  calendarEventTitle: string;
+  calendarEventDescription: string;
+  calendarEventStartUtc: string;
+  calendarEventEndUtc: string;
+  calendarEventLocation: string;
   legalNote: string;
 } = {
   pageKicker: 'ExecutionLab token launch',
   pageTitle: 'Initial Coin Offering (ICO) briefing',
   pageSummary:
     'Explore token utility, sale phases, governance scope, and launch documentation before public access opens.',
+  countdownLabel: 'Countdown to public sale',
+  countdownTargetUtc: '2026-09-15T12:00:00Z',
   tokenName: 'ExecutionLab Token',
   tokenSymbol: 'EXL',
   network: 'Ethereum + L2 settlement',
@@ -320,6 +333,17 @@ export const icoLaunchpadContent: {
       ctaLabel: 'Publishing soon',
     },
   ],
+  whitelistContactEmail: 'launchpad@executionlab.io',
+  whitelistCtaLabel: 'Request whitelist access',
+  whitelistHelperCopy:
+    'Submit your email to request whitelist consideration. A launch coordinator will share eligibility steps and onboarding requirements.',
+  calendarCtaLabel: 'Add sale reminder to calendar',
+  calendarEventTitle: 'ExecutionLab ICO Public Sale Window',
+  calendarEventDescription:
+    'ExecutionLab token launch public-sale reminder. Review whitepaper, tokenomics, and participation checklist before the sale opens.',
+  calendarEventStartUtc: '2026-09-15T12:00:00Z',
+  calendarEventEndUtc: '2026-09-15T13:00:00Z',
+  calendarEventLocation: 'Online',
   legalNote:
     'This page is informational only and does not constitute investment advice or an offer where prohibited by law. Final terms will be published before sale activation.',
 };

@@ -142,150 +142,176 @@ export const LoginPage: React.FC = () => {
   if (comingSoonEnabled) {
     return (
       <main className="premium-shell light-dark-surface coming-soon-surface min-h-screen text-white">
-        <div className="mx-auto flex min-h-screen w-full max-w-lg items-center px-4 py-8 sm:px-6 lg:px-8">
-          <motion.section
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35, ease: 'easeOut' }}
-            className="fintech-soft-strip light-dark-surface coming-soon-surface coming-soon-login-card relative w-full px-6 py-7 sm:px-7"
-          >
+        <div className="mx-auto flex min-h-screen w-full max-w-7xl items-center px-4 py-6 sm:px-6 lg:px-8">
+          <section className="grid w-full gap-6 py-10 lg:grid-cols-2 lg:py-12">
             <motion.div
-              aria-hidden="true"
-              className="pointer-events-none absolute -right-20 -top-20 h-44 w-44 rounded-full bg-cyan-500/10 blur-3xl"
-              animate={{ scale: [1, 1.08, 1], opacity: [0.35, 0.55, 0.35] }}
-              transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }}
-            />
-
-            <div className="surface-label">
-              <ShieldCheck className="h-3.5 w-3.5" />
-              Simple access
-            </div>
-
-            <h1 className="fintech-heading mt-5 text-3xl font-semibold text-white sm:text-4xl">
-              Use existing credentials to continue.
-            </h1>
-
-            <p className="fintech-copy coming-soon-muted mt-4 text-sm sm:text-base">
-              The workspace is hidden while launch is paused. Use an approved account to continue.
-            </p>
-
-            <div className="coming-soon-muted mt-5 border-l-2 border-cyan-500/45 pl-4 text-sm text-slate-300">
-              Only sign-in and required account recovery pages remain available.
-            </div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 6 }}
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1, duration: 0.3 }}
-              className="launch-announcement-pill mt-4"
+              transition={{ duration: 0.35, ease: 'easeOut' }}
+              className="relative overflow-hidden rounded-2xl border border-slate-700/70 bg-slate-950/70 p-6 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.75)] sm:p-7 lg:p-8"
             >
-              Crypto launch signal • {comingSoonMarketingContent.icoAnnouncement}
+              <motion.div
+                aria-hidden="true"
+                className="pointer-events-none absolute -right-20 -top-20 h-44 w-44 rounded-full bg-cyan-500/10 blur-3xl"
+                animate={{ scale: [1, 1.08, 1], opacity: [0.35, 0.55, 0.35] }}
+                transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }}
+              />
+
+              <div className="surface-label">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                Simple access
+              </div>
+
+              <h1 className="fintech-heading mt-5 text-3xl font-semibold text-white sm:text-4xl">
+                Use existing credentials to continue.
+              </h1>
+
+              <p className="fintech-copy coming-soon-muted mt-4 text-sm sm:text-base">
+                The workspace is hidden while launch is paused. Use an approved account to continue.
+              </p>
+
+              <div className="coming-soon-muted mt-5 border-l-2 border-cyan-500/45 pl-4 text-sm text-slate-300">
+                Only sign-in and required account recovery pages remain available.
+              </div>
+
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1, duration: 0.3 }}
+                className="launch-announcement-pill mt-4"
+              >
+                Crypto launch signal • {comingSoonMarketingContent.icoAnnouncement}
+              </motion.div>
+
+              <div className="fintech-flow-divider mt-5 pt-4">
+                <p className="fintech-kicker">Entry profile</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {entryModes.map((mode) => {
+                    const isActive = mode.id === entryMode;
+                    return (
+                      <motion.button
+                        key={mode.id}
+                        type="button"
+                        onClick={() => setEntryMode(mode.id)}
+                        whileHover={{ y: -1, scale: 1.01 }}
+                        whileTap={{ scale: 0.99 }}
+                        className={getEntryPillClass(isActive)}
+                      >
+                        {mode.label}
+                      </motion.button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-4 border-l-2 border-violet-500/35 pl-4">
+                <p className="text-sm font-semibold text-white">{activeEntryMode.title}</p>
+                <p className="fintech-copy mt-1 text-xs sm:text-sm">{activeEntryMode.detail}</p>
+              </div>
+
+              <div className="fintech-flow-divider coming-soon-login-helper mt-5 flex flex-col items-start gap-2 pt-4 text-sm text-slate-300 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                <span>Launch is paused for the public site.</span>
+                <span>Existing credentials only.</span>
+              </div>
             </motion.div>
 
-            <div className="fintech-flow-divider mt-5 pt-4">
-              <p className="fintech-kicker">Entry profile</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {entryModes.map((mode) => {
-                  const isActive = mode.id === entryMode;
-                  return (
-                    <motion.button
-                      key={mode.id}
-                      type="button"
-                      onClick={() => setEntryMode(mode.id)}
-                      whileHover={{ y: -1, scale: 1.01 }}
-                      whileTap={{ scale: 0.99 }}
-                      className={getEntryPillClass(isActive)}
-                    >
-                      {mode.label}
-                    </motion.button>
-                  );
-                })}
+            <motion.div
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.06, duration: 0.35, ease: 'easeOut' }}
+              className="space-y-5 rounded-2xl border border-slate-700/70 bg-slate-950/70 p-6 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.75)] sm:p-7 lg:p-8"
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="fintech-soft-strip fintech-micro-glow px-4 py-3">
+                  <p className="text-[11px] uppercase text-slate-500">Access state</p>
+                  <p className="mt-2 text-sm font-semibold text-white">{registrationMode}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-400">
+                    Sign-in remains available for existing operators.
+                  </p>
+                </div>
+                <div className="fintech-soft-strip fintech-micro-glow px-4 py-3">
+                  <p className="text-[11px] uppercase text-slate-500">Security posture</p>
+                  <p className="mt-2 text-sm font-semibold text-white">Account-first entry</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-400">
+                    Authentication and follow-up security setup happen before execution access.
+                  </p>
+                </div>
               </div>
-            </div>
 
-            <div className="mt-4 border-l-2 border-violet-500/35 pl-4">
-              <p className="text-sm font-semibold text-white">{activeEntryMode.title}</p>
-              <p className="fintech-copy mt-1 text-xs sm:text-sm">{activeEntryMode.detail}</p>
-            </div>
-
-            {error && (
-              <div
-                ref={errorAlertRef}
-                tabIndex={-1}
-                role="alert"
-                aria-live="assertive"
-                className="mt-5 rounded-lg border border-red-700 bg-red-950/55 p-4 text-red-200"
-              >
-                {error}
-              </div>
-            )}
-
-            <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-              <div>
-                <label
-                  htmlFor="login-username"
-                  className="mb-2 block text-sm font-medium text-slate-300"
+              {error && (
+                <div
+                  ref={errorAlertRef}
+                  tabIndex={-1}
+                  role="alert"
+                  aria-live="assertive"
+                  className="mt-5 rounded-lg border border-red-700 bg-red-950/55 p-4 text-red-200"
                 >
-                  Username
-                </label>
-                <input
-                  id="login-username"
-                  type="text"
-                  autoComplete="username"
-                  ref={usernameInputRef}
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
-                  className="premium-input"
-                  placeholder="Enter your operator username"
-                  required
-                />
-              </div>
+                  {error}
+                </div>
+              )}
 
-              <div>
-                <label
-                  htmlFor="login-password"
-                  className="mb-2 block text-sm font-medium text-slate-300"
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label
+                    htmlFor="login-username"
+                    className="mb-2 block text-sm font-medium text-slate-300"
+                  >
+                    Username
+                  </label>
+                  <input
+                    id="login-username"
+                    type="text"
+                    autoComplete="username"
+                    ref={usernameInputRef}
+                    value={username}
+                    onChange={(event) => setUsername(event.target.value)}
+                    className="premium-input"
+                    placeholder="Enter your operator username"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="login-password"
+                    className="mb-2 block text-sm font-medium text-slate-300"
+                  >
+                    Password
+                  </label>
+                  <input
+                    id="login-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    className="premium-input"
+                    placeholder="Enter your password"
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="premium-button premium-button-primary w-full disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Password
-                </label>
-                <input
-                  id="login-password"
-                  type="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  className="premium-input"
-                  placeholder="Enter your password"
-                  required
-                />
+                  {loading && <Loader className="h-4 w-4 animate-spin" />}
+                  {loading ? 'Signing in...' : activeEntryMode.submitLabel}
+                </button>
+              </form>
+
+              <div className="flex justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={() => navigate('/dashboard')}
+                  className="dashboard-back-action inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back to dashboard
+                </button>
               </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="premium-button premium-button-primary w-full disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {loading && <Loader className="h-4 w-4 animate-spin" />}
-                {loading ? 'Signing in...' : activeEntryMode.submitLabel}
-              </button>
-            </form>
-
-            <div className="fintech-flow-divider coming-soon-login-helper mt-5 flex flex-col items-start gap-2 pt-4 text-sm text-slate-300 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-              <span>Launch is paused for the public site.</span>
-              <span>Existing credentials only.</span>
-            </div>
-
-            <div className="mt-4 flex justify-end">
-              <button
-                type="button"
-                onClick={() => navigate('/dashboard')}
-                className="dashboard-back-action inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                Back to dashboard
-              </button>
-            </div>
-          </motion.section>
+            </motion.div>
+          </section>
         </div>
       </main>
     );

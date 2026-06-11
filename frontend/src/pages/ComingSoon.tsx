@@ -197,6 +197,13 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
                 Use existing credentials
                 <ArrowRight className="h-4 w-4" />
               </Link>
+              <Link
+                to="/ico"
+                className="premium-button premium-button-secondary justify-center px-6 py-3 text-sm"
+              >
+                View ICO briefing
+                <ArrowRight className="h-4 w-4" />
+              </Link>
               <span className="coming-soon-status-pill inline-flex items-center justify-center rounded-lg border border-slate-700/70 bg-slate-950/60 px-5 py-3 text-sm font-medium text-slate-300">
                 Public access currently paused
               </span>

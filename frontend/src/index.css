@@ -2428,6 +2428,34 @@ h6 {
   text-transform: uppercase;
 }
 
+.launch-announcement-pill {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid rgba(192, 132, 252, 0.35);
+  background: rgba(139, 92, 246, 0.1);
+  padding: 0.4rem 0.78rem;
+  color: rgb(221, 214, 254);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+  white-space: normal;
+}
+
+@media (max-width: 640px) {
+  .launch-announcement-pill {
+    width: 100%;
+    border-radius: 0.75rem;
+    padding: 0.5rem 0.8rem;
+  }
+}
+
 .data-chip {
   display: inline-flex;
   align-items: center;

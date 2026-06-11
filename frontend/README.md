@@ -144,6 +144,19 @@ When enabled in the client portal:
 
 If the public app config endpoint fails to load, the frontend fails open to the existing app so operators are not locked out by a bootstrap outage.
 
+## Launch Campaign Copy
+
+Marketing launch text for the public auth/coming-soon surfaces is centralized in:
+
+- `src/content/publicSite.ts` -> `comingSoonMarketingContent`
+
+Update these fields for campaign changes:
+
+- `icoAnnouncement` (launch badge/callout copy)
+- `launchTicker` (ticker symbols, price text, change text, and stage labels)
+
+Do not edit campaign strings directly in `src/pages/Login.tsx` or `src/pages/ComingSoon.tsx`; those pages consume shared content from `publicSite.ts`.
+
 ## Key Directories
 
 - `apps/backoffice`, `apps/client-portal`, and `apps/ib-portal` for portal app shells

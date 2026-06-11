@@ -1,10 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
+import { motion } from 'framer-motion';
 import { ArrowLeft, ArrowRight, Loader, ShieldCheck, Sparkles } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { BACKOFFICE_ROLES, IB_ROLES, getUserWorkspaceRole } from '../auth/roles';
 import AuthExperienceShell from '../components/AuthExperienceShell';
+import { comingSoonMarketingContent } from '../content/publicSite';
 import { useAuthStore } from '../store/auth';
 import { perfMark, perfMeasure } from '../utils/perf';
 
@@ -141,7 +143,19 @@ export const LoginPage: React.FC = () => {
     return (
       <main className="premium-shell light-dark-surface coming-soon-surface min-h-screen text-white">
         <div className="mx-auto flex min-h-screen w-full max-w-lg items-center px-4 py-8 sm:px-6 lg:px-8">
-          <section className="fintech-soft-strip light-dark-surface coming-soon-surface coming-soon-login-card w-full px-6 py-7 sm:px-7">
+          <motion.section
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, ease: 'easeOut' }}
+            className="fintech-soft-strip light-dark-surface coming-soon-surface coming-soon-login-card relative w-full px-6 py-7 sm:px-7"
+          >
+            <motion.div
+              aria-hidden="true"
+              className="pointer-events-none absolute -right-20 -top-20 h-44 w-44 rounded-full bg-cyan-500/10 blur-3xl"
+              animate={{ scale: [1, 1.08, 1], opacity: [0.35, 0.55, 0.35] }}
+              transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }}
+            />
+
             <div className="surface-label">
               <ShieldCheck className="h-3.5 w-3.5" />
               Simple access
@@ -159,22 +173,31 @@ export const LoginPage: React.FC = () => {
               Only sign-in and required account recovery pages remain available.
             </div>
 
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1, duration: 0.3 }}
+              className="mt-4 inline-flex items-center gap-2 rounded-full border border-violet-400/35 bg-violet-500/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-violet-200"
+            >
+              Crypto launch signal • {comingSoonMarketingContent.icoAnnouncement}
+            </motion.div>
+
             <div className="fintech-flow-divider mt-5 pt-4">
-              <p className="fintech-kicker">
-                Entry profile
-              </p>
+              <p className="fintech-kicker">Entry profile</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 {entryModes.map((mode) => {
                   const isActive = mode.id === entryMode;
                   return (
-                    <button
+                    <motion.button
                       key={mode.id}
                       type="button"
                       onClick={() => setEntryMode(mode.id)}
+                      whileHover={{ y: -1, scale: 1.01 }}
+                      whileTap={{ scale: 0.99 }}
                       className={getEntryPillClass(isActive)}
                     >
                       {mode.label}
-                    </button>
+                    </motion.button>
                   );
                 })}
               </div>
@@ -182,9 +205,7 @@ export const LoginPage: React.FC = () => {
 
             <div className="mt-4 border-l-2 border-violet-500/35 pl-4">
               <p className="text-sm font-semibold text-white">{activeEntryMode.title}</p>
-              <p className="fintech-copy mt-1 text-xs sm:text-sm">
-                {activeEntryMode.detail}
-              </p>
+              <p className="fintech-copy mt-1 text-xs sm:text-sm">{activeEntryMode.detail}</p>
             </div>
 
             {error && (
@@ -264,7 +285,7 @@ export const LoginPage: React.FC = () => {
                 Back to dashboard
               </button>
             </div>
-          </section>
+          </motion.section>
         </div>
       </main>
     );
@@ -305,11 +326,14 @@ export const LoginPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="fintech-soft-strip mt-4 px-4 py-4 sm:px-5">
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: 'easeOut' }}
+        className="fintech-soft-strip mt-4 px-4 py-4 sm:px-5"
+      >
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="fintech-kicker">
-            Session entry profile
-          </p>
+          <p className="fintech-kicker">Session entry profile</p>
           <div className="fintech-pill inline-flex items-center gap-2 border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-200">
             Stable path
           </div>
@@ -319,14 +343,16 @@ export const LoginPage: React.FC = () => {
           {entryModes.map((mode) => {
             const isActive = mode.id === entryMode;
             return (
-              <button
+              <motion.button
                 key={mode.id}
                 type="button"
                 onClick={() => setEntryMode(mode.id)}
+                whileHover={{ y: -1, scale: 1.01 }}
+                whileTap={{ scale: 0.99 }}
                 className={getEntryPillClass(isActive)}
               >
                 {mode.label}
-              </button>
+              </motion.button>
             );
           })}
         </div>
@@ -341,7 +367,16 @@ export const LoginPage: React.FC = () => {
             <span className="font-semibold text-violet-200">{activeEntryMode.signalB}</span>
           </div>
         </div>
-      </div>
+      </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.06, duration: 0.35, ease: 'easeOut' }}
+        className="mt-4 inline-flex w-full items-center justify-center rounded-full border border-violet-400/35 bg-violet-500/10 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-violet-200"
+      >
+        {comingSoonMarketingContent.icoAnnouncement}
+      </motion.div>
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-4">
         <div>

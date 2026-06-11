@@ -1,7 +1,9 @@
+import { motion } from 'framer-motion';
 import { ArrowRight, LockKeyhole, Radar, ShieldCheck, WalletCards } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import BrandMark from '../components/BrandMark';
+import { comingSoonMarketingContent } from '../content/publicSite';
 
 type PreviewMode = 'operator' | 'strategy' | 'security';
 
@@ -102,7 +104,18 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
         </header>
 
         <section className="grid flex-1 items-center gap-10 py-12 lg:grid-cols-[1.05fr,0.95fr] lg:py-16">
-          <div className="space-y-1">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: 'easeOut' }}
+            className="relative space-y-1"
+          >
+            <motion.div
+              aria-hidden="true"
+              className="pointer-events-none absolute -left-16 top-12 h-44 w-44 rounded-full bg-violet-500/10 blur-3xl"
+              animate={{ scale: [1, 1.1, 1], opacity: [0.32, 0.52, 0.32] }}
+              transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
+            />
             <div className="surface-label">
               <Radar className="h-3.5 w-3.5" />
               Controlled launch in progress
@@ -110,26 +123,49 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
             <h1 className="fintech-heading mt-5 max-w-4xl text-4xl font-semibold text-white sm:text-5xl lg:text-6xl">
               ExecutionLab is coming soon.
             </h1>
-            <p className="fintech-copy mt-5 max-w-2xl text-base sm:text-lg">
-              {description}
-            </p>
+            <p className="fintech-copy mt-5 max-w-2xl text-base sm:text-lg">{description}</p>
+
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.12, duration: 0.32 }}
+              className="mt-4 inline-flex items-center gap-2 rounded-full border border-violet-400/35 bg-violet-500/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-violet-200"
+            >
+              {comingSoonMarketingContent.icoAnnouncement}
+            </motion.div>
+
+            <div className="crypto-launch-ticker mt-5" role="presentation" aria-hidden="true">
+              <div className="crypto-launch-ticker-track">
+                {[
+                  ...comingSoonMarketingContent.launchTicker,
+                  ...comingSoonMarketingContent.launchTicker,
+                ].map((item, index) => (
+                  <div key={`${item.symbol}-${index}`} className="crypto-launch-ticker-item">
+                    <strong>{item.symbol}</strong>
+                    <span>{item.price}</span>
+                    <em>{item.change}</em>
+                    <small>{item.stage}</small>
+                  </div>
+                ))}
+              </div>
+            </div>
 
             <div className="mt-7">
-              <p className="fintech-kicker">
-                Product preview
-              </p>
+              <p className="fintech-kicker">Product preview</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 {previewModes.map((mode) => {
                   const isActive = mode.id === previewMode;
                   return (
-                    <button
+                    <motion.button
                       key={mode.id}
                       type="button"
                       onClick={() => setPreviewMode(mode.id)}
+                      whileHover={{ y: -1, scale: 1.01 }}
+                      whileTap={{ scale: 0.99 }}
                       className={getPreviewPillClass(isActive)}
                     >
                       {mode.label}
-                    </button>
+                    </motion.button>
                   );
                 })}
               </div>
@@ -165,9 +201,14 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
                 Public access currently paused
               </span>
             </div>
-          </div>
+          </motion.div>
 
-          <div className="space-y-6 lg:border-l lg:border-slate-700/60 lg:pl-8">
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.06, duration: 0.4, ease: 'easeOut' }}
+            className="space-y-6 lg:border-l lg:border-slate-700/60 lg:pl-8"
+          >
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-sm font-semibold text-white">Launch readiness</p>
@@ -195,7 +236,7 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
                           {item.status}
                         </span>
                       </div>
-                        <p className="fintech-copy mt-1 text-sm">{item.body}</p>
+                      <p className="fintech-copy mt-1 text-sm">{item.body}</p>
                       <div className="mt-3 h-1.5 w-full rounded-full bg-slate-800">
                         <div
                           className="h-1.5 rounded-full bg-gradient-to-r from-cyan-400/85 to-violet-400/80"
@@ -209,7 +250,10 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="fintech-soft-strip fintech-micro-glow coming-soon-positive-card px-4 py-4">
+              <motion.div
+                whileHover={{ y: -2 }}
+                className="fintech-soft-strip fintech-micro-glow coming-soon-positive-card px-4 py-4"
+              >
                 <LockKeyhole className="coming-soon-positive-icon h-5 w-5 text-emerald-200" />
                 <p className="coming-soon-positive-title mt-3 text-sm font-semibold text-emerald-100">
                   Access controlled
@@ -217,8 +261,11 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
                 <p className="coming-soon-positive-copy mt-1 text-xs leading-5 text-emerald-100/70">
                   Existing operators can continue through sign-in.
                 </p>
-              </div>
-              <div className="fintech-soft-strip fintech-micro-glow coming-soon-violet-card px-4 py-4">
+              </motion.div>
+              <motion.div
+                whileHover={{ y: -2 }}
+                className="fintech-soft-strip fintech-micro-glow coming-soon-violet-card px-4 py-4"
+              >
                 <WalletCards className="coming-soon-violet-icon h-5 w-5 text-violet-200" />
                 <p className="coming-soon-violet-title mt-3 text-sm font-semibold text-violet-100">
                   Credentials protected
@@ -226,9 +273,9 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
                 <p className="coming-soon-violet-copy mt-1 text-xs leading-5 text-violet-100/70">
                   Runtime access remains behind authenticated controls.
                 </p>
-              </div>
+              </motion.div>
             </div>
-          </div>
+          </motion.div>
         </section>
       </div>
     </main>

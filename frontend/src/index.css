@@ -2375,6 +2375,59 @@ h6 {
   font-size: 0.78rem;
 }
 
+.crypto-launch-ticker {
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.56);
+  mask-image: linear-gradient(90deg, transparent, black 5%, black 95%, transparent);
+}
+
+.crypto-launch-ticker-track {
+  display: flex;
+  width: max-content;
+  animation: publicTickerScroll 34s linear infinite;
+}
+
+.crypto-launch-ticker:hover .crypto-launch-ticker-track {
+  animation-play-state: paused;
+}
+
+.crypto-launch-ticker-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 2.15rem;
+  border-right: 1px solid rgba(148, 163, 184, 0.14);
+  padding-inline: 0.95rem;
+  white-space: nowrap;
+}
+
+.crypto-launch-ticker-item strong {
+  color: #f8fafc;
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+}
+
+.crypto-launch-ticker-item span {
+  color: #cbd5e1;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.74rem;
+}
+
+.crypto-launch-ticker-item em {
+  color: #86efac;
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.crypto-launch-ticker-item small {
+  color: #64748b;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
 .data-chip {
   display: inline-flex;
   align-items: center;
@@ -5909,6 +5962,7 @@ textarea:disabled {
   .auth-panel,
   .telemetry-marquee-track,
   .public-market-tape-track,
+  .crypto-launch-ticker-track,
   .premium-button-primary::after,
   .public-site-shell::before,
   .public-site-shell::after,

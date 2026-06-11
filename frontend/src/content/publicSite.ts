@@ -18,6 +18,13 @@ export interface ServicePageData {
   operatorNotes: Array<{ label: string; body: string }>;
 }
 
+export interface LaunchTickerItem {
+  symbol: string;
+  price: string;
+  change: string;
+  stage: string;
+}
+
 export const servicePages: ServicePageData[] = [
   {
     slug: 'research',
@@ -213,3 +220,22 @@ export const getPrimaryCta = (pathname: string) =>
   pathname === '/pricing'
     ? { href: '/register', label: 'Start execution review' }
     : { href: '/pricing', label: 'View engagement model' };
+
+/**
+ * Launch campaign copy lives here.
+ * Update `icoAnnouncement` and `launchTicker` for marketing edits
+ * instead of touching page JSX in Login/ComingSoon.
+ */
+export const comingSoonMarketingContent: {
+  icoAnnouncement: string;
+  launchTicker: LaunchTickerItem[];
+} = {
+  icoAnnouncement: 'Initial Coin Offering (ICO) launching soon',
+  launchTicker: [
+    { symbol: 'EXL', price: '$0.24', change: '+12.4%', stage: 'Pre-list' },
+    { symbol: 'BTC', price: '$104.2K', change: '+2.1%', stage: 'Market' },
+    { symbol: 'ETH', price: '$5.8K', change: '+3.4%', stage: 'Market' },
+    { symbol: 'SOL', price: '$241', change: '+4.9%', stage: 'Market' },
+    { symbol: 'ICO', price: 'Soon', change: 'TBA', stage: 'Allocation' },
+  ],
+};

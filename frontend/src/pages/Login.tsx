@@ -304,7 +304,7 @@ export const LoginPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => navigate('/dashboard')}
-                  className="dashboard-back-action inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm"
+                  className="premium-button premium-button-secondary dashboard-back-action inline-flex items-center gap-2 justify-center px-4 py-2.5 text-sm"
                 >
                   <ArrowLeft className="h-4 w-4" />
                   Back to dashboard
@@ -453,7 +453,7 @@ export const LoginPage: React.FC = () => {
         <button
           type="button"
           onClick={() => navigate('/dashboard')}
-          className="dashboard-back-action inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm"
+          className="premium-button premium-button-secondary dashboard-back-action inline-flex items-center gap-2 justify-center px-4 py-2.5 text-sm"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to dashboard

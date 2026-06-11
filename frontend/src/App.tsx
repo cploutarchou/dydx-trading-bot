@@ -77,8 +77,11 @@ const UnauthorizedPage = lazy(() =>
 const ComingSoonPage = lazy(() =>
   import('./pages/ComingSoon').then((module) => ({ default: module.ComingSoonPage }))
 );
+const IcoLaunchpadPage = lazy(() =>
+  import('./pages/IcoLaunchpad').then((module) => ({ default: module.IcoLaunchpadPage }))
+);
 
-const COMING_SOON_AUTH_BYPASS_PATHS = new Set(['/login', '/2fa-setup', '/force-password']);
+const COMING_SOON_AUTH_BYPASS_PATHS = new Set(['/login', '/2fa-setup', '/force-password', '/ico']);
 
 const isComingSoonBypassPath = (pathname: string): boolean =>
   COMING_SOON_AUTH_BYPASS_PATHS.has(pathname);
@@ -269,6 +272,7 @@ export const App: React.FC = () => {
                   />
                   <Route path="/services/:slug" element={<PublicServicePage />} />
                   <Route path="/pricing" element={<PricingPage />} />
+                  <Route path="/ico" element={<IcoLaunchpadPage />} />
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/register" element={<RegisterPage />} />
                   <Route path="/2fa-setup" element={<TwoFactorAuthPage />} />

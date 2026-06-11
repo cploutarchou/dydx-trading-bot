@@ -18,6 +18,26 @@ export interface ServicePageData {
   operatorNotes: Array<{ label: string; body: string }>;
 }
 
+export interface LaunchTickerItem {
+  symbol: string;
+  price: string;
+  change: string;
+  stage: string;
+}
+
+export interface IcoResourceItem {
+  title: string;
+  description: string;
+  href?: string;
+  ctaLabel: string;
+}
+
+export interface IcoTimelineItem {
+  phase: string;
+  window: string;
+  status: string;
+}
+
 export const servicePages: ServicePageData[] = [
   {
     slug: 'research',
@@ -25,7 +45,8 @@ export const servicePages: ServicePageData[] = [
     navLabel: 'Research',
     kicker: 'Discovery Lab',
     title: 'Validate technical direction before execution work starts.',
-    summary: 'Research, system framing, and comparative analysis for disciplined product decisions.',
+    summary:
+      'Research, system framing, and comparative analysis for disciplined product decisions.',
     heroIntro:
       'Turn ambiguous ideas into evidence-backed execution plans by clarifying scope, risk, system constraints, and the next build decision.',
     heroStats: [
@@ -213,3 +234,116 @@ export const getPrimaryCta = (pathname: string) =>
   pathname === '/pricing'
     ? { href: '/register', label: 'Start execution review' }
     : { href: '/pricing', label: 'View engagement model' };
+
+/**
+ * Launch campaign copy lives here.
+ * Update `icoAnnouncement` and `launchTicker` for marketing edits
+ * instead of touching page JSX in Login/ComingSoon.
+ */
+export const comingSoonMarketingContent: {
+  icoAnnouncement: string;
+  launchTicker: LaunchTickerItem[];
+} = {
+  icoAnnouncement: 'Initial Coin Offering (ICO) launching soon',
+  launchTicker: [
+    { symbol: 'EXL', price: '$0.24', change: '+12.4%', stage: 'Pre-list' },
+    { symbol: 'BTC', price: '$104.2K', change: '+2.1%', stage: 'Market' },
+    { symbol: 'ETH', price: '$5.8K', change: '+3.4%', stage: 'Market' },
+    { symbol: 'SOL', price: '$241', change: '+4.9%', stage: 'Market' },
+    { symbol: 'ICO', price: 'Soon', change: 'TBA', stage: 'Allocation' },
+  ],
+};
+
+/**
+ * ICO page campaign content lives here.
+ * Update links/copy without editing page JSX.
+ */
+export const icoLaunchpadContent: {
+  pageKicker: string;
+  pageTitle: string;
+  pageSummary: string;
+  countdownLabel: string;
+  countdownTargetUtc: string;
+  tokenName: string;
+  tokenSymbol: string;
+  network: string;
+  saleStatus: string;
+  totalSupply: string;
+  publicAllocation: string;
+  targetRaise: string;
+  softCap: string;
+  hardCap: string;
+  utilityHighlights: string[];
+  timeline: IcoTimelineItem[];
+  resources: IcoResourceItem[];
+  whitelistContactEmail: string;
+  whitelistCtaLabel: string;
+  whitelistHelperCopy: string;
+  calendarCtaLabel: string;
+  calendarEventTitle: string;
+  calendarEventDescription: string;
+  calendarEventStartUtc: string;
+  calendarEventEndUtc: string;
+  calendarEventLocation: string;
+  legalNote: string;
+} = {
+  pageKicker: 'ExecutionLab token launch',
+  pageTitle: 'Initial Coin Offering (ICO) briefing',
+  pageSummary:
+    'Explore token utility, sale phases, governance scope, and launch documentation before public access opens.',
+  countdownLabel: 'Countdown to public sale',
+  countdownTargetUtc: '2026-09-15T12:00:00Z',
+  tokenName: 'ExecutionLab Token',
+  tokenSymbol: 'EXL',
+  network: 'Ethereum + L2 settlement',
+  saleStatus: 'Pre-sale onboarding',
+  totalSupply: '1,000,000,000 EXL',
+  publicAllocation: '25% public sale',
+  targetRaise: '$18M',
+  softCap: '$6M',
+  hardCap: '$24M',
+  utilityHighlights: [
+    'Fee tier discounts for active runtime operators',
+    'Governance voting on strategy market additions and platform parameters',
+    'Staking-based priority access for new automation modules',
+    'Research vault rewards for verified signal contributors',
+  ],
+  timeline: [
+    { phase: 'Whitelist registration', window: 'Q3 2026', status: 'Open soon' },
+    { phase: 'Public sale round', window: 'Q3 2026', status: 'Planned' },
+    { phase: 'Token generation event', window: 'Q4 2026', status: 'Planned' },
+    { phase: 'Exchange listings + utility unlock', window: 'Q4 2026', status: 'Planned' },
+  ],
+  resources: [
+    {
+      title: 'Whitepaper (preview)',
+      description: 'Token thesis, protocol architecture, economics, and risk disclosures.',
+      href: 'https://github.com/cploutarchou/dydx-trading-bot/tree/master/frontend/docs',
+      ctaLabel: 'Open whitepaper preview',
+    },
+    {
+      title: 'Tokenomics overview',
+      description: 'Allocation model, vesting principles, treasury policy, and unlock schedule.',
+      href: 'https://github.com/cploutarchou/dydx-trading-bot/tree/master/frontend/docs/architecture',
+      ctaLabel: 'View tokenomics notes',
+    },
+    {
+      title: 'KYC and participation policy',
+      description: 'Participation eligibility, jurisdiction constraints, and compliance checklist.',
+      ctaLabel: 'Publishing soon',
+    },
+  ],
+  whitelistContactEmail: 'launchpad@executionlab.io',
+  whitelistCtaLabel: 'Request whitelist access',
+  whitelistHelperCopy:
+    'Submit your email to request whitelist consideration. A launch coordinator will share eligibility steps and onboarding requirements.',
+  calendarCtaLabel: 'Add sale reminder to calendar',
+  calendarEventTitle: 'ExecutionLab ICO Public Sale Window',
+  calendarEventDescription:
+    'ExecutionLab token launch public-sale reminder. Review whitepaper, tokenomics, and participation checklist before the sale opens.',
+  calendarEventStartUtc: '2026-09-15T12:00:00Z',
+  calendarEventEndUtc: '2026-09-15T13:00:00Z',
+  calendarEventLocation: 'Online',
+  legalNote:
+    'This page is informational only and does not constitute investment advice or an offer where prohibited by law. Final terms will be published before sale activation.',
+};

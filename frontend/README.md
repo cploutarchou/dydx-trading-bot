@@ -137,12 +137,31 @@ Public launch mode is controlled by the backend setting `platform.coming_soon_en
 When enabled in the client portal:
 
 - unauthenticated public traffic sees the branded Coming Soon page
-- `/login`, `/2fa-setup`, `/force-password`, and `/unauthorized` remain routable
+- `/login`, `/2fa-setup`, `/force-password`, and `/ico` remain routable
 - `/admin...` attempts are allowed to reach auth/route guards so admin deep links do not get replaced by the Coming Soon page
 - authenticated sessions continue through existing protected route guards
 - backoffice and IB portal builds are not blocked
 
 If the public app config endpoint fails to load, the frontend fails open to the existing app so operators are not locked out by a bootstrap outage.
+
+## Launch Campaign Copy
+
+Marketing launch text for the public auth/coming-soon surfaces is centralized in:
+
+- `src/content/publicSite.ts` -> `comingSoonMarketingContent`
+- `src/content/publicSite.ts` -> `icoLaunchpadContent`
+
+Update these fields for campaign changes:
+
+- `icoAnnouncement` (launch badge/callout copy)
+- `launchTicker` (ticker symbols, price text, change text, and stage labels)
+- `icoLaunchpadContent.resources` (whitepaper/tokenomics/KYC links)
+- `icoLaunchpadContent.timeline` (sale phases and status labels)
+- `icoLaunchpadContent.countdownTargetUtc` + `countdownLabel` (public-sale timer)
+- `icoLaunchpadContent.whitelistContactEmail` + `whitelistCtaLabel` + `whitelistHelperCopy` (whitelist CTA behavior)
+- `icoLaunchpadContent.calendar*` fields (Google Calendar + ICS reminder event metadata)
+
+Do not edit campaign strings directly in `src/pages/Login.tsx` or `src/pages/ComingSoon.tsx`; those pages consume shared content from `publicSite.ts`.
 
 ## Key Directories
 

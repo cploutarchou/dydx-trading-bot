@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Loader, ShieldCheck, Sparkles } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { BACKOFFICE_ROLES, IB_ROLES, getUserWorkspaceRole } from '../auth/roles';
@@ -8,11 +8,54 @@ import AuthExperienceShell from '../components/AuthExperienceShell';
 import { useAuthStore } from '../store/auth';
 import { perfMark, perfMeasure } from '../utils/perf';
 
+type EntryMode = 'operator' | 'research' | 'security';
+
+const entryModes: Array<{ id: EntryMode; label: string }> = [
+  { id: 'operator', label: 'Operator mode' },
+  { id: 'research', label: 'Research mode' },
+  { id: 'security', label: 'Security mode' },
+];
+
+const entryModeContent: Record<
+  EntryMode,
+  {
+    title: string;
+    detail: string;
+    signalA: string;
+    signalB: string;
+    submitLabel: string;
+  }
+> = {
+  operator: {
+    title: 'Execution-first entry',
+    detail: 'Use your operator credentials to continue into runtime and monitoring surfaces.',
+    signalA: 'Runtime aware',
+    signalB: 'Decision ready',
+    submitLabel: 'Enter workspace',
+  },
+  research: {
+    title: 'Analysis-first entry',
+    detail: 'Resume experiments, backtest reviews, and strategy validation with contextual access.',
+    signalA: 'Backtest context',
+    signalB: 'Signal traceable',
+    submitLabel: 'Continue to research',
+  },
+  security: {
+    title: 'Security-first entry',
+    detail:
+      'Verify account state first, then move into workspace controls and sensitive workflows.',
+    signalA: 'MFA aligned',
+    signalB: 'Role scoped',
+    submitLabel: 'Proceed securely',
+  },
+};
+
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const { login, loading, error } = useAuthStore();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [entryMode, setEntryMode] = useState<EntryMode>('operator');
   const usernameInputRef = useRef<HTMLInputElement | null>(null);
   const errorAlertRef = useRef<HTMLDivElement | null>(null);
   const registrationStatusQuery = useQuery({
@@ -90,27 +133,58 @@ export const LoginPage: React.FC = () => {
         : 'Open review';
 
   const comingSoonEnabled = appConfigQuery.data?.coming_soon_enabled === true;
+  const activeEntryMode = useMemo(() => entryModeContent[entryMode], [entryMode]);
+  const getEntryPillClass = (isActive: boolean): string =>
+    `fintech-pill px-3 py-2 text-xs font-semibold sm:text-sm ${isActive ? 'is-active' : ''}`;
 
   if (comingSoonEnabled) {
     return (
       <main className="premium-shell light-dark-surface coming-soon-surface min-h-screen text-white">
-        <div className="mx-auto flex min-h-screen w-full max-w-md items-center px-4 py-8 sm:px-6 lg:px-8">
-          <section className="light-dark-surface coming-soon-surface coming-soon-login-card w-full rounded-2xl border border-slate-700 bg-slate-900/90 p-6 shadow-2xl shadow-black/40 backdrop-blur">
+        <div className="mx-auto flex min-h-screen w-full max-w-lg items-center px-4 py-8 sm:px-6 lg:px-8">
+          <section className="fintech-soft-strip light-dark-surface coming-soon-surface coming-soon-login-card w-full px-6 py-7 sm:px-7">
             <div className="surface-label">
               <ShieldCheck className="h-3.5 w-3.5" />
               Simple access
             </div>
 
-            <h1 className="mt-5 text-3xl font-semibold leading-tight text-white sm:text-4xl">
+            <h1 className="fintech-heading mt-5 text-3xl font-semibold text-white sm:text-4xl">
               Use existing credentials to continue.
             </h1>
 
-            <p className="coming-soon-muted mt-4 text-sm leading-6 text-slate-400 sm:text-base">
+            <p className="fintech-copy coming-soon-muted mt-4 text-sm sm:text-base">
               The workspace is hidden while launch is paused. Use an approved account to continue.
             </p>
 
-            <div className="coming-soon-muted mt-5 rounded-lg border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-slate-300">
+            <div className="coming-soon-muted mt-5 border-l-2 border-cyan-500/45 pl-4 text-sm text-slate-300">
               Only sign-in and required account recovery pages remain available.
+            </div>
+
+            <div className="fintech-flow-divider mt-5 pt-4">
+              <p className="fintech-kicker">
+                Entry profile
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {entryModes.map((mode) => {
+                  const isActive = mode.id === entryMode;
+                  return (
+                    <button
+                      key={mode.id}
+                      type="button"
+                      onClick={() => setEntryMode(mode.id)}
+                      className={getEntryPillClass(isActive)}
+                    >
+                      {mode.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="mt-4 border-l-2 border-violet-500/35 pl-4">
+              <p className="text-sm font-semibold text-white">{activeEntryMode.title}</p>
+              <p className="fintech-copy mt-1 text-xs sm:text-sm">
+                {activeEntryMode.detail}
+              </p>
             </div>
 
             {error && (
@@ -171,11 +245,11 @@ export const LoginPage: React.FC = () => {
                 className="premium-button premium-button-primary w-full disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading && <Loader className="h-4 w-4 animate-spin" />}
-                {loading ? 'Signing in...' : 'Sign in'}
+                {loading ? 'Signing in...' : activeEntryMode.submitLabel}
               </button>
             </form>
 
-            <div className="coming-soon-login-helper mt-5 flex items-center justify-between gap-3 text-sm text-slate-300">
+            <div className="fintech-flow-divider coming-soon-login-helper mt-5 flex items-center justify-between gap-3 pt-4 text-sm text-slate-300">
               <span>Launch is paused for the public site.</span>
               <span>Existing credentials only.</span>
             </div>
@@ -214,20 +288,58 @@ export const LoginPage: React.FC = () => {
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="metric-tile px-4 py-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="fintech-soft-strip fintech-micro-glow px-4 py-3">
           <p className="text-[11px] uppercase text-slate-500">Access state</p>
           <p className="mt-2 text-sm font-semibold text-white">{registrationMode}</p>
           <p className="mt-1 text-xs leading-5 text-slate-400">
             Sign-in remains available for existing operators.
           </p>
         </div>
-        <div className="metric-tile px-4 py-4">
+        <div className="fintech-soft-strip fintech-micro-glow px-4 py-3">
           <p className="text-[11px] uppercase text-slate-500">Security posture</p>
           <p className="mt-2 text-sm font-semibold text-white">Account-first entry</p>
           <p className="mt-1 text-xs leading-5 text-slate-400">
             Authentication and follow-up security setup happen before execution workflow access.
           </p>
+        </div>
+      </div>
+
+      <div className="fintech-soft-strip mt-4 px-4 py-4 sm:px-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="fintech-kicker">
+            Session entry profile
+          </p>
+          <div className="fintech-pill inline-flex items-center gap-2 border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-200">
+            Stable path
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {entryModes.map((mode) => {
+            const isActive = mode.id === entryMode;
+            return (
+              <button
+                key={mode.id}
+                type="button"
+                onClick={() => setEntryMode(mode.id)}
+                className={getEntryPillClass(isActive)}
+              >
+                {mode.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="fintech-flow-divider mt-3 pt-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
+            <span className="text-slate-500">Profile:</span>
+            <span className="font-semibold text-white">{activeEntryMode.title}</span>
+            <span className="mx-1 text-slate-600">•</span>
+            <span className="font-semibold text-cyan-200">{activeEntryMode.signalA}</span>
+            <span className="mx-1 text-slate-600">•</span>
+            <span className="font-semibold text-violet-200">{activeEntryMode.signalB}</span>
+          </div>
         </div>
       </div>
 
@@ -263,9 +375,7 @@ export const LoginPage: React.FC = () => {
             placeholder="Enter your password"
             required
           />
-          <p className="login-support-copy mt-2 text-xs text-slate-500">
-            Operators move through account checks before reaching the workspace.
-          </p>
+          <p className="login-support-copy mt-2 text-xs text-slate-500">{activeEntryMode.detail}</p>
         </div>
 
         <button
@@ -274,7 +384,7 @@ export const LoginPage: React.FC = () => {
           className="premium-button premium-button-primary w-full disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading && <Loader className="h-4 w-4 animate-spin" />}
-          {loading ? 'Signing in...' : 'Enter workspace'}
+          {loading ? 'Signing in...' : activeEntryMode.submitLabel}
         </button>
       </form>
 

@@ -92,11 +92,11 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
   return (
     <main className="premium-shell light-dark-surface coming-soon-surface min-h-screen overflow-hidden text-white">
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-6 sm:px-6 lg:px-8">
-        <header className="flex items-center justify-between gap-4">
+        <header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center sm:gap-4">
           <BrandMark subtitle="DeFi execution platform" />
           <Link
             to="/login"
-            className="coming-soon-signin-link inline-flex items-center gap-2 rounded-lg border border-slate-700/70 bg-slate-950/70 px-4 py-2.5 text-sm font-semibold transition hover:border-cyan-500/40"
+            className="coming-soon-signin-link inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-700/70 bg-slate-950/70 px-4 py-2.5 text-sm font-semibold transition hover:border-cyan-500/40 sm:w-auto"
           >
             Existing credentials sign in
             <ArrowRight className="h-4 w-4" />
@@ -129,7 +129,7 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.12, duration: 0.32 }}
-              className="mt-4 inline-flex items-center gap-2 rounded-full border border-violet-400/35 bg-violet-500/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-violet-200"
+              className="launch-announcement-pill mt-4"
             >
               {comingSoonMarketingContent.icoAnnouncement}
             </motion.div>

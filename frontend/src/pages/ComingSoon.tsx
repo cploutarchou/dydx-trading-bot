@@ -103,12 +103,12 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
           </Link>
         </header>
 
-        <section className="grid flex-1 items-center gap-10 py-12 lg:grid-cols-[1.05fr,0.95fr] lg:py-16">
+        <section className="grid flex-1 items-stretch gap-6 py-10 lg:grid-cols-2 lg:gap-6 lg:py-12">
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, ease: 'easeOut' }}
-            className="relative space-y-1"
+            className="relative space-y-1 overflow-hidden rounded-2xl border border-slate-700/70 bg-slate-950/70 p-6 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.75)] sm:p-7 lg:p-8"
           >
             <motion.div
               aria-hidden="true"
@@ -189,7 +189,7 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
               </div>
             </div>
 
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
               <Link
                 to="/login"
                 className="premium-button premium-button-primary justify-center px-6 py-3 text-sm text-white"
@@ -207,7 +207,7 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.06, duration: 0.4, ease: 'easeOut' }}
-            className="space-y-6 lg:border-l lg:border-slate-700/60 lg:pl-8"
+            className="space-y-6 rounded-2xl border border-slate-700/70 bg-slate-950/70 p-6 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.75)] sm:p-7 lg:p-8"
           >
             <div className="flex items-start justify-between gap-4">
               <div>

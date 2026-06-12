@@ -50,7 +50,7 @@ When StackForge is part of the path, verify:
 ### 3) Config and Secret Hygiene
 
 - Secret names are correct and values are never exposed.
-- `.env.stackforge.example` is the shareable template; `.env.stackforge` is the live file. Keep both aligned with `stackforge-deployment.yaml` when touched.
+- `.env.stackforge.example` is the shareable template; `.env.stackforge` is the live file. Keep both aligned with `stackforge.yaml` when touched.
 - Placeholder/example values are not treated as production-ready.
 
 ### 4) Rollout and Recovery

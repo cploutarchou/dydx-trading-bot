@@ -1,8 +1,8 @@
 ---
 agent: Senior StackForge CLI Deployer
 name: stackforge-incident-verify
-description: "Run an emergency StackForge incident verification for app + API + DB and return PASS_NOW or FAIL_NOW with critical blockers, immediate safeguards, and rollback triggers."
-argument-hint: "What incident deployment should be emergency-verified (environment, config, manifest, env file, node, affected services/endpoints, and rollback path)?"
+description: 'Run an emergency StackForge incident verification for app + API + DB and return PASS_NOW or FAIL_NOW with critical blockers, immediate safeguards, and rollback triggers.'
+argument-hint: 'What incident deployment should be emergency-verified (environment, config, manifest, env file, node, affected services/endpoints, and rollback path)?'
 ---
 
 Related skill: `config-infrastructure-management`
@@ -30,7 +30,7 @@ Collect or infer quickly:
 - Incident summary and impact scope
 - Target environment (`staging` or `production`)
 - Cluster config path (for example `stackforge.yaml`)
-- Deployment manifest path (for example `stackforge-deployment.yaml`)
+- Deployment manifest path (for example `stackforge.yaml`)
 - Deploy env file path (for example `.env.stackforge`)
 - Target node and affected services/endpoints
 - Rollback path availability

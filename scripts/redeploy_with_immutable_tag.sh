@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Redeploy using immutable GHCR tags without permanently editing stackforge-deployment.yaml.
+# Redeploy using immutable GHCR tags without permanently editing stackforge.yaml.
 #
 # Examples:
 #   scripts/redeploy_with_immutable_tag.sh
@@ -9,7 +9,7 @@ set -euo pipefail
 #   scripts/redeploy_with_immutable_tag.sh --build-push --also-latest --wait
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BASE_MANIFEST="${REPO_ROOT}/stackforge-deployment.yaml"
+BASE_MANIFEST="${REPO_ROOT}/stackforge.yaml"
 ENV_FILE="${REPO_ROOT}/.env.stackforge"
 STACKFORGE_WRAPPER="${REPO_ROOT}/scripts/stackforge_live.sh"
 STACKFORGE_CONFIG="${REPO_ROOT}/stackforge.yaml"

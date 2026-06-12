@@ -97,6 +97,8 @@ When finished:
 
 By default, current StackForge app rollout in this repo uses compose-over-SSH (`stackforge deploy`), so workloads do not appear under Nomad Jobs.
 
+For StackForge-based deploys, start from `.env.stackforge.example`, copy it to `.env.stackforge`, and fill in the live values before running `make deploy`.
+
 If you want workloads visible in Nomad UI, use the job-based path under `deploy/nomad/`:
 
 - `deploy/nomad/dydx-trading-bot.nomad.hcl`

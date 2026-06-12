@@ -4,8 +4,8 @@ This directory provides a Nomad job path for this stack so workloads show up in 
 
 ## Important behavior difference
 
-- `stackforge deploy --file stackforge-deployment.yaml` deploys with **Docker Compose over SSH**.
-- Nomad UI shows only jobs submitted with `nomad job run ...`.
+- The live StackForge deploy path in this repo is Nomad-backed, not Docker Compose over SSH.
+- Nomad UI shows jobs submitted with `nomad job run ...`.
 
 If you currently run the compose stack on ports `5173` / `8888`, stop it before starting the Nomad job to avoid port collisions.
 
@@ -21,16 +21,11 @@ Create a local vars file that is **not committed**:
 - copy `production.nomad.vars.hcl.example` to `production.nomad.vars.hcl`
 - fill secret values and image tags
 
+For StackForge-based deploys, also start from `.env.stackforge.example`, copy it to `.env.stackforge`, and fill the live values before running `make deploy`.
+
 Use images that are already pushed and pullable by the Nomad client node.
 
-## 2) Optional: stop compose-based deployment first
-
-On deploy host:
-
-- `cd /opt/stackforge/deployments/dydx-trading-bot`
-- `docker compose -f stackforge-deployment.yaml down`
-
-## 3) Validate and run the Nomad job
+## 2) Validate and run the Nomad job
 
 From a machine with Nomad CLI access to the cluster:
 
@@ -38,7 +33,7 @@ From a machine with Nomad CLI access to the cluster:
 - `nomad job plan -var-file=deploy/nomad/production.nomad.vars.hcl deploy/nomad/dydx-trading-bot.nomad.hcl`
 - `nomad job run  -var-file=deploy/nomad/production.nomad.vars.hcl deploy/nomad/dydx-trading-bot.nomad.hcl`
 
-## 4) Verify
+## 3) Verify
 
 - `nomad job status dydx-trading-bot`
 - `nomad alloc status <alloc-id>`

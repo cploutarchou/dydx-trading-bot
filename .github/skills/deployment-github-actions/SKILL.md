@@ -1,7 +1,7 @@
 ---
 name: deployment-github-actions
-description: "Design, implement, debug, and validate deployment and GitHub Actions workflow changes for this monorepo. Use for CI/CD pipelines, workflow hardening, release automation, Docker/deploy sequencing, secrets/config checks, and go/no-go verification."
-argument-hint: "What deployment or GitHub Actions outcome should this skill produce?"
+description: 'Design, implement, debug, and validate deployment and GitHub Actions workflow changes for this monorepo. Use for CI/CD pipelines, workflow hardening, release automation, Docker/deploy sequencing, secrets/config checks, and go/no-go verification.'
+argument-hint: 'What deployment or GitHub Actions outcome should this skill produce?'
 user-invocable: true
 ---
 
@@ -93,7 +93,7 @@ Use this path when the deployment touches StackForge-managed infrastructure, Sta
 1. **Prepare and inspect config**
    - Confirm production values are real, not example/demo placeholders.
    - Confirm cluster name, domains, node addresses, admin CIDRs, and SSH CIDRs are production-safe.
-   - Confirm `.env.stackforge`, `.env.stackforge.example`, and `stackforge-deployment.yaml` stay aligned when container/env wiring changes.
+   - Confirm `.env.stackforge.example` is the template source and `.env.stackforge` stays aligned with `stackforge-deployment.yaml` when container/env wiring changes.
 
 2. **Run validation before any live action**
    - `stackforge validate --config stackforge.yaml`

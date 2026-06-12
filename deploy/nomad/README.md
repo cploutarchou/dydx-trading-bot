@@ -21,6 +21,8 @@ Create a local vars file that is **not committed**:
 - copy `production.nomad.vars.hcl.example` to `production.nomad.vars.hcl`
 - fill secret values and image tags
 
+For StackForge-based deploys, also start from `.env.stackforge.example`, copy it to `.env.stackforge`, and fill the live values before running `make deploy`.
+
 Use images that are already pushed and pullable by the Nomad client node.
 
 ## 2) Optional: stop compose-based deployment first

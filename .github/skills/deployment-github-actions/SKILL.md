@@ -31,7 +31,7 @@ Produce a safe, reproducible deployment/workflow change that:
    - No -> continue with standard CI validation.
 
 3. **Is this stackforge deployment-path related?**
-   - Yes -> validate `stackforge-deployment.yaml` service graph, `.env.stackforge` variable coverage, and image/build parity.
+   - Yes -> validate `stackforge.yaml` service graph, `.env.stackforge` variable coverage, and image/build parity.
    - No -> continue.
 
 4. **Does this change require secrets/config?**
@@ -77,7 +77,7 @@ Produce a safe, reproducible deployment/workflow change that:
    - Verify health-check/wait strategy after deploy operations.
    - Validate rollback path (previous artifact/image tag or stack rollback plan).
    - Confirm environment protection expectations (manual approvals, branch restrictions, required checks).
-   - For stackforge path, verify `.env.stackforge(.example)` values map cleanly to `stackforge-deployment.yaml` services.
+   - For stackforge path, verify `.env.stackforge(.example)` values map cleanly to `stackforge.yaml` services.
 
 7. **Finalize with evidence**
    - Summarize changed workflow/deploy files and reasons.
@@ -93,7 +93,7 @@ Use this path when the deployment touches StackForge-managed infrastructure, Sta
 1. **Prepare and inspect config**
    - Confirm production values are real, not example/demo placeholders.
    - Confirm cluster name, domains, node addresses, admin CIDRs, and SSH CIDRs are production-safe.
-   - Confirm `.env.stackforge.example` is the template source and `.env.stackforge` stays aligned with `stackforge-deployment.yaml` when container/env wiring changes.
+   - Confirm `.env.stackforge.example` is the template source and `.env.stackforge` stays aligned with `stackforge.yaml` when container/env wiring changes.
 
 2. **Run validation before any live action**
    - `stackforge validate --config stackforge.yaml`
@@ -141,7 +141,7 @@ Use this path when the deployment touches StackForge-managed infrastructure, Sta
 - [ ] A rollback path is defined for deployment-impacting changes
 - [ ] Service-boundary assumptions are preserved (`frontend -> backend -> bot`)
 - [ ] Verification notes capture what was tested and any residual risk
-- [ ] Stackforge deployment/env mapping is consistent (`stackforge-deployment.yaml` + `.env.stackforge*`) when touched
+- [ ] Stackforge deployment/env mapping is consistent (`stackforge.yaml` + `.env.stackforge*`) when touched
 
 ## Completion Criteria
 

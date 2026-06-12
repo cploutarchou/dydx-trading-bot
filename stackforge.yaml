@@ -1,5 +1,8 @@
 # Production app deployment manifest for dydx-trading-bot
 # Use with: stackforge deploy --file production.dep.yaml --mode nomad
+# Runtime service env comes from .env.stackforge; deploy-only tokens (registry,
+# Cloudflare, GitHub) are consumed by StackForge tooling and intentionally are
+# not injected into application containers.
 
 name: dydx-trading-bot
 
@@ -80,6 +83,9 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-production}
       APP_CONFIG_ENV: ${APP_CONFIG_ENV:-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      APP_IMAGE_TAG: ${APP_IMAGE_TAG:-latest}
+      APP_BUILD_TAG: ${APP_BUILD_TAG:-latest}
+      APP_BUILD_COMMIT: ${APP_BUILD_COMMIT:-unknown}
       SECRET_KEY: ${SECRET_KEY:-replace-me-strong-secret}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-replace-me-strong-jwt-secret}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-replace-me-strong-encryption-key}
@@ -119,6 +125,7 @@ services:
       APP_ENV: ${APP_ENV:-production}
       APP_CONFIG_ENV: ${APP_CONFIG_ENV:-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      APP_IMAGE_TAG: ${APP_IMAGE_TAG:-latest}
       API_PORT: 8888
       SECRET_KEY: ${SECRET_KEY:-replace-me-strong-secret}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-replace-me-strong-jwt-secret}
@@ -162,12 +169,12 @@ services:
       backend:
         condition: service_healthy
     environment:
-      VITE_API_URL: https://${API_DOMAIN:-api.executionlab.io}
-      VITE_API_BASE_URL: https://${API_DOMAIN:-api.executionlab.io}
-      VITE_AUTH_BASE_URL: https://${API_DOMAIN:-api.executionlab.io}
-      VITE_CLIENT_HOST: ${APP_DOMAIN:-executionlab.io}
-      VITE_CRM_HOST: ${VITE_CRM_HOST:-crm.executionlab.io}
-      VITE_IB_PORTAL_HOST: ${VITE_IB_PORTAL_HOST:-ib.executionlab.io}
+      VITE_API_URL: ${VITE_API_URL:-https://api.executionlab.io}
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://api.executionlab.io}
+      VITE_AUTH_BASE_URL: ${VITE_AUTH_BASE_URL:-https://api.executionlab.io}
+      VITE_CLIENT_HOST: ${VITE_CLIENT_HOST:-executionlab.io}
+      VITE_CRM_HOST: ${VITE_CRM_HOST:-executionlab.io}
+      VITE_IB_PORTAL_HOST: ${VITE_IB_PORTAL_HOST:-executionlab.io}
     ports:
       - "5173:80"
 

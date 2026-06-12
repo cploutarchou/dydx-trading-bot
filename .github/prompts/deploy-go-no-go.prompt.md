@@ -1,8 +1,8 @@
 ---
 agent: Senior Deploy GitHub Actions
 name: deploy-go-no-go
-description: "Run a strict StackForge-aware deployment go/no-go gate for CI/CD, release, and rollout changes; return APPROVE or HOLD with blockers, rollback requirements, and operator-ready next steps."
-argument-hint: "What deployment, workflow, release, PR, or change set should be evaluated for go/no-go?"
+description: 'Run a strict StackForge-aware deployment go/no-go gate for CI/CD, release, and rollout changes; return APPROVE or HOLD with blockers, rollback requirements, and operator-ready next steps.'
+argument-hint: 'What deployment, workflow, release, PR, or change set should be evaluated for go/no-go?'
 ---
 
 Related skill: `deployment-github-actions`
@@ -50,7 +50,7 @@ When StackForge is part of the path, verify:
 ### 3) Config and Secret Hygiene
 
 - Secret names are correct and values are never exposed.
-- `.env.stackforge` / `.env.stackforge.example` stay aligned with `stackforge-deployment.yaml` when touched.
+- `.env.stackforge.example` is the shareable template; `.env.stackforge` is the live file. Keep both aligned with `stackforge-deployment.yaml` when touched.
 - Placeholder/example values are not treated as production-ready.
 
 ### 4) Rollout and Recovery

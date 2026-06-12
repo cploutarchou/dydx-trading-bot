@@ -1,8 +1,8 @@
 ---
 agent: Senior StackForge CLI Deployer
 name: stackforge-post-deploy-verify
-description: "Run a strict StackForge post-deploy verification for app + API + DB, returning PASS or FAIL with health evidence, drift findings, and rollback confidence."
-argument-hint: "What deployment should be verified (environment, cluster config, manifest, env file, target node, and expected services/endpoints)?"
+description: 'Run a strict StackForge post-deploy verification for app + API + DB, returning PASS or FAIL with health evidence, drift findings, and rollback confidence.'
+argument-hint: 'What deployment should be verified (environment, cluster config, manifest, env file, target node, and expected services/endpoints)?'
 ---
 
 Related skill: `config-infrastructure-management`
@@ -25,7 +25,7 @@ Collect or infer:
 
 - Target environment (`dev`, `staging`, `production`)
 - Cluster config path (for example `stackforge.yaml`)
-- Deployment manifest path (for example `stackforge-deployment.yaml`)
+- Deployment manifest path (for example `stackforge.yaml`)
 - Deploy env file path (for example `.env.stackforge`)
 - Target node mode (auto-selected or explicit `--node`)
 - Expected app/API domains, ports, and core services
@@ -61,7 +61,7 @@ Block on failed/unreachable critical components or unresolved unhealthy state.
 
 ### 4) Manifest/Runtime Drift
 
-- Deployed service set aligns with `stackforge-deployment.yaml` intent.
+- Deployed service set aligns with `stackforge.yaml` intent.
 - `.env.stackforge` runtime keys match expected deploy-time config.
 - Placeholder/example values are not active in production runtime.
 

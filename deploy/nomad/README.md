@@ -4,10 +4,10 @@ This directory provides a Nomad job path for this stack so workloads show up in 
 
 ## Important behavior difference
 
-- The live StackForge deploy path in this repo is Nomad-backed, not Docker Compose over SSH.
+- The live StackForge deploy path in this repo is Nomad-backed.
 - Nomad UI shows jobs submitted with `nomad job run ...`.
 
-If you currently run the compose stack on ports `5173` / `8888`, stop it before starting the Nomad job to avoid port collisions.
+If those ports are already in use on the target host, stop the existing services before starting the Nomad job to avoid port collisions.
 
 ## Files
 
@@ -46,6 +46,6 @@ Runtime checks (from deploy node):
 
 ## Notes
 
-- The job is constrained to `nomad-cp-01` by default (`nomad_node_name`) so it matches the existing single-node compose exposure model.
+- The job is constrained to `nomad-cp-01` by default (`nomad_node_name`) so it matches the existing single-host exposure model.
 - Traefik tags are included on `frontend` and `backend` services for catalog-driven routing setups.
 - Frontend runtime depends on build-time `VITE_*` values baked into the image; publish correct images before running the job.

@@ -5,7 +5,7 @@ set -euo pipefail
 # Usage examples:
 #   scripts/stackforge_live.sh status --output json
 #   scripts/stackforge_live.sh deploy history --output json
-#   scripts/stackforge_live.sh deploy --mode nomad --file stackforge-deployment.yaml --env-file .env.stackforge --confirm-production --yes
+#   scripts/stackforge_live.sh deploy --mode nomad --file stackforge.yaml --env-file .env.stackforge --confirm-production --yes
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIVE_CLUSTER="${STACKFORGE_CLUSTER:-stackforge-cluster}"

@@ -1,5 +1,5 @@
 # Production app deployment manifest for dydx-trading-bot
-# Use with: stackforge deploy --file production.dep.yaml --mode nomad
+# Use with: stackforge deploy --file stackforge.yaml --mode nomad
 # Runtime service env comes from .env.stackforge; deploy-only tokens (registry,
 # Cloudflare, GitHub) are consumed by StackForge tooling and intentionally are
 # not injected into application containers.

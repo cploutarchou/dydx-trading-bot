@@ -40,6 +40,10 @@ help: ## Show this help message
 	@echo "  2. make stack-ps        # Check service status"
 	@echo "  3. make stack-logs      # Follow logs"
 	@echo ""
+	@echo "StackForge deploys:"
+	@echo "  1. cp .env.stackforge.example .env.stackforge"
+	@echo "  2. Fill live values, then run make deploy"
+	@echo ""
 
 # ============================================================================
 # ENVIRONMENT & SETUP

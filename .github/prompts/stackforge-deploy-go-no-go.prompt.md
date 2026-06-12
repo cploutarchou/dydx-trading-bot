@@ -1,8 +1,8 @@
 ---
 agent: Senior StackForge CLI Deployer
 name: stackforge-deploy-go-no-go
-description: "Run a strict StackForge deployment go/no-go gate for app + API + DB rollout, returning APPROVE or HOLD with concrete blockers, verification evidence, and rollback-safe next steps."
-argument-hint: "What StackForge deployment change or plan should be evaluated (config, manifest, env file, target cluster/node, and environment)?"
+description: 'Run a strict StackForge deployment go/no-go gate for app + API + DB rollout, returning APPROVE or HOLD with concrete blockers, verification evidence, and rollback-safe next steps.'
+argument-hint: 'What StackForge deployment change or plan should be evaluated (config, manifest, env file, target cluster/node, and environment)?'
 ---
 
 Related skill: `config-infrastructure-management`
@@ -24,7 +24,7 @@ Collect or infer:
 
 - Target environment (`dev`, `staging`, `production`)
 - Cluster config path (for example `stackforge.yaml`)
-- Deployment manifest path (for example `stackforge-deployment.yaml`)
+- Deployment manifest path (for example `stackforge.yaml`)
 - Deploy env file path (for example `.env.stackforge`)
 - Node targeting mode (auto or explicit `--node`)
 - Rollback/restore posture
@@ -57,8 +57,8 @@ For production live actions, verify:
 
 ### 3) Manifest and Environment Integrity
 
-- `stackforge-deployment.yaml` contains a valid non-empty `services` map.
-- `.env.stackforge` keys align with manifest/runtime expectations.
+- `stackforge.yaml` contains a valid non-empty `services` map.
+- `.env.stackforge.example` should be the template source; `.env.stackforge` keys must align with manifest/runtime expectations.
 - Placeholder/demo values are not treated as production-ready.
 - Secret values are never printed in logs or summaries.
 

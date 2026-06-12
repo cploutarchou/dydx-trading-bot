@@ -22,17 +22,17 @@ Supporting local infrastructure:
 
 The current project is organized around service ownership plus shared deployment/config assets:
 
-| Path          | Current role |
-| ------------- | ------------ |
-| `frontend/`   | React 19 + TypeScript + Vite UI. Builds the client portal, backoffice portal, and IB portal from `frontend/apps/*` with shared source in `frontend/src/*` and shared exports in `frontend/packages/*`. |
-| `backend/`    | Go API gateway/orchestration service. Runtime entry point is `backend/cmd/server`, app-facing route ownership is under `backend/internal/routes`, and MariaDB migrations live in `backend/migrations/mysql`. |
-| `bot/`        | Python FastAPI control plane and trading runtime. API assembly is `bot/src/api/server.py`, worker startup is `bot/src/main_instance.py`, and lifecycle ownership is `bot/src/bot_instance_manager.py`. |
-| `config/`     | Encrypted structured runtime profiles plus examples. Root `run.json` is generated from this flow and is not hand-maintained. |
-| `docker/`     | Dockerfiles and Nginx config for service images. |
-| `platform/`   | Platform registry metadata and service deployment descriptors. |
-| `deploy/`     | Rendered deployment output and deployment history. |
-| `scripts/`    | Repository-level operational, config, validation, and backtest helper scripts. |
-| `docs/`       | Wiki-style platform documentation and rollout/audit notes. |
+| Path        | Current role                                                                                                                                                                                                 |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `frontend/` | React 19 + TypeScript + Vite UI. Builds the client portal, backoffice portal, and IB portal from `frontend/apps/*` with shared source in `frontend/src/*` and shared exports in `frontend/packages/*`.       |
+| `backend/`  | Go API gateway/orchestration service. Runtime entry point is `backend/cmd/server`, app-facing route ownership is under `backend/internal/routes`, and MariaDB migrations live in `backend/migrations/mysql`. |
+| `bot/`      | Python FastAPI control plane and trading runtime. API assembly is `bot/src/api/server.py`, worker startup is `bot/src/main_instance.py`, and lifecycle ownership is `bot/src/bot_instance_manager.py`.       |
+| `config/`   | Encrypted structured runtime profiles plus examples. Root `run.json` is generated from this flow and is not hand-maintained.                                                                                 |
+| `docker/`   | Dockerfiles and Nginx config for service images.                                                                                                                                                             |
+| `platform/` | Platform registry metadata and service deployment descriptors.                                                                                                                                               |
+| `deploy/`   | Rendered deployment output and deployment history.                                                                                                                                                           |
+| `scripts/`  | Repository-level operational, config, validation, and backtest helper scripts.                                                                                                                               |
+| `docs/`     | Wiki-style platform documentation and rollout/audit notes.                                                                                                                                                   |
 
 ## Quick Start
 
@@ -95,11 +95,11 @@ When finished:
 
 ## Nomad-native deployment option
 
-By default, current StackForge app rollout in this repo uses compose-over-SSH (`stackforge deploy`), so workloads do not appear under Nomad Jobs.
+Current StackForge app rollout in this repo uses Nomad-backed deployment flow, so workloads should appear under Nomad Jobs when deployed through the live StackForge path.
 
 For StackForge-based deploys, start from `.env.stackforge.example`, copy it to `.env.stackforge`, and fill in the live values before running `make deploy`.
 
-If you want workloads visible in Nomad UI, use the job-based path under `deploy/nomad/`:
+If you want to run the job-based path directly under `deploy/nomad/`:
 
 - `deploy/nomad/dydx-trading-bot.nomad.hcl`
 - `deploy/nomad/README.md`
@@ -156,25 +156,34 @@ Use the non-embedded bot manager panel and diagnostics endpoints to improve resu
 without changing core strategy logic.
 
 1. **Baseline first (flags off)**
- - Keep all new flags off initially.
- - Capture 30-60 minutes of metrics from:
-   - `GET /api/v1/arbitrage/improvement-metrics`
-   - `GET /api/v1/arbitrage/pair-priority?limit=10`
+
+- Keep all new flags off initially.
+- Capture 30-60 minutes of metrics from:
+  - `GET /api/v1/arbitrage/improvement-metrics`
+  - `GET /api/v1/arbitrage/pair-priority?limit=10`
+
 2. **Enable safe efficiency improvements**
- - Turn on `ARBITRAGE_IMPROVEMENTS_ENABLED=true`.
- - Watch for upward trend in:
-   - `exchange_api_calls_saved_total`
-   - `duplicate_api_calls_avoided_total`
- - Validate `provider_errors_total` does not rise materially.
+
+- Turn on `ARBITRAGE_IMPROVEMENTS_ENABLED=true`.
+- Watch for upward trend in:
+  - `exchange_api_calls_saved_total`
+  - `duplicate_api_calls_avoided_total`
+- Validate `provider_errors_total` does not rise materially.
+
 3. **Use rejection reasons to remove waste**
- - In the panel, inspect top rejection reasons and click for explainability.
- - For repeated `min_order_size` or `market_already_open`, reduce low-value scan pressure before changing any execution logic.
+
+- In the panel, inspect top rejection reasons and click for explainability.
+- For repeated `min_order_size` or `market_already_open`, reduce low-value scan pressure before changing any execution logic.
+
 4. **Turn on pair priority cautiously**
- - Enable `PAIR_PRIORITY_ENGINE_ENABLED=true` in testnet/staging first.
- - Start with `PAIR_PRIORITY_MAX_PAIRS=0` (no cap), then gradually apply caps.
- - Verify opportunity quality remains stable while API calls per scan decline.
+
+- Enable `PAIR_PRIORITY_ENGINE_ENABLED=true` in testnet/staging first.
+- Start with `PAIR_PRIORITY_MAX_PAIRS=0` (no cap), then gradually apply caps.
+- Verify opportunity quality remains stable while API calls per scan decline.
+
 5. **Keep execution behavior unchanged by default**
- - Leave `AUTO_EXECUTION_CHANGES_ENABLED=false` unless explicitly testing a reviewed release plan.
+
+- Leave `AUTO_EXECUTION_CHANGES_ENABLED=false` unless explicitly testing a reviewed release plan.
 
 Suggested weekly KPI review:
 

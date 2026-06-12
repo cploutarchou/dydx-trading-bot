@@ -17,7 +17,7 @@ BUILD_SCRIPT="${REPO_ROOT}/scripts/build_all_service_images.sh"
 
 IMAGE_REGISTRY="${IMAGE_REGISTRY:-ghcr.io/cploutarchou/dydx-trading-bot}"
 IMAGE_TAG="${IMAGE_TAG:-$(date +%Y%m%d%H%M%S)}"
-BUILD_COMMIT="${BUILD_COMMIT:-$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)}"
+BUILD_COMMIT="${BUILD_COMMIT:-$(git -C "${REPO_ROOT}" rev-parse HEAD 2>/dev/null || echo unknown)}"
 BUILD_PUSH=false
 ALSO_LATEST=false
 WAIT=false
@@ -99,7 +99,7 @@ deploy_args=(
   deploy
   --confirm-production
   --yes
-  --mode compose
+  --mode nomad
   --no-build
   --file "${REMOTE_MANIFEST}"
   --env-file "${REMOTE_ENV}"
@@ -209,7 +209,7 @@ deploy_args=(
   deploy
   --confirm-production
   --yes
-  --mode compose
+  --mode nomad
   --no-build
   --file "${REMOTE_MANIFEST}"
   --env-file "${REMOTE_ENV}"
@@ -370,7 +370,8 @@ TMP_ENV="$(mktemp "${REPO_ROOT}/.stackforge-env.XXXXXX")"
 trap 'rm -f "${TMP_MANIFEST}" "${TMP_ENV}"' EXIT
 
 {
-  grep -v -E '^(APP_BUILD_TAG|APP_BUILD_COMMIT)=' "${ENV_FILE}" || true
+  grep -v -E '^(APP_IMAGE_TAG|APP_BUILD_TAG|APP_BUILD_COMMIT)=' "${ENV_FILE}" || true
+  echo "APP_IMAGE_TAG=${IMAGE_TAG}"
   echo "APP_BUILD_TAG=${IMAGE_TAG}"
   echo "APP_BUILD_COMMIT=${BUILD_COMMIT}"
 } > "${TMP_ENV}"

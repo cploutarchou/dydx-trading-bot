@@ -8,7 +8,7 @@ set -euo pipefail
 #   scripts/stackforge_live.sh deploy --mode nomad --file stackforge.yaml --env-file .env.stackforge --confirm-production --yes
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LIVE_CLUSTER="${STACKFORGE_CLUSTER:-stackforge-cluster}"
+LIVE_CLUSTER="${STACKFORGE_CLUSTER:-stackforge-production}"
 CONFIG_FILE="${REPO_ROOT}/stackforge.yaml"
 
 if [[ $# -eq 0 ]]; then

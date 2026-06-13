@@ -1,219 +1,164 @@
 # Customization Audit Report (2026-05)
 
-This document provides a comprehensive assessment of all agents, skills, prompts, and instructions in the dYdX Trading Bot monorepo, with cleanup recommendations.
+This document summarizes the customization state for the dYdX Trading Bot monorepo.
 
 ## Executive Summary
 
-**Status**: ✅ Healthy — The customization setup is well-aligned with project scope. Only minor cleanups recommended.
+- Status: ✅ Healthy
+- Agents: Core platform and service agents are relevant and actively used
+- Skills: Active skills are relevant; deprecated aliases were removed
+- Prompts: Root and service-specific prompts are aligned to current workflows
+- Instructions: Active instruction files are relevant
 
-- **Agents**: All 8 agents are relevant and actively used
-- **Skills**: All 6 skills are relevant; 1 already marked deprecated  
-- **Prompts**: 12 root + service-specific; 1 candidate for review
-- **Instructions**: All are actively used and relevant
+## Agents Audit
 
-## Agents Audit (8 total)
+### Core platform agents
 
-### ✅ Core Platform Agents (Root)
+- `senior-defi-monorepo-platform.agent.md`
+  - Purpose: cross-service platform work, universal repo tasks, DeFi trading/quant scope
+  - Status: ✅ Active
+- `senior-prod-backtest-defi-auditor.agent.md`
+  - Purpose: production audits, backtest debugging, async task monitoring
+  - Status: ✅ Active
 
-| Agent | Purpose | Status |
-|-------|---------|--------|
-| `senior-defi-monorepo-platform.agent.md` | Consolidated root agent for cross-service platform work, universal repo tasks, and DeFi trading/quant scope | ✅ Active |
-| `senior-prod-backtest-defi-auditor.agent.md` | Production audits, backtest debugging, async task monitoring | ✅ Active |
-| `senior-deploy-github-actions.agent.md` | CI/CD, deployments, GitHub Actions workflows | ✅ Active |
+Recommendation: keep both.
 
-**Recommendation**: Keep all. Each serves a distinct audience and problem domain.
+### Service-specific agents
 
-### ✅ Service-Specific Agents
+- `backend/.github/agents/senior-go-defi-backend.agent.md`
+  - Service: backend (Go)
+  - Purpose: API routes, handlers, services, migrations, delegated bot integration
+  - Status: ✅ Active
+- `bot/.github/agents/senior-python-defi-runtime.agent.md`
+  - Service: bot (Python)
+  - Purpose: runtime lifecycle, FastAPI, backtests, websocket, exchange, execution safety
+  - Status: ✅ Active
+- `frontend/.github/agents/senior-react-defi-product.agent.md`
+  - Service: frontend (React)
+  - Purpose: product UI, dashboards, responsive design, fintech UX
+  - Status: ✅ Active
 
-| Agent | Service | Purpose | Status |
-|-------|---------|---------|--------|
-| `backend/.github/agents/senior-go-defi-backend.agent.md` | Backend (Go) | API routes, handlers, services, migrations, delegated bot integration | ✅ Active |
-| `bot/.github/agents/senior-python-defi-runtime.agent.md` | Bot (Python) | Runtime lifecycle, FastAPI, backtests, websocket, exchange, execution safety | ✅ Active |
-| `frontend/.github/agents/senior-react-defi-product.agent.md` | Frontend (React) | Product UI, dashboards, responsive design, fintech UX | ✅ Active |
+Recommendation: keep all service-specific agents.
 
-**Recommendation**: Keep all. Strong alignment with service ownership model.
+## Skills Audit
 
----
+### Core skills
 
-## Skills Audit (6 total)
+- `.github/skills/defi-python-algo-trading/SKILL.md`
+  - Scope: Python bot trading quality gates
+  - Status: ✅ Active
+- `backend/.github/skills/go-api-db-crypto-trading/SKILL.md`
+  - Scope: Go backend API, DB, crypto trading
+  - Status: ✅ Active
+- `frontend/.github/skills/frontend-live-data-safety/SKILL.md`
+  - Scope: websocket/polling/fallback safety
+  - Status: ✅ Active
+- `frontend/.github/skills/senior-ux-designer/SKILL.md`
+  - Scope: fintech UX for operator surfaces
+  - Status: ✅ Active
 
-### ✅ Core Skills
+### Deprecated skill references
 
-| Skill | Scope | Status |
-|-------|-------|--------|
-| `.github/skills/defi-python-algo-trading/SKILL.md` | Python bot trading with quality gates | ✅ Active |
-| `.github/skills/deployment-github-actions/SKILL.md` | CI/CD workflow safety and rollout | ✅ Active |
-| `backend/.github/skills/go-api-db-crypto-trading/SKILL.md` | Go backend API, DB, crypto trading | ✅ Active |
-| `frontend/.github/skills/frontend-live-data-safety/SKILL.md` | Websocket/polling/fallback safety | ✅ Active |
-| `frontend/.github/skills/senior-ux-designer/SKILL.md` | Fintech UX for operator surfaces | ✅ Active |
+- `frontend/.github/skills/senior-ui-designer/SKILL.md`
+  - Status: ⚠️ Deprecated
+  - Reason: alias for `senior-ux-designer`
 
-### ⚠️ Deprecated (Already Disabled)
+Recommendation: keep active skills only.
 
-| Skill | Status | Reason |
-|-------|--------|--------|
-| `frontend/.github/skills/senior-ui-designer/SKILL.md` | ⚠️ Deprecated (disabled) | Alias for `senior-ux-designer`; marked `disable-model-invocation: true` |
+## Prompts Audit
 
-**Recommendation**: Remove `senior-ui-designer/SKILL.md` — it's already deprecated and disabled. Clean up the unused directory.
+### Root prompts
 
----
+- `defi-risk-review.prompt.md`
+  - Purpose: execution/exposure/slippage/funding/recovery review
+  - Status: ✅ Active
+- `codex-dydx-strategy-suggestions.prompt.md`
+  - Purpose: strategy parameter tuning
+  - Status: ✅ Active
+- `codex-frontend-ux-polish.prompt.md`
+  - Purpose: focused frontend UX/UI improvements
+  - Status: ✅ Active
 
-## Prompts Audit (12 root + service-specific)
+### Candidate prompts to review
 
-### ✅ Root Prompts (Active)
+- `codex-deepseek-usage-optimizer.prompt.md`
+  - Purpose: DeepSeek model optimization
+  - Status: ⚠️ Consider
+- `frontend-job-fields-update.prompt.md`
+  - Purpose: DB-backed job metadata updates
+  - Status: ⚠️ Consider
 
-| Prompt | Purpose | Usage | Status |
-|--------|---------|-------|--------|
-| `defi-risk-review.prompt.md` | Execution/exposure/slippage/funding/recovery | Trading/audit workflows | ✅ Active |
-| `defi-predeploy-go-no-go.prompt.md` | Pre-deploy gate with blockers/mitigations | Release preparation | ✅ Active |
-| `defi-incident-hotfix-go-no-go.prompt.md` | Emergency hotfix go/no-go | Incident response | ✅ Active |
-| `deploy-go-no-go.prompt.md` | Deployment approval + rollback readiness | Deployment workflows | ✅ Active |
-| `github-actions-failure-triage.prompt.md` | Pipeline failure root-cause analysis | CI/CD debugging | ✅ Active |
-| `codex-dydx-strategy-suggestions.prompt.md` | AI-driven strategy parameter tuning | Codex optimization | ✅ Active |
-| `codex-frontend-ux-polish.prompt.md` | Focused frontend UX/UI improvements | Frontend optimization | ✅ Active |
+Recommendations:
 
-### ⚠️ Candidate for Review
+1. Keep `codex-deepseek-usage-optimizer.prompt.md` only if actively used.
+2. Verify `frontend-job-fields-update.prompt.md` is current.
 
-| Prompt | Purpose | Usage | Status |
-|--------|---------|-------|--------|
-| `codex-deepseek-usage-optimizer.prompt.md` | DeepSeek model optimization | Specialized/optional | ⚠️ Consider |
-| `frontend-job-fields-update.prompt.md` | DB-backed job metadata in UI | Potentially outdated | ⚠️ Consider |
+### Service-specific prompts
 
-**Recommendations**:
-1. Keep `codex-deepseek-usage-optimizer.prompt.md` if DeepSeek is used; otherwise consider removing
-2. Verify `frontend-job-fields-update.prompt.md` is current; if outdated, archive or remove
+- `backend/.github/prompts/delegated-bot-api-review.prompt.md` — ✅ Active
+- `backend/.github/prompts/mysql-migration-review.prompt.md` — ✅ Active
+- `backend/.github/prompts/trading-risk-review.prompt.md` — ✅ Active
+- `bot/.github/prompts/improve-project.prompt.md` — ✅ Active
+- `bot/.github/prompts/review-migration.prompt.md` — ✅ Active
+- `bot/.github/prompts/document-bot-flows.prompt.md` — ✅ Active
+- `frontend/.github/prompts/fintech-copy-tone.prompt.md` — ✅ Active
 
-### ✅ Service-Specific Prompts (All Active)
-
-| Prompt | Service | Status |
-|--------|---------|--------|
-| `backend/.github/prompts/delegated-bot-api-review.prompt.md` | Backend | ✅ Active |
-| `backend/.github/prompts/mysql-migration-review.prompt.md` | Backend | ✅ Active |
-| `backend/.github/prompts/trading-risk-review.prompt.md` | Backend | ✅ Active |
-| `bot/.github/prompts/improve-project.prompt.md` | Bot | ✅ Active |
-| `bot/.github/prompts/review-migration.prompt.md` | Bot | ✅ Active |
-| `bot/.github/prompts/document-bot-flows.prompt.md` | Bot | ✅ Active |
-| `frontend/.github/prompts/fintech-copy-tone.prompt.md` | Frontend | ✅ Active |
-
-**Recommendation**: Keep all. Each is tightly scoped to its service's concerns.
-
----
+Recommendation: keep all service-specific prompts.
 
 ## Instructions Audit
 
-### ✅ Root Instructions (Active)
+### Root instructions
 
-| File | Scope | Status |
-|------|-------|--------|
-| `.github/copilot-instructions.md` | Cross-repo defaults, architecture, build/test commands | ✅ Active |
-| `.github/git-commit-instructions.md` | Commit message and branch naming conventions | ✅ Active |
-| `.github/instructions/workflow-yaml.instructions.md` | GitHub Actions workflow safety | ✅ Active |
-| `.github/instructions/python-trading.instructions.md` | DEPRECATED (marked as legacy, scoped to `DO_NOT_USE/**`) | ⚠️ Archive |
+- `.github/copilot-instructions.md` — ✅ Active
+- `.github/git-commit-instructions.md` — ✅ Active
+- `.github/instructions/workflow-yaml.instructions.md` — ✅ Active
+- `.github/instructions/python-trading.instructions.md` — ⚠️ Deprecated reference
 
-### ✅ Service-Specific Instructions (All Active)
+### Service-specific instructions
 
-| File | Service | Status |
-|------|---------|--------|
-| `backend/.github/copilot-instructions.md` | Backend | ✅ Active |
-| `backend/.github/instructions/go-backend-api.instructions.md` | Backend | ✅ Active |
-| `backend/.github/instructions/go-tests.instructions.md` | Backend | ✅ Active |
-| `bot/.github/copilot-instructions.md` | Bot | ✅ Active |
-| `bot/.github/instructions/runtime-safety.instructions.md` | Bot | ✅ Active |
-| `bot/.github/instructions/migration-safety.instructions.md` | Bot | ✅ Active |
-| `bot/.github/instructions/improvement-output.instructions.md` | Bot | ✅ Active |
-| `frontend/.github/copilot-instructions.md` | Frontend | ✅ Active |
+- `backend/.github/copilot-instructions.md` — ✅ Active
+- `backend/.github/instructions/go-backend-api.instructions.md` — ✅ Active
+- `backend/.github/instructions/go-tests.instructions.md` — ✅ Active
+- `bot/.github/copilot-instructions.md` — ✅ Active
+- `bot/.github/instructions/runtime-safety.instructions.md` — ✅ Active
+- `bot/.github/instructions/migration-safety.instructions.md` — ✅ Active
+- `bot/.github/instructions/improvement-output.instructions.md` — ✅ Active
+- `frontend/.github/copilot-instructions.md` — ✅ Active
 
-**Recommendation**: Keep all active instructions. Archive `python-trading.instructions.md` since it's already marked deprecated.
+Recommendation: keep active instructions and archive deprecated references.
 
----
+## Coverage Snapshot
 
-## Cleanup Actions
-
-### Remove (Not Used / Deprecated)
-
-1. **`frontend/.github/skills/senior-ui-designer/SKILL.md`**
-   - Already deprecated and disabled
-   - Replaced by `senior-ux-designer/SKILL.md`
-   - Safe to remove
-
-2. **`.github/instructions/python-trading.instructions.md`**
-   - Already marked deprecated in index
-   - Scoped to `DO_NOT_USE/**`
-   - Safe to remove or archive
-
-### Review & Decide
-
-1. **`.github/prompts/codex-deepseek-usage-optimizer.prompt.md`**
-   - Keep if DeepSeek is actively used in codex workflows
-   - Remove if not part of active optimization workflow
-   - **Recommendation**: Review with team; likely keep for AI optimization flexibility
-
-2. **`.github/prompts/frontend-job-fields-update.prompt.md`**
-   - Verify currency of DB-backed job field mapping
-   - If outdated, remove or consolidate into `frontend-ux-polish`
-   - **Recommendation**: Verify with frontend team; likely keep for now
-
-### Consider Creating (Optional Enhancements)
-
-1. **Config & Infrastructure Skill** (`config-infrastructure-management/SKILL.md`)
-   - Focus: encrypted profiles, run.json generation, deployment config, environment management
-   - Audience: DevOps, ops, platform engineers
-   - **Priority**: Medium (nice to have, not critical)
-
-2. **Observability & Metrics Skill** (`defi-observability-metrics/SKILL.md`)
-   - Focus: Prometheus metrics, log aggregation, dashboard setup, health monitoring
-   - Audience: Platform, SRE, operators
-   - **Priority**: Low (currently not in critical path)
-
----
-
-## Alignment Matrix: Project Scope → Customization
-
-### Project Functionalities Covered
-
-| Functionality | Agent/Skill | Coverage |
-|---------------|-------------|----------|
-| Trading strategies & arbitrage | `senior-defi-monorepo-platform`, `defi-python-algo-trading` | ✅ Complete |
-| Runtime lifecycle & execution | `senior-python-defi-runtime`, `runtime-safety.instructions` | ✅ Complete |
-| Backtesting & performance | `senior-prod-backtest-defi-auditor` | ✅ Complete |
-| API & backend orchestration | `senior-go-defi-backend`, `go-api-db-crypto-trading` | ✅ Complete |
-| Frontend UX & dashboards | `senior-react-defi-product`, `senior-ux-designer` | ✅ Complete |
-| CI/CD & deployments | `senior-deploy-github-actions`, `deployment-github-actions` | ✅ Complete |
-| Database & persistence | `go-api-db-crypto-trading`, `mysql-migration-review` | ✅ Complete |
-| Live data & websockets | `frontend-live-data-safety`, `delegated-bot-api-review` | ✅ Complete |
-| Production audits & risk | `senior-prod-backtest-defi-auditor`, `defi-risk-review` | ✅ Complete |
-| Configuration management | None (candidate for new skill) | ⚠️ Partial |
-| Observability & metrics | None (candidate for new skill) | ⚠️ Partial |
-
----
+- Trading strategies and arbitrage — ✅ Complete
+- Runtime lifecycle and execution — ✅ Complete
+- Backtesting and audits — ✅ Complete
+- API and backend orchestration — ✅ Complete
+- Frontend UX and dashboards — ✅ Complete
+- CI/CD and deployments — ✅ Complete (core workflows + repo checks)
+- Database and persistence — ✅ Complete
+- Live data and websockets — ✅ Complete
+- Production audits and risk — ✅ Complete
+- Configuration management — ⚠️ Partial (candidate area)
+- Observability and metrics — ⚠️ Partial (candidate area)
 
 ## Final Recommendations
 
-### Priority 1: Immediate Cleanup ✅
+### Priority 1 (complete)
 
-1. Remove `frontend/.github/skills/senior-ui-designer/` (deprecated)
-2. Archive or remove `.github/instructions/python-trading.instructions.md` (deprecated)
+1. Remove deprecated UI-designer alias skill.
+2. Archive/remove deprecated Python-trading instruction reference.
 
-### Priority 2: Review & Validate 📋
+### Priority 2 (review)
 
-1. Confirm `.github/prompts/codex-deepseek-usage-optimizer.prompt.md` usage
-2. Verify `.github/prompts/frontend-job-fields-update.prompt.md` currency
-3. Ensure all service-specific CUSTOMIZATION_INDEX.md files are current
+1. Confirm DeepSeek optimizer prompt usage.
+2. Validate job-fields prompt currency.
+3. Ensure service-level customization indexes remain up to date.
 
-### Priority 3: Enhancement (Optional) 🚀
+### Priority 3 (optional enhancement)
 
-1. Consider creating `config-infrastructure-management/SKILL.md` for deployment/config workflows
-2. Consider creating `defi-observability-metrics/SKILL.md` for monitoring/SRE workflows
-
-### Priority 4: Documentation 📚
-
-1. Update `.github/CUSTOMIZATION_INDEX.md` to reflect cleanups
-2. Add this audit report to version control for future reference
-3. Link to this audit from main README.md for transparency
-
----
+1. Continue strengthening config/infrastructure coverage.
+2. Continue strengthening observability/metrics coverage.
 
 ## Conclusion
 
-The dYdX Trading Bot monorepo has a **well-designed, focused customization setup** with clear agent/skill ownership aligned to project scope. All active customizations serve concrete purposes. Only minor cleanups are needed to remove deprecated items.
-
-**Overall health: ✅ Excellent**
+Customization is in good shape and aligned with current repo workflows.

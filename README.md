@@ -158,7 +158,7 @@ without changing core strategy logic.
   - `GET /api/v1/arbitrage/improvement-metrics`
   - `GET /api/v1/arbitrage/pair-priority?limit=10`
 
-2. **Enable safe efficiency improvements**
+1. **Enable safe efficiency improvements**
 
 - Turn on `ARBITRAGE_IMPROVEMENTS_ENABLED=true`.
 - Watch for upward trend in:
@@ -166,18 +166,18 @@ without changing core strategy logic.
   - `duplicate_api_calls_avoided_total`
 - Validate `provider_errors_total` does not rise materially.
 
-3. **Use rejection reasons to remove waste**
+1. **Use rejection reasons to remove waste**
 
 - In the panel, inspect top rejection reasons and click for explainability.
 - For repeated `min_order_size` or `market_already_open`, reduce low-value scan pressure before changing any execution logic.
 
-4. **Turn on pair priority cautiously**
+1. **Turn on pair priority cautiously**
 
 - Enable `PAIR_PRIORITY_ENGINE_ENABLED=true` in testnet/staging first.
 - Start with `PAIR_PRIORITY_MAX_PAIRS=0` (no cap), then gradually apply caps.
 - Verify opportunity quality remains stable while API calls per scan decline.
 
-5. **Keep execution behavior unchanged by default**
+1. **Keep execution behavior unchanged by default**
 
 - Leave `AUTO_EXECUTION_CHANGES_ENABLED=false` unless explicitly testing a reviewed release plan.
 

@@ -10,21 +10,21 @@ removed or converted.
 
 ## Occurrence Classes And Actions
 
-| Location | Classification | Action |
-| --- | --- | --- |
-| `backend/config/config.go`, `backend/internal/db/db.go` | Active production code | Converted to MariaDB/MySQL only; legacy drivers rejected. |
-| `backend/internal/repository/*`, `backend/internal/routes/backoffice_routes.go` | Active production code | Replaced `$n` placeholders and old upserts with MariaDB parameter and duplicate-key syntax. |
-| `backend/cmd/server/main.go` | Startup behavior | Startup migrations disabled unless `DB_AUTO_MIGRATE=true`. |
-| `backend/cmd/migrate` | Migration tooling | Added explicit backend migration command using MySQL adapter. |
-| `bot/src/infrastructure/database.py`, `bot/config/config.py` | Active production code | Converted URL building and engine args to `mysql+pymysql`; legacy DSNs rejected. |
-| `bot/migrations/env.py`, `bot/alembic.ini` | Migration tooling | Pinned Alembic to `migrations/mariadb` and MariaDB URLs. |
-| `bot/migrations/mariadb/*` | Migration tooling | Converted old dialect guards, JSON casts, index metadata queries, and upserts to MariaDB. |
-| `deploy/nomad/*` | Deployment configuration | Replaced legacy DB services with pinned `mariadb:11.4`, port 3306/3307, and MariaDB health checks. |
-| `docker/Dockerfile.api`, `docker/Dockerfile.worker` | Docker | Removed libpq package dependency. |
-| `bot/.github/workflows/ci.yml`, `backend/.github/workflows/ci.yml`, `.github/workflows/container-images.yml` | CI/CD | Added active legacy-pattern guard; bot CI uses MariaDB service and no longer suppresses pytest failures. |
-| `backend/go.sum` | Dependency metadata | Retained because `github.com/golang-migrate/migrate/v4` references its PostgreSQL adapter from the module test graph; no active Go import or production dependency path remains. |
-| `backend/migrations/postgres/` | Historical migration history | Intentionally retained, excluded from active commands and CI guard. |
-| `bot/migrations/versions/` | Historical migration history | Intentionally retained, excluded from active Alembic version path and CI guard. |
+| Location                                                                                                     | Classification               | Action                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------------ | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/config/config.go`, `backend/internal/db/db.go`                                                      | Active production code       | Converted to MariaDB/MySQL only; legacy drivers rejected.                                                                                                                        |
+| `backend/internal/repository/*`, `backend/internal/routes/backoffice_routes.go`                              | Active production code       | Replaced `$n` placeholders and old upserts with MariaDB parameter and duplicate-key syntax.                                                                                      |
+| `backend/cmd/server/main.go`                                                                                 | Startup behavior             | Startup migrations disabled unless `DB_AUTO_MIGRATE=true`.                                                                                                                       |
+| `backend/cmd/migrate`                                                                                        | Migration tooling            | Added explicit backend migration command using MySQL adapter.                                                                                                                    |
+| `bot/src/infrastructure/database.py`, `bot/config/config.py`                                                 | Active production code       | Converted URL building and engine args to `mysql+pymysql`; legacy DSNs rejected.                                                                                                 |
+| `bot/migrations/env.py`, `bot/alembic.ini`                                                                   | Migration tooling            | Pinned Alembic to `migrations/mariadb` and MariaDB URLs.                                                                                                                         |
+| `bot/migrations/mariadb/*`                                                                                   | Migration tooling            | Converted old dialect guards, JSON casts, index metadata queries, and upserts to MariaDB.                                                                                        |
+| `deploy/nomad/*`                                                                                             | Deployment configuration     | Replaced legacy DB services with pinned `mariadb:11.4`, port 3306/3307, and MariaDB health checks.                                                                               |
+| `docker/Dockerfile.api`, `docker/Dockerfile.worker`                                                          | Docker                       | Removed libpq package dependency.                                                                                                                                                |
+| `bot/.github/workflows/ci.yml`, `backend/.github/workflows/ci.yml`, `.github/workflows/container-images.yml` | CI/CD                        | Added active legacy-pattern guard; bot CI uses MariaDB service and no longer suppresses pytest failures.                                                                         |
+| `backend/go.sum`                                                                                             | Dependency metadata          | Retained because `github.com/golang-migrate/migrate/v4` references its PostgreSQL adapter from the module test graph; no active Go import or production dependency path remains. |
+| `backend/migrations/postgres/`                                                                               | Historical migration history | Intentionally retained, excluded from active commands and CI guard.                                                                                                              |
+| `bot/migrations/versions/`                                                                                   | Historical migration history | Intentionally retained, excluded from active Alembic version path and CI guard.                                                                                                  |
 
 ## SQL Constructs Converted
 

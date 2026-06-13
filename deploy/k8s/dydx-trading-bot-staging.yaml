@@ -1,0 +1,411 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dydx-staging
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dydx-app-config
+  namespace: dydx-staging
+data:
+  ENVIRONMENT: "staging"
+  APP_CONFIG_ENV: "staging"
+  LOG_LEVEL: "INFO"
+
+  API_PORT: "8888"
+  BOT_API_HOST: "0.0.0.0"
+  BOT_API_PORT: "8889"
+
+  DB_TYPE: "mysql"
+  DB_HOST: "dydx-mariadb"
+  DB_PORT: "3306"
+  DB_NAME: "app"
+  DB_USER: "app"
+
+  BOT_DB_TYPE: "mysql"
+  BOT_DB_CUTOVER_MODE: "dedicated"
+  BOT_DB_HOST: "dydx-mariadb"
+  BOT_DB_PORT: "3306"
+  BOT_DB_NAME: "bot"
+  BOT_DB_USER: "bot"
+
+  REDIS_HOST: "dydx-redis"
+  REDIS_PORT: "6379"
+
+  BOT_API_URL: "http://dydx-bot:8889"
+  BOT_API_USE_SERVICE_TOKEN: "true"
+
+  FRONTEND_URL: "https://staging.executionlab.io"
+  CORS_ALLOWED_ORIGINS: "https://staging.executionlab.io"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dydx-app-secrets
+  namespace: dydx-staging
+type: Opaque
+stringData:
+  MARIADB_ROOT_PASSWORD: "REPLACE_ME_STRONG_ROOT_PASSWORD"
+  APP_DB_PASSWORD: "REPLACE_ME_APP_DB_PASSWORD"
+  BOT_DB_PASSWORD: "REPLACE_ME_BOT_DB_PASSWORD"
+
+  SECRET_KEY: "REPLACE_ME_SECRET_KEY"
+  JWT_SECRET_KEY: "REPLACE_ME_JWT_SECRET_KEY"
+  ENCRYPTION_KEY: "REPLACE_ME_ENCRYPTION_KEY"
+  BOT_API_TOKEN: "REPLACE_ME_BOT_API_TOKEN"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dydx-mariadb-data
+  namespace: dydx-staging
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dydx-redis-data
+  namespace: dydx-staging
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dydx-mariadb
+  namespace: dydx-staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dydx-mariadb
+  template:
+    metadata:
+      labels:
+        app: dydx-mariadb
+    spec:
+      containers:
+        - name: mariadb
+          image: mariadb:11.4
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MARIADB_DATABASE
+              value: app
+            - name: MARIADB_USER
+              value: app
+            - name: MARIADB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-app-secrets
+                  key: APP_DB_PASSWORD
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-app-secrets
+                  key: MARIADB_ROOT_PASSWORD
+          volumeMounts:
+            - name: mariadb-data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: mariadb-data
+          persistentVolumeClaim:
+            claimName: dydx-mariadb-data
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dydx-mariadb
+  namespace: dydx-staging
+spec:
+  selector:
+    app: dydx-mariadb
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dydx-redis
+  namespace: dydx-staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dydx-redis
+  template:
+    metadata:
+      labels:
+        app: dydx-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          args:
+            - redis-server
+            - --appendonly
+            - "yes"
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: dydx-redis-data
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dydx-redis
+  namespace: dydx-staging
+spec:
+  selector:
+    app: dydx-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dydx-bot
+  namespace: dydx-staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dydx-bot
+  template:
+    metadata:
+      labels:
+        app: dydx-bot
+    spec:
+      containers:
+        - name: bot
+          image: ghcr.io/example/dydx-trading-bot-bot:latest
+          ports:
+            - containerPort: 8889
+          envFrom:
+            - configMapRef:
+                name: dydx-app-config
+          env:
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-app-secrets
+                  key: SECRET_KEY
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-app-secrets
+                  key: JWT_SECRET_KEY
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-app-secrets
+                  key: ENCRYPTION_KEY
+            - name: BOT_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-app-secrets
+                  key: BOT_API_TOKEN
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-app-secrets
+                  key: APP_DB_PASSWORD
+            - name: BOT_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-app-secrets
+                  key: BOT_DB_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8889
+            initialDelaySeconds: 10
+            periodSeconds: 15
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dydx-bot
+  namespace: dydx-staging
+spec:
+  selector:
+    app: dydx-bot
+  ports:
+    - name: http
+      port: 8889
+      targetPort: 8889
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dydx-backend
+  namespace: dydx-staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dydx-backend
+  template:
+    metadata:
+      labels:
+        app: dydx-backend
+    spec:
+      containers:
+        - name: backend
+          image: ghcr.io/example/dydx-trading-bot-backend:latest
+          ports:
+            - containerPort: 8888
+          envFrom:
+            - configMapRef:
+                name: dydx-app-config
+          env:
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-app-secrets
+                  key: SECRET_KEY
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-app-secrets
+                  key: JWT_SECRET_KEY
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-app-secrets
+                  key: ENCRYPTION_KEY
+            - name: BOT_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-app-secrets
+                  key: BOT_API_TOKEN
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-app-secrets
+                  key: APP_DB_PASSWORD
+            - name: BOT_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-app-secrets
+                  key: BOT_DB_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8888
+            initialDelaySeconds: 10
+            periodSeconds: 15
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dydx-backend
+  namespace: dydx-staging
+spec:
+  selector:
+    app: dydx-backend
+  ports:
+    - name: http
+      port: 8888
+      targetPort: 8888
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dydx-frontend
+  namespace: dydx-staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dydx-frontend
+  template:
+    metadata:
+      labels:
+        app: dydx-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: ghcr.io/example/dydx-trading-bot-frontend:latest
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 15
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dydx-frontend
+  namespace: dydx-staging
+spec:
+  selector:
+    app: dydx-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dydx-frontend
+  namespace: dydx-staging
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: staging.executionlab.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dydx-frontend
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - staging.executionlab.io
+      secretName: staging-executionlab-io-tls

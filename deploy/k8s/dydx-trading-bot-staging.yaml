@@ -6,53 +6,17 @@ metadata:
 
 ---
 apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: dydx-app-config
-  namespace: dydx-staging
-data:
-  ENVIRONMENT: "staging"
-  APP_CONFIG_ENV: "staging"
-  LOG_LEVEL: "INFO"
-
-  API_PORT: "8888"
-  BOT_API_HOST: "0.0.0.0"
-  BOT_API_PORT: "8889"
-
-  DB_TYPE: "mysql"
-  DB_HOST: "dydx-mariadb"
-  DB_PORT: "3306"
-  DB_NAME: "app"
-  DB_USER: "app"
-
-  BOT_DB_TYPE: "mysql"
-  BOT_DB_CUTOVER_MODE: "dedicated"
-  BOT_DB_HOST: "dydx-mariadb"
-  BOT_DB_PORT: "3306"
-  BOT_DB_NAME: "bot"
-  BOT_DB_USER: "bot"
-
-  REDIS_HOST: "dydx-redis"
-  REDIS_PORT: "6379"
-
-  BOT_API_URL: "http://dydx-bot:8889"
-  BOT_API_USE_SERVICE_TOKEN: "true"
-
-  FRONTEND_URL: "https://staging.executionlab.io"
-  CORS_ALLOWED_ORIGINS: "https://staging.executionlab.io"
-
----
-apiVersion: v1
 kind: Secret
 metadata:
-  name: dydx-app-secrets
+  name: dydx-secrets
   namespace: dydx-staging
 type: Opaque
 stringData:
-  MARIADB_ROOT_PASSWORD: "REPLACE_ME_STRONG_ROOT_PASSWORD"
-  APP_DB_PASSWORD: "REPLACE_ME_APP_DB_PASSWORD"
-  BOT_DB_PASSWORD: "REPLACE_ME_BOT_DB_PASSWORD"
-
+  MARIADB_ROOT_PASSWORD: "REPLACE_ME_ROOT_PASSWORD"
+  BREAK_GLASS_NEW_ROOT_PASSWORD: "REPLACE_ME_NEW_ROOT_PASSWORD"
+  DB_PASSWORD: "REPLACE_ME_DB_PASSWORD"
+  DB_ADMIN_USER: "dbadmin"
+  DB_ADMIN_PASSWORD: "REPLACE_ME_DB_ADMIN_PASSWORD"
   SECRET_KEY: "REPLACE_ME_SECRET_KEY"
   JWT_SECRET_KEY: "REPLACE_ME_JWT_SECRET_KEY"
   ENCRYPTION_KEY: "REPLACE_ME_ENCRYPTION_KEY"
@@ -60,29 +24,106 @@ stringData:
 
 ---
 apiVersion: v1
-kind: PersistentVolumeClaim
+kind: Secret
 metadata:
-  name: dydx-mariadb-data
+  name: dydx-mariadb-tls
   namespace: dydx-staging
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 20Gi
+type: Opaque
+stringData:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    REPLACE_WITH_CA_CERT_PEM
+    -----END CERTIFICATE-----
+  tls.crt: |
+    -----BEGIN CERTIFICATE-----
+    REPLACE_WITH_SERVER_CERT_PEM
+    -----END CERTIFICATE-----
+  tls.key: |
+    -----BEGIN PRIVATE KEY-----
+    REPLACE_WITH_SERVER_KEY_PEM
+    -----END PRIVATE KEY-----
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dydx-mariadb-config
+  namespace: dydx-staging
+data:
+  99-tls.cnf: |
+    [mariadb]
+    require_secure_transport=ON
+    ssl_ca=/etc/mysql/ssl/ca.crt
+    ssl_cert=/etc/mysql/ssl/tls.crt
+    ssl_key=/etc/mysql/ssl/tls.key
+  10-bootstrap-admin-user.sh: |
+    #!/bin/sh
+    set -eu
+
+    # Runs only on first DB initialization.
+    mysql -uroot -p"${MARIADB_ROOT_PASSWORD}" <<SQL
+    CREATE USER IF NOT EXISTS '${DB_ADMIN_USER}'@'%' IDENTIFIED BY '${DB_ADMIN_PASSWORD}';
+    GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES,
+      LOCK TABLES, CREATE TEMPORARY TABLES, EXECUTE ON app.* TO '${DB_ADMIN_USER}'@'%';
+    FLUSH PRIVILEGES;
+    SQL
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dydx-config
+  namespace: dydx-staging
+data:
+  ENVIRONMENT: "staging"
+  APP_CONFIG_ENV: "staging"
+  LOG_LEVEL: "INFO"
+
+  # Backend API
+  API_PORT: "8888"
+
+  # Shared MariaDB
+  DB_TYPE: "mysql"
+  DB_HOST: "dydx-mariadb"
+  DB_PORT: "3306"
+  DB_NAME: "app"
+  DB_USER: "app"
+  DB_SSL_MODE: "required"
+
+  # Bot DB uses same MariaDB for staging
+  BOT_DB_TYPE: "mysql"
+  BOT_DB_CUTOVER_MODE: "dedicated"
+  BOT_DB_HOST: "dydx-mariadb"
+  BOT_DB_PORT: "3306"
+  BOT_DB_NAME: "app"
+  BOT_DB_USER: "app"
+  BOT_DB_SSL_MODE: "required"
+
+  # Redis
+  REDIS_HOST: "dydx-redis"
+  REDIS_PORT: "6379"
+
+  # Bot API
+  BOT_API_HOST: "0.0.0.0"
+  BOT_API_PORT: "8889"
+  BOT_API_URL: "http://dydx-bot:8889"
+  BOT_API_USE_SERVICE_TOKEN: "true"
+
+  # Public app domain
+  FRONTEND_URL: "https://staging.executionlab.io"
+  CORS_ALLOWED_ORIGINS: "https://staging.executionlab.io"
 
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: dydx-redis-data
+  name: dydx-mariadb-pvc
   namespace: dydx-staging
 spec:
-  accessModes:
-    - ReadWriteOnce
+  accessModes: ["ReadWriteOnce"]
   resources:
     requests:
-      storage: 5Gi
+      storage: 10Gi
 
 ---
 apiVersion: apps/v1
@@ -107,26 +148,55 @@ spec:
             - containerPort: 3306
           env:
             - name: MARIADB_DATABASE
-              value: app
+              value: "app"
             - name: MARIADB_USER
-              value: app
+              value: "app"
             - name: MARIADB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: dydx-app-secrets
-                  key: APP_DB_PASSWORD
+                  name: dydx-secrets
+                  key: DB_PASSWORD
             - name: MARIADB_ROOT_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: dydx-app-secrets
+                  name: dydx-secrets
                   key: MARIADB_ROOT_PASSWORD
+            - name: DB_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: DB_ADMIN_USER
+            - name: DB_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: DB_ADMIN_PASSWORD
           volumeMounts:
             - name: mariadb-data
               mountPath: /var/lib/mysql
+            - name: mariadb-tls
+              mountPath: /etc/mysql/ssl
+              readOnly: true
+            - name: mariadb-tls-config
+              mountPath: /etc/mysql/conf.d/99-tls.cnf
+              subPath: 99-tls.cnf
+            - name: mariadb-bootstrap
+              mountPath: /docker-entrypoint-initdb.d/10-bootstrap-admin-user.sh
+              subPath: 10-bootstrap-admin-user.sh
       volumes:
         - name: mariadb-data
           persistentVolumeClaim:
-            claimName: dydx-mariadb-data
+            claimName: dydx-mariadb-pvc
+        - name: mariadb-tls
+          secret:
+            secretName: dydx-mariadb-tls
+        - name: mariadb-tls-config
+          configMap:
+            name: dydx-mariadb-config
+        - name: mariadb-bootstrap
+          configMap:
+            name: dydx-mariadb-config
+            defaultMode: 0755
 
 ---
 apiVersion: v1
@@ -141,6 +211,188 @@ spec:
     - name: mysql
       port: 3306
       targetPort: 3306
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dydx-mariadb-public
+  namespace: dydx-staging
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  loadBalancerSourceRanges:
+    - 203.0.113.10/32
+    - 198.51.100.22/32
+  selector:
+    app: dydx-mariadb
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dydx-mariadb-ingress-restrictions
+  namespace: dydx-staging
+spec:
+  podSelector:
+    matchLabels:
+      app: dydx-mariadb
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: dydx-backend
+        - podSelector:
+            matchLabels:
+              app: dydx-bot
+        - ipBlock:
+            cidr: 203.0.113.10/32
+        - ipBlock:
+            cidr: 198.51.100.22/32
+      ports:
+        - protocol: TCP
+          port: 3306
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dydx-mariadb-admin-sync
+  namespace: dydx-staging
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mariadb-admin-sync
+          image: mariadb:11.4
+          env:
+            - name: DB_HOST
+              value: "dydx-mariadb"
+            - name: DB_PORT
+              value: "3306"
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: MARIADB_ROOT_PASSWORD
+            - name: DB_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: DB_ADMIN_USER
+            - name: DB_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: DB_ADMIN_PASSWORD
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              echo "Waiting for MariaDB to become reachable over TLS..."
+              until mariadb-admin \
+                --host="$DB_HOST" \
+                --port="$DB_PORT" \
+                --user=root \
+                --password="$MARIADB_ROOT_PASSWORD" \
+                --ssl \
+                --ssl-ca=/tls/ca.crt \
+                ping --silent; do
+                sleep 3
+              done
+
+              mariadb \
+                --host="$DB_HOST" \
+                --port="$DB_PORT" \
+                --user=root \
+                --password="$MARIADB_ROOT_PASSWORD" \
+                --ssl \
+                --ssl-ca=/tls/ca.crt <<SQL
+              CREATE USER IF NOT EXISTS '${DB_ADMIN_USER}'@'%' IDENTIFIED BY '${DB_ADMIN_PASSWORD}';
+              ALTER USER '${DB_ADMIN_USER}'@'%' IDENTIFIED BY '${DB_ADMIN_PASSWORD}';
+              REVOKE ALL PRIVILEGES, GRANT OPTION FROM '${DB_ADMIN_USER}'@'%';
+              GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES,
+                LOCK TABLES, CREATE TEMPORARY TABLES, EXECUTE ON app.* TO '${DB_ADMIN_USER}'@'%';
+              FLUSH PRIVILEGES;
+              SQL
+
+              echo "DB admin user sync complete."
+          volumeMounts:
+            - name: mariadb-tls
+              mountPath: /tls
+              readOnly: true
+      volumes:
+        - name: mariadb-tls
+          secret:
+            secretName: dydx-mariadb-tls
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dydx-mariadb-breakglass-root-rotation
+  namespace: dydx-staging
+spec:
+  suspend: true
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: breakglass-root-rotation
+          image: mariadb:11.4
+          env:
+            - name: DB_HOST
+              value: "dydx-mariadb"
+            - name: DB_PORT
+              value: "3306"
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: MARIADB_ROOT_PASSWORD
+            - name: BREAK_GLASS_NEW_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: BREAK_GLASS_NEW_ROOT_PASSWORD
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              echo "BREAK-GLASS root rotation job started."
+              echo "This job should remain suspended unless explicitly approved."
+
+              mariadb \
+                --host="$DB_HOST" \
+                --port="$DB_PORT" \
+                --user=root \
+                --password="$MARIADB_ROOT_PASSWORD" \
+                --ssl \
+                --ssl-ca=/tls/ca.crt <<SQL
+              ALTER USER 'root'@'localhost' IDENTIFIED BY '${BREAK_GLASS_NEW_ROOT_PASSWORD}';
+              FLUSH PRIVILEGES;
+              SQL
+
+              echo "Root password rotated. Update dydx-secrets/MARIADB_ROOT_PASSWORD immediately."
+          volumeMounts:
+            - name: mariadb-tls
+              mountPath: /tls
+              readOnly: true
+      volumes:
+        - name: mariadb-tls
+          secret:
+            secretName: dydx-mariadb-tls
 
 ---
 apiVersion: apps/v1
@@ -161,19 +413,9 @@ spec:
       containers:
         - name: redis
           image: redis:7-alpine
-          args:
-            - redis-server
-            - --appendonly
-            - "yes"
+          args: ["redis-server", "--appendonly", "yes"]
           ports:
             - containerPort: 6379
-          volumeMounts:
-            - name: redis-data
-              mountPath: /data
-      volumes:
-        - name: redis-data
-          persistentVolumeClaim:
-            claimName: dydx-redis-data
 
 ---
 apiVersion: v1
@@ -212,38 +454,38 @@ spec:
             - containerPort: 8889
           envFrom:
             - configMapRef:
-                name: dydx-app-config
+                name: dydx-config
           env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: DB_PASSWORD
+            - name: BOT_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: DB_PASSWORD
             - name: SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: dydx-app-secrets
+                  name: dydx-secrets
                   key: SECRET_KEY
             - name: JWT_SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: dydx-app-secrets
+                  name: dydx-secrets
                   key: JWT_SECRET_KEY
             - name: ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
-                  name: dydx-app-secrets
+                  name: dydx-secrets
                   key: ENCRYPTION_KEY
             - name: BOT_API_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: dydx-app-secrets
+                  name: dydx-secrets
                   key: BOT_API_TOKEN
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: dydx-app-secrets
-                  key: APP_DB_PASSWORD
-            - name: BOT_DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: dydx-app-secrets
-                  key: BOT_DB_PASSWORD
           readinessProbe:
             httpGet:
               path: /ready
@@ -288,38 +530,38 @@ spec:
             - containerPort: 8888
           envFrom:
             - configMapRef:
-                name: dydx-app-config
+                name: dydx-config
           env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: DB_PASSWORD
+            - name: BOT_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: DB_PASSWORD
             - name: SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: dydx-app-secrets
+                  name: dydx-secrets
                   key: SECRET_KEY
             - name: JWT_SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: dydx-app-secrets
+                  name: dydx-secrets
                   key: JWT_SECRET_KEY
             - name: ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
-                  name: dydx-app-secrets
+                  name: dydx-secrets
                   key: ENCRYPTION_KEY
             - name: BOT_API_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: dydx-app-secrets
+                  name: dydx-secrets
                   key: BOT_API_TOKEN
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: dydx-app-secrets
-                  key: APP_DB_PASSWORD
-            - name: BOT_DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: dydx-app-secrets
-                  key: BOT_DB_PASSWORD
           readinessProbe:
             httpGet:
               path: /ready

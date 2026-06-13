@@ -18,7 +18,7 @@ For each new task, review:
 ## File-scoped instructions
 
 - `.github/instructions/workflow-yaml.instructions.md`
-  GitHub Actions workflow guardrails for explicit triggers, deterministic job ordering, safe secret handling, and StackForge-aware production deployment checks.
+  GitHub Actions workflow guardrails for explicit triggers, deterministic job ordering, safe secret handling, and production deployment checks.
 
 ## Agents
 
@@ -35,9 +35,6 @@ Root-agent selection:
 
 - `.github/agents/senior-deploy-github-actions.agent.md`
   Agent mode for CI/CD workflow design, deployment safety gates, rollout/rollback planning, and GitHub Actions hardening.
-
-- `.github/agents/senior-stackforge-cli-deployer.agent.md`
-  Agent mode for StackForge CLI cluster operations: preflight validation, app+DB deployment with `stackforge deploy`, post-deploy verification, and rollback-safe execution.
 
 - `backend/.github/agents/senior-go-defi-backend.agent.md`
   Service-specific backend expert for Go APIs, MariaDB, delegated bot integration, auth, and websocket proxying.
@@ -91,16 +88,7 @@ Root-agent selection:
   Incident-mode emergency go/no-go gate.
 
 - `.github/prompts/deploy-go-no-go.prompt.md`
-  StackForge-aware deployment approval gate for CI/CD, release, rollback readiness, and operator go/no-go decisions.
-
-- `.github/prompts/stackforge-deploy-go-no-go.prompt.md`
-  StackForge CLI app+API+DB deployment gate that checks preflight evidence, production safety flags, deploy manifest/env integrity, and rollback/restore readiness.
-
-- `.github/prompts/stackforge-post-deploy-verify.prompt.md`
-  StackForge post-deploy verification gate that returns PASS/FAIL from cluster/component health, app/API smoke checks, DB safety, config drift, and rollback confidence.
-
-- `.github/prompts/stackforge-incident-verify.prompt.md`
-  Incident-mode StackForge verification gate that returns PASS_NOW/FAIL_NOW with critical blockers, minimum immediate actions, 30-minute safeguards, and explicit rollback triggers.
+  Deployment approval gate for CI/CD, release, rollback readiness, and operator go/no-go decisions.
 
 - `.github/prompts/github-actions-failure-triage.prompt.md`
   Focused GitHub Actions / release pipeline failure triage with root-cause, retry posture, and smallest-safe-fix guidance.

@@ -1,7 +1,7 @@
 ---
 agent: Senior Deploy GitHub Actions
 name: github-actions-failure-triage
-description: 'Diagnose GitHub Actions and release pipeline failures for this repo, especially CI/CD or StackForge-related deploy workflows; return root cause, blast radius, and the smallest safe fix path.'
+description: 'Diagnose GitHub Actions and release pipeline failures for this repo, especially CI/CD or deploy workflows; return root cause, blast radius, and the smallest safe fix path.'
 argument-hint: 'What workflow run, job failure, log excerpt, PR, or release problem should be triaged?'
 ---
 
@@ -45,10 +45,10 @@ If logs are incomplete, state the highest-value missing evidence.
    - whether `needs` / artifact flow is broken
    - whether branch/tag/environment protections are implicated
 
-3. Check StackForge-specific signals when relevant:
+3. Check deployment-specific signals when relevant:
    - release packaging mismatch with binary/checksum expectations
-   - deployment assumptions contradict StackForge CLI safety behavior
-   - env/config mismatch between `.env.stackforge*` and `stackforge.yaml`
+   - deployment assumptions contradict documented CLI/tooling safety behavior
+   - env/config mismatch between deployment templates and runtime manifests
 
 4. Determine retry posture:
    - safe to retry unchanged

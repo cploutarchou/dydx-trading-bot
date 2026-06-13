@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build (and optionally push) all deployable service images used by stackforge.yaml.
+# Build (and optionally push) all deployable service images for this repository.
 # Usage:
 #   bash scripts/build_all_service_images.sh
 #   IMAGE_TAG=$(git rev-parse --short HEAD) PUSH=true bash scripts/build_all_service_images.sh

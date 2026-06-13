@@ -95,10 +95,6 @@ When finished:
 
 ## Nomad-native deployment option
 
-Current StackForge app rollout in this repo uses Nomad-backed deployment flow, so workloads should appear under Nomad Jobs when deployed through the live StackForge path.
-
-For StackForge-based deploys, start from `.env.stackforge.example`, copy it to `.env.stackforge`, and fill in the live values before running `make deploy`.
-
 If you want to run the job-based path directly under `deploy/nomad/`:
 
 - `deploy/nomad/dydx-trading-bot.nomad.hcl`

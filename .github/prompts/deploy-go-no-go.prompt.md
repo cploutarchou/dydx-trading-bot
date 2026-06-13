@@ -1,7 +1,7 @@
 ---
 agent: Senior Deploy GitHub Actions
 name: deploy-go-no-go
-description: 'Run a strict StackForge-aware deployment go/no-go gate for CI/CD, release, and rollout changes; return APPROVE or HOLD with blockers, rollback requirements, and operator-ready next steps.'
+description: 'Run a strict deployment go/no-go gate for CI/CD, release, and rollout changes; return APPROVE or HOLD with blockers, rollback requirements, and operator-ready next steps.'
 argument-hint: 'What deployment, workflow, release, PR, or change set should be evaluated for go/no-go?'
 ---
 
@@ -24,7 +24,7 @@ Collect or infer:
 
 - Scope (`PR`, workflow file, release plan, deployment config, env file)
 - Target environment (`dev`, `staging`, `production`)
-- Deployment path (`GitHub Actions`, `StackForge`, direct Docker/Compose, mixed)
+- Deployment path (`GitHub Actions`, direct Docker/Compose, mixed)
 - Rollback path (previous artifact/image/release or operational fallback)
 
 If critical inputs are missing, state assumptions explicitly.
@@ -38,19 +38,17 @@ If critical inputs are missing, state assumptions explicitly.
 - Job graph ordering is explicit and deterministic.
 - Artifacts/images are produced and consumed consistently.
 
-### 2) StackForge Production Safety
+### 2) Production Safety
 
-When StackForge is part of the path, verify:
+When production deployment is part of the path, verify:
 
-- Live production actions assume `--confirm-production`.
-- Non-interactive live actions assume `--yes` only after dry-run/review.
-- Dry-run / validate / firewall-plan sequence is preserved where relevant.
-- No break-glass flags are normalized (`--allow-example-config`, `--allow-public-ssh`, `--allow-no-firewall`) without explicit justification.
+- Live production actions include explicit confirmation and approval gates.
+- Non-interactive live actions are used only after dry-run/review.
+- Dry-run and validation sequence is preserved where relevant.
 
 ### 3) Config and Secret Hygiene
 
 - Secret names are correct and values are never exposed.
-- `.env.stackforge.example` is the shareable template; `.env.stackforge` is the live file. Keep both aligned with `stackforge.yaml` when touched.
 - Placeholder/example values are not treated as production-ready.
 
 ### 4) Rollout and Recovery
@@ -62,7 +60,6 @@ When StackForge is part of the path, verify:
 ### 5) Evidence and Verification
 
 - Relevant build/test/lint/deploy checks have run or are clearly specified.
-- StackForge validation/install assumptions match documented CLI behavior.
 - No unresolved critical gap remains in deployment sequencing.
 
 ## Decision Heuristic
@@ -81,8 +78,8 @@ When StackForge is part of the path, verify:
 6. **Rollback Plan Check**
 7. **Evidence Summary**
 
-## StackForge-Specific Guardrails
+## Deployment Guardrails
 
-- Treat `stackforge validate --config ...`, `--live --production`, `firewall plan`, and `install --dry-run` as the default production-readiness sequence when infra rollout is involved.
-- Call out example/demo values and public admin/SSH CIDRs as hard blockers for production.
-- If StackForge live install/upgrade/rollback assumptions do not match documented behavior, default to `HOLD`.
+- Treat validation + dry-run as the default production-readiness sequence when infra rollout is involved.
+- Call out example/demo values and unsafe network exposure as hard blockers for production.
+- If live install/upgrade/rollback assumptions do not match documented behavior, default to `HOLD`.

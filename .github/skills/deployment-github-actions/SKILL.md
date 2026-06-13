@@ -30,19 +30,15 @@ Produce a safe, reproducible deployment/workflow change that:
    - Yes -> require explicit rollback path and go/no-go criteria.
    - No -> continue with standard CI validation.
 
-3. **Is this stackforge deployment-path related?**
-   - Yes -> validate `stackforge.yaml` service graph, `.env.stackforge` variable coverage, and image/build parity.
-   - No -> continue.
-
-4. **Does this change require secrets/config?**
+3. **Does this change require secrets/config?**
    - Yes -> confirm secret names/availability and safe fallback behavior; never print secret values.
    - No -> continue.
 
-5. **Does this change alter contract-critical services?**
+4. **Does this change alter contract-critical services?**
    - Frontend/backend boundary changed -> validate API expectations from frontend perspective.
    - Backend/bot boundary changed -> validate delegated route behavior and bot API assumptions.
 
-6. **Is deploy behavior branch-sensitive?**
+5. **Is deploy behavior branch-sensitive?**
    - Yes -> enforce branch/tag filters and environment protections.
    - No -> keep triggers minimal and explicit.
 
@@ -75,61 +71,54 @@ Produce a safe, reproducible deployment/workflow change that:
 
 6. **Deployment safety hardening**
    - Verify health-check/wait strategy after deploy operations.
-   - Validate rollback path (previous artifact/image tag or stack rollback plan).
+   - Validate rollback path (previous artifact/image tag or operational rollback plan).
    - Confirm environment protection expectations (manual approvals, branch restrictions, required checks).
-   - For stackforge path, verify `.env.stackforge(.example)` values map cleanly to `stackforge.yaml` services.
 
 7. **Finalize with evidence**
    - Summarize changed workflow/deploy files and reasons.
    - Record what was validated and what remains as follow-up.
    - Include explicit operator notes for failure handling.
 
-## StackForge Rollout Path
+## Deployment Rollout Path
 
-Use this path when the deployment touches StackForge-managed infrastructure, StackForge release automation, or repo assets that must remain aligned with StackForge operational safety.
+Use this path when the deployment touches production infrastructure, release automation, or assets that must remain aligned with operational safety.
 
 ### Default rollout sequence
 
 1. **Prepare and inspect config**
    - Confirm production values are real, not example/demo placeholders.
-   - Confirm cluster name, domains, node addresses, admin CIDRs, and SSH CIDRs are production-safe.
-   - Confirm `.env.stackforge.example` is the template source and `.env.stackforge` stays aligned with `stackforge.yaml` when container/env wiring changes.
+   - Confirm environment, domains, node addresses, and network constraints are production-safe.
 
 2. **Run validation before any live action**
-   - `stackforge validate --config stackforge.yaml`
-   - `stackforge validate --config stackforge.yaml --live --production`
-   - Treat failures on example values, public admin CIDRs, public SSH CIDRs, unsupported OS, missing UFW, or production confirmation as hard blockers.
+   - Run static and runtime validation for deployment manifests and required variables.
+   - Treat validation failures as hard blockers.
 
 3. **Review network exposure**
-   - `stackforge firewall plan --config stackforge.yaml`
    - Confirm only intended ports are public by default.
    - Treat public database/internal API exposure as a blocker unless explicitly designed and reviewed.
 
 4. **Dry-run install or rollout**
-   - `stackforge install --dry-run --config stackforge.yaml`
-   - Review plan output, generated reports, and any state changes expected under `~/.stackforge/<cluster>/`.
+   - Execute dry-run paths before any live production action.
+   - Review plan output and expected state changes.
 
 5. **Run live production action only after review**
-   - `stackforge install --config stackforge.yaml --confirm-production`
-   - In non-interactive automation, require prior review and then use `--yes` deliberately.
-   - Never normalize break-glass flags like `--allow-example-config`, `--allow-public-ssh`, or `--allow-no-firewall` into standard workflow behavior.
+   - Require explicit production confirmation for live actions.
+   - In non-interactive automation, use auto-confirmation only after prior human review.
 
 6. **Verify and capture evidence**
-   - `stackforge status --config stackforge.yaml`
-   - `stackforge verify --config stackforge.yaml`
-   - Review inventory, install reports, rollback records, and backup posture.
+   - Collect component status and app health evidence.
+   - Review rollback records and backup posture.
 
 ### Release automation checks
 
-- If GitHub Actions packages or releases StackForge artifacts, verify versioning, checksum generation, and release asset naming remain deterministic.
-- If using StackForge release install paths, verify assumptions still match the documented installer environment variables and release behavior.
+- Verify versioning, checksum generation, and release asset naming remain deterministic.
 - If workflow changes affect release publishing, confirm the release step cannot run before verification/build steps succeed.
 
 ### Operator checkpoints
 
-- Know where to inspect failures: `install-report.json`, `inventory.yaml`, `generated-secrets.yaml`, rollback records, and systemd/service health outputs.
+- Know where to inspect deployment failures for the active platform/tooling.
 - Require an explicit rollback or recovery note before approving production rollout changes.
-- For destructive or recovery actions, prefer dry-run first and verify whether StackForge marks the action safe for automatic apply.
+- For destructive or recovery actions, prefer dry-run first.
 
 ## Quality Gates (Must Pass)
 
@@ -141,7 +130,6 @@ Use this path when the deployment touches StackForge-managed infrastructure, Sta
 - [ ] A rollback path is defined for deployment-impacting changes
 - [ ] Service-boundary assumptions are preserved (`frontend -> backend -> bot`)
 - [ ] Verification notes capture what was tested and any residual risk
-- [ ] Stackforge deployment/env mapping is consistent (`stackforge.yaml` + `.env.stackforge*`) when touched
 
 ## Completion Criteria
 
@@ -158,4 +146,4 @@ Task is complete only when:
 - `/deployment-github-actions Add a gated deploy workflow for main branch with manual production approval.`
 - `/deployment-github-actions Refactor workflow dependencies to remove flaky race conditions in artifacts.`
 - `/deployment-github-actions Add safe rollback notes and post-deploy health verification for stack deploy.`
-- `/deployment-github-actions Validate stackforge deployment env-variable parity and strict production release gates.`
+- `/deployment-github-actions Validate deployment env-variable parity and strict production release gates.`

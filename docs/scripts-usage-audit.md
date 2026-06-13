@@ -13,7 +13,6 @@
 - `deploy/nomad/dydx-trading-bot.nomad.hcl`
 - `deploy/nomad/production.nomad.vars.hcl.example`
 - `frontend/Makefile`
-- `stackforge.yaml`
 
 ## Scripts still present and operational references
 

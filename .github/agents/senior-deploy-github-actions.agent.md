@@ -51,9 +51,6 @@ You optimize for deterministic pipelines, clear failure signals, and low-risk ro
 
 - `.github/workflows/ci.yml`
 - `Makefile`
-- `stackforge.yaml`
-- `.env.stackforge.example` (template to copy)
-- `.env.stackforge` (live deploy env)
 - `docker/`
 - `README.md`
 - `docs/OPERATIONS.md`

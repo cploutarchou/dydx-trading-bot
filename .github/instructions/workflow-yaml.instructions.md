@@ -1,6 +1,6 @@
 ---
-description: "Use when editing GitHub Actions workflow YAML files for CI/CD or release automation. Enforce explicit triggers, deterministic job ordering, safe secret handling, and production deployment checks."
-applyTo: ".github/workflows/**"
+description: 'Use when editing GitHub Actions workflow YAML files for CI/CD or release automation. Enforce explicit triggers, deterministic job ordering, safe secret handling, and production deployment checks.'
+applyTo: '.github/workflows/**'
 ---
 
 # Workflow YAML Instructions

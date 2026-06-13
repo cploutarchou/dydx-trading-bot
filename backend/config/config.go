@@ -67,6 +67,12 @@ func (db *DatabaseSettings) DSN() string {
 	}
 	dsn += "@tcp(" + db.Host + ":" + strconv.Itoa(db.Port) + ")/" + db.Dbname
 	dsn += "?charset=utf8mb4&parseTime=true&loc=UTC"
+	if db.SSL {
+		// Use TLS transport for MariaDB/MySQL connections.
+		// "skip-verify" is used for staging/private CA scenarios where the CA
+		// is not registered in the container trust store.
+		dsn += "&tls=skip-verify"
+	}
 	dsn += "&timeout=" + strconv.Itoa(db.Timeout) + "s"
 	dsn += "&readTimeout=" + strconv.Itoa(db.Timeout) + "s"
 	dsn += "&writeTimeout=" + strconv.Itoa(db.Timeout) + "s"

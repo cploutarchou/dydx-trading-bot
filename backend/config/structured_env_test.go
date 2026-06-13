@@ -119,6 +119,25 @@ func TestDatabaseSettingsDSN_OmitsEmptyPasswordAndDisablesSSL(t *testing.T) {
 	if !strings.Contains(dsn, "charset=utf8mb4") || !strings.Contains(dsn, "parseTime=true") || !strings.Contains(dsn, "loc=UTC") {
 		t.Fatalf("expected MariaDB DSN options in DSN, got %q", dsn)
 	}
+	if strings.Contains(dsn, "tls=") {
+		t.Fatalf("expected tls param to be omitted when SSL is disabled, got %q", dsn)
+	}
+}
+
+func TestDatabaseSettingsDSN_EnablesTLSWhenSSLModeEnabled(t *testing.T) {
+	db := DatabaseSettings{
+		Host:    "mariadb",
+		Port:    3306,
+		Dbname:  "dydx_bot",
+		User:    "dydx_bot",
+		SSL:     true,
+		Timeout: 5,
+	}
+
+	dsn := db.DSN()
+	if !strings.Contains(dsn, "tls=skip-verify") {
+		t.Fatalf("expected tls=skip-verify in DSN when SSL is enabled, got %q", dsn)
+	}
 }
 
 func TestLoadFileEnvValues_LoadsMountedSecretFile(t *testing.T) {

@@ -12,7 +12,7 @@ For each new task, review:
 
 ## Core workspace instructions
 
-- `.github/copilot-instructions.md`  
+- `.github/copilot-instructions.md`
   Cross-repo defaults for architecture, ports, build/test commands, and critical trading safety constraints.
 
 ## File-scoped instructions
@@ -33,9 +33,6 @@ Root-agent selection:
 - `.github/agents/senior-prod-backtest-defi-auditor.agent.md`
   Agent mode for production-readiness audits, Python/Go service hardening, long-running backtest hangs, and DeFi bot-instance risk reviews.
 
-- `.github/agents/senior-deploy-github-actions.agent.md`
-  Agent mode for CI/CD workflow design, deployment safety gates, rollout/rollback planning, and GitHub Actions hardening.
-
 - `backend/.github/agents/senior-go-defi-backend.agent.md`
   Service-specific backend expert for Go APIs, MariaDB, delegated bot integration, auth, and websocket proxying.
 
@@ -47,20 +44,13 @@ Root-agent selection:
 
 ## Skills
 
-- `.github/skills/defi-python-algo-trading/SKILL.md`  
+- `.github/skills/defi-python-algo-trading/SKILL.md`
   Production-safe Python trading workflow with quality gates:
   - atomic paired execution safety
   - exchange precision handling
   - UTC-safe datetime usage
   - async API correctness
   - risk/DeFi/performance validation
-
-- `.github/skills/deployment-github-actions/SKILL.md`
-  Deployment and GitHub Actions workflow for CI/CD reliability and safe rollout:
-  - deterministic job dependencies and failure gating
-  - branch/environment trigger safety
-  - secret/config handling hygiene
-  - rollback-aware deployment validation
 
 - `.github/skills/config-infrastructure-management/SKILL.md`
   Runtime configuration, encrypted profiles, deployment config, environment management, infrastructure-as-code:
@@ -78,32 +68,20 @@ Root-agent selection:
 
 ## Prompts
 
-- `.github/prompts/defi-risk-review.prompt.md`  
+- `.github/prompts/defi-risk-review.prompt.md`
   Focused risk review (execution, exposure, slippage/liquidity, funding, recovery).
-
-- `.github/prompts/defi-predeploy-go-no-go.prompt.md`  
-  Pre-deploy go/no-go gate with blockers and mitigations.
-
-- `.github/prompts/defi-incident-hotfix-go-no-go.prompt.md`  
-  Incident-mode emergency go/no-go gate.
-
-- `.github/prompts/deploy-go-no-go.prompt.md`
-  Deployment approval gate for CI/CD, release, rollback readiness, and operator go/no-go decisions.
-
-- `.github/prompts/github-actions-failure-triage.prompt.md`
-  Focused GitHub Actions / release pipeline failure triage with root-cause, retry posture, and smallest-safe-fix guidance.
 
 - `.github/prompts/codex-dydx-strategy-suggestions.prompt.md`
   Codex command for dYdX strategy-aware AI parameter suggestion tuning.
 
 ## Workflow automation
 
-- `.github/workflows/ci.yml`  
+- `.github/workflows/ci.yml`
   CI checks for Python lint/tests, Go WS smoke tests, and Docker image smoke validation.
 
 ## Additional repo guidance
 
-- `.github/git-commit-instructions.md`  
+- `.github/git-commit-instructions.md`
   Commit message, branch naming, and PR hygiene guidance.
 
 ## Latest high-impact context (2026-05)

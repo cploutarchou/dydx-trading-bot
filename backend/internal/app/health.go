@@ -13,6 +13,7 @@ import (
 
 	"github.com/dydx-trading-bot/backend-go/config"
 	"github.com/dydx-trading-bot/backend-go/internal/db"
+	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/dydx-trading-bot/backend-go/internal/startup"
 	"github.com/gin-gonic/gin"
@@ -420,6 +421,9 @@ func registerHealthRoutes(router *gin.Engine, cfg *config.Config, database *db.D
 			},
 			"bot_api":        botSnapshot,
 			"bot_api_client": services.BotAPIStats(),
+			"backtest_sync": gin.H{
+				"run_upsert_outcomes": repository.BacktestRunSyncOutcomeCounters(),
+			},
 			"service":        buildServiceMetadata(startTime),
 		})
 	})

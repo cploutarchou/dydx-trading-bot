@@ -1695,6 +1695,57 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		c.Next()
 	})
 	{
+		// Backtest preflight for UI/operator fail-fast checks before submitting a run.
+		backtestGroup.GET("/preflight", func(c *gin.Context) {
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			healthPayload, err := requestClient.HealthCheck()
+			if err != nil {
+				errorCode := "backtest_preflight_bot_api_not_ready"
+				var errorMessage string
+				upstreamStatus := http.StatusServiceUnavailable
+
+				var transportErr *services.BotAPITransportError
+				var apiErr *services.BotAPIError
+				switch {
+				case errors.As(err, &transportErr):
+					errorCode = "backtest_preflight_bot_api_unreachable"
+					errorMessage = transportErr.Message
+					if transportErr.StatusCode > 0 {
+						upstreamStatus = transportErr.StatusCode
+					}
+				case errors.As(err, &apiErr):
+					errorCode = "backtest_preflight_bot_api_not_ready"
+					errorMessage = apiErr.Message
+					if apiErr.StatusCode > 0 {
+						upstreamStatus = apiErr.StatusCode
+					}
+				default:
+					errorMessage = err.Error()
+				}
+
+				respondBacktestEnvelope(c, http.StatusServiceUnavailable, "Backtest preflight failed", map[string]interface{}{
+					"preflight_ready": false,
+					"error_code":      errorCode,
+					"error":           errorMessage,
+					"bot_api": map[string]interface{}{
+						"reachable":       false,
+						"base_url":        requestClient.BaseURL(),
+						"upstream_status": upstreamStatus,
+					},
+				})
+				return
+			}
+
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest preflight passed", map[string]interface{}{
+				"preflight_ready": true,
+				"bot_api": map[string]interface{}{
+					"reachable": true,
+					"base_url":  requestClient.BaseURL(),
+					"health":    unwrapEnvelopePayload(healthPayload),
+				},
+			})
+		})
+
 		// Local DB sync-health dashboard for delegated backtests.
 		backtestGroup.GET("/sync-health", func(c *gin.Context) {
 			if backtestSync == nil {

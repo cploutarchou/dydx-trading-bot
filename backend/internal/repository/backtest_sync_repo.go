@@ -47,6 +47,23 @@ func recordBacktestRunUpsertOutcome(runID string, rowsAffected int64) {
 	)
 }
 
+func isUpsertDialectError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "on duplicate key update") {
+		return true
+	}
+	if strings.Contains(lower, "near \"duplicate\"") {
+		return true
+	}
+	if strings.Contains(lower, "syntax error") && strings.Contains(lower, "duplicate") {
+		return true
+	}
+	return false
+}
+
 // BacktestRunSyncPayload contains the subset of backtest run fields we can
 // safely synchronize from delegated bot API responses.
 type BacktestRunSyncPayload struct {
@@ -244,8 +261,45 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 			strategy_id = COALESCE(VALUES(strategy_id), strategy_id)
 	`
 
-		execResult, err := r.db.Exec(
-			upsertQuery,
+		sqliteUpsertQuery := `
+		INSERT INTO backtest_runs (
+			run_id, status, created_at, started_at, completed_at, duration_seconds,
+			start_date, end_date, num_pairs, total_markets, resolution, config,
+			total_trades, profitable_trades, losing_trades, win_rate,
+			total_pnl, total_pnl_usd, sharpe_ratio, max_drawdown,
+			error_message, user_id, strategy_id
+		) VALUES (
+			?, ?, ?, ?, ?, ?,
+			?, ?, ?, ?, ?, ?,
+			?, ?, ?, ?,
+			?, ?, ?, ?,
+			?, ?, ?
+		)
+		ON CONFLICT(run_id) DO UPDATE SET
+			status = excluded.status,
+			user_id = excluded.user_id,
+			start_date = excluded.start_date,
+			end_date = excluded.end_date,
+			num_pairs = excluded.num_pairs,
+			total_markets = excluded.total_markets,
+			resolution = excluded.resolution,
+			config = excluded.config,
+			started_at = COALESCE(excluded.started_at, started_at),
+			completed_at = COALESCE(excluded.completed_at, completed_at),
+			duration_seconds = COALESCE(excluded.duration_seconds, duration_seconds),
+			error_message = COALESCE(excluded.error_message, error_message),
+			total_trades = COALESCE(excluded.total_trades, total_trades),
+			profitable_trades = COALESCE(excluded.profitable_trades, profitable_trades),
+			losing_trades = COALESCE(excluded.losing_trades, losing_trades),
+			win_rate = COALESCE(excluded.win_rate, win_rate),
+			total_pnl = COALESCE(excluded.total_pnl, total_pnl),
+			total_pnl_usd = COALESCE(excluded.total_pnl_usd, total_pnl_usd),
+			sharpe_ratio = COALESCE(excluded.sharpe_ratio, sharpe_ratio),
+			max_drawdown = COALESCE(excluded.max_drawdown, max_drawdown),
+			strategy_id = COALESCE(excluded.strategy_id, strategy_id)
+	`
+
+		upsertArgs := []interface{}{
 			payload.RunID,
 			payload.Status,
 			time.Now().UTC(),
@@ -269,7 +323,12 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 			nullableStringValue(payload.ErrorMessage),
 			payload.UserID,
 			nullableInt64Value(payload.StrategyID),
-		)
+		}
+
+		execResult, err := r.db.Exec(upsertQuery, upsertArgs...)
+		if err != nil && isUpsertDialectError(err) {
+			execResult, err = r.db.Exec(sqliteUpsertQuery, upsertArgs...)
+		}
 		if err != nil {
 			return fmt.Errorf("failed to upsert backtest run: %w", err)
 		}

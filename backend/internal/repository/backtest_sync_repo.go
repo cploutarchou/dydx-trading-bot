@@ -6,8 +6,63 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
+
+var backtestRunSyncFreshInsertTotal atomic.Uint64
+var backtestRunSyncRerunUpdateTotal atomic.Uint64
+
+func BacktestRunSyncOutcomeCounters() map[string]uint64 {
+	return map[string]uint64{
+		"fresh_inserts_total": backtestRunSyncFreshInsertTotal.Load(),
+		"rerun_updates_total": backtestRunSyncRerunUpdateTotal.Load(),
+	}
+}
+
+func classifyBacktestRunUpsertOutcome(rowsAffected int64) string {
+	if rowsAffected == 1 {
+		return "insert"
+	}
+	// MySQL upsert rowsAffected semantics:
+	// 2 => existing row changed, 0 => existing row unchanged.
+	// Both are rerun updates for run_id visibility.
+	return "update"
+}
+
+func recordBacktestRunUpsertOutcome(runID string, rowsAffected int64) {
+	outcome := classifyBacktestRunUpsertOutcome(rowsAffected)
+	if outcome == "insert" {
+		backtestRunSyncFreshInsertTotal.Add(1)
+	} else {
+		backtestRunSyncRerunUpdateTotal.Add(1)
+	}
+	log.Printf(
+		"backtest_sync_upsert outcome=%s run_id=%s rows_affected=%d fresh_inserts_total=%d rerun_updates_total=%d",
+		outcome,
+		runID,
+		rowsAffected,
+		backtestRunSyncFreshInsertTotal.Load(),
+		backtestRunSyncRerunUpdateTotal.Load(),
+	)
+}
+
+func isUpsertDialectError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "on duplicate key update") {
+		return true
+	}
+	if strings.Contains(lower, "near \"duplicate\"") {
+		return true
+	}
+	if strings.Contains(lower, "syntax error") && strings.Contains(lower, "duplicate") {
+		return true
+	}
+	return false
+}
 
 // BacktestRunSyncPayload contains the subset of backtest run fields we can
 // safely synchronize from delegated bot API responses.
@@ -168,6 +223,60 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 			return fmt.Errorf("end_date is required")
 		}
 
+		upsertQuery := `
+		INSERT INTO backtest_runs (
+			run_id, status, created_at, started_at, completed_at, duration_seconds,
+			start_date, end_date, num_pairs, total_markets, resolution, config,
+			total_trades, profitable_trades, losing_trades, win_rate,
+			total_pnl, total_pnl_usd, sharpe_ratio, max_drawdown,
+			error_message, user_id, strategy_id
+		) VALUES (
+			?, ?, ?, ?, ?, ?,
+			?, ?, ?, ?, ?, ?,
+			?, ?, ?, ?,
+			?, ?, ?, ?,
+			?, ?, ?
+		)
+		ON DUPLICATE KEY UPDATE
+			status = VALUES(status),
+			user_id = VALUES(user_id),
+			start_date = VALUES(start_date),
+			end_date = VALUES(end_date),
+			num_pairs = VALUES(num_pairs),
+			total_markets = VALUES(total_markets),
+			resolution = VALUES(resolution),
+			config = VALUES(config),
+			started_at = COALESCE(VALUES(started_at), started_at),
+			completed_at = COALESCE(VALUES(completed_at), completed_at),
+			duration_seconds = COALESCE(VALUES(duration_seconds), duration_seconds),
+			error_message = COALESCE(VALUES(error_message), error_message),
+			total_trades = COALESCE(VALUES(total_trades), total_trades),
+			profitable_trades = COALESCE(VALUES(profitable_trades), profitable_trades),
+			losing_trades = COALESCE(VALUES(losing_trades), losing_trades),
+			win_rate = COALESCE(VALUES(win_rate), win_rate),
+			total_pnl = COALESCE(VALUES(total_pnl), total_pnl),
+			total_pnl_usd = COALESCE(VALUES(total_pnl_usd), total_pnl_usd),
+			sharpe_ratio = COALESCE(VALUES(sharpe_ratio), sharpe_ratio),
+			max_drawdown = COALESCE(VALUES(max_drawdown), max_drawdown),
+			strategy_id = COALESCE(VALUES(strategy_id), strategy_id)
+	`
+
+		insertQuery := `
+		INSERT INTO backtest_runs (
+			run_id, status, created_at, started_at, completed_at, duration_seconds,
+			start_date, end_date, num_pairs, total_markets, resolution, config,
+			total_trades, profitable_trades, losing_trades, win_rate,
+			total_pnl, total_pnl_usd, sharpe_ratio, max_drawdown,
+			error_message, user_id, strategy_id
+		) VALUES (
+			?, ?, ?, ?, ?, ?,
+			?, ?, ?, ?, ?, ?,
+			?, ?, ?, ?,
+			?, ?, ?, ?,
+			?, ?, ?
+		)
+	`
+
 		updateQuery := `
 		UPDATE backtest_runs
 		SET status = ?,
@@ -194,61 +303,7 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 		WHERE run_id = ?
 	`
 
-		result, err := r.db.Exec(
-			updateQuery,
-			payload.Status,
-			payload.UserID,
-			payload.StartDate,
-			payload.EndDate,
-			payload.NumPairs,
-			payload.TotalMarkets,
-			nullableStringValue(payload.Resolution),
-			nullableStringValue(payload.Config),
-			payload.StartedAt,
-			payload.CompletedAt,
-			payload.DurationSeconds,
-			nullableStringValue(payload.ErrorMessage),
-			nullableInt64Value(payload.TotalTrades),
-			nullableInt64Value(payload.WinningTrades),
-			nullableInt64Value(payload.LosingTrades),
-			nullableFloat64Value(payload.WinRate),
-			nullableFloat64Value(payload.TotalPnL),
-			nullableFloat64Value(payload.TotalPnLUSD),
-			nullableFloat64Value(payload.SharpeRatio),
-			nullableFloat64Value(payload.MaxDrawdown),
-			nullableInt64Value(payload.StrategyID),
-			payload.RunID,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to update backtest run: %w", err)
-		}
-
-		rows, err := result.RowsAffected()
-		if err != nil {
-			return fmt.Errorf("failed to check updated rows: %w", err)
-		}
-		if rows > 0 {
-			return nil
-		}
-
-		insertQuery := `
-		INSERT INTO backtest_runs (
-			run_id, status, created_at, started_at, completed_at, duration_seconds,
-			start_date, end_date, num_pairs, total_markets, resolution, config,
-			total_trades, profitable_trades, losing_trades, win_rate,
-			total_pnl, total_pnl_usd, sharpe_ratio, max_drawdown,
-			error_message, user_id, strategy_id
-		) VALUES (
-			?, ?, ?, ?, ?, ?,
-			?, ?, ?, ?, ?, ?,
-			?, ?, ?, ?,
-			?, ?, ?, ?,
-			?, ?, ?
-		)
-	`
-
-		_, err = r.db.Exec(
-			insertQuery,
+		upsertArgs := []interface{}{
 			payload.RunID,
 			payload.Status,
 			time.Now().UTC(),
@@ -272,9 +327,56 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 			nullableStringValue(payload.ErrorMessage),
 			payload.UserID,
 			nullableInt64Value(payload.StrategyID),
-		)
+		}
+
+		execResult, err := r.db.Exec(upsertQuery, upsertArgs...)
+		if err != nil && isUpsertDialectError(err) {
+			updateArgs := []interface{}{
+				payload.Status,
+				payload.UserID,
+				payload.StartDate,
+				payload.EndDate,
+				payload.NumPairs,
+				payload.TotalMarkets,
+				nullableStringValue(payload.Resolution),
+				nullableStringValue(payload.Config),
+				payload.StartedAt,
+				payload.CompletedAt,
+				payload.DurationSeconds,
+				nullableStringValue(payload.ErrorMessage),
+				nullableInt64Value(payload.TotalTrades),
+				nullableInt64Value(payload.WinningTrades),
+				nullableInt64Value(payload.LosingTrades),
+				nullableFloat64Value(payload.WinRate),
+				nullableFloat64Value(payload.TotalPnL),
+				nullableFloat64Value(payload.TotalPnLUSD),
+				nullableFloat64Value(payload.SharpeRatio),
+				nullableFloat64Value(payload.MaxDrawdown),
+				nullableInt64Value(payload.StrategyID),
+				payload.RunID,
+			}
+
+			updateResult, updateErr := r.db.Exec(updateQuery, updateArgs...)
+			if updateErr != nil {
+				return fmt.Errorf("failed to update backtest run during fallback upsert: %w", updateErr)
+			}
+
+			updatedRows, rowsErr := updateResult.RowsAffected()
+			if rowsErr == nil && updatedRows > 0 {
+				execResult = updateResult
+				err = nil
+			} else {
+				execResult, err = r.db.Exec(insertQuery, upsertArgs...)
+			}
+		}
 		if err != nil {
-			return fmt.Errorf("failed to insert backtest run: %w", err)
+			return fmt.Errorf("failed to upsert backtest run: %w", err)
+		}
+
+		if rowsAffected, rowsErr := execResult.RowsAffected(); rowsErr == nil {
+			recordBacktestRunUpsertOutcome(payload.RunID, rowsAffected)
+		} else {
+			log.Printf("backtest_sync_upsert outcome=unknown run_id=%s rows_affected_error=%v", payload.RunID, rowsErr)
 		}
 
 		return nil

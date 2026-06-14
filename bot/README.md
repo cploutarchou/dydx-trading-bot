@@ -77,6 +77,17 @@ and `BOT_AUTO_RECOVER_LIVE_RUNTIMES=true` for testnet live bot auto-restart; mai
 `BOT_AUTO_RECOVER_LIVE_MAINNET=true`. Backtest startup recovery waits for `BACKTEST_AUTO_RECOVERY_MIN_AGE_SECONDS`
 before acting so fresh rows from another API worker are not incorrectly failed.
 
+If older backtest rows cannot be restarted because the persisted request blob is missing, use
+`python scripts/repair_backtest_requests.py --dry-run` to inspect repairable rows and rerun without `--dry-run` to
+rebuild the restart payload from persisted run fields.
+
+Admin operators can also use `POST /api/v1/admin/backtests/{run_id}/repair-request?dry_run=true` to preview the same
+repair logic through the API before applying it.
+
+Long-running active backtests refresh their heartbeat periodically so they do not get flagged stale mid-run. Override
+`BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS` if you need a different keepalive cadence in staging or other deployed
+environments.
+
 For `/api/v1/backtests` and `/api/v1/backtests/run`, strategy resolution is ordered as: strategy table lookup by
 `strategy_id` → recent persisted backtest request snapshots in DB → request-provided `strategy_payload_snapshot`
 (compatibility fallback).

@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import math
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -119,6 +120,40 @@ class _SlowIndexer:
 class _SlowClient:
     def __init__(self):
         self.indexer = _SlowIndexer()
+        self.node = _FakeNode()
+
+
+class _HeartbeatSlowMarkets(_FakeMarkets):
+    async def get_perpetual_markets(self):
+        await asyncio.sleep(0.6)
+        return await super().get_perpetual_markets()
+
+
+class _HeartbeatSlowIndexer:
+    def __init__(self):
+        self.markets = _HeartbeatSlowMarkets()
+
+
+class _HeartbeatSlowClient:
+    def __init__(self):
+        self.indexer = _HeartbeatSlowIndexer()
+        self.node = _FakeNode()
+
+
+class _BlockingHeartbeatMarkets(_FakeMarkets):
+    async def get_perpetual_markets(self):
+        time.sleep(0.6)
+        return await super().get_perpetual_markets()
+
+
+class _BlockingHeartbeatIndexer:
+    def __init__(self):
+        self.markets = _BlockingHeartbeatMarkets()
+
+
+class _BlockingHeartbeatClient:
+    def __init__(self):
+        self.indexer = _BlockingHeartbeatIndexer()
         self.node = _FakeNode()
 
 
@@ -389,6 +424,95 @@ def test_retry_backtest_starts_new_run_from_persisted_request(monkeypatch):
     asyncio.run(_run())
 
 
+def test_restart_backtest_reconstructs_missing_request_from_persisted_fields(
+    monkeypatch,
+):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    async def _fake_connect():
+        return _FakeClient()
+
+    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+
+    service = BacktestService(session=None)
+    run_id = "legacy-restart-run"
+    now = datetime.now(timezone.utc).isoformat()
+    service.repository.save_run(
+        {
+            "run_id": run_id,
+            "name": "legacy restart",
+            "status": "completed",
+            "progress_pct": 100.0,
+            "current_pair": "BTC-USD/ETH-USD",
+            "current_task": "complete",
+            "created_at": now,
+            "updated_at": now,
+            "start_date": "2026-03-20",
+            "end_date": "2026-04-19",
+            "selected_pairs": ["BTC-USD/ETH-USD"],
+            "request": {},
+        }
+    )
+
+    async def _run():
+        restarted = await service.restart_backtest(run_id)
+        assert restarted is not None
+        assert restarted["run_id"] == run_id
+        assert restarted["new_run_id"] != run_id
+
+    asyncio.run(_run())
+
+
+def test_repair_backtest_request_restores_restartability(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    async def _fake_connect():
+        return _FakeClient()
+
+    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+
+    service = BacktestService(session=None)
+    run_id = "legacy-repair-run"
+    now = datetime.now(timezone.utc).isoformat()
+    service.repository.save_run(
+        {
+            "run_id": run_id,
+            "name": "legacy repair",
+            "status": "completed",
+            "progress_pct": 100.0,
+            "current_pair": "BTC-USD/ETH-USD",
+            "current_task": "complete",
+            "created_at": now,
+            "updated_at": now,
+            "start_date": "2026-03-20",
+            "end_date": "2026-04-19",
+            "selected_pairs": ["BTC-USD/ETH-USD"],
+            "request": {},
+        }
+    )
+
+    dry_run = service.repair_backtest_request(run_id, dry_run=True)
+    assert dry_run is not None
+    assert dry_run["repairable"] is True
+    assert dry_run["repaired"] is False
+
+    repaired = service.repair_backtest_request(run_id, dry_run=False)
+    assert repaired is not None
+    assert repaired["repaired"] is True
+    assert repaired["request_available"] is True
+
+    status = service.get_backtest_status(run_id)
+    assert status is not None
+    assert status.request_available is True
+    assert status.request is not None
+
+    restarted = asyncio.run(service.restart_backtest(run_id))
+    assert restarted is not None
+    assert restarted["new_run_id"] != run_id
+
+
 def test_celery_worker_backend_queues_persisted_run(monkeypatch):
     _, service_module = _load_modules()
     BacktestService = service_module.BacktestService
@@ -578,6 +702,126 @@ def test_stale_backtest_status_is_persisted_as_stale(monkeypatch):
 
     health = service.get_runtime_health()
     assert health["queue_depth"] == 0
+
+
+def test_pending_backtest_is_not_marked_stale_from_old_heartbeat(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+    monkeypatch.setattr(BacktestService, "_STALE_BACKTEST_HEARTBEAT_SECONDS", 1.0)
+
+    service = BacktestService(session=None)
+    stale_updated_at = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    service.repository.save_run(
+        {
+            "run_id": "pending-old-heartbeat",
+            "name": "pending-queue",
+            "status": "pending",
+            "progress_pct": 0.0,
+            "current_pair": "pending",
+            "current_task": "queued",
+            "worker_backend": "celery",
+            "created_at": stale_updated_at,
+            "updated_at": stale_updated_at,
+            "start_date": "2026-03-20",
+            "end_date": "2026-04-19",
+        }
+    )
+
+    status = service.get_backtest_status("pending-old-heartbeat")
+    assert status is not None
+    assert status.status == "pending"
+    assert status.error is None
+    assert status.error_message is None
+    assert status.cancellable is True
+
+    persisted = service.repository.get_run("pending-old-heartbeat")
+    assert persisted is not None
+    assert persisted["status"] == "pending"
+
+
+def test_backtest_keepalive_prevents_false_stale_during_slow_phase(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+    monkeypatch.setattr(BacktestService, "_STALE_BACKTEST_HEARTBEAT_SECONDS", 0.4)
+
+    async def _slow_connect():
+        return _HeartbeatSlowClient()
+
+    monkeypatch.setattr(service_module, "connect_dydx", _slow_connect)
+
+    service = BacktestService(session=None)
+
+    async def _run():
+        created = await service.create_and_run_backtest(
+            _request(max_pairs=1, stats_window=8).model_dump()
+        )
+
+        await asyncio.sleep(0.2)
+
+        status = service.get_backtest_status(created.run_id)
+        assert status is not None
+        assert status.status == "running"
+        assert status.last_heartbeat_at is not None
+        assert status.heartbeat_age_seconds is not None
+        assert status.heartbeat_age_seconds < 0.4
+
+        terminal = await _wait_for_terminal_status(
+            service, created.run_id, timeout_seconds=3.0
+        )
+        assert terminal == "completed"
+
+    asyncio.run(_run())
+
+
+def test_backtest_watchdog_keeps_heartbeat_alive_during_blocking_phase(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+    monkeypatch.setattr(BacktestService, "_STALE_BACKTEST_HEARTBEAT_SECONDS", 0.4)
+    monkeypatch.setattr(
+        BacktestService, "_heartbeat_keepalive_seconds", lambda self: 0.1
+    )
+
+    async def _blocking_connect():
+        return _BlockingHeartbeatClient()
+
+    monkeypatch.setattr(service_module, "connect_dydx", _blocking_connect)
+
+    service = BacktestService(session=None)
+    observed_statuses: list[str] = []
+    stop_polling = asyncio.Event()
+
+    def _poll_status(run_id: str) -> None:
+        while not stop_polling.is_set():
+            status = service.get_backtest_status(run_id)
+            if status is not None:
+                observed_statuses.append(status.status)
+            time.sleep(0.05)
+
+    async def _run():
+        created = await service.create_and_run_backtest(
+            _request(max_pairs=1, stats_window=8).model_dump()
+        )
+
+        poller = asyncio.get_running_loop().run_in_executor(
+            None, _poll_status, created.run_id
+        )
+
+        terminal = await _wait_for_terminal_status(
+            service, created.run_id, timeout_seconds=3.0
+        )
+        stop_polling.set()
+        await poller
+
+        assert terminal == "completed"
+        assert "stale" not in observed_statuses
+
+        status = service.get_backtest_status(created.run_id)
+        assert status is not None
+        assert status.status == "completed"
+        assert status.heartbeat_age_seconds is not None
+        assert status.heartbeat_age_seconds < 0.4
+
+    asyncio.run(_run())
 
 
 def test_legacy_pending_with_progress_normalizes_to_running(monkeypatch):

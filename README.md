@@ -95,10 +95,6 @@ When finished:
 
 ## Nomad-native deployment option
 
-Current StackForge app rollout in this repo uses Nomad-backed deployment flow, so workloads should appear under Nomad Jobs when deployed through the live StackForge path.
-
-For StackForge-based deploys, start from `.env.stackforge.example`, copy it to `.env.stackforge`, and fill in the live values before running `make deploy`.
-
 If you want to run the job-based path directly under `deploy/nomad/`:
 
 - `deploy/nomad/dydx-trading-bot.nomad.hcl`
@@ -119,6 +115,13 @@ This path submits a real Nomad job (`nomad job run ...`) so allocations and stat
 - use each service `README.md` for service-specific commands and responsibilities
 - treat generated artifacts such as `bot/openapi.json` as canonical contracts when detailed schema accuracy matters
 - run `python3 scripts/validate_docs_governance.py` before merge for doc/contract changes
+
+Backtest runtime tuning note: active long-running backtests refresh their heartbeat periodically to avoid false stale
+classification. `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS` controls that cadence, and staging already pins it in
+`deploy/k8s/dydx-trading-bot-staging.yaml`.
+
+If a legacy backtest cannot be restarted because its original request blob is missing, use
+`bot/scripts/repair_backtest_requests.py` to backfill the restart payload from persisted run fields first.
 
 ## Arbitrage Improvement Flags
 
@@ -162,7 +165,7 @@ without changing core strategy logic.
   - `GET /api/v1/arbitrage/improvement-metrics`
   - `GET /api/v1/arbitrage/pair-priority?limit=10`
 
-2. **Enable safe efficiency improvements**
+1. **Enable safe efficiency improvements**
 
 - Turn on `ARBITRAGE_IMPROVEMENTS_ENABLED=true`.
 - Watch for upward trend in:
@@ -170,18 +173,18 @@ without changing core strategy logic.
   - `duplicate_api_calls_avoided_total`
 - Validate `provider_errors_total` does not rise materially.
 
-3. **Use rejection reasons to remove waste**
+1. **Use rejection reasons to remove waste**
 
 - In the panel, inspect top rejection reasons and click for explainability.
 - For repeated `min_order_size` or `market_already_open`, reduce low-value scan pressure before changing any execution logic.
 
-4. **Turn on pair priority cautiously**
+1. **Turn on pair priority cautiously**
 
 - Enable `PAIR_PRIORITY_ENGINE_ENABLED=true` in testnet/staging first.
 - Start with `PAIR_PRIORITY_MAX_PAIRS=0` (no cap), then gradually apply caps.
 - Verify opportunity quality remains stable while API calls per scan decline.
 
-5. **Keep execution behavior unchanged by default**
+1. **Keep execution behavior unchanged by default**
 
 - Leave `AUTO_EXECUTION_CHANGES_ENABLED=false` unless explicitly testing a reviewed release plan.
 

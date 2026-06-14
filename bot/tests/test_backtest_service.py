@@ -597,6 +597,41 @@ def test_stale_backtest_status_is_persisted_as_stale(monkeypatch):
     assert health["queue_depth"] == 0
 
 
+def test_pending_backtest_is_not_marked_stale_from_old_heartbeat(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+    monkeypatch.setattr(BacktestService, "_STALE_BACKTEST_HEARTBEAT_SECONDS", 1.0)
+
+    service = BacktestService(session=None)
+    stale_updated_at = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    service.repository.save_run(
+        {
+            "run_id": "pending-old-heartbeat",
+            "name": "pending-queue",
+            "status": "pending",
+            "progress_pct": 0.0,
+            "current_pair": "pending",
+            "current_task": "queued",
+            "worker_backend": "celery",
+            "created_at": stale_updated_at,
+            "updated_at": stale_updated_at,
+            "start_date": "2026-03-20",
+            "end_date": "2026-04-19",
+        }
+    )
+
+    status = service.get_backtest_status("pending-old-heartbeat")
+    assert status is not None
+    assert status.status == "pending"
+    assert status.error is None
+    assert status.error_message is None
+    assert status.cancellable is True
+
+    persisted = service.repository.get_run("pending-old-heartbeat")
+    assert persisted is not None
+    assert persisted["status"] == "pending"
+
+
 def test_backtest_keepalive_prevents_false_stale_during_slow_phase(monkeypatch):
     _, service_module = _load_modules()
     BacktestService = service_module.BacktestService

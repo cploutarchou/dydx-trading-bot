@@ -3730,7 +3730,7 @@ async def celery_task_retry(
     """Admin-only retry for supported failed tasks."""
     _ = current_user
     try:
-        result = retry_celery_task(task_id)
+        result = await retry_celery_task(task_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return api_response(True, result, "Celery task retry requested")

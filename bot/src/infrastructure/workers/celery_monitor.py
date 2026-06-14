@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import copy
 import os
 import socket
@@ -15,7 +14,6 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, TypeVar, cast
 
 from celery import states
 from celery.result import AsyncResult
-
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.workers.celery_app import celery_app
@@ -550,7 +548,7 @@ def revoke_celery_task(task_id: str, terminate: bool = False) -> Dict[str, Any]:
     return {"task_id": task_id, "revoked": True, "terminate": bool(terminate)}
 
 
-def retry_celery_task(task_id: str) -> Dict[str, Any]:
+async def retry_celery_task(task_id: str) -> Dict[str, Any]:
     task = get_celery_task(task_id)
     if not task:
         raise ValueError("task not found")
@@ -567,7 +565,7 @@ def retry_celery_task(task_id: str) -> Dict[str, Any]:
         from src.infrastructure.use_cases.service_backtest import BacktestService
 
         service = BacktestService(repository)
-        restarted = asyncio.run(service.restart_backtest(str(task["backtest_run_id"])))
+        restarted = await service.restart_backtest(str(task["backtest_run_id"]))
         if not restarted:
             raise ValueError("backtest run is not retryable")
         _clear_monitor_cache()

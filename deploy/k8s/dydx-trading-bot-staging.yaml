@@ -216,6 +216,7 @@ data:
   BOT_API_PORT: "8889"
   BOT_API_URL: "http://dydx-bot:8889"
   BOT_API_USE_SERVICE_TOKEN: "true"
+  BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS: "30"
 
   # Public app domain
   FRONTEND_URL: "https://staging.executionlab.io"

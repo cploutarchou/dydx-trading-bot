@@ -122,6 +122,23 @@ class _SlowClient:
         self.node = _FakeNode()
 
 
+class _HeartbeatSlowMarkets(_FakeMarkets):
+    async def get_perpetual_markets(self):
+        await asyncio.sleep(0.6)
+        return await super().get_perpetual_markets()
+
+
+class _HeartbeatSlowIndexer:
+    def __init__(self):
+        self.markets = _HeartbeatSlowMarkets()
+
+
+class _HeartbeatSlowClient:
+    def __init__(self):
+        self.indexer = _HeartbeatSlowIndexer()
+        self.node = _FakeNode()
+
+
 class _PausableMarkets(_FakeMarkets):
     async def get_perpetual_market_candles(
         self,
@@ -578,6 +595,40 @@ def test_stale_backtest_status_is_persisted_as_stale(monkeypatch):
 
     health = service.get_runtime_health()
     assert health["queue_depth"] == 0
+
+
+def test_backtest_keepalive_prevents_false_stale_during_slow_phase(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+    monkeypatch.setattr(BacktestService, "_STALE_BACKTEST_HEARTBEAT_SECONDS", 0.4)
+
+    async def _slow_connect():
+        return _HeartbeatSlowClient()
+
+    monkeypatch.setattr(service_module, "connect_dydx", _slow_connect)
+
+    service = BacktestService(session=None)
+
+    async def _run():
+        created = await service.create_and_run_backtest(
+            _request(max_pairs=1, stats_window=8).model_dump()
+        )
+
+        await asyncio.sleep(0.2)
+
+        status = service.get_backtest_status(created.run_id)
+        assert status is not None
+        assert status.status == "running"
+        assert status.last_heartbeat_at is not None
+        assert status.heartbeat_age_seconds is not None
+        assert status.heartbeat_age_seconds < 0.4
+
+        terminal = await _wait_for_terminal_status(
+            service, created.run_id, timeout_seconds=3.0
+        )
+        assert terminal == "completed"
+
+    asyncio.run(_run())
 
 
 def test_legacy_pending_with_progress_normalizes_to_running(monkeypatch):

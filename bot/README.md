@@ -77,6 +77,10 @@ and `BOT_AUTO_RECOVER_LIVE_RUNTIMES=true` for testnet live bot auto-restart; mai
 `BOT_AUTO_RECOVER_LIVE_MAINNET=true`. Backtest startup recovery waits for `BACKTEST_AUTO_RECOVERY_MIN_AGE_SECONDS`
 before acting so fresh rows from another API worker are not incorrectly failed.
 
+Long-running active backtests refresh their heartbeat periodically so they do not get flagged stale mid-run. Override
+`BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS` if you need a different keepalive cadence in staging or other deployed
+environments.
+
 For `/api/v1/backtests` and `/api/v1/backtests/run`, strategy resolution is ordered as: strategy table lookup by
 `strategy_id` → recent persisted backtest request snapshots in DB → request-provided `strategy_payload_snapshot`
 (compatibility fallback).

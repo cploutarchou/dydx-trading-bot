@@ -9,6 +9,18 @@ import (
 	"time"
 )
 
+func resetBacktestRunSyncOutcomeCounters(t *testing.T) {
+	t.Helper()
+	originalInsert := backtestRunSyncFreshInsertTotal.Load()
+	originalUpdate := backtestRunSyncRerunUpdateTotal.Load()
+	backtestRunSyncFreshInsertTotal.Store(0)
+	backtestRunSyncRerunUpdateTotal.Store(0)
+	t.Cleanup(func() {
+		backtestRunSyncFreshInsertTotal.Store(originalInsert)
+		backtestRunSyncRerunUpdateTotal.Store(originalUpdate)
+	})
+}
+
 // TestUpsertBacktestRunPreservesErrorMessageWhenPayloadNil verifies that
 // UpsertBacktestRun passes nil for error_message when the payload's ErrorMessage
 // is invalid (null), letting the COALESCE in the SQL preserve the DB value.
@@ -16,15 +28,15 @@ func TestUpsertBacktestRunPreservesErrorMessageWhenPayloadNil(t *testing.T) {
 	db := openBacktestScriptedDB(t, []backtestScriptedStep{
 		{
 			op:            "exec",
-			queryContains: "UPDATE backtest_runs",
+			queryContains: "INSERT INTO backtest_runs",
 			assertArgs: func(t *testing.T, args []driver.NamedValue) {
 				t.Helper()
-				if len(args) < 12 {
-					t.Fatalf("expected at least 12 args for UPDATE, got %d", len(args))
+				if len(args) < 21 {
+					t.Fatalf("expected at least 21 args for UPSERT, got %d", len(args))
 				}
 				// ? is the error_message value; must be nil when ErrorMessage.Valid == false
-				if args[11].Value != nil {
-					t.Fatalf("expected error_message arg ? to be nil, got %#v", args[11].Value)
+				if args[20].Value != nil {
+					t.Fatalf("expected error_message arg ? to be nil, got %#v", args[20].Value)
 				}
 			},
 			result: driver.RowsAffected(1),
@@ -58,10 +70,10 @@ func TestUpsertBacktestRunPreservesErrorMessageWhenPayloadNil(t *testing.T) {
 	}
 }
 
-// TestUpsertBacktestRunInsertsWhenNoRowsUpdated verifies fallthrough to INSERT.
-func TestUpsertBacktestRunInsertsWhenNoRowsUpdated(t *testing.T) {
+// TestUpsertBacktestRunUpsertsByRunID verifies the repository executes a single
+// run_id-keyed upsert statement (safe for reruns that reuse the same run_id).
+func TestUpsertBacktestRunUpsertsByRunID(t *testing.T) {
 	db := openBacktestScriptedDB(t, []backtestScriptedStep{
-		{op: "exec", queryContains: "UPDATE backtest_runs", result: driver.RowsAffected(0)},
 		{
 			op:            "exec",
 			queryContains: "INSERT INTO backtest_runs",
@@ -83,6 +95,52 @@ func TestUpsertBacktestRunInsertsWhenNoRowsUpdated(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("UpsertBacktestRun returned error: %v", err)
+	}
+}
+
+func TestUpsertBacktestRunOutcomeCounters(t *testing.T) {
+	resetBacktestRunSyncOutcomeCounters(t)
+
+	insertDB := openBacktestScriptedDB(t, []backtestScriptedStep{
+		{op: "exec", queryContains: "INSERT INTO backtest_runs", result: driver.RowsAffected(1)},
+	})
+	defer func() { _ = insertDB.Close() }()
+
+	insertRepo := NewBacktestSyncRepository(insertDB)
+	if err := insertRepo.UpsertBacktestRun(BacktestRunSyncPayload{
+		RunID: "run-insert-1", UserID: 101, Status: "queued",
+		StartDate: "2026-04-01", EndDate: "2026-04-02", NumPairs: 1, TotalMarkets: 3,
+	}); err != nil {
+		t.Fatalf("insert upsert returned error: %v", err)
+	}
+
+	afterInsert := BacktestRunSyncOutcomeCounters()
+	if afterInsert["fresh_inserts_total"] != 1 {
+		t.Fatalf("expected fresh_inserts_total=1, got %d", afterInsert["fresh_inserts_total"])
+	}
+	if afterInsert["rerun_updates_total"] != 0 {
+		t.Fatalf("expected rerun_updates_total=0, got %d", afterInsert["rerun_updates_total"])
+	}
+
+	updateDB := openBacktestScriptedDB(t, []backtestScriptedStep{
+		{op: "exec", queryContains: "INSERT INTO backtest_runs", result: driver.RowsAffected(0)},
+	})
+	defer func() { _ = updateDB.Close() }()
+
+	updateRepo := NewBacktestSyncRepository(updateDB)
+	if err := updateRepo.UpsertBacktestRun(BacktestRunSyncPayload{
+		RunID: "run-insert-1", UserID: 101, Status: "running",
+		StartDate: "2026-04-01", EndDate: "2026-04-02", NumPairs: 1, TotalMarkets: 3,
+	}); err != nil {
+		t.Fatalf("update upsert returned error: %v", err)
+	}
+
+	afterUpdate := BacktestRunSyncOutcomeCounters()
+	if afterUpdate["fresh_inserts_total"] != 1 {
+		t.Fatalf("expected fresh_inserts_total=1 after update, got %d", afterUpdate["fresh_inserts_total"])
+	}
+	if afterUpdate["rerun_updates_total"] != 1 {
+		t.Fatalf("expected rerun_updates_total=1 after update, got %d", afterUpdate["rerun_updates_total"])
 	}
 }
 

@@ -259,6 +259,7 @@ func TestDelegateInterruptedBacktestsRoutes(t *testing.T) {
 	limitQuery := make(chan string, 1)
 	dryRunQuery := make(chan string, 1)
 	adminDryRunQuery := make(chan string, 1)
+	repairDryRunQuery := make(chan string, 1)
 
 	upstreamMux := http.NewServeMux()
 	upstreamMux.HandleFunc("/api/v1/backtests/interrupted", func(w http.ResponseWriter, r *http.Request) {
@@ -279,6 +280,11 @@ func TestDelegateInterruptedBacktestsRoutes(t *testing.T) {
 		adminDryRunQuery <- r.URL.Query().Get("dry_run")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"interruption_error":"restart","dry_run":true,"candidates":[],"reconciled":[],"candidate_count":0,"reconciled_count":0,"count":0},"timestamp":"2026-04-04T00:00:00Z"}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/admin/backtests/run-1/repair-request", func(w http.ResponseWriter, r *http.Request) {
+		repairDryRunQuery <- r.URL.Query().Get("dry_run")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"run_id":"run-1","request_available":true,"repaired":true,"dry_run":false},"timestamp":"2026-04-04T00:00:00Z"}`))
 	})
 
 	router, dbConn := setupDelegatedBacktestAuthRouter(t, upstreamMux)
@@ -366,6 +372,29 @@ func TestDelegateInterruptedBacktestsRoutes(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for admin reconcile dry_run query")
+	}
+
+	req, err = http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/admin/backtests/run-1/repair-request?dry_run=false", nil)
+	if err != nil {
+		t.Fatalf("build admin repair request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("admin repair request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected admin repair status: %d", resp.StatusCode)
+	}
+
+	select {
+	case dryRun := <-repairDryRunQuery:
+		if dryRun != "false" {
+			t.Fatalf("expected repair dry_run=false upstream, got %q", dryRun)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for repair dry_run query")
 	}
 }
 

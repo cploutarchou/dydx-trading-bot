@@ -775,6 +775,14 @@ func (c *BotAPIClient) RetryBacktest(runID string) (map[string]interface{}, erro
 	return c.makeRequest("POST", endpoint, nil)
 }
 
+// RepairBacktestRequest reconstructs and persists a missing backtest request payload.
+func (c *BotAPIClient) RepairBacktestRequest(runID string, dryRun bool) (map[string]interface{}, error) {
+	query := url.Values{}
+	query.Set("dry_run", strconv.FormatBool(dryRun))
+	endpoint := fmt.Sprintf("/api/v1/admin/backtests/%s/repair-request?%s", runID, query.Encode())
+	return c.makeRequest("POST", endpoint, nil)
+}
+
 // DeleteBacktest deletes a backtest
 func (c *BotAPIClient) DeleteBacktest(runID string) (map[string]interface{}, error) {
 	endpoint := fmt.Sprintf("/api/v1/backtests/%s", runID)

@@ -1760,9 +1760,20 @@ export const BacktestDetailsV2: React.FC = () => {
                 : action === 'retry'
                   ? await api.retryBacktest(runId)
                   : action === 'repairRestart'
-                    ? await api
-                        .repairBacktestRequest(runId, false)
-                        .then(() => api.restartBacktest(runId))
+                    ? await (async () => {
+                        await api.repairBacktestRequest(runId, false);
+                        const repairedResponse = await api.getBacktest(runId);
+                        const repairedPayload = asRecord(
+                          repairedResponse?.data || repairedResponse
+                        );
+                        const repairedRequestAvailable = Boolean(
+                          repairedPayload?.request_available || asRecord(repairedPayload?.request)
+                        );
+                        if (!repairedRequestAvailable) {
+                          throw new Error('Backtest request is still unavailable after repair');
+                        }
+                        return api.restartBacktest(runId);
+                      })()
                     : await api.retryBacktest(runId);
 
       const payload = asRecord(response?.data || response);

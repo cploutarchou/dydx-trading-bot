@@ -424,6 +424,95 @@ def test_retry_backtest_starts_new_run_from_persisted_request(monkeypatch):
     asyncio.run(_run())
 
 
+def test_restart_backtest_reconstructs_missing_request_from_persisted_fields(
+    monkeypatch,
+):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    async def _fake_connect():
+        return _FakeClient()
+
+    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+
+    service = BacktestService(session=None)
+    run_id = "legacy-restart-run"
+    now = datetime.now(timezone.utc).isoformat()
+    service.repository.save_run(
+        {
+            "run_id": run_id,
+            "name": "legacy restart",
+            "status": "completed",
+            "progress_pct": 100.0,
+            "current_pair": "BTC-USD/ETH-USD",
+            "current_task": "complete",
+            "created_at": now,
+            "updated_at": now,
+            "start_date": "2026-03-20",
+            "end_date": "2026-04-19",
+            "selected_pairs": ["BTC-USD/ETH-USD"],
+            "request": {},
+        }
+    )
+
+    async def _run():
+        restarted = await service.restart_backtest(run_id)
+        assert restarted is not None
+        assert restarted["run_id"] == run_id
+        assert restarted["new_run_id"] != run_id
+
+    asyncio.run(_run())
+
+
+def test_repair_backtest_request_restores_restartability(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    async def _fake_connect():
+        return _FakeClient()
+
+    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+
+    service = BacktestService(session=None)
+    run_id = "legacy-repair-run"
+    now = datetime.now(timezone.utc).isoformat()
+    service.repository.save_run(
+        {
+            "run_id": run_id,
+            "name": "legacy repair",
+            "status": "completed",
+            "progress_pct": 100.0,
+            "current_pair": "BTC-USD/ETH-USD",
+            "current_task": "complete",
+            "created_at": now,
+            "updated_at": now,
+            "start_date": "2026-03-20",
+            "end_date": "2026-04-19",
+            "selected_pairs": ["BTC-USD/ETH-USD"],
+            "request": {},
+        }
+    )
+
+    dry_run = service.repair_backtest_request(run_id, dry_run=True)
+    assert dry_run is not None
+    assert dry_run["repairable"] is True
+    assert dry_run["repaired"] is False
+
+    repaired = service.repair_backtest_request(run_id, dry_run=False)
+    assert repaired is not None
+    assert repaired["repaired"] is True
+    assert repaired["request_available"] is True
+
+    status = service.get_backtest_status(run_id)
+    assert status is not None
+    assert status.request_available is True
+    assert status.request is not None
+
+    restarted = asyncio.run(service.restart_backtest(run_id))
+    assert restarted is not None
+    assert restarted["new_run_id"] != run_id
+
+
 def test_celery_worker_backend_queues_persisted_run(monkeypatch):
     _, service_module = _load_modules()
     BacktestService = service_module.BacktestService

@@ -64,9 +64,11 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   const errRecord = toRecord(error);
   const response = toRecord(errRecord.response);
   const data = toRecord(response.data);
-  const messageFromApi = data.message;
-  if (typeof messageFromApi === 'string' && messageFromApi.length > 0) {
-    return messageFromApi;
+  const messageCandidates = [data.error, data.message, data.detail, toRecord(data.data).error];
+  for (const candidate of messageCandidates) {
+    if (typeof candidate === 'string' && candidate.length > 0) {
+      return candidate;
+    }
   }
   return error instanceof Error ? error.message : fallback;
 };

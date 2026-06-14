@@ -11,6 +11,7 @@ import os
 import random
 import time
 import traceback as traceback_module
+from contextlib import suppress
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Awaitable, Dict, List, Optional, cast
 from uuid import uuid4
@@ -178,6 +179,7 @@ class BacktestService:
     _SIMULATION_YIELD_EVERY_STEPS = 200
     _HEAVY_PROGRESS_PERSIST_EVERY_PAIRS = 10
     _HEAVY_PROGRESS_PERSIST_EVERY_SECONDS = 15.0
+    _HEARTBEAT_KEEPALIVE_SECONDS = 30.0
     _STALE_BACKTEST_HEARTBEAT_SECONDS = 120.0
     _TERMINAL_STATUSES = {
         "completed",
@@ -930,6 +932,46 @@ class BacktestService:
             status = "stale"
         payload["cancellable"] = status not in cls._TERMINAL_STATUSES
         return cls._apply_control_observability(payload)
+
+    @classmethod
+    def _heartbeat_keepalive_seconds(cls) -> float:
+        raw = os.getenv("BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS")
+        if raw is None:
+            stale_threshold = cls._stale_backtest_heartbeat_seconds()
+            return min(
+                float(cls._HEARTBEAT_KEEPALIVE_SECONDS), max(0.1, stale_threshold / 3.0)
+            )
+        try:
+            return max(0.1, float(raw))
+        except (TypeError, ValueError):
+            stale_threshold = cls._stale_backtest_heartbeat_seconds()
+            return min(
+                float(cls._HEARTBEAT_KEEPALIVE_SECONDS), max(0.1, stale_threshold / 3.0)
+            )
+
+    async def _run_backtest_heartbeat_keepalive(
+        self,
+        run_id: str,
+        deadline_monotonic: float,
+    ) -> None:
+        interval = self._heartbeat_keepalive_seconds()
+        while self._remaining_seconds(deadline_monotonic) > 0:
+            sleep_for = min(
+                interval, max(0.1, self._remaining_seconds(deadline_monotonic))
+            )
+            await asyncio.sleep(sleep_for)
+
+            run_data = self._load_run_data(run_id)
+            if not run_data:
+                return
+
+            status = self._canonical_status(run_data.get("status"))
+            if status in self._TERMINAL_STATUSES:
+                return
+
+            self._update_run_data(
+                run_id, updated_at=datetime.now(timezone.utc).isoformat()
+            )
 
     def _resolve_stale_run_data(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
         observed = self._with_status_observability(run_data)
@@ -2351,6 +2393,7 @@ class BacktestService:
 
         client = None
         history_fetch_telemetry: Dict[str, Dict[str, Any]] = {}
+        heartbeat_task: Optional[asyncio.Task] = None
         try:
             timeout_seconds = float(
                 run_data.get("timeout_seconds")
@@ -2444,6 +2487,10 @@ class BacktestService:
 
             if not pair_markets:
                 raise ValueError("No valid market pairs available from request")
+
+            heartbeat_task = asyncio.create_task(
+                self._run_backtest_heartbeat_keepalive(run_id, deadline_monotonic)
+            )
 
             client = await self._await_with_deadline(
                 cast(Awaitable[Any], connect_dydx()),
@@ -2917,6 +2964,17 @@ class BacktestService:
             run_data = self._persist_run_data(run_data)
             async_job_manager.mark_failed(run_id, error_message)
         finally:
+            if heartbeat_task is not None:
+                heartbeat_task.cancel()
+                try:
+                    with suppress(asyncio.CancelledError):
+                        await heartbeat_task
+                except Exception as exc:
+                    logger.warning(
+                        "Backtest heartbeat keepalive task failed for run %s: %s",
+                        run_id,
+                        exc,
+                    )
             self._tasks.pop(run_id, None)
             if client is not None:
                 try:

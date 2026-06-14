@@ -116,6 +116,10 @@ This path submits a real Nomad job (`nomad job run ...`) so allocations and stat
 - treat generated artifacts such as `bot/openapi.json` as canonical contracts when detailed schema accuracy matters
 - run `python3 scripts/validate_docs_governance.py` before merge for doc/contract changes
 
+Backtest runtime tuning note: active long-running backtests refresh their heartbeat periodically to avoid false stale
+classification. `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS` controls that cadence, and staging already pins it in
+`deploy/k8s/dydx-trading-bot-staging.yaml`.
+
 ## Arbitrage Improvement Flags
 
 New live-arbitrage efficiency behavior is disabled by default. These env vars are startup

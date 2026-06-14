@@ -1,0 +1,23 @@
+# Platform Wiki Home
+
+This folder collects platform-level notes, audits, and rollout guidance that cut across the individual service READMEs.
+
+## Start here
+
+- [Root repository README](/home/chris/workspace/dydx-trading-bot/README.md)
+- [Bot service README](/home/chris/workspace/dydx-trading-bot/bot/README.md)
+- [Backend service README](/home/chris/workspace/dydx-trading-bot/backend/README.md)
+- [Frontend service README](/home/chris/workspace/dydx-trading-bot/frontend/README.md)
+
+## Operational notes
+
+- Backtest heartbeat tuning and stale-run behavior are documented in [bot/README.md](/home/chris/workspace/dydx-trading-bot/bot/README.md).
+- Staging deploy defaults for the backtest heartbeat keepalive are pinned in `deploy/k8s/dydx-trading-bot-staging.yaml`.
+
+## Local docs in this folder
+
+- [Database migrations audit](database-migrations.md)
+- [Database migration audit](database-migration-audit.md)
+- Database removal notes and migration cleanup audit are tracked alongside the other docs in this folder.
+- [Scripts usage audit](scripts-usage-audit.md)
+- [Admin coming soon and light theme plan](admin-coming-soon-and-light-theme-plan.md)

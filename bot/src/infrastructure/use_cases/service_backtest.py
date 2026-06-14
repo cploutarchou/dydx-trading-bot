@@ -916,7 +916,7 @@ class BacktestService:
         payload["last_heartbeat_at"] = payload.get("updated_at")
         payload["heartbeat_age_seconds"] = cls._heartbeat_age_seconds(payload)
         if (
-            status in {"pending", "running"}
+            status == "running"
             and payload["heartbeat_age_seconds"] is not None
             and payload["heartbeat_age_seconds"]
             > cls._stale_backtest_heartbeat_seconds()
@@ -996,10 +996,7 @@ class BacktestService:
                 persisted["completed_at"] = persisted["finished_at"]
             return self._with_status_observability(self._persist_run_data(persisted))
 
-        if observed.get("status") != "stale" or original_status not in {
-            "pending",
-            "running",
-        }:
+        if observed.get("status") != "stale" or original_status != "running":
             return observed
 
         stalled = dict(run_data)

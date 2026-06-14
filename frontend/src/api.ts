@@ -4,15 +4,15 @@
 
 import axios, { AxiosError, AxiosInstance, AxiosRequestHeaders } from 'axios';
 import {
-    guardBacktestStatusContract,
-    guardListBacktestsContract,
-    guardRunBacktestContract,
-    guardSyncHealthContract,
+  guardBacktestStatusContract,
+  guardListBacktestsContract,
+  guardRunBacktestContract,
+  guardSyncHealthContract,
 } from './api/contractGuards';
 import {
-    getBackendHttpBase,
-    resolveBackendWebSocketUrl,
-    shouldAttemptCookieSessionBootstrap,
+  getBackendHttpBase,
+  resolveBackendWebSocketUrl,
+  shouldAttemptCookieSessionBootstrap,
 } from './api/origin';
 import { attachTraceHeader, traceHeaderName } from './api/trace';
 import { getCurrentPortalType } from './app/portal';

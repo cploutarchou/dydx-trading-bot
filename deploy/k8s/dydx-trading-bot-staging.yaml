@@ -744,6 +744,8 @@ kind: Service
 metadata:
   name: dydx-backend
   namespace: dydx-staging
+  labels:
+    app: dydx-backend
 spec:
   selector:
     app: dydx-backend

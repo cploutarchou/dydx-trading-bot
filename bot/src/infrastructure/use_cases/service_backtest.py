@@ -3581,65 +3581,6 @@ class BacktestService:
             self.cancel_backtest(run_id)
             await asyncio.sleep(0)
 
-        def repair_backtest_request(
-            self,
-            run_id: str,
-            dry_run: bool = True,
-        ) -> Optional[Dict[str, Any]]:
-            data = self._load_run_data(run_id)
-            if not data:
-                return None
-
-            existing_request = self._strip_runtime_control(data.get("request") or {})
-            reconstructed_request = self._reconstruct_restart_request_payload(data)
-            repairable = bool(reconstructed_request)
-            request_available = bool(existing_request)
-
-            if not repairable:
-                return {
-                    "run_id": run_id,
-                    "dry_run": bool(dry_run),
-                    "repaired": False,
-                    "request_available": request_available,
-                    "repairable": False,
-                    "status": str(data.get("status") or "unknown"),
-                    "error": "insufficient_fields_to_reconstruct_request",
-                }
-
-            if dry_run or request_available:
-                return {
-                    "run_id": run_id,
-                    "dry_run": bool(dry_run),
-                    "repaired": False,
-                    "request_available": request_available,
-                    "repairable": True,
-                    "status": str(data.get("status") or "unknown"),
-                    "selected_pairs": list(
-                        reconstructed_request.get("selected_pairs") or []
-                    ),
-                    "pairs": list(reconstructed_request.get("pairs") or []),
-                }
-
-            updated = dict(data)
-            updated["request"] = reconstructed_request
-            updated["updated_at"] = datetime.now(timezone.utc).isoformat()
-            persisted = self._persist_run_data(updated)
-
-            return {
-                "run_id": run_id,
-                "dry_run": False,
-                "repaired": True,
-                "request_available": True,
-                "repairable": True,
-                "status": str(
-                    persisted.get("status") or data.get("status") or "unknown"
-                ),
-                "selected_pairs": list(
-                    reconstructed_request.get("selected_pairs") or []
-                ),
-                "pairs": list(reconstructed_request.get("pairs") or []),
-            }
-
         created = await self.create_and_run_backtest(request_payload, progress_callback)
         return {
             "run_id": run_id,
@@ -3648,6 +3589,61 @@ class BacktestService:
             "new_status": created.status,
             "worker_backend": created.worker_backend
             or self._configured_worker_backend(),
+        }
+
+    def repair_backtest_request(
+        self,
+        run_id: str,
+        dry_run: bool = True,
+    ) -> Optional[Dict[str, Any]]:
+        data = self._load_run_data(run_id)
+        if not data:
+            return None
+
+        existing_request = self._strip_runtime_control(data.get("request") or {})
+        reconstructed_request = self._reconstruct_restart_request_payload(data)
+        repairable = bool(reconstructed_request)
+        request_available = bool(existing_request)
+
+        if not repairable:
+            return {
+                "run_id": run_id,
+                "dry_run": bool(dry_run),
+                "repaired": False,
+                "request_available": request_available,
+                "repairable": False,
+                "status": str(data.get("status") or "unknown"),
+                "error": "insufficient_fields_to_reconstruct_request",
+            }
+
+        if dry_run or request_available:
+            return {
+                "run_id": run_id,
+                "dry_run": bool(dry_run),
+                "repaired": False,
+                "request_available": request_available,
+                "repairable": True,
+                "status": str(data.get("status") or "unknown"),
+                "selected_pairs": list(
+                    reconstructed_request.get("selected_pairs") or []
+                ),
+                "pairs": list(reconstructed_request.get("pairs") or []),
+            }
+
+        updated = dict(data)
+        updated["request"] = reconstructed_request
+        updated["updated_at"] = datetime.now(timezone.utc).isoformat()
+        persisted = self._persist_run_data(updated)
+
+        return {
+            "run_id": run_id,
+            "dry_run": False,
+            "repaired": True,
+            "request_available": True,
+            "repairable": True,
+            "status": str(persisted.get("status") or data.get("status") or "unknown"),
+            "selected_pairs": list(reconstructed_request.get("selected_pairs") or []),
+            "pairs": list(reconstructed_request.get("pairs") or []),
         }
 
     async def retry_backtest(

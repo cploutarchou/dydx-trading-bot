@@ -3328,6 +3328,18 @@ class ApiClient {
     return response.data;
   }
 
+  async repairBacktestRequest(
+    runId: string,
+    dryRun: boolean = true
+  ): Promise<ApiResponse<Record<string, unknown>>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<Record<string, unknown>>>(
+      `/api/v1/admin/backtests/${runId}/repair-request?dry_run=${dryRun}`,
+      {}
+    );
+    return response.data;
+  }
+
   async retryBacktest(runId: string): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
     const response = await this.client.post<ApiResponse<Record<string, unknown>>>(

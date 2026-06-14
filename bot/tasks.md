@@ -38,3 +38,10 @@
 - Resolved final full-suite blocker by converting `tests/test_comprehensive.py` from script-style execution to pytest test functions (removed import-time `sys.exit(...)` behavior).
 - Final validation:
   - `./.venv/bin/python -m pytest -q` -> `173 passed, 2 skipped, 3 warnings`
+
+## 2026-06-14
+
+- Added restart recovery support for legacy backtest rows whose request blob was missing:
+  - restart/retry now reconstruct request payloads from persisted run fields when possible
+  - added `scripts/repair_backtest_requests.py` for one-off backfills of older rows
+- Documented the repair flow in `bot/README.md` so operators can repair and restart stale legacy runs.

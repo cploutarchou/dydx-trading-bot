@@ -35,9 +35,8 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, PlainTextResponse
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
-from starlette.concurrency import run_in_threadpool
-
 from src.shared.env_loader import load_repo_env
+from starlette.concurrency import run_in_threadpool
 
 # Load structured config BEFORE importing project modules that initialize config/database.
 load_repo_env(__file__)
@@ -4772,6 +4771,31 @@ def _reconcile_interrupted_backtests_response(dry_run: bool):
         )
 
 
+def _repair_backtest_request_response(run_id: str, dry_run: bool):
+    """Shared response builder for request repair routes."""
+    try:
+        with backtest_service_scope() as service:
+            report = service.repair_backtest_request(run_id, dry_run=dry_run)
+        if report is None:
+            return api_response(
+                success=False,
+                message=f"Backtest '{run_id}' not found",
+                status_code=404,
+            )
+
+        message = (
+            f"Dry-run completed for backtest '{run_id}' request repair"
+            if dry_run
+            else f"Backtest '{run_id}' request payload repaired"
+        )
+        return api_response(success=True, data=report, message=message)
+    except Exception as e:
+        logger.error(f"Error repairing backtest request: {e}")
+        return api_response(
+            success=False, message=f"Internal server error: {str(e)}", status_code=500
+        )
+
+
 @app.get("/api/v1/admin/backtests/interrupted")
 async def list_interrupted_backtests_admin(
     limit: int = 50,
@@ -4790,6 +4814,17 @@ async def reconcile_interrupted_backtests_admin(
     """Admin-scoped alias for explicit interrupted backtest reconciliation."""
     _ = current_user
     return _reconcile_interrupted_backtests_response(dry_run=dry_run)
+
+
+@app.post("/api/v1/admin/backtests/{run_id}/repair-request")
+async def repair_backtest_request_admin(
+    run_id: str,
+    dry_run: bool = True,
+    current_user: User = Depends(get_admin_user),
+):
+    """Admin-scoped repair for legacy backtests missing request payloads."""
+    _ = current_user
+    return _repair_backtest_request_response(run_id=run_id, dry_run=dry_run)
 
 
 @app.get("/api/v1/backtests/{run_id}", response_model=BacktestDetailResponse)
@@ -5117,24 +5152,6 @@ async def restart_backtest(
                     message=f"Backtest '{run_id}' not found",
                     status_code=404,
                 )
-            request_available = bool(
-                getattr(status, "request_available", False)
-                or getattr(status, "request", None)
-            )
-            if not request_available:
-                return api_response(
-                    success=False,
-                    message=(
-                        f"Backtest '{run_id}' cannot be restarted: original request payload is unavailable"
-                    ),
-                    status_code=409,
-                    data={
-                        "run_id": run_id,
-                        "status": status.status,
-                        "request_available": False,
-                        "error": "missing_original_request_payload",
-                    },
-                )
             result = await service.restart_backtest(
                 run_id, _broadcast_backtest_progress
             )
@@ -5171,24 +5188,6 @@ async def retry_backtest(
                     success=False,
                     message=f"Backtest '{run_id}' not found",
                     status_code=404,
-                )
-            request_available = bool(
-                getattr(status, "request_available", False)
-                or getattr(status, "request", None)
-            )
-            if not request_available:
-                return api_response(
-                    success=False,
-                    message=(
-                        f"Backtest '{run_id}' cannot be retried: original request payload is unavailable"
-                    ),
-                    status_code=409,
-                    data={
-                        "run_id": run_id,
-                        "status": status.status,
-                        "request_available": False,
-                        "error": "missing_original_request_payload",
-                    },
                 )
             result = await service.retry_backtest(run_id, _broadcast_backtest_progress)
         if not result:

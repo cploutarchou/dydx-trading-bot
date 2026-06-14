@@ -6,27 +6,27 @@
  */
 
 import {
-	Activity,
-	Bot,
-	CalendarRange,
-	CandlestickChart,
-	CircleDot,
-	Clock3,
-	Gauge,
-	Layers,
-	Loader,
-	Pause,
-	Percent,
-	Play,
-	Radar,
-	Rocket,
-	RotateCcw,
-	Scale,
-	ShieldCheck,
-	Square,
-	TrendingDown,
-	TrendingUp,
-	Waves,
+  Activity,
+  Bot,
+  CalendarRange,
+  CandlestickChart,
+  CircleDot,
+  Clock3,
+  Gauge,
+  Layers,
+  Loader,
+  Pause,
+  Percent,
+  Play,
+  Radar,
+  Rocket,
+  RotateCcw,
+  Scale,
+  ShieldCheck,
+  Square,
+  TrendingDown,
+  TrendingUp,
+  Waves,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -35,19 +35,20 @@ import { enhancedApiClient } from '../api/enhancedClient';
 import { useBacktestProgress } from '../api/hooks';
 import { AIBacktestExplainer } from '../components/AIBacktestExplainer';
 import BacktestLightweightChart, {
-	type BacktestChartMarker,
-	type BacktestChartPoint,
+  type BacktestChartMarker,
+  type BacktestChartPoint,
 } from '../components/BacktestLightweightChart';
 import BacktestPositionsPanel from '../components/BacktestPositionsPanel';
 import { BacktestResultsEnhanced } from '../components/BacktestResultsEnhanced';
 import BacktestTradesPanel from '../components/BacktestTradesPanel';
 import { PageContainer } from '../components/PageContainer';
 import {
-	LiveStateBadge,
-	formatBacktestProgressSourceLabel,
-	resolveBacktestStreamBadge,
+  LiveStateBadge,
+  formatBacktestProgressSourceLabel,
+  resolveBacktestStreamBadge,
 } from '../components/ui/LiveState';
 import { usePersistentPreference } from '../hooks/usePersistentPreference';
+import { useAuthStore } from '../store/auth';
 
 interface Candle {
   market: string;
@@ -122,6 +123,7 @@ interface BacktestResponse {
   pausable?: boolean;
   resumable?: boolean;
   restartable?: boolean;
+  request_available?: boolean;
   control_status?: string;
   control_action?: string;
   worker_backend?: string;
@@ -166,6 +168,7 @@ interface DetailSyncState {
 
 type ChartRange = '7D' | '30D' | '90D' | 'ALL';
 type DetailTab = 'summary' | 'candles' | 'positions' | 'trades' | 'results';
+type ControlAction = 'pause' | 'resume' | 'cancel' | 'restart' | 'retry' | 'repairRestart';
 
 const BACKTEST_DETAIL_TABS: readonly DetailTab[] = [
   'summary',
@@ -524,8 +527,9 @@ export const BacktestDetailsV2: React.FC = () => {
     }
   );
   const [liveLogs, setLiveLogs] = useState<BacktestLogEntry[]>([]);
-  const [controlAction, setControlAction] = useState<string | null>(null);
+  const [controlAction, setControlAction] = useState<ControlAction | null>(null);
   const [controlError, setControlError] = useState<string | null>(null);
+  const user = useAuthStore((state) => state.user);
   const [runtimeNetwork, setRuntimeNetwork] = useState<'testnet' | 'mainnet'>('testnet');
   const [promotionAction, setPromotionAction] = useState<'create' | 'start' | null>(null);
   const [promotionMessage, setPromotionMessage] = useState<string | null>(null);
@@ -536,6 +540,9 @@ export const BacktestDetailsV2: React.FC = () => {
   const liveLogCounterRef = useRef(0);
 
   const backtestStatus = normalizeStatus(backtest?.status);
+  const isStrictAdmin =
+    Boolean(user?.is_admin) ||
+    ['admin', 'super_admin', 'backoffice_admin'].includes(String(user?.role || ''));
   const linkedStrategyId = useMemo(() => {
     const request = asRecord(backtest?.request);
     return firstFiniteNumber(backtest?.strategy_id, request?.strategy_id);
@@ -1223,6 +1230,12 @@ export const BacktestDetailsV2: React.FC = () => {
     pausable: Boolean(liveRecord?.pausable ?? backtest.pausable),
     resumable: Boolean(liveRecord?.resumable ?? backtest.resumable),
     restartable: Boolean(liveRecord?.restartable ?? backtest.restartable ?? true),
+    request_available:
+      typeof liveRecord?.request_available === 'boolean'
+        ? liveRecord.request_available
+        : typeof backtest.request_available === 'boolean'
+          ? backtest.request_available
+          : Boolean(asRecord(liveRecord?.request) || backtest.request),
     control_status:
       firstMeaningfulString(liveRecord?.control_status, backtest.control_status) ??
       backtest.control_status,
@@ -1677,21 +1690,49 @@ export const BacktestDetailsV2: React.FC = () => {
     Boolean(runId) &&
     !controlBusy &&
     (liveBacktest.restartable || isFailed || isCompleted || isPaused);
+  const canRepairRestart = Boolean(runId) && !controlBusy && canRestart && isStrictAdmin;
   const canRetry = Boolean(runId) && !controlBusy && isFailed;
+  const requestAvailable = Boolean(liveBacktest.request_available ?? liveBacktest.request);
+  const recoverySummaryLabel = requestAvailable
+    ? 'Request payload available'
+    : 'Request payload missing';
+  const recoverySummaryTone = requestAvailable
+    ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-100'
+    : canRepairRestart
+      ? 'border-fuchsia-500/25 bg-fuchsia-500/10 text-fuchsia-100'
+      : 'border-amber-500/25 bg-amber-500/10 text-amber-100';
+  const recoveryRepairability = requestAvailable
+    ? 'No repair needed'
+    : canRepairRestart
+      ? 'Repairable by admin'
+      : 'Repair blocked';
+  const recoverySummaryHint = requestAvailable
+    ? 'Restart uses the saved request directly.'
+    : canRepairRestart
+      ? 'Admin repair is available before restart.'
+      : 'Restart may fail until the request is repaired by an admin.';
 
-  const handleBacktestControl = async (
-    action: 'pause' | 'resume' | 'cancel' | 'restart' | 'retry'
-  ) => {
+  const handleBacktestControl = async (action: ControlAction) => {
     if (!runId) return;
 
     setControlAction(action);
     setControlError(null);
 
     const runFromPersistedRequest = async () => {
-      const requestPayload = asRecord(liveBacktest.request);
+      let requestPayload = asRecord(liveBacktest.request) || asRecord(backtest.request);
+      if (!requestPayload) {
+        if (!isStrictAdmin) {
+          throw new Error('Original backtest request is unavailable');
+        }
+        await api.repairBacktestRequest(runId, false);
+        const repairedResponse = await api.getBacktest(runId);
+        const repairedPayload = asRecord(repairedResponse?.data || repairedResponse);
+        requestPayload = asRecord(repairedPayload?.request);
+      }
       if (!requestPayload) {
         throw new Error('Original backtest request is unavailable');
       }
+
       const cleanRequest = { ...requestPayload };
       delete cleanRequest._runtime_control;
       cleanRequest.source = 'backtest-rerun';
@@ -1716,11 +1757,17 @@ export const BacktestDetailsV2: React.FC = () => {
               ? await api.cancelBacktest(runId)
               : action === 'restart'
                 ? await api.restartBacktest(runId)
-                : await api.retryBacktest(runId);
+                : action === 'retry'
+                  ? await api.retryBacktest(runId)
+                  : action === 'repairRestart'
+                    ? await api
+                        .repairBacktestRequest(runId, false)
+                        .then(() => api.restartBacktest(runId))
+                    : await api.retryBacktest(runId);
 
       const payload = asRecord(response?.data || response);
       const newRunId = toStringValue(payload?.new_run_id);
-      if ((action === 'restart' || action === 'retry') && newRunId) {
+      if ((action === 'restart' || action === 'retry' || action === 'repairRestart') && newRunId) {
         navigate(`/backtest/${newRunId}`);
         return;
       }
@@ -1737,7 +1784,10 @@ export const BacktestDetailsV2: React.FC = () => {
         (err as { message?: unknown } | null)?.message
       );
 
-      if ((action === 'restart' || action === 'retry') && statusCode === 409) {
+      if (
+        (action === 'restart' || action === 'retry' || action === 'repairRestart') &&
+        statusCode === 409
+      ) {
         await fetchBacktestMetadata(false);
         setControlError(
           conflictMessage ||
@@ -1746,7 +1796,10 @@ export const BacktestDetailsV2: React.FC = () => {
         return;
       }
 
-      if ((action === 'restart' || action === 'retry') && statusCode === 404) {
+      if (
+        (action === 'restart' || action === 'retry' || action === 'repairRestart') &&
+        statusCode === 404
+      ) {
         try {
           await runFromPersistedRequest();
           return;
@@ -1933,6 +1986,55 @@ export const BacktestDetailsV2: React.FC = () => {
                   Source {progressSourceLabel}
                 </span>
               </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className={`rounded-2xl border px-4 py-3 ${recoverySummaryTone}`}>
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-current/70">
+                    Recovery status
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-white">{recoverySummaryLabel}</p>
+                  {canRepairRestart && !requestAvailable ? (
+                    <button
+                      type="button"
+                      onClick={() => handleBacktestControl('repairRestart')}
+                      disabled={controlBusy}
+                      className="mt-1 inline-flex items-center rounded-full border border-current/20 bg-white/5 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-current/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {controlAction === 'repairRestart' ? 'Repairing…' : recoveryRepairability}
+                    </button>
+                  ) : (
+                    <p className="mt-1 text-xs font-medium uppercase tracking-[0.14em] text-current/70">
+                      {recoveryRepairability}
+                    </p>
+                  )}
+                  <p className="mt-1 text-xs leading-5 text-current/75">{recoverySummaryHint}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                    Repair & restart
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-slate-100">
+                    {canRepairRestart ? 'Enabled for admin access' : 'Not available here'}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-slate-400">
+                    {canRepairRestart
+                      ? 'Repairs the missing request payload, then relaunches the run.'
+                      : 'Use the standard restart flow or repair the run through the admin endpoint.'}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                    Current recovery
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-slate-100">
+                    {canRestart ? 'Restartable' : 'Terminal / locked'}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-slate-400">
+                    {isFailed || statusNorm === 'stale'
+                      ? 'This run is terminal; repair it before trying again.'
+                      : 'This run can be controlled normally.'}
+                  </p>
+                </div>
+              </div>
               <div className="flex flex-wrap items-center gap-2 pt-2">
                 <span className="rounded-full border border-slate-700 bg-slate-950/70 px-3 py-1 text-xs text-slate-400">
                   Worker {liveBacktest.worker_backend || 'asyncio'}
@@ -1973,6 +2075,17 @@ export const BacktestDetailsV2: React.FC = () => {
                   <RotateCcw className="h-4 w-4" />
                   {controlAction === 'restart' ? 'Restarting' : 'Restart'}
                 </button>
+                {canRepairRestart && (
+                  <button
+                    type="button"
+                    onClick={() => handleBacktestControl('repairRestart')}
+                    disabled={!canRepairRestart}
+                    className="inline-flex items-center gap-2 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/10 px-3 py-2 text-xs font-medium text-fuchsia-100 transition hover:bg-fuchsia-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <ShieldCheck className="h-4 w-4" />
+                    {controlAction === 'repairRestart' ? 'Repairing' : 'Repair & Restart'}
+                  </button>
+                )}
                 {canRetry && (
                   <button
                     type="button"

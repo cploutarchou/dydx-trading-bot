@@ -261,7 +261,7 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 			strategy_id = COALESCE(VALUES(strategy_id), strategy_id)
 	`
 
-		sqliteUpsertQuery := `
+		insertQuery := `
 		INSERT INTO backtest_runs (
 			run_id, status, created_at, started_at, completed_at, duration_seconds,
 			start_date, end_date, num_pairs, total_markets, resolution, config,
@@ -275,28 +275,32 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 			?, ?, ?, ?,
 			?, ?, ?
 		)
-		ON CONFLICT(run_id) DO UPDATE SET
-			status = excluded.status,
-			user_id = excluded.user_id,
-			start_date = excluded.start_date,
-			end_date = excluded.end_date,
-			num_pairs = excluded.num_pairs,
-			total_markets = excluded.total_markets,
-			resolution = excluded.resolution,
-			config = excluded.config,
-			started_at = COALESCE(excluded.started_at, started_at),
-			completed_at = COALESCE(excluded.completed_at, completed_at),
-			duration_seconds = COALESCE(excluded.duration_seconds, duration_seconds),
-			error_message = COALESCE(excluded.error_message, error_message),
-			total_trades = COALESCE(excluded.total_trades, total_trades),
-			profitable_trades = COALESCE(excluded.profitable_trades, profitable_trades),
-			losing_trades = COALESCE(excluded.losing_trades, losing_trades),
-			win_rate = COALESCE(excluded.win_rate, win_rate),
-			total_pnl = COALESCE(excluded.total_pnl, total_pnl),
-			total_pnl_usd = COALESCE(excluded.total_pnl_usd, total_pnl_usd),
-			sharpe_ratio = COALESCE(excluded.sharpe_ratio, sharpe_ratio),
-			max_drawdown = COALESCE(excluded.max_drawdown, max_drawdown),
-			strategy_id = COALESCE(excluded.strategy_id, strategy_id)
+	`
+
+		updateQuery := `
+		UPDATE backtest_runs
+		SET status = ?,
+			user_id = ?,
+			start_date = ?,
+			end_date = ?,
+			num_pairs = ?,
+			total_markets = ?,
+			resolution = ?,
+			config = ?,
+			started_at = COALESCE(?, started_at),
+			completed_at = COALESCE(?, completed_at),
+			duration_seconds = COALESCE(?, duration_seconds),
+			error_message = COALESCE(?, error_message),
+			total_trades = COALESCE(?, total_trades),
+			profitable_trades = COALESCE(?, profitable_trades),
+			losing_trades = COALESCE(?, losing_trades),
+			win_rate = COALESCE(?, win_rate),
+			total_pnl = COALESCE(?, total_pnl),
+			total_pnl_usd = COALESCE(?, total_pnl_usd),
+			sharpe_ratio = COALESCE(?, sharpe_ratio),
+			max_drawdown = COALESCE(?, max_drawdown),
+			strategy_id = COALESCE(?, strategy_id)
+		WHERE run_id = ?
 	`
 
 		upsertArgs := []interface{}{
@@ -327,7 +331,43 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 
 		execResult, err := r.db.Exec(upsertQuery, upsertArgs...)
 		if err != nil && isUpsertDialectError(err) {
-			execResult, err = r.db.Exec(sqliteUpsertQuery, upsertArgs...)
+			updateArgs := []interface{}{
+				payload.Status,
+				payload.UserID,
+				payload.StartDate,
+				payload.EndDate,
+				payload.NumPairs,
+				payload.TotalMarkets,
+				nullableStringValue(payload.Resolution),
+				nullableStringValue(payload.Config),
+				payload.StartedAt,
+				payload.CompletedAt,
+				payload.DurationSeconds,
+				nullableStringValue(payload.ErrorMessage),
+				nullableInt64Value(payload.TotalTrades),
+				nullableInt64Value(payload.WinningTrades),
+				nullableInt64Value(payload.LosingTrades),
+				nullableFloat64Value(payload.WinRate),
+				nullableFloat64Value(payload.TotalPnL),
+				nullableFloat64Value(payload.TotalPnLUSD),
+				nullableFloat64Value(payload.SharpeRatio),
+				nullableFloat64Value(payload.MaxDrawdown),
+				nullableInt64Value(payload.StrategyID),
+				payload.RunID,
+			}
+
+			updateResult, updateErr := r.db.Exec(updateQuery, updateArgs...)
+			if updateErr != nil {
+				return fmt.Errorf("failed to update backtest run during fallback upsert: %w", updateErr)
+			}
+
+			updatedRows, rowsErr := updateResult.RowsAffected()
+			if rowsErr == nil && updatedRows > 0 {
+				execResult = updateResult
+				err = nil
+			} else {
+				execResult, err = r.db.Exec(insertQuery, upsertArgs...)
+			}
 		}
 		if err != nil {
 			return fmt.Errorf("failed to upsert backtest run: %w", err)

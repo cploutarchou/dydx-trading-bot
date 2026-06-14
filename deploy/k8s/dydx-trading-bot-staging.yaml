@@ -736,7 +736,9 @@ spec:
               path: /ready
               port: 8888
             initialDelaySeconds: 10
+            timeoutSeconds: 5
             periodSeconds: 15
+            failureThreshold: 5
 
 ---
 apiVersion: v1

@@ -373,6 +373,7 @@ metadata:
   name: dydx-mariadb-admin-sync
   namespace: dydx-staging
 spec:
+  suspend: true
   ttlSecondsAfterFinished: 600
   backoffLimit: 3
   template:
@@ -380,7 +381,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: mariadb-admin-sync
-          image: ghcr.io/cploutarchou/dydx-trading-bot/backend:latest
+          image: mariadb:11.4
           env:
             - name: DB_HOST
               value: "dydx-mariadb"

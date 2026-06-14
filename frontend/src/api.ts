@@ -1442,6 +1442,18 @@ interface BacktestPerformanceResponse extends Record<string, unknown> {
   average_duration: number;
 }
 
+interface BacktestPreflightResponse extends Record<string, unknown> {
+  preflight_ready: boolean;
+  error_code?: string;
+  error?: string;
+  bot_api?: {
+    reachable?: boolean;
+    base_url?: string;
+    upstream_status?: number;
+    health?: Record<string, unknown>;
+  };
+}
+
 interface BacktestDetailsResponse extends Record<string, unknown> {
   run_id: string;
   status: string;
@@ -2357,8 +2369,20 @@ class ApiClient {
   async runBacktest(data: BacktestRequest): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
     const normalizedPayload = normalizeBacktestPayload(data);
+
+    // Fail fast: verify upstream bot API readiness before creating a backtest run.
+    await this.getBacktestPreflight();
+
     const response = await this.client.post('/api/v1/backtests/run', normalizedPayload);
     guardRunBacktestContract(response.data);
+    return response.data;
+  }
+
+  async getBacktestPreflight(): Promise<ApiResponse<BacktestPreflightResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<BacktestPreflightResponse>>(
+      '/api/v1/backtests/preflight'
+    );
     return response.data;
   }
 

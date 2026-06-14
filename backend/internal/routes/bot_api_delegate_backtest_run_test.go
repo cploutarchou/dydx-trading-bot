@@ -570,6 +570,108 @@ func TestDelegatedBacktestRun_UsesCompatibilityRunEndpoint(t *testing.T) {
 	}
 }
 
+func TestDelegatedBacktestPreflight_ReturnsReadyWhenBotHealthy(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"healthy","message":"ok"}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	req, err := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/backtests/preflight", nil)
+	if err != nil {
+		t.Fatalf("new preflight request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("preflight request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode preflight response: %v", err)
+	}
+	data, ok := payload["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data object, got %T (%v)", payload["data"], payload["data"])
+	}
+	if data["preflight_ready"] != true {
+		t.Fatalf("expected preflight_ready=true, got %v", data["preflight_ready"])
+	}
+	botAPI, ok := data["bot_api"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected bot_api object, got %T (%v)", data["bot_api"], data["bot_api"])
+	}
+	if botAPI["reachable"] != true {
+		t.Fatalf("expected bot_api.reachable=true, got %v", botAPI["reachable"])
+	}
+}
+
+func TestDelegatedBacktestPreflight_ReturnsUnavailableWhenBotNotReady(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":"bot dependencies still booting"}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	req, err := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/backtests/preflight", nil)
+	if err != nil {
+		t.Fatalf("new preflight request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("preflight request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", resp.StatusCode)
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode preflight response: %v", err)
+	}
+	data, ok := payload["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data object, got %T (%v)", payload["data"], payload["data"])
+	}
+	if data["preflight_ready"] != false {
+		t.Fatalf("expected preflight_ready=false, got %v", data["preflight_ready"])
+	}
+	if data["error_code"] != "backtest_preflight_bot_api_not_ready" {
+		t.Fatalf("unexpected error_code: %v", data["error_code"])
+	}
+	botAPI, ok := data["bot_api"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected bot_api object, got %T (%v)", data["bot_api"], data["bot_api"])
+	}
+	if botAPI["reachable"] != false {
+		t.Fatalf("expected bot_api.reachable=false, got %v", botAPI["reachable"])
+	}
+}
+
 func TestDelegatedBacktestRun_PassthroughsUpstreamStatus(t *testing.T) {
 	upstreamMux := http.NewServeMux()
 	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, r *http.Request) {

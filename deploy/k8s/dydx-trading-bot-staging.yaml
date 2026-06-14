@@ -560,6 +560,9 @@ spec:
       containers:
         - name: bot
           image: ghcr.io/cploutarchou/dydx-trading-bot/api:latest
+          imagePullPolicy: Always
+          command: ["python", "-m", "uvicorn"]
+          args: ["src.api.server:app", "--host", "0.0.0.0", "--port", "8889"]
           ports:
             - containerPort: 8889
           envFrom:
@@ -604,6 +607,14 @@ spec:
             timeoutSeconds: 5
             periodSeconds: 15
             failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8889
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+            periodSeconds: 20
+            failureThreshold: 3
 
 ---
 apiVersion: apps/v1

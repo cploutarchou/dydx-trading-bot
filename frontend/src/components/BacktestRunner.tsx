@@ -4,9 +4,9 @@ import { Play } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api, {
-    DYDX_CANDLE_RESOLUTION_OPTIONS,
-    normalizeDydxCandleResolution,
-    type PerpetualMarketsResponse,
+  DYDX_CANDLE_RESOLUTION_OPTIONS,
+  normalizeDydxCandleResolution,
+  type PerpetualMarketsResponse,
 } from '../api';
 import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/intelligence';
 import { useStrategyStore } from '../store/strategies';
@@ -64,9 +64,11 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   const errRecord = toRecord(error);
   const response = toRecord(errRecord.response);
   const data = toRecord(response.data);
-  const messageFromApi = data.message;
-  if (typeof messageFromApi === 'string' && messageFromApi.length > 0) {
-    return messageFromApi;
+  const messageCandidates = [data.error, data.message, data.detail, toRecord(data.data).error];
+  for (const candidate of messageCandidates) {
+    if (typeof candidate === 'string' && candidate.length > 0) {
+      return candidate;
+    }
   }
   return error instanceof Error ? error.message : fallback;
 };
@@ -182,7 +184,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         const responseData = (response.data || {}) as PerpetualMarketsResponse;
         const source = String(responseData.source || 'unknown');
         const staticFallback =
-          Boolean(responseData.static_fallback) || source.trim().toLowerCase() === 'static_fallback';
+          Boolean(responseData.static_fallback) ||
+          source.trim().toLowerCase() === 'static_fallback';
         if (!cancelled) {
           if (staticFallback) {
             setAvailableMarkets([]);

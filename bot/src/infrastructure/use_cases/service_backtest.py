@@ -9,9 +9,9 @@ import logging
 import math
 import os
 import random
+import threading
 import time
 import traceback as traceback_module
-from contextlib import suppress
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Awaitable, Dict, List, Optional, cast
 from uuid import uuid4
@@ -27,6 +27,7 @@ except Exception:  # pragma: no cover
     adfuller = None
     coint = None
 
+from src.infrastructure.database import db
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.use_cases.async_job_manager import async_job_manager
 from src.trading.dydx_client import connect_dydx
@@ -972,6 +973,57 @@ class BacktestService:
             self._update_run_data(
                 run_id, updated_at=datetime.now(timezone.utc).isoformat()
             )
+
+    def _touch_run_heartbeat(self, run_id: str) -> bool:
+        """Refresh only the stored heartbeat for a run without rewriting the row."""
+        timestamp = datetime.now(timezone.utc).isoformat()
+        if self.repository.session is None:
+            return self.repository.touch_run(run_id, timestamp)
+
+        session = db.get_session()
+        try:
+            repository = BacktestRepository(session)
+            return repository.touch_run(run_id, timestamp)
+        finally:
+            session.close()
+
+    def _run_backtest_heartbeat_keepalive_thread(
+        self,
+        run_id: str,
+        deadline_monotonic: float,
+        stop_event: threading.Event,
+    ) -> None:
+        interval = self._heartbeat_keepalive_seconds()
+        while (
+            not stop_event.is_set() and self._remaining_seconds(deadline_monotonic) > 0
+        ):
+            sleep_for = min(
+                interval, max(0.1, self._remaining_seconds(deadline_monotonic))
+            )
+            if stop_event.wait(timeout=sleep_for):
+                return
+
+            if self._remaining_seconds(deadline_monotonic) <= 0:
+                return
+
+            try:
+                run_data = self._load_run_data(run_id)
+                if not run_data:
+                    return
+
+                status = self._canonical_status(run_data.get("status"))
+                if status in self._TERMINAL_STATUSES:
+                    return
+
+                if not self._touch_run_heartbeat(run_id):
+                    return
+            except Exception as exc:
+                logger.warning(
+                    "Backtest heartbeat keepalive thread failed for run %s: %s",
+                    run_id,
+                    exc,
+                )
+                return
 
     def _resolve_stale_run_data(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
         observed = self._with_status_observability(run_data)
@@ -2390,7 +2442,8 @@ class BacktestService:
 
         client = None
         history_fetch_telemetry: Dict[str, Dict[str, Any]] = {}
-        heartbeat_task: Optional[asyncio.Task] = None
+        heartbeat_thread: Optional[threading.Thread] = None
+        heartbeat_stop_event = threading.Event()
         try:
             timeout_seconds = float(
                 run_data.get("timeout_seconds")
@@ -2485,9 +2538,13 @@ class BacktestService:
             if not pair_markets:
                 raise ValueError("No valid market pairs available from request")
 
-            heartbeat_task = asyncio.create_task(
-                self._run_backtest_heartbeat_keepalive(run_id, deadline_monotonic)
+            heartbeat_thread = threading.Thread(
+                target=self._run_backtest_heartbeat_keepalive_thread,
+                args=(run_id, deadline_monotonic, heartbeat_stop_event),
+                name=f"backtest-heartbeat-{run_id}",
+                daemon=True,
             )
+            heartbeat_thread.start()
 
             client = await self._await_with_deadline(
                 cast(Awaitable[Any], connect_dydx()),
@@ -2961,17 +3018,9 @@ class BacktestService:
             run_data = self._persist_run_data(run_data)
             async_job_manager.mark_failed(run_id, error_message)
         finally:
-            if heartbeat_task is not None:
-                heartbeat_task.cancel()
-                try:
-                    with suppress(asyncio.CancelledError):
-                        await heartbeat_task
-                except Exception as exc:
-                    logger.warning(
-                        "Backtest heartbeat keepalive task failed for run %s: %s",
-                        run_id,
-                        exc,
-                    )
+            heartbeat_stop_event.set()
+            if heartbeat_thread is not None and heartbeat_thread.is_alive():
+                heartbeat_thread.join(timeout=2.0)
             self._tasks.pop(run_id, None)
             if client is not None:
                 try:

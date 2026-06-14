@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import math
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -136,6 +137,23 @@ class _HeartbeatSlowIndexer:
 class _HeartbeatSlowClient:
     def __init__(self):
         self.indexer = _HeartbeatSlowIndexer()
+        self.node = _FakeNode()
+
+
+class _BlockingHeartbeatMarkets(_FakeMarkets):
+    async def get_perpetual_markets(self):
+        time.sleep(0.6)
+        return await super().get_perpetual_markets()
+
+
+class _BlockingHeartbeatIndexer:
+    def __init__(self):
+        self.markets = _BlockingHeartbeatMarkets()
+
+
+class _BlockingHeartbeatClient:
+    def __init__(self):
+        self.indexer = _BlockingHeartbeatIndexer()
         self.node = _FakeNode()
 
 
@@ -662,6 +680,57 @@ def test_backtest_keepalive_prevents_false_stale_during_slow_phase(monkeypatch):
             service, created.run_id, timeout_seconds=3.0
         )
         assert terminal == "completed"
+
+    asyncio.run(_run())
+
+
+def test_backtest_watchdog_keeps_heartbeat_alive_during_blocking_phase(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+    monkeypatch.setattr(BacktestService, "_STALE_BACKTEST_HEARTBEAT_SECONDS", 0.4)
+    monkeypatch.setattr(
+        BacktestService, "_heartbeat_keepalive_seconds", lambda self: 0.1
+    )
+
+    async def _blocking_connect():
+        return _BlockingHeartbeatClient()
+
+    monkeypatch.setattr(service_module, "connect_dydx", _blocking_connect)
+
+    service = BacktestService(session=None)
+    observed_statuses: list[str] = []
+    stop_polling = asyncio.Event()
+
+    def _poll_status(run_id: str) -> None:
+        while not stop_polling.is_set():
+            status = service.get_backtest_status(run_id)
+            if status is not None:
+                observed_statuses.append(status.status)
+            time.sleep(0.05)
+
+    async def _run():
+        created = await service.create_and_run_backtest(
+            _request(max_pairs=1, stats_window=8).model_dump()
+        )
+
+        poller = asyncio.get_running_loop().run_in_executor(
+            None, _poll_status, created.run_id
+        )
+
+        terminal = await _wait_for_terminal_status(
+            service, created.run_id, timeout_seconds=3.0
+        )
+        stop_polling.set()
+        await poller
+
+        assert terminal == "completed"
+        assert "stale" not in observed_statuses
+
+        status = service.get_backtest_status(created.run_id)
+        assert status is not None
+        assert status.status == "completed"
+        assert status.heartbeat_age_seconds is not None
+        assert status.heartbeat_age_seconds < 0.4
 
     asyncio.run(_run())
 

@@ -638,6 +638,7 @@ spec:
       containers:
         - name: worker
           image: ghcr.io/cploutarchou/dydx-trading-bot/worker:latest
+          imagePullPolicy: Always
           envFrom:
             - configMapRef:
                 name: dydx-config
@@ -708,6 +709,7 @@ spec:
       containers:
         - name: backend
           image: ghcr.io/cploutarchou/dydx-trading-bot/backend:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 8888
           envFrom:

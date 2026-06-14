@@ -5,9 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
-from sqlalchemy.orm import Session, defer
-
 from internal.domain.models import BacktestRun, BacktestRunRequestPayload
+from sqlalchemy.orm import Session, defer
 
 
 class BacktestRepository:
@@ -259,6 +258,32 @@ class BacktestRepository:
         self.session.commit()
         self.session.refresh(record)
         return self._record_to_dict(record)
+
+    def touch_run(self, run_id: str, updated_at: Optional[str] = None) -> bool:
+        """Refresh only the heartbeat timestamp for an existing run."""
+        normalized_run_id = str(run_id)
+        timestamp = updated_at or self._now().isoformat()
+
+        if self.session is None:
+            record = BacktestRepository._memory_runs.get(normalized_run_id)
+            if record is None:
+                return False
+            record["updated_at"] = timestamp
+            BacktestRepository._memory_runs[normalized_run_id] = record
+            return True
+
+        record: Any = (
+            self.session.query(BacktestRun)
+            .filter(BacktestRun.run_id == normalized_run_id)
+            .first()
+        )
+        if record is None:
+            return False
+
+        parsed_updated_at = self._parse_dt(timestamp, default=self._now())
+        record.updated_at = parsed_updated_at or self._now()
+        self.session.commit()
+        return True
 
     def get_run(self, run_id: str) -> Optional[Dict[str, Any]]:
         normalized_run_id = str(run_id)

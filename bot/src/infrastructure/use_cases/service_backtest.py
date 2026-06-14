@@ -9,9 +9,9 @@ import logging
 import math
 import os
 import random
+import threading
 import time
 import traceback as traceback_module
-from contextlib import suppress
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Awaitable, Dict, List, Optional, cast
 from uuid import uuid4
@@ -27,6 +27,7 @@ except Exception:  # pragma: no cover
     adfuller = None
     coint = None
 
+from src.infrastructure.database import db
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.use_cases.async_job_manager import async_job_manager
 from src.trading.dydx_client import connect_dydx
@@ -472,6 +473,67 @@ class BacktestService:
         cleaned.pop(cls._CONTROL_KEY, None)
         return cleaned
 
+    @classmethod
+    def _reconstruct_restart_request_payload(
+        cls,
+        run_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        existing_request = cls._strip_runtime_control(run_data.get("request") or {})
+        if existing_request:
+            return existing_request
+
+        selected_pairs = cls._normalize_string_list(run_data.get("selected_pairs"))
+        current_pair = str(run_data.get("current_pair") or "").strip().upper()
+        if not selected_pairs and "/" in current_pair:
+            selected_pairs = [current_pair]
+
+        markets = cls._markets_from_pair_labels(selected_pairs)
+        if len(markets) >= 2:
+            pairs = markets
+        else:
+            pairs = selected_pairs[:]
+
+        trading_parameters = {
+            "resolution": "1HOUR",
+            "zscore_threshold": 1.5,
+            "stats_window": 21,
+            "close_at_zscore_cross": True,
+            "transaction_fee": 0.0,
+            "slippage": 0.0,
+        }
+
+        reconstructed: Dict[str, Any] = {
+            "name": run_data.get("name") or "restarted-backtest",
+            "description": run_data.get("description") or "",
+            "start_date": str(run_data.get("start_date") or ""),
+            "end_date": str(run_data.get("end_date") or ""),
+            "initial_balance": cls._safe_float(
+                run_data.get("initial_balance"), 10000.0
+            ),
+            "pair_selection_mode": (
+                "input"
+                if selected_pairs
+                else cls._normalize_pair_selection_mode(
+                    run_data.get("pair_selection_mode")
+                )
+            ),
+            "max_pairs": 0,
+            "trading_parameters": trading_parameters,
+            "pairs": pairs,
+            "selected_pairs": selected_pairs,
+            "strategy_id": run_data.get("strategy_id"),
+            "bot_id": run_data.get("bot_id"),
+            "source": run_data.get("source") or "api",
+            "metadata": dict(run_data.get("metadata") or {}),
+            "timeout_seconds": run_data.get("timeout_seconds"),
+        }
+
+        strategy_snapshot = run_data.get("strategy_payload_snapshot")
+        if isinstance(strategy_snapshot, dict):
+            reconstructed["strategy_payload_snapshot"] = dict(strategy_snapshot)
+
+        return {key: value for key, value in reconstructed.items() if value is not None}
+
     @staticmethod
     def _normalize_string_list(value: Any) -> List[str]:
         if not isinstance(value, list):
@@ -916,7 +978,7 @@ class BacktestService:
         payload["last_heartbeat_at"] = payload.get("updated_at")
         payload["heartbeat_age_seconds"] = cls._heartbeat_age_seconds(payload)
         if (
-            status in {"pending", "running"}
+            status == "running"
             and payload["heartbeat_age_seconds"] is not None
             and payload["heartbeat_age_seconds"]
             > cls._stale_backtest_heartbeat_seconds()
@@ -973,6 +1035,60 @@ class BacktestService:
                 run_id, updated_at=datetime.now(timezone.utc).isoformat()
             )
 
+    def _touch_run_heartbeat(self, run_id: str) -> bool:
+        """Refresh only the stored heartbeat for a run without rewriting the row."""
+        timestamp = datetime.now(timezone.utc).isoformat()
+        if self.repository.session is None:
+            return self.repository.touch_run(run_id, timestamp)
+
+        session = db.get_session()
+        try:
+            repository = BacktestRepository(session)
+            return repository.touch_run(run_id, timestamp)
+        finally:
+            session.close()
+
+    def _run_backtest_heartbeat_keepalive_thread(
+        self,
+        run_id: str,
+        deadline_monotonic: float,
+        stop_event: threading.Event,
+    ) -> None:
+        interval = self._heartbeat_keepalive_seconds()
+        while (
+            not stop_event.is_set() and self._remaining_seconds(deadline_monotonic) > 0
+        ):
+            sleep_for = min(
+                interval, max(0.1, self._remaining_seconds(deadline_monotonic))
+            )
+            if stop_event.wait(timeout=sleep_for):
+                return
+
+            if self._remaining_seconds(deadline_monotonic) <= 0:
+                return
+
+            try:
+                run_data = self._load_run_data(run_id)
+                if not run_data:
+                    return
+
+                status = self._canonical_status(run_data.get("status"))
+                if status in self._TERMINAL_STATUSES:
+                    return
+
+                if not self._touch_run_heartbeat(run_id):
+                    continue
+            except Exception as exc:
+                logger.warning(
+                    "Backtest heartbeat keepalive thread failed for run %s: %s",
+                    run_id,
+                    exc,
+                )
+                continue
+
+    async def _touch_run_heartbeat_async(self, run_id: str) -> None:
+        await asyncio.to_thread(self._touch_run_heartbeat, run_id)
+
     def _resolve_stale_run_data(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
         observed = self._with_status_observability(run_data)
         original_status = self._canonical_status(run_data.get("status"))
@@ -996,10 +1112,7 @@ class BacktestService:
                 persisted["completed_at"] = persisted["finished_at"]
             return self._with_status_observability(self._persist_run_data(persisted))
 
-        if observed.get("status") != "stale" or original_status not in {
-            "pending",
-            "running",
-        }:
+        if observed.get("status") != "stale" or original_status != "running":
             return observed
 
         stalled = dict(run_data)
@@ -2237,6 +2350,7 @@ class BacktestService:
         prices_b: np.ndarray,
         params: Dict[str, Any],
         trade_index_offset: int,
+        heartbeat_callback: Optional[Any] = None,
     ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, float]]:
         stats_window = max(5, int(params.get("stats_window", 21) or 21))
         entry_z = float(params.get("zscore_threshold", 1.5) or 1.5)
@@ -2270,6 +2384,19 @@ class BacktestService:
         for idx in range(stats_window, len(spread)):
             if idx % yield_every_steps == 0:
                 await asyncio.sleep(0)
+                if heartbeat_callback is not None:
+                    try:
+                        await asyncio.wait_for(
+                            heartbeat_callback(),
+                            timeout=self._PROGRESS_CALLBACK_TIMEOUT_SECONDS,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Backtest inline heartbeat refresh failed for run %s at step %s: %s",
+                            run_id,
+                            idx,
+                            exc,
+                        )
 
             window = spread[idx - stats_window : idx]
             mean = float(np.mean(window))
@@ -2393,7 +2520,8 @@ class BacktestService:
 
         client = None
         history_fetch_telemetry: Dict[str, Dict[str, Any]] = {}
-        heartbeat_task: Optional[asyncio.Task] = None
+        heartbeat_thread: Optional[threading.Thread] = None
+        heartbeat_stop_event = threading.Event()
         try:
             timeout_seconds = float(
                 run_data.get("timeout_seconds")
@@ -2488,9 +2616,13 @@ class BacktestService:
             if not pair_markets:
                 raise ValueError("No valid market pairs available from request")
 
-            heartbeat_task = asyncio.create_task(
-                self._run_backtest_heartbeat_keepalive(run_id, deadline_monotonic)
+            heartbeat_thread = threading.Thread(
+                target=self._run_backtest_heartbeat_keepalive_thread,
+                args=(run_id, deadline_monotonic, heartbeat_stop_event),
+                name=f"backtest-heartbeat-{run_id}",
+                daemon=True,
             )
+            heartbeat_thread.start()
 
             client = await self._await_with_deadline(
                 cast(Awaitable[Any], connect_dydx()),
@@ -2679,6 +2811,7 @@ class BacktestService:
                     prices_b=p2,
                     params=params,
                     trade_index_offset=len(all_trades),
+                    heartbeat_callback=lambda: self._touch_run_heartbeat_async(run_id),
                 )
 
                 all_trades.extend(trades)
@@ -2964,17 +3097,9 @@ class BacktestService:
             run_data = self._persist_run_data(run_data)
             async_job_manager.mark_failed(run_id, error_message)
         finally:
-            if heartbeat_task is not None:
-                heartbeat_task.cancel()
-                try:
-                    with suppress(asyncio.CancelledError):
-                        await heartbeat_task
-                except Exception as exc:
-                    logger.warning(
-                        "Backtest heartbeat keepalive task failed for run %s: %s",
-                        run_id,
-                        exc,
-                    )
+            heartbeat_stop_event.set()
+            if heartbeat_thread is not None and heartbeat_thread.is_alive():
+                heartbeat_thread.join(timeout=2.0)
             self._tasks.pop(run_id, None)
             if client is not None:
                 try:
@@ -3448,13 +3573,73 @@ class BacktestService:
         data = self._load_run_data(run_id)
         if not data:
             return None
-        request_payload = self._strip_runtime_control(data.get("request") or {})
+        request_payload = self._reconstruct_restart_request_payload(data)
         if not request_payload:
             return None
         status = str(data.get("status") or "").lower()
         if status not in self._TERMINAL_STATUSES:
             self.cancel_backtest(run_id)
             await asyncio.sleep(0)
+
+        def repair_backtest_request(
+            self,
+            run_id: str,
+            dry_run: bool = True,
+        ) -> Optional[Dict[str, Any]]:
+            data = self._load_run_data(run_id)
+            if not data:
+                return None
+
+            existing_request = self._strip_runtime_control(data.get("request") or {})
+            reconstructed_request = self._reconstruct_restart_request_payload(data)
+            repairable = bool(reconstructed_request)
+            request_available = bool(existing_request)
+
+            if not repairable:
+                return {
+                    "run_id": run_id,
+                    "dry_run": bool(dry_run),
+                    "repaired": False,
+                    "request_available": request_available,
+                    "repairable": False,
+                    "status": str(data.get("status") or "unknown"),
+                    "error": "insufficient_fields_to_reconstruct_request",
+                }
+
+            if dry_run or request_available:
+                return {
+                    "run_id": run_id,
+                    "dry_run": bool(dry_run),
+                    "repaired": False,
+                    "request_available": request_available,
+                    "repairable": True,
+                    "status": str(data.get("status") or "unknown"),
+                    "selected_pairs": list(
+                        reconstructed_request.get("selected_pairs") or []
+                    ),
+                    "pairs": list(reconstructed_request.get("pairs") or []),
+                }
+
+            updated = dict(data)
+            updated["request"] = reconstructed_request
+            updated["updated_at"] = datetime.now(timezone.utc).isoformat()
+            persisted = self._persist_run_data(updated)
+
+            return {
+                "run_id": run_id,
+                "dry_run": False,
+                "repaired": True,
+                "request_available": True,
+                "repairable": True,
+                "status": str(
+                    persisted.get("status") or data.get("status") or "unknown"
+                ),
+                "selected_pairs": list(
+                    reconstructed_request.get("selected_pairs") or []
+                ),
+                "pairs": list(reconstructed_request.get("pairs") or []),
+            }
+
         created = await self.create_and_run_backtest(request_payload, progress_callback)
         return {
             "run_id": run_id,

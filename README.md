@@ -120,6 +120,9 @@ Backtest runtime tuning note: active long-running backtests refresh their heartb
 classification. `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS` controls that cadence, and staging already pins it in
 `deploy/k8s/dydx-trading-bot-staging.yaml`.
 
+If a legacy backtest cannot be restarted because its original request blob is missing, use
+`bot/scripts/repair_backtest_requests.py` to backfill the restart payload from persisted run fields first.
+
 ## Arbitrage Improvement Flags
 
 New live-arbitrage efficiency behavior is disabled by default. These env vars are startup

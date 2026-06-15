@@ -75,7 +75,7 @@ func TestWithUserAdmissionLock_PropagatesCallbackError(t *testing.T) {
 		return expectedErr
 	})
 
-	if err != expectedErr {
+	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected error %v, got %v", expectedErr, err)
 	}
 }
@@ -288,7 +288,7 @@ func TestInProcessLock_SerializesAccessCorrectly(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		go func() {
 			defer wg.Done()
-			repo.WithUserAdmissionLock(context.Background(), userID, func() error {
+			if err := repo.WithUserAdmissionLock(context.Background(), userID, func() error {
 				mu.Lock()
 				executionTimes = append(executionTimes, time.Now())
 				mu.Unlock()
@@ -300,7 +300,9 @@ func TestInProcessLock_SerializesAccessCorrectly(t *testing.T) {
 				executionTimes = append(executionTimes, time.Now())
 				mu.Unlock()
 				return nil
-			})
+			}); err != nil {
+				t.Errorf("expected no lock error, got %v", err)
+			}
 		}()
 	}
 

@@ -7,9 +7,6 @@ import { persist } from 'zustand/middleware';
 import api from '../api';
 import { perfMark, perfMeasure } from '../utils/perf';
 
-const getErrorMessage = (error: unknown, fallback: string): string =>
-  error instanceof Error ? error.message : fallback;
-
 const withTimeout = async <T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -126,8 +123,8 @@ export const useAuthStore = create<AuthStore>()(
 
           await get().getCurrentUser();
         } catch (error: unknown) {
-          console.error('❌ auth.ts: Login error:', error);
-          set({ error: getErrorMessage(error, 'Login failed'), user: null });
+          console.error('❌ auth.ts: Login failed');
+          set({ error: 'Unable to sign in with those credentials.', user: null });
           return Promise.reject(error);
         } finally {
           set({ loading: false });

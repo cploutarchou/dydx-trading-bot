@@ -18,13 +18,6 @@ export interface ServicePageData {
   operatorNotes: Array<{ label: string; body: string }>;
 }
 
-export interface LaunchTickerItem {
-  symbol: string;
-  price: string;
-  change: string;
-  stage: string;
-}
-
 export interface IcoResourceItem {
   title: string;
   description: string;
@@ -237,21 +230,12 @@ export const getPrimaryCta = (pathname: string) =>
 
 /**
  * Launch campaign copy lives here.
- * Update `icoAnnouncement` and `launchTicker` for marketing edits
- * instead of touching page JSX in Login/ComingSoon.
+ * Update `icoAnnouncement` for marketing edits instead of touching page JSX.
  */
 export const comingSoonMarketingContent: {
   icoAnnouncement: string;
-  launchTicker: LaunchTickerItem[];
 } = {
-  icoAnnouncement: 'Initial Coin Offering (ICO) launching soon',
-  launchTicker: [
-    { symbol: 'EXL', price: '$0.24', change: '+12.4%', stage: 'Pre-list' },
-    { symbol: 'BTC', price: '$104.2K', change: '+2.1%', stage: 'Market' },
-    { symbol: 'ETH', price: '$5.8K', change: '+3.4%', stage: 'Market' },
-    { symbol: 'SOL', price: '$241', change: '+4.9%', stage: 'Market' },
-    { symbol: 'ICO', price: 'Soon', change: 'TBA', stage: 'Allocation' },
-  ],
+  icoAnnouncement: 'ICO briefing available for review',
 };
 
 /**
@@ -264,6 +248,7 @@ export const icoLaunchpadContent: {
   pageSummary: string;
   countdownLabel: string;
   countdownTargetUtc: string;
+  saleTimezone: string;
   tokenName: string;
   tokenSymbol: string;
   network: string;
@@ -290,9 +275,10 @@ export const icoLaunchpadContent: {
   pageKicker: 'ExecutionLab token launch',
   pageTitle: 'Initial Coin Offering (ICO) briefing',
   pageSummary:
-    'Explore token utility, sale phases, governance scope, and launch documentation before public access opens.',
+    'Review configured token details, sale timing, documentation, and whitelist request steps before participating.',
   countdownLabel: 'Countdown to public sale',
   countdownTargetUtc: '2026-09-15T12:00:00Z',
+  saleTimezone: 'Asia/Dubai',
   tokenName: 'ExecutionLab Token',
   tokenSymbol: 'EXL',
   network: 'Ethereum + L2 settlement',
@@ -303,10 +289,10 @@ export const icoLaunchpadContent: {
   softCap: '$6M',
   hardCap: '$24M',
   utilityHighlights: [
-    'Fee tier discounts for active runtime operators',
-    'Governance voting on strategy market additions and platform parameters',
-    'Staking-based priority access for new automation modules',
-    'Research vault rewards for verified signal contributors',
+    'Platform fee-tier eligibility for active workspace operators',
+    'Governance participation on selected strategy and platform parameters',
+    'Access coordination for new automation modules where token gating is enabled',
+    'Contributor recognition for verified research and signal review workflows',
   ],
   timeline: [
     { phase: 'Whitelist registration', window: 'Q3 2026', status: 'Open soon' },
@@ -318,13 +304,13 @@ export const icoLaunchpadContent: {
     {
       title: 'Whitepaper (preview)',
       description: 'Token thesis, protocol architecture, economics, and risk disclosures.',
-      href: 'https://github.com/cploutarchou/dydx-trading-bot/tree/master/frontend/docs',
+      href: '/ico/whitepaper',
       ctaLabel: 'Open whitepaper preview',
     },
     {
       title: 'Tokenomics overview',
       description: 'Allocation model, vesting principles, treasury policy, and unlock schedule.',
-      href: 'https://github.com/cploutarchou/dydx-trading-bot/tree/master/frontend/docs/architecture',
+      href: '/ico/tokenomics',
       ctaLabel: 'View tokenomics notes',
     },
     {
@@ -336,7 +322,7 @@ export const icoLaunchpadContent: {
   whitelistContactEmail: 'launchpad@executionlab.io',
   whitelistCtaLabel: 'Request whitelist access',
   whitelistHelperCopy:
-    'Submit your email to request whitelist consideration. A launch coordinator will share eligibility steps and onboarding requirements.',
+    'Submit an email request for whitelist consideration. The team will share eligibility steps when participation details are available.',
   calendarCtaLabel: 'Add sale reminder to calendar',
   calendarEventTitle: 'ExecutionLab ICO Public Sale Window',
   calendarEventDescription:

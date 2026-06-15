@@ -505,12 +505,28 @@ export const PasswordField: React.FC<{
 export const WhitelistForm: React.FC<{
   email: string;
   emailError: string;
+  privacyAccepted: boolean;
+  marketingConsent: boolean;
   requestState: 'idle' | 'loading' | 'success' | 'error';
   helperCopy: string;
   ctaLabel: string;
   onEmailChange: (value: string) => void;
+  onPrivacyAcceptedChange: (value: boolean) => void;
+  onMarketingConsentChange: (value: boolean) => void;
   onSubmit: React.FormEventHandler<HTMLFormElement>;
-}> = ({ email, emailError, requestState, helperCopy, ctaLabel, onEmailChange, onSubmit }) => (
+}> = ({
+  email,
+  emailError,
+  privacyAccepted,
+  marketingConsent,
+  requestState,
+  helperCopy,
+  ctaLabel,
+  onEmailChange,
+  onPrivacyAcceptedChange,
+  onMarketingConsentChange,
+  onSubmit,
+}) => (
   <form
     id="whitelist-request"
     onSubmit={onSubmit}
@@ -538,6 +554,51 @@ export const WhitelistForm: React.FC<{
       required
     />
 
+    <input
+      type="text"
+      name="company_website"
+      tabIndex={-1}
+      autoComplete="off"
+      className="hidden"
+      aria-hidden="true"
+    />
+
+    <div className="grid gap-3">
+      <label className="public-consent-option">
+        <input
+          type="checkbox"
+          checked={privacyAccepted}
+          onChange={(event) => onPrivacyAcceptedChange(event.target.checked)}
+          disabled={requestState === 'loading' || requestState === 'success'}
+          required
+        />
+        <span>
+          <strong>I accept the ICO Privacy Notice.</strong>
+          <small>
+            ExecutionLab may process this email address to review and communicate about this
+            whitelist request. Review the <Link to="/ico/privacy-notice">Privacy Notice</Link> and{' '}
+            <Link to="/ico/participation-terms">participation terms</Link>.
+          </small>
+        </span>
+      </label>
+
+      <label className="public-consent-option">
+        <input
+          type="checkbox"
+          checked={marketingConsent}
+          onChange={(event) => onMarketingConsentChange(event.target.checked)}
+          disabled={requestState === 'loading' || requestState === 'success'}
+        />
+        <span>
+          <strong>Send me optional ICO updates.</strong>
+          <small>
+            Optional marketing emails may include document updates and token-launch notices. This is
+            separate from whitelist review and can be unsubscribed from later.
+          </small>
+        </span>
+      </label>
+    </div>
+
     <PrimaryButton
       type="submit"
       disabled={requestState === 'loading' || requestState === 'success'}
@@ -553,13 +614,14 @@ export const WhitelistForm: React.FC<{
 
     {requestState === 'success' && (
       <p className="text-sm leading-6 text-emerald-200" role="status">
-        Your email client should open with the whitelist request. Send the email to continue.
+        If the address is eligible to receive whitelist communications, a confirmation email will be
+        sent. Submission does not guarantee participation, eligibility, or allocation.
       </p>
     )}
 
     {requestState === 'error' && !emailError && (
       <p className="text-sm leading-6 text-rose-200" role="alert">
-        The request could not be prepared. Try again in a moment.
+        The request could not be submitted. Try again in a moment.
       </p>
     )}
   </form>

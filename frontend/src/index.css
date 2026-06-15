@@ -1535,17 +1535,62 @@ h6 {
     rgba(8, 13, 24, 0.86);
 }
 
+.public-consent-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  border: 1px solid rgba(100, 116, 139, 0.24);
+  border-radius: var(--public-radius-sm);
+  background: rgba(2, 6, 23, 0.34);
+  padding: 0.85rem;
+  color: #e2e8f0;
+}
+
+.public-consent-option input {
+  margin-top: 0.2rem;
+  min-height: 1.1rem;
+  min-width: 1.1rem;
+  accent-color: #22d3ee;
+}
+
+.public-consent-option strong {
+  display: block;
+  color: #f8fafc;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+}
+
+.public-consent-option small {
+  display: block;
+  margin-top: 0.25rem;
+  color: #94a3b8;
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.public-consent-option a {
+  color: #a5f3fc;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: rgba(165, 243, 252, 0.35);
+  text-underline-offset: 0.2em;
+}
+
 .ico-document-hero {
   display: grid;
   gap: 2rem;
   padding-block: clamp(2.5rem, 6vw, 5rem);
 }
 
+.ico-document-hero__copy {
+  max-width: 820px;
+}
+
 .ico-document-hero h1 {
   margin-top: 1.5rem;
-  max-width: 13ch;
+  max-width: 15ch;
   color: #ffffff;
-  font-size: clamp(2.75rem, 5.8vw, 4.75rem);
+  font-size: clamp(2.65rem, 5.2vw, 4.45rem);
   font-weight: 700;
   line-height: 1.02;
 }
@@ -1571,6 +1616,10 @@ h6 {
 .ico-document-summary {
   align-self: end;
   padding: 1.25rem;
+  border-color: rgba(34, 211, 238, 0.22);
+  background:
+    radial-gradient(circle at 92% 0%, rgba(34, 211, 238, 0.12), transparent 12rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 34%), var(--public-surface);
 }
 
 .ico-document-summary dl {
@@ -1588,7 +1637,8 @@ h6 {
 }
 
 .ico-document-summary dt,
-.ico-document-index a {
+.ico-document-index a,
+.ico-document-highlight p {
   color: #94a3b8;
   font-size: 0.875rem;
   font-weight: 700;
@@ -1599,11 +1649,44 @@ h6 {
   font-size: 0.9375rem;
   font-weight: 700;
   text-align: right;
+  max-width: 16rem;
 }
 
 .ico-document-layout {
   display: grid;
   gap: 1.5rem;
+}
+
+.ico-document-highlight-grid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.ico-document-highlight {
+  min-height: 8.25rem;
+  border: 1px solid rgba(100, 116, 139, 0.24);
+  border-radius: var(--public-radius);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 42%),
+    rgba(8, 13, 24, 0.68);
+  padding: 1rem;
+  box-shadow: 0 18px 48px rgba(2, 6, 23, 0.18);
+}
+
+.ico-document-highlight h2 {
+  margin-top: 0.55rem;
+  color: #f8fafc;
+  font-size: clamp(1.1rem, 1.7vw, 1.35rem);
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.ico-document-highlight span {
+  display: block;
+  margin-top: 0.45rem;
+  color: #94a3b8;
+  font-size: 0.875rem;
+  line-height: 1.5;
 }
 
 .ico-document-index {
@@ -1635,6 +1718,9 @@ h6 {
 .ico-document-article {
   overflow: hidden;
   padding: clamp(1.25rem, 3vw, 2rem);
+  background:
+    radial-gradient(circle at 96% 0%, rgba(79, 70, 229, 0.09), transparent 16rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 34%), var(--public-surface);
 }
 
 .ico-document-article section + section {
@@ -1644,6 +1730,7 @@ h6 {
 }
 
 .ico-document-article h2 {
+  margin-top: 0.35rem;
   color: #ffffff;
   font-size: clamp(1.5rem, 2.4vw, 2rem);
   font-weight: 700;
@@ -1683,6 +1770,25 @@ h6 {
   border-radius: 999px;
   background: #67e8f9;
   box-shadow: 0 0 0 4px rgba(103, 232, 249, 0.09);
+}
+
+.ico-document-callout {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.8rem;
+  border: 1px solid rgba(34, 211, 238, 0.22);
+  border-radius: var(--public-radius-sm);
+  background: rgba(34, 211, 238, 0.075);
+  padding: 0.95rem;
+  color: #a5f3fc;
+}
+
+.ico-document-callout p {
+  margin-top: 0;
+  color: #dbeafe;
+  font-size: 0.9375rem;
+  line-height: 1.65;
 }
 
 .ico-document-table-wrap {
@@ -1751,6 +1857,10 @@ h6 {
   .public-resource-row {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
+  }
+
+  .ico-document-highlight-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

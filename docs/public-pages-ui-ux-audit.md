@@ -153,3 +153,56 @@ Scope: Coming Soon, ICO briefing, and Login pages in the React/Vite frontend.
 - ICO values remain frontend-configured campaign content and still require business/legal confirmation before production publication.
 - The whitelist flow still uses `mailto:` because no whitelist submission API was found.
 - Production preview from `localhost:4173` / `127.0.0.1:4173` is blocked by backend CORS for `/api/v1/public/app-config` and `/api/v1/auth/registration-status`; dev rendering on `127.0.0.1:5174` was used for final UI browser validation.
+
+## ICO document link iteration
+
+### Problems Addressed
+
+- The ICO documentation links opened minimal draft pages that did not carry the same visual weight as the ICO briefing.
+- Whitepaper and tokenomics content lacked a strong opening summary, document-status framing, and clear separation between configured values and terms still requiring confirmation.
+- The screenshot manifests did not include `/ico/whitepaper` or `/ico/tokenomics`, so responsive regressions on those linked pages were easy to miss.
+
+### Changes Implemented
+
+- Expanded `frontend/src/content/icoDocuments.ts` with document highlights, review states, section eyebrows, callout notes, clearer risk language, participation-framework notes, and tokenomics open-item guidance.
+- Updated `frontend/src/pages/IcoDocument.tsx` to render the new highlights, review state, and callouts in the same institutional public-page visual system.
+- Added document-page CSS for compact desktop highlight grids, stronger document-status panels, and restrained cyan callouts.
+- Added `/ico/whitepaper` and `/ico/tokenomics` to both public and responsive screenshot manifests.
+
+### Screenshot Paths
+
+- Whitepaper: `frontend/docs/screenshots/public-pages-second-iteration/ico-whitepaper-{390,768,1440,1920}.png`
+- Tokenomics: `frontend/docs/screenshots/public-pages-second-iteration/ico-tokenomics-{390,768,1440,1920}.png`
+
+### Remaining Limitations
+
+- These pages remain draft informational notes, not final whitepaper/tokenomics publication materials.
+- Final legal entity details, token contract references, token price, accepted currencies, full allocation breakdown, vesting schedule, audit status, jurisdiction restrictions, and final participation terms are still not confirmed in the repository.
+
+## ICO whitelist workflow iteration
+
+### Problems Addressed
+
+- The whitelist form previously used a `mailto:` handoff, so no application, consent evidence, or delivery intent was persisted.
+- Privacy acceptance and optional marketing consent were not collected as separate choices.
+- Privacy Notice and participation-terms links did not exist as public draft document routes.
+
+### Changes Implemented
+
+- Added backend migration `000061_create_ico_whitelist_tables` for:
+  - `ico_whitelist_applications`
+  - `ico_consent_events`
+  - `ico_email_outbox`
+- Added public whitelist APIs:
+  - `POST /api/v1/public/ico/whitelist`
+  - `GET|POST /api/v1/public/ico/whitelist/confirm`
+  - compatibility aliases under `/api/public/ico`.
+- Added a backend service/repository flow that normalizes email, requires privacy acceptance, stores optional marketing consent separately, stores only confirmation-token hashes, appends consent events, and creates an outbox row in the same transaction.
+- Updated the frontend whitelist form to submit through the backend, include a required Privacy Notice checkbox, include a separate unchecked optional marketing checkbox, and show generic success/error states.
+- Added draft `/ico/privacy-notice` and `/ico/participation-terms` routes using the existing ICO document page.
+
+### Remaining Limitations
+
+- The Mailgun outbox worker/template renderer is not implemented yet, so confirmation emails are queued but not delivered by this slice.
+- Unsubscribe, withdrawal, admin review, webhook processing, suppression handling, and marketing campaign workflows remain production blockers.
+- The public API intentionally returns a generic response and does not expose applicant existence.

@@ -198,6 +198,9 @@ export const AdminHubPage = () => {
             <Link to="/settings" className="platform-button platform-button-secondary">
               Open Settings
             </Link>
+            <Link to="/admin/ico" className="platform-button platform-button-secondary">
+              ICO Admin
+            </Link>
           </div>
         </PlatformPanel>
       </section>

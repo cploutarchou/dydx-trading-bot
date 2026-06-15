@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -50,6 +51,7 @@ type MailgunConfigPayload struct {
 type MailgunSendResult struct {
 	Delivered bool   `json:"delivered"`
 	Message   string `json:"message"`
+	MessageID string `json:"message_id,omitempty"`
 }
 
 type MailgunService struct {
@@ -215,6 +217,70 @@ func (s *MailgunService) SendPasswordRotationNotice(ctx context.Context, user *m
 	}, nil
 }
 
+func (s *MailgunService) SendEmail(ctx context.Context, to string, subject string, textBody string, htmlBody string, tags ...string) (*MailgunSendResult, error) {
+	status, err := s.GetStatus()
+	if err != nil {
+		return nil, err
+	}
+	if !status.Configured {
+		return &MailgunSendResult{
+			Delivered: false,
+			Message:   "Mailgun is not configured.",
+		}, nil
+	}
+	key, _, err := s.credentials.ResolveSharedKey(ExternalAPIProviderMailgun)
+	if err != nil {
+		return nil, err
+	}
+
+	from := status.FromEmail
+	if strings.TrimSpace(status.FromName) != "" {
+		from = fmt.Sprintf("%s <%s>", strings.TrimSpace(status.FromName), status.FromEmail)
+	}
+
+	form := url.Values{}
+	form.Set("from", from)
+	form.Set("to", strings.TrimSpace(to))
+	form.Set("subject", strings.TrimSpace(subject))
+	form.Set("text", textBody)
+	if strings.TrimSpace(htmlBody) != "" {
+		form.Set("html", htmlBody)
+	}
+	for _, tag := range tags {
+		if strings.TrimSpace(tag) != "" {
+			form.Add("o:tag", strings.TrimSpace(tag))
+		}
+	}
+
+	endpoint := fmt.Sprintf("%s/v3/%s/messages", baseURLForMailgunRegion(status.Region), status.Domain)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Mailgun request: %w", err)
+	}
+	req.SetBasicAuth("api", key)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send Mailgun email: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return &MailgunSendResult{
+			Delivered: false,
+			Message:   fmt.Sprintf("Mailgun returned %d", resp.StatusCode),
+		}, nil
+	}
+
+	return &MailgunSendResult{
+		Delivered: true,
+		Message:   "Email delivered through Mailgun.",
+		MessageID: extractMailgunMessageID(string(body)),
+	}, nil
+}
+
 func (s *MailgunService) getSettingValue(key string, fallback string) (string, error) {
 	setting, err := s.settings.GetBotSettingBySectionAndKey("mailgun", key)
 	if err != nil {
@@ -293,4 +359,14 @@ func valueOrEmpty[T any](value *T, getter func(*T) string) string {
 func isMissingTableError(err error) bool {
 	lower := strings.ToLower(err.Error())
 	return strings.Contains(lower, "no such table") || strings.Contains(lower, "does not exist")
+}
+
+func extractMailgunMessageID(body string) string {
+	var parsed struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(body), &parsed); err == nil {
+		return strings.TrimSpace(parsed.ID)
+	}
+	return ""
 }

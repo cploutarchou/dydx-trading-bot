@@ -1,0 +1,20 @@
+[
+  {
+    "routeKey": "public-launch",
+    "path": "/",
+    "requiresAuth": false,
+    "notes": "Public coming soon / launch page."
+  },
+  {
+    "routeKey": "ico-briefing",
+    "path": "/ico",
+    "requiresAuth": false,
+    "notes": "Public ICO briefing page."
+  },
+  {
+    "routeKey": "login",
+    "path": "/login",
+    "requiresAuth": false,
+    "notes": "Existing credentials sign-in page."
+  }
+]

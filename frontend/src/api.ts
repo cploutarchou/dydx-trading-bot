@@ -2146,11 +2146,8 @@ class ApiClient {
 
       return payload as Token;
     } catch (error: unknown) {
-      const errorMsg =
-        error instanceof AxiosError
-          ? error.response?.data?.message || error.message
-          : String(error);
-      console.error('❌ api.ts: login failed:', errorMsg);
+      const status = error instanceof AxiosError ? error.response?.status : undefined;
+      console.error('❌ api.ts: login failed', status ? { status } : undefined);
       throw error;
     }
   }

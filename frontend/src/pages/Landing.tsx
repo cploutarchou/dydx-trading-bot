@@ -154,6 +154,9 @@ const roadmapTrackDetails = {
   ],
 } as const;
 
+type WorkflowStageId = (typeof workflowStages)[number]['id'];
+type RoadmapTrackId = (typeof roadmapTracks)[number]['id'];
+
 const buildRoadmapPath = (points: readonly number[]): string => {
   const width = 500;
   const height = 180;
@@ -172,8 +175,12 @@ const buildRoadmapPath = (points: readonly number[]): string => {
 };
 
 export const LandingPage: React.FC = () => {
-  const [selectedWorkflowStage, setSelectedWorkflowStage] = useState(workflowStages[0].id);
-  const [selectedRoadmapTrack, setSelectedRoadmapTrack] = useState(roadmapTracks[0].id);
+  const [selectedWorkflowStage, setSelectedWorkflowStage] = useState<WorkflowStageId>(
+    workflowStages[0].id
+  );
+  const [selectedRoadmapTrack, setSelectedRoadmapTrack] = useState<RoadmapTrackId>(
+    roadmapTracks[0].id
+  );
   const [isRoadmapHovered, setIsRoadmapHovered] = useState(false);
   const [hoveredRoadmapMetric, setHoveredRoadmapMetric] = useState<string | null>(null);
   const autoRotateRef = useRef<number | null>(null);

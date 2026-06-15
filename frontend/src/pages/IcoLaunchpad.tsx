@@ -14,19 +14,17 @@ import {
   SecondaryButton,
   WhitelistForm,
 } from '../components/PublicPagePrimitives';
+import apiClient from '../api';
 import { icoLaunchpadContent } from '../content/publicSite';
-import {
-  buildWhitelistMailto,
-  formatConfiguredDate,
-  getCountdownState,
-  isValidContactEmail,
-} from '../utils/publicPages';
+import { formatConfiguredDate, getCountdownState, isValidContactEmail } from '../utils/publicPages';
 
 type WhitelistState = 'idle' | 'loading' | 'success' | 'error';
 
 export const IcoLaunchpadPage = () => {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [whitelistEmail, setWhitelistEmail] = useState('');
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  const [marketingConsent, setMarketingConsent] = useState(false);
   const [emailError, setEmailError] = useState('');
   const [requestState, setRequestState] = useState<WhitelistState>('idle');
 
@@ -83,7 +81,7 @@ export const IcoLaunchpadPage = () => {
     },
   ];
 
-  const handleWhitelistSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleWhitelistSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (requestState === 'loading' || requestState === 'success') {
       return;
@@ -97,23 +95,30 @@ export const IcoLaunchpadPage = () => {
       return;
     }
 
+    if (!privacyAccepted) {
+      setEmailError('Accept the ICO Privacy Notice to submit a whitelist request.');
+      setRequestState('error');
+      return;
+    }
+
     setEmailError('');
     setRequestState('loading');
 
-    const mailto = buildWhitelistMailto({
-      contactEmail: icoLaunchpadContent.whitelistContactEmail,
-      requesterEmail: trimmedEmail,
-      tokenSymbol: icoLaunchpadContent.tokenSymbol,
-    });
-
-    window.setTimeout(() => {
-      try {
-        window.location.href = mailto;
-        setRequestState('success');
-      } catch {
-        setRequestState('error');
-      }
-    }, 250);
+    try {
+      await apiClient.submitICOWhitelist({
+        email: trimmedEmail,
+        privacy_accepted: privacyAccepted,
+        privacy_notice_version: 'ico-privacy-v2026-06-16',
+        marketing_consent: marketingConsent,
+        marketing_consent_version: 'ico-marketing-v2026-06-16',
+        source: 'ico_public_form',
+        locale: navigator.language,
+        campaign: 'executionlab-ico',
+      });
+      setRequestState('success');
+    } catch {
+      setRequestState('error');
+    }
   };
 
   return (
@@ -187,12 +192,23 @@ export const IcoLaunchpadPage = () => {
         <WhitelistForm
           email={whitelistEmail}
           emailError={emailError}
+          privacyAccepted={privacyAccepted}
+          marketingConsent={marketingConsent}
           requestState={requestState}
           helperCopy={icoLaunchpadContent.whitelistHelperCopy}
           ctaLabel={icoLaunchpadContent.whitelistCtaLabel}
           onEmailChange={(value) => {
             setWhitelistEmail(value);
             if (emailError) setEmailError('');
+            if (requestState !== 'idle') setRequestState('idle');
+          }}
+          onPrivacyAcceptedChange={(value) => {
+            setPrivacyAccepted(value);
+            if (emailError) setEmailError('');
+            if (requestState !== 'idle') setRequestState('idle');
+          }}
+          onMarketingConsentChange={(value) => {
+            setMarketingConsent(value);
             if (requestState !== 'idle') setRequestState('idle');
           }}
           onSubmit={handleWhitelistSubmit}

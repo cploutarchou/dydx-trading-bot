@@ -3,7 +3,6 @@ import {
   ArrowRight,
   BarChart3,
   FlaskConical,
-  Radar,
   Search,
   ShieldCheck,
 } from 'lucide-react';
@@ -35,7 +34,7 @@ const capabilities = [
     body: 'Review backtests, assumptions, and run history before controlled promotion decisions.',
   },
   {
-    icon: Radar,
+    icon: ShieldCheck,
     title: 'Controlled execution and monitoring',
     body: 'Keep runtime access gated behind approved credentials, health state, and operator review.',
   },

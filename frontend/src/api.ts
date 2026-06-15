@@ -307,6 +307,80 @@ export interface ICOEmailOutboxProcessResponse extends Record<string, unknown> {
   processed: number;
 }
 
+export interface ICOProductionReadiness extends Record<string, unknown> {
+  id: number;
+  tokenomics_allocation_finalized: boolean;
+  tokenomics_allocation_notes: string;
+  vesting_schedule_finalized: boolean;
+  vesting_schedule_notes: string;
+  token_price: string;
+  accepted_currencies: string;
+  smart_contract_address: string;
+  smart_contract_audit_status: string;
+  smart_contract_audit_url: string;
+  kyc_provider: string;
+  kyc_policy_url: string;
+  restricted_jurisdictions: string;
+  legal_entity_name: string;
+  controller_contact: string;
+  participation_terms_url: string;
+  privacy_notice_url: string;
+  risk_disclosure_url: string;
+  mailgun_dns_verified: boolean;
+  spf_verified: boolean;
+  dkim_verified: boolean;
+  dmarc_verified: boolean;
+  production_smoke_test_passed: boolean;
+  monitoring_configured: boolean;
+  alerting_configured: boolean;
+  backups_configured: boolean;
+  business_approved: boolean;
+  legal_approved: boolean;
+  technical_approved: boolean;
+  published: boolean;
+  updated_by?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ICOProductionReadinessUpdate extends Record<string, unknown> {
+  tokenomics_allocation_finalized: boolean;
+  tokenomics_allocation_notes: string;
+  vesting_schedule_finalized: boolean;
+  vesting_schedule_notes: string;
+  token_price: string;
+  accepted_currencies: string;
+  smart_contract_address: string;
+  smart_contract_audit_status: string;
+  smart_contract_audit_url: string;
+  kyc_provider: string;
+  kyc_policy_url: string;
+  restricted_jurisdictions: string;
+  legal_entity_name: string;
+  controller_contact: string;
+  participation_terms_url: string;
+  privacy_notice_url: string;
+  risk_disclosure_url: string;
+  mailgun_dns_verified: boolean;
+  spf_verified: boolean;
+  dkim_verified: boolean;
+  dmarc_verified: boolean;
+  production_smoke_test_passed: boolean;
+  monitoring_configured: boolean;
+  alerting_configured: boolean;
+  backups_configured: boolean;
+  business_approved: boolean;
+  legal_approved: boolean;
+  technical_approved: boolean;
+  published: boolean;
+}
+
+export interface ICOProductionReadinessResponse extends Record<string, unknown> {
+  config: ICOProductionReadiness;
+  ready: boolean;
+  blockers: string[];
+}
+
 interface UserProfile extends Record<string, unknown> {
   id: number;
   username: string;
@@ -4610,6 +4684,25 @@ class ApiClient {
     this.ensureTokenLoaded();
     const response = await this.client.post<ApiResponse<ICOEmailOutboxProcessResponse>>(
       '/api/v1/admin/ico/email-outbox/process'
+    );
+    return response.data;
+  }
+
+  async getICOProductionReadiness(): Promise<ApiResponse<ICOProductionReadinessResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<ICOProductionReadinessResponse>>(
+      '/api/v1/admin/ico/readiness'
+    );
+    return response.data;
+  }
+
+  async updateICOProductionReadiness(
+    payload: ICOProductionReadinessUpdate
+  ): Promise<ApiResponse<ICOProductionReadinessResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.put<ApiResponse<ICOProductionReadinessResponse>>(
+      '/api/v1/admin/ico/readiness',
+      payload
     );
     return response.data;
   }

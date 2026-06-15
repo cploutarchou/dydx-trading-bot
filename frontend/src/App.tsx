@@ -9,17 +9,18 @@ import { Navigate, Route, BrowserRouter as Router, Routes, useLocation } from 'r
 import api from './api';
 import { QueryProvider } from './api/QueryProvider';
 import { getCurrentPortalType } from './app/portal';
+import { isComingSoonBypassPath } from './app/publicAccess';
 import { getPortalRouteManifest } from './app/routeManifest';
 import {
-    BACKOFFICE_ROLES,
-    getUserWorkspaceRole,
-    roleMatches,
-    type WorkspaceRole,
+  BACKOFFICE_ROLES,
+  getUserWorkspaceRole,
+  roleMatches,
+  type WorkspaceRole,
 } from './auth/roles';
 import {
-    ErrorBoundary as EnhancedErrorBoundary,
-    ToastContainer,
-    useToastStore,
+  ErrorBoundary as EnhancedErrorBoundary,
+  ToastContainer,
+  useToastStore,
 } from './components/ErrorBoundary';
 import { MainLayout } from './components/MainLayout';
 import { RegistrationDisabledLoginGate } from './components/RegistrationDisabledLoginGate';
@@ -77,14 +78,12 @@ const UnauthorizedPage = lazy(() =>
 const ComingSoonPage = lazy(() =>
   import('./pages/ComingSoon').then((module) => ({ default: module.ComingSoonPage }))
 );
+const IcoDocumentPage = lazy(() =>
+  import('./pages/IcoDocument').then((module) => ({ default: module.IcoDocumentPage }))
+);
 const IcoLaunchpadPage = lazy(() =>
   import('./pages/IcoLaunchpad').then((module) => ({ default: module.IcoLaunchpadPage }))
 );
-
-const COMING_SOON_AUTH_BYPASS_PATHS = new Set(['/login', '/2fa-setup', '/force-password', '/ico']);
-
-const isComingSoonBypassPath = (pathname: string): boolean =>
-  COMING_SOON_AUTH_BYPASS_PATHS.has(pathname);
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: WorkspaceRole[] }> = ({
   children,
@@ -273,6 +272,7 @@ export const App: React.FC = () => {
                   <Route path="/services/:slug" element={<PublicServicePage />} />
                   <Route path="/pricing" element={<PricingPage />} />
                   <Route path="/ico" element={<IcoLaunchpadPage />} />
+                  <Route path="/ico/:documentSlug" element={<IcoDocumentPage />} />
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/register" element={<RegisterPage />} />
                   <Route path="/2fa-setup" element={<TwoFactorAuthPage />} />

@@ -2645,6 +2645,37 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 	{
 		adminBacktestGroup.GET("/interrupted", interruptedBacktestsHandler(true))
 		adminBacktestGroup.POST("/interrupted/reconcile", reconcileInterruptedBacktestsHandler(true))
+		adminBacktestGroup.POST("/:run_id/repair-request", func(c *gin.Context) {
+			if !requireAdminAccess(c) {
+				return
+			}
+
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			runID := strings.TrimSpace(c.Param("run_id"))
+			if runID == "" {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success":   false,
+					"message":   "run_id is required",
+					"error":     "run_id is required",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+
+			dryRun := true
+			if raw := strings.TrimSpace(c.Query("dry_run")); raw != "" {
+				dryRun = !strings.EqualFold(raw, "false")
+			}
+
+			result, err := requestClient.RepairBacktestRequest(runID, dryRun)
+			if err != nil {
+				respondBotAPIError(c, err)
+				return
+			}
+
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest request repaired successfully", result)
+		})
 	}
 
 	// Bot real-time data endpoints

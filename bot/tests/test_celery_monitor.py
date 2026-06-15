@@ -1,3 +1,6 @@
+import asyncio
+
+import src.infrastructure.use_cases.service_backtest as service_backtest_module
 from src.infrastructure.workers.celery_monitor import (
     _task_from_backtest,
     build_progress_meta,
@@ -5,6 +8,7 @@ from src.infrastructure.workers.celery_monitor import (
     list_celery_tasks,
     list_celery_workers,
     redact_payload,
+    retry_celery_task,
 )
 
 
@@ -195,3 +199,45 @@ def test_list_celery_tasks_skips_async_result_for_terminal_runs(monkeypatch):
 
     assert payload["total"] == 3
     assert probed_task_ids == ["run-running"]
+
+
+def test_retry_celery_task_awaits_restart_without_nested_event_loop(monkeypatch):
+    from src.infrastructure.workers import celery_monitor
+
+    class _FakeSession:
+        def close(self):
+            return None
+
+    class _FakeRepository:
+        def __init__(self, session):
+            self.session = session
+
+        def get_run(self, run_id):
+            return {"run_id": run_id, "request": {}}
+
+    class _FakeService:
+        def __init__(self, repository):
+            self.repository = repository
+
+        async def restart_backtest(self, run_id):
+            return {"new_run_id": f"restarted-{run_id}"}
+
+    monkeypatch.setattr(
+        celery_monitor,
+        "get_celery_task",
+        lambda task_id: {
+            "task_id": task_id,
+            "task_name": "backtests.run",
+            "backtest_run_id": "run-123",
+            "status": "FAILURE",
+        },
+    )
+    monkeypatch.setattr(celery_monitor.db, "get_session", lambda: _FakeSession())
+    monkeypatch.setattr(celery_monitor, "BacktestRepository", _FakeRepository)
+    monkeypatch.setattr(service_backtest_module, "BacktestService", _FakeService)
+
+    result = asyncio.run(retry_celery_task("run-123"))
+
+    assert result["task_id"] == "run-123"
+    assert result["retried"] is True
+    assert result["new_backtest_run_id"] == "restarted-run-123"

@@ -1,5 +1,23 @@
 [
 	{
+		"routeKey": "public-launch",
+		"path": "/",
+		"requiresAuth": false,
+		"notes": "When Coming Soon mode is enabled, this route renders the launch page through the global gate."
+	},
+	{
+		"routeKey": "ico-briefing",
+		"path": "/ico",
+		"requiresAuth": false,
+		"notes": "Public ICO briefing page with configured countdown and whitelist request form."
+	},
+	{
+		"routeKey": "login",
+		"path": "/login",
+		"requiresAuth": false,
+		"notes": "Existing credentials sign-in page."
+	},
+	{
 		"routeKey": "dashboard",
 		"path": "/dashboard",
 		"requiresAuth": true,

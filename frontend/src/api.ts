@@ -92,6 +92,7 @@ const isPublicUnauthenticatedRoute = (url: string): boolean =>
   url.includes('/auth/token') ||
   url.includes('/auth/registration-status') ||
   url.includes('/public/app-config') ||
+  url.includes('/public/ico/') ||
   url.includes('/health') ||
   url.includes('/ready');
 
@@ -259,6 +260,51 @@ export interface ComingSoonSettingResponse extends Record<string, unknown> {
   coming_soon_enabled: boolean;
   updated_at?: string;
   setting?: Record<string, unknown>;
+}
+
+export interface ICOWhitelistSubmitPayload extends Record<string, unknown> {
+  email: string;
+  privacy_accepted: boolean;
+  privacy_notice_version: string;
+  marketing_consent: boolean;
+  marketing_consent_version: string;
+  source: string;
+  locale?: string;
+  campaign?: string;
+  company_website?: string;
+}
+
+export interface ICOWhitelistSubmitResponse extends Record<string, unknown> {
+  message: string;
+}
+
+export interface ICOTokenActionResponse extends Record<string, unknown> {
+  confirmed?: boolean;
+  completed?: boolean;
+  message: string;
+}
+
+export interface ICOWhitelistAdminRow extends Record<string, unknown> {
+  id: number;
+  email_masked: string;
+  status: string;
+  marketing_consent: boolean;
+  marketing_confirmed: boolean;
+  privacy_notice_version: string;
+  email_confirmed: boolean;
+  unsubscribed: boolean;
+  withdrawn: boolean;
+  source: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ICOWhitelistAdminListResponse extends Record<string, unknown> {
+  applications: ICOWhitelistAdminRow[];
+}
+
+export interface ICOEmailOutboxProcessResponse extends Record<string, unknown> {
+  processed: number;
 }
 
 interface UserProfile extends Record<string, unknown> {
@@ -1732,7 +1778,8 @@ class ApiClient {
           !url.includes('/auth/logout') &&
           !url.includes('/auth/refresh') &&
           !url.includes('/auth/registration-status') &&
-          !url.includes('/public/app-config')
+          !url.includes('/public/app-config') &&
+          !url.includes('/public/ico/')
         ) {
           if (!this.shouldAttemptCookieRefresh()) {
             return Promise.reject(error);
@@ -2090,6 +2137,44 @@ class ApiClient {
   async getPublicAppConfig(): Promise<ApiResponse<PublicAppConfigResponse>> {
     const response = await this.client.get<ApiResponse<PublicAppConfigResponse>>(
       '/api/v1/public/app-config'
+    );
+    return response.data;
+  }
+
+  async submitICOWhitelist(
+    payload: ICOWhitelistSubmitPayload
+  ): Promise<ApiResponse<ICOWhitelistSubmitResponse>> {
+    const response = await this.client.post<ApiResponse<ICOWhitelistSubmitResponse>>(
+      '/api/v1/public/ico/whitelist',
+      payload,
+      { _skipAuthHeader: true } as RequestConfigWithAuthControl
+    );
+    return response.data;
+  }
+
+  async confirmICOWhitelist(token: string): Promise<ApiResponse<ICOTokenActionResponse>> {
+    const response = await this.client.post<ApiResponse<ICOTokenActionResponse>>(
+      '/api/v1/public/ico/whitelist/confirm',
+      { token },
+      { _skipAuthHeader: true } as RequestConfigWithAuthControl
+    );
+    return response.data;
+  }
+
+  async unsubscribeICOWhitelist(token: string): Promise<ApiResponse<ICOTokenActionResponse>> {
+    const response = await this.client.post<ApiResponse<ICOTokenActionResponse>>(
+      '/api/v1/public/ico/whitelist/unsubscribe',
+      { token },
+      { _skipAuthHeader: true } as RequestConfigWithAuthControl
+    );
+    return response.data;
+  }
+
+  async withdrawICOWhitelist(token: string): Promise<ApiResponse<ICOTokenActionResponse>> {
+    const response = await this.client.post<ApiResponse<ICOTokenActionResponse>>(
+      '/api/v1/public/ico/whitelist/withdraw',
+      { token },
+      { _skipAuthHeader: true } as RequestConfigWithAuthControl
     );
     return response.data;
   }
@@ -4510,6 +4595,22 @@ class ApiClient {
     this.ensureTokenLoaded();
     const response =
       await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/mailgun/config');
+    return response.data;
+  }
+
+  async listICOWhitelistApplications(): Promise<ApiResponse<ICOWhitelistAdminListResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.get<ApiResponse<ICOWhitelistAdminListResponse>>(
+      '/api/v1/admin/ico/whitelist'
+    );
+    return response.data;
+  }
+
+  async processICOEmailOutbox(): Promise<ApiResponse<ICOEmailOutboxProcessResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<ICOEmailOutboxProcessResponse>>(
+      '/api/v1/admin/ico/email-outbox/process'
+    );
     return response.data;
   }
 }

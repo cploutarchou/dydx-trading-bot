@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, FileText } from 'lucide-react';
+import { ArrowLeft, ArrowRight, FileText, ShieldAlert } from 'lucide-react';
 import { Navigate, useParams } from 'react-router-dom';
 import {
   PublicLaunchShell,
@@ -22,7 +22,7 @@ export const IcoDocumentPage = () => {
       utilityAction={{ label: 'Sign in', to: '/login' }}
     >
       <section className="ico-document-hero">
-        <div className="max-w-[820px]">
+        <div className="ico-document-hero__copy">
           <PublicStatusPill tone="info" icon={FileText}>
             {document.status}
           </PublicStatusPill>
@@ -51,11 +51,27 @@ export const IcoDocumentPage = () => {
               <dd>{document.updated}</dd>
             </div>
             <div>
+              <dt>Review state</dt>
+              <dd>{document.reviewState}</dd>
+            </div>
+            <div>
               <dt>Briefing</dt>
               <dd>Informational draft</dd>
             </div>
           </dl>
         </aside>
+      </section>
+
+      <section className="pb-6 md:pb-8">
+        <div className="ico-document-highlight-grid">
+          {document.highlights.map((highlight) => (
+            <article key={highlight.label} className="ico-document-highlight">
+              <p>{highlight.label}</p>
+              <h2>{highlight.value}</h2>
+              {highlight.helper && <span>{highlight.helper}</span>}
+            </article>
+          ))}
+        </div>
       </section>
 
       <section className="space-y-6 pb-10 md:pb-12">
@@ -82,10 +98,17 @@ export const IcoDocumentPage = () => {
             const sectionId = section.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
             return (
               <section key={section.title} id={sectionId} className="scroll-mt-24">
+                {section.eyebrow && <p className="public-eyebrow">{section.eyebrow}</p>}
                 <h2>{section.title}</h2>
                 {section.body?.map((paragraph) => (
                   <p key={paragraph}>{paragraph}</p>
                 ))}
+                {section.callout && (
+                  <div className="ico-document-callout" role="note">
+                    <ShieldAlert className="h-5 w-5" aria-hidden="true" />
+                    <p>{section.callout}</p>
+                  </div>
+                )}
                 {section.bullets && (
                   <ul>
                     {section.bullets.map((item) => (

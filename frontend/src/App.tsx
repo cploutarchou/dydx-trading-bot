@@ -84,6 +84,9 @@ const IcoDocumentPage = lazy(() =>
 const IcoLaunchpadPage = lazy(() =>
   import('./pages/IcoLaunchpad').then((module) => ({ default: module.IcoLaunchpadPage }))
 );
+const IcoTokenActionPage = lazy(() =>
+  import('./pages/IcoTokenAction').then((module) => ({ default: module.IcoTokenActionPage }))
+);
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: WorkspaceRole[] }> = ({
   children,
@@ -272,6 +275,9 @@ export const App: React.FC = () => {
                   <Route path="/services/:slug" element={<PublicServicePage />} />
                   <Route path="/pricing" element={<PricingPage />} />
                   <Route path="/ico" element={<IcoLaunchpadPage />} />
+                  <Route path="/ico/whitelist/confirm" element={<IcoTokenActionPage action="confirm" />} />
+                  <Route path="/ico/unsubscribe" element={<IcoTokenActionPage action="unsubscribe" />} />
+                  <Route path="/ico/withdraw" element={<IcoTokenActionPage action="withdraw" />} />
                   <Route path="/ico/:documentSlug" element={<IcoDocumentPage />} />
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/register" element={<RegisterPage />} />

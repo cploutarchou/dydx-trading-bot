@@ -1,12 +1,4 @@
-import {
-  Activity,
-  ArrowRight,
-  BarChart3,
-  FlaskConical,
-  Radar,
-  Search,
-  ShieldCheck,
-} from 'lucide-react';
+import { Activity, ArrowRight, BarChart3, FlaskConical, Search, ShieldCheck } from 'lucide-react';
 import {
   LaunchStatusStrip,
   PublicCapabilityList,
@@ -35,7 +27,7 @@ const capabilities = [
     body: 'Review backtests, assumptions, and run history before controlled promotion decisions.',
   },
   {
-    icon: Radar,
+    icon: ShieldCheck,
     title: 'Controlled execution and monitoring',
     body: 'Keep runtime access gated behind approved credentials, health state, and operator review.',
   },
@@ -73,7 +65,7 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
     message?.trim() || 'Public onboarding remains paused while controlled access is prepared.';
 
   return (
-    <PublicLaunchShell logoSubtitle="DeFi execution platform">
+    <PublicLaunchShell logoSubtitle="DeFi execution platform" backgroundVariant="launch">
       <section className="grid flex-1 items-center gap-8 py-10 md:py-12 lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-12 lg:py-14">
         <div className="max-w-[720px]">
           <PublicStatusPill tone="info">Controlled launch in progress</PublicStatusPill>
@@ -117,7 +109,7 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
         <ProductWorkflow steps={workflowSteps} />
       </section>
 
-      <section className="pb-12 md:pb-16">
+      <section id="product-scope" className="scroll-mt-8 pb-12 md:pb-16">
         <PublicSectionHeading
           eyebrow="Product scope"
           title="Evidence-first execution workflows."

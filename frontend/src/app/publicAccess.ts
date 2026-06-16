@@ -5,6 +5,11 @@ export const COMING_SOON_AUTH_BYPASS_PATHS = new Set([
   '/ico',
   '/ico/whitepaper',
   '/ico/tokenomics',
+  '/ico/privacy-notice',
+  '/ico/participation-terms',
+  '/ico/whitelist/confirm',
+  '/ico/unsubscribe',
+  '/ico/withdraw',
 ]);
 
 export const PUBLIC_PAGE_NAVIGATION = {

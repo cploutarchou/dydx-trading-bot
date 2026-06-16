@@ -84,6 +84,9 @@ const IcoDocumentPage = lazy(() =>
 const IcoLaunchpadPage = lazy(() =>
   import('./pages/IcoLaunchpad').then((module) => ({ default: module.IcoLaunchpadPage }))
 );
+const IcoTokenActionPage = lazy(() =>
+  import('./pages/IcoTokenAction').then((module) => ({ default: module.IcoTokenActionPage }))
+);
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: WorkspaceRole[] }> = ({
   children,
@@ -147,6 +150,7 @@ const ComingSoonGate: React.FC<{ children: React.ReactNode }> = ({ children }) =
   const portal = getCurrentPortalType();
   const location = useLocation();
   const user = useAuthStore((state) => state.user);
+  const isAuthBypassPath = isComingSoonBypassPath(location.pathname);
   const appConfigQuery = useQuery({
     queryKey: ['public', 'app-config'],
     queryFn: async () => {
@@ -155,7 +159,7 @@ const ComingSoonGate: React.FC<{ children: React.ReactNode }> = ({ children }) =
     },
     staleTime: 30_000,
     retry: 1,
-    enabled: portal === 'client',
+    enabled: portal === 'client' && !isAuthBypassPath,
   });
 
   if (portal !== 'client') {
@@ -170,7 +174,6 @@ const ComingSoonGate: React.FC<{ children: React.ReactNode }> = ({ children }) =
     return <>{children}</>;
   }
 
-  const isAuthBypassPath = isComingSoonBypassPath(location.pathname);
   if (isAuthBypassPath) {
     return <>{children}</>;
   }
@@ -272,6 +275,15 @@ export const App: React.FC = () => {
                   <Route path="/services/:slug" element={<PublicServicePage />} />
                   <Route path="/pricing" element={<PricingPage />} />
                   <Route path="/ico" element={<IcoLaunchpadPage />} />
+                  <Route
+                    path="/ico/whitelist/confirm"
+                    element={<IcoTokenActionPage action="confirm" />}
+                  />
+                  <Route
+                    path="/ico/unsubscribe"
+                    element={<IcoTokenActionPage action="unsubscribe" />}
+                  />
+                  <Route path="/ico/withdraw" element={<IcoTokenActionPage action="withdraw" />} />
                   <Route path="/ico/:documentSlug" element={<IcoDocumentPage />} />
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/register" element={<RegisterPage />} />

@@ -2,34 +2,36 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: dydx-staging
+  name: dydx-production
 
 ---
 apiVersion: v1
 kind: Secret
 metadata:
   name: dydx-secrets
-  namespace: dydx-staging
+  namespace: dydx-production
 type: Opaque
 stringData:
-  MARIADB_ROOT_PASSWORD: "J7Dp4nf7j9U4FQ/M3b5zgnqslHtxbDQvsKCTnshnN4gXhryk"
-  BREAK_GLASS_NEW_ROOT_PASSWORD: "Q0dQgGBXn7L2o27DimrNocGNSn9Ufn26kSfR78CHPaFx7N9O"
+  # Replace all placeholders before apply
+  MARIADB_ROOT_PASSWORD: "DQ8khgETj1ZETAsVzbRy75BOIrCfYLpflGzrNR5C1JcZWvIU"
+  BREAK_GLASS_NEW_ROOT_PASSWORD: "Z97vVI/6VGvYojMkuXEgkssKBrT9ZODw0ep9Pye2iGpKqCDM"
   DB_PASSWORD: "nMWE20GIT20wJIfRhjk2dNKXXt7es9wGvYPpj288k03uJ8Mv"
   DB_ADMIN_USER: "dbadmin"
-  DB_ADMIN_PASSWORD: "Ro9ufyimmlTHsWDozYzSnQ5bY+Y3uBsKs2Yw2AZGQnkq10GR"
-  SECRET_KEY: "ebb58eb44a38a95c183a2a4ea5a9185066feaf9e3b9ca191c31219202204c074"
-  JWT_SECRET_KEY: "d04c7513282981fe42cf810b2c417ff4911415339881d65bd6236a9c61519304"
-  ENCRYPTION_KEY: "5dcee6b521bef7df9abdc6de8f3be9437a4e66d65566afba3b75e61b21921bcc"
-  BOT_API_TOKEN: "bbc83b29dd148080ae920763351f8239ba10344004899923"
+  DB_ADMIN_PASSWORD: "tGW9bOfV8rrawdgbz4uohRR32v4shD6imgf7Kp6v0BDDghPo"
+  SECRET_KEY: "a574cb874ba65da2610c0e8a5f73567049ca23dc49403f56662e0ccea00a7581"
+  JWT_SECRET_KEY: "2e81e8061d8624daf992d0c96e79cd6f4786903bcca49a69c187d8ff85df1353"
+  ENCRYPTION_KEY: "2da9b57dcbbafaaf7de52a258c18824384161ce98a498c1dceeb86e6e487fb16"
+  BOT_API_TOKEN: "87c829169be2d09d66a1fbfe0927fc7d8a5ab40a"
 
 ---
 apiVersion: v1
 kind: Secret
 metadata:
   name: dydx-mariadb-tls
-  namespace: dydx-staging
+  namespace: dydx-production
 type: Opaque
 stringData:
+  # Replace with production DB TLS materials
   ca.crt: |
     -----BEGIN CERTIFICATE-----
     MIIFFTCCAv2gAwIBAgIUZ6eM+a2j29LyfHWpJrtWpSq1Mh4wDQYJKoZIhvcNAQEL
@@ -154,7 +156,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: dydx-mariadb-config
-  namespace: dydx-staging
+  namespace: dydx-production
 data:
   99-tls.cnf: |
     [mariadb]
@@ -179,10 +181,10 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: dydx-config
-  namespace: dydx-staging
+  namespace: dydx-production
 data:
-  ENVIRONMENT: "staging"
-  APP_CONFIG_ENV: "staging"
+  ENVIRONMENT: "production"
+  APP_CONFIG_ENV: "production"
   LOG_LEVEL: "INFO"
 
   # Backend API
@@ -198,7 +200,7 @@ data:
   DB_AUTO_MIGRATE: "true"
   DB_SSL_MODE: "required"
 
-  # Bot DB uses same MariaDB for staging
+  # Bot DB uses same MariaDB for production
   BOT_DB_TYPE: "mysql"
   BOT_DB_CUTOVER_MODE: "shared"
   BOT_DB_HOST: "dydx-mariadb"
@@ -219,20 +221,20 @@ data:
   BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS: "30"
 
   # Public app domain
-  FRONTEND_URL: "https://staging.executionlab.io"
-  CORS_ALLOWED_ORIGINS: "https://staging.executionlab.io,https://staging-admin.executionlab.io,https://staging-*.executionlab.io"
-  VITE_API_BASE_URL: "https://staging.executionlab.io"
+  FRONTEND_URL: "https://executionlab.io"
+  CORS_ALLOWED_ORIGINS: "https://executionlab.io,https://www.executionlab.io,https://app.executionlab.io,https://admin.executionlab.io"
+  VITE_API_BASE_URL: "https://api.executionlab.io"
 
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: dydx-frontend-runtime-config
-  namespace: dydx-staging
+  namespace: dydx-production
 data:
   executionlab-config.js: |
     window.__EXECUTIONLAB_CONFIG__ = {
-      apiBaseUrl: "https://staging.executionlab.io"
+      apiBaseUrl: "https://api.executionlab.io"
     };
 
 ---
@@ -240,7 +242,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: dydx-mariadb-pvc
-  namespace: dydx-staging
+  namespace: dydx-production
 spec:
   accessModes: ["ReadWriteOnce"]
   resources:
@@ -252,7 +254,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: dydx-mariadb
-  namespace: dydx-staging
+  namespace: dydx-production
 spec:
   replicas: 1
   selector:
@@ -266,6 +268,7 @@ spec:
       containers:
         - name: mariadb
           image: mariadb:11.4
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3306
           env:
@@ -319,12 +322,13 @@ spec:
           configMap:
             name: dydx-mariadb-config
             defaultMode: 0755
+
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: dydx-mariadb
-  namespace: dydx-staging
+  namespace: dydx-production
 spec:
   selector:
     app: dydx-mariadb
@@ -338,12 +342,11 @@ apiVersion: v1
 kind: Service
 metadata:
   name: dydx-mariadb-public
-  namespace: dydx-staging
+  namespace: dydx-production
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local
   loadBalancerSourceRanges:
-    - 212.32.18.42/32
     - 212.32.18.42/32
   selector:
     app: dydx-mariadb
@@ -357,7 +360,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: dydx-mariadb-ingress-restrictions
-  namespace: dydx-staging
+  namespace: dydx-production
 spec:
   podSelector:
     matchLabels:
@@ -374,8 +377,6 @@ spec:
               app: dydx-bot
         - ipBlock:
             cidr: 212.32.18.42/32
-        - ipBlock:
-            cidr: 212.32.18.42/32
       ports:
         - protocol: TCP
           port: 3306
@@ -385,7 +386,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: dydx-mariadb-admin-sync
-  namespace: dydx-staging
+  namespace: dydx-production
 spec:
   suspend: true
   ttlSecondsAfterFinished: 600
@@ -462,7 +463,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: dydx-mariadb-breakglass-root-rotation
-  namespace: dydx-staging
+  namespace: dydx-production
 spec:
   suspend: true
   ttlSecondsAfterFinished: 600
@@ -521,7 +522,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: dydx-redis
-  namespace: dydx-staging
+  namespace: dydx-production
 spec:
   replicas: 1
   selector:
@@ -535,6 +536,7 @@ spec:
       containers:
         - name: redis
           image: redis:7-alpine
+          imagePullPolicy: IfNotPresent
           args: ["redis-server", "--appendonly", "yes"]
           ports:
             - containerPort: 6379
@@ -544,7 +546,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: dydx-redis
-  namespace: dydx-staging
+  namespace: dydx-production
 spec:
   selector:
     app: dydx-redis
@@ -558,7 +560,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: dydx-bot
-  namespace: dydx-staging
+  namespace: dydx-production
 spec:
   replicas: 1
   selector:
@@ -635,7 +637,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: dydx-worker
-  namespace: dydx-staging
+  namespace: dydx-production
 spec:
   replicas: 1
   selector:
@@ -692,7 +694,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: dydx-bot
-  namespace: dydx-staging
+  namespace: dydx-production
 spec:
   selector:
     app: dydx-bot
@@ -706,7 +708,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: dydx-backend
-  namespace: dydx-staging
+  namespace: dydx-production
 spec:
   replicas: 1
   selector:
@@ -773,7 +775,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: dydx-backend
-  namespace: dydx-staging
+  namespace: dydx-production
   labels:
     app: dydx-backend
 spec:
@@ -789,17 +791,17 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: dydx-backend
-  namespace: dydx-staging
+  namespace: dydx-production
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
 spec:
   ingressClassName: traefik
   rules:
-    - host: staging.executionlab.io
+    - host: api.executionlab.io
       http:
         paths:
-          - path: /api
+          - path: /
             pathType: Prefix
             backend:
               service:
@@ -808,15 +810,15 @@ spec:
                   number: 8888
   tls:
     - hosts:
-        - staging.executionlab.io
-      secretName: staging-executionlab-io-tls
+        - api.executionlab.io
+      secretName: api-executionlab-io-tls
 
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: dydx-frontend
-  namespace: dydx-staging
+  namespace: dydx-production
 spec:
   replicas: 1
   selector:
@@ -832,9 +834,10 @@ spec:
       containers:
         - name: frontend
           image: ghcr.io/cploutarchou/dydx-trading-bot/frontend:latest
+          imagePullPolicy: Always
           env:
             - name: VITE_API_BASE_URL
-              value: "https://api.staging.executionlab.io"
+              value: "https://api.executionlab.io"
           ports:
             - containerPort: 80
           volumeMounts:
@@ -858,7 +861,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: dydx-frontend
-  namespace: dydx-staging
+  namespace: dydx-production
 spec:
   selector:
     app: dydx-frontend
@@ -872,14 +875,14 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: dydx-frontend
-  namespace: dydx-staging
+  namespace: dydx-production
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
 spec:
   ingressClassName: traefik
   rules:
-    - host: staging.executionlab.io
+    - host: executionlab.io
       http:
         paths:
           - path: /
@@ -891,5 +894,5 @@ spec:
                   number: 80
   tls:
     - hosts:
-        - staging.executionlab.io
-      secretName: staging-executionlab-io-tls
+        - executionlab.io
+      secretName: executionlab-io-tls

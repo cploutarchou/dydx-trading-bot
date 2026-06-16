@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -122,6 +123,9 @@ func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient 
 	routes.RegisterIBPortalRoutes(router, database.DB)
 	routes.RegisterIBTierRatesRoutes(router, database.DB)
 	routes.RegisterSettingsRoutes(router, database)
+	routes.RegisterICOPublicRoutes(router, database.DB)
+	routes.RegisterICOAdminRoutes(router, database.DB)
+	startICOEmailOutboxWorker(database.DB)
 
 	router.Use(middleware.ComingSoonMiddleware(database.DB))
 
@@ -142,6 +146,34 @@ func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient 
 	routes.RegisterStrategyRoutes(router, database)
 	routes.RegisterTradeLogRoutes(router, database)
 	routes.RegisterAuditLogRoutes(router, database)
+}
+
+func startICOEmailOutboxWorker(sqlDB *sql.DB) {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("ICO_EMAIL_OUTBOX_WORKER_ENABLED")), "false") {
+		log.Printf("ICO email outbox worker disabled by configuration")
+		return
+	}
+	credentialRepo := repository.NewExternalAPICredentialRepository(sqlDB)
+	settingsRepo := repository.NewSettingsRepository(sqlDB)
+	userRepo := repository.NewUserRepository(sqlDB)
+	credentialService := services.NewExternalAPICredentialService(credentialRepo)
+	mailgunService := services.NewMailgunService(credentialService, settingsRepo, userRepo)
+	whitelistRepo := repository.NewICOWhitelistRepository(sqlDB)
+	outboxService := services.NewICOEmailOutboxService(whitelistRepo, mailgunService)
+
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			if _, err := outboxService.ProcessPending(ctx, 25); err != nil {
+				log.Printf("ICO email outbox worker error: %v", err)
+			}
+			cancel()
+			<-ticker.C
+		}
+	}()
+	log.Printf("ICO email outbox worker started")
 }
 
 func registerDebugRoutes(router *gin.Engine, database *db.Database) {

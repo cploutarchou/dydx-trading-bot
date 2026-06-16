@@ -14,10 +14,12 @@ import { Link } from 'react-router-dom';
 import type { IcoResourceItem } from '../content/publicSite';
 import type { CountdownState } from '../utils/publicPages';
 import BrandMark from './BrandMark';
+import { CryptoBackground, type CryptoBackgroundVariant } from './CryptoBackground';
 
 interface PublicPageShellProps {
   children: React.ReactNode;
   logoSubtitle: string;
+  backgroundVariant?: CryptoBackgroundVariant;
   utilityAction?: {
     label: string;
     to: string;
@@ -28,13 +30,15 @@ interface PublicPageShellProps {
 export const PublicPageShell: React.FC<PublicPageShellProps> = ({
   children,
   logoSubtitle,
+  backgroundVariant,
   utilityAction,
   className = '',
 }) => (
   <main
-    className={`public-page-shell min-h-screen overflow-x-hidden bg-[#050816] text-white ${className}`}
+    className={`public-page-shell relative isolate min-h-screen overflow-x-hidden bg-[#050816] text-white ${className}`}
   >
-    <PageContainer className="flex min-h-screen flex-col py-5 sm:py-6">
+    {backgroundVariant && <CryptoBackground variant={backgroundVariant} />}
+    <PageContainer className="relative z-10 flex min-h-screen flex-col py-5 sm:py-6">
       <PublicHeader logoSubtitle={logoSubtitle} utilityAction={utilityAction} />
       {children}
     </PageContainer>
@@ -221,16 +225,16 @@ export const ProductWorkflow: React.FC<{
 export const PublicCapabilityList: React.FC<{
   items: Array<{ icon: LucideIcon; title: string; body: string }>;
 }> = ({ items }) => (
-  <div className="grid gap-4 md:grid-cols-3">
+  <div className="public-capability-grid">
     {items.slice(0, 3).map((item) => {
       const Icon = item.icon;
       return (
         <article key={item.title} className="public-capability-card">
-          <span className="public-icon-surface">
-            <Icon className="h-5 w-5 text-cyan-200" aria-hidden="true" />
-          </span>
-          <h3 className="mt-4 text-lg font-semibold text-white">{item.title}</h3>
-          <p className="mt-2 text-base leading-7 text-slate-300">{item.body}</p>
+          <div className="public-capability-card__icon" aria-hidden="true">
+            <Icon />
+          </div>
+          <h3 className="public-capability-card__title">{item.title}</h3>
+          <p className="public-capability-card__body">{item.body}</p>
         </article>
       );
     })}
@@ -505,12 +509,28 @@ export const PasswordField: React.FC<{
 export const WhitelistForm: React.FC<{
   email: string;
   emailError: string;
+  privacyAccepted: boolean;
+  marketingConsent: boolean;
   requestState: 'idle' | 'loading' | 'success' | 'error';
   helperCopy: string;
   ctaLabel: string;
   onEmailChange: (value: string) => void;
+  onPrivacyAcceptedChange: (value: boolean) => void;
+  onMarketingConsentChange: (value: boolean) => void;
   onSubmit: React.FormEventHandler<HTMLFormElement>;
-}> = ({ email, emailError, requestState, helperCopy, ctaLabel, onEmailChange, onSubmit }) => (
+}> = ({
+  email,
+  emailError,
+  privacyAccepted,
+  marketingConsent,
+  requestState,
+  helperCopy,
+  ctaLabel,
+  onEmailChange,
+  onPrivacyAcceptedChange,
+  onMarketingConsentChange,
+  onSubmit,
+}) => (
   <form
     id="whitelist-request"
     onSubmit={onSubmit}
@@ -538,6 +558,51 @@ export const WhitelistForm: React.FC<{
       required
     />
 
+    <input
+      type="text"
+      name="company_website"
+      tabIndex={-1}
+      autoComplete="off"
+      className="hidden"
+      aria-hidden="true"
+    />
+
+    <div className="grid gap-3">
+      <label className="public-consent-option">
+        <input
+          type="checkbox"
+          checked={privacyAccepted}
+          onChange={(event) => onPrivacyAcceptedChange(event.target.checked)}
+          disabled={requestState === 'loading' || requestState === 'success'}
+          required
+        />
+        <span>
+          <strong>I accept the ICO Privacy Notice.</strong>
+          <small>
+            ExecutionLab may process this email address to review and communicate about this
+            whitelist request. Review the <Link to="/ico/privacy-notice">Privacy Notice</Link> and{' '}
+            <Link to="/ico/participation-terms">participation terms</Link>.
+          </small>
+        </span>
+      </label>
+
+      <label className="public-consent-option">
+        <input
+          type="checkbox"
+          checked={marketingConsent}
+          onChange={(event) => onMarketingConsentChange(event.target.checked)}
+          disabled={requestState === 'loading' || requestState === 'success'}
+        />
+        <span>
+          <strong>Send me optional ICO updates.</strong>
+          <small>
+            Optional marketing emails may include document updates and token-launch notices. This is
+            separate from whitelist review and can be unsubscribed from later.
+          </small>
+        </span>
+      </label>
+    </div>
+
     <PrimaryButton
       type="submit"
       disabled={requestState === 'loading' || requestState === 'success'}
@@ -553,13 +618,14 @@ export const WhitelistForm: React.FC<{
 
     {requestState === 'success' && (
       <p className="text-sm leading-6 text-emerald-200" role="status">
-        Your email client should open with the whitelist request. Send the email to continue.
+        If the address is eligible to receive whitelist communications, a confirmation email will be
+        sent. Submission does not guarantee participation, eligibility, or allocation.
       </p>
     )}
 
     {requestState === 'error' && !emailError && (
       <p className="text-sm leading-6 text-rose-200" role="alert">
-        The request could not be prepared. Try again in a moment.
+        The request could not be submitted. Try again in a moment.
       </p>
     )}
   </form>

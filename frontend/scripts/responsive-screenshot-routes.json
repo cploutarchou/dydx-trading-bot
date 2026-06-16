@@ -12,6 +12,30 @@
 		"notes": "Public ICO briefing page with configured countdown and whitelist request form."
 	},
 	{
+		"routeKey": "ico-whitepaper",
+		"path": "/ico/whitepaper",
+		"requiresAuth": false,
+		"notes": "Public whitepaper preview document."
+	},
+	{
+		"routeKey": "ico-tokenomics",
+		"path": "/ico/tokenomics",
+		"requiresAuth": false,
+		"notes": "Public tokenomics notes document."
+	},
+	{
+		"routeKey": "ico-privacy-notice",
+		"path": "/ico/privacy-notice",
+		"requiresAuth": false,
+		"notes": "Draft ICO whitelist privacy notice."
+	},
+	{
+		"routeKey": "ico-participation-terms",
+		"path": "/ico/participation-terms",
+		"requiresAuth": false,
+		"notes": "Draft ICO whitelist participation terms."
+	},
+	{
 		"routeKey": "login",
 		"path": "/login",
 		"requiresAuth": false,

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -138,7 +139,7 @@ func (r *SettingsRepository) GetBotSettingByID(id int) (*models.BotSetting, erro
 
 	setting, err := scanBotSetting(r.db.QueryRow(query, id))
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get bot setting: %w", err)
@@ -153,7 +154,7 @@ func (r *SettingsRepository) GetBotSettingBySectionAndKey(section, key string) (
 
 	setting, err := scanBotSetting(r.db.QueryRow(query, section, key))
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get bot setting: %w", err)

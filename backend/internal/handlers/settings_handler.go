@@ -1221,16 +1221,6 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 			}
 		}
 
-		// Fetch again after creation
-		allSettings, err = h.service.GetAllBotSettings()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, APIResponse{
-				Success:   false,
-				Timestamp: time.Now().UTC().Format(time.RFC3339),
-				Error:     fmt.Sprintf("Failed to retrieve settings after initialization: %v", err),
-			})
-			return
-		}
 	}
 
 	if err := h.ensureComingSoonDefault(); err != nil {

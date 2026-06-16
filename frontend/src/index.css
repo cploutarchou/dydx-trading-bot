@@ -1003,6 +1003,97 @@ h6 {
   mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.55), transparent 68%);
 }
 
+.crypto-background {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  contain: strict;
+}
+
+.crypto-background__static,
+.crypto-background__canvas {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  width: 100%;
+  pointer-events: none;
+}
+
+.crypto-background__canvas {
+  opacity: 1;
+}
+
+.crypto-background__static {
+  background:
+    radial-gradient(circle at 16% 18%, rgba(34, 211, 238, 0.08), transparent 18rem),
+    radial-gradient(circle at 86% 12%, rgba(124, 58, 237, 0.075), transparent 20rem),
+    linear-gradient(135deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px);
+  background-size: auto, auto, 84px 84px;
+  opacity: 0.76;
+}
+
+.crypto-background--launch .crypto-background__static {
+  background:
+    radial-gradient(circle at 14% 20%, rgba(34, 211, 238, 0.12), transparent 20rem),
+    radial-gradient(circle at 82% 16%, rgba(20, 184, 166, 0.08), transparent 22rem),
+    radial-gradient(circle at 66% 78%, rgba(139, 92, 246, 0.065), transparent 24rem),
+    linear-gradient(135deg, rgba(103, 232, 249, 0.05) 1px, transparent 1px);
+  background-size: auto, auto, auto, 72px 72px;
+}
+
+.crypto-background--ico .crypto-background__static {
+  background:
+    radial-gradient(circle at 12% 24%, rgba(34, 211, 238, 0.1), transparent 20rem),
+    radial-gradient(circle at 86% 18%, rgba(245, 158, 11, 0.08), transparent 18rem),
+    linear-gradient(120deg, rgba(125, 211, 252, 0.045) 1px, transparent 1px);
+  background-size: auto, auto, 76px 76px;
+}
+
+.crypto-background--login .crypto-background__static {
+  background:
+    radial-gradient(circle at 24% 18%, rgba(34, 211, 238, 0.07), transparent 17rem),
+    radial-gradient(circle at 76% 78%, rgba(20, 184, 166, 0.045), transparent 18rem),
+    linear-gradient(135deg, rgba(148, 163, 184, 0.028) 1px, transparent 1px);
+  background-size: auto, auto, 96px 96px;
+}
+
+.crypto-background--whitepaper .crypto-background__static {
+  background:
+    radial-gradient(circle at 8% 18%, rgba(103, 232, 249, 0.075), transparent 18rem),
+    radial-gradient(circle at 92% 14%, rgba(148, 163, 184, 0.07), transparent 20rem),
+    radial-gradient(circle at 90% 76%, rgba(167, 139, 250, 0.045), transparent 19rem),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.035) 1px, transparent 1px),
+    linear-gradient(rgba(148, 163, 184, 0.03) 1px, transparent 1px);
+  background-size: auto, auto, auto, 88px 88px, 88px 88px;
+}
+
+.crypto-background--tokenomics .crypto-background__static {
+  background:
+    radial-gradient(circle at 12% 22%, rgba(45, 212, 191, 0.08), transparent 18rem),
+    radial-gradient(circle at 88% 20%, rgba(251, 191, 36, 0.06), transparent 18rem),
+    radial-gradient(circle at 84% 78%, rgba(96, 165, 250, 0.055), transparent 21rem),
+    repeating-radial-gradient(circle at 50% 34%, rgba(45, 212, 191, 0.045) 0 1px, transparent 1px 46px);
+}
+
+.crypto-background--whitepaper ~ .public-page-container .ico-document-article,
+.crypto-background--tokenomics ~ .public-page-container .ico-document-article {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 30%),
+    rgba(8, 13, 24, 0.88);
+}
+
+.crypto-background--whitepaper ~ .public-page-container .ico-document-index,
+.crypto-background--whitepaper ~ .public-page-container .ico-document-summary,
+.crypto-background--tokenomics ~ .public-page-container .ico-document-index,
+.crypto-background--tokenomics ~ .public-page-container .ico-document-summary,
+.crypto-background--tokenomics ~ .public-page-container .sale-fact-card,
+.crypto-background--tokenomics ~ .public-page-container .ico-document-table-wrap {
+  background-color: rgba(8, 13, 24, 0.9);
+  backdrop-filter: blur(16px);
+}
+
 .public-page-container {
   max-width: var(--public-container-max);
   padding-inline: clamp(1rem, 3vw, 2rem);
@@ -1535,17 +1626,62 @@ h6 {
     rgba(8, 13, 24, 0.86);
 }
 
+.public-consent-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  border: 1px solid rgba(100, 116, 139, 0.24);
+  border-radius: var(--public-radius-sm);
+  background: rgba(2, 6, 23, 0.34);
+  padding: 0.85rem;
+  color: #e2e8f0;
+}
+
+.public-consent-option input {
+  margin-top: 0.2rem;
+  min-height: 1.1rem;
+  min-width: 1.1rem;
+  accent-color: #22d3ee;
+}
+
+.public-consent-option strong {
+  display: block;
+  color: #f8fafc;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+}
+
+.public-consent-option small {
+  display: block;
+  margin-top: 0.25rem;
+  color: #94a3b8;
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.public-consent-option a {
+  color: #a5f3fc;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: rgba(165, 243, 252, 0.35);
+  text-underline-offset: 0.2em;
+}
+
 .ico-document-hero {
   display: grid;
   gap: 2rem;
   padding-block: clamp(2.5rem, 6vw, 5rem);
 }
 
+.ico-document-hero__copy {
+  max-width: 820px;
+}
+
 .ico-document-hero h1 {
   margin-top: 1.5rem;
-  max-width: 13ch;
+  max-width: 15ch;
   color: #ffffff;
-  font-size: clamp(2.75rem, 5.8vw, 4.75rem);
+  font-size: clamp(2.65rem, 5.2vw, 4.45rem);
   font-weight: 700;
   line-height: 1.02;
 }
@@ -1571,6 +1707,10 @@ h6 {
 .ico-document-summary {
   align-self: end;
   padding: 1.25rem;
+  border-color: rgba(34, 211, 238, 0.22);
+  background:
+    radial-gradient(circle at 92% 0%, rgba(34, 211, 238, 0.12), transparent 12rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 34%), var(--public-surface);
 }
 
 .ico-document-summary dl {
@@ -1588,7 +1728,8 @@ h6 {
 }
 
 .ico-document-summary dt,
-.ico-document-index a {
+.ico-document-index a,
+.ico-document-highlight p {
   color: #94a3b8;
   font-size: 0.875rem;
   font-weight: 700;
@@ -1599,11 +1740,44 @@ h6 {
   font-size: 0.9375rem;
   font-weight: 700;
   text-align: right;
+  max-width: 16rem;
 }
 
 .ico-document-layout {
   display: grid;
   gap: 1.5rem;
+}
+
+.ico-document-highlight-grid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.ico-document-highlight {
+  min-height: 8.25rem;
+  border: 1px solid rgba(100, 116, 139, 0.24);
+  border-radius: var(--public-radius);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 42%),
+    rgba(8, 13, 24, 0.68);
+  padding: 1rem;
+  box-shadow: 0 18px 48px rgba(2, 6, 23, 0.18);
+}
+
+.ico-document-highlight h2 {
+  margin-top: 0.55rem;
+  color: #f8fafc;
+  font-size: clamp(1.1rem, 1.7vw, 1.35rem);
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.ico-document-highlight span {
+  display: block;
+  margin-top: 0.45rem;
+  color: #94a3b8;
+  font-size: 0.875rem;
+  line-height: 1.5;
 }
 
 .ico-document-index {
@@ -1635,6 +1809,9 @@ h6 {
 .ico-document-article {
   overflow: hidden;
   padding: clamp(1.25rem, 3vw, 2rem);
+  background:
+    radial-gradient(circle at 96% 0%, rgba(79, 70, 229, 0.09), transparent 16rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 34%), var(--public-surface);
 }
 
 .ico-document-article section + section {
@@ -1644,6 +1821,7 @@ h6 {
 }
 
 .ico-document-article h2 {
+  margin-top: 0.35rem;
   color: #ffffff;
   font-size: clamp(1.5rem, 2.4vw, 2rem);
   font-weight: 700;
@@ -1683,6 +1861,25 @@ h6 {
   border-radius: 999px;
   background: #67e8f9;
   box-shadow: 0 0 0 4px rgba(103, 232, 249, 0.09);
+}
+
+.ico-document-callout {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.8rem;
+  border: 1px solid rgba(34, 211, 238, 0.22);
+  border-radius: var(--public-radius-sm);
+  background: rgba(34, 211, 238, 0.075);
+  padding: 0.95rem;
+  color: #a5f3fc;
+}
+
+.ico-document-callout p {
+  margin-top: 0;
+  color: #dbeafe;
+  font-size: 0.9375rem;
+  line-height: 1.65;
 }
 
 .ico-document-table-wrap {
@@ -1751,6 +1948,10 @@ h6 {
   .public-resource-row {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
+  }
+
+  .ico-document-highlight-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -4200,13 +4401,55 @@ h6 {
 
 .public-capability-grid {
   display: grid;
+  align-items: stretch;
   gap: 1rem;
 }
 
 .public-capability-card {
   position: relative;
+  display: grid;
+  height: 100%;
+  grid-template-rows: auto auto 1fr;
+  align-content: start;
   overflow: hidden;
   padding: clamp(1.2rem, 2vw, 1.65rem);
+}
+
+.public-capability-card .public-capability-card__icon {
+  display: inline-flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex: 0 0 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--public-radius-sm);
+  border: 1px solid rgba(34, 211, 238, 0.22);
+  background: rgba(34, 211, 238, 0.1);
+  color: #a5f3fc;
+  line-height: 0;
+}
+
+.public-capability-card .public-capability-card__icon svg {
+  display: block;
+  width: 1.375rem;
+  height: 1.375rem;
+  stroke-width: 2;
+}
+
+.public-capability-card .public-capability-card__title {
+  display: block;
+  margin-top: 1.25rem;
+  color: #f8fafc;
+  font-size: 1.125rem;
+  font-weight: 720;
+  line-height: 1.35;
+}
+
+.public-capability-card .public-capability-card__body {
+  margin-top: 0.85rem;
+  color: #cbd5e1;
+  font-size: 1rem;
+  line-height: 1.75;
 }
 
 .public-capability-card::after {
@@ -4226,6 +4469,14 @@ h6 {
 @media (min-width: 768px) {
   .public-readiness-rail {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .public-capability-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .public-capability-card .public-capability-card__title {
+    min-height: 4.6rem;
   }
 }
 
@@ -6872,5 +7123,77 @@ textarea:disabled {
     opacity: 1 !important;
     transform: none !important;
     transition: none !important;
+  }
+}
+
+@media print {
+  .crypto-background {
+    display: none !important;
+  }
+
+  .public-page-shell,
+  .public-page-shell::before,
+  .public-page-shell::after {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    box-shadow: none !important;
+  }
+
+  .public-page-shell::before,
+  .public-page-shell::after {
+    display: none !important;
+  }
+
+  .public-header,
+  .public-link-button,
+  .ico-document-hero .public-secondary-button {
+    display: none !important;
+  }
+
+  .public-page-container {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  .ico-document-hero,
+  .ico-document-layout,
+  .ico-document-highlight-grid {
+    display: block !important;
+  }
+
+  .ico-document-summary,
+  .ico-document-index,
+  .ico-document-article,
+  .ico-document-highlight,
+  .sale-fact-card,
+  .ico-document-table-wrap {
+    break-inside: avoid;
+    border-color: #cbd5e1 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    color: #0f172a !important;
+  }
+
+  .ico-document-index {
+    position: static !important;
+    margin-bottom: 1rem;
+  }
+
+  .ico-document-hero h1,
+  .ico-document-hero p,
+  .ico-document-summary dd,
+  .ico-document-highlight h2,
+  .ico-document-highlight span,
+  .ico-document-article h2,
+  .ico-document-article p,
+  .ico-document-article li,
+  .ico-document-article td,
+  .ico-document-article th,
+  .ico-document-callout p {
+    color: #0f172a !important;
+  }
+
+  .ico-document-article section {
+    break-inside: avoid;
   }
 }

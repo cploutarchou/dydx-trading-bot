@@ -24,6 +24,9 @@ const AdminHubPage = lazy(() =>
 const AdminCeleryPage = lazy(() =>
   import('../pages/AdminCelery').then((module) => ({ default: module.AdminCeleryPage }))
 );
+const AdminICOPage = lazy(() =>
+  import('../pages/AdminICO').then((module) => ({ default: module.AdminICOPage }))
+);
 const BacktestDetailsV2 = lazy(() => import('../pages/BacktestDetailsV2'));
 const BacktestsPage = lazy(() =>
   import('../pages/Backtests').then((module) => ({ default: module.BacktestsPage }))
@@ -109,6 +112,7 @@ const backofficeRoutes: PortalRouteDefinition[] = [
   { path: '/dashboard', allowedRoles: BACKOFFICE_ROLES, element: <AdminHubPage /> },
   { path: '/admin', allowedRoles: BACKOFFICE_ROLES, element: <AdminHubPage /> },
   { path: '/admin/settings', allowedRoles: BACKOFFICE_ROLES, element: <SettingsPage /> },
+  { path: '/admin/ico', allowedRoles: BACKOFFICE_ROLES, element: <AdminICOPage /> },
   {
     path: '/admin/celery',
     allowedRoles: ['admin', 'super_admin', 'backoffice_admin'],

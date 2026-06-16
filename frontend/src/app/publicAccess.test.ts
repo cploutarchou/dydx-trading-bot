@@ -15,6 +15,11 @@ describe('public access routing', () => {
     expect(isComingSoonBypassPath('/ico')).toBe(true);
     expect(isComingSoonBypassPath('/ico/whitepaper')).toBe(true);
     expect(isComingSoonBypassPath('/ico/tokenomics')).toBe(true);
+    expect(isComingSoonBypassPath('/ico/privacy-notice')).toBe(true);
+    expect(isComingSoonBypassPath('/ico/participation-terms')).toBe(true);
+    expect(isComingSoonBypassPath('/ico/whitelist/confirm')).toBe(true);
+    expect(isComingSoonBypassPath('/ico/unsubscribe')).toBe(true);
+    expect(isComingSoonBypassPath('/ico/withdraw')).toBe(true);
     expect(isComingSoonBypassPath('/2fa-setup')).toBe(true);
     expect(isComingSoonBypassPath('/force-password')).toBe(true);
   });

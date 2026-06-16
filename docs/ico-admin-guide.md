@@ -1,0 +1,30 @@
+# ICO Admin Guide
+
+Status date: 2026-06-16
+
+## Current Admin Coverage
+
+- Whitelist application list with masked applicant emails.
+- Manual ICO email outbox processing.
+- Production-readiness gate for final tokenomics, vesting, token price, accepted currencies, smart-contract/audit evidence, KYC/AML policy, restricted jurisdictions, legal controller details, final terms/privacy/risk links, Mailgun DNS checks, production smoke test, monitoring, alerting, backups, and approvals.
+- Backend guard preventing `published=true` while readiness blockers remain.
+
+Existing Mailgun API credential configuration remains available through the existing Mailgun admin UI/API.
+
+## Required Admin Features Still To Build
+
+- ICO content draft/publish management beyond the readiness gate.
+- Numeric tokenomics allocation validation against a structured allocation table.
+- Sale-date and documentation-link management.
+- Whitelist application table with masked emails, status filters, consent filters, and review actions.
+- Application detail view with consent history and email delivery history.
+- Safe CSV export with role restriction and audit logging.
+- Mailgun delivery-event dashboard derived from local webhook events.
+- Test-email action that never exposes raw Mailgun errors or credentials.
+- Marketing update workflow that includes only confirmed, consented, non-suppressed recipients.
+
+## Production Warning
+
+Token-sale, tokenomics, legal, and participation information requires approval from authorised legal and business owners before publication.
+
+Do not mark the readiness gate as complete with placeholder values. The gate records operational readiness; it does not replace legal, compliance, audit, or business approval.

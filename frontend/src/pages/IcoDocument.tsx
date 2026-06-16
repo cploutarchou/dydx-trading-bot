@@ -6,6 +6,7 @@ import {
   SaleFacts,
   SecondaryButton,
 } from '../components/PublicPagePrimitives';
+import { getCryptoBackgroundVariantForIcoDocument } from '../components/CryptoBackground';
 import { getIcoDocument } from '../content/icoDocuments';
 
 export const IcoDocumentPage = () => {
@@ -19,6 +20,7 @@ export const IcoDocumentPage = () => {
   return (
     <PublicLaunchShell
       logoSubtitle={document.eyebrow}
+      backgroundVariant={getCryptoBackgroundVariantForIcoDocument(document.slug)}
       utilityAction={{ label: 'Sign in', to: '/login' }}
     >
       <section className="ico-document-hero">

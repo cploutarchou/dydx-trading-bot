@@ -4,10 +4,22 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- SEO: Base meta tags (overridden by page-specific SEOHead component) -->
     <meta
       name="description"
-      content="ExecutionLab is a modern technical execution lab for building, testing, automating, and shipping production-grade systems."
+      content="Technical execution lab for building, testing, and operating dYdX trading bots with research-backed strategies."
     />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="ExecutionLab" />
+    <meta property="og:image" content="https://executionlab.io/og-images/default.png" />
+    <meta property="og:image:alt" content="ExecutionLab - Technical execution platform" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@executionlab" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://executionlab.io/" />
+    <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
+
     <script src="/executionlab-config.js"></script>
     <script>
       (() => {
@@ -35,7 +47,8 @@
         document.documentElement.style.colorScheme = resolved;
       })();
     </script>
-    <title>ExecutionLab | Build. Test. Execute.</title>
+    <!-- Page-specific title set by SEOHead component or defaults to "ExecutionLab" -->
+    <title>ExecutionLab</title>
   </head>
   <body>
     <div id="root"></div>

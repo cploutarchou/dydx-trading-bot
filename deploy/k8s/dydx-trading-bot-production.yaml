@@ -1,0 +1,873 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dydx-production
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dydx-secrets
+  namespace: dydx-production
+type: Opaque
+stringData:
+  # Replace all placeholders before apply
+  MARIADB_ROOT_PASSWORD: "DQ8khgETj1ZETAsVzbRy75BOIrCfYLpflGzrNR5C1JcZWvIU"
+  BREAK_GLASS_NEW_ROOT_PASSWORD: "Z97vVI/6VGvYojMkuXEgkssKBrT9ZODw0ep9Pye2iGpKqCDM"
+  DB_PASSWORD: "9T0RW5ci/LSZAHViyAZi4yMTXkUdhcmHacqxoP2+ZZlDB0r+"
+  DB_ADMIN_USER: "dbadmin"
+  DB_ADMIN_PASSWORD: "tGW9bOfV8rrawdgbz4uohRR32v4shD6imgf7Kp6v0BDDghPo"
+  SECRET_KEY: "a574cb874ba65da2610c0e8a5f73567049ca23dc49403f56662e0ccea00a7581"
+  JWT_SECRET_KEY: "2e81e8061d8624daf992d0c96e79cd6f4786903bcca49a69c187d8ff85df1353"
+  ENCRYPTION_KEY: "2da9b57dcbbafaaf7de52a258c18824384161ce98a498c1dceeb86e6e487fb16"
+  BOT_API_TOKEN: "87c829169be2d09d66a1fbfe0927fc7d8a5ab40a"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dydx-mariadb-tls
+  namespace: dydx-production
+type: Opaque
+stringData:
+  # Replace with production DB TLS materials
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIFFTCCAv2gAwIBAgIUZ6eM+a2j29LyfHWpJrtWpSq1Mh4wDQYJKoZIhvcNAQEL
+    BQAwGjEYMBYGA1UEAwwPZHlkeC1tYXJpYWRiLWNhMB4XDTI2MDYxMzIxMjAwNVoX
+    DTM2MDYxMDIxMjAwNVowGjEYMBYGA1UEAwwPZHlkeC1tYXJpYWRiLWNhMIICIjAN
+    BgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA4Gxjt7pzhSOCMGBSz+88T376VNX5
+    yoYKhbYthx4yvLJEwBh9NiW/7ZUDxlGOb+0vSMQcazhs4v4xPh/IKxh6hrXgL4Ds
+    Ooyic566KZYDJXBAEQFWUvaUSVyxbR6WEUY0svR1hM7+EqKDnD/vNF15E1g9nUS/
+    a4/BERv1p/OZOJWx9aMUNOp4an1+4hHNNRQZiLt395YVLsalMWqZHGjRhlxdlTCq
+    hJnNy9ktED7wOrurVNHkXDk74iCgwCSypupsym+m1RKJs9m1yvQCZeCuTa8cSaCf
+    Lnb01cWzHaMdFoK/MKlXaifv1Jb5DHhK0hyufKSPzb9XDvv4fV8d+MF4kHeJt5ID
+    yQBtPvpky1cfyDBhH+WsNZnhhCqfajaIddcaxl85SaPVL6+RVJzPYwtxBzuf/n1P
+    dTJDJcpL4SBJQ2pO7N+CCfkiZf3GgTHtrMW2x5MCMNJsUCbwYUHgPU5kOibsQ7sl
+    Tu2ozixzQrq0IsYYD30/ihWivHgokJmJaZKY18JFTjZnEuFOkk16d/neHmMFCoTd
+    FvfpXjSL/bsFAN1DOqZEYd8h+IRYPbAkCtMehkOgLwRCEqPVmH9GO7TjPOQucCWp
+    Ggjo/WZphtwtjoITyKHAC4sXcG2t8qMoLgW41PNB80KBBisyP9bF45f3s9n6XTYb
+    y32hQpbzxbIGfOkCAwEAAaNTMFEwHQYDVR0OBBYEFBuWD5LVicquNZM1V2MCWUi8
+    2Sn6MB8GA1UdIwQYMBaAFBuWD5LVicquNZM1V2MCWUi82Sn6MA8GA1UdEwEB/wQF
+    MAMBAf8wDQYJKoZIhvcNAQELBQADggIBAL91+ZTE7RLJiuCkxB4+K6YrFNd+Ojyp
+    lU3ZBzgM06G+l9nW9S61h3+M9D9udwe+35XVG20WFDQ1waiKpvLpK4XZMiftdSBs
+    VBpdTQqxpq/wnYfBmmZC/x0u2MlI4NQok1/OlGwzggQ+l5fekrlSZKvt3S/paIHk
+    PWTWYwWbgx5k0Rwv1ECjQvzXMyheC9FGMNv4XFvGAOOxgal5nuSanNQhM1/5Tgpe
+    4zA/MZUHTG095/7Ohc36ynKA2UKo5e/QBaw2A7Rcqri0E2dH1c9Lcu/pEnryqkHa
+    elZcg78Rp7FoCCm/OJq9ljqheshXQk+4aY6T6lOreR+C8xmQBn3HP1dDOAqMdMeY
+    F04xORONcxQMO7tu6g2dwnn4iddpxGgSZhFWg/x0skIURGqYCkfQCcXyaBgJ/G5P
+    nhndWxKuz0oLG8HUxPZJriJ6I/1bJeatGbOZHWQ77WLVfOBmsnFST+pCWdXxEmEK
+    zag3zYczm682qjY2EQ8rCQlSfKbzomA6WMr2xj3q1/cOWg85ak2Qfswz4HAvFIBY
+    nkDKJGuqdsuyg6a+P49K/I+4DKmLTPa2On8/JBMoFBcB/Nc+zZ4eRDybXg5chlfU
+    5t232hVCJd+5iNKq3AKC1FG7v/n4Id3Zkdos8nzODzRd86OpnSzGsV/Z7nHcPL1v
+    GOkEyroWfgRI
+    -----END CERTIFICATE-----
+  tls.crt: |
+    -----BEGIN CERTIFICATE-----
+    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
+    HlWHQR+B4XEih0hGBf2//SL73xo=
+    -----END CERTIFICATE-----
+  tls.key: |
+    -----BEGIN PRIVATE KEY-----
+    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
+    pZXig+rxxbZYZ2eFUjrfPU4OQux63go=
+    -----END PRIVATE KEY-----
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dydx-mariadb-config
+  namespace: dydx-production
+data:
+  99-tls.cnf: |
+    [mariadb]
+    require_secure_transport=ON
+    ssl_ca=/etc/mysql/ssl/ca.crt
+    ssl_cert=/etc/mysql/ssl/tls.crt
+    ssl_key=/etc/mysql/ssl/tls.key
+  10-bootstrap-admin-user.sh: |
+    #!/bin/sh
+    set -eu
+
+    # Runs only on first DB initialization.
+    mysql -uroot -p"${MARIADB_ROOT_PASSWORD}" <<SQL
+    CREATE USER IF NOT EXISTS '${DB_ADMIN_USER}'@'%' IDENTIFIED BY '${DB_ADMIN_PASSWORD}';
+    GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES,
+      LOCK TABLES, CREATE TEMPORARY TABLES, EXECUTE ON app.* TO '${DB_ADMIN_USER}'@'%';
+    FLUSH PRIVILEGES;
+    SQL
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dydx-config
+  namespace: dydx-production
+data:
+  ENVIRONMENT: "production"
+  APP_CONFIG_ENV: "production"
+  LOG_LEVEL: "INFO"
+
+  # Backend API
+  API_PORT: "8888"
+
+  # Shared MariaDB
+  DB_TYPE: "mysql"
+  DB_HOST: "dydx-mariadb"
+  DB_PORT: "3306"
+  DB_NAME: "app"
+  DB_USER: "app"
+  SSL_MODE: "true"
+  DB_AUTO_MIGRATE: "true"
+  DB_SSL_MODE: "required"
+
+  # Bot DB uses same MariaDB for production
+  BOT_DB_TYPE: "mysql"
+  BOT_DB_CUTOVER_MODE: "shared"
+  BOT_DB_HOST: "dydx-mariadb"
+  BOT_DB_PORT: "3306"
+  BOT_DB_NAME: "app"
+  BOT_DB_USER: "app"
+  BOT_DB_SSL_MODE: "required"
+
+  # Redis
+  REDIS_HOST: "dydx-redis"
+  REDIS_PORT: "6379"
+
+  # Bot API
+  BOT_API_HOST: "0.0.0.0"
+  BOT_API_PORT: "8889"
+  BOT_API_URL: "http://dydx-bot:8889"
+  BOT_API_USE_SERVICE_TOKEN: "true"
+  BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS: "30"
+
+  # Public app domain
+  FRONTEND_URL: "https://executionlab.io"
+  CORS_ALLOWED_ORIGINS: "https://executionlab.io,https://api.executionlab.io"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dydx-mariadb-pvc
+  namespace: dydx-production
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dydx-mariadb
+  namespace: dydx-production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dydx-mariadb
+  template:
+    metadata:
+      labels:
+        app: dydx-mariadb
+    spec:
+      containers:
+        - name: mariadb
+          image: mariadb:11.4
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MARIADB_DATABASE
+              value: "app"
+            - name: MARIADB_USER
+              value: "app"
+            - name: MARIADB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: DB_PASSWORD
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: MARIADB_ROOT_PASSWORD
+            - name: DB_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: DB_ADMIN_USER
+            - name: DB_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: DB_ADMIN_PASSWORD
+          volumeMounts:
+            - name: mariadb-data
+              mountPath: /var/lib/mysql
+            - name: mariadb-tls
+              mountPath: /etc/mysql/ssl
+              readOnly: true
+            - name: mariadb-tls-config
+              mountPath: /etc/mysql/conf.d/99-tls.cnf
+              subPath: 99-tls.cnf
+            - name: mariadb-bootstrap
+              mountPath: /docker-entrypoint-initdb.d/10-bootstrap-admin-user.sh
+              subPath: 10-bootstrap-admin-user.sh
+      volumes:
+        - name: mariadb-data
+          persistentVolumeClaim:
+            claimName: dydx-mariadb-pvc
+        - name: mariadb-tls
+          secret:
+            secretName: dydx-mariadb-tls
+        - name: mariadb-tls-config
+          configMap:
+            name: dydx-mariadb-config
+        - name: mariadb-bootstrap
+          configMap:
+            name: dydx-mariadb-config
+            defaultMode: 0755
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dydx-mariadb
+  namespace: dydx-production
+spec:
+  selector:
+    app: dydx-mariadb
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dydx-mariadb-public
+  namespace: dydx-production
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  loadBalancerSourceRanges:
+    - 212.32.18.42/32
+  selector:
+    app: dydx-mariadb
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dydx-mariadb-ingress-restrictions
+  namespace: dydx-production
+spec:
+  podSelector:
+    matchLabels:
+      app: dydx-mariadb
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: dydx-backend
+        - podSelector:
+            matchLabels:
+              app: dydx-bot
+        - ipBlock:
+            cidr: 212.32.18.42/32
+      ports:
+        - protocol: TCP
+          port: 3306
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dydx-mariadb-admin-sync
+  namespace: dydx-production
+spec:
+  suspend: true
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mariadb-admin-sync
+          image: mariadb:11.4
+          env:
+            - name: DB_HOST
+              value: "dydx-mariadb"
+            - name: DB_PORT
+              value: "3306"
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: MARIADB_ROOT_PASSWORD
+            - name: DB_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: DB_ADMIN_USER
+            - name: DB_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: DB_ADMIN_PASSWORD
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              echo "Waiting for MariaDB to become reachable over TLS..."
+              until mariadb-admin \
+                --host="$DB_HOST" \
+                --port="$DB_PORT" \
+                --user=root \
+                --password="$MARIADB_ROOT_PASSWORD" \
+                --ssl \
+                --ssl-ca=/tls/ca.crt \
+                ping --silent; do
+                sleep 3
+              done
+
+              mariadb \
+                --host="$DB_HOST" \
+                --port="$DB_PORT" \
+                --user=root \
+                --password="$MARIADB_ROOT_PASSWORD" \
+                --ssl \
+                --ssl-ca=/tls/ca.crt <<SQL
+              CREATE USER IF NOT EXISTS '${DB_ADMIN_USER}'@'%' IDENTIFIED BY '${DB_ADMIN_PASSWORD}';
+              ALTER USER '${DB_ADMIN_USER}'@'%' IDENTIFIED BY '${DB_ADMIN_PASSWORD}';
+              REVOKE ALL PRIVILEGES, GRANT OPTION FROM '${DB_ADMIN_USER}'@'%';
+              GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES,
+                LOCK TABLES, CREATE TEMPORARY TABLES, EXECUTE ON app.* TO '${DB_ADMIN_USER}'@'%';
+              FLUSH PRIVILEGES;
+              SQL
+
+              echo "DB admin user sync complete."
+          volumeMounts:
+            - name: mariadb-tls
+              mountPath: /tls
+              readOnly: true
+      volumes:
+        - name: mariadb-tls
+          secret:
+            secretName: dydx-mariadb-tls
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dydx-mariadb-breakglass-root-rotation
+  namespace: dydx-production
+spec:
+  suspend: true
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: breakglass-root-rotation
+          image: mariadb:11.4
+          env:
+            - name: DB_HOST
+              value: "dydx-mariadb"
+            - name: DB_PORT
+              value: "3306"
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: MARIADB_ROOT_PASSWORD
+            - name: BREAK_GLASS_NEW_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: BREAK_GLASS_NEW_ROOT_PASSWORD
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              echo "BREAK-GLASS root rotation job started."
+              echo "This job should remain suspended unless explicitly approved."
+
+              mariadb \
+                --host="$DB_HOST" \
+                --port="$DB_PORT" \
+                --user=root \
+                --password="$MARIADB_ROOT_PASSWORD" \
+                --ssl \
+                --ssl-ca=/tls/ca.crt <<SQL
+              ALTER USER 'root'@'localhost' IDENTIFIED BY '${BREAK_GLASS_NEW_ROOT_PASSWORD}';
+              FLUSH PRIVILEGES;
+              SQL
+
+              echo "Root password rotated. Update dydx-secrets/MARIADB_ROOT_PASSWORD immediately."
+          volumeMounts:
+            - name: mariadb-tls
+              mountPath: /tls
+              readOnly: true
+      volumes:
+        - name: mariadb-tls
+          secret:
+            secretName: dydx-mariadb-tls
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dydx-redis
+  namespace: dydx-production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dydx-redis
+  template:
+    metadata:
+      labels:
+        app: dydx-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          imagePullPolicy: IfNotPresent
+          args: ["redis-server", "--appendonly", "yes"]
+          ports:
+            - containerPort: 6379
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dydx-redis
+  namespace: dydx-production
+spec:
+  selector:
+    app: dydx-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dydx-bot
+  namespace: dydx-production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dydx-bot
+  template:
+    metadata:
+      labels:
+        app: dydx-bot
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: bot
+          image: ghcr.io/cploutarchou/dydx-trading-bot/api:latest
+          imagePullPolicy: Always
+          command: ["python", "-m", "uvicorn"]
+          args: ["src.api.server:app", "--host", "0.0.0.0", "--port", "8889"]
+          ports:
+            - containerPort: 8889
+          envFrom:
+            - configMapRef:
+                name: dydx-config
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: DB_PASSWORD
+            - name: BOT_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: DB_PASSWORD
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: SECRET_KEY
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: JWT_SECRET_KEY
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: ENCRYPTION_KEY
+            - name: BOT_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: BOT_API_TOKEN
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8889
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+            periodSeconds: 15
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8889
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+            periodSeconds: 20
+            failureThreshold: 3
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dydx-worker
+  namespace: dydx-production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dydx-worker
+  template:
+    metadata:
+      labels:
+        app: dydx-worker
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: worker
+          image: ghcr.io/cploutarchou/dydx-trading-bot/worker:latest
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: dydx-config
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: DB_PASSWORD
+            - name: BOT_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: DB_PASSWORD
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: SECRET_KEY
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: JWT_SECRET_KEY
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: ENCRYPTION_KEY
+            - name: BOT_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: BOT_API_TOKEN
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dydx-bot
+  namespace: dydx-production
+spec:
+  selector:
+    app: dydx-bot
+  ports:
+    - name: http
+      port: 8889
+      targetPort: 8889
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dydx-backend
+  namespace: dydx-production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dydx-backend
+  template:
+    metadata:
+      labels:
+        app: dydx-backend
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: backend
+          image: ghcr.io/cploutarchou/dydx-trading-bot/backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8888
+          envFrom:
+            - configMapRef:
+                name: dydx-config
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: DB_PASSWORD
+            - name: BOT_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: DB_PASSWORD
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: SECRET_KEY
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: JWT_SECRET_KEY
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: ENCRYPTION_KEY
+            - name: BOT_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: dydx-secrets
+                  key: BOT_API_TOKEN
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8888
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+            periodSeconds: 15
+            failureThreshold: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dydx-backend
+  namespace: dydx-production
+  labels:
+    app: dydx-backend
+spec:
+  selector:
+    app: dydx-backend
+  ports:
+    - name: http
+      port: 8888
+      targetPort: 8888
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dydx-backend
+  namespace: dydx-production
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: api.executionlab.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dydx-backend
+                port:
+                  number: 8888
+  tls:
+    - hosts:
+        - api.executionlab.io
+      secretName: api-executionlab-io-tls
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dydx-frontend
+  namespace: dydx-production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dydx-frontend
+  template:
+    metadata:
+      labels:
+        app: dydx-frontend
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: frontend
+          image: ghcr.io/cploutarchou/dydx-trading-bot/frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 15
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dydx-frontend
+  namespace: dydx-production
+spec:
+  selector:
+    app: dydx-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dydx-frontend
+  namespace: dydx-production
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: executionlab.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dydx-frontend
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - executionlab.io
+      secretName: executionlab-io-tls

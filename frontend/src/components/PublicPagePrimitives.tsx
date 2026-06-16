@@ -221,16 +221,16 @@ export const ProductWorkflow: React.FC<{
 export const PublicCapabilityList: React.FC<{
   items: Array<{ icon: LucideIcon; title: string; body: string }>;
 }> = ({ items }) => (
-  <div className="grid gap-4 md:grid-cols-3">
+  <div className="public-capability-grid">
     {items.slice(0, 3).map((item) => {
       const Icon = item.icon;
       return (
         <article key={item.title} className="public-capability-card">
-          <span className="public-icon-surface">
-            <Icon className="h-5 w-5 text-cyan-200" aria-hidden="true" />
-          </span>
-          <h3 className="mt-4 text-lg font-semibold text-white">{item.title}</h3>
-          <p className="mt-2 text-base leading-7 text-slate-300">{item.body}</p>
+          <div className="public-capability-card__icon" aria-hidden="true">
+            <Icon />
+          </div>
+          <h3 className="public-capability-card__title">{item.title}</h3>
+          <p className="public-capability-card__body">{item.body}</p>
         </article>
       );
     })}

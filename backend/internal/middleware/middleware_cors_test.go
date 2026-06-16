@@ -51,6 +51,46 @@ func TestCORSMiddlewareRejectsUnconfiguredOrigin(t *testing.T) {
 	}
 }
 
+func TestCORSMiddlewareAllowsScopedStagingSubdomainPattern(t *testing.T) {
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://staging.executionlab.io,https://staging-*.executionlab.io")
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(CORSMiddleware())
+	router.GET("/ping", func(c *gin.Context) {
+		c.String(http.StatusOK, "ok")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	req.Header.Set("Origin", "https://staging-admin.executionlab.io")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://staging-admin.executionlab.io" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want https://staging-admin.executionlab.io", got)
+	}
+}
+
+func TestCORSMiddlewareDoesNotAllowProductionFromStagingPattern(t *testing.T) {
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://staging.executionlab.io,https://staging-*.executionlab.io")
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(CORSMiddleware())
+	router.GET("/ping", func(c *gin.Context) {
+		c.String(http.StatusOK, "ok")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	req.Header.Set("Origin", "https://app.executionlab.io")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want empty", got)
+	}
+}
+
 func TestCORSMiddlewareHandlesPreflight(t *testing.T) {
 	t.Setenv("CORS_ALLOWED_ORIGINS", "https://executionlab.io")
 

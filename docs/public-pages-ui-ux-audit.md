@@ -206,3 +206,30 @@ Scope: Coming Soon, ICO briefing, and Login pages in the React/Vite frontend.
 - The Mailgun outbox worker/template renderer is not implemented yet, so confirmation emails are queued but not delivered by this slice.
 - Unsubscribe, withdrawal, admin review, webhook processing, suppression handling, and marketing campaign workflows remain production blockers.
 - The public API intentionally returns a generic response and does not expose applicant existence.
+
+## Coming Soon Product Scope Alignment Fix
+
+### Problems Addressed
+
+- Product Scope icon glyphs appeared inconsistently positioned because generic card span styles overrode the shared icon surface.
+- The three capability cards did not have a strict shared internal grid, so headings and descriptions could drift visually.
+
+### Changes Implemented
+
+- Updated `PublicCapabilityList` to render one shared card structure with:
+  - fixed icon container
+  - heading
+  - description
+- Replaced the icon wrapper with `public-capability-card__icon`, using `inline-flex`, centered alignment, fixed `44px` dimensions, `line-height: 0`, and block SVG sizing.
+- Added card grid rows so icons, headings, and descriptions align across desktop cards while still stacking naturally on tablet and mobile.
+- Kept the bottom accent on the card itself so it remains aligned across equal-height cards.
+
+### Responsive Notes
+
+- The capability grid remains single-column on mobile and three-column from tablet width upward.
+- No per-icon offsets, transforms, or margins were added.
+- Product Scope scrolled verification screenshots:
+  - `frontend/docs/screenshots/responsive/coming-soon-product-scope-scrolled-390.png`
+  - `frontend/docs/screenshots/responsive/coming-soon-product-scope-scrolled-768.png`
+  - `frontend/docs/screenshots/responsive/coming-soon-product-scope-scrolled-1440.png`
+  - `frontend/docs/screenshots/responsive/coming-soon-product-scope-scrolled-1920.png`

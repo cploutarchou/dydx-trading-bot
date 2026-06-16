@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { BACKOFFICE_ROLES, IB_ROLES, getUserWorkspaceRole } from '../auth/roles';
 import BrandMark from '../components/BrandMark';
+import { CryptoBackground } from '../components/CryptoBackground';
 import {
   FormField,
   PasswordField,
@@ -88,8 +89,9 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <main className="public-page-shell flex min-h-screen items-start bg-[#050816] px-4 py-8 text-white sm:px-6">
-      <section className="auth-column mx-auto w-full">
+    <main className="public-page-shell relative isolate flex min-h-screen items-start overflow-x-hidden bg-[#050816] px-4 py-8 text-white sm:px-6">
+      <CryptoBackground variant="login" />
+      <section className="auth-column relative z-10 mx-auto w-full">
         <Link to="/" className="inline-flex">
           <BrandMark subtitle="Controlled access" />
         </Link>

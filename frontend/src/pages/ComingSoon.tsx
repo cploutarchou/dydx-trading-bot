@@ -1,11 +1,4 @@
-import {
-  Activity,
-  ArrowRight,
-  BarChart3,
-  FlaskConical,
-  Search,
-  ShieldCheck,
-} from 'lucide-react';
+import { Activity, ArrowRight, BarChart3, FlaskConical, Search, ShieldCheck } from 'lucide-react';
 import {
   LaunchStatusStrip,
   PublicCapabilityList,
@@ -72,7 +65,7 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
     message?.trim() || 'Public onboarding remains paused while controlled access is prepared.';
 
   return (
-    <PublicLaunchShell logoSubtitle="DeFi execution platform">
+    <PublicLaunchShell logoSubtitle="DeFi execution platform" backgroundVariant="launch">
       <section className="grid flex-1 items-center gap-8 py-10 md:py-12 lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-12 lg:py-14">
         <div className="max-w-[720px]">
           <PublicStatusPill tone="info">Controlled launch in progress</PublicStatusPill>

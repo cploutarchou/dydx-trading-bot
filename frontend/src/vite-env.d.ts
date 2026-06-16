@@ -20,3 +20,9 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+interface Window {
+  __EXECUTIONLAB_CONFIG__?: {
+    apiBaseUrl?: string;
+  };
+}

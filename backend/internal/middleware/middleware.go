@@ -67,8 +67,38 @@ func isAllowedCORSOrigin(origin string, allowed map[string]struct{}) bool {
 	if len(allowed) == 0 {
 		return !isProductionEnvironment()
 	}
-	_, ok := allowed[normalizeOrigin(origin)]
-	return ok
+	normalized := normalizeOrigin(origin)
+	if _, ok := allowed[normalized]; ok {
+		return true
+	}
+	for candidate := range allowed {
+		if matchesAllowedOriginPattern(normalized, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchesAllowedOriginPattern(origin string, pattern string) bool {
+	parsedOrigin, err := url.Parse(origin)
+	if err != nil || parsedOrigin.Scheme == "" || parsedOrigin.Host == "" {
+		return false
+	}
+	parsedPattern, err := url.Parse(pattern)
+	if err != nil || parsedPattern.Scheme == "" || parsedPattern.Host == "" {
+		return false
+	}
+	if parsedOrigin.Scheme != parsedPattern.Scheme {
+		return false
+	}
+
+	patternHost := strings.ToLower(parsedPattern.Hostname())
+	originHost := strings.ToLower(parsedOrigin.Hostname())
+	if patternHost == "staging-*.executionlab.io" {
+		return strings.HasPrefix(originHost, "staging-") &&
+			strings.HasSuffix(originHost, ".executionlab.io")
+	}
+	return false
 }
 
 func isProductionEnvironment() bool {

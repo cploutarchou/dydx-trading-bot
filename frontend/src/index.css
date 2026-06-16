@@ -4310,13 +4310,55 @@ h6 {
 
 .public-capability-grid {
   display: grid;
+  align-items: stretch;
   gap: 1rem;
 }
 
 .public-capability-card {
   position: relative;
+  display: grid;
+  height: 100%;
+  grid-template-rows: auto auto 1fr;
+  align-content: start;
   overflow: hidden;
   padding: clamp(1.2rem, 2vw, 1.65rem);
+}
+
+.public-capability-card .public-capability-card__icon {
+  display: inline-flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex: 0 0 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--public-radius-sm);
+  border: 1px solid rgba(34, 211, 238, 0.22);
+  background: rgba(34, 211, 238, 0.1);
+  color: #a5f3fc;
+  line-height: 0;
+}
+
+.public-capability-card .public-capability-card__icon svg {
+  display: block;
+  width: 1.375rem;
+  height: 1.375rem;
+  stroke-width: 2;
+}
+
+.public-capability-card .public-capability-card__title {
+  display: block;
+  margin-top: 1.25rem;
+  color: #f8fafc;
+  font-size: 1.125rem;
+  font-weight: 720;
+  line-height: 1.35;
+}
+
+.public-capability-card .public-capability-card__body {
+  margin-top: 0.85rem;
+  color: #cbd5e1;
+  font-size: 1rem;
+  line-height: 1.75;
 }
 
 .public-capability-card::after {
@@ -4336,6 +4378,14 @@ h6 {
 @media (min-width: 768px) {
   .public-readiness-rail {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .public-capability-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .public-capability-card .public-capability-card__title {
+    min-height: 4.6rem;
   }
 }
 

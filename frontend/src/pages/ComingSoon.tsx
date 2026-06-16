@@ -116,7 +116,7 @@ export const ComingSoonPage = ({ message }: ComingSoonPageProps) => {
         <ProductWorkflow steps={workflowSteps} />
       </section>
 
-      <section className="pb-12 md:pb-16">
+      <section id="product-scope" className="scroll-mt-8 pb-12 md:pb-16">
         <PublicSectionHeading
           eyebrow="Product scope"
           title="Evidence-first execution workflows."

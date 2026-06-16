@@ -221,7 +221,7 @@ data:
   # Public app domain
   FRONTEND_URL: "https://staging.executionlab.io"
   CORS_ALLOWED_ORIGINS: "https://staging.executionlab.io,https://staging-admin.executionlab.io,https://staging-*.executionlab.io"
-  VITE_API_BASE_URL: "https://api.staging.executionlab.io"
+  VITE_API_BASE_URL: "https://staging.executionlab.io"
 
 ---
 apiVersion: v1
@@ -232,7 +232,7 @@ metadata:
 data:
   executionlab-config.js: |
     window.__EXECUTIONLAB_CONFIG__ = {
-      apiBaseUrl: "https://api.staging.executionlab.io"
+      apiBaseUrl: "https://staging.executionlab.io"
     };
 
 ---
@@ -796,10 +796,10 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: api.staging.executionlab.io
+    - host: staging.executionlab.io
       http:
         paths:
-          - path: /
+          - path: /api
             pathType: Prefix
             backend:
               service:
@@ -808,8 +808,8 @@ spec:
                   number: 8888
   tls:
     - hosts:
-        - api.staging.executionlab.io
-      secretName: api-staging-executionlab-io-tls
+        - staging.executionlab.io
+      secretName: staging-executionlab-io-tls
 
 ---
 apiVersion: apps/v1

@@ -14,10 +14,12 @@ import { Link } from 'react-router-dom';
 import type { IcoResourceItem } from '../content/publicSite';
 import type { CountdownState } from '../utils/publicPages';
 import BrandMark from './BrandMark';
+import { CryptoBackground, type CryptoBackgroundVariant } from './CryptoBackground';
 
 interface PublicPageShellProps {
   children: React.ReactNode;
   logoSubtitle: string;
+  backgroundVariant?: CryptoBackgroundVariant;
   utilityAction?: {
     label: string;
     to: string;
@@ -28,13 +30,15 @@ interface PublicPageShellProps {
 export const PublicPageShell: React.FC<PublicPageShellProps> = ({
   children,
   logoSubtitle,
+  backgroundVariant,
   utilityAction,
   className = '',
 }) => (
   <main
-    className={`public-page-shell min-h-screen overflow-x-hidden bg-[#050816] text-white ${className}`}
+    className={`public-page-shell relative isolate min-h-screen overflow-x-hidden bg-[#050816] text-white ${className}`}
   >
-    <PageContainer className="flex min-h-screen flex-col py-5 sm:py-6">
+    {backgroundVariant && <CryptoBackground variant={backgroundVariant} />}
+    <PageContainer className="relative z-10 flex min-h-screen flex-col py-5 sm:py-6">
       <PublicHeader logoSubtitle={logoSubtitle} utilityAction={utilityAction} />
       {children}
     </PageContainer>

@@ -124,6 +124,7 @@ export const IcoLaunchpadPage = () => {
   return (
     <PublicLaunchShell
       logoSubtitle="ICO briefing"
+      backgroundVariant="ico"
       utilityAction={{ label: 'Sign in', to: '/login' }}
     >
       <section className="py-10 md:py-12 lg:py-14">

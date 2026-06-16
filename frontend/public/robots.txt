@@ -1,0 +1,47 @@
+# SEO robots configuration for executionlab.io
+# Last updated: 2026-06-16
+
+User-agent: *
+Allow: /
+
+# Block authenticated portals and admin paths
+Disallow: /admin
+Disallow: /backoffice
+Disallow: /ib
+Disallow: /dashboard
+Disallow: /settings
+Disallow: /bot
+Disallow: /backtest
+Disallow: /crm
+
+# Block auth flows
+Disallow: /login
+Disallow: /register
+Disallow: /force-password-change
+Disallow: /two-factor-auth
+Disallow: /unauthorized
+
+# Block utility paths
+Disallow: /404
+
+# Sitemap
+Sitemap: https://executionlab.io/sitemap.xml
+
+# Crawl delay (be respectful)
+Crawl-delay: 1
+
+# Common bots - explicit allow for important crawlers
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: TwitterBot
+Allow: /
+
+User-agent: facebookexternalhit
+Allow: /
+
+User-agent: LinkedInBot
+Allow: /

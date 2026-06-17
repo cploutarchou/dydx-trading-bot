@@ -5,6 +5,7 @@ import { ProfitShareIllustration } from '../components/DeFiIllustrations';
 import MotionReveal from '../components/MotionReveal';
 import { PublicMarketPulsePanel } from '../components/PublicMarketPulse';
 import PublicSiteShell from '../components/PublicSiteShell';
+import SEOHead from '../components/SEOHead';
 
 const plans = [
   {
@@ -82,7 +83,8 @@ const pricingModelRows = [
   {
     stage: 'Scale',
     value: 'Custom',
-    detail: 'Commercial structure is tailored to team workflow, automation depth, and support needs.',
+    detail:
+      'Commercial structure is tailored to team workflow, automation depth, and support needs.',
     note: 'Designed for ongoing systems',
   },
 ] as const;
@@ -117,7 +119,8 @@ const personaGuides = [
     id: 'team',
     label: 'I need an execution partner',
     recommendedPlan: 'Execution Partner',
-    reason: 'Coordinate ongoing delivery, automation, and rollout with tailored terms and support structure.',
+    reason:
+      'Coordinate ongoing delivery, automation, and rollout with tailored terms and support structure.',
   },
 ] as const;
 
@@ -149,10 +152,7 @@ const funnelSteps = [
     'Run evidence-first workflow',
     'Review scope, risk context, and operational signals before activation.',
   ],
-  [
-    'Activate execution terms when ready',
-    'Delivery model follows the agreed execution path.',
-  ],
+  ['Activate execution terms when ready', 'Delivery model follows the agreed execution path.'],
 ] as const;
 
 const riskDisclosures = [
@@ -207,297 +207,312 @@ export const PricingPage: React.FC = () => {
   );
 
   return (
-    <PublicSiteShell>
-      <div className="public-modern-page">
-        <section className="public-modern-hero public-modern-hero-runtime">
-          <div className="public-modern-container public-modern-hero-grid">
-            <MotionReveal className="public-modern-copy" distancePx={18}>
-              <div className="surface-label">
-                <ShieldCheck className="h-3.5 w-3.5" />
-                Engagement
-              </div>
-              <h1>
-                ExecutionLab engagements built around evidence, speed, and delivery discipline.
-              </h1>
-              <p>
-                Start with fit and scope clarity, then move into focused technical execution when
-                the plan is ready. Terms follow the work, risk, and delivery responsibility.
-              </p>
-
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                <Link
-                  to="/register"
-                  className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3.5 text-sm font-semibold text-white"
-                >
-                  Start execution review
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-                <Link
-                  to="/services/security"
-                  className="premium-button premium-button-secondary justify-center px-6 py-3.5 text-sm font-medium"
-                >
-                  Review onboarding
-                </Link>
-              </div>
-            </MotionReveal>
-
-            <MotionReveal className="public-modern-visual" delayMs={90} distancePx={18}>
-              <div className="public-visual-photo" aria-hidden="true" />
-              <div className="public-visual-terminal">
-                <div className="public-terminal-bar">
-                  <span />
-                  <span />
-                  <span />
-                  <strong>ENGAGEMENT MODEL</strong>
+    <>
+      <SEOHead
+        title="Pricing | ExecutionLab"
+        description="Flexible execution partnerships designed around discovery, delivery, and ongoing operations for dYdX trading automation."
+        image="/og-images/pricing.png"
+        imageAlt="ExecutionLab pricing plans - Scope Review, Build Sprint, Execution Partner"
+        url="/pricing"
+      />
+      <PublicSiteShell>
+        <div className="public-modern-page">
+          <section className="public-modern-hero public-modern-hero-runtime">
+            <div className="public-modern-container public-modern-hero-grid">
+              <MotionReveal className="public-modern-copy" distancePx={18}>
+                <div className="surface-label">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Engagement
                 </div>
-                <ProfitShareIllustration />
-              </div>
-              <div className="public-visual-tags">
-                <span>Scope review</span>
-                <span>Build sprint</span>
-                <span>Execution partner</span>
-              </div>
-            </MotionReveal>
-          </div>
-        </section>
+                <h1>
+                  ExecutionLab engagements built around evidence, speed, and delivery discipline.
+                </h1>
+                <p>
+                  Start with fit and scope clarity, then move into focused technical execution when
+                  the plan is ready. Terms follow the work, risk, and delivery responsibility.
+                </p>
 
-        <section className="public-modern-container public-proof-strip">
-          {trustSignals.map(([title, body], index) => (
-            <MotionReveal key={title} className="public-proof-item" delayMs={index * 60}>
-              <span>{String(index + 1).padStart(2, '0')}</span>
-              <strong>{title}</strong>
-              <p>{body}</p>
-            </MotionReveal>
-          ))}
-        </section>
-
-        <section className="public-modern-container public-market-section">
-          <MotionReveal distancePx={18}>
-            <PublicMarketPulsePanel
-              eyebrow="Engagement signal"
-              title="Engagement shape stays tied to scope, risk, and execution context."
-              description="Use the execution view to evaluate where readiness, ownership, and quality gates support the right delivery model."
-            />
-          </MotionReveal>
-        </section>
-
-        <section className="public-modern-band">
-          <div className="public-modern-container public-modern-split">
-            <MotionReveal className="public-modern-section-copy" distancePx={18}>
-              <div className="surface-label">Engagement model</div>
-              <h2>Evaluation before commitment, execution terms after proof.</h2>
-              <p>
-                Pricing should feel as clear and operational as the product itself: start with
-                evidence, activate delivery terms when the path is measurable, and move teams into
-                tailored rollout when the workflow demands it.
-              </p>
-            </MotionReveal>
-
-            <MotionReveal className="pricing-modern-model" delayMs={90} distancePx={18}>
-              <PricingModelPanel />
-            </MotionReveal>
-          </div>
-        </section>
-
-        <section className="public-modern-container public-outcome-stage pricing-modern-selector">
-          <MotionReveal className="public-modern-section-copy" distancePx={18}>
-            <div className="surface-label">Plan selector</div>
-            <h2>Which model fits your execution path?</h2>
-            <p>{selectedGuide.reason}</p>
-          </MotionReveal>
-
-          <MotionReveal className="pricing-persona-panel" delayMs={80}>
-            <div className="pricing-persona-buttons">
-              {personaGuides.map((guide) => (
-                <button
-                  key={guide.id}
-                  type="button"
-                  onClick={() => setActivePersona(guide.id)}
-                  className={`pricing-persona-button ${activePersona === guide.id ? 'is-active' : ''}`}
-                >
-                  {guide.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="pricing-persona-recommendation">
-              <p className="text-sm text-slate-300">
-                <span className="font-semibold text-white">Recommended:</span>{' '}
-                {selectedGuide.recommendedPlan}
-              </p>
-              <p className="mt-1 text-xs leading-6 text-slate-400">{selectedGuide.reason}</p>
-            </div>
-          </MotionReveal>
-        </section>
-
-        <section className="public-modern-container pricing-modern-plan-section">
-          <div className="pricing-modern-plan-grid">
-            {plans.map((plan, index) => (
-              <MotionReveal key={plan.name} delayMs={index * 70}>
-                <div
-                  className={`pricing-modern-plan ${
-                    plan.name === selectedGuide.recommendedPlan ? 'is-persona-match' : ''
-                  }`}
-                >
-                  <div className="pricing-modern-plan-top">
-                    <span>0{index + 1}</span>
-                    <div>
-                      {plan.featured && <strong>Recommended</strong>}
-                      {plan.name === selectedGuide.recommendedPlan && <strong>Best fit</strong>}
-                    </div>
-                  </div>
-                  <h3>{plan.name}</h3>
-                  <p className="pricing-modern-audience">{plan.audience}</p>
-                  <div className="pricing-modern-price">
-                    <strong>{plan.price}</strong>
-                    <span>{plan.cadence}</span>
-                  </div>
-                  <p className="pricing-modern-description">{plan.description}</p>
-                  <div className="pricing-modern-meta">
-                    <p>
-                      <span>Activation</span>
-                      {plan.activation}
-                    </p>
-                    <p>
-                      <span>Commitment</span>
-                      {plan.commitment}
-                    </p>
-                  </div>
-                  <div className="pricing-modern-features">
-                    {plan.features.map((feature) => (
-                      <div key={feature}>
-                        <CheckCircle2 className="h-4 w-4" />
-                        <span>{feature}</span>
-                      </div>
-                    ))}
-                  </div>
+                <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                   <Link
                     to="/register"
-                    className={`premium-button justify-center px-5 py-3 text-sm font-semibold ${
-                      plan.featured
-                        ? 'premium-button-primary text-white'
-                        : 'premium-button-secondary'
-                    }`}
+                    className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3.5 text-sm font-semibold text-white"
                   >
-                    {plan.name === 'Execution Partner' ? 'Discuss rollout' : 'Start execution review'}
+                    Start execution review
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                  <Link
+                    to="/services/security"
+                    className="premium-button premium-button-secondary justify-center px-6 py-3.5 text-sm font-medium"
+                  >
+                    Review onboarding
                   </Link>
                 </div>
               </MotionReveal>
-            ))}
-          </div>
-        </section>
 
-        <section className="public-modern-container public-outcome-stage">
-          <MotionReveal className="public-modern-section-copy" distancePx={18}>
-            <div className="surface-label">How it works</div>
-            <h2>Simple engagement path from review to execution.</h2>
-            <p>
-              The engagement path is explicit at each step so teams can adopt ExecutionLab
-              progressively without hidden transitions.
-            </p>
-          </MotionReveal>
+              <MotionReveal className="public-modern-visual" delayMs={90} distancePx={18}>
+                <div className="public-visual-photo" aria-hidden="true" />
+                <div className="public-visual-terminal">
+                  <div className="public-terminal-bar">
+                    <span />
+                    <span />
+                    <span />
+                    <strong>ENGAGEMENT MODEL</strong>
+                  </div>
+                  <ProfitShareIllustration />
+                </div>
+                <div className="public-visual-tags">
+                  <span>Scope review</span>
+                  <span>Build sprint</span>
+                  <span>Execution partner</span>
+                </div>
+              </MotionReveal>
+            </div>
+          </section>
 
-          <div className="public-outcome-grid">
-            {funnelSteps.map(([title, body], index) => (
-              <MotionReveal key={title} className="public-outcome-modern" delayMs={index * 70}>
-                <span>Step {String(index + 1).padStart(2, '0')}</span>
+          <section className="public-modern-container public-proof-strip">
+            {trustSignals.map(([title, body], index) => (
+              <MotionReveal key={title} className="public-proof-item" delayMs={index * 60}>
+                <span>{String(index + 1).padStart(2, '0')}</span>
                 <strong>{title}</strong>
                 <p>{body}</p>
               </MotionReveal>
             ))}
-          </div>
-        </section>
+          </section>
 
-        <section className="public-modern-band pricing-modern-compare">
-          <div className="public-modern-container public-modern-split">
+          <section className="public-modern-container public-market-section">
+            <MotionReveal distancePx={18}>
+              <PublicMarketPulsePanel
+                eyebrow="Engagement signal"
+                title="Engagement shape stays tied to scope, risk, and execution context."
+                description="Use the execution view to evaluate where readiness, ownership, and quality gates support the right delivery model."
+              />
+            </MotionReveal>
+          </section>
+
+          <section className="public-modern-band">
+            <div className="public-modern-container public-modern-split">
+              <MotionReveal className="public-modern-section-copy" distancePx={18}>
+                <div className="surface-label">Engagement model</div>
+                <h2>Evaluation before commitment, execution terms after proof.</h2>
+                <p>
+                  Pricing should feel as clear and operational as the product itself: start with
+                  evidence, activate delivery terms when the path is measurable, and move teams into
+                  tailored rollout when the workflow demands it.
+                </p>
+              </MotionReveal>
+
+              <MotionReveal className="pricing-modern-model" delayMs={90} distancePx={18}>
+                <PricingModelPanel />
+              </MotionReveal>
+            </div>
+          </section>
+
+          <section className="public-modern-container public-outcome-stage pricing-modern-selector">
             <MotionReveal className="public-modern-section-copy" distancePx={18}>
-              <div className="surface-label">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                Compare access
+              <div className="surface-label">Plan selector</div>
+              <h2>Which model fits your execution path?</h2>
+              <p>{selectedGuide.reason}</p>
+            </MotionReveal>
+
+            <MotionReveal className="pricing-persona-panel" delayMs={80}>
+              <div className="pricing-persona-buttons">
+                {personaGuides.map((guide) => (
+                  <button
+                    key={guide.id}
+                    type="button"
+                    onClick={() => setActivePersona(guide.id)}
+                    className={`pricing-persona-button ${activePersona === guide.id ? 'is-active' : ''}`}
+                  >
+                    {guide.label}
+                  </button>
+                ))}
               </div>
-              <h2>Clear access levels for review, build, and rollout.</h2>
+
+              <div className="pricing-persona-recommendation">
+                <p className="text-sm text-slate-300">
+                  <span className="font-semibold text-white">Recommended:</span>{' '}
+                  {selectedGuide.recommendedPlan}
+                </p>
+                <p className="mt-1 text-xs leading-6 text-slate-400">{selectedGuide.reason}</p>
+              </div>
+            </MotionReveal>
+          </section>
+
+          <section className="public-modern-container pricing-modern-plan-section">
+            <div className="pricing-modern-plan-grid">
+              {plans.map((plan, index) => (
+                <MotionReveal key={plan.name} delayMs={index * 70}>
+                  <div
+                    className={`pricing-modern-plan ${
+                      plan.name === selectedGuide.recommendedPlan ? 'is-persona-match' : ''
+                    }`}
+                  >
+                    <div className="pricing-modern-plan-top">
+                      <span>0{index + 1}</span>
+                      <div>
+                        {plan.featured && <strong>Recommended</strong>}
+                        {plan.name === selectedGuide.recommendedPlan && <strong>Best fit</strong>}
+                      </div>
+                    </div>
+                    <h3>{plan.name}</h3>
+                    <p className="pricing-modern-audience">{plan.audience}</p>
+                    <div className="pricing-modern-price">
+                      <strong>{plan.price}</strong>
+                      <span>{plan.cadence}</span>
+                    </div>
+                    <p className="pricing-modern-description">{plan.description}</p>
+                    <div className="pricing-modern-meta">
+                      <p>
+                        <span>Activation</span>
+                        {plan.activation}
+                      </p>
+                      <p>
+                        <span>Commitment</span>
+                        {plan.commitment}
+                      </p>
+                    </div>
+                    <div className="pricing-modern-features">
+                      {plan.features.map((feature) => (
+                        <div key={feature}>
+                          <CheckCircle2 className="h-4 w-4" />
+                          <span>{feature}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <Link
+                      to="/register"
+                      className={`premium-button justify-center px-5 py-3 text-sm font-semibold ${
+                        plan.featured
+                          ? 'premium-button-primary text-white'
+                          : 'premium-button-secondary'
+                      }`}
+                    >
+                      {plan.name === 'Execution Partner'
+                        ? 'Discuss rollout'
+                        : 'Start execution review'}
+                    </Link>
+                  </div>
+                </MotionReveal>
+              ))}
+            </div>
+          </section>
+
+          <section className="public-modern-container public-outcome-stage">
+            <MotionReveal className="public-modern-section-copy" distancePx={18}>
+              <div className="surface-label">How it works</div>
+              <h2>Simple engagement path from review to execution.</h2>
               <p>
-                Start with the lowest commitment path, then move to build or partner terms when the
-                workflow is ready.
+                The engagement path is explicit at each step so teams can adopt ExecutionLab
+                progressively without hidden transitions.
               </p>
             </MotionReveal>
 
-            <MotionReveal delayMs={100} className="pricing-compare-table-wrap overflow-x-auto">
-              <table className="min-w-190 w-full text-sm">
-                <thead>
-                  <tr className="text-left">
-                    <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Capability</th>
-                    <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Scope Review</th>
-                    <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Build Sprint</th>
-                    <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Partner</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {comparisonRows.map((row) => (
-                    <tr key={row[0]} className="border-t border-stone-800">
-                      {row.map((cell, cellIndex) => (
-                        <td
-                          key={`${row[0]}-${cellIndex}`}
-                          className={`px-4 py-4 ${
-                            cellIndex === 0 ? 'font-medium text-slate-100' : 'text-slate-300'
-                          }`}
-                        >
-                          {cell}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </MotionReveal>
-          </div>
-        </section>
-
-        <section className="public-modern-container public-outcome-stage pricing-modern-faq">
-          <MotionReveal className="public-modern-section-copy" distancePx={18}>
-            <div className="surface-label">
-              <ShieldCheck className="h-3.5 w-3.5" />
-              Pricing FAQ
+            <div className="public-outcome-grid">
+              {funnelSteps.map(([title, body], index) => (
+                <MotionReveal key={title} className="public-outcome-modern" delayMs={index * 70}>
+                  <span>Step {String(index + 1).padStart(2, '0')}</span>
+                  <strong>{title}</strong>
+                  <p>{body}</p>
+                </MotionReveal>
+              ))}
             </div>
-            <h2>Straight answers before the first execution workflow.</h2>
-            <p>
-              Evaluation, onboarding, and delivery activation stay intentionally separate so teams
-              always understand the next step.
-            </p>
-          </MotionReveal>
+          </section>
 
-          <div className="public-outcome-grid">
-            {pricingFaqs.map(([question, answer], index) => (
-              <MotionReveal key={question} className="public-outcome-modern" delayMs={index * 70}>
-                <span>FAQ {String(index + 1).padStart(2, '0')}</span>
-                <strong>{question}</strong>
-                <p>{answer}</p>
+          <section className="public-modern-band pricing-modern-compare">
+            <div className="public-modern-container public-modern-split">
+              <MotionReveal className="public-modern-section-copy" distancePx={18}>
+                <div className="surface-label">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Compare access
+                </div>
+                <h2>Clear access levels for review, build, and rollout.</h2>
+                <p>
+                  Start with the lowest commitment path, then move to build or partner terms when
+                  the workflow is ready.
+                </p>
               </MotionReveal>
-            ))}
-          </div>
-        </section>
 
-        <section className="public-modern-container public-outcome-stage">
-          <MotionReveal className="public-modern-section-copy" distancePx={18}>
-            <div className="surface-label">Risk disclosure</div>
-            <h2>Risk and compliance expectations are stated up front.</h2>
-            <p>
-              Commercial clarity also means operational realism: technical delivery includes risk,
-              and users should evaluate suitability, controls, and obligations before activation.
-            </p>
-          </MotionReveal>
-
-          <div className="public-outcome-grid">
-            {riskDisclosures.map((item, index) => (
-              <MotionReveal key={item} className="public-outcome-modern" delayMs={index * 70}>
-                <span>Disclosure {String(index + 1).padStart(2, '0')}</span>
-                <p>{item}</p>
+              <MotionReveal delayMs={100} className="pricing-compare-table-wrap overflow-x-auto">
+                <table className="min-w-190 w-full text-sm">
+                  <thead>
+                    <tr className="text-left">
+                      <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Capability</th>
+                      <th className="px-4 py-4 text-[11px] uppercase text-slate-500">
+                        Scope Review
+                      </th>
+                      <th className="px-4 py-4 text-[11px] uppercase text-slate-500">
+                        Build Sprint
+                      </th>
+                      <th className="px-4 py-4 text-[11px] uppercase text-slate-500">Partner</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comparisonRows.map((row) => (
+                      <tr key={row[0]} className="border-t border-stone-800">
+                        {row.map((cell, cellIndex) => (
+                          <td
+                            key={`${row[0]}-${cellIndex}`}
+                            className={`px-4 py-4 ${
+                              cellIndex === 0 ? 'font-medium text-slate-100' : 'text-slate-300'
+                            }`}
+                          >
+                            {cell}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </MotionReveal>
-            ))}
-          </div>
-        </section>
-      </div>
-    </PublicSiteShell>
+            </div>
+          </section>
+
+          <section className="public-modern-container public-outcome-stage pricing-modern-faq">
+            <MotionReveal className="public-modern-section-copy" distancePx={18}>
+              <div className="surface-label">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                Pricing FAQ
+              </div>
+              <h2>Straight answers before the first execution workflow.</h2>
+              <p>
+                Evaluation, onboarding, and delivery activation stay intentionally separate so teams
+                always understand the next step.
+              </p>
+            </MotionReveal>
+
+            <div className="public-outcome-grid">
+              {pricingFaqs.map(([question, answer], index) => (
+                <MotionReveal key={question} className="public-outcome-modern" delayMs={index * 70}>
+                  <span>FAQ {String(index + 1).padStart(2, '0')}</span>
+                  <strong>{question}</strong>
+                  <p>{answer}</p>
+                </MotionReveal>
+              ))}
+            </div>
+          </section>
+
+          <section className="public-modern-container public-outcome-stage">
+            <MotionReveal className="public-modern-section-copy" distancePx={18}>
+              <div className="surface-label">Risk disclosure</div>
+              <h2>Risk and compliance expectations are stated up front.</h2>
+              <p>
+                Commercial clarity also means operational realism: technical delivery includes risk,
+                and users should evaluate suitability, controls, and obligations before activation.
+              </p>
+            </MotionReveal>
+
+            <div className="public-outcome-grid">
+              {riskDisclosures.map((item, index) => (
+                <MotionReveal key={item} className="public-outcome-modern" delayMs={index * 70}>
+                  <span>Disclosure {String(index + 1).padStart(2, '0')}</span>
+                  <p>{item}</p>
+                </MotionReveal>
+              ))}
+            </div>
+          </section>
+        </div>
+      </PublicSiteShell>
+    </>
   );
 };
 

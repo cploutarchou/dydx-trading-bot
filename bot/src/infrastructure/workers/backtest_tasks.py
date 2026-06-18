@@ -7,11 +7,13 @@ import json
 import logging
 import os
 import socket
+import sys
 import traceback as traceback_module
 from datetime import datetime, timezone
 from typing import Any, Dict
 
 from celery.exceptions import SoftTimeLimitExceeded
+from loguru import logger as loguru_logger
 
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
@@ -177,141 +179,158 @@ def run_backtest_task(
     task_context: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Run a persisted backtest by id inside a Celery worker process."""
+    # Setup job-specific logging to bot_states/backtest_<run_id>.log
+    log_file = os.path.join("bot_states", f"backtest_{run_id}.log")
+    os.makedirs("bot_states", exist_ok=True)
+
+    # Add a sink that only captures logs for this specific run_id
+    handler_id = loguru_logger.add(
+        log_file,
+        filter=lambda record: record["extra"].get("run_id") == run_id,
+        level=os.getenv("LOG_LEVEL", "INFO"),
+        enqueue=True,
+    )
+
     session = db.get_session()
     try:
-        repository = BacktestRepository(session)
-        run_data = repository.get_run(run_id)
-        if not isinstance(run_data, dict):
-            raise ValueError(f"Backtest run '{run_id}' not found")
-        data: Dict[str, Any] = dict(run_data)
+        with loguru_logger.contextualize(run_id=run_id):
+            repository = BacktestRepository(session)
+            run_data = repository.get_run(run_id)
+            if not isinstance(run_data, dict):
+                raise ValueError(f"Backtest run '{run_id}' not found")
+            data: Dict[str, Any] = dict(run_data)
 
-        service = BacktestService(repository)
-        task_id = str(self.request.id or run_id)
-        request_payload: Dict[str, Any] = _normalize_request_payload(
-            data.get("request")
-        )
-        task_context = service._build_task_context(
-            request_payload,
-            **(task_context or {}),
-            worker_hostname=socket.gethostname(),
-            retry_count=int(getattr(self.request, "retries", 0) or 0),
-        )
-        request_payload = service._clear_task_failure(
-            service._set_task_context(request_payload, task_context)
-        )
-        data["request"] = request_payload
-        selected_pairs = _selected_pairs(data)
-        strategy_snapshot = (
-            request_payload.get("strategy_payload_snapshot")
-            if isinstance(request_payload.get("strategy_payload_snapshot"), dict)
-            else None
-        )
-        strategy_id = task_context.get("strategy_id") or request_payload.get(
-            "strategy_id"
-        )
-        if strategy_snapshot and strategy_id is None:
-            raise ValueError(
-                "STRATEGY_ID_MISSING: strategy-linked backtest requires strategy_id"
+            service = BacktestService(repository)
+            task_id = str(self.request.id or run_id)
+            # ... rest of the setup code until update_state
+            request_payload: Dict[str, Any] = _normalize_request_payload(
+                data.get("request")
             )
-        if strategy_id is not None and not strategy_snapshot:
-            raise ValueError(
-                "STRATEGY_PAYLOAD_MISSING: strategy-linked backtest requires strategy_payload_snapshot"
+            task_context = service._build_task_context(
+                request_payload,
+                **(task_context or {}),
+                worker_hostname=socket.gethostname(),
+                retry_count=int(getattr(self.request, "retries", 0) or 0),
             )
-        if not selected_pairs:
-            raise ValueError(
-                "SELECTED_PAIRS_MISSING: explicit selected_pairs are required"
+            request_payload = service._clear_task_failure(
+                service._set_task_context(request_payload, task_context)
             )
-        self.update_state(
-            state="STARTED",
-            meta={
-                "task_id": task_id,
-                "task_name": "backtests.run",
-                "queue": getattr(self.request, "delivery_info", {}).get(
-                    "routing_key", "celery"
-                ),
-                "status": "STARTED",
-                "started_at": _now_iso(),
-                "worker_hostname": socket.gethostname(),
-                "backtest_run_id": run_id,
-                "strategy_id": strategy_id,
-                "bot_id": task_context.get("bot_id") or request_payload.get("bot_id"),
-                "environment": task_context.get("environment")
-                or request_payload.get("environment")
-                or os.getenv("ENVIRONMENT")
-                or os.getenv("APP_ENV")
-                or "local",
-                "selected_pairs": selected_pairs,
-                "retry_count": int(getattr(self.request, "retries", 0) or 0),
-                "source": task_context.get("source"),
-                "metadata": task_context.get("metadata") or {},
-            },
-        )
-        data["worker_backend"] = "celery"
-        data["worker_task_id"] = task_id
-        service._set_runtime_control(
-            data,
-            status="started",
-            action="start",
-            pause_requested=False,
-            resume_requested=False,
-            cancel_requested=False,
-            worker_backend="celery",
-            worker_task_id=task_id,
-            started_at=_now_iso(),
-        )
-        repository.save_run(data)
-        _publish_backtest_status(run_id, "started")
-
-        async def _progress_callback(
-            callback_run_id: str, progress: float, current_pair: str, eta: float
-        ) -> None:
-            completed_pairs = None
-            total_pairs = len(selected_pairs) if selected_pairs else None
-            if total_pairs:
-                completed_pairs = min(
-                    total_pairs, int((float(progress) / 100.0) * total_pairs)
+            data["request"] = request_payload
+            selected_pairs = _selected_pairs(data)
+            strategy_snapshot = (
+                request_payload.get("strategy_payload_snapshot")
+                if isinstance(request_payload.get("strategy_payload_snapshot"), dict)
+                else None
+            )
+            strategy_id = task_context.get("strategy_id") or request_payload.get(
+                "strategy_id"
+            )
+            if strategy_snapshot and strategy_id is None:
+                raise ValueError(
+                    "STRATEGY_ID_MISSING: strategy-linked backtest requires strategy_id"
+                )
+            if strategy_id is not None and not strategy_snapshot:
+                raise ValueError(
+                    "STRATEGY_PAYLOAD_MISSING: strategy-linked backtest requires strategy_payload_snapshot"
+                )
+            if not selected_pairs:
+                raise ValueError(
+                    "SELECTED_PAIRS_MISSING: explicit selected_pairs are required"
                 )
             self.update_state(
-                state="PROGRESS",
-                meta=build_progress_meta(
-                    run_id=callback_run_id,
-                    progress_percent=progress,
-                    current_pair=current_pair,
-                    current_step=(
-                        "processing pair" if current_pair != "complete" else "complete"
+                state="STARTED",
+                meta={
+                    "task_id": task_id,
+                    "task_name": "backtests.run",
+                    "queue": getattr(self.request, "delivery_info", {}).get(
+                        "routing_key", "celery"
                     ),
-                    total_pairs=total_pairs,
-                    completed_pairs=completed_pairs,
-                    current_phase="backtest",
-                    eta_seconds=eta,
-                    strategy_id=strategy_id,
-                    bot_id=task_context.get("bot_id") or request_payload.get("bot_id"),
-                    environment=task_context.get("environment")
+                    "status": "STARTED",
+                    "started_at": _now_iso(),
+                    "worker_hostname": socket.gethostname(),
+                    "backtest_run_id": run_id,
+                    "strategy_id": strategy_id,
+                    "bot_id": task_context.get("bot_id") or request_payload.get("bot_id"),
+                    "environment": task_context.get("environment")
                     or request_payload.get("environment")
                     or os.getenv("ENVIRONMENT")
                     or os.getenv("APP_ENV")
                     or "local",
-                    selected_pairs=selected_pairs,
-                ),
+                    "selected_pairs": selected_pairs,
+                    "retry_count": int(getattr(self.request, "retries", 0) or 0),
+                    "source": task_context.get("source"),
+                    "metadata": task_context.get("metadata") or {},
+                },
             )
-            _publish_backtest_status(
-                callback_run_id, "progress", progress, current_pair, eta
+            loguru_logger.info("Backtest task {} started for run {}", task_id, run_id)
+            data["worker_backend"] = "celery"
+            data["worker_task_id"] = task_id
+            service._set_runtime_control(
+                data,
+                status="started",
+                action="start",
+                pause_requested=False,
+                resume_requested=False,
+                cancel_requested=False,
+                worker_backend="celery",
+                worker_task_id=task_id,
+                started_at=_now_iso(),
             )
+            repository.save_run(data)
+            _publish_backtest_status(run_id, "started")
 
-        asyncio.run(service.execute_existing_backtest(run_id, _progress_callback))
-        _publish_backtest_status(run_id, "completed", 100.0, "complete")
-        # Kick off async candle aggregation so chart renders are served from Redis
-        try:
-            from src.infrastructure.workers.candle_aggregate_tasks import (
-                aggregate_backtest_candles,
-            )
+            async def _progress_callback(
+                callback_run_id: str, progress: float, current_pair: str, eta: float
+            ) -> None:
+                completed_pairs = None
+                total_pairs = len(selected_pairs) if selected_pairs else None
+                if total_pairs:
+                    completed_pairs = min(
+                        total_pairs, int((float(progress) / 100.0) * total_pairs)
+                    )
+                self.update_state(
+                    state="PROGRESS",
+                    meta=build_progress_meta(
+                        run_id=callback_run_id,
+                        progress_percent=progress,
+                        current_pair=current_pair,
+                        current_step=(
+                            "processing pair" if current_pair != "complete" else "complete"
+                        ),
+                        total_pairs=total_pairs,
+                        completed_pairs=completed_pairs,
+                        current_phase="backtest",
+                        eta_seconds=eta,
+                        strategy_id=strategy_id,
+                        bot_id=task_context.get("bot_id") or request_payload.get("bot_id"),
+                        environment=task_context.get("environment")
+                        or request_payload.get("environment")
+                        or os.getenv("ENVIRONMENT")
+                        or os.getenv("APP_ENV")
+                        or "local",
+                        selected_pairs=selected_pairs,
+                    ),
+                )
+                _publish_backtest_status(
+                    callback_run_id, "progress", progress, current_pair, eta
+                )
 
-            aggregate_backtest_candles.delay(run_id)
-        except Exception:  # noqa: BLE001
-            pass  # Non-fatal: chart will fall back to the database
-        return {"run_id": run_id, "status": "completed"}
+            asyncio.run(service.execute_existing_backtest(run_id, _progress_callback))
+            _publish_backtest_status(run_id, "completed", 100.0, "complete")
+            loguru_logger.info("Backtest task {} completed for run {}", task_id, run_id)
+            # Kick off async candle aggregation so chart renders are served from Redis
+            try:
+                from src.infrastructure.workers.candle_aggregate_tasks import (
+                    aggregate_backtest_candles,
+                )
+
+                aggregate_backtest_candles.delay(run_id)
+            except Exception:  # noqa: BLE001
+                pass  # Non-fatal: chart will fall back to the database
+            return {"run_id": run_id, "status": "completed"}
     except SoftTimeLimitExceeded:
         message = "Backtest Celery task exceeded soft time limit"
+        loguru_logger.warning("Backtest task {} timed out for run {}", task_id, run_id)
         _mark_worker_failure(
             run_id,
             message,
@@ -332,7 +351,7 @@ def run_backtest_task(
         _publish_backtest_status(run_id, "failed")
         raise
     except Exception as exc:
-        logger.exception("Celery backtest task failed for %s", run_id)
+        loguru_logger.exception("Celery backtest task failed for {}", run_id)
         _mark_worker_failure(
             run_id,
             str(exc) or "Backtest Celery task failed",
@@ -358,3 +377,4 @@ def run_backtest_task(
         raise
     finally:
         session.close()
+        loguru_logger.remove(handler_id)

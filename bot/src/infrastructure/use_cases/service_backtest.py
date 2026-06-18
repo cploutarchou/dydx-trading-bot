@@ -2713,16 +2713,20 @@ class BacktestService:
                 run_data["current_pair"] = f"{m1}/{m2}"
                 run_data["current_task"] = "processing pair"
                 run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-                run_data = self._persist_run_data(run_data)
-                async_job_manager.mark_progress(
-                    run_id,
-                    progress,
-                    metadata={
-                        "run_id": run_id,
-                        "current_pair": run_data.get("current_pair"),
-                        "current_task": run_data.get("current_task"),
-                    },
-                )
+
+                # Optimization: Only persist progress if it's significant or enough time passed.
+                # This drastically reduces DB pressure for large backtests with many pairs.
+                if async_job_manager._should_persist_progress(run_id, progress):
+                    run_data = self._persist_run_data(run_data)
+                    async_job_manager.mark_progress(
+                        run_id,
+                        progress,
+                        metadata={
+                            "run_id": run_id,
+                            "current_pair": run_data.get("current_pair"),
+                            "current_task": run_data.get("current_task"),
+                        },
+                    )
 
                 if progress_callback is not None:
                     try:
@@ -2875,11 +2879,11 @@ class BacktestService:
                     )
                     last_heavy_persist_at = now_monotonic
 
-                run_data = self._attach_history_fetch_summary(
-                    run_data,
-                    history_fetch_telemetry,
-                )
-                run_data = self._persist_run_data(run_data)
+                    run_data = self._attach_history_fetch_summary(
+                        run_data,
+                        history_fetch_telemetry,
+                    )
+                    run_data = self._persist_run_data(run_data)
 
                 # Yield control so other coroutines (status polling) run smoothly.
                 await asyncio.sleep(0)

@@ -5056,6 +5056,49 @@ async def get_backtest_trades(
         )
 
 
+@app.get("/api/v1/backtests/{run_id}/logs")
+async def get_backtest_logs(
+    run_id: str,
+    tail: int = Query(default=1000, ge=1, le=10000),
+):
+    """Retrieve detailed execution logs for a specific backtest run."""
+    log_file = os.path.join("bot_states", f"backtest_{run_id}.log")
+    if not os.path.exists(log_file):
+        return api_response(
+            success=False,
+            message=f"Execution logs for backtest '{run_id}' not found. Note: logs are only available for runs that used Celery workers.",
+            data={"run_id": run_id, "logs": []},
+            status_code=404,
+        )
+
+    try:
+
+        def _read_logs():
+            with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+                # Efficiently read the last N lines for large log files.
+                lines = f.readlines()
+                return [line.rstrip() for line in lines[-tail:]]
+
+        log_lines = await run_in_threadpool(_read_logs)
+        return api_response(
+            success=True,
+            data={
+                "run_id": run_id,
+                "logs": log_lines,
+                "count": len(log_lines),
+                "tail": tail,
+            },
+            message=f"Retrieved {len(log_lines)} log lines for backtest '{run_id}'",
+        )
+    except Exception as e:
+        logger.error(f"Error reading backtest logs for {run_id}: {e}")
+        return api_response(
+            success=False,
+            message=f"Failed to read logs: {str(e)}",
+            status_code=500,
+        )
+
+
 @app.post("/api/v1/backtests/{run_id}/cancel")
 async def cancel_backtest(
     run_id: str,

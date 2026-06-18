@@ -6,6 +6,11 @@ import os
 import subprocess
 import sys
 
+from src.shared.env_loader import load_repo_env
+
+# Mandatory: Load structured config BEFORE importing project modules.
+load_repo_env(__file__)
+
 from src.shared.env_loader import load_file_env_values
 
 
@@ -48,6 +53,11 @@ class _FilteredStderr:
 
 
 def main() -> int:
+    from src.shared.logging_setup import setup_logging
+
+    # Initialize Loguru bridge early so imports/logic are captured.
+    setup_logging()
+
     load_file_env_values(override=True)
 
     # Harden runtime env for libraries that consume node URL variables directly.

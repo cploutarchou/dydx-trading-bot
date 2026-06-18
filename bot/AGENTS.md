@@ -7,8 +7,26 @@ Repository-level guidance for coding agents working on this project.
 1. Read `../.github/copilot-instructions.md`
 2. Read `.github/copilot-instructions.md`
 3. Read `.github/CUSTOMIZATION_INDEX.md`
-4. Read `.github/instructions/runtime-safety.instructions.md`
+4. Choose task-specific instruction files (see below)
 5. Prefer `.github/agents/senior-python-defi-runtime.agent.md` for bot implementation work
+
+## Task-specific instruction files
+
+**For API endpoint work (new or modified routes):**
+- `.github/instructions/api-route-safety.instructions.md` — Request validation, response envelopes, auth strictness, backwards compatibility
+
+**For trading strategy implementation:**
+- `.github/instructions/trading-strategy.instructions.md` — Safety-first design, collateral validation, position tracking, observability
+- `.github/instructions/trading-strategy-implementation.instructions.md` — Decision logic determinism, risk controls, liquidation prevention, audit logging
+
+**For runtime/lifecycle changes:**
+- `.github/instructions/runtime-safety.instructions.md` — Async safety, exception propagation, interpreter consistency, state safety
+
+**For database migrations:**
+- `.github/instructions/migration-safety.instructions.md` — Phased non-null rollout, lock risks, downgrade plans, verification
+
+**For project quality improvements:**
+- `.github/instructions/improvement-output.instructions.md` — Findings/plan/changes/validation structure, risk assessment, rollback notes
 
 ## Primary goals
 
@@ -83,9 +101,10 @@ Repository-level guidance for coding agents working on this project.
 - `.github/copilot-instructions.md`
 - `tasks.md`
 
-## Latest bot context (2026-05)
+## Latest bot context (2026-06)
 
 - Keep `src/api/server.py` as canonical API entrypoint and preserve compatibility wrappers (`app.py`, `start_api.py`).
 - Preserve backend-facing normalized status/progress fields (and compatibility aliases) used by delegated runtime/backtest contracts.
 - Service-token overlap behavior (`BOT_API_TOKEN`, `BOT_API_TOKEN_PREVIOUS`, `BOT_API_TOKENS`) and readiness semantics remain active contracts with backend delegation.
 - Strategy runtime websocket expectations remain operator-critical: snapshot on connect plus lifecycle/status updates after runtime changes.
+- Use supervised job pattern (`async_job_manager`) for all long-running background work; task state must persist to `jobs` table for operator visibility.

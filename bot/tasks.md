@@ -39,9 +39,11 @@
 - Final validation:
   - `./.venv/bin/python -m pytest -q` -> `173 passed, 2 skipped, 3 warnings`
 
-## 2026-06-14
+## 2026-06-18
 
-- Added restart recovery support for legacy backtest rows whose request blob was missing:
-  - restart/retry now reconstruct request payloads from persisted run fields when possible
-  - added `scripts/repair_backtest_requests.py` for one-off backfills of older rows
-- Documented the repair flow in `bot/README.md` so operators can repair and restart stale legacy runs.
+- Resolved Celery worker timeout and missing logs issues:
+  - Fixed `worker_entrypoint.py` to correctly load structured config and initialize Loguru logging.
+  - Optimized `BacktestService` progress reporting to throttle database IO and reduce connection pressure.
+  - Implemented per-job log capture for Celery backtest runs in `bot_states/backtest_<run_id>.log`.
+  - Added `GET /api/v1/backtests/{run_id}/logs` API endpoint to retrieve detailed execution logs.
+  - Updated `README.md` with the new log retrieval endpoint.

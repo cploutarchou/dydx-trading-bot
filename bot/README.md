@@ -97,6 +97,7 @@ To monitor strategy-resolution drift, use `GET /api/v1/backtests/sync-health` an
 For lightweight dashboard polling, use:
 
 - `GET /api/v1/backtests/sync-health?metrics_only=true`
+- `GET /api/v1/backtests/{run_id}/logs` (Celery worker logs)
 - `GET /api/v1/runtime/strategy-resolution-metrics`
 - `GET /api/v1/admin/runtime/strategy-resolution-metrics` (admin-only alias)
 - `GET /api/v1/runtime/strategy-resolution-metrics/prom` (Prometheus text format)

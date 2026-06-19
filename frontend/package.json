@@ -22,7 +22,8 @@
     "recharts": "^3.3.0",
     "tailwindcss": "^4.1.14",
     "vite": "8.0.16",
-    "zustand": "^5.0.14"
+    "zustand": "^5.0.14",
+    "@react-buddy/ide-toolbox": "^2.5.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",

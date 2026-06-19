@@ -8,6 +8,7 @@ import { PublicMarketTape } from './PublicMarketPulse';
 interface PublicSiteShellProps {
   children: React.ReactNode;
   hideFooter?: boolean;
+  hideMarketTape?: boolean;
 }
 
 const trustIndicators = [
@@ -25,6 +26,7 @@ const conversionTrustRows = [
 export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
   children,
   hideFooter = false,
+  hideMarketTape = false,
 }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
@@ -142,7 +144,7 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
           </div>
         )}
       </header>
-      <PublicMarketTape />
+      {!hideMarketTape && <PublicMarketTape />}
 
       <main className="relative z-10">{children}</main>
 

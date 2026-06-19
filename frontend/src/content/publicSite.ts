@@ -226,7 +226,7 @@ export const publicNavItems: PublicNavItem[] = [
 export const getPrimaryCta = (pathname: string) =>
   pathname === '/pricing'
     ? { href: '/register', label: 'Start execution review' }
-    : { href: '/pricing', label: 'View engagement model' };
+    : { href: '/register', label: 'Request access' };
 
 /**
  * Launch campaign copy lives here.

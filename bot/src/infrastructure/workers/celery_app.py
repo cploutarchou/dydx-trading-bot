@@ -7,7 +7,9 @@ from urllib.parse import quote
 
 from celery import Celery
 
-from src.shared.env_loader import load_repo_env
+from src.shared import env_loader
+
+env_loader.load_repo_env(__file__)
 
 
 

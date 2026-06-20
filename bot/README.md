@@ -29,6 +29,8 @@ The bot service is the Python runtime that manages bot instances, live strategy 
 ## Commands
 
 ```bash
+make local-worker
+make local-flower
 make local-api
 make local-bot
 make test
@@ -37,6 +39,12 @@ make preflight-testnet
 
 `make local-api` starts the canonical API without uvicorn hot reload by default, which gives cleaner shutdown semantics
 for runtime verification. Use `make dev-api` or set `BOT_API_RELOAD=true` only when file-watch reload behavior is needed.
+
+For Celery-backed strategy backtests, start `make local-worker` before `make local-api` so the API startup probe can
+select `BACKTEST_WORKER_BACKEND=celery`. If the worker comes up later, restart the API so it re-probes the Celery
+backend. `make local-flower` connects to the same Celery app/broker and shows the worker only after the worker is
+online. Legacy `/api/backtest/jobs` requests also need `BACKTEST_TASK_ALWAYS_EAGER=false`; otherwise they execute inline
+and will not appear in Flower.
 
 ## VS Code Workspace
 

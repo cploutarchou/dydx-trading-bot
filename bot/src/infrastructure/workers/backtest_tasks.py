@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import socket
-import sys
 import traceback as traceback_module
 from datetime import datetime, timezone
 from typing import Any, Dict
@@ -28,6 +27,36 @@ def _normalize_request_payload(value: Any) -> Dict[str, Any]:
     if isinstance(value, dict):
         return dict(value)
     return {}
+
+
+def _merge_task_context_overrides(
+    task_context: Dict[str, Any] | None,
+    **overrides: Any,
+) -> Dict[str, Any]:
+    merged = dict(task_context or {})
+    merged.update(overrides)
+    return merged
+
+
+def _build_runtime_task_context(
+    service: BacktestService,
+    request_payload: Dict[str, Any],
+    task_context: Dict[str, Any] | None = None,
+    *,
+    worker_hostname: str | None = None,
+    retry_count: int | None = None,
+) -> Dict[str, Any]:
+    """Merge persisted, queued, and live worker task context without duplicate kwargs."""
+    merged = _merge_task_context_overrides(
+        service._task_context_from_request(request_payload),
+        **dict(task_context or {}),
+    )
+    merged = _merge_task_context_overrides(
+        merged,
+        worker_hostname=worker_hostname or socket.gethostname(),
+        retry_count=retry_count,
+    )
+    return service._build_task_context(request_payload, **merged)
 
 
 def _now_iso() -> str:
@@ -124,7 +153,8 @@ def _mark_worker_failure(
             }
         )
         service = BacktestService(repository)
-        task_context = service._build_task_context(
+        task_context = _build_runtime_task_context(
+            service,
             request_payload,
             worker_hostname=worker_hostname or socket.gethostname(),
             retry_count=retry_count,
@@ -206,9 +236,10 @@ def run_backtest_task(
             request_payload: Dict[str, Any] = _normalize_request_payload(
                 data.get("request")
             )
-            task_context = service._build_task_context(
+            task_context = _build_runtime_task_context(
+                service,
                 request_payload,
-                **(task_context or {}),
+                task_context,
                 worker_hostname=socket.gethostname(),
                 retry_count=int(getattr(self.request, "retries", 0) or 0),
             )

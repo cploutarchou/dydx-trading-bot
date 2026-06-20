@@ -1,4 +1,4 @@
-import { Activity, ArrowRight, Menu, ShieldCheck, Waypoints, X } from 'lucide-react';
+import { ArrowRight, Menu, X } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { getPrimaryCta, publicNavItems } from '../content/publicSite';
@@ -8,13 +8,8 @@ import { PublicMarketTape } from './PublicMarketPulse';
 interface PublicSiteShellProps {
   children: React.ReactNode;
   hideFooter?: boolean;
+  hideMarketTape?: boolean;
 }
-
-const trustIndicators = [
-  { icon: Activity, label: 'Execution systems in motion' },
-  { icon: ShieldCheck, label: 'Security-minded delivery' },
-  { icon: Waypoints, label: 'Build, test, execute workflow' },
-];
 
 const conversionTrustRows = [
   ['Evidence first', 'Validate scope, risk, and delivery path before commitment'],
@@ -25,6 +20,7 @@ const conversionTrustRows = [
 export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
   children,
   hideFooter = false,
+  hideMarketTape = false,
 }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
@@ -62,12 +58,6 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
           </nav>
 
           <div className="hidden items-center gap-2.5 lg:flex">
-            <div className="workspace-chip border-emerald-400/20 text-emerald-200">
-              <span className="pulse-ring relative flex h-2.5 w-2.5 items-center justify-center">
-                <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
-              </span>
-              Lab open
-            </div>
             <Link
               to="/login"
               className="premium-button premium-button-secondary px-3.5 py-2 text-sm"
@@ -96,19 +86,6 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
         {mobileOpen && (
           <div className="mobile-shell-panel border-t border-slate-800 bg-[#050816]/98 px-4 py-4 lg:hidden">
             <div className="space-y-3">
-              {trustIndicators.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <div
-                    key={item.label}
-                    className="flex items-center gap-3 rounded-lg border border-stone-800 bg-stone-950/60 px-4 py-3 text-sm text-slate-300"
-                  >
-                    <Icon className="h-4 w-4 text-cyan-300" />
-                    <span>{item.label}</span>
-                  </div>
-                );
-              })}
-
               <div className="rounded-lg border border-stone-800 bg-stone-950/60 p-2">
                 {publicNavItems.map((item) => (
                   <Link
@@ -142,7 +119,7 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
           </div>
         )}
       </header>
-      <PublicMarketTape />
+      {!hideMarketTape && <PublicMarketTape />}
 
       <main className="relative z-10">{children}</main>
 

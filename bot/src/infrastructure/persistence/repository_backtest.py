@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
 from internal.domain.models import BacktestRun, BacktestRunRequestPayload
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, defer
 
 
@@ -103,6 +104,16 @@ class BacktestRepository:
         cleaned = dict(payload)
         cleaned.pop("_runtime_control", None)
         return cleaned
+
+    @staticmethod
+    def _is_retryable_run_write_error(exc: OperationalError) -> bool:
+        orig = getattr(exc, "orig", None)
+        args = getattr(orig, "args", ()) or ()
+        code = args[0] if args else None
+        message = str(orig or exc)
+        return code in {1020, 1205, 1213} or (
+            "Record has changed since last read" in message
+        )
 
     @classmethod
     def _record_to_summary_dict(cls, record: BacktestRun) -> Dict[str, Any]:
@@ -208,6 +219,28 @@ class BacktestRepository:
             BacktestRepository._memory_runs[run_id] = payload
             return dict(payload)
 
+        for attempt in range(2):
+            try:
+                return self._save_run_once(
+                    payload=payload,
+                    run_id=run_id,
+                    incoming_request_payload=incoming_request_payload,
+                )
+            except OperationalError as exc:
+                self.session.rollback()
+                if attempt >= 1 or not self._is_retryable_run_write_error(exc):
+                    raise
+                self.session.expire_all()
+
+        raise RuntimeError("unreachable backtest save retry state")
+
+    def _save_run_once(
+        self,
+        *,
+        payload: Dict[str, Any],
+        run_id: str,
+        incoming_request_payload: Any,
+    ) -> Dict[str, Any]:
         record = (
             self.session.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
         )
@@ -282,8 +315,23 @@ class BacktestRepository:
 
         parsed_updated_at = self._parse_dt(timestamp, default=self._now())
         record.updated_at = parsed_updated_at or self._now()
-        self.session.commit()
-        return True
+        for attempt in range(2):
+            try:
+                self.session.commit()
+                return True
+            except OperationalError as exc:
+                self.session.rollback()
+                if attempt >= 1 or not self._is_retryable_run_write_error(exc):
+                    raise
+                record = (
+                    self.session.query(BacktestRun)
+                    .filter(BacktestRun.run_id == normalized_run_id)
+                    .first()
+                )
+                if record is None:
+                    return False
+                record.updated_at = parsed_updated_at or self._now()
+        return False
 
     def get_run(self, run_id: str) -> Optional[Dict[str, Any]]:
         normalized_run_id = str(run_id)

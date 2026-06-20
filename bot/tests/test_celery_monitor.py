@@ -1,6 +1,10 @@
 import asyncio
 
 import src.infrastructure.use_cases.service_backtest as service_backtest_module
+from src.infrastructure.workers.backtest_tasks import (
+    _mark_worker_failure,
+    _merge_task_context_overrides,
+)
 from src.infrastructure.workers.celery_monitor import (
     _task_from_backtest,
     build_progress_meta,
@@ -21,6 +25,38 @@ def test_flower_script_uses_discovered_celery_app_path():
     assert "src.infrastructure.workers.celery_app:celery_app" in content
     assert "FLOWER_BASIC_AUTH is required" in content
     assert '--basic_auth="${FLOWER_BASIC_AUTH}"' in content
+
+
+def test_makefile_local_worker_and_flower_use_workers_celery_app():
+    from pathlib import Path
+
+    makefile = Path(__file__).resolve().parents[1] / "Makefile"
+    content = makefile.read_text(encoding="utf-8")
+
+    assert "local-worker: ensure-venv" in content
+    assert "src.infrastructure.workers.celery_app:celery_app worker -l info -E" in content
+    assert "src.infrastructure.workers.celery_app:celery_app flower --address=0.0.0.0 --port=5555" in content
+    assert "CELERY_BROKER_URL=$${CELERY_BROKER_URL:-redis://localhost:6379/0}" in content
+    assert (
+        "CELERY_RESULT_BACKEND=$${CELERY_RESULT_BACKEND:-redis://localhost:6379/1}"
+        in content
+    )
+
+
+def test_workers_celery_app_loads_repo_env_before_resolving_broker_settings():
+    from pathlib import Path
+
+    celery_app_module = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "infrastructure"
+        / "workers"
+        / "celery_app.py"
+    )
+    content = celery_app_module.read_text(encoding="utf-8")
+
+    assert "from src.shared import env_loader" in content
+    assert "env_loader.load_repo_env(__file__)" in content
 
 
 def test_redact_payload_hides_sensitive_task_fields():
@@ -68,6 +104,83 @@ def test_build_progress_meta_includes_debug_context():
     assert meta["environment"] == "testnet"
     assert meta["selected_pairs"] == ["BTC-USD", "ETH-USD"]
     assert meta["last_heartbeat_at"]
+
+
+def test_task_context_overrides_replace_existing_worker_hostname():
+    request_payload = {
+        "name": "test",
+        "pairs": ["BTC-USD", "ETH-USD"],
+        "_task_context": {"worker_hostname": "queued-worker", "retry_count": 0},
+    }
+
+    context = service_backtest_module.BacktestService._build_task_context(
+        request_payload,
+        **_merge_task_context_overrides(
+            {"worker_hostname": "queued-worker", "retry_count": 0},
+            worker_hostname="active-worker",
+            retry_count=2,
+        ),
+    )
+
+    assert context["worker_hostname"] == "active-worker"
+    assert context["retry_count"] == 2
+
+
+def test_mark_worker_failure_reuses_existing_task_context_without_duplicate_kwargs(
+    monkeypatch,
+):
+    from src.infrastructure.workers import backtest_tasks
+
+    class _FakeSession:
+        def close(self):
+            return None
+
+    saved: dict[str, object] = {}
+    stored_run = {
+        "run_id": "run-ctx-1",
+        "request": {
+            "name": "test",
+            "pairs": ["BTC-USD", "ETH-USD"],
+            "_task_context": {
+                "strategy_id": 11,
+                "worker_hostname": "queued-worker",
+                "retry_count": 0,
+            },
+        },
+    }
+
+    class _FakeRepository:
+        def __init__(self, session):
+            self.session = session
+
+        def get_run(self, run_id):
+            assert run_id == "run-ctx-1"
+            return {
+                "run_id": stored_run["run_id"],
+                "request": {**stored_run["request"]},
+            }
+
+        def save_run(self, data):
+            saved.update(data)
+            return data
+
+    monkeypatch.setattr(backtest_tasks.db, "get_session", lambda: _FakeSession())
+    monkeypatch.setattr(backtest_tasks, "BacktestRepository", _FakeRepository)
+
+    _mark_worker_failure(
+        "run-ctx-1",
+        "worker crashed",
+        worker_hostname="active-worker",
+        retry_count=2,
+    )
+
+    request_payload = saved["request"]
+    assert isinstance(request_payload, dict)
+    task_context = request_payload["_task_context"]
+    assert task_context["worker_hostname"] == "active-worker"
+    assert task_context["retry_count"] == 2
+    assert saved["status"] == "failed"
+    assert saved["error_message"] == "worker crashed"
 
 
 def test_celery_state_from_backtest_maps_app_statuses():

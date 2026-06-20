@@ -184,6 +184,11 @@ local-bot: ensure-venv ## Start trading bot runtime locally
 	@echo "$(CYAN)🚀 Starting local trading bot runtime$(RESET)"
 	$(call run-venv-python,main.py)
 
+.PHONY: local-worker
+local-worker: ensure-venv ## Start Celery worker locally for backtests/runtime jobs
+	@echo "$(CYAN)👷 Starting local Celery worker for strategy backtests$(RESET)"
+	$(call run-venv-python-env,CELERY_BROKER_URL=$${CELERY_BROKER_URL:-redis://localhost:6379/0} CELERY_RESULT_BACKEND=$${CELERY_RESULT_BACKEND:-redis://localhost:6379/1},-m celery -A src.infrastructure.workers.celery_app:celery_app worker -l info -E)
+
 .PHONY: dev-detached
 dev-detached: ## Start development environment in background
 	@echo "$(CYAN)🚀 Starting development environment (detached)...$(RESET)"
@@ -415,7 +420,7 @@ local-bot: ensure-venv ## Start trading bot runtime locally
 .PHONY: local-flower
 local-flower: ensure-venv ## Start Celery Flower locally only (port 5555)
 	@echo "$(CYAN)🌸 Starting Celery Flower on http://0.0.0.0:5555$(RESET)"
-	$(call run-venv-python-env,FLOWER_UNAUTHENTICATED_API=false,-m celery -A src.infrastructure.workers.celery_app:celery_app flower --address=0.0.0.0 --port=5555)
+	$(call run-venv-python-env,FLOWER_UNAUTHENTICATED_API=false CELERY_BROKER_URL=$${CELERY_BROKER_URL:-redis://localhost:6379/0} CELERY_RESULT_BACKEND=$${CELERY_RESULT_BACKEND:-redis://localhost:6379/1},-m celery -A src.infrastructure.workers.celery_app:celery_app flower --address=0.0.0.0 --port=5555)
 
 .PHONY: dev-detached
 dev-detached: ## Start development environment in background

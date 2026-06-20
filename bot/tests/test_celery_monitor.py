@@ -1,6 +1,7 @@
 import asyncio
 
 import src.infrastructure.use_cases.service_backtest as service_backtest_module
+from src.infrastructure.workers.backtest_tasks import _merge_task_context_overrides
 from src.infrastructure.workers.celery_monitor import (
     _task_from_backtest,
     build_progress_meta,
@@ -68,6 +69,26 @@ def test_build_progress_meta_includes_debug_context():
     assert meta["environment"] == "testnet"
     assert meta["selected_pairs"] == ["BTC-USD", "ETH-USD"]
     assert meta["last_heartbeat_at"]
+
+
+def test_task_context_overrides_replace_existing_worker_hostname():
+    request_payload = {
+        "name": "test",
+        "pairs": ["BTC-USD", "ETH-USD"],
+        "_task_context": {"worker_hostname": "queued-worker", "retry_count": 0},
+    }
+
+    context = service_backtest_module.BacktestService._build_task_context(
+        request_payload,
+        **_merge_task_context_overrides(
+            {"worker_hostname": "queued-worker", "retry_count": 0},
+            worker_hostname="active-worker",
+            retry_count=2,
+        ),
+    )
+
+    assert context["worker_hostname"] == "active-worker"
+    assert context["retry_count"] == 2
 
 
 def test_celery_state_from_backtest_maps_app_statuses():

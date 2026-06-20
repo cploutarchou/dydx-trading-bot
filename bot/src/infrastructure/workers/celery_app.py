@@ -7,6 +7,9 @@ from urllib.parse import quote
 
 from celery import Celery
 
+from src.shared.env_loader import load_repo_env
+
+
 
 def _redis_url(db_offset: int = 0) -> str:
     explicit_url = os.getenv("CELERY_BROKER_URL") or os.getenv("REDIS_URL")

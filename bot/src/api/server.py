@@ -36,7 +36,6 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
 from src.shared.env_loader import load_repo_env
-from starlette.concurrency import run_in_threadpool
 
 # Load structured config BEFORE importing project modules that initialize config/database.
 load_repo_env(__file__)
@@ -1748,27 +1747,25 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     """Manage startup and shutdown lifecycle for the Bot API."""
     global bot_manager_monitor_task
 
-    # Runtime default: route backtest execution through Celery workers if the broker is reachable,
-    # otherwise fall back to asyncio so tasks don't silently queue with no consumer.
+    # Runtime default: route long-running backtests through Celery. Operators can
+    # explicitly opt into the legacy in-process backend with BACKTEST_WORKER_BACKEND=asyncio.
     if "BACKTEST_WORKER_BACKEND" not in os.environ:
-        _worker_backend = "asyncio"
+        os.environ["BACKTEST_WORKER_BACKEND"] = "celery"
         try:
             from src.infrastructure.workers.celery_app import celery_app
 
             _ping = celery_app.control.ping(timeout=2.0, limit=1)
             if _ping:
-                _worker_backend = "celery"
                 logger.info("Celery broker reachable — backtest worker backend: celery")
             else:
                 logger.warning(
-                    "Celery ping returned no workers — backtest worker backend falling back to asyncio"
+                    "Celery ping returned no workers — backtests will remain queued until a worker is online"
                 )
         except Exception as _celery_probe_err:
             logger.warning(
-                "Celery broker not reachable ({}); backtest worker backend: asyncio",
+                "Celery broker not reachable ({}); backtest enqueue will fail until the broker is available",
                 _celery_probe_err,
             )
-        os.environ["BACKTEST_WORKER_BACKEND"] = _worker_backend
 
     # Safety guard: API_BYPASS_AUTH must never be enabled in production.
     if os.getenv("API_BYPASS_AUTH", "false").lower() == "true":
@@ -3648,8 +3645,7 @@ async def celery_tasks(
     """Admin-only Celery task list with safe metadata redaction."""
     _ = current_user
     started_at = time.perf_counter()
-    payload = await run_in_threadpool(
-        list_celery_tasks,
+    payload = list_celery_tasks(
         {
             "status": status,
             "task_name": task_name,
@@ -3741,7 +3737,7 @@ async def celery_workers(current_user: User = Depends(get_admin_user)):
     """Admin-only Celery worker inspection."""
     _ = current_user
     started_at = time.perf_counter()
-    payload = await run_in_threadpool(list_celery_workers)
+    payload = list_celery_workers()
     worker_count = len(payload) if isinstance(payload, dict) else None
     _log_endpoint_timing(
         "/api/v1/celery/workers",
@@ -3762,7 +3758,7 @@ async def celery_queues(current_user: User = Depends(get_admin_user)):
     """Admin-only Celery queue overview."""
     _ = current_user
     started_at = time.perf_counter()
-    payload = await run_in_threadpool(list_celery_queues)
+    payload = list_celery_queues()
     queue_count = len(payload) if isinstance(payload, dict) else None
     _log_endpoint_timing(
         "/api/v1/celery/queues",
@@ -3783,7 +3779,7 @@ async def celery_monitor_health(current_user: User = Depends(get_admin_user)):
     """Admin-only Celery broker/backend/worker health."""
     _ = current_user
     started_at = time.perf_counter()
-    payload = await run_in_threadpool(celery_health)
+    payload = celery_health()
     _log_endpoint_timing(
         "/api/v1/celery/health",
         started_at,
@@ -4688,13 +4684,7 @@ async def list_backtests(
 ):
     """List backtest runs with filtering"""
     try:
-        result = await run_in_threadpool(
-            _list_backtests_sync,
-            limit,
-            offset,
-            status,
-            days,
-        )
+        result = _list_backtests_sync(limit, offset, status, days)
         payload = result.model_dump()
         payload["backtests"] = payload.get("runs", [])
         payload["count"] = len(payload["backtests"])
@@ -4833,7 +4823,7 @@ async def get_backtest_details(
 ):
     """Get detailed backtest results"""
     try:
-        result = await run_in_threadpool(_get_backtest_details_sync, run_id)
+        result = _get_backtest_details_sync(run_id)
         if not result:
             return api_response(
                 success=False,
@@ -4860,7 +4850,7 @@ async def get_backtest_status(
 ):
     """Get current backtest status and progress"""
     try:
-        result = await run_in_threadpool(_get_backtest_status_sync, run_id)
+        result = _get_backtest_status_sync(run_id)
         if not result:
             return api_response(
                 success=False,
@@ -4938,7 +4928,7 @@ async def get_backtest_websocket_metrics(
 ):
     """Get per-run websocket send-failure metrics for reconnect-thrashing alerting."""
     try:
-        status = await run_in_threadpool(_get_backtest_status_sync, run_id)
+        status = _get_backtest_status_sync(run_id)
         if status is None:
             return api_response(
                 success=False,
@@ -5011,8 +5001,7 @@ async def get_backtest_trades(
         trades_payload = _cache_get(cache_key)
         cache_hit = trades_payload is not None
         if not cache_hit:
-            trades = await run_in_threadpool(
-                _get_backtest_trades_sync,
+            trades = _get_backtest_trades_sync(
                 run_id,
                 limit,
                 offset,
@@ -5079,7 +5068,7 @@ async def get_backtest_logs(
                 lines = f.readlines()
                 return [line.rstrip() for line in lines[-tail:]]
 
-        log_lines = await run_in_threadpool(_read_logs)
+        log_lines = _read_logs()
         return api_response(
             success=True,
             data={
@@ -5195,6 +5184,16 @@ async def restart_backtest(
                     message=f"Backtest '{run_id}' not found",
                     status_code=404,
                 )
+            if not bool(getattr(status, "request_available", False)):
+                return api_response(
+                    success=False,
+                    message=(
+                        f"Backtest '{run_id}' original request payload is unavailable; "
+                        "repair the request payload before restart"
+                    ),
+                    data={"error": "missing_original_request_payload"},
+                    status_code=409,
+                )
             result = await service.restart_backtest(
                 run_id, _broadcast_backtest_progress
             )
@@ -5231,6 +5230,16 @@ async def retry_backtest(
                     success=False,
                     message=f"Backtest '{run_id}' not found",
                     status_code=404,
+                )
+            if not bool(getattr(status, "request_available", False)):
+                return api_response(
+                    success=False,
+                    message=(
+                        f"Backtest '{run_id}' original request payload is unavailable; "
+                        "repair the request payload before retry"
+                    ),
+                    data={"error": "missing_original_request_payload"},
+                    status_code=409,
                 )
             result = await service.retry_backtest(run_id, _broadcast_backtest_progress)
         if not result:
@@ -5283,7 +5292,7 @@ async def get_backtest_summary_stats(
 ):
     """Get backtest system summary statistics"""
     try:
-        stats = await run_in_threadpool(_get_backtest_summary_stats_sync, days)
+        stats = _get_backtest_summary_stats_sync(days)
 
         return api_response(
             success=True,
@@ -5309,7 +5318,7 @@ async def get_backtest_analytics(
         analytics = _cache_get(cache_key)
         cache_hit = analytics is not None
         if not cache_hit:
-            analytics = await run_in_threadpool(_get_backtest_analytics_sync, run_id)
+            analytics = _get_backtest_analytics_sync(run_id)
             if analytics:
                 _cache_set(cache_key, analytics)
         if not analytics:
@@ -5371,9 +5380,7 @@ async def get_backtest_analytics_summary(
             full_cache_key = f"backtest:analytics:full:{run_id}"
             analytics = _cache_get(full_cache_key)
             if analytics is None:
-                analytics = await run_in_threadpool(
-                    _get_backtest_analytics_sync, run_id
-                )
+                analytics = _get_backtest_analytics_sync(run_id)
                 if analytics:
                     _cache_set(full_cache_key, analytics)
 
@@ -5419,8 +5426,7 @@ async def get_position_snapshots(
 ):
     """Get position snapshots for real-time backtest tracking"""
     try:
-        snapshots = await run_in_threadpool(
-            _get_position_snapshots_sync,
+        snapshots = _get_position_snapshots_sync(
             run_id,
             limit,
             offset,
@@ -5464,7 +5470,7 @@ async def compare_backtests(
                 status_code=400,
             )
 
-        comparison = await run_in_threadpool(_compare_backtests_sync, run_ids, metrics)
+        comparison = _compare_backtests_sync(run_ids, metrics)
 
         return api_response(
             success=True,
@@ -5496,7 +5502,7 @@ async def backtest_sync_health(
                 message="Backtest sync health metrics retrieved",
             )
 
-        runtime_health = await run_in_threadpool(_get_backtest_runtime_health_sync)
+        runtime_health = _get_backtest_runtime_health_sync()
         return api_response(
             success=True,
             data={
@@ -5602,8 +5608,7 @@ async def get_advanced_performance_metrics(
 ):
     """Get advanced performance metrics with market benchmarking"""
     try:
-        metrics = await run_in_threadpool(
-            _get_advanced_performance_metrics_sync,
+        metrics = _get_advanced_performance_metrics_sync(
             run_id,
             benchmark,
         )
@@ -5633,7 +5638,7 @@ async def get_live_progress(
 ):
     """Get real-time backtest progress with current positions"""
     try:
-        progress = await run_in_threadpool(_get_live_progress_sync, run_id)
+        progress = _get_live_progress_sync(run_id)
         if not progress:
             return api_response(
                 success=False,

@@ -187,7 +187,7 @@ local-bot: ensure-venv ## Start trading bot runtime locally
 .PHONY: local-worker
 local-worker: ensure-venv ## Start Celery worker locally for backtests/runtime jobs
 	@echo "$(CYAN)👷 Starting local Celery worker for strategy backtests$(RESET)"
-	$(call run-venv-python-env,CELERY_BROKER_URL=$${CELERY_BROKER_URL:-redis://localhost:6379/0} CELERY_RESULT_BACKEND=$${CELERY_RESULT_BACKEND:-redis://localhost:6379/1},-m celery -A src.infrastructure.workers.celery_app:celery_app worker -l info -E)
+	$(call run-venv-python-env,CELERY_BROKER_URL=$${CELERY_BROKER_URL:-redis://localhost:6379/0} CELERY_RESULT_BACKEND=$${CELERY_RESULT_BACKEND:-redis://localhost:6379/1} CELERY_QUEUES=$${CELERY_QUEUES:-backtests,default,high_priority,scheduled},-m celery -A src.infrastructure.workers.celery_app:celery_app worker -l info -Q $${CELERY_QUEUES:-backtests,default,high_priority,scheduled} -E)
 
 .PHONY: dev-detached
 dev-detached: ## Start development environment in background

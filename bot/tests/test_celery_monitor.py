@@ -2,6 +2,7 @@ import asyncio
 
 import src.infrastructure.use_cases.service_backtest as service_backtest_module
 from src.infrastructure.workers.backtest_tasks import (
+    _is_transient_backtest_error,
     _mark_worker_failure,
     _merge_task_context_overrides,
 )
@@ -11,6 +12,7 @@ from src.infrastructure.workers.celery_monitor import (
     celery_state_from_backtest,
     list_celery_tasks,
     list_celery_workers,
+    normalized_task_status,
     redact_payload,
     retry_celery_task,
 )
@@ -34,11 +36,16 @@ def test_makefile_local_worker_and_flower_use_workers_celery_app():
     content = makefile.read_text(encoding="utf-8")
 
     assert "local-worker: ensure-venv" in content
-    assert "src.infrastructure.workers.celery_app:celery_app worker -l info -E" in content
+    assert "src.infrastructure.workers.celery_app:celery_app worker -l info" in content
+    assert "-Q $${CELERY_QUEUES:-backtests,default,high_priority,scheduled}" in content
     assert "src.infrastructure.workers.celery_app:celery_app flower --address=0.0.0.0 --port=5555" in content
     assert "CELERY_BROKER_URL=$${CELERY_BROKER_URL:-redis://localhost:6379/0}" in content
     assert (
         "CELERY_RESULT_BACKEND=$${CELERY_RESULT_BACKEND:-redis://localhost:6379/1}"
+        in content
+    )
+    assert (
+        "CELERY_QUEUES=$${CELERY_QUEUES:-backtests,default,high_priority,scheduled}"
         in content
     )
 
@@ -57,6 +64,31 @@ def test_workers_celery_app_loads_repo_env_before_resolving_broker_settings():
 
     assert "from src.shared import env_loader" in content
     assert "env_loader.load_repo_env(__file__)" in content
+
+
+def test_celery_app_routes_backtests_to_dedicated_queue():
+    from src.infrastructure.workers.celery_app import celery_app
+
+    routes = celery_app.conf.task_routes
+
+    assert routes["backtests.run"]["queue"] == "backtests"
+    assert routes["bot.sync_market_candles"]["queue"] == "scheduled"
+    assert celery_app.conf.task_default_queue == "default"
+    assert {"backtests", "default", "high_priority", "scheduled"}.issubset(
+        {queue.name for queue in celery_app.conf.task_queues}
+    )
+
+
+def test_celery_beat_schedule_is_market_sync_opt_in(monkeypatch):
+    from src.infrastructure.workers import celery_app as celery_app_module
+
+    monkeypatch.setenv("MARKET_SYNC_ENABLED", "false")
+    assert celery_app_module._beat_schedule() == {}
+
+    monkeypatch.setenv("MARKET_SYNC_ENABLED", "true")
+    schedule = celery_app_module._beat_schedule()
+    assert schedule["sync-market-candles"]["task"] == "bot.sync_market_candles"
+    assert schedule["sync-market-candles"]["options"]["queue"] == "scheduled"
 
 
 def test_redact_payload_hides_sensitive_task_fields():
@@ -183,12 +215,28 @@ def test_mark_worker_failure_reuses_existing_task_context_without_duplicate_kwar
     assert saved["error_message"] == "worker crashed"
 
 
+def test_backtest_task_retry_classifier_only_retries_transient_errors():
+    assert _is_transient_backtest_error(RuntimeError("temporarily unavailable"))
+    assert _is_transient_backtest_error(RuntimeError("connection reset by peer"))
+    assert not _is_transient_backtest_error(ValueError("SELECTED_PAIRS_MISSING"))
+    assert not _is_transient_backtest_error(TimeoutError("Backtest timed out"))
+
+
 def test_celery_state_from_backtest_maps_app_statuses():
     assert celery_state_from_backtest("completed") == "SUCCESS"
     assert celery_state_from_backtest("failed") == "FAILURE"
     assert celery_state_from_backtest("cancelled") == "REVOKED"
     assert celery_state_from_backtest("running") == "STARTED"
     assert celery_state_from_backtest("queued") == "PENDING"
+
+
+def test_normalized_task_status_maps_celery_states():
+    assert normalized_task_status("PENDING") == "pending"
+    assert normalized_task_status("STARTED") == "running"
+    assert normalized_task_status("SUCCESS") == "success"
+    assert normalized_task_status("FAILURE") == "failed"
+    assert normalized_task_status("RETRY") == "retrying"
+    assert normalized_task_status("REVOKED") == "cancelled"
 
 
 def test_task_from_backtest_uses_persisted_request_context_when_summary_fields_are_missing():
@@ -231,6 +279,8 @@ def test_task_from_backtest_uses_persisted_request_context_when_summary_fields_a
     assert task["environment"] == "development"
     assert task["worker_hostname"] == "worker-a"
     assert task["retry_count"] == 1
+    assert task["queue"] == "backtests"
+    assert task["normalized_status"] == "running"
     assert task["metadata"]["strategy_name"] == "Desk Strategy"
     assert task["metadata"]["payload_hash"] == "abc123"
 

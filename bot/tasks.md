@@ -56,3 +56,13 @@
   - Fixed `src/infrastructure/workers/celery_app.py` to load repo env before resolving Redis/Celery settings.
   - Updated `README.md` with the required startup order (`local-worker` before `local-api`) and the `BACKTEST_TASK_ALWAYS_EAGER=false` caveat for legacy backtest jobs.
 
+## 2026-06-21
+
+- Hardened Celery-backed long-running backtests:
+  - Routed `backtests.run` to the dedicated `backtests` queue and added standard queue defaults: `backtests`, `default`, `high_priority`, `scheduled`.
+  - Made Celery the canonical API startup backend for backtests; `asyncio` now requires an explicit `BACKTEST_WORKER_BACKEND=asyncio` override.
+  - Removed silent in-process fallback when Celery enqueue fails; failed dispatch now persists failure status, reason, and task failure metadata.
+  - Added retry visibility for transient Celery backtest failures via persisted `retrying` status, retry count, failure reason, and Celery `RETRY` metadata.
+  - Added Redis-backed duplicate-run locking for horizontal workers when Redis is configured.
+  - Made Celery Beat market sync opt-in through `MARKET_SYNC_ENABLED=true`.
+  - Updated local worker defaults and README worker scaling/status guidance.

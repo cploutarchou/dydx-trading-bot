@@ -40,11 +40,71 @@ make preflight-testnet
 `make local-api` starts the canonical API without uvicorn hot reload by default, which gives cleaner shutdown semantics
 for runtime verification. Use `make dev-api` or set `BOT_API_RELOAD=true` only when file-watch reload behavior is needed.
 
-For Celery-backed strategy backtests, start `make local-worker` before `make local-api` so the API startup probe can
-select `BACKTEST_WORKER_BACKEND=celery`. If the worker comes up later, restart the API so it re-probes the Celery
-backend. `make local-flower` connects to the same Celery app/broker and shows the worker only after the worker is
-online. Legacy `/api/backtest/jobs` requests also need `BACKTEST_TASK_ALWAYS_EAGER=false`; otherwise they execute inline
-and will not appear in Flower.
+Strategy backtests use Celery by default. Start `make local-worker` before `make local-api` so backtests have an active
+consumer as soon as the API accepts requests. If the worker comes up later, already-queued runs remain pending until a
+worker consumes the `backtests` queue. Broker/dispatch failures are persisted as failed runs instead of falling back to
+API-process execution. Legacy `/api/backtest/jobs` requests also need `BACKTEST_TASK_ALWAYS_EAGER=false`; otherwise they
+execute inline and will not appear in Flower.
+
+### Celery Backtest Workers
+
+Backtests are created by the API, persisted as `backtest_runtime_runs`, then dispatched to the same codebase through
+`src.infrastructure.workers.backtest_tasks.run_backtest_task`. The API returns the `run_id`/`worker_task_id`
+immediately; workers reload the persisted request and execute `BacktestService.execute_existing_backtest(...)` so
+business logic is not duplicated.
+
+Required local services:
+
+- Redis broker/result backend, defaulting to `redis://localhost:6379/0` and `redis://localhost:6379/1`
+- API: `make local-api`
+- worker: `make local-worker`
+- optional Flower: `make local-flower`
+
+Useful environment variables:
+
+- `BACKTEST_WORKER_BACKEND=celery` for worker-backed backtests; set `asyncio` only for focused local/unit debugging
+- `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` for broker/result backend
+- `CELERY_QUEUES=backtests,default,high_priority,scheduled` for a worker that consumes all standard queues
+- `BACKTEST_CELERY_QUEUE=backtests` for backtest dispatch
+- `BACKTEST_CELERY_MAX_RETRIES=3`
+- `BACKTEST_CELERY_RETRY_BASE_SECONDS=30`
+- `BACKTEST_CELERY_RETRY_MAX_SECONDS=600`
+- `BACKTEST_CELERY_TASK_SOFT_TIME_LIMIT` and `BACKTEST_CELERY_TASK_TIME_LIMIT`
+- `BACKTEST_TASK_LOCK_TTL_SECONDS` or `BACKTEST_LOCK_REDIS_URL` for duplicate-run locking
+- `MARKET_SYNC_ENABLED=true` only when running Celery Beat for scheduled market candle sync
+
+Queues:
+
+- `backtests` - long-running backtest execution
+- `default` - lightweight hooks and general background work
+- `high_priority` - reserved for urgent operational tasks
+- `scheduled` - Celery Beat tasks such as optional market sync
+
+Scale workers horizontally by running more worker processes against the same broker and database. For backtests, prefer
+one or a small number of concurrent tasks per worker because each run can hold DB connections and fetch large market
+history windows:
+
+```bash
+CELERY_QUEUES=backtests CELERY_CONCURRENCY=1 make local-worker
+CELERY_QUEUES=backtests CELERY_AUTOSCALE=4,1 make local-worker
+```
+
+To enqueue and inspect a backtest:
+
+```bash
+curl -X POST http://localhost:8889/api/v1/backtests/run \
+  -H "Authorization: Bearer $BOT_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"quick","start_date":"2026-01-01","end_date":"2026-01-07","pairs":["BTC-USD","ETH-USD"],"selected_pairs":["BTC-USD/ETH-USD"]}'
+
+curl http://localhost:8889/api/v1/backtests/<run_id>/status -H "Authorization: Bearer $BOT_API_TOKEN"
+curl http://localhost:8889/api/v1/celery/tasks/<task_id> -H "Authorization: Bearer $BOT_API_TOKEN"
+curl http://localhost:8889/api/v1/backtests/<run_id>/logs -H "Authorization: Bearer $BOT_API_TOKEN"
+```
+
+Backtest status remains backward-compatible (`pending`, `running`, `completed`, `failed`, `retrying`, `timeout`,
+`cancelled`). Admin Celery task responses additionally expose `normalized_status` as `pending`, `running`, `success`,
+`failed`, `retrying`, or `cancelled`.
 
 ## VS Code Workspace
 

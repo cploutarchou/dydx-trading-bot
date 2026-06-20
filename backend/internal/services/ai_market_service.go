@@ -18,8 +18,8 @@ import (
 
 const (
 	defaultAIMarketHTTPTimeout = 75 * time.Second
-	defaultAIMarketLimit       = 20
-	maxAIMarketLimit           = 50
+	defaultAIMarketLimit       = 35
+	maxAIMarketLimit           = 150
 	defaultAIMarketMaxRetries  = 3
 )
 

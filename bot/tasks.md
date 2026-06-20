@@ -47,3 +47,12 @@
   - Implemented per-job log capture for Celery backtest runs in `bot_states/backtest_<run_id>.log`.
   - Added `GET /api/v1/backtests/{run_id}/logs` API endpoint to retrieve detailed execution logs.
   - Updated `README.md` with the new log retrieval endpoint.
+
+## 2026-06-20
+
+- Restored local Celery/Flower operability for strategy backtests:
+  - Added `make local-worker` targeting `src.infrastructure.workers.celery_app:celery_app` with worker events enabled for Flower visibility.
+  - Aligned `make local-flower` with the same Celery app and explicit broker/result backend env wiring.
+  - Fixed `src/infrastructure/workers/celery_app.py` to load repo env before resolving Redis/Celery settings.
+  - Updated `README.md` with the required startup order (`local-worker` before `local-api`) and the `BACKTEST_TASK_ALWAYS_EAGER=false` caveat for legacy backtest jobs.
+

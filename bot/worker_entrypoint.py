@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from typing import List, Optional, Tuple
 
 from src.shared.env_loader import load_repo_env
 
@@ -27,6 +28,43 @@ def _sanitize_node_url_env(var_name: str) -> None:
     if lowered.startswith("https://"):
         os.environ[var_name] = value[len("https://") :]
         return
+
+
+def _parse_autoscale(raw_value: str) -> Optional[Tuple[int, int]]:
+    value = (raw_value or "").strip()
+    if not value:
+        return None
+
+    parts = [part.strip() for part in value.split(",")]
+    if len(parts) != 2:
+        return None
+
+    try:
+        maximum = int(parts[0])
+        minimum = int(parts[1])
+    except ValueError:
+        return None
+
+    if minimum < 0 or maximum < 1 or minimum > maximum:
+        return None
+    return maximum, minimum
+
+
+def _celery_pool_args() -> List[str]:
+    autoscale_raw = os.getenv("CELERY_AUTOSCALE", "")
+    parsed_autoscale = _parse_autoscale(autoscale_raw)
+    if autoscale_raw.strip() and parsed_autoscale is None:
+        # Fail-safe: ignore malformed autoscale and keep worker booting with fixed pool size.
+        sys.stderr.write(
+            "[worker_entrypoint] Ignoring invalid CELERY_AUTOSCALE; expected 'max,min' with 0<=min<=max.\n"
+        )
+        sys.stderr.flush()
+
+    if parsed_autoscale is not None:
+        maximum, minimum = parsed_autoscale
+        return ["--autoscale", f"{maximum},{minimum}"]
+
+    return ["--concurrency", os.getenv("CELERY_CONCURRENCY", "10")]
 
 
 class _FilteredStderr:
@@ -75,9 +113,9 @@ def main() -> int:
             os.getenv("CELERY_LOG_LEVEL", os.getenv("LOG_LEVEL", "INFO")).lower(),
             "--queues",
             os.getenv("CELERY_QUEUES", "celery"),
-            "--concurrency",
-            os.getenv("CELERY_CONCURRENCY", "1"),
+            "-E",
         ]
+        argv.extend(_celery_pool_args())
 
         # Run celery in-process so our stderr filter can suppress known noisy lines.
         original_stderr = sys.stderr

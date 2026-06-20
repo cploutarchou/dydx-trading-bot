@@ -5,6 +5,7 @@
 	},
 	"frontend": {
 		"VITE_API_URL": "http://localhost:8888",
+		"VITE_FLOWER_URL": "http://localhost:5555",
 		"VITE_FORCE_MOCK_DATA": false
 	},
 	"shared": {

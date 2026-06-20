@@ -30,6 +30,15 @@ def _normalize_request_payload(value: Any) -> Dict[str, Any]:
     return {}
 
 
+def _merge_task_context_overrides(
+    task_context: Dict[str, Any] | None,
+    **overrides: Any,
+) -> Dict[str, Any]:
+    merged = dict(task_context or {})
+    merged.update(overrides)
+    return merged
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -208,9 +217,11 @@ def run_backtest_task(
             )
             task_context = service._build_task_context(
                 request_payload,
-                **(task_context or {}),
-                worker_hostname=socket.gethostname(),
-                retry_count=int(getattr(self.request, "retries", 0) or 0),
+                **_merge_task_context_overrides(
+                    task_context,
+                    worker_hostname=socket.gethostname(),
+                    retry_count=int(getattr(self.request, "retries", 0) or 0),
+                ),
             )
             request_payload = service._clear_task_failure(
                 service._set_task_context(request_payload, task_context)

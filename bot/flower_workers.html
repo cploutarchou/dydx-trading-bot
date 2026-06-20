@@ -1,0 +1,115 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flower</title>
+<link rel="stylesheet" href="/static/css/bootstrap.min.css?v=eea261d9b89e1738193c9f9b06196592b31a87daee9aaec45629e54645e460853a40ad27b3860a83b2c0b65c3ebb2b039371a4fb42a1aa592695d33e74be6dd1">
+<link rel="stylesheet" href="/static/css/datatables-1.13.4.min.css?v=74c4a6b553604403588edd63769db7dfbaf4c22cb68aba292a93e02ac283a6136e686b2fd7502a7816f160fae558412a7c877b81fd557298f07b32e026739559">
+<link href="/static/css/flower.css?v=cb65558ddda9a029f1ef92d591aec21646e1c50225c1f94f6ba79686bd6690f029b56fd21aef9a8a7b9e2c069bf113decaae7ee1098f33132619f22f47124415" rel="stylesheet">
+</head>
+<body class="m-2">
+
+<nav class="navbar navbar-expand-lg navbar-light bg-green mx-2">
+<a class="navbar-brand" href="/">
+<img src="/static/favicon.ico?v=ff1ba46e61b7e034e9ce38326f398a2b86c222a137e2eb96a3ea16c77300d423d6ebf0cc8d4ac73d95087e6114ef8e13fa52fa5b6f9fadc0b5d1a9e3680015b8" width="30" height="30" class="d-inline-block align-top" alt="">
+Flower
+</a>
+<button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent"
+aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+<span class="navbar-toggler-icon"></span>
+</button>
+<div class="collapse navbar-collapse" id="navbarSupportedContent">
+<ul class="navbar-nav mr-auto">
+<li class="nav-item active">
+<a class="nav-link text-dark" href="/workers">Workers</a>
+</li>
+<li class="nav-item">
+<a class="nav-link text-dark" href="/tasks">Tasks</a>
+</li>
+<li class="nav-item">
+<a class="nav-link text-dark" href="/broker">Broker</a>
+</li>
+<li class="nav-item">
+<a class="nav-link text-dark" href="https://flower.readthedocs.io/" target="_blank" rel="noopener">Documentation</a>
+</li>
+</ul>
+<ul class="navbar-nav flex-row flex-wrap ms-md-auto">
+<li class="nav-item col-6 col-lg-auto">
+<a class="nav-link py-2 px-0 px-lg-2" href="https://github.com/mher/flower" target="_blank" rel="noopener">
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" class="navbar-nav-svg" viewBox="0 0 512 499.36"
+role="img">
+<path fill="currentColor" fill-rule="evenodd"
+d="M256 0C114.64 0 0 114.61 0 256c0 113.09 73.34 209 175.08 242.9 12.8 2.35 17.47-5.56 17.47-12.34 0-6.08-.22-22.18-.35-43.54-71.2 15.49-86.2-34.34-86.2-34.34-11.64-29.57-28.42-37.45-28.42-37.45-23.27-15.84 1.73-15.55 1.73-15.55 25.69 1.81 39.21 26.38 39.21 26.38 22.84 39.12 59.92 27.82 74.5 21.27 2.33-16.54 8.94-27.82 16.25-34.22-56.84-6.43-116.6-28.43-116.6-126.49 0-27.95 10-50.8 26.35-68.69-2.63-6.48-11.42-32.5 2.51-67.75 0 0 21.49-6.88 70.4 26.24a242.65 242.65 0 0 1 128.18 0c48.87-33.13 70.33-26.24 70.33-26.24 14 35.25 5.18 61.27 2.55 67.75 16.41 17.9 26.31 40.75 26.31 68.69 0 98.35-59.85 120-116.88 126.32 9.19 7.9 17.38 23.53 17.38 47.41 0 34.22-.31 61.83-.31 70.23 0 6.85 4.61 14.81 17.6 12.31C438.72 464.97 512 369.08 512 256.02 512 114.62 397.37 0 256 0z" />
+</svg>
+<small class="d-lg-none ms-2">GitHub</small>
+</a>
+</li>
+</ul>
+</div>
+</nav>
+
+<div class="container-fluid my-2">
+<div id="alert-container"></div>
+<input type="hidden" value="" id='url_prefix'>
+</div>
+
+<div class="container-fluid mt-3">
+<figure class="table-responsive">
+<table id="workers-table" class="table table-bordered table-striped table-hover w-100">
+<thead>
+<tr>
+<th>Worker</th>
+<th class="text-center">Status</th>
+<th class="text-center">Active</th>
+<th class="text-center">Processed</th>
+<th class="text-center">Failed</th>
+<th class="text-center">Succeeded</th>
+<th class="text-center">Retried</th>
+<th class="text-center">Load Average</th>
+</tr>
+</thead>
+<tbody>
+
+<tr id="celery%40chris-pc">
+<td>celery@chris-pc</td>
+<td>True</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+<td>2.34, 1.71, 1.14</td>
+</tr>
+
+</tbody>
+<tfoot>
+<tr>
+<th>Total</th>
+<th></th>
+<th></th>
+<th></th>
+<th></th>
+<th></th>
+<th></th>
+<th></th>
+</tr>
+</tfoot>
+</table>
+</figure>
+</div>
+
+<script src="/static/js/bootstrap.bundle.min.js?v=d159d8395c8a2c53390808d1b696929be19b9974d6feff72904b069004583f469ac5a352608ead49e396f36e5a312b4a8c50708be2e041f47613a3e03d344ba9"></script>
+<script src="/static/js/jquery-3.6.4.min.js?v=a6e981b23351186aa43f32879dd64c6801be6e2af7ef8b0e472cccdeeba52d5d7894de4bcb292a364f1e11e525524077534338140a72687ada4fae62849843a5"></script>
+<script src="/static/js/datatables-1.13.4.min.js?v=545b043132ca7e6d31fa9428dda427f4116732de8b19face781a8aa2372265d1f22fa1ed5e54428899170459577732a98c15bafb6663c40fcf11bb770d896b59"></script>
+<script src="/static/js/moment-2.29.4.min.js?v=0abc8a6cc7bbb234820cf975f23b492390d1e63b64516c4f5d668b0acb7a4231fcc310dec5f44989cd964664579acb6bd98f12c430d6b813ba0900ba204e0a4c"></script>
+<script src="/static/js/moment-timezone-with-data-2.29.4.min.js?v=28223e7d1ddb51b39c534642dd471a3f008bb8ee4b124ba469605875d9a12cf5e0a403d627c8faa492e64c8eadf42318733138602ad6650ff0ad9cff26cc82f8"></script>
+<script src="/static/js/flower.js?v=5ef89e36a054bc521327fbffe46c2fe45abe476b53305e400c33444ba76dd4e0ee261fcceddc77c624827c28994413c3201c6b97f878ae2d0ad0c5faa0a6bf78"></script>
+
+<script type="text/javascript">
+var autorefresh = 1;
+</script>
+
+</body>
+</html>

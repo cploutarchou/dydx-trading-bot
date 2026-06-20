@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -115,6 +116,53 @@ class BacktestRepository:
             "Record has changed since last read" in message
         )
 
+    @staticmethod
+    def _retry_with_backoff(
+        operation: Any,
+        *args: Any,
+        max_attempts: int = 5,
+        initial_backoff_ms: float = 10.0,
+        **kwargs: Any,
+    ) -> Any:
+        """
+        Retry operation with exponential backoff for transient database errors.
+
+        Handles MySQL concurrency errors (1020, 1205, 1213) which can occur when
+        heartbeat updates and progress updates collide on the same row.
+
+        Args:
+            operation: Callable to retry
+            max_attempts: Maximum retry attempts (default 5)
+            initial_backoff_ms: Initial backoff in milliseconds (default 10ms)
+            *args, **kwargs: Arguments to pass to operation
+
+        Returns:
+            Result of operation
+
+        Raises:
+            OperationalError: If all retries exhausted or non-retryable error
+        """
+        backoff_ms = initial_backoff_ms
+        last_exc = None
+
+        for attempt in range(max_attempts):
+            try:
+                return operation(*args, **kwargs)
+            except OperationalError as exc:
+                last_exc = exc
+                if attempt >= max_attempts - 1:
+                    # Last attempt exhausted
+                    raise
+                if not BacktestRepository._is_retryable_run_write_error(exc):
+                    # Not a retryable error
+                    raise
+
+                # Exponential backoff: 10ms, 20ms, 40ms, 80ms, 160ms
+                time.sleep(backoff_ms / 1000.0)
+                backoff_ms = min(backoff_ms * 2, 250)  # Cap at 250ms
+
+        raise last_exc or RuntimeError("unreachable retry state")
+
     @classmethod
     def _record_to_summary_dict(cls, record: BacktestRun) -> Dict[str, Any]:
         """Lightweight projection used for list queries — omits large JSON blob columns."""
@@ -219,20 +267,13 @@ class BacktestRepository:
             BacktestRepository._memory_runs[run_id] = payload
             return dict(payload)
 
-        for attempt in range(2):
-            try:
-                return self._save_run_once(
-                    payload=payload,
-                    run_id=run_id,
-                    incoming_request_payload=incoming_request_payload,
-                )
-            except OperationalError as exc:
-                self.session.rollback()
-                if attempt >= 1 or not self._is_retryable_run_write_error(exc):
-                    raise
-                self.session.expire_all()
-
-        raise RuntimeError("unreachable backtest save retry state")
+        return self._retry_with_backoff(
+            self._save_run_once,
+            payload=payload,
+            run_id=run_id,
+            incoming_request_payload=incoming_request_payload,
+            max_attempts=5,
+        )
 
     def _save_run_once(
         self,
@@ -305,33 +346,25 @@ class BacktestRepository:
             BacktestRepository._memory_runs[normalized_run_id] = record
             return True
 
-        record: Any = (
-            self.session.query(BacktestRun)
-            .filter(BacktestRun.run_id == normalized_run_id)
-            .first()
-        )
-        if record is None:
-            return False
+        def _touch_once() -> bool:
+            record: Any = (
+                self.session.query(BacktestRun)
+                .filter(BacktestRun.run_id == normalized_run_id)
+                .first()
+            )
+            if record is None:
+                return False
 
-        parsed_updated_at = self._parse_dt(timestamp, default=self._now())
-        record.updated_at = parsed_updated_at or self._now()
-        for attempt in range(2):
-            try:
-                self.session.commit()
-                return True
-            except OperationalError as exc:
-                self.session.rollback()
-                if attempt >= 1 or not self._is_retryable_run_write_error(exc):
-                    raise
-                record = (
-                    self.session.query(BacktestRun)
-                    .filter(BacktestRun.run_id == normalized_run_id)
-                    .first()
-                )
-                if record is None:
-                    return False
-                record.updated_at = parsed_updated_at or self._now()
-        return False
+            parsed_updated_at = self._parse_dt(timestamp, default=self._now())
+            record.updated_at = parsed_updated_at or self._now()
+            self.session.commit()
+            return True
+
+        try:
+            return self._retry_with_backoff(_touch_once, max_attempts=5)
+        except OperationalError:
+            self.session.rollback()
+            raise
 
     def get_run(self, run_id: str) -> Optional[Dict[str, Any]]:
         normalized_run_id = str(run_id)

@@ -3,6 +3,7 @@
 import asyncio
 import importlib
 import math
+import os
 import sys
 import threading
 import time
@@ -572,6 +573,88 @@ def test_celery_worker_backend_queues_persisted_run(monkeypatch):
         assert service.delete_backtest(created.run_id)
 
     asyncio.run(_run())
+
+
+def test_resolve_worker_backend_keeps_configured_celery_without_probe(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND", "celery")
+    monkeypatch.setattr(
+        BacktestService,
+        "_probe_celery_worker_available",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("probe should not run when backend is already celery")
+        ),
+    )
+
+    backend = asyncio.run(BacktestService._resolve_worker_backend())
+    assert backend == "celery"
+
+
+def test_resolve_worker_backend_promotes_asyncio_when_probe_succeeds(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND", "asyncio")
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND_AUTO_REPROBE", "true")
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND_REPROBE_COOLDOWN_SECONDS", "60")
+
+    BacktestService._backend_reprobe_last_monotonic = 0.0
+    BacktestService._backend_reprobe_last_available = False
+    monkeypatch.setattr(
+        BacktestService, "_probe_celery_worker_available", lambda *_args, **_kwargs: True
+    )
+
+    backend = asyncio.run(BacktestService._resolve_worker_backend())
+    assert backend == "celery"
+    assert os.getenv("BACKTEST_WORKER_BACKEND") == "celery"
+
+
+def test_resolve_worker_backend_keeps_asyncio_when_probe_fails(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND", "asyncio")
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND_AUTO_REPROBE", "true")
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND_REPROBE_COOLDOWN_SECONDS", "60")
+
+    BacktestService._backend_reprobe_last_monotonic = 0.0
+    BacktestService._backend_reprobe_last_available = False
+    monkeypatch.setattr(
+        BacktestService, "_probe_celery_worker_available", lambda *_args, **_kwargs: False
+    )
+
+    backend = asyncio.run(BacktestService._resolve_worker_backend())
+    assert backend == "asyncio"
+    assert os.getenv("BACKTEST_WORKER_BACKEND") == "asyncio"
+
+
+def test_resolve_worker_backend_respects_reprobe_cooldown(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND", "asyncio")
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND_AUTO_REPROBE", "true")
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND_REPROBE_COOLDOWN_SECONDS", "60")
+
+    BacktestService._backend_reprobe_last_monotonic = 0.0
+    BacktestService._backend_reprobe_last_available = False
+
+    probe_calls = {"count": 0}
+
+    def _probe(*_args, **_kwargs):
+        probe_calls["count"] += 1
+        return False
+
+    monkeypatch.setattr(BacktestService, "_probe_celery_worker_available", _probe)
+
+    first = asyncio.run(BacktestService._resolve_worker_backend())
+    second = asyncio.run(BacktestService._resolve_worker_backend())
+
+    assert first == "asyncio"
+    assert second == "asyncio"
+    assert probe_calls["count"] == 1
 
 
 def test_enqueue_celery_backtest_uses_backtests_queue(monkeypatch):

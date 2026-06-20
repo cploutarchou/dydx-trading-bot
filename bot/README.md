@@ -46,6 +46,11 @@ worker consumes the `backtests` queue. Broker/dispatch failures are persisted as
 API-process execution. Legacy `/api/backtest/jobs` requests also need `BACKTEST_TASK_ALWAYS_EAGER=false`; otherwise they
 execute inline and will not appear in Flower.
 
+When the API starts before Celery workers are reachable, new backtests can auto-reprobe and promote from `asyncio`
+to `celery` once workers become available (enabled by default via
+`BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown controlled by
+`BACKTEST_WORKER_BACKEND_REPROBE_COOLDOWN_SECONDS`). Starting worker first is still preferred for predictable startup.
+
 ### Celery Backtest Workers
 
 Backtests are created by the API, persisted as `backtest_runtime_runs`, then dispatched to the same codebase through

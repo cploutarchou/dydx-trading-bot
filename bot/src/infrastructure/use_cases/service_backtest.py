@@ -209,6 +209,10 @@ class BacktestService:
         "total_trades": 24,
     }
     _INTERRUPTION_ERROR = "Backtest interrupted by API reload or restart"
+    _BACKEND_REPROBE_COOLDOWN_SECONDS = 15.0
+    _backend_reprobe_lock = threading.Lock()
+    _backend_reprobe_last_monotonic = 0.0
+    _backend_reprobe_last_available = False
 
     def __init__(self, session: Any):
         self.repository = (
@@ -947,6 +951,68 @@ class BacktestService:
         if backend in {"celery", "asyncio"}:
             return backend
         return "asyncio"
+
+    @classmethod
+    def _worker_backend_reprobe_cooldown_seconds(cls) -> float:
+        raw = os.getenv("BACKTEST_WORKER_BACKEND_REPROBE_COOLDOWN_SECONDS")
+        if raw in (None, ""):
+            return float(cls._BACKEND_REPROBE_COOLDOWN_SECONDS)
+        try:
+            return max(0.0, float(raw))
+        except (TypeError, ValueError):
+            return float(cls._BACKEND_REPROBE_COOLDOWN_SECONDS)
+
+    @staticmethod
+    def _probe_celery_worker_available(timeout_seconds: float = 1.5) -> bool:
+        try:
+            from src.infrastructure.workers.celery_app import celery_app
+
+            ping = celery_app.control.ping(timeout=float(timeout_seconds), limit=1)
+            return bool(ping)
+        except Exception:
+            return False
+
+    @classmethod
+    async def _resolve_worker_backend(cls) -> str:
+        backend = cls._configured_worker_backend()
+        if backend == "celery":
+            return "celery"
+
+        auto_reprobe = cls._coerce_bool(
+            os.getenv("BACKTEST_WORKER_BACKEND_AUTO_REPROBE", "true"),
+            default=True,
+        )
+        if not auto_reprobe:
+            return backend
+
+        now_monotonic = time.monotonic()
+        cooldown_seconds = cls._worker_backend_reprobe_cooldown_seconds()
+        with cls._backend_reprobe_lock:
+            last_probe = float(cls._backend_reprobe_last_monotonic)
+            if now_monotonic - last_probe < cooldown_seconds:
+                return "celery" if cls._backend_reprobe_last_available else backend
+            cls._backend_reprobe_last_monotonic = now_monotonic
+
+        celery_available = False
+        try:
+            celery_available = bool(
+                await asyncio.to_thread(cls._probe_celery_worker_available)
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("Celery backend re-probe failed: %s", exc)
+
+        with cls._backend_reprobe_lock:
+            cls._backend_reprobe_last_available = celery_available
+            cls._backend_reprobe_last_monotonic = time.monotonic()
+
+        if celery_available:
+            os.environ["BACKTEST_WORKER_BACKEND"] = "celery"
+            logger.info(
+                "Celery worker detected after startup; promoting BACKTEST_WORKER_BACKEND=celery"
+            )
+            return "celery"
+
+        return backend
 
     @staticmethod
     def _env_positive_int(name: str, default: int) -> int:
@@ -1726,7 +1792,7 @@ class BacktestService:
         if not request_payload:
             return None
 
-        worker_backend = self._configured_worker_backend()
+        worker_backend = await self._resolve_worker_backend()
         if worker_backend == "celery":
             try:
                 task_id = self._enqueue_celery_backtest(
@@ -3339,6 +3405,7 @@ class BacktestService:
             or "unnamed-backtest"
         )
 
+        worker_backend = await self._resolve_worker_backend()
         run_data: Dict[str, Any] = {
             "run_id": run_id,
             "name": name,
@@ -3372,10 +3439,9 @@ class BacktestService:
             "cancel_requested": False,
             "control_status": "pending",
             "control_action": "create",
-            "worker_backend": self._configured_worker_backend(),
+            "worker_backend": worker_backend,
             "worker_task_id": run_id,
         }
-        worker_backend = self._configured_worker_backend()
         run_data = self._set_runtime_control(
             run_data,
             status="pending",

@@ -407,3 +407,19 @@ quick-start: init-env init-ssl build dev-detached ## Quick start development env
 $(ENV_FILE):
 	@echo "$(YELLOW)⚠️  Environment file not found. Creating from template...$(RESET)"
 	@$(MAKE) init-env
+.PHONY: local-bot
+local-bot: ensure-venv ## Start trading bot runtime locally
+	@echo "$(CYAN)🚀 Starting local trading bot runtime$(RESET)"
+	$(call run-venv-python,main.py)
+
+.PHONY: local-flower
+local-flower: ensure-venv ## Start Celery Flower locally only (port 5555)
+	@echo "$(CYAN)🌸 Starting Celery Flower on http://0.0.0.0:5555$(RESET)"
+	$(call run-venv-python-env,FLOWER_UNAUTHENTICATED_API=false,-m celery -A src.infrastructure.workers.celery_app:celery_app flower --address=0.0.0.0 --port=5555)
+
+.PHONY: dev-detached
+dev-detached: ## Start development environment in background
+	@echo "$(CYAN)🚀 Starting development environment (detached)...$(RESET)"
+	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) up --build -d
+	@echo "$(GREEN)✅ Development environment started$(RESET)"
+	@$(MAKE) status

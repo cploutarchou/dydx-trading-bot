@@ -9,7 +9,7 @@ from internal.domain import Base
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 
 
-class _MariaDbRecordChanged:
+class _MariaDbRecordChanged(Exception):
     args = (1020, "Record has changed since last read in table 'backtest_runtime_runs'")
 
     def __str__(self) -> str:
@@ -19,10 +19,12 @@ class _MariaDbRecordChanged:
 def test_save_run_rolls_back_and_retries_mariadb_record_changed(monkeypatch, tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'runs.sqlite'}", future=True)
     Base.metadata.create_all(bind=engine)
-    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
-    session = SessionLocal()
+    session_local = sessionmaker(bind=engine, expire_on_commit=False)
+    session = session_local()
     real_commit = session.commit
+    real_rollback = session.rollback
     calls = {"commit": 0}
+    rollbacks = {"count": 0}
 
     def flaky_commit():
         calls["commit"] += 1
@@ -30,7 +32,12 @@ def test_save_run_rolls_back_and_retries_mariadb_record_changed(monkeypatch, tmp
             raise OperationalError("UPDATE backtest_runtime_runs", {}, _MariaDbRecordChanged())
         return real_commit()
 
+    def tracked_rollback():
+        rollbacks["count"] += 1
+        return real_rollback()
+
     monkeypatch.setattr(session, "commit", flaky_commit)
+    monkeypatch.setattr(session, "rollback", tracked_rollback)
     repository = BacktestRepository(session)
 
     persisted = repository.save_run(
@@ -50,6 +57,7 @@ def test_save_run_rolls_back_and_retries_mariadb_record_changed(monkeypatch, tmp
     assert persisted["run_id"] == "run-retry-1020"
     assert persisted["status"] == "running"
     assert calls["commit"] == 2
+    assert rollbacks["count"] == 1
     assert repository.get_run("run-retry-1020")["current_task"] == "processing pair"
 
     session.close()

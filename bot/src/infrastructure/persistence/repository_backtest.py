@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
 from internal.domain.models import BacktestRun, BacktestRunRequestPayload
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, PendingRollbackError
 from sqlalchemy.orm import Session, defer
 
 
@@ -116,8 +116,8 @@ class BacktestRepository:
             "Record has changed since last read" in message
         )
 
-    @staticmethod
     def _retry_with_backoff(
+        self,
         operation: Any,
         *args: Any,
         max_attempts: int = 5,
@@ -148,8 +148,19 @@ class BacktestRepository:
         for attempt in range(max_attempts):
             try:
                 return operation(*args, **kwargs)
+            except PendingRollbackError as exc:
+                last_exc = exc
+                if self.session is not None:
+                    self.session.rollback()
+                if attempt >= max_attempts - 1:
+                    raise
+
+                time.sleep(backoff_ms / 1000.0)
+                backoff_ms = min(backoff_ms * 2, 250)  # Cap at 250ms
             except OperationalError as exc:
                 last_exc = exc
+                if self.session is not None:
+                    self.session.rollback()
                 if attempt >= max_attempts - 1:
                     # Last attempt exhausted
                     raise

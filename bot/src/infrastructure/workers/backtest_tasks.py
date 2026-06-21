@@ -569,15 +569,6 @@ def run_backtest_task(
             worker_hostname=socket.gethostname(),
             retry_count=int(getattr(self.request, "retries", 0) or 0),
         )
-        self.update_state(
-            state="FAILURE",
-            meta=failure_meta(
-                SoftTimeLimitExceeded(message),
-                str(self.request.id or run_id),
-                run_id,
-                error_code="BACKTEST_TIMEOUT",
-            ),
-        )
         _publish_backtest_status(run_id, "failed")
         raise
     except asyncio.CancelledError:
@@ -666,17 +657,6 @@ def run_backtest_task(
             traceback_text=traceback_module.format_exc(),
             worker_hostname=socket.gethostname(),
             retry_count=int(getattr(self.request, "retries", 0) or 0),
-        )
-        self.update_state(
-            state="FAILURE",
-            meta=failure_meta(
-                exc,
-                str(self.request.id or run_id),
-                run_id,
-                error_code=BacktestService._error_code_from_message(
-                    str(exc), "BACKTEST_EXECUTION_FAILED"
-                ),
-            ),
         )
         _publish_backtest_status(run_id, "failed")
         raise

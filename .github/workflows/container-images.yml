@@ -37,16 +37,13 @@ jobs:
             - name: Validate infra compose syntax
               run: |
                   set -euo pipefail
-                  docker-compose -f docker-compose.infra.yml config > /dev/null
-                  echo "✓ docker-compose.infra.yml syntax valid"
+          docker compose -f docker-compose.infra.yml config > /dev/null
+          echo "✓ docker-compose.infra.yml syntax valid"
 
-            - name: Validate stack compose syntax
-              run: |
-                  set -euo pipefail
-                  docker-compose -f docker-compose.stack.yml config > /dev/null
-                  echo "✓ docker-compose.stack.yml syntax valid"
-
-    build-and-publish:
+      - name: Validate stack compose syntax
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.stack.yml config > /dev/null
         name: Build ${{ matrix.service }} image
         runs-on: ubuntu-latest
         needs: validate-compose

@@ -44,16 +44,13 @@ jobs:
             - name: Validate docker-compose.infra.yml
               run: |
                   set -euo pipefail
-                  docker-compose -f docker-compose.infra.yml config > /dev/null
-                  echo "✓ docker-compose.infra.yml syntax valid"
+          docker compose -f docker-compose.infra.yml config > /dev/null
+          echo "✓ docker-compose.infra.yml syntax valid"
 
-            - name: Validate docker-compose.stack.yml
-              run: |
-                  set -euo pipefail
-                  docker-compose -f docker-compose.stack.yml config > /dev/null
-                  echo "✓ docker-compose.stack.yml syntax valid"
-
-    # ---------------------------------------------------------------------------
+      - name: Validate docker-compose.stack.yml
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.stack.yml config > /dev/null
     # Validate Makefile targets
     # ---------------------------------------------------------------------------
     makefile-targets:

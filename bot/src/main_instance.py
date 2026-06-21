@@ -377,24 +377,24 @@ class BotInstance:
             TelegramSettings,
         )
 
-        DydxConfigFactory = cast(Any, DydxConfig)
-        TelegramSettingsFactory = cast(Any, TelegramSettings)
-        BotSettingsFactory = cast(Any, BotSettings)
-        DYDXTestnetSettingsFactory = cast(Any, DYDXTestnetSettings)
-        DYDXMainnetSettingsFactory = cast(Any, DYDXMainnetSettings)
-        LoggingSettingsFactory = cast(Any, LoggingSettings)
-        LokiSettingsFactory = cast(Any, LokiSettings)
-        BacktestSettingsFactory = cast(Any, BacktestSettings)
+        dydx_config_factory = cast(Any, DydxConfig)
+        telegram_settings_factory = cast(Any, TelegramSettings)
+        bot_settings_factory = cast(Any, BotSettings)
+        dydx_testnet_settings_factory = cast(Any, DYDXTestnetSettings)
+        dydx_mainnet_settings_factory = cast(Any, DYDXMainnetSettings)
+        logging_settings_factory = cast(Any, LoggingSettings)
+        loki_settings_factory = cast(Any, LokiSettings)
+        backtest_settings_factory = cast(Any, BacktestSettings)
         config_data = self._normalize_db_runtime_payload(config_data)
 
-        return DydxConfigFactory(
+        return dydx_config_factory(
             is_testnet=config_data.get("is_testnet", True),
             environment=config_data.get("environment", "development"),
-            telegram=TelegramSettingsFactory(
+            telegram=telegram_settings_factory(
                 token=config_data.get("telegram", {}).get("token", ""),
                 chat_id=config_data.get("telegram", {}).get("chat_id", ""),
             ),
-            botSettings=BotSettingsFactory(
+            botSettings=bot_settings_factory(
                 is_testnet=config_data.get("is_testnet", True),
                 subaccountNumber=int(
                     config_data.get("botSettings", {}).get("subaccountNumber", 0)
@@ -467,7 +467,7 @@ class BotInstance:
                     if str(market).strip()
                 ],
             ),
-            dydx_testnet=DYDXTestnetSettingsFactory(
+            dydx_testnet=dydx_testnet_settings_factory(
                 dydx_chain_address=config_data.get("dydx_testnet", {}).get(
                     "dydx_chain_address", ""
                 ),
@@ -475,7 +475,7 @@ class BotInstance:
                     "dydx_chain_secret", ""
                 ),
             ),
-            dydx_mainnet=DYDXMainnetSettingsFactory(
+            dydx_mainnet=dydx_mainnet_settings_factory(
                 dydx_chain_address=config_data.get("dydx_mainnet", {}).get(
                     "dydx_chain_address", ""
                 ),
@@ -483,9 +483,9 @@ class BotInstance:
                     "dydx_chain_secret", ""
                 ),
             ),
-            logging=LoggingSettingsFactory(
+            logging=logging_settings_factory(
                 level=config_data.get("logging", {}).get("level", "INFO"),
-                loki=LokiSettingsFactory(
+                loki=loki_settings_factory(
                     enabled=config_data.get("logging", {})
                     .get("loki", {})
                     .get("enabled", False),
@@ -501,7 +501,7 @@ class BotInstance:
                     .get("labels", {}),
                 ),
             ),
-            backtesting=BacktestSettingsFactory(
+            backtesting=backtest_settings_factory(
                 candleResolution=config_data.get("backtesting", {}).get(
                     "candleResolution", "1HOUR"
                 ),

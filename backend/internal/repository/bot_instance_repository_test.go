@@ -15,7 +15,7 @@ func TestUpdateBotInstanceErrorUpdatesMatchingInstance(t *testing.T) {
 	db := openScriptedDB(t, []scriptedStep{
 		{
 			op:            "exec",
-			queryContains: "SET error_message = ?, last_error_at = ?, status = ?, updated_at = ?",
+			queryContains: "SET error_message = $1, last_error_at = $2, status = $3, updated_at = $4",
 			assertArgs: func(t *testing.T, args []driver.NamedValue) {
 				t.Helper()
 				if len(args) != 5 {
@@ -46,7 +46,7 @@ func TestUpdateBotInstanceErrorFallbackUsesInstanceID(t *testing.T) {
 	db := openScriptedDB(t, []scriptedStep{
 		{
 			op:            "exec",
-			queryContains: "SET error_message = ?, last_error_at = ?, status = ?, updated_at = ?",
+			queryContains: "SET error_message = $1, last_error_at = $2, status = $3, updated_at = $4",
 			assertArgs: func(t *testing.T, args []driver.NamedValue) {
 				t.Helper()
 				if len(args) != 5 {
@@ -66,7 +66,7 @@ func TestUpdateBotInstanceErrorFallbackUsesInstanceID(t *testing.T) {
 		},
 		{
 			op:            "exec",
-			queryContains: "SET status = ?, updated_at = ?",
+			queryContains: "SET status = $1, updated_at = $2",
 			assertArgs: func(t *testing.T, args []driver.NamedValue) {
 				t.Helper()
 				if len(args) != 3 {
@@ -94,7 +94,7 @@ func TestListBotInstancesByUserIDUndefinedUserIDFailsClosed(t *testing.T) {
 	db := openScriptedDB(t, []scriptedStep{
 		{
 			op:            "query",
-			queryContains: "WHERE user_id = ?",
+			queryContains: "WHERE user_id = $1",
 			assertArgs: func(t *testing.T, args []driver.NamedValue) {
 				t.Helper()
 				if len(args) != 3 {

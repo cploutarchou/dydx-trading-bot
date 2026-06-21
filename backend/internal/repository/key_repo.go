@@ -4,28 +4,57 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 )
 
 type KeyRepository struct {
-	db *sql.DB
+	db       *sql.DB
+	dbDriver string
 }
 
 func NewKeyRepository(db *sql.DB) *KeyRepository {
-	return &KeyRepository{db: db}
+	driver := os.Getenv("DB_TYPE")
+	if driver == "" {
+		driver = os.Getenv("DB_DRIVER")
+	}
+	if driver == "" {
+		driver = "postgres"
+	}
+	return &KeyRepository{db: db, dbDriver: driver}
+}
+
+func (r *KeyRepository) bindQuery(query string) string {
+	if r == nil || !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
+		return query
+	}
+	var b strings.Builder
+	b.Grow(len(query) + 16)
+	idx := 1
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' {
+			b.WriteString(fmt.Sprintf("$%d", idx))
+			idx++
+			continue
+		}
+		b.WriteByte(query[i])
+	}
+	return b.String()
 }
 
 func (r *KeyRepository) CreateKey(key *models.DYDXKey) error {
 	query := `
 		INSERT INTO dydx_keys (user_id, network, chain_address, encrypted_secret, secret_hash, secret_masked, is_active, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		RETURNING id
 	`
 
 	now := time.Now()
-	result, err := r.db.Exec(
-		query,
+	if err := r.db.QueryRow(
+		r.bindQuery(query),
 		key.UserID,
 		key.Network,
 		key.ChainAddress,
@@ -35,18 +64,9 @@ func (r *KeyRepository) CreateKey(key *models.DYDXKey) error {
 		true,
 		now,
 		now,
-	)
-
-	if err != nil {
+	).Scan(&key.ID); err != nil {
 		return fmt.Errorf("failed to create key: %w", err)
 	}
-
-	lastID, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert ID: %w", err)
-	}
-
-	key.ID = int(lastID)
 	key.CreatedAt = now
 	key.UpdatedAt = now
 
@@ -62,7 +82,7 @@ func (r *KeyRepository) GetKeyByUserAndNetwork(userID int, network string) (*mod
 	`
 
 	key := &models.DYDXKey{}
-	err := r.db.QueryRow(query, userID, network).Scan(
+	err := r.db.QueryRow(r.bindQuery(query), userID, network).Scan(
 		&key.ID,
 		&key.UserID,
 		&key.Network,
@@ -93,7 +113,7 @@ func (r *KeyRepository) GetActiveKeysByUser(userID int) ([]models.DYDXKey, error
 		ORDER BY created_at DESC
 	`
 
-	rows, err := r.db.Query(query, userID)
+	rows, err := r.db.Query(r.bindQuery(query), userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query keys: %w", err)
 	}
@@ -140,7 +160,7 @@ func (r *KeyRepository) UpdateKey(key *models.DYDXKey) error {
 
 	now := time.Now()
 	result, err := r.db.Exec(
-		query,
+		r.bindQuery(query),
 		key.ChainAddress,
 		key.EncryptedSecret,
 		key.SecretHash,
@@ -175,7 +195,7 @@ func (r *KeyRepository) DeleteKey(userID int, network string) error {
 		WHERE user_id = ? AND network = ?
 	`
 
-	result, err := r.db.Exec(query, time.Now(), userID, network)
+	result, err := r.db.Exec(r.bindQuery(query), time.Now(), userID, network)
 	if err != nil {
 		return fmt.Errorf("failed to delete key: %w", err)
 	}

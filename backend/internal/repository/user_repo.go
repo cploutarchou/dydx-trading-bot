@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -12,12 +13,38 @@ import (
 
 // UserRepository handles all user-related database operations with pure SQL
 type UserRepository struct {
-	db *sql.DB
+	db       *sql.DB
+	dbDriver string
 }
 
 // NewUserRepository creates a new user repository
 func NewUserRepository(db *sql.DB) *UserRepository {
-	return &UserRepository{db: db}
+	driver := os.Getenv("DB_TYPE")
+	if driver == "" {
+		driver = os.Getenv("DB_DRIVER")
+	}
+	if driver == "" {
+		driver = "postgres"
+	}
+	return &UserRepository{db: db, dbDriver: driver}
+}
+
+func (r *UserRepository) bindQuery(query string) string {
+	if r == nil || !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
+		return query
+	}
+	var b strings.Builder
+	b.Grow(len(query) + 16)
+	idx := 1
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' {
+			b.WriteString(fmt.Sprintf("$%d", idx))
+			idx++
+			continue
+		}
+		b.WriteByte(query[i])
+	}
+	return b.String()
 }
 
 func (r *UserRepository) hasPasswordChangeRequiredColumn() bool {
@@ -167,20 +194,12 @@ func (r *UserRepository) Create(user *models.User) error {
 	query := fmt.Sprintf(`
 		INSERT INTO users (%s)
 		VALUES (%s)
+		RETURNING id
 	`, strings.Join(columns, ", "), strings.Join(placeholders, ", "))
 
-	result, err := r.db.Exec(query, args...)
-
-	if err != nil {
+	if err := r.db.QueryRow(r.bindQuery(query), args...).Scan(&user.ID); err != nil {
 		return fmt.Errorf("failed to create user: %w", err)
 	}
-
-	lastID, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert ID: %w", err)
-	}
-
-	user.ID = int(lastID)
 	user.CreatedAt = now
 	user.UpdatedAt = now
 
@@ -196,7 +215,7 @@ func (r *UserRepository) GetByID(id int) (*models.User, error) {
 	`, r.selectUserColumns())
 
 	user := &models.User{}
-	err := r.db.QueryRow(query, id).Scan(
+	err := r.db.QueryRow(r.bindQuery(query), id).Scan(
 		&user.ID,
 		&user.Username,
 		&user.Email,
@@ -235,7 +254,7 @@ func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
 	`, r.selectUserColumns())
 
 	user := &models.User{}
-	err := r.db.QueryRow(query, username).Scan(
+	err := r.db.QueryRow(r.bindQuery(query), username).Scan(
 		&user.ID,
 		&user.Username,
 		&user.Email,
@@ -274,7 +293,7 @@ func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
 	`, r.selectUserColumns())
 
 	user := &models.User{}
-	err := r.db.QueryRow(query, email).Scan(
+	err := r.db.QueryRow(r.bindQuery(query), email).Scan(
 		&user.ID,
 		&user.Username,
 		&user.Email,
@@ -313,7 +332,7 @@ func (r *UserRepository) List(limit int, offset int) ([]*models.User, error) {
 		LIMIT ? OFFSET ?
 	`, r.selectUserColumns())
 
-	rows, err := r.db.Query(query, limit, offset)
+	rows, err := r.db.Query(r.bindQuery(query), limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list users: %w", err)
 	}
@@ -399,7 +418,7 @@ func (r *UserRepository) ListFiltered(filters UserListFilters) ([]*models.User, 
 	whereSQL := strings.Join(where, " AND ")
 	var total int
 	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM users WHERE %s`, whereSQL)
-	if err := r.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+	if err := r.db.QueryRow(r.bindQuery(countQuery), args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("failed to count filtered users: %w", err)
 	}
 
@@ -413,7 +432,7 @@ func (r *UserRepository) ListFiltered(filters UserListFilters) ([]*models.User, 
 		LIMIT ? OFFSET ?
 	`, r.selectUserColumns(), whereSQL)
 
-	rows, err := r.db.Query(query, queryArgs...)
+	rows, err := r.db.Query(r.bindQuery(query), queryArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list filtered users: %w", err)
 	}
@@ -463,7 +482,7 @@ func (r *UserRepository) CountActiveAdmins() (int, error) {
 	`
 
 	var count int
-	if err := r.db.QueryRow(query).Scan(&count); err != nil {
+	if err := r.db.QueryRow(r.bindQuery(query)).Scan(&count); err != nil {
 		return 0, fmt.Errorf("failed to count active admins: %w", err)
 	}
 
@@ -534,7 +553,7 @@ func (r *UserRepository) Update(user *models.User) error {
 		WHERE id = ?
 	`, strings.Join(setClauses, ", "))
 
-	result, err := r.db.Exec(query, args...)
+	result, err := r.db.Exec(r.bindQuery(query), args...)
 
 	if err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
@@ -557,7 +576,7 @@ func (r *UserRepository) Update(user *models.User) error {
 func (r *UserRepository) Delete(id int) error {
 	query := "DELETE FROM users WHERE id = ?"
 
-	result, err := r.db.Exec(query, id)
+	result, err := r.db.Exec(r.bindQuery(query), id)
 	if err != nil {
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
@@ -579,7 +598,7 @@ func (r *UserRepository) UpdateLastLogin(id int) error {
 	query := "UPDATE users SET last_login = ? WHERE id = ?"
 
 	now := time.Now()
-	result, err := r.db.Exec(query, now, id)
+	result, err := r.db.Exec(r.bindQuery(query), now, id)
 	if err != nil {
 		return fmt.Errorf("failed to update last login: %w", err)
 	}
@@ -600,7 +619,7 @@ func (r *UserRepository) SetMFAEnabled(id int, enabled bool) error {
 	if !r.hasMFAEnabledColumn() {
 		return nil
 	}
-	result, err := r.db.Exec(`UPDATE users SET mfa_enabled = ?, updated_at = ? WHERE id = ?`, enabled, time.Now(), id)
+	result, err := r.db.Exec(r.bindQuery(`UPDATE users SET mfa_enabled = ?, updated_at = ? WHERE id = ?`), enabled, time.Now(), id)
 	if err != nil {
 		return fmt.Errorf("failed to update mfa_enabled: %w", err)
 	}
@@ -619,7 +638,7 @@ func (r *UserRepository) Count() (int, error) {
 	query := "SELECT COUNT(*) FROM users"
 
 	var count int
-	err := r.db.QueryRow(query).Scan(&count)
+	err := r.db.QueryRow(r.bindQuery(query)).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count users: %w", err)
 	}

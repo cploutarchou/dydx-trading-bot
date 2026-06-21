@@ -86,7 +86,7 @@ func seedAdminUser(t *testing.T, dbConn *sql.DB, username, email, role string, i
 	}
 
 	now := time.Now().UTC()
-	result, err := dbConn.Exec(
+	_, err := dbConn.Exec(
 		`INSERT INTO users (username, email, role, full_name, avatar, hashed_password, is_active, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		username,
 		email,
@@ -103,9 +103,9 @@ func seedAdminUser(t *testing.T, dbConn *sql.DB, username, email, role string, i
 		t.Fatalf("seed user: %v", err)
 	}
 
-	id, err := result.LastInsertId()
-	if err != nil {
-		t.Fatalf("last insert id: %v", err)
+	var id int
+	if err := dbConn.QueryRow(`SELECT id FROM users WHERE username = ?`, username).Scan(&id); err != nil {
+		t.Fatalf("lookup inserted user id: %v", err)
 	}
 
 	return int(id)

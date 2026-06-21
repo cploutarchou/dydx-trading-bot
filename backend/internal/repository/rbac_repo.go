@@ -32,7 +32,7 @@ func (r *RBACRepository) GetUserPermissionOverride(userID int, permissionKey str
 
 	var effect string
 	err := r.db.QueryRow(
-		`SELECT effect FROM user_permission_overrides WHERE user_id = ? AND permission_key = ? LIMIT 1`,
+		`SELECT effect FROM user_permission_overrides WHERE user_id = $1 AND permission_key = $2 LIMIT 1`,
 		userID,
 		permissionKey,
 	).Scan(&effect)
@@ -54,7 +54,7 @@ func (r *RBACRepository) RoleHasAnyPermissions(role string) (bool, error) {
 
 	var exists int
 	err := r.db.QueryRow(
-		`SELECT 1 FROM role_permissions WHERE role = ? LIMIT 1`,
+		`SELECT 1 FROM role_permissions WHERE role = $1 LIMIT 1`,
 		role,
 	).Scan(&exists)
 	if err == sql.ErrNoRows || isRBACSchemaMissing(err) {
@@ -76,7 +76,7 @@ func (r *RBACRepository) RoleHasPermission(role, permissionKey string) (bool, er
 
 	var exists int
 	err := r.db.QueryRow(
-		`SELECT 1 FROM role_permissions WHERE role = ? AND permission_key = ? LIMIT 1`,
+		`SELECT 1 FROM role_permissions WHERE role = $1 AND permission_key = $2 LIMIT 1`,
 		role,
 		permissionKey,
 	).Scan(&exists)
@@ -149,11 +149,11 @@ func (r *RBACRepository) UpsertCustomRole(role, displayName, description string)
 
 	_, err := r.db.Exec(`
 		INSERT INTO custom_roles (role, display_name, description, is_system, created_at, updated_at)
-		VALUES (?, ?, ?, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-		ON DUPLICATE KEY UPDATE
-			display_name = IF(is_system = FALSE, VALUES(display_name), display_name),
-			description = IF(is_system = FALSE, VALUES(description), description),
-			updated_at = IF(is_system = FALSE, CURRENT_TIMESTAMP, updated_at)
+		VALUES ($1, $2, $3, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT (role) DO UPDATE SET
+			display_name = CASE WHEN custom_roles.is_system = FALSE THEN EXCLUDED.display_name ELSE custom_roles.display_name END,
+			description = CASE WHEN custom_roles.is_system = FALSE THEN EXCLUDED.description ELSE custom_roles.description END,
+			updated_at = CASE WHEN custom_roles.is_system = FALSE THEN CURRENT_TIMESTAMP ELSE custom_roles.updated_at END
 	`, role, displayName, description)
 	if err != nil {
 		if isRBACSchemaMissing(err) {
@@ -171,7 +171,7 @@ func (r *RBACRepository) DeleteCustomRole(role string) error {
 	}
 
 	var isSystem bool
-	err := r.db.QueryRow(`SELECT is_system FROM custom_roles WHERE role = ? LIMIT 1`, role).Scan(&isSystem)
+	err := r.db.QueryRow(`SELECT is_system FROM custom_roles WHERE role = $1 LIMIT 1`, role).Scan(&isSystem)
 	if err == sql.ErrNoRows {
 		return nil
 	}
@@ -186,14 +186,14 @@ func (r *RBACRepository) DeleteCustomRole(role string) error {
 	}
 
 	var assignedUsers int
-	if err := r.db.QueryRow(`SELECT COUNT(*) FROM users WHERE LOWER(COALESCE(role, '')) = ?`, role).Scan(&assignedUsers); err != nil {
+	if err := r.db.QueryRow(`SELECT COUNT(*) FROM users WHERE LOWER(COALESCE(role, '')) = $1`, role).Scan(&assignedUsers); err != nil {
 		return fmt.Errorf("failed to inspect role assignments: %w", err)
 	}
 	if assignedUsers > 0 {
 		return fmt.Errorf("role is assigned to %d user(s)", assignedUsers)
 	}
 
-	if _, err := r.db.Exec(`DELETE FROM custom_roles WHERE role = ? AND is_system = FALSE`, role); err != nil {
+	if _, err := r.db.Exec(`DELETE FROM custom_roles WHERE role = $1 AND is_system = FALSE`, role); err != nil {
 		return fmt.Errorf("failed to delete custom role: %w", err)
 	}
 	return nil
@@ -215,7 +215,7 @@ func (r *RBACRepository) ReplaceRolePermissions(role string, permissionKeys []st
 		}
 	}()
 
-	if _, err = tx.Exec(`DELETE FROM role_permissions WHERE role = ?`, role); err != nil {
+	if _, err = tx.Exec(`DELETE FROM role_permissions WHERE role = $1`, role); err != nil {
 		return fmt.Errorf("failed to clear role permissions: %w", err)
 	}
 
@@ -231,10 +231,10 @@ func (r *RBACRepository) ReplaceRolePermissions(role string, permissionKeys []st
 		seen[permissionKey] = struct{}{}
 		if _, err = tx.Exec(
 			`INSERT INTO role_permissions (role, permission_key, created_at)
-			 SELECT ?, permission_key, CURRENT_TIMESTAMP
+			 SELECT $1, permission_key, CURRENT_TIMESTAMP
 			 FROM permissions
-			 WHERE permission_key = ?
-			 ON DUPLICATE KEY UPDATE role = role`,
+			 WHERE permission_key = $2
+			 ON CONFLICT (role, permission_key) DO NOTHING`,
 			role,
 			permissionKey,
 		); err != nil {

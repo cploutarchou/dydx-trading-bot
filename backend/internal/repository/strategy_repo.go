@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -13,12 +14,38 @@ import (
 // StrategyRepository handles strategy database operations.
 // Schema is fully managed by MariaDB migrations — no runtime ALTER TABLE patching.
 type StrategyRepository struct {
-	db *sql.DB
+	db       *sql.DB
+	dbDriver string
 }
 
 // NewStrategyRepository creates a new strategy repository
 func NewStrategyRepository(db *sql.DB) *StrategyRepository {
-	return &StrategyRepository{db: db}
+	driver := os.Getenv("DB_TYPE")
+	if driver == "" {
+		driver = os.Getenv("DB_DRIVER")
+	}
+	if driver == "" {
+		driver = "postgres"
+	}
+	return &StrategyRepository{db: db, dbDriver: driver}
+}
+
+func (r *StrategyRepository) bindQuery(query string) string {
+	if r == nil || !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
+		return query
+	}
+	var b strings.Builder
+	b.Grow(len(query) + 16)
+	idx := 1
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' {
+			b.WriteString(fmt.Sprintf("$%d", idx))
+			idx++
+			continue
+		}
+		b.WriteByte(query[i])
+	}
+	return b.String()
 }
 
 // ============ BacktestStrategy Operations ============
@@ -52,11 +79,12 @@ func (r *StrategyRepository) CreateStrategy(strategy *models.BacktestStrategy) e
 			slippage, starting_balance, candle_resolution, max_history_days,
 			benchmark_symbol, risk_free_rate, initial_amount, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		RETURNING id
 	`
 
 	now := time.Now()
-	result, err := r.db.Exec(
-		query,
+	if err := r.db.QueryRow(
+		r.bindQuery(query),
 		strategy.UserID, strategy.Name, strategy.Description, strategy.Category,
 		strategy.IsPublic, strategy.IsDefault, strategy.RuntimeStrategy, strategy.RuntimeNetwork, strategy.RuntimeSubaccount, strategy.PairSelectionMode, strategy.SelectedMarkets, strategy.ZscoreThreshold,
 		strategy.StatsWindow, strategy.MaxHalfLife, strategy.UsdPerTrade,
@@ -68,18 +96,9 @@ func (r *StrategyRepository) CreateStrategy(strategy *models.BacktestStrategy) e
 		strategy.StartingBalance, strategy.CandleResolution, strategy.MaxHistoryDays,
 		strategy.BenchmarkSymbol, strategy.RiskFreeRate, strategy.InitialAmount,
 		now, now,
-	)
-
-	if err != nil {
+	).Scan(&strategy.ID); err != nil {
 		return fmt.Errorf("failed to create strategy: %w", err)
 	}
-
-	lastID, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert ID: %w", err)
-	}
-
-	strategy.ID = int(lastID)
 	strategy.CreatedAt = now
 	strategy.UpdatedAt = now
 
@@ -106,7 +125,7 @@ func (r *StrategyRepository) GetStrategyByID(id int) (*models.BacktestStrategy, 
 	`
 
 	strategy := &models.BacktestStrategy{}
-	err := r.db.QueryRow(query, id).Scan(
+	err := r.db.QueryRow(r.bindQuery(query), id).Scan(
 		&strategy.ID, &strategy.UserID, &strategy.Name, &strategy.Description,
 		&strategy.Category, &strategy.IsPublic, &strategy.IsDefault, &strategy.RuntimeStrategy, &strategy.PairSelectionMode,
 		&strategy.RuntimeNetwork, &strategy.RuntimeSubaccount, &strategy.SelectedMarkets,
@@ -151,7 +170,7 @@ func (r *StrategyRepository) GetStrategiesByUser(userID int) ([]models.BacktestS
 		ORDER BY created_at DESC
 	`
 
-	rows, err := r.db.Query(query, userID)
+	rows, err := r.db.Query(r.bindQuery(query), userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query strategies: %w", err)
 	}
@@ -191,7 +210,7 @@ func (r *StrategyRepository) GetStrategiesByUser(userID int) ([]models.BacktestS
 func (r *StrategyRepository) CountStrategiesByUser(userID int) (int, error) {
 	var count int
 	err := r.db.QueryRow(
-		`SELECT COUNT(*) FROM backtest_strategies WHERE user_id = ? AND deleted_at IS NULL`,
+		r.bindQuery(`SELECT COUNT(*) FROM backtest_strategies WHERE user_id = ? AND deleted_at IS NULL`),
 		userID,
 	).Scan(&count)
 	if err != nil {
@@ -235,7 +254,7 @@ func (r *StrategyRepository) UpdateStrategy(strategy *models.BacktestStrategy) e
 	`
 
 	result, err := r.db.Exec(
-		query,
+		r.bindQuery(query),
 		strategy.Name, strategy.Description, strategy.Category, strategy.IsPublic,
 		strategy.RuntimeStrategy, strategy.RuntimeNetwork, strategy.RuntimeSubaccount, strategy.PairSelectionMode, strategy.SelectedMarkets, strategy.ZscoreThreshold, strategy.StatsWindow, strategy.MaxHalfLife,
 		strategy.UsdPerTrade, strategy.UsdMinCollateral, strategy.CloseAtZscoreCross,
@@ -269,7 +288,7 @@ func (r *StrategyRepository) UpdateStrategy(strategy *models.BacktestStrategy) e
 func (r *StrategyRepository) DeleteStrategy(id int) error {
 	query := `UPDATE backtest_strategies SET deleted_at = ? WHERE id = ?`
 
-	result, err := r.db.Exec(query, time.Now(), id)
+	result, err := r.db.Exec(r.bindQuery(query), time.Now(), id)
 	if err != nil {
 		return fmt.Errorf("failed to delete strategy: %w", err)
 	}
@@ -299,7 +318,7 @@ func (r *StrategyRepository) GetExecutionState(strategyID int) (*models.Strategy
 	`
 
 	state := &models.StrategyExecutionState{}
-	err := r.db.QueryRow(query, strategyID).Scan(
+	err := r.db.QueryRow(r.bindQuery(query), strategyID).Scan(
 		&state.ID, &state.StrategyID, &state.IsRunning, &state.LastRunAt,
 		&state.NextRunAt, &state.State, &state.CreatedAt, &state.UpdatedAt,
 	)
@@ -324,22 +343,16 @@ func (r *StrategyRepository) CreateExecutionState(state *models.StrategyExecutio
 
 	now := time.Now()
 	var err error
-	var result sql.Result
 	for attempt := 0; attempt < 5; attempt++ {
-		result, err = r.db.Exec(query, state.StrategyID, state.IsRunning, now, now)
-		if err == nil {
-			lastID, _ := result.LastInsertId()
-			state.ID = int(lastID)
+		if err = r.db.QueryRow(r.bindQuery(query), state.StrategyID, state.IsRunning, now, now).Scan(&state.ID); err == nil {
 			state.CreatedAt = now
 			state.UpdatedAt = now
-			if err == nil {
-				return nil
-			}
-			if !isRetryableSchemaChangeError(err) {
-				return fmt.Errorf("failed to create execution state: %w", err)
-			}
-			time.Sleep(time.Duration(attempt+1) * 50 * time.Millisecond)
+			return nil
 		}
+		if !isRetryableSchemaChangeError(err) {
+			return fmt.Errorf("failed to create execution state: %w", err)
+		}
+		time.Sleep(time.Duration(attempt+1) * 50 * time.Millisecond)
 	}
 
 	return fmt.Errorf("failed to create execution state: %w", err)
@@ -360,7 +373,7 @@ func (r *StrategyRepository) UpdateExecutionState(state *models.StrategyExecutio
 	)
 	for attempt := 0; attempt < 5; attempt++ {
 		result, err = r.db.Exec(
-			query,
+			r.bindQuery(query),
 			state.IsRunning, state.LastRunAt, state.NextRunAt, state.State, time.Now(), state.ID,
 		)
 		if err == nil {
@@ -409,36 +422,21 @@ func (r *StrategyRepository) CreateVersionHistory(history *models.StrategyVersio
 		}
 	}
 
-	query := `
+	now := time.Now()
+
+	if err := r.db.QueryRow(r.bindQuery(`
 		INSERT INTO strategy_version_history (
 			strategy_id, created_by_user_id, version_number, change_description, config_snapshot, created_at
 		)
 		VALUES (?, ?, ?, ?, ?, ?)
-	`
-
-	now := time.Now()
-	result, err := r.db.Exec(
-		query,
+		RETURNING id
+	`),
 		history.StrategyID, history.CreatedByUserID, history.Version,
 		history.ChangeLog, configSnapshot, now,
-	)
-
-	if err != nil {
+	).Scan(&history.ID); err != nil {
 		return fmt.Errorf("failed to create version history: %w", err)
 	}
-
-	lastID, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert ID: %w", err)
-	}
-
-	history.ID = int(lastID)
 	history.CreatedAt = now
-
-	if err != nil {
-		return fmt.Errorf("failed to create version history: %w", err)
-	}
-
 	history.StrategyData = configSnapshot
 	history.UpdatedAt = history.CreatedAt
 
@@ -455,7 +453,7 @@ func (r *StrategyRepository) GetVersionHistoryByStrategy(strategyID int) ([]mode
 		ORDER BY version_number DESC
 	`
 
-	rows, err := r.db.Query(query, strategyID)
+	rows, err := r.db.Query(r.bindQuery(query), strategyID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query version history: %w", err)
 	}

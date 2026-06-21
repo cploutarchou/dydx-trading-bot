@@ -61,12 +61,15 @@ func TestValidateConfigRejectsUnsupportedDrivers(t *testing.T) {
 	}
 }
 
-func TestValidateConfigRejectsLegacyDrivers(t *testing.T) {
-	unsupported := "post" + "gres"
-	cfg := Config{Driver: unsupported, DSN: unsupported + "://localhost/test"}
+func TestValidateConfigAcceptsLegacyPostgresAlias(t *testing.T) {
+	legacy := "post" + "gresql"
+	cfg := Config{Driver: legacy, DSN: legacy + "://localhost/test"}
 
-	if err := validateConfig(&cfg); err == nil {
-		t.Fatal("expected unsupported legacy driver to be rejected")
+	if err := validateConfig(&cfg); err != nil {
+		t.Fatalf("expected legacy postgres alias to be accepted, got %v", err)
+	}
+	if cfg.Driver != "postgres" {
+		t.Fatalf("expected postgres normalization, got %q", cfg.Driver)
 	}
 }
 

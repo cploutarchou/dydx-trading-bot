@@ -98,7 +98,7 @@ func seedMailgunAdmin(t *testing.T, dbConn *sql.DB) string {
 		t.Fatalf("hash password: %v", err)
 	}
 	now := time.Now().UTC()
-	result, err := dbConn.Exec(
+	_, err := dbConn.Exec(
 		`INSERT INTO users (username, email, role, full_name, avatar, hashed_password, is_active, is_admin, password_change_required, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		"admin",
@@ -116,9 +116,9 @@ func seedMailgunAdmin(t *testing.T, dbConn *sql.DB) string {
 	if err != nil {
 		t.Fatalf("seed admin: %v", err)
 	}
-	insertID, err := result.LastInsertId()
-	if err != nil {
-		t.Fatalf("last insert id: %v", err)
+	var insertID int
+	if err := dbConn.QueryRow(`SELECT id FROM users WHERE username = ?`, "admin").Scan(&insertID); err != nil {
+		t.Fatalf("lookup inserted user id: %v", err)
 	}
 	token, err := services.GenerateAccessTokenWithRole(int(insertID), "admin", true, "admin")
 	if err != nil {

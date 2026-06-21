@@ -4,17 +4,45 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 )
 
 type BotPositionRepository struct {
-	db *sql.DB
+	db       *sql.DB
+	dbDriver string
 }
 
 func NewBotPositionRepository(db *sql.DB) *BotPositionRepository {
-	return &BotPositionRepository{db: db}
+	driver := os.Getenv("DB_TYPE")
+	if driver == "" {
+		driver = os.Getenv("DB_DRIVER")
+	}
+	if driver == "" {
+		driver = "postgres"
+	}
+	return &BotPositionRepository{db: db, dbDriver: driver}
+}
+
+func (r *BotPositionRepository) bindQuery(query string) string {
+	if r == nil || !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
+		return query
+	}
+	var b strings.Builder
+	b.Grow(len(query) + 16)
+	idx := 1
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' {
+			b.WriteString(fmt.Sprintf("$%d", idx))
+			idx++
+			continue
+		}
+		b.WriteByte(query[i])
+	}
+	return b.String()
 }
 
 // CreateBotPosition creates a new bot position record
@@ -28,29 +56,21 @@ func (r *BotPositionRepository) CreateBotPosition(position *models.BotPosition) 
 			unrealized_pnl_pct, created_at, updated_at
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 				?, ?, ?, ?, ?, ?, ?, ?)
+			RETURNING id
 		`
 
 	now := time.Now()
-	result, err := r.db.Exec(
-		query,
+	if err := r.db.QueryRow(
+		r.bindQuery(query),
 		position.BotInstanceID, position.PositionID, position.Market1, position.Market2,
 		position.Status, position.IsActive, position.EntryTimestamp, position.EntryPrice1,
 		position.EntryPrice2, position.EntryZScore, position.Side1, position.Side2,
 		position.Size1, position.Size2, position.HedgeRatio, position.CurrentPrice1,
 		position.CurrentPrice2, position.CurrentZScore, position.UnrealizedPnL,
 		position.UnrealizedPnLPct, now, now,
-	)
-
-	if err != nil {
+	).Scan(&position.ID); err != nil {
 		return fmt.Errorf("failed to create bot position: %w", err)
 	}
-
-	lastID, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert ID: %w", err)
-	}
-
-	position.ID = int(lastID)
 	position.CreatedAt = now
 	position.UpdatedAt = now
 

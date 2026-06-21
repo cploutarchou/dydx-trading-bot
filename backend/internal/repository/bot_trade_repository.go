@@ -4,17 +4,45 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 )
 
 type BotTradeRepository struct {
-	db *sql.DB
+	db       *sql.DB
+	dbDriver string
 }
 
 func NewBotTradeRepository(db *sql.DB) *BotTradeRepository {
-	return &BotTradeRepository{db: db}
+	driver := os.Getenv("DB_TYPE")
+	if driver == "" {
+		driver = os.Getenv("DB_DRIVER")
+	}
+	if driver == "" {
+		driver = "postgres"
+	}
+	return &BotTradeRepository{db: db, dbDriver: driver}
+}
+
+func (r *BotTradeRepository) bindQuery(query string) string {
+	if r == nil || !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
+		return query
+	}
+	var b strings.Builder
+	b.Grow(len(query) + 16)
+	idx := 1
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' {
+			b.WriteString(fmt.Sprintf("$%d", idx))
+			idx++
+			continue
+		}
+		b.WriteByte(query[i])
+	}
+	return b.String()
 }
 
 // CreateBotTrade creates a new bot trade record
@@ -28,29 +56,21 @@ func (r *BotTradeRepository) CreateBotTrade(trade *models.BotTrade) error {
 			strategy_zscore_threshold, created_at, updated_at
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 				?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			RETURNING id
 		`
 
 	now := time.Now()
-	result, err := r.db.Exec(
-		query,
+	if err := r.db.QueryRow(
+		r.bindQuery(query),
 		trade.BotInstanceID, trade.TradeID, trade.Market1, trade.Market2,
 		trade.EntryTimestamp, trade.EntryPrice1, trade.EntryPrice2, trade.EntryZScore,
 		trade.Side1, trade.Side2, trade.Size1, trade.Size2, trade.HedgeRatio,
 		trade.ExitTimestamp, trade.ExitPrice1, trade.ExitPrice2, trade.ExitZScore,
 		trade.PnL, trade.PnLPct, trade.DurationHours, trade.StrategyZscoreThreshold,
 		now, now,
-	)
-
-	if err != nil {
+	).Scan(&trade.ID); err != nil {
 		return fmt.Errorf("failed to create bot trade: %w", err)
 	}
-
-	lastID, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert ID: %w", err)
-	}
-
-	trade.ID = int(lastID)
 	trade.CreatedAt = now
 	trade.UpdatedAt = now
 
@@ -70,7 +90,7 @@ func (r *BotTradeRepository) GetBotTradeByTradeID(tradeID string) (*models.BotTr
 		WHERE trade_id = ?
 	`
 
-	err := r.db.QueryRow(query, tradeID).Scan(
+	err := r.db.QueryRow(r.bindQuery(query), tradeID).Scan(
 		&trade.ID, &trade.BotInstanceID, &trade.TradeID, &trade.Market1, &trade.Market2,
 		&trade.EntryTimestamp, &trade.EntryPrice1, &trade.EntryPrice2, &trade.EntryZScore,
 		&trade.Side1, &trade.Side2, &trade.Size1, &trade.Size2, &trade.HedgeRatio,
@@ -103,7 +123,7 @@ func (r *BotTradeRepository) ListBotTradesByInstanceID(instanceID int, limit int
 		LIMIT ? OFFSET ?
 	`
 
-	rows, err := r.db.Query(query, instanceID, limit, offset)
+	rows, err := r.db.Query(r.bindQuery(query), instanceID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list bot trades: %w", err)
 	}
@@ -148,7 +168,7 @@ func (r *BotTradeRepository) UpdateBotTrade(trade *models.BotTrade) error {
 	`
 
 	result, err := r.db.Exec(
-		query,
+		r.bindQuery(query),
 		trade.ExitTimestamp, trade.ExitPrice1, trade.ExitPrice2, trade.ExitZScore,
 		trade.PnL, trade.PnLPct, trade.DurationHours, time.Now(), trade.TradeID,
 	)
@@ -172,7 +192,7 @@ func (r *BotTradeRepository) UpdateBotTrade(trade *models.BotTrade) error {
 func (r *BotTradeRepository) DeleteBotTrade(tradeID string) error {
 	query := `DELETE FROM bot_trades WHERE trade_id = ?`
 
-	result, err := r.db.Exec(query, tradeID)
+	result, err := r.db.Exec(r.bindQuery(query), tradeID)
 	if err != nil {
 		return fmt.Errorf("failed to delete bot trade: %w", err)
 	}
@@ -207,7 +227,7 @@ func (r *BotTradeRepository) GetBotTradeStats(instanceID int) (map[string]interf
 	var totalTrades, winningTrades, losingTrades int
 	var avgWin, avgLoss, totalPnL, avgPnL float64
 
-	err := r.db.QueryRow(query, instanceID).Scan(
+	err := r.db.QueryRow(r.bindQuery(query), instanceID).Scan(
 		&totalTrades, &winningTrades, &losingTrades, &avgWin, &avgLoss, &totalPnL, &avgPnL,
 	)
 

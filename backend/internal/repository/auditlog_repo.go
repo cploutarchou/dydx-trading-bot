@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -12,12 +14,38 @@ import (
 
 // AuditLogRepository handles audit log database operations
 type AuditLogRepository struct {
-	db *sql.DB
+	db       *sql.DB
+	dbDriver string
 }
 
 // NewAuditLogRepository creates a new audit log repository
 func NewAuditLogRepository(db *sql.DB) *AuditLogRepository {
-	return &AuditLogRepository{db: db}
+	driver := os.Getenv("DB_TYPE")
+	if driver == "" {
+		driver = os.Getenv("DB_DRIVER")
+	}
+	if driver == "" {
+		driver = "postgres"
+	}
+	return &AuditLogRepository{db: db, dbDriver: driver}
+}
+
+func (r *AuditLogRepository) bindQuery(query string) string {
+	if r == nil || !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
+		return query
+	}
+	var builder strings.Builder
+	builder.Grow(len(query) + 16)
+	argIndex := 1
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' {
+			builder.WriteString(fmt.Sprintf("$%d", argIndex))
+			argIndex++
+			continue
+		}
+		builder.WriteByte(query[i])
+	}
+	return builder.String()
 }
 
 // CreateAuditLog creates a new audit log entry
@@ -26,6 +54,7 @@ func (r *AuditLogRepository) CreateAuditLog(auditLog *models.AuditLog) error {
 		INSERT INTO audit_logs (
 			user_id, action, resource_type, resource_id, details, status, ip_address, created_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		RETURNING id
 	`
 
 	detailsJSON := ""
@@ -36,22 +65,13 @@ func (r *AuditLogRepository) CreateAuditLog(auditLog *models.AuditLog) error {
 	}
 
 	now := time.Now()
-	result, err := r.db.Exec(
-		query,
+	if err := r.db.QueryRow(
+		r.bindQuery(query),
 		auditLog.UserID, auditLog.Action, auditLog.ResourceType, auditLog.ResourceID,
 		detailsJSON, auditLog.Status, auditLog.IPAddress, now,
-	)
-
-	if err != nil {
+	).Scan(&auditLog.ID); err != nil {
 		return fmt.Errorf("failed to create audit log: %w", err)
 	}
-
-	lastID, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert ID: %w", err)
-	}
-
-	auditLog.ID = int(lastID)
 	auditLog.CreatedAt = &now
 
 	return nil
@@ -69,7 +89,7 @@ func (r *AuditLogRepository) GetAuditLogByID(id int) (*models.AuditLog, error) {
 	auditLog := &models.AuditLog{}
 	var detailsJSON sql.NullString
 
-	err := r.db.QueryRow(query, id).Scan(
+	err := r.db.QueryRow(r.bindQuery(query), id).Scan(
 		&auditLog.ID, &auditLog.UserID, &auditLog.Action, &auditLog.ResourceType,
 		&auditLog.ResourceID, &detailsJSON, &auditLog.Status, &auditLog.IPAddress, &auditLog.CreatedAt,
 	)
@@ -101,7 +121,7 @@ func (r *AuditLogRepository) GetAuditLogsByUser(userID int) ([]models.AuditLog, 
 		ORDER BY created_at DESC
 	`
 
-	rows, err := r.db.Query(query, userID)
+	rows, err := r.db.Query(r.bindQuery(query), userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query audit logs: %w", err)
 	}
@@ -148,7 +168,7 @@ func (r *AuditLogRepository) GetAuditLogsByAction(action string, limit int) ([]m
 		LIMIT ?
 	`
 
-	rows, err := r.db.Query(query, action, limit)
+	rows, err := r.db.Query(r.bindQuery(query), action, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query audit logs: %w", err)
 	}
@@ -194,7 +214,7 @@ func (r *AuditLogRepository) ListAllAuditLogs(limit int, offset int) ([]models.A
 		LIMIT ? OFFSET ?
 	`
 
-	rows, err := r.db.Query(query, limit, offset)
+	rows, err := r.db.Query(r.bindQuery(query), limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query audit logs: %w", err)
 	}

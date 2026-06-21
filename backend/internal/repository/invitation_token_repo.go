@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -11,11 +13,37 @@ import (
 
 // InvitationTokenRepository manages one-time / limited-use registration invitation tokens.
 type InvitationTokenRepository struct {
-	db *sql.DB
+	db       *sql.DB
+	dbDriver string
 }
 
 func NewInvitationTokenRepository(db *sql.DB) *InvitationTokenRepository {
-	return &InvitationTokenRepository{db: db}
+	driver := os.Getenv("DB_TYPE")
+	if driver == "" {
+		driver = os.Getenv("DB_DRIVER")
+	}
+	if driver == "" {
+		driver = "postgres"
+	}
+	return &InvitationTokenRepository{db: db, dbDriver: driver}
+}
+
+func (r *InvitationTokenRepository) bindQuery(query string) string {
+	if r == nil || !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
+		return query
+	}
+	var b strings.Builder
+	b.Grow(len(query) + 16)
+	idx := 1
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' {
+			b.WriteString(fmt.Sprintf("$%d", idx))
+			idx++
+			continue
+		}
+		b.WriteByte(query[i])
+	}
+	return b.String()
 }
 
 func (r *InvitationTokenRepository) Create(token *models.InvitationToken) error {
@@ -26,11 +54,12 @@ func (r *InvitationTokenRepository) Create(token *models.InvitationToken) error 
 			created_at, updated_at
 		)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		RETURNING id
 	`
 
 	now := time.Now().UTC()
-	result, err := r.db.Exec(
-		query,
+	if err := r.db.QueryRow(
+		r.bindQuery(query),
 		token.TokenCode,
 		token.Label,
 		token.IBName,
@@ -44,18 +73,9 @@ func (r *InvitationTokenRepository) Create(token *models.InvitationToken) error 
 		token.RevokedAt,
 		now,
 		now,
-	)
-
-	if err != nil {
+	).Scan(&token.ID); err != nil {
 		return fmt.Errorf("failed to create invitation token: %w", err)
 	}
-
-	lastID, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert ID: %w", err)
-	}
-
-	token.ID = int(lastID)
 	token.CreatedAt = now
 	token.UpdatedAt = now
 
@@ -72,7 +92,7 @@ func (r *InvitationTokenRepository) List(limit int, offset int) ([]*models.Invit
 		LIMIT ? OFFSET ?
 	`
 
-	rows, err := r.db.Query(query, limit, offset)
+	rows, err := r.db.Query(r.bindQuery(query), limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list invitation tokens: %w", err)
 	}
@@ -111,7 +131,7 @@ func (r *InvitationTokenRepository) List(limit int, offset int) ([]*models.Invit
 
 func (r *InvitationTokenRepository) Count() (int, error) {
 	var count int
-	if err := r.db.QueryRow(`SELECT COUNT(*) FROM invitation_tokens`).Scan(&count); err != nil {
+	if err := r.db.QueryRow(r.bindQuery(`SELECT COUNT(*) FROM invitation_tokens`)).Scan(&count); err != nil {
 		return 0, fmt.Errorf("failed to count invitation tokens: %w", err)
 	}
 	return count, nil
@@ -128,7 +148,7 @@ func (r *InvitationTokenRepository) GetByID(id int) (*models.InvitationToken, er
 	`
 
 	token := &models.InvitationToken{}
-	if err := r.db.QueryRow(query, id).Scan(
+	if err := r.db.QueryRow(r.bindQuery(query), id).Scan(
 		&token.ID,
 		&token.TokenCode,
 		&token.Label,
@@ -163,7 +183,7 @@ func (r *InvitationTokenRepository) GetByTokenCode(tokenCode string) (*models.In
 	`
 
 	token := &models.InvitationToken{}
-	if err := r.db.QueryRow(query, tokenCode).Scan(
+	if err := r.db.QueryRow(r.bindQuery(query), tokenCode).Scan(
 		&token.ID,
 		&token.TokenCode,
 		&token.Label,
@@ -195,7 +215,7 @@ func (r *InvitationTokenRepository) RevokeByTokenCode(tokenCode string) error {
 	`
 
 	now := time.Now().UTC()
-	result, err := r.db.Exec(query, now, tokenCode)
+	result, err := r.db.Exec(r.bindQuery(query), now, tokenCode)
 	if err != nil {
 		return fmt.Errorf("failed to revoke invitation token: %w", err)
 	}
@@ -227,7 +247,7 @@ func (r *InvitationTokenRepository) Redeem(tokenCode string, usedByUserID int) (
 	`
 
 	now := time.Now().UTC()
-	result, err := r.db.Exec(query, now, usedByUserID, tokenCode)
+	result, err := r.db.Exec(r.bindQuery(query), now, usedByUserID, tokenCode)
 	if err != nil {
 		return false, fmt.Errorf("failed to redeem invitation token: %w", err)
 	}

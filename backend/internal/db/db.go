@@ -12,9 +12,11 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/mysql"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
@@ -143,6 +145,9 @@ func runtimeSQLDriver(configDriver string) string {
 	d := strings.ToLower(strings.TrimSpace(configDriver))
 	if d == "mariadb" {
 		return "mysql"
+	}
+	if d == "postgresql" {
+		return "postgres"
 	}
 	return d
 }
@@ -338,15 +343,17 @@ func validateConfig(cfg *Config) error {
 	}
 
 	validDrivers := map[string]bool{
-		"mysql":   true,
-		"mariadb": true,
+		"mysql":      true,
+		"mariadb":    true,
+		"postgres":   true,
+		"postgresql": true,
 	}
 
 	d := strings.ToLower(strings.TrimSpace(cfg.Driver))
 	if d == "" {
 		cfg.Driver = "mysql"
 	} else if !validDrivers[d] {
-		return fmt.Errorf("%w: %s (supported: mysql, mariadb)", ErrInvalidDriver, cfg.Driver)
+		return fmt.Errorf("%w: %s (supported: mysql, mariadb, postgres, postgresql)", ErrInvalidDriver, cfg.Driver)
 	} else {
 		cfg.Driver = runtimeSQLDriver(d)
 	}
@@ -386,7 +393,16 @@ func setConfigDefaults(cfg *Config) {
 		cfg.QueryTimeout = 30 * time.Second
 	}
 	if cfg.MigrationsPath == "" {
-		cfg.MigrationsPath = "migrations/mysql"
+		cfg.MigrationsPath = defaultMigrationsPathForDriver(cfg.Driver)
+	}
+}
+
+func defaultMigrationsPathForDriver(driver string) string {
+	switch strings.ToLower(strings.TrimSpace(driver)) {
+	case "postgres":
+		return "migrations/postgres"
+	default:
+		return "migrations/mysql"
 	}
 }
 
@@ -533,6 +549,16 @@ func BuildMigrateDatabaseURL(cfg Config) (string, error) {
 		}
 
 		return "mysql://" + dsn, nil
+	}
+
+	if strings.Contains(driver, "postgres") {
+		if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+			return dsn, nil
+		}
+		if strings.HasPrefix(dsn, "host=") || strings.HasPrefix(dsn, "postgres") {
+			return "postgres://" + dsn, nil
+		}
+		return "postgres://" + dsn, nil
 	}
 
 	return "", fmt.Errorf("unsupported driver for migrations: %s", cfg.Driver)

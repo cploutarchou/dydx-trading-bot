@@ -74,23 +74,6 @@ jobs:
                       "APP_ENV": "development",
                       "ENVIRONMENT": "development"
                     },
-                    "database": {
-                      "DB_TYPE": "mysql",
-                      "DB_HOST": "localhost",
-                      "DB_PORT": 3306,
-                      "DB_NAME": "dydx_bot",
-                      "DB_USER": "app",
-                      "DB_PASSWORD": ""
-                    },
-                    "bot_database": {
-                      "BOT_DB_TYPE": "mysql",
-                      "BOT_DB_HOST": "localhost",
-                      "BOT_DB_PORT": 3306,
-                      "BOT_DB_NAME": "dydx_bot",
-                      "BOT_DB_USER": "app",
-                      "BOT_DB_PASSWORD": "",
-                      "BOT_DB_CUTOVER_MODE": "shared"
-                    },
                     "redis": {
                       "REDIS_ENABLED": false,
                       "REDIS_HOST": "localhost",

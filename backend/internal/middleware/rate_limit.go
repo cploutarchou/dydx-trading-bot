@@ -110,7 +110,7 @@ func RateLimitMiddleware(requestsPerSecond float64, burstSize int) gin.HandlerFu
 		clientIP := c.ClientIP()
 
 		// Bypass rate limiting for local requests to avoid development-time 429s
-		if clientIP == "::1" || clientIP == "127.0.0.1" || strings.HasPrefix(clientIP, "127.") {
+		if clientIP == "::1" || clientIP == "127.0.0.1" || clientIP == "localhost" || strings.HasPrefix(clientIP, "127.") {
 			c.Next()
 			return
 		}

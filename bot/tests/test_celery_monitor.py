@@ -204,6 +204,10 @@ def test_mark_worker_failure_reuses_existing_task_context_without_duplicate_kwar
             saved.update(data)
             return data
 
+        def update_run_progress(self, data):
+            saved.update(data)
+            return data
+
     monkeypatch.setattr(backtest_tasks.db, "get_session", lambda: _FakeSession())
     monkeypatch.setattr(backtest_tasks, "BacktestRepository", _FakeRepository)
 

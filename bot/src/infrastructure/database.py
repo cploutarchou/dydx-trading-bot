@@ -115,9 +115,12 @@ class DatabaseConfig:
         )
 
         if bot_type and shared_type and bot_type != shared_type:
-            raise ValueError(
-                "Conflicting BOT_DB_TYPE and DB_TYPE values are not allowed; use a single database mode"
-            )
+            if self.cutover_mode == "shared":
+                raise ValueError(
+                    "Conflicting BOT_DB_TYPE and DB_TYPE values are not allowed; use a single database mode"
+                )
+            # Dedicated bot modes may intentionally diverge from shared DB settings.
+            shared_type = ""
 
         explicit_type = bot_type or shared_type
 

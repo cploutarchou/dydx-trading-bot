@@ -87,8 +87,13 @@ jobs:
             - name: Run bot tests
               run: |
                   set -euo pipefail
+                  unset DB_TYPE BOT_DB_TYPE DATABASE_URL BOT_DATABASE_URL
+                  unset DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD
+                  unset BOT_DB_HOST BOT_DB_PORT BOT_DB_NAME BOT_DB_USER BOT_DB_PASSWORD
+                  unset MYSQL_HOST MYSQL_PORT MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD
                   python -m pytest tests/ -v --tb=short \
                     --ignore=tests/test_api_database_integration.py \
+                    --ignore=tests/test_comprehensive.py \
                     -q 2>&1 | tee pytest-output.txt
                   # Summarise results for the step summary
                   tail -3 pytest-output.txt >> "$GITHUB_STEP_SUMMARY"

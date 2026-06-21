@@ -172,12 +172,12 @@ dev-api: ensure-venv ## Start bot API server locally with Python (port 8889)
 .PHONY: local-api
 local-api: ensure-venv ## Start canonical local API server (port 8889)
 	@echo "$(CYAN)🚀 Starting local API server on http://0.0.0.0:8889$(RESET)"
-	$(call run-venv-python-env,BOT_API_RELOAD=false,start_api.py)
+	$(call run-venv-python-env,BOT_API_RELOAD=false,src/api/start_api.py)
 
 .PHONY: local-api-reload
 local-api-reload: ensure-venv ## Start local API server with hot reload (dev/debug only)
 	@echo "$(CYAN)🚀 Starting local API server with reload on http://0.0.0.0:8889$(RESET)"
-	$(call run-venv-python-env,BOT_API_RELOAD=true,start_api.py)
+	$(call run-venv-python-env,BOT_API_RELOAD=true,src/api/start_api.py)
 
 .PHONY: local-bot
 local-bot: ensure-venv ## Start trading bot runtime locally

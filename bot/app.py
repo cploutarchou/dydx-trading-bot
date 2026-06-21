@@ -1,20 +1,34 @@
-"""Compatibility module: root `app.py` now re-exports the canonical API app."""
+"""Legacy compatibility wrapper for API startup.
 
-import os
+Canonical API app lives in `src.api.server:app`.
+Canonical launcher lives in `src.api.start_api:main`.
+"""
+
+import sys
+import warnings
 
 from src.shared.env_loader import load_repo_env
 
-# Keep dotenv load before importing the canonical app entrypoint.
+# Keep environment loading before importing server/config modules.
 load_repo_env(__file__)
 
-if __name__ == "__main__":
-    import uvicorn
+from src.api.server import app  # re-export for `uvicorn app:app`
+from src.api.start_api import main as start_api_main
 
-    uvicorn.run(
-        "src.api.server:app",
-        host=os.getenv("BOT_API_HOST", "0.0.0.0"),
-        port=int(os.getenv("BOT_API_PORT", "8889")),
-        reload=os.getenv("BOT_API_RELOAD", "false").lower() == "true",
-        log_level="info",
-        log_config=None,
+
+def main() -> None:
+    """Run the canonical API launcher from a legacy root entrypoint."""
+    print(
+        "[DEPRECATED] `app.py` is a compatibility entrypoint; use `src/api/start_api.py`.",
+        file=sys.stderr,
     )
+    warnings.warn(
+        "`app.py` is a compatibility entrypoint; use `src/api/start_api.py` instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    start_api_main()
+
+
+if __name__ == "__main__":
+    main()

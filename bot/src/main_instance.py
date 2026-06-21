@@ -1,6 +1,4 @@
-"""
-Instance-aware main.py - Modified to support API-controlled bot instances
-"""
+"""Instance runtime entrypoint used by `BotInstanceManager` worker processes."""
 
 # ⚠️ CRITICAL: Load environment variables FIRST, before any other imports
 from src.shared.env_loader import load_repo_env

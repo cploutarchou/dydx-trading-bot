@@ -248,7 +248,7 @@ def benchmark(func_name, func, args, iterations=100):
 # Example: Run 10 bots simultaneously and measure latency
 
 for i in {1..10}; do
-    python start_api.py &
+    python src/api/start_api.py &
 done
 
 # Load test with hey or wrk

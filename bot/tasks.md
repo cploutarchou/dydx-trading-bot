@@ -66,3 +66,9 @@
   - Added Redis-backed duplicate-run locking for horizontal workers when Redis is configured.
   - Made Celery Beat market sync opt-in through `MARKET_SYNC_ENABLED=true`.
   - Updated local worker defaults and README worker scaling/status guidance.
+
+- Canonicalized API startup paths and began wrapper deprecation cycle:
+  - Updated local/dev tooling to run `src/api/start_api.py` directly (`Makefile`, `run_api.sh`, `.vscode/launch.json`, migration helper messaging).
+  - Kept `app.py` and `start_api.py` as compatibility wrappers and added visible runtime deprecation warnings.
+  - Added wrapper-removal criteria: only remove after one full release cycle with zero references in scripts/docs/CI and no observed runtime usage.
+

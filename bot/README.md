@@ -13,11 +13,20 @@ The bot service is the Python runtime that manages bot instances, live strategy 
 
 ## Entry Points
 
-- API server: [src/api/server.py](/home/chris/workspace/dydx-trading-bot/bot/src/api/server.py)
-- instance
-  manager: [src/bot_instance_manager.py](/home/chris/workspace/dydx-trading-bot/bot/src/bot_instance_manager.py)
-- worker runtime: [src/main_instance.py](/home/chris/workspace/dydx-trading-bot/bot/src/main_instance.py)
-- local launcher: [start_api.py](/home/chris/workspace/dydx-trading-bot/bot/start_api.py)
+- canonical API app (ASGI): [src/api/server.py](/home/chris/workspace/dydx-trading-bot/bot/src/api/server.py)
+- canonical API launcher: [src/api/start_api.py](/home/chris/workspace/dydx-trading-bot/bot/src/api/start_api.py)
+- compatibility wrappers: [app.py](/home/chris/workspace/dydx-trading-bot/bot/app.py),
+  [start_api.py](/home/chris/workspace/dydx-trading-bot/bot/start_api.py)
+- prefer running the canonical launcher directly: `python src/api/start_api.py`
+
+Compatibility wrapper deprecation plan:
+
+- current release: wrappers remain supported, but print deprecation warnings when executed directly.
+- removal gate: remove wrappers only after one full release cycle with no wrapper usage in local/dev/CI/deploy scripts.
+- usage audit command: `rg -n "\b(app.py|start_api.py)\b" Makefile run_api.sh scripts/ .github/ .vscode/ tests/ README.md docs/`
+- instance manager (process lifecycle owner): [src/bot_instance_manager.py](/home/chris/workspace/dydx-trading-bot/bot/src/bot_instance_manager.py)
+- instance worker runtime: [src/main_instance.py](/home/chris/workspace/dydx-trading-bot/bot/src/main_instance.py)
+- container worker entrypoint: [worker_entrypoint.py](/home/chris/workspace/dydx-trading-bot/bot/worker_entrypoint.py)
 
 ## Local Runtime
 

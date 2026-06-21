@@ -25,12 +25,24 @@ data:
   CLICKHOUSE_URL: http://clickhouse:8123
   MINIO_ENDPOINT: http://minio:9000
   BACKTEST_ARTIFACTS_DIR: /var/lib/dydx/backtest-artifacts
+  # MinIO artifact store — flip ENABLED to "true" once MinIO is provisioned
   BACKTEST_MINIO_ENABLED: "false"
+  BACKTEST_MINIO_ENDPOINT: http://minio:9000
+  BACKTEST_MINIO_BUCKET: backtests
+  BACKTEST_MINIO_SECURE: "false"
+  BACKTEST_MINIO_AUTO_CREATE_BUCKET: "true"
+  # Credentials must come from a Secret; reference them in the Deployment env
+  # via secretKeyRef (BACKTEST_MINIO_ACCESS_KEY / BACKTEST_MINIO_SECRET_KEY).
+  # ClickHouse analytics writer — flip ENABLED to "true" once ClickHouse is up
   BACKTEST_CLICKHOUSE_ENABLED: "false"
+  BACKTEST_CLICKHOUSE_HOST: clickhouse
+  BACKTEST_CLICKHOUSE_PORT: "8123"
+  BACKTEST_CLICKHOUSE_DATABASE: default
+  BACKTEST_CLICKHOUSE_USER: default
+  BACKTEST_CLICKHOUSE_SECURE: "false"
+  # BACKTEST_CLICKHOUSE_PASSWORD must come from a Secret (secretKeyRef).
   NATS_ENABLED: "false"
   BOT_COMMAND_BUS_ENABLED: "false"
-  BACKTEST_MINIO_BUCKET: backtests
-  BACKTEST_CLICKHOUSE_DATABASE: default
   FRONTEND_PORT: "8080"
   BACKEND_PORT: "8888"
   BOT_API_PORT: "8889"

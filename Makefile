@@ -459,7 +459,7 @@ db-down: ## Stop backend DB services (mariadb + redis) via Docker Compose
 		exit 0; \
 	fi
 
-infra-up: ## Start shared infra only (mariadb + redis) for local service development
+infra-up: ## Start shared infra only (PostgreSQL, Valkey, NATS, ClickHouse, MinIO) for local service development
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		if [ ! -f "$(INFRA_COMPOSE_FILE)" ]; then \
 			echo "❌ Missing $(INFRA_COMPOSE_FILE)."; \
@@ -467,30 +467,39 @@ infra-up: ## Start shared infra only (mariadb + redis) for local service develop
 			exit 1; \
 		fi; \
 		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE) up -d --remove-orphans; \
-		echo "✅ Infra started (mariadb:3306, redis:6379)"; \
+		echo ""; \
+		echo "✅ Infrastructure started:"; \
+		echo "   PostgreSQL:       localhost:5432"; \
+		echo "   Valkey (Redis):   localhost:6379"; \
+		echo "   NATS JetStream:   localhost:4222 (monitoring: 8222)"; \
+		echo "   ClickHouse:       localhost:8123"; \
+		echo "   MinIO API:        localhost:9010"; \
+		echo "   MinIO Console:    http://localhost:9011"; \
+		echo ""; \
+		echo "Services will auto-discover these via environment variables."; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot start infra"; \
 		exit 0; \
 	fi
 
-infra-down: ## Stop shared infra only (mariadb + redis)
+infra-down: ## Stop shared infra only (PostgreSQL, Valkey, NATS, ClickHouse, MinIO)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		if [ ! -f "$(INFRA_COMPOSE_FILE)" ]; then \
 			echo "❌ Missing $(INFRA_COMPOSE_FILE). Nothing to stop via infra commands."; \
 			exit 1; \
 		fi; \
 		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE) down --remove-orphans; \
-		echo "✅ Infra stopped"; \
+		echo "✅ Infrastructure stopped"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot stop infra"; \
 		exit 0; \
 	fi
 
-infra-logs: ## Follow logs for shared infra services (mariadb + redis)
+infra-logs: ## Follow logs for shared infra services (PostgreSQL, Valkey, NATS, ClickHouse, MinIO)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		if [ ! -f "$(INFRA_COMPOSE_FILE)" ]; then \
 			echo "❌ Missing $(INFRA_COMPOSE_FILE)."; \
-			echo "   Tip: use docker logs for dev-infra containers ($(DEV_MARIADB_CONTAINER), $(DEV_BOT_MARIADB_CONTAINER), $(DEV_REDIS_CONTAINER))."; \
+			echo "   Tip: use docker logs for containers (dydx-postgresql, dydx-valkey, dydx-nats, dydx-clickhouse, dydx-minio)."; \
 			exit 1; \
 		fi; \
 		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE) logs -f --tail=100; \
@@ -499,11 +508,11 @@ infra-logs: ## Follow logs for shared infra services (mariadb + redis)
 		exit 0; \
 	fi
 
-infra-ps: ## Show status for shared infra services (mariadb + redis)
+infra-ps: ## Show status for shared infra services (PostgreSQL, Valkey, NATS, ClickHouse, MinIO)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		if [ ! -f "$(INFRA_COMPOSE_FILE)" ]; then \
 			echo "❌ Missing $(INFRA_COMPOSE_FILE)."; \
-			echo "   Tip: use make dev-infra and inspect with docker ps | grep dydx-dev-."; \
+			echo "   Tip: use make dev-infra and inspect with docker ps | grep dydx-."; \
 			exit 1; \
 		fi; \
 		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE) ps; \

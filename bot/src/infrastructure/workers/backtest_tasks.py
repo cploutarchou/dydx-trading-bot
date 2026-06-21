@@ -288,7 +288,7 @@ def _mark_worker_failure(
     session = db.get_session()
     try:
         repository = BacktestRepository(session)
-        run_data = repository.get_run(run_id)
+        run_data = repository.get_run_overview(run_id)
         if not isinstance(run_data, dict):
             return
         data: Dict[str, Any] = dict(run_data)
@@ -333,7 +333,7 @@ def _mark_worker_failure(
             worker_backend="celery",
             worker_task_id=run_id,
         )
-        repository.save_run(data)
+        repository.update_run_progress(data)
     finally:
         session.close()
 

@@ -144,3 +144,52 @@ def test_update_run_progress_preserves_heavy_result_payloads(tmp_path):
     assert persisted["daily_pnl"] == [{"date": "2026-01-01", "pnl": 1.25}]
 
     session.close()
+
+
+def test_update_run_progress_can_mark_failed_without_rewriting_results(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'failed-progress.sqlite'}", future=True)
+    Base.metadata.create_all(bind=engine)
+    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+    session = SessionLocal()
+    repository = BacktestRepository(session)
+    repository.save_run(
+        {
+            "run_id": "run-failed-progress",
+            "name": "failed-progress",
+            "status": "running",
+            "request": {"pairs": ["BTC-USD/ETH-USD"]},
+            "trades": [{"trade_id": "trade-heavy"}],
+            "position_snapshots": [{"position_id": "position-heavy"}],
+            "daily_pnl": [{"date": "2026-01-01", "pnl": 2.5}],
+        }
+    )
+
+    updated = repository.update_run_progress(
+        {
+            "run_id": "run-failed-progress",
+            "status": "failed",
+            "current_task": "failed",
+            "error": "Lost connection to MySQL server during query",
+            "error_message": "Lost connection to MySQL server during query",
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "request": {
+                "pairs": ["BTC-USD/ETH-USD"],
+                "_runtime_control": {"status": "failed", "action": "fail"},
+            },
+        }
+    )
+    persisted = repository.get_run("run-failed-progress")
+
+    assert updated is True
+    assert persisted is not None
+    assert persisted["status"] == "failed"
+    assert persisted["current_task"] == "failed"
+    assert persisted["error"] == "Lost connection to MySQL server during query"
+    assert persisted["error_message"] == "Lost connection to MySQL server during query"
+    assert persisted["completed_at"] is not None
+    assert persisted["trades"] == [{"trade_id": "trade-heavy"}]
+    assert persisted["position_snapshots"] == [{"position_id": "position-heavy"}]
+    assert persisted["daily_pnl"] == [{"date": "2026-01-01", "pnl": 2.5}]
+
+    session.close()
+

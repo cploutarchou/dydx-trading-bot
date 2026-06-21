@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import time
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
 from internal.domain.models import BacktestRun, BacktestRunRequestPayload
 from sqlalchemy.exc import OperationalError, PendingRollbackError
+logger = logging.getLogger(__name__)
+
 from sqlalchemy.orm import Session, defer
 
 
@@ -116,6 +119,15 @@ class BacktestRepository:
             "Record has changed since last read" in message
         )
 
+    def _rollback_safely(self) -> None:
+        if self.session is None:
+            return
+        try:
+            self.session.rollback()
+        except Exception as rollback_exc:  # noqa: BLE001
+            # Preserve original DB exception path; rollback may fail if connection dropped.
+            logger.warning("backtest_repository_rollback_failed error=%r", rollback_exc)
+
     def _retry_with_backoff(
         self,
         operation: Any,
@@ -150,8 +162,7 @@ class BacktestRepository:
                 return operation(*args, **kwargs)
             except PendingRollbackError as exc:
                 last_exc = exc
-                if self.session is not None:
-                    self.session.rollback()
+                self._rollback_safely()
                 if attempt >= max_attempts - 1:
                     raise
 
@@ -159,8 +170,7 @@ class BacktestRepository:
                 backoff_ms = min(backoff_ms * 2, 250)  # Cap at 250ms
             except OperationalError as exc:
                 last_exc = exc
-                if self.session is not None:
-                    self.session.rollback()
+                self._rollback_safely()
                 if attempt >= max_attempts - 1:
                     # Last attempt exhausted
                     raise
@@ -519,17 +529,27 @@ class BacktestRepository:
             ),
             "total_trades": int(run_data.get("total_trades", 0) or 0),
             "profit_factor": float(run_data.get("profit_factor", 0.0) or 0.0),
+            "error": run_data.get("error"),
+            "error_message": run_data.get("error_message"),
             "updated_at": self._parse_dt(
                 run_data.get("updated_at"), default=self._now()
             )
             or self._now(),
         }
+        if "completed_at" in run_data or "finished_at" in run_data:
+            scalar_updates["completed_at"] = self._parse_dt(
+                run_data.get("completed_at") or run_data.get("finished_at")
+            )
+        if "started_at" in run_data:
+            scalar_updates["started_at"] = self._parse_dt(run_data.get("started_at"))
 
         if self.session is None:
             record = BacktestRepository._memory_runs.get(run_id)
             if record is None:
                 return False
             record.update(scalar_updates)
+            if "request" in run_data and isinstance(run_data.get("request"), dict):
+                record["request"] = dict(run_data.get("request") or {})
             record["updated_at"] = self._serialize_dt(record.get("updated_at"))
             return True
 
@@ -539,6 +559,11 @@ class BacktestRepository:
                 .filter(BacktestRun.run_id == run_id)
                 .update(scalar_updates, synchronize_session=False)
             )
+            if "request" in run_data and isinstance(run_data.get("request"), dict):
+                self.session.query(BacktestRun).filter(BacktestRun.run_id == run_id).update(
+                    {"request_json": dict(run_data.get("request") or {})},
+                    synchronize_session=False,
+                )
             self.session.commit()
             return bool(updated)
 

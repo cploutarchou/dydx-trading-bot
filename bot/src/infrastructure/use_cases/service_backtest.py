@@ -3363,7 +3363,7 @@ class BacktestService:
                 run_data,
                 history_fetch_telemetry,
             )
-            run_data = self._persist_run_data(run_data)
+            run_data = self._persist_progress_data(run_data)
             async_job_manager.mark_failed(run_id, error_message)
             if propagate_exceptions:
                 raise
@@ -3406,7 +3406,7 @@ class BacktestService:
                 run_data,
                 history_fetch_telemetry,
             )
-            run_data = self._persist_run_data(run_data)
+            run_data = self._persist_progress_data(run_data)
             async_job_manager.mark_failed(run_id, error_message)
             if propagate_exceptions:
                 raise

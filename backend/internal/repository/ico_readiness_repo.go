@@ -139,7 +139,7 @@ func (r *ICOReadinessRepository) Update(ctx context.Context, params ICOReadiness
 }
 
 func (r *ICOReadinessRepository) ensureSingleton(ctx context.Context) error {
-	_, err := r.db.ExecContext(ctx, `INSERT IGNORE INTO ico_production_readiness (id) VALUES (1)`)
+	_, err := r.db.ExecContext(ctx, `INSERT INTO ico_production_readiness (id) VALUES (1) ON CONFLICT (id) DO NOTHING`)
 	if err != nil {
 		return fmt.Errorf("failed to ensure ICO readiness row: %w", err)
 	}

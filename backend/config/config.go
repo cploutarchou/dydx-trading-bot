@@ -189,7 +189,7 @@ func LoadConfig() error {
 		Labels:   parseLabels(os.Getenv("LOKI_LABELS")),
 	}
 
-	dbType := strings.ToLower(getEnv("DB_TYPE", "mysql"))
+	dbType := strings.ToLower(getEnv("DB_TYPE", "postgres"))
 	var normalizedDBType string
 	var defaultPort int
 

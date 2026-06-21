@@ -9,6 +9,8 @@ on:
             - "bot/**"
             - "deploy/k8s-next/**"
             - "deploy/k8s/**"
+            - "docker-compose.infra.yml"
+            - "docker-compose.stack.yml"
             - "scripts/check_no_plaintext_k8s_secrets.py"
             - ".github/workflows/bot-quality.yml"
     pull_request:
@@ -19,6 +21,8 @@ on:
             - "bot/**"
             - "deploy/k8s-next/**"
             - "deploy/k8s/**"
+            - "docker-compose.infra.yml"
+            - "docker-compose.stack.yml"
             - "scripts/check_no_plaintext_k8s_secrets.py"
             - ".github/workflows/bot-quality.yml"
     workflow_dispatch:
@@ -91,6 +95,53 @@ jobs:
                   echo "No plaintext secrets detected in k8s manifests." >> "$GITHUB_STEP_SUMMARY"
 
     # ---------------------------------------------------------------------------
+    # Docker Compose validation (local dev infrastructure)
+    # ---------------------------------------------------------------------------
+    docker-compose-validate:
+        name: Docker Compose validation
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Validate infra compose file syntax
+              run: |
+                  set -euo pipefail
+                  docker-compose -f docker-compose.infra.yml config > /dev/null
+                  echo "docker-compose.infra.yml: OK" >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Validate stack compose file syntax
+              run: |
+                  set -euo pipefail
+                  docker-compose -f docker-compose.stack.yml config > /dev/null
+                  echo "docker-compose.stack.yml: OK" >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Check required services in infra compose
+              run: |
+                  set -euo pipefail
+                  required_services=("postgresql" "valkey" "nats" "clickhouse" "minio")
+                  for service in "${required_services[@]}"; do
+                    if ! grep -q "^  $service:" docker-compose.infra.yml; then
+                      echo "ERROR: Required service '$service' not found in docker-compose.infra.yml" >&2
+                      exit 1
+                    fi
+                  done
+                  echo "All required infra services present" >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Check required services in stack compose
+              run: |
+                  set -euo pipefail
+                  required_services=("frontend" "backend-api" "bot-api" "bot-worker" "postgresql" "valkey" "nats" "clickhouse" "minio")
+                  for service in "${required_services[@]}"; do
+                    if ! grep -q "^  $service:" docker-compose.stack.yml; then
+                      echo "ERROR: Required service '$service' not found in docker-compose.stack.yml" >&2
+                      exit 1
+                    fi
+                  done
+                  echo "All required stack services present" >> "$GITHUB_STEP_SUMMARY"
+
+    # ---------------------------------------------------------------------------
     # Kustomize build validation (base + overlays)
     # ---------------------------------------------------------------------------
     kustomize-validate:
@@ -135,6 +186,7 @@ jobs:
         runs-on: ubuntu-latest
         needs:
             - bot-tests
+            - docker-compose-validate
             - k8s-secret-scan
             - kustomize-validate
         if: always()

@@ -351,7 +351,7 @@ func validateConfig(cfg *Config) error {
 
 	d := strings.ToLower(strings.TrimSpace(cfg.Driver))
 	if d == "" {
-		cfg.Driver = "mysql"
+		cfg.Driver = "postgres"
 	} else if !validDrivers[d] {
 		return fmt.Errorf("%w: %s (supported: mysql, mariadb, postgres, postgresql)", ErrInvalidDriver, cfg.Driver)
 	} else {

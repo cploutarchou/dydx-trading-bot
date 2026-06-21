@@ -23,7 +23,7 @@ _ensure_path(BOT_ROOT)
 
 def get_expected_db_dialect() -> str:
     """Return the expected database dialect for current environment."""
-    db_type = os.getenv("DB_TYPE", "mysql").lower()
+    db_type = os.getenv("DB_TYPE", "postgres").lower()
     if db_type in ("mysql", "mariadb"):
         return "mysql"
     if db_type in ("postgres", "postgresql"):

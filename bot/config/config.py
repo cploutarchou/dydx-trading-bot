@@ -76,15 +76,13 @@ class BotSettings:
             is_testnet=is_testnet,
             indexer_endpoint=indexer_endpoint,
             subaccountNumber=int(os.getenv("BOT_SUBACCOUNT_NUMBER", "0")),
-            capitalAllocationUsd=float(
-                os.getenv("BOT_CAPITAL_ALLOCATION_USD", "0.0")
-            ),
+            capitalAllocationUsd=float(os.getenv("BOT_CAPITAL_ALLOCATION_USD", "0.0")),
             abortAllPositions=os.getenv("BOT_ABORT_ALL_POSITIONS", "false").lower()
-                              == "true",
+            == "true",
             findCointegratedPairs=os.getenv(
                 "BOT_FIND_COINTEGRATED_PAIRS", "false"
             ).lower()
-                                  == "true",
+            == "true",
             manageExits=os.getenv("BOT_MANAGE_EXITS", "false").lower() == "true",
             placeTrades=os.getenv("BOT_PLACE_TRADES", "false").lower() == "true",
             resolutionTimeframe=os.getenv("BOT_RESOLUTION_TIMEFRAME", "1HOUR"),
@@ -95,18 +93,14 @@ class BotSettings:
             usdPerTrade=float(os.getenv("BOT_USD_PER_TRADE", "10.0")),
             usdMinCollateral=float(os.getenv("BOT_USD_MIN_COLLATERAL", "100.0")),
             closeAtZscoreCross=os.getenv("BOT_CLOSE_AT_ZSCORE_CROSS", "true").lower()
-                               == "true",
+            == "true",
             maxPositions=int(os.getenv("BOT_MAX_POSITIONS", "5")),
             maxDrawdownPct=float(os.getenv("BOT_MAX_DRAWDOWN_PCT", "15.0")),
             stopLossPct=float(os.getenv("BOT_STOP_LOSS_PCT", "2.0")),
             takeProfitPct=float(os.getenv("BOT_TAKE_PROFIT_PCT", "5.0")),
             trailingStopPct=float(os.getenv("BOT_TRAILING_STOP_PCT", "1.0")),
-            rebalanceIntervalHours=int(
-                os.getenv("BOT_REBALANCE_INTERVAL_HOURS", "24")
-            ),
-            positionTimeoutHours=int(
-                os.getenv("BOT_POSITION_TIMEOUT_HOURS", "72")
-            ),
+            rebalanceIntervalHours=int(os.getenv("BOT_REBALANCE_INTERVAL_HOURS", "24")),
+            positionTimeoutHours=int(os.getenv("BOT_POSITION_TIMEOUT_HOURS", "72")),
             selectedMarkets=[
                 market.strip()
                 for market in os.getenv("BOT_SELECTED_MARKETS", "").split(",")
@@ -195,13 +189,13 @@ class BacktestSettings:
 
 @dataclass
 class DatabaseSettings:
-    type: str = "mysql"
+    type: str = "postgres"
     cutover_mode: str = "shared"
     name: str = "dydx_bot"
     user: str = "app"
     password: str = ""
     host: str = "localhost"
-    port: str = "3306"
+    port: str = "5432"
     pool_size: int = 5
     max_overflow: int = 10
     timeout: int = 30
@@ -340,12 +334,11 @@ class ConfigurationManager:
 
     def _build_database_settings_from_env(self) -> DatabaseSettings:
         """Build database settings from environment variables."""
-        db_type = _get_env("BOT_DB_TYPE", "DB_TYPE", default="mysql").strip().lower()
-        legacy_types = {"post" + "gres", "post" + "gresql"}
-        if db_type in legacy_types:
-            raise ValueError("Legacy database type is unsupported; use MariaDB.")
-        if db_type not in {"mysql", "mariadb"}:
-            raise ValueError(f"Unsupported DB_TYPE '{db_type}'. Supported: mysql, mariadb.")
+        db_type = _get_env("BOT_DB_TYPE", "DB_TYPE", default="postgres").strip().lower()
+        if db_type not in {"mysql", "mariadb", "postgres", "postgresql"}:
+            raise ValueError(
+                f"Unsupported DB_TYPE '{db_type}'. Supported: mysql, mariadb, postgres, postgresql."
+            )
 
         cutover_mode = (
             _get_env("BOT_DB_CUTOVER_MODE", default="shared")
@@ -364,7 +357,7 @@ class ConfigurationManager:
             )
 
         return DatabaseSettings(
-            type="mysql",
+            type="postgres",
             cutover_mode=cutover_mode,
             name=_get_env("BOT_DB_NAME", "DB_NAME", default="dydx_bot"),
             user=_get_env("BOT_DB_USER", "DB_USER", default="app"),
@@ -374,7 +367,7 @@ class ConfigurationManager:
                 default="",
             ),
             host=_get_env("BOT_DB_HOST", "DB_HOST", default="localhost"),
-            port=_get_env("BOT_DB_PORT", "DB_PORT", default="3306"),
+            port=_get_env("BOT_DB_PORT", "DB_PORT", default="5432"),
             pool_size=_get_env_int("DB_POOL_SIZE", default=5),
             max_overflow=_get_env_int("DB_MAX_OVERFLOW", default=10),
             timeout=_get_env_int("DB_TIMEOUT", default=5),

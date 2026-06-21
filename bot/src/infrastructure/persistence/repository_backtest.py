@@ -58,12 +58,22 @@ class BacktestRepository:
     def _build_artifact_store(cls) -> ArtifactStore:
         root = cls._env_str("BACKTEST_ARTIFACTS_DIR", "bot_states/backtest_artifacts")
         if cls._env_bool("BACKTEST_MINIO_ENABLED", False):
+            extra_config: Dict[str, Any] = {
+                "access_key": cls._env_str("BACKTEST_MINIO_ACCESS_KEY", ""),
+                "secret_key": cls._env_str("BACKTEST_MINIO_SECRET_KEY", ""),
+                "session_token": cls._env_str("BACKTEST_MINIO_SESSION_TOKEN", ""),
+                "region": cls._env_str("BACKTEST_MINIO_REGION", ""),
+                "auto_create_bucket": cls._env_bool(
+                    "BACKTEST_MINIO_AUTO_CREATE_BUCKET", True
+                ),
+            }
             return MinIOArtifactStore(
                 bucket=cls._env_str("BACKTEST_MINIO_BUCKET", "backtests"),
                 enabled=True,
                 fallback=LocalArtifactStore(root),
                 endpoint_url=cls._env_str("BACKTEST_MINIO_ENDPOINT", ""),
                 secure=cls._env_bool("BACKTEST_MINIO_SECURE", True),
+                extra_config=extra_config,
             )
         return LocalArtifactStore(root)
 

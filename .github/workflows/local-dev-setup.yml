@@ -1,0 +1,208 @@
+name: Local Dev Setup Validation
+
+on:
+    push:
+        branches:
+            - master
+            - main
+        paths:
+            - "docker-compose.infra.yml"
+            - "docker-compose.stack.yml"
+            - "Makefile"
+            - "LOCAL_SETUP_GUIDE.md"
+            - ".github/workflows/local-dev-setup.yml"
+    pull_request:
+        branches:
+            - master
+            - main
+        paths:
+            - "docker-compose.infra.yml"
+            - "docker-compose.stack.yml"
+            - "Makefile"
+            - "LOCAL_SETUP_GUIDE.md"
+            - ".github/workflows/local-dev-setup.yml"
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: local-dev-setup-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    # ---------------------------------------------------------------------------
+    # Validate docker-compose files
+    # ---------------------------------------------------------------------------
+    docker-compose-syntax:
+        name: Docker Compose syntax
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Validate docker-compose.infra.yml
+              run: |
+                  set -euo pipefail
+                  docker compose -f docker-compose.infra.yml config > /dev/null
+                  echo "✓ docker-compose.infra.yml syntax valid"
+
+            - name: Validate docker-compose.stack.yml
+              run: |
+                  set -euo pipefail
+                  docker compose -f docker-compose.stack.yml config > /dev/null
+                  echo "✓ docker-compose.stack.yml syntax valid"
+
+    # ---------------------------------------------------------------------------
+    # Validate Makefile targets
+    # ---------------------------------------------------------------------------
+    makefile-targets:
+        name: Makefile targets
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Check required Makefile targets exist
+              run: |
+                  set -euo pipefail
+                  required_targets=(
+                    "help"
+                    "infra-up"
+                    "infra-down"
+                    "infra-ps"
+                    "infra-logs"
+                    "stack-up-dev"
+                    "stack-down"
+                    "stack-ps"
+                    "stack-logs"
+                    "dev"
+                    "config-keygen"
+                    "dev-config"
+                  )
+
+                  for target in "${required_targets[@]}"; do
+                    if ! grep -q "^$target:" Makefile; then
+                      echo "ERROR: Required Makefile target '$target' not found" >&2
+                      exit 1
+                    fi
+                  done
+                  echo "✓ All required Makefile targets present"
+
+    # ---------------------------------------------------------------------------
+    # Validate LOCAL_SETUP_GUIDE.md (optional but recommended)
+    # ---------------------------------------------------------------------------
+    setup-guide-validation:
+        name: Setup guide validation
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Check LOCAL_SETUP_GUIDE exists and has content
+              run: |
+                  set -euo pipefail
+                  if [ ! -f LOCAL_SETUP_GUIDE.md ]; then
+                    echo "LOCAL_SETUP_GUIDE.md not found (warning only)." >> "$GITHUB_STEP_SUMMARY"
+                    exit 0
+                  fi
+                  if [ ! -s LOCAL_SETUP_GUIDE.md ]; then
+                    echo "ERROR: LOCAL_SETUP_GUIDE.md is empty" >&2
+                    exit 1
+                  fi
+                  echo "✓ LOCAL_SETUP_GUIDE.md exists and has content"
+
+            - name: Validate setup guide references key commands
+              run: |
+                  set -euo pipefail
+                  if [ ! -f LOCAL_SETUP_GUIDE.md ]; then
+                    exit 0
+                  fi
+                  grep -q "make infra-up" LOCAL_SETUP_GUIDE.md || echo "Warning: missing make infra-up reference" >> "$GITHUB_STEP_SUMMARY"
+                  grep -q "make stack-up-dev" LOCAL_SETUP_GUIDE.md || echo "Warning: missing make stack-up-dev reference" >> "$GITHUB_STEP_SUMMARY"
+                  echo "✓ Setup guide validation complete"
+
+    # ---------------------------------------------------------------------------
+    # Validate infrastructure service configuration
+    # ---------------------------------------------------------------------------
+    infrastructure-config:
+        name: Infrastructure configuration
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Check infra compose has all required services
+              run: |
+                  set -euo pipefail
+                  required_services=(
+                    "postgresql"
+                    "valkey"
+                    "nats"
+                    "clickhouse"
+                    "minio"
+                  )
+
+                  for service in "${required_services[@]}"; do
+                    if ! grep -q "^  $service:" docker-compose.infra.yml; then
+                      echo "ERROR: Required service '$service' not found in docker-compose.infra.yml" >&2
+                      exit 1
+                    fi
+                  done
+                  echo "✓ All required infra services configured"
+
+            - name: Check stack compose has all required services
+              run: |
+                  set -euo pipefail
+                  required_services=(
+                    "frontend"
+                    "backend-api"
+                    "bot-api"
+                    "bot-worker"
+                    "postgresql"
+                    "valkey"
+                    "nats"
+                    "clickhouse"
+                    "minio"
+                  )
+
+                  for service in "${required_services[@]}"; do
+                    if ! grep -q "^  $service:" docker-compose.stack.yml; then
+                      echo "ERROR: Required service '$service' not found in docker-compose.stack.yml" >&2
+                      exit 1
+                    fi
+                  done
+                  echo "✓ All required stack services configured"
+
+    # ---------------------------------------------------------------------------
+    # Gate — all validations must pass
+    # ---------------------------------------------------------------------------
+    validation-gate:
+        name: Validation gate
+        runs-on: ubuntu-latest
+        needs:
+            - docker-compose-syntax
+            - makefile-targets
+            - setup-guide-validation
+            - infrastructure-config
+        if: always()
+
+        steps:
+            - name: Check all validations passed
+              run: |
+                  set -euo pipefail
+                  results='${{ toJSON(needs) }}'
+                  echo "Validation results: $results"
+                  if echo "$results" | grep -q '"result": "failure"'; then
+                    echo "One or more local dev setup validations failed." >&2
+                    exit 1
+                  fi
+                  if echo "$results" | grep -q '"result": "cancelled"'; then
+                    echo "One or more local dev setup validations were cancelled." >&2
+                    exit 1
+                  fi
+                  echo "✓ All local dev setup validations passed"

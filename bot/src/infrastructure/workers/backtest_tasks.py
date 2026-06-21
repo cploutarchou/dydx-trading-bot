@@ -10,9 +10,11 @@ import socket
 import traceback as traceback_module
 from datetime import datetime, timezone
 from typing import Any, Dict
+from urllib.parse import urlparse
 
 from celery.exceptions import SoftTimeLimitExceeded
 from loguru import logger as loguru_logger
+import httpx
 
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
@@ -21,6 +23,13 @@ from src.infrastructure.workers.celery_app import celery_app
 from src.infrastructure.workers.celery_monitor import build_progress_meta, failure_meta
 
 logger = logging.getLogger(__name__)
+
+_LOCK_RELEASE_SCRIPT = """
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+end
+return 0
+"""
 
 
 def _normalize_request_payload(value: Any) -> Dict[str, Any]:
@@ -90,6 +99,150 @@ def _get_redis_client():
         return None
 
 
+def _redis_lock_url() -> str | None:
+    url = os.getenv("BACKTEST_LOCK_REDIS_URL") or os.getenv("REDIS_URL")
+    broker_url = os.getenv("CELERY_BROKER_URL", "")
+    if not url and broker_url:
+        parsed = urlparse(broker_url)
+        if parsed.scheme in {"redis", "rediss"}:
+            url = broker_url
+    if url:
+        parsed = urlparse(url)
+        if parsed.scheme in {"redis", "rediss"}:
+            return url
+    return None
+
+
+def _get_lock_redis_client():
+    import redis as _redis
+
+    url = _redis_lock_url()
+    if not url:
+        return None
+    return _redis.from_url(
+        url,
+        decode_responses=True,
+        socket_connect_timeout=1.0,
+        socket_timeout=1.0,
+    )
+
+
+def _lock_ttl_seconds() -> int:
+    raw = os.getenv("BACKTEST_TASK_LOCK_TTL_SECONDS")
+    if raw not in (None, ""):
+        try:
+            return max(60, int(raw))
+        except (TypeError, ValueError):
+            pass
+    raw_limit = os.getenv("BACKTEST_CELERY_TASK_TIME_LIMIT")
+    try:
+        return max(60, int(raw_limit or str(7 * 24 * 60 * 60)) + 300)
+    except (TypeError, ValueError):
+        return 7 * 24 * 60 * 60 + 300
+
+
+def _acquire_backtest_lock(run_id: str, token: str):
+    try:
+        client = _get_lock_redis_client()
+    except Exception as exc:
+        logger.warning("backtest_lock_redis_init_failed run_id=%s error=%r", run_id, exc)
+        return None
+    if client is None:
+        return None
+    lock_key = f"backtest:run-lock:{run_id}"
+    try:
+        acquired = client.set(lock_key, token, nx=True, ex=_lock_ttl_seconds())
+    except Exception:
+        try:
+            client.close()
+        except Exception:
+            pass
+        raise
+    if acquired:
+        return client
+    try:
+        client.close()
+    except Exception:
+        pass
+    raise RuntimeError(
+        f"BACKTEST_ALREADY_RUNNING: backtest run '{run_id}' is already locked"
+    )
+
+
+def _release_backtest_lock(run_id: str, token: str, client: Any) -> None:
+    if client is None:
+        return
+    try:
+        client.eval(_LOCK_RELEASE_SCRIPT, 1, f"backtest:run-lock:{run_id}", token)
+    except Exception as exc:
+        logger.warning("backtest_lock_release_failed run_id=%s error=%r", run_id, exc)
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+def _max_retries() -> int:
+    raw = os.getenv("BACKTEST_CELERY_MAX_RETRIES", "3")
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return 3
+
+
+def _retry_countdown_seconds(retries: int, exc: BaseException) -> float:
+    retry_after = BacktestService._extract_retry_after_seconds(exc)
+    if retry_after is not None:
+        return retry_after
+    raw_base = os.getenv("BACKTEST_CELERY_RETRY_BASE_SECONDS", "30")
+    raw_max = os.getenv("BACKTEST_CELERY_RETRY_MAX_SECONDS", "600")
+    try:
+        base = max(1.0, float(raw_base))
+    except (TypeError, ValueError):
+        base = 30.0
+    try:
+        max_delay = max(base, float(raw_max))
+    except (TypeError, ValueError):
+        max_delay = 600.0
+    return min(max_delay, base * (2 ** max(0, retries)))
+
+
+def _is_transient_backtest_error(exc: BaseException) -> bool:
+    if isinstance(exc, (TimeoutError, asyncio.CancelledError, ValueError)):
+        return False
+    if isinstance(exc, httpx.HTTPStatusError):
+        status_code = getattr(exc.response, "status_code", None)
+        return status_code in {408, 425, 429, 500, 502, 503, 504}
+    if isinstance(
+        exc,
+        (
+            httpx.TimeoutException,
+            httpx.ConnectError,
+            httpx.NetworkError,
+            httpx.RemoteProtocolError,
+        ),
+    ):
+        return True
+    message = str(exc).lower()
+    return any(
+        token in message
+        for token in (
+            "temporarily unavailable",
+            "connection reset",
+            "connection refused",
+            "connection aborted",
+            "timeout",
+            "timed out",
+            "too many requests",
+            "rate limit",
+            "502",
+            "503",
+            "504",
+        )
+    )
+
+
 def _publish_backtest_status(
     run_id: str,
     status: str,
@@ -135,7 +288,7 @@ def _mark_worker_failure(
     session = db.get_session()
     try:
         repository = BacktestRepository(session)
-        run_data = repository.get_run(run_id)
+        run_data = repository.get_run_overview(run_id)
         if not isinstance(run_data, dict):
             return
         data: Dict[str, Any] = dict(run_data)
@@ -180,7 +333,7 @@ def _mark_worker_failure(
             worker_backend="celery",
             worker_task_id=run_id,
         )
-        repository.save_run(data)
+        repository.update_run_progress(data)
     finally:
         session.close()
 
@@ -209,6 +362,8 @@ def run_backtest_task(
     task_context: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Run a persisted backtest by id inside a Celery worker process."""
+    task_id = str(self.request.id or run_id)
+    lock_client = None
     # Setup job-specific logging to bot_states/backtest_<run_id>.log
     log_file = os.path.join("bot_states", f"backtest_{run_id}.log")
     os.makedirs("bot_states", exist_ok=True)
@@ -224,6 +379,32 @@ def run_backtest_task(
     session = db.get_session()
     try:
         with loguru_logger.contextualize(run_id=run_id):
+            try:
+                lock_client = _acquire_backtest_lock(run_id, task_id)
+            except RuntimeError as exc:
+                loguru_logger.warning(
+                    "Backtest task {} skipped for run {}: {}",
+                    task_id,
+                    run_id,
+                    exc,
+                )
+                self.update_state(
+                    state="SUCCESS",
+                    meta={
+                        "task_id": task_id,
+                        "task_name": "backtests.run",
+                        "status": "duplicate_skipped",
+                        "backtest_run_id": run_id,
+                        "error_message": str(exc),
+                        "worker_hostname": socket.gethostname(),
+                    },
+                )
+                return {
+                    "run_id": run_id,
+                    "status": "duplicate_skipped",
+                    "reason": str(exc),
+                }
+
             repository = BacktestRepository(session)
             run_data = repository.get_run(run_id)
             if not isinstance(run_data, dict):
@@ -231,7 +412,6 @@ def run_backtest_task(
             data: Dict[str, Any] = dict(run_data)
 
             service = BacktestService(repository)
-            task_id = str(self.request.id or run_id)
             # ... rest of the setup code until update_state
             request_payload: Dict[str, Any] = _normalize_request_payload(
                 data.get("request")
@@ -274,7 +454,7 @@ def run_backtest_task(
                     "task_id": task_id,
                     "task_name": "backtests.run",
                     "queue": getattr(self.request, "delivery_info", {}).get(
-                        "routing_key", "celery"
+                        "routing_key", "backtests"
                     ),
                     "status": "STARTED",
                     "started_at": _now_iso(),
@@ -293,7 +473,12 @@ def run_backtest_task(
                     "metadata": task_context.get("metadata") or {},
                 },
             )
-            loguru_logger.info("Backtest task {} started for run {}", task_id, run_id)
+            loguru_logger.info(
+                "celery_backtest_task_started task_id={} run_id={} retry_count={}",
+                task_id,
+                run_id,
+                int(getattr(self.request, "retries", 0) or 0),
+            )
             data["worker_backend"] = "celery"
             data["worker_task_id"] = task_id
             service._set_runtime_control(
@@ -346,9 +531,19 @@ def run_backtest_task(
                     callback_run_id, "progress", progress, current_pair, eta
                 )
 
-            asyncio.run(service.execute_existing_backtest(run_id, _progress_callback))
+            asyncio.run(
+                service.execute_existing_backtest(
+                    run_id,
+                    _progress_callback,
+                    propagate_exceptions=True,
+                )
+            )
             _publish_backtest_status(run_id, "completed", 100.0, "complete")
-            loguru_logger.info("Backtest task {} completed for run {}", task_id, run_id)
+            loguru_logger.info(
+                "celery_backtest_task_completed task_id={} run_id={}",
+                task_id,
+                run_id,
+            )
             # Kick off async candle aggregation so chart renders are served from Redis
             try:
                 from src.infrastructure.workers.candle_aggregate_tasks import (
@@ -361,7 +556,11 @@ def run_backtest_task(
             return {"run_id": run_id, "status": "completed"}
     except SoftTimeLimitExceeded:
         message = "Backtest Celery task exceeded soft time limit"
-        loguru_logger.warning("Backtest task {} timed out for run {}", task_id, run_id)
+        loguru_logger.warning(
+            "celery_backtest_task_failed task_id={} run_id={} reason=soft_time_limit",
+            task_id,
+            run_id,
+        )
         _mark_worker_failure(
             run_id,
             message,
@@ -370,19 +569,85 @@ def run_backtest_task(
             worker_hostname=socket.gethostname(),
             retry_count=int(getattr(self.request, "retries", 0) or 0),
         )
-        self.update_state(
-            state="FAILURE",
-            meta=failure_meta(
-                SoftTimeLimitExceeded(message),
-                str(self.request.id or run_id),
-                run_id,
-                error_code="BACKTEST_TIMEOUT",
-            ),
-        )
         _publish_backtest_status(run_id, "failed")
         raise
+    except asyncio.CancelledError:
+        message = "Backtest Celery task cancelled"
+        loguru_logger.warning(
+            "celery_backtest_task_cancelled task_id={} run_id={}", task_id, run_id
+        )
+        _mark_worker_failure(
+            run_id,
+            message,
+            error_code="BACKTEST_CANCELLED",
+            traceback_text=traceback_module.format_exc(),
+            worker_hostname=socket.gethostname(),
+            retry_count=int(getattr(self.request, "retries", 0) or 0),
+        )
+        self.update_state(
+            state="REVOKED",
+            meta=failure_meta(
+                RuntimeError(message),
+                str(self.request.id or run_id),
+                run_id,
+                error_code="BACKTEST_CANCELLED",
+            ),
+        )
+        _publish_backtest_status(run_id, "cancelled")
+        raise
     except Exception as exc:
-        loguru_logger.exception("Celery backtest task failed for {}", run_id)
+        retries = int(getattr(self.request, "retries", 0) or 0)
+        if _is_transient_backtest_error(exc) and retries < _max_retries():
+            countdown = _retry_countdown_seconds(retries, exc)
+            try:
+                retry_session = db.get_session()
+                try:
+                    retry_service = BacktestService(
+                        BacktestRepository(retry_session)
+                    )
+                    retry_service.mark_backtest_retrying(
+                        run_id,
+                        error=exc,
+                        countdown_seconds=countdown,
+                        retry_count=retries + 1,
+                        task_id=task_id,
+                    )
+                finally:
+                    retry_session.close()
+            except Exception as retry_mark_exc:
+                logger.warning(
+                    "backtest_retry_status_persist_failed run_id=%s error=%r",
+                    run_id,
+                    retry_mark_exc,
+                )
+            self.update_state(
+                state="RETRY",
+                meta={
+                    "task_id": task_id,
+                    "task_name": "backtests.run",
+                    "status": "RETRY",
+                    "backtest_run_id": run_id,
+                    "error_code": BacktestService._error_code_from_message(
+                        str(exc), "BACKTEST_TRANSIENT_RETRY"
+                    ),
+                    "error_message": str(exc) or exc.__class__.__name__,
+                    "retry_count": retries + 1,
+                    "retry_after_seconds": round(float(countdown), 3),
+                    "worker_hostname": socket.gethostname(),
+                },
+            )
+            _publish_backtest_status(run_id, "retrying")
+            loguru_logger.warning(
+                "celery_backtest_task_retrying task_id={} run_id={} retry_count={} countdown_seconds={} error={}",
+                task_id,
+                run_id,
+                retries + 1,
+                round(float(countdown), 3),
+                str(exc) or exc.__class__.__name__,
+            )
+            raise self.retry(exc=exc, countdown=countdown, max_retries=_max_retries())
+
+        loguru_logger.exception("celery_backtest_task_failed run_id={}", run_id)
         _mark_worker_failure(
             run_id,
             str(exc) or "Backtest Celery task failed",
@@ -393,19 +658,9 @@ def run_backtest_task(
             worker_hostname=socket.gethostname(),
             retry_count=int(getattr(self.request, "retries", 0) or 0),
         )
-        self.update_state(
-            state="FAILURE",
-            meta=failure_meta(
-                exc,
-                str(self.request.id or run_id),
-                run_id,
-                error_code=BacktestService._error_code_from_message(
-                    str(exc), "BACKTEST_EXECUTION_FAILED"
-                ),
-            ),
-        )
         _publish_backtest_status(run_id, "failed")
         raise
     finally:
+        _release_backtest_lock(run_id, task_id, lock_client)
         session.close()
         loguru_logger.remove(handler_id)

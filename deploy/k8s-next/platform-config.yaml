@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-config
+data:
+  APP_ENV: production
+  LOG_LEVEL: info
+  FRONTEND_PUBLIC_ORIGIN: https://app.example.com
+  BACKEND_PUBLIC_ORIGIN: https://api.example.com
+  BACKEND_BASE_URL: http://backend:8888
+  BOT_API_BASE_URL: http://bot-api:8889
+  DB_TYPE: postgres
+  BOT_DB_TYPE: postgres
+  DATABASE_SERVICE_HOST: pgbouncer
+  DATABASE_SERVICE_PORT: "6432"
+  DATABASE_NAME: dydx_platform
+  BOT_DATABASE_NAME: dydx_bot
+  POSTGRES_SERVICE_HOST: postgresql
+  POSTGRES_SERVICE_PORT: "5432"
+  PGBOUNCER_SERVICE_HOST: pgbouncer
+  PGBOUNCER_SERVICE_PORT: "6432"
+  REDIS_URL: redis://valkey:6379/0
+  VALKEY_URL: redis://valkey:6379/0
+  NATS_URL: nats://nats:4222
+  CLICKHOUSE_URL: http://clickhouse:8123
+  MINIO_ENDPOINT: http://minio:9000
+  BACKTEST_ARTIFACTS_DIR: /var/lib/dydx/backtest-artifacts
+  # MinIO artifact store — flip ENABLED to "true" once MinIO is provisioned
+  BACKTEST_MINIO_ENABLED: "false"
+  BACKTEST_MINIO_ENDPOINT: http://minio:9000
+  BACKTEST_MINIO_BUCKET: backtests
+  BACKTEST_MINIO_SECURE: "false"
+  BACKTEST_MINIO_AUTO_CREATE_BUCKET: "true"
+  # Credentials must come from a Secret; reference them in the Deployment env
+  # via secretKeyRef (BACKTEST_MINIO_ACCESS_KEY / BACKTEST_MINIO_SECRET_KEY).
+  # ClickHouse analytics writer — flip ENABLED to "true" once ClickHouse is up
+  BACKTEST_CLICKHOUSE_ENABLED: "false"
+  BACKTEST_CLICKHOUSE_HOST: clickhouse
+  BACKTEST_CLICKHOUSE_PORT: "8123"
+  BACKTEST_CLICKHOUSE_DATABASE: default
+  BACKTEST_CLICKHOUSE_USER: default
+  BACKTEST_CLICKHOUSE_SECURE: "false"
+  # BACKTEST_CLICKHOUSE_PASSWORD must come from a Secret (secretKeyRef).
+  NATS_ENABLED: "false"
+  BOT_COMMAND_BUS_ENABLED: "false"
+  FRONTEND_PORT: "8080"
+  BACKEND_PORT: "8888"
+  BOT_API_PORT: "8889"

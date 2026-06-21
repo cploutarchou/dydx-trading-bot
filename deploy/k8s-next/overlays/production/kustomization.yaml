@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: dydx-next-production
+resources:
+  - ../../base
+labels:
+  - pairs:
+      app.kubernetes.io/environment: production
+patches:
+  - path: patch-platform-config.yaml
+  - path: patch-ingress-hosts.yaml

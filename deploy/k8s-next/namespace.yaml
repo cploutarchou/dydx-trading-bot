@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dydx-next
+  labels:
+    app.kubernetes.io/name: dydx-trading-bot
+    app.kubernetes.io/part-of: dydx-trading-bot
+    app.kubernetes.io/managed-by: kustomize

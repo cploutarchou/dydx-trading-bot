@@ -7,6 +7,7 @@ from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
+from internal.domain import Position, MarketData, BotStats, Alert
 from internal.domain.models_realtime import (
     Alert,
     BotStats,
@@ -23,7 +24,7 @@ class PositionRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def get_open_positions(self, bot_instance_id: int) -> List[Position]:
+    def get_open_positions(self, bot_instance_id: int) -> list[type[Position]]:
         """Get all open positions for a bot"""
         return (
             self.session.query(Position)
@@ -103,7 +104,7 @@ class MarketDataRepository:
 
     def get_market_data(
         self, bot_instance_id: int, symbol: str
-    ) -> Optional[MarketData]:
+    ) -> type[MarketData] | None:
         """Get market data for a symbol"""
         return (
             self.session.query(MarketData)
@@ -114,7 +115,7 @@ class MarketDataRepository:
             .first()
         )
 
-    def get_all_market_data(self, bot_instance_id: int) -> List[MarketData]:
+    def get_all_market_data(self, bot_instance_id: int) -> list[type[MarketData]]:
         """Get all market data for a bot"""
         return (
             self.session.query(MarketData)
@@ -178,7 +179,7 @@ class StatsRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def get_stats(self, bot_instance_id: int) -> Optional[BotStats]:
+    def get_stats(self, bot_instance_id: int) -> type[BotStats] | None:
         """Get stats for a bot"""
         return (
             self.session.query(BotStats)
@@ -292,7 +293,7 @@ class AlertRepository:
         self.session.commit()
         return alert
 
-    def get_unacknowledged_alerts(self, bot_instance_id: int) -> List[Alert]:
+    def get_unacknowledged_alerts(self, bot_instance_id: int) -> list[type[Alert]]:
         """Get unacknowledged alerts for a bot"""
         return (
             self.session.query(Alert)

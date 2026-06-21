@@ -3,11 +3,14 @@
 import asyncio
 import importlib
 import math
+import os
 import sys
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -556,6 +559,7 @@ def test_celery_worker_backend_queues_persisted_run(monkeypatch):
         assert task_context["selected_pairs"] == ["BTC-USD/ETH-USD"]
         assert task_context["metadata"]["pair_count"] == 1
         assert task_context["metadata"]["source"] == "api"
+        assert task_context["queue"] == "backtests"
         assert task_context["payload_hash"]
 
         status = service.get_backtest_status(created.run_id)
@@ -569,6 +573,223 @@ def test_celery_worker_backend_queues_persisted_run(monkeypatch):
         assert service.delete_backtest(created.run_id)
 
     asyncio.run(_run())
+
+
+def test_resolve_worker_backend_keeps_configured_celery_without_probe(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND", "celery")
+    monkeypatch.setattr(
+        BacktestService,
+        "_probe_celery_worker_available",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("probe should not run when backend is already celery")
+        ),
+    )
+
+    backend = asyncio.run(BacktestService._resolve_worker_backend())
+    assert backend == "celery"
+
+
+def test_resolve_worker_backend_promotes_asyncio_when_probe_succeeds(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND", "asyncio")
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND_AUTO_REPROBE", "true")
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND_REPROBE_COOLDOWN_SECONDS", "60")
+
+    BacktestService._backend_reprobe_last_monotonic = 0.0
+    BacktestService._backend_reprobe_last_available = False
+    monkeypatch.setattr(
+        BacktestService, "_probe_celery_worker_available", lambda *_args, **_kwargs: True
+    )
+
+    backend = asyncio.run(BacktestService._resolve_worker_backend())
+    assert backend == "celery"
+    assert os.getenv("BACKTEST_WORKER_BACKEND") == "celery"
+
+
+def test_resolve_worker_backend_keeps_asyncio_when_probe_fails(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND", "asyncio")
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND_AUTO_REPROBE", "true")
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND_REPROBE_COOLDOWN_SECONDS", "60")
+
+    BacktestService._backend_reprobe_last_monotonic = 0.0
+    BacktestService._backend_reprobe_last_available = False
+    monkeypatch.setattr(
+        BacktestService, "_probe_celery_worker_available", lambda *_args, **_kwargs: False
+    )
+
+    backend = asyncio.run(BacktestService._resolve_worker_backend())
+    assert backend == "asyncio"
+    assert os.getenv("BACKTEST_WORKER_BACKEND") == "asyncio"
+
+
+def test_resolve_worker_backend_respects_reprobe_cooldown(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND", "asyncio")
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND_AUTO_REPROBE", "true")
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND_REPROBE_COOLDOWN_SECONDS", "60")
+
+    BacktestService._backend_reprobe_last_monotonic = 0.0
+    BacktestService._backend_reprobe_last_available = False
+
+    probe_calls = {"count": 0}
+
+    def _probe(*_args, **_kwargs):
+        probe_calls["count"] += 1
+        return False
+
+    monkeypatch.setattr(BacktestService, "_probe_celery_worker_available", _probe)
+
+    first = asyncio.run(BacktestService._resolve_worker_backend())
+    second = asyncio.run(BacktestService._resolve_worker_backend())
+
+    assert first == "asyncio"
+    assert second == "asyncio"
+    assert probe_calls["count"] == 1
+
+
+def test_enqueue_celery_backtest_uses_backtests_queue(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+    from src.infrastructure.workers import backtest_tasks
+
+    captured: dict[str, object] = {}
+
+    class _FakeAsyncResult:
+        id = "task-run-queue"
+
+    class _FakeTask:
+        @staticmethod
+        def apply_async(**kwargs):
+            captured.update(kwargs)
+            return _FakeAsyncResult()
+
+    monkeypatch.setenv("BACKTEST_CELERY_QUEUE", "backtests")
+    monkeypatch.setattr(backtest_tasks, "run_backtest_task", _FakeTask)
+
+    service = BacktestService(session=None)
+    task_id = service._enqueue_celery_backtest(
+        "run-queue",
+        {"strategy_id": 7, "queue": "backtests"},
+    )
+
+    assert task_id == "task-run-queue"
+    assert captured["args"] == ("run-queue",)
+    assert captured["kwargs"] == {
+        "task_context": {"strategy_id": 7, "queue": "backtests"}
+    }
+    assert captured["task_id"] == "run-queue"
+    assert captured["queue"] == "backtests"
+
+
+def test_celery_enqueue_failure_does_not_run_backtest_inline(monkeypatch):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND", "celery")
+
+    def _fail_enqueue(self, run_id, task_context=None):
+        raise RuntimeError("broker unavailable")
+
+    def _unexpected_inline_task(*_args, **_kwargs):
+        raise AssertionError("Celery enqueue failure must not start inline execution")
+
+    monkeypatch.setattr(BacktestService, "_enqueue_celery_backtest", _fail_enqueue)
+    monkeypatch.setattr(
+        service_module.async_job_manager,
+        "create_supervised_task",
+        _unexpected_inline_task,
+    )
+
+    service = BacktestService(session=None)
+
+    async def _run():
+        with pytest.raises(service_module.BacktestEnqueueError):
+            await service.create_and_run_backtest(
+                _request(
+                    pair_selection_mode="input",
+                    max_pairs=0,
+                ).model_copy(
+                    update={
+                        "strategy_id": 42,
+                        "selected_pairs": ["BTC-USD/ETH-USD"],
+                        "strategy_payload_snapshot": {
+                            "id": 42,
+                            "name": "Queued Strategy",
+                        },
+                    }
+                )
+            )
+
+    asyncio.run(_run())
+
+    runs = service.repository.list_runs(limit=None, offset=0)
+    failed_runs = [
+        run for run in runs if run.get("error_message") == "broker unavailable"
+    ]
+    assert len(failed_runs) == 1
+    failed = failed_runs[0]
+    assert failed["status"] == "failed"
+    assert failed["worker_backend"] == "celery"
+    assert failed["current_task"] == "enqueue failed"
+
+    status = service.get_backtest_status(failed["run_id"])
+    assert status is not None
+    assert status.status == "failed"
+    assert status.error_message == "broker unavailable"
+    assert status.error_code == "BACKTEST_ENQUEUE_FAILED"
+    assert status.result_summary is not None
+
+    assert service.delete_backtest(failed["run_id"])
+
+
+def test_mark_backtest_retrying_persists_retry_status():
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    service = BacktestService(session=None)
+    now = datetime.now(timezone.utc).isoformat()
+    service.repository.save_run(
+        {
+            "run_id": "run-retry",
+            "name": "retry",
+            "status": "running",
+            "progress_pct": 12.5,
+            "current_pair": "BTC-USD/ETH-USD",
+            "current_task": "processing pair",
+            "created_at": now,
+            "updated_at": now,
+            "request": _request().model_dump(),
+        }
+    )
+
+    persisted = service.mark_backtest_retrying(
+        "run-retry",
+        error=RuntimeError("temporarily unavailable"),
+        countdown_seconds=30,
+        retry_count=2,
+        task_id="task-retry",
+    )
+
+    assert persisted is not None
+    status = service.get_backtest_status("run-retry")
+    assert status is not None
+    assert status.status == "retrying"
+    assert status.worker_backend == "celery"
+    assert status.worker_task_id == "task-retry"
+    assert status.retry_count == 2
+    assert status.error_message == "temporarily unavailable"
+    assert status.error_code == "BACKTEST_TRANSIENT_RETRY"
+    assert service.repository.delete_run("run-retry")
 
 
 def test_pair_markets_from_request_preserves_explicit_selected_pairs_labels():
@@ -788,7 +1009,7 @@ def test_backtest_watchdog_keeps_heartbeat_alive_during_blocking_phase(monkeypat
 
     service = BacktestService(session=None)
     observed_statuses: list[str] = []
-    stop_polling = asyncio.Event()
+    stop_polling = threading.Event()
 
     def _poll_status(run_id: str) -> None:
         while not stop_polling.is_set():
@@ -802,16 +1023,22 @@ def test_backtest_watchdog_keeps_heartbeat_alive_during_blocking_phase(monkeypat
             _request(max_pairs=1, stats_window=8).model_dump()
         )
 
-        poller = asyncio.get_running_loop().run_in_executor(
-            None, _poll_status, created.run_id
+        poller = threading.Thread(
+            target=_poll_status,
+            args=(created.run_id,),
+            daemon=True,
         )
+        poller.start()
 
-        terminal = await _wait_for_terminal_status(
-            service, created.run_id, timeout_seconds=3.0
-        )
-        stop_polling.set()
-        await poller
+        try:
+            terminal = await _wait_for_terminal_status(
+                service, created.run_id, timeout_seconds=3.0
+            )
+        finally:
+            stop_polling.set()
+            poller.join(timeout=2.0)
 
+        assert not poller.is_alive()
         assert terminal == "completed"
         assert "stale" not in observed_statuses
 

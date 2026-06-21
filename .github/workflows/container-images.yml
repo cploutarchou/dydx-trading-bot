@@ -1,118 +1,177 @@
 name: Build Service Images
 
 on:
-  push:
-    branches:
-      - master
-      - main
-  pull_request:
-    branches:
-      - master
-      - main
-  workflow_dispatch:
+    push:
+        branches:
+            - master
+            - main
+        paths:
+            - "docker/**"
+            - "bot/**"
+            - "backend/**"
+            - "frontend/**"
+            - "docker-compose.infra.yml"
+            - "docker-compose.stack.yml"
+            - ".github/workflows/container-images.yml"
+    pull_request:
+        branches:
+            - master
+            - main
+        paths:
+            - "docker/**"
+            - "bot/**"
+            - "backend/**"
+            - "frontend/**"
+            - "docker-compose.infra.yml"
+            - "docker-compose.stack.yml"
+            - ".github/workflows/container-images.yml"
+    workflow_dispatch:
 
 permissions:
-  contents: read
-  packages: write
+    contents: read
+    packages: write
 
 concurrency:
-  group: container-images-${{ github.ref }}
-  cancel-in-progress: true
+    group: container-images-${{ github.ref }}
+    cancel-in-progress: true
 
 jobs:
-  build-and-publish:
-    name: Build ${{ matrix.service }} image
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - service: api
-            dockerfile: docker/Dockerfile.api
-          - service: worker
-            dockerfile: docker/Dockerfile.worker
-          - service: backend
-            dockerfile: docker/Dockerfile.backend
-          - service: frontend
-            dockerfile: docker/Dockerfile.frontend
+    validate-compose:
+        name: Validate docker-compose files
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+            - name: Validate infra compose syntax
+              run: |
+                  set -euo pipefail
+                  docker compose -f docker-compose.infra.yml config > /dev/null
+                  echo "✓ docker-compose.infra.yml syntax valid"
 
-      - name: Check active database patterns
-        run: python3 scripts/check_no_legacy_database.py
+            - name: Validate stack compose syntax
+              run: |
+                  set -euo pipefail
+                  docker compose -f docker-compose.stack.yml config > /dev/null
+                  echo "✓ docker-compose.stack.yml syntax valid"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+    build-and-publish:
+        name: Build ${{ matrix.service }} image
+        runs-on: ubuntu-latest
+        needs: validate-compose
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - service: api
+                      dockerfile: docker/Dockerfile.api
+                    - service: worker
+                      dockerfile: docker/Dockerfile.worker
+                    - service: backend
+                      dockerfile: docker/Dockerfile.backend
+                    - service: frontend
+                      dockerfile: docker/Dockerfile.frontend
 
-      - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
 
-      - name: Extract image metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/dydx-trading-bot/${{ matrix.service }}
-          tags: |
-            type=sha,format=short
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            - name: Check active database patterns (advisory)
+              id: legacy-db-check
+              continue-on-error: true
+              run: |
+                  set -euo pipefail
+                  python3 scripts/check_no_legacy_database.py --mode postgres
 
-      - name: Build and push image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.service }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+            - name: Summarize legacy DB pattern check
+              if: always()
+              run: |
+                  set -euo pipefail
+                  if [ "${{ steps.legacy-db-check.outcome }}" = "failure" ]; then
+                    echo "⚠️ Legacy database pattern check reported findings (advisory during migration)." >> "$GITHUB_STEP_SUMMARY"
+                  else
+                    echo "✅ Legacy database pattern check passed." >> "$GITHUB_STEP_SUMMARY"
+                  fi
 
-  image-tag-summary:
-    name: Image tag summary
-    runs-on: ubuntu-latest
-    needs: build-and-publish
-    steps:
-      - name: Publish image tag summary
-        env:
-          OWNER: ${{ github.repository_owner }}
-          EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-          SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
+            - name: Enforce no legacy MariaDB patterns in stack/image surfaces
+              run: |
+                  set -euo pipefail
+                  python3 scripts/check_no_legacy_database.py \
+                    --mode mariadb \
+                    --path docker \
+                    --path docker-compose.infra.yml \
+                    --path docker-compose.stack.yml
 
-          short_sha="${SHA:0:7}"
-          image_registry="ghcr.io/${OWNER}/dydx-trading-bot"
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
 
-          {
-            echo "## Container image summary"
-            echo
-            if [[ "${EVENT_NAME}" == "pull_request" ]]; then
-              echo "- Event: pull request (images built but not pushed)"
-            else
-              echo "- Event: ${EVENT_NAME}"
-            fi
-            echo "- Branch: ${REF_NAME}"
-            echo "- Commit: ${SHA}"
-            echo
-            echo "### Recommended deploy env"
-            echo
-            echo "- IMAGE_REGISTRY=${image_registry}"
-            echo "- IMAGE_TAG=${short_sha}"
-            echo
-            echo "### Service images"
-            echo
-            echo "- ${image_registry}/api:${short_sha}"
-            echo "- ${image_registry}/worker:${short_sha}"
-            echo "- ${image_registry}/backend:${short_sha}"
-            echo "- ${image_registry}/frontend:${short_sha}"
-            echo
-            echo "> If this run is on the default branch, the images are also tagged as \`latest\`."
-          } >> "$GITHUB_STEP_SUMMARY"
+            - name: Log in to GitHub Container Registry
+              if: github.event_name != 'pull_request'
+              uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ github.token }}
+
+            - name: Extract image metadata
+              id: meta
+              uses: docker/metadata-action@v5
+              with:
+                  images: ghcr.io/${{ github.repository_owner }}/dydx-trading-bot/${{ matrix.service }}
+                  tags: |
+                      type=sha,format=short
+                      type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+            - name: Build and push image
+              uses: docker/build-push-action@v6
+              with:
+                  context: .
+                  file: ${{ matrix.dockerfile }}
+                  push: ${{ github.event_name != 'pull_request' }}
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  cache-from: type=gha,scope=${{ matrix.service }}
+                  cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+    image-tag-summary:
+        name: Image tag summary
+        runs-on: ubuntu-latest
+        needs: build-and-publish
+        steps:
+            - name: Publish image tag summary
+              env:
+                  OWNER: ${{ github.repository_owner }}
+                  EVENT_NAME: ${{ github.event_name }}
+                  REF_NAME: ${{ github.ref_name }}
+                  SHA: ${{ github.sha }}
+              run: |
+                  set -euo pipefail
+
+                  short_sha="${SHA:0:7}"
+                  image_registry="ghcr.io/${OWNER}/dydx-trading-bot"
+
+                  {
+                    echo "## Container image summary"
+                    echo
+                    if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+                      echo "- Event: pull request (images built but not pushed)"
+                    else
+                      echo "- Event: ${EVENT_NAME}"
+                    fi
+                    echo "- Branch: ${REF_NAME}"
+                    echo "- Commit: ${SHA}"
+                    echo
+                    echo "### Recommended deploy env"
+                    echo
+                    echo "- IMAGE_REGISTRY=${image_registry}"
+                    echo "- IMAGE_TAG=${short_sha}"
+                    echo
+                    echo "### Service images"
+                    echo
+                    echo "- ${image_registry}/api:${short_sha}"
+                    echo "- ${image_registry}/worker:${short_sha}"
+                    echo "- ${image_registry}/backend:${short_sha}"
+                    echo "- ${image_registry}/frontend:${short_sha}"
+                    echo
+                    echo "> If this run is on the default branch, the images are also tagged as \`latest\`."
+                  } >> "$GITHUB_STEP_SUMMARY"

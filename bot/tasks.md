@@ -56,3 +56,32 @@
   - Fixed `src/infrastructure/workers/celery_app.py` to load repo env before resolving Redis/Celery settings.
   - Updated `README.md` with the required startup order (`local-worker` before `local-api`) and the `BACKTEST_TASK_ALWAYS_EAGER=false` caveat for legacy backtest jobs.
 
+## 2026-06-21
+
+- Hardened Celery-backed long-running backtests:
+  - Routed `backtests.run` to the dedicated `backtests` queue and added standard queue defaults: `backtests`, `default`, `high_priority`, `scheduled`.
+  - Made Celery the canonical API startup backend for backtests; `asyncio` now requires an explicit `BACKTEST_WORKER_BACKEND=asyncio` override.
+  - Removed silent in-process fallback when Celery enqueue fails; failed dispatch now persists failure status, reason, and task failure metadata.
+  - Added retry visibility for transient Celery backtest failures via persisted `retrying` status, retry count, failure reason, and Celery `RETRY` metadata.
+  - Added Redis-backed duplicate-run locking for horizontal workers when Redis is configured.
+  - Made Celery Beat market sync opt-in through `MARKET_SYNC_ENABLED=true`.
+  - Updated local worker defaults and README worker scaling/status guidance.
+
+- Canonicalized API startup paths and began wrapper deprecation cycle:
+  - Updated local/dev tooling to run `src/api/start_api.py` directly (`Makefile`, `run_api.sh`, `.vscode/launch.json`, migration helper messaging).
+  - Kept `app.py` and `start_api.py` as compatibility wrappers and added visible runtime deprecation warnings.
+  - Added wrapper-removal criteria: only remove after one full release cycle with zero references in scripts/docs/CI and no observed runtime usage.
+
+- Wrapper-removal readiness audit (`app.py`, `start_api.py`): **NOT READY**
+  - Active contract blockers still reference wrappers:
+    - `AGENTS.md`
+    - `.github/agents/senior-python-defi-runtime.agent.md`
+    - `README.md`
+    - `docs/BOT_FLOWS.md`
+  - Current decision: keep wrappers for compatibility and remove only after a breaking-change window that updates those contracts.
+
+- Breaking-change entrypoint cleanup completed:
+  - Updated contract/docs references to canonical API paths (`src/api/server.py`, `src/api/start_api.py`).
+  - Removed legacy wrapper files `app.py` and `start_api.py`.
+  - Re-ran targeted startup/lifecycle validation after removal.
+

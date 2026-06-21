@@ -25,19 +25,34 @@ DEV_REDIS_PORT ?= 6379
 help: ## Show this help message
 	@echo "dYdX Trading Bot - Available Commands:"
 	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "🚀 QUICK START - Choose Your Workflow:"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+	@echo "OPTION 1️⃣  Infrastructure Only (Recommended for Service Development)"
+	@echo "  └─ Fast, hot-reload friendly, low resource usage"
+	@echo "  1. make config-keygen"
+	@echo "  2. make dev-config"
+	@echo "  3. make dev"
+	@echo "  4. make infra-up       # Start MariaDB + Redis"
+	@echo "  5. cd <service> && npm run dev  OR  cd backend && make run  OR  cd bot && make api-run"
+	@echo "  6. make infra-down     # Stop infrastructure when done"
+	@echo ""
+	@echo "OPTION 2️⃣  Full Stack (Production-like Integration Testing)"
+	@echo "  └─ Complete platform in Docker, end-to-end testing"
+	@echo "  1. make config-keygen"
+	@echo "  2. make dev-config"
+	@echo "  3. make dev"
+	@echo "  4. make stack-up-dev   # Start all services + infrastructure"
+	@echo "  5. make stack-ps       # Check service status"
+	@echo "  6. make stack-logs     # Follow logs"
+	@echo "  7. make stack-down     # Stop all services when done"
+	@echo ""
+	@echo "📖 Full guide: see LOCAL_SETUP_GUIDE.md"
+	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
-	@echo ""
-	@echo "Daily service-first quick start:"
-	@echo "  1. make config-keygen   # Create .configkey.bin and print the shareable token"
-	@echo "  2. make dev-config      # Edit the encrypted development profile"
-	@echo "  3. make dev             # Decrypt development profile into run.json"
-	@echo "  4. make infra-up        # Start shared mariadb + redis only"
-	@echo "  5. Start your service from its own workspace/devcontainer"
-	@echo ""
-	@echo "Integration quick start:"
-	@echo "  1. make stack-up-dev    # Start frontend + api + worker + db + redis"
-	@echo "  2. make stack-ps        # Check service status"
-	@echo "  3. make stack-logs      # Follow logs"
 	@echo ""
 
 # ============================================================================
@@ -122,6 +137,9 @@ test: ## Run pytest suite (tests/ directory only)
 docs-governance: ## Validate canonical docs links and archival policy
 	python3 scripts/validate_docs_governance.py
 
+validate-k8s-secrets: ## Fail when tracked k8s YAML contains plaintext secret values
+	python3 scripts/check_no_plaintext_k8s_secrets.py
+
 lint: ## Check code with flake8 and pylint
 	.venv/bin/flake8 bot/src tests scripts --max-line-length=120 --exclude=__pycache__
 	.venv/bin/pylint bot/src --disable=C0111,W0212 || true
@@ -154,7 +172,7 @@ worker-run: ## Deprecated alias (kept for compatibility)
 	@$(MAKE) api-run
 
 celery-worker: ## Start Celery worker for durable backtests
-	cd bot && .venv/bin/celery -A src.infrastructure.workers.celery_app:celery_app worker --loglevel=$${CELERY_LOG_LEVEL:-INFO} --queues=$${CELERY_QUEUES:-celery} --concurrency=$${CELERY_CONCURRENCY:-1}
+	cd bot && .venv/bin/celery -A src.infrastructure.workers.celery_app:celery_app worker --loglevel=$${CELERY_LOG_LEVEL:-INFO} --queues=$${CELERY_QUEUES:-backtests,default,high_priority,scheduled} --concurrency=$${CELERY_CONCURRENCY:-1}
 
 celery-flower: ## Start internal/admin-only Flower UI on port 5555
 	scripts/celery-flower.sh
@@ -441,7 +459,7 @@ db-down: ## Stop backend DB services (mariadb + redis) via Docker Compose
 		exit 0; \
 	fi
 
-infra-up: ## Start shared infra only (mariadb + redis) for local service development
+infra-up: ## Start shared infra only (PostgreSQL, Valkey, NATS, ClickHouse, MinIO) for local service development
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		if [ ! -f "$(INFRA_COMPOSE_FILE)" ]; then \
 			echo "❌ Missing $(INFRA_COMPOSE_FILE)."; \
@@ -449,30 +467,39 @@ infra-up: ## Start shared infra only (mariadb + redis) for local service develop
 			exit 1; \
 		fi; \
 		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE) up -d --remove-orphans; \
-		echo "✅ Infra started (mariadb:3306, redis:6379)"; \
+		echo ""; \
+		echo "✅ Infrastructure started:"; \
+		echo "   PostgreSQL:       localhost:5432"; \
+		echo "   Valkey (Redis):   localhost:6379"; \
+		echo "   NATS JetStream:   localhost:4222 (monitoring: 8222)"; \
+		echo "   ClickHouse:       localhost:8123"; \
+		echo "   MinIO API:        localhost:9010"; \
+		echo "   MinIO Console:    http://localhost:9011"; \
+		echo ""; \
+		echo "Services will auto-discover these via environment variables."; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot start infra"; \
 		exit 0; \
 	fi
 
-infra-down: ## Stop shared infra only (mariadb + redis)
+infra-down: ## Stop shared infra only (PostgreSQL, Valkey, NATS, ClickHouse, MinIO)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		if [ ! -f "$(INFRA_COMPOSE_FILE)" ]; then \
 			echo "❌ Missing $(INFRA_COMPOSE_FILE). Nothing to stop via infra commands."; \
 			exit 1; \
 		fi; \
 		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE) down --remove-orphans; \
-		echo "✅ Infra stopped"; \
+		echo "✅ Infrastructure stopped"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot stop infra"; \
 		exit 0; \
 	fi
 
-infra-logs: ## Follow logs for shared infra services (mariadb + redis)
+infra-logs: ## Follow logs for shared infra services (PostgreSQL, Valkey, NATS, ClickHouse, MinIO)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		if [ ! -f "$(INFRA_COMPOSE_FILE)" ]; then \
 			echo "❌ Missing $(INFRA_COMPOSE_FILE)."; \
-			echo "   Tip: use docker logs for dev-infra containers ($(DEV_MARIADB_CONTAINER), $(DEV_BOT_MARIADB_CONTAINER), $(DEV_REDIS_CONTAINER))."; \
+			echo "   Tip: use docker logs for containers (dydx-postgresql, dydx-valkey, dydx-nats, dydx-clickhouse, dydx-minio)."; \
 			exit 1; \
 		fi; \
 		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE) logs -f --tail=100; \
@@ -481,11 +508,11 @@ infra-logs: ## Follow logs for shared infra services (mariadb + redis)
 		exit 0; \
 	fi
 
-infra-ps: ## Show status for shared infra services (mariadb + redis)
+infra-ps: ## Show status for shared infra services (PostgreSQL, Valkey, NATS, ClickHouse, MinIO)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		if [ ! -f "$(INFRA_COMPOSE_FILE)" ]; then \
 			echo "❌ Missing $(INFRA_COMPOSE_FILE)."; \
-			echo "   Tip: use make dev-infra and inspect with docker ps | grep dydx-dev-."; \
+			echo "   Tip: use make dev-infra and inspect with docker ps | grep dydx-."; \
 			exit 1; \
 		fi; \
 		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE) ps; \

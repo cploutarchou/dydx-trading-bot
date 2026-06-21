@@ -39,11 +39,11 @@ class BotRepository:
         self.session.commit()
         return bot
 
-    def get_by_instance_id(self, instance_id: str) -> Optional[Bot]:
+    def get_by_instance_id(self, instance_id: str) -> type[Bot] | None:
         """Get bot by instance ID"""
         return self.session.query(Bot).filter(Bot.instance_id == instance_id).first()
 
-    def get_all(self) -> List[Bot]:
+    def get_all(self) -> list[type[Bot]]:
         """Get all bots"""
         return self.session.query(Bot).all()
 
@@ -119,15 +119,15 @@ class JobRepository:
         self.session.commit()
         return job
 
-    def get_by_job_id(self, job_id: str) -> Optional[Job]:
+    def get_by_job_id(self, job_id: str) -> type[Job] | None:
         """Get job by job ID"""
         return self.session.query(Job).filter(Job.job_id == job_id).first()
 
-    def get_by_id(self, job_id: int) -> Optional[Job]:
-        """Get job by ID"""
+    def get_by_id(self, job_id: int) -> type[Job] | None:
+        """Get a job by ID"""
         return self.session.query(Job).filter(Job.id == job_id).first()
 
-    def get_by_bot_id(self, bot_id: int) -> List[Job]:
+    def get_by_bot_id(self, bot_id: int) -> list[type[Job]]:
         """Get all jobs for a bot"""
         return self.session.query(Job).filter(Job.bot_id == bot_id).all()
 
@@ -203,7 +203,7 @@ class JobRepository:
             job.updated_at = utc_now()
             self.session.commit()
 
-    def get_job_history(self, bot_id: int, days: int = 7) -> List[Job]:
+    def get_job_history(self, bot_id: int, days: int = 7) -> list[type[Job]]:
         """Get job history for a bot within the last N days"""
         cutoff_date = utc_now() - timedelta(days=days)
         return (
@@ -290,15 +290,15 @@ class TradeRepository:
         self.session.commit()
         return trade
 
-    def get_by_position_id(self, position_id: str) -> Optional[Trade]:
+    def get_by_position_id(self, position_id: str) -> type[Trade] | None:
         """Get trade by position ID"""
         return self.session.query(Trade).filter(Trade.trade_id == position_id).first()
 
-    def get_by_bot_id(self, bot_id: int) -> List[Trade]:
+    def get_by_bot_id(self, bot_id: int) -> list[type[Trade]]:
         """Get all trades for a bot"""
         return self.session.query(Trade).filter(Trade.bot_id == bot_id).all()
 
-    def get_bot_trades(self, bot_id: int) -> List[Trade]:
+    def get_bot_trades(self, bot_id: int) -> list[type[Trade]]:
         """Alias for get_by_bot_id"""
         return self.get_by_bot_id(bot_id)
 
@@ -421,7 +421,7 @@ class EventRepository:
         self.session.commit()
         return event
 
-    def get_bot_events(self, bot_instance_id: int, days: int = 7) -> List[Event]:
+    def get_bot_events(self, bot_instance_id: int, days: int = 7) -> list[type[Event]]:
         """Get events for a bot within the last N days"""
         cutoff_date = utc_now() - timedelta(days=days)
         return (
@@ -434,7 +434,7 @@ class EventRepository:
             .all()
         )
 
-    def get_all_events(self, days: int = 7) -> List[Event]:
+    def get_all_events(self, days: int = 7) -> list[type[Event]]:
         """Get all events within the last N days"""
         cutoff_date = utc_now() - timedelta(days=days)
         return (

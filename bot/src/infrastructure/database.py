@@ -1,10 +1,10 @@
-"""Database configuration and connection management for MariaDB."""
+"""Database configuration and connection management for MariaDB/PostgreSQL."""
 
 import os
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from alembic import command
 from alembic.config import Config
@@ -18,10 +18,26 @@ from sqlalchemy.pool import QueuePool
 class DatabaseConfig:
     """Database configuration manager"""
 
+    _SUPPORTED_DB_TYPES = {"mysql", "mariadb", "postgres", "postgresql"}
+    _SUPPORTED_URL_SCHEMES = {
+        "mysql://",
+        "mysql+pymysql://",
+        "mysql+asyncmy://",
+        "mariadb://",
+        "mariadb+pymysql://",
+        "mariadb+asyncmy://",
+        "postgres://",
+        "postgresql://",
+        "postgresql+psycopg://",
+        "postgresql+psycopg2://",
+    }
+
     @staticmethod
     def _env(name: str, fallback: str = "") -> str:
         value = os.getenv(name)
-        return value if value not in (None, "") else fallback
+        if value in (None, ""):
+            return fallback
+        return str(value)
 
     @staticmethod
     def _env_int(name: str, default: int) -> int:
@@ -29,7 +45,8 @@ class DatabaseConfig:
         if value in (None, ""):
             return default
         try:
-            return int(value)
+            value_str = str(value)
+            return int(value_str)
         except ValueError:
             return default
 
@@ -54,17 +71,7 @@ class DatabaseConfig:
                 "shared, dedicated, dedicated_with_shared_fallback"
             )
 
-        raw_db_type = (
-            self._env("BOT_DB_TYPE", self._env("DB_TYPE", "mysql")).strip().lower()
-        )
-        legacy_types = {"post" + "gres", "post" + "gresql"}
-        if raw_db_type in legacy_types:
-            raise ValueError("Legacy database type is unsupported; use MariaDB.")
-        if raw_db_type not in {"mysql", "mariadb"}:
-            raise ValueError(
-                f"Unsupported DB_TYPE '{raw_db_type}'. Supported: mysql, mariadb."
-            )
-        self.db_type = raw_db_type
+        self.db_type = self._resolve_db_type()
         self.connection_source = "constructed_fields"
         self.field_source = "shared_db_fields"
         self.database_url = self._resolve_database_url()
@@ -86,32 +93,102 @@ class DatabaseConfig:
         self.ssl_mode = self._env_bool("SSL_MODE", default=False)
 
     @staticmethod
-    def _fields_from_url(raw_url: str) -> Optional[tuple[str, str, str, str, str]]:
-        normalized = DatabaseConfig._normalize_database_url(raw_url)
+    def _normalize_db_type(db_type: str) -> str:
+        value = (db_type or "").strip().lower()
+        if value in {"mysql", "mariadb"}:
+            return "mysql"
+        if value in {"postgres", "postgresql"}:
+            return "postgres"
+        if value:
+            raise ValueError(
+                f"Unsupported DB_TYPE '{value}'. Supported: mysql, mariadb, postgres, postgresql."
+            )
+        return "mysql"
+
+    def _resolve_db_type(self) -> str:
+        bot_type_raw = self._env("BOT_DB_TYPE", "")
+        shared_type_raw = self._env("DB_TYPE", "")
+
+        bot_type = self._normalize_db_type(bot_type_raw) if bot_type_raw else ""
+        shared_type = (
+            self._normalize_db_type(shared_type_raw) if shared_type_raw else ""
+        )
+
+        if bot_type and shared_type and bot_type != shared_type:
+            if self.cutover_mode == "shared":
+                raise ValueError(
+                    "Conflicting BOT_DB_TYPE and DB_TYPE values are not allowed; use a single database mode"
+                )
+            # Dedicated bot modes may intentionally diverge from shared DB settings.
+            shared_type = ""
+
+        explicit_type = bot_type or shared_type
+
+        inferred_types = {
+            self._url_db_type(self._env("BOT_DATABASE_URL", "")),
+            self._url_db_type(self._env("DATABASE_URL", "")),
+        }
+        inferred_types.discard(None)
+        if len(inferred_types) > 1:
+            raise ValueError(
+                "Mixed database URL modes are not supported; BOT_DATABASE_URL and DATABASE_URL must use the same family"
+            )
+
+        inferred_type = next(iter(inferred_types), None)
+        if explicit_type and inferred_type and explicit_type != inferred_type:
+            raise ValueError(
+                "Conflicting DB_TYPE and database URL schemes are not allowed"
+            )
+
+        return explicit_type or inferred_type or "mysql"
+
+    @staticmethod
+    def _url_db_type(raw_url: str) -> Optional[str]:
+        candidate = (raw_url or "").strip().lower()
+        if not candidate:
+            return None
+        if candidate.startswith(("postgres://", "postgresql://", "postgresql+")):
+            return "postgres"
+        if candidate.startswith(
+            (
+                "mysql://",
+                "mysql+pymysql://",
+                "mysql+asyncmy://",
+                "mariadb://",
+                "mariadb+pymysql://",
+                "mariadb+asyncmy://",
+            )
+        ):
+            return "mysql"
+        raise ValueError(f"Unsupported database URL scheme: {raw_url}")
+
+    def _fields_from_url(
+        self, raw_url: str
+    ) -> Optional[tuple[str, str, str, str, str]]:
+        normalized = self._normalize_database_url(raw_url)
         if not normalized:
             return None
         parsed = urlparse(normalized)
         db_name = parsed.path.lstrip("/") or "dydx_bot"
         host = parsed.hostname or "localhost"
-        port = str(parsed.port or 3306)
+        port = str(
+            parsed.port
+            or (5432 if self._url_db_type(normalized) == "postgres" else 3306)
+        )
         user = parsed.username or "app"
         password = parsed.password or ""
         return db_name, host, port, user, password
 
-    @staticmethod
-    def _normalize_database_url(raw_url: str) -> str:
-        """Normalize a MariaDB/MySQL URL for SQLAlchemy."""
+    def _normalize_database_url(self, raw_url: str) -> str:
+        """Normalize a MariaDB/MySQL or PostgreSQL URL for SQLAlchemy."""
         candidate = (raw_url or "").strip()
         if not candidate:
             return ""
         lowered = candidate.lower()
-        legacy_prefixes = (
-            "post" + "gresql://",
-            "post" + "gresql+",
-            "post" + "gres://",
-        )
-        if lowered.startswith(legacy_prefixes):
-            raise ValueError("Legacy database URLs are unsupported; use MariaDB.")
+        if lowered.startswith(("postgres://", "postgresql://")):
+            return "postgresql+psycopg2://" + candidate.split("://", 1)[1]
+        if lowered.startswith(("postgresql+psycopg://", "postgresql+psycopg2://")):
+            return candidate
         if lowered.startswith("mysql+pymysql://"):
             return candidate
         if lowered.startswith("mysql+asyncmy://"):
@@ -126,12 +203,27 @@ class DatabaseConfig:
             return "mysql+pymysql://" + candidate[len("mariadb+asyncmy://") :]
         if lowered.startswith("mariadb://"):
             return "mysql+pymysql://" + candidate[len("mariadb://") :]
-        raise ValueError("Unsupported database URL scheme. Supported: mysql, mariadb.")
+        raise ValueError(
+            "Unsupported database URL scheme. Supported: mysql, mariadb, postgres, postgresql."
+        )
+
+    def _validate_url_type(self, raw_url: str, url_name: str) -> None:
+        url_type = self._url_db_type(raw_url)
+        if url_type and url_type != self.db_type:
+            raise ValueError(
+                f"{url_name} uses {url_type} but the resolved DB type is {self.db_type}"
+            )
 
     def _resolve_database_url(self) -> str:
         """Resolve optional explicit database URL with cutover-mode behavior."""
-        bot_url = self._normalize_database_url(os.getenv("BOT_DATABASE_URL", ""))
-        shared_url = self._normalize_database_url(os.getenv("DATABASE_URL", ""))
+        bot_raw = os.getenv("BOT_DATABASE_URL", "")
+        shared_raw = os.getenv("DATABASE_URL", "")
+
+        self._validate_url_type(bot_raw, "BOT_DATABASE_URL")
+        self._validate_url_type(shared_raw, "DATABASE_URL")
+
+        bot_url = self._normalize_database_url(bot_raw)
+        shared_url = self._normalize_database_url(shared_raw)
 
         if self.cutover_mode == "shared":
             if shared_url:
@@ -160,9 +252,9 @@ class DatabaseConfig:
 
     def _resolve_db_fields(self) -> tuple[str, str, str, str, str]:
         """Resolve host/port/name/user/password based on cutover mode."""
-        default_port = "3306"
+        default_port = "5432" if self.db_type == "postgres" else "3306"
         default_user = "app"
-        
+
         if self.cutover_mode == "shared":
             self.field_source = "shared_db_fields"
             shared_url = self._normalize_database_url(os.getenv("DATABASE_URL", ""))
@@ -318,9 +410,23 @@ class DatabaseConfig:
         """Generate database connection string"""
         if self.database_url:
             return self.database_url
-        
-        driver = "mysql+pymysql"
-        
+
+        if self.db_type == "postgres":
+            driver = "postgresql+psycopg2"
+            query = urlencode(
+                {
+                    "sslmode": "require" if self.ssl_mode else "disable",
+                    "connect_timeout": self.timeout_seconds,
+                    "options": "-c timezone=UTC",
+                }
+            )
+            return (
+                f"{driver}://{self.db_user}:{self.db_password}"
+                f"@{self.db_host}:{self.db_port}/{self.db_name}?{query}"
+            )
+        else:
+            driver = "mysql+pymysql"
+
         return (
             f"{driver}://{self.db_user}:{self.db_password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
@@ -328,17 +434,18 @@ class DatabaseConfig:
 
     def get_engine_kwargs(self) -> dict:
         """Get SQLAlchemy engine kwargs based on database type."""
-        connect_args = {
+        connect_args: dict[str, object] = {
             "connect_timeout": self.timeout_seconds,
         }
-        
-        connect_args.update({
-            "charset": "utf8mb4",
-            "autocommit": False,
-            "read_timeout": self.timeout_seconds,
-            "write_timeout": self.timeout_seconds,
-        })
-        
+
+        if self.db_type == "postgres":
+            connect_args["options"] = "-c timezone=UTC"
+        else:
+            connect_args["charset"] = "utf8mb4"
+            connect_args["autocommit"] = False
+            connect_args["read_timeout"] = self.timeout_seconds
+            connect_args["write_timeout"] = self.timeout_seconds
+
         return {
             "echo": self.echo_sql,
             "future": True,
@@ -474,7 +581,7 @@ class DatabaseManager:
                 logger.info(
                     "Applying compatibility fix: normalizing bot_instances.status values"
                 )
-                
+
                 connection.execute(text("""
                         UPDATE bot_instances
                         SET status = CASE UPPER(status)
@@ -556,7 +663,9 @@ class DatabaseManager:
                     logger.info(
                         "Applying compatibility fix: allowing jobs.bot_id to be nullable"
                     )
-                    connection.execute(text("ALTER TABLE jobs MODIFY COLUMN bot_id INTEGER NULL"))
+                    connection.execute(
+                        text("ALTER TABLE jobs MODIFY COLUMN bot_id INTEGER NULL")
+                    )
 
             if inspector.has_table("backtest_runtime_runs"):
                 run_columns = {
@@ -630,7 +739,7 @@ class DatabaseManager:
 
     def _build_alembic_config(self) -> Optional[Config]:
         config = DatabaseConfig()
-        alembic_path = Path(__file__).resolve().parents[2] / "alembic.ini"
+        alembic_path = Path(__file__).resolve().parents[1] / "alembic.ini"
         if not alembic_path.exists():
             logger.warning(
                 "Alembic config not found at {}; skipping migrations", alembic_path
@@ -746,9 +855,10 @@ def init_db():
     logger.info("Database initialized successfully")
 
     # --- Admin user seeding logic ---
-    from src.infrastructure.domain.models.auth_models import User
-    from src.api.auth_utils import PasswordUtils
     import os
+
+    from src.api.auth_utils import PasswordUtils
+    from src.infrastructure.domain.models.auth_models import User
     from src.shared.time_utils import utc_now
 
     admin_username = os.getenv("BOOTSTRAP_ADMIN_USERNAME", "admin").strip() or "admin"

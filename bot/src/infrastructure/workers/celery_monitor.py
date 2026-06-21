@@ -40,6 +40,7 @@ SENSITIVE_KEY_PARTS = (
 TERMINAL_STATES = {states.SUCCESS, states.FAILURE, states.REVOKED}
 TASK_CONTEXT_KEY = "_task_context"
 TASK_FAILURE_KEY = "_task_failure"
+DEFAULT_CELERY_QUEUES = ("backtests", "default", "high_priority", "scheduled")
 _MONITOR_CACHE: Dict[str, Dict[str, Any]] = {}
 _MONITOR_CACHE_LOCK = threading.Lock()
 _T = TypeVar("_T")
@@ -112,6 +113,21 @@ def celery_state_from_backtest(status: Any) -> str:
     if normalized in {"retry", "retrying"}:
         return states.RETRY
     return states.PENDING
+
+
+def normalized_task_status(status: Any) -> str:
+    normalized = str(status or "").strip().upper()
+    if normalized in {states.SUCCESS, "COMPLETED", "SUCCEEDED", "DONE"}:
+        return "success"
+    if normalized in {states.FAILURE, "FAILED", "ERROR", "TIMEOUT", "TIMED_OUT"}:
+        return "failed"
+    if normalized in {states.RETRY, "RETRYING", "RETRY"}:
+        return "retrying"
+    if normalized in {states.STARTED, "RUNNING", "ACTIVE", "PROCESSING"}:
+        return "running"
+    if normalized in {states.REVOKED, "CANCELLED", "CANCELED"}:
+        return "cancelled"
+    return "pending"
 
 
 def _is_sensitive_key(key: Any) -> bool:
@@ -279,8 +295,12 @@ def _task_from_backtest(
     return {
         "task_id": task_id,
         "task_name": "backtests.run",
-        "queue": result_meta.get("queue") or run.get("queue") or "celery",
+        "queue": result_meta.get("queue")
+        or run.get("queue")
+        or task_context.get("queue")
+        or "backtests",
         "status": status,
+        "normalized_status": normalized_task_status(status),
         "created_at": run.get("created_at"),
         "started_at": started_at,
         "finished_at": finished_at,
@@ -341,14 +361,7 @@ def _load_backtest_runs() -> List[Dict[str, Any]]:
     session = db.get_session()
     try:
         repository = BacktestRepository(session)
-        summaries = repository.list_runs(limit=None, offset=0)
-        runs: List[Dict[str, Any]] = []
-        for summary in summaries:
-            run_id = str(summary.get("run_id") or "").strip()
-            if not run_id:
-                continue
-            runs.append(repository.get_run(run_id) or summary)
-        return runs
+        return repository.list_run_overviews(limit=None, offset=0)
     finally:
         session.close()
 
@@ -407,6 +420,7 @@ def _flatten_worker_tasks(
                         else None
                     ),
                     "status": state_name,
+                    "normalized_status": normalized_task_status(state_name),
                     "worker_hostname": worker,
                     "created_at": None,
                     "started_at": None,
@@ -513,6 +527,7 @@ def get_celery_task(task_id: str) -> Optional[Dict[str, Any]]:
         "task_name": None,
         "queue": None,
         "status": result.state,
+        "normalized_status": normalized_task_status(result.state),
         "created_at": None,
         "started_at": None,
         "finished_at": None,
@@ -614,7 +629,9 @@ def list_celery_queues() -> Dict[str, Any]:
     def _build_queues() -> Dict[str, Any]:
         queues = [
             queue.strip()
-            for queue in os.getenv("CELERY_QUEUES", "celery").split(",")
+            for queue in os.getenv(
+                "CELERY_QUEUES", ",".join(DEFAULT_CELERY_QUEUES)
+            ).split(",")
             if queue.strip()
         ]
         payload = [{"name": queue, "length": None} for queue in queues]
@@ -699,6 +716,7 @@ def failure_meta(
         "task_id": task_id,
         "task_name": "backtests.run",
         "status": states.FAILURE,
+        "normalized_status": "failed",
         "backtest_run_id": run_id,
         "error_code": error_code,
         "error_message": str(exc) or exc.__class__.__name__,

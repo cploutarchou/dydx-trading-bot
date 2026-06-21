@@ -70,8 +70,8 @@ const PRESETS = {
   },
 };
 
-const MAX_SELECTED_MARKETS = 50;
-const DEFAULT_AUTO_SELECTED_MARKETS = 20;
+const MAX_SELECTED_MARKETS = 150;
+const DEFAULT_AUTO_SELECTED_MARKETS = 35;
 const MAX_BACKTEST_RUNS_FOR_FILTERS = 120;
 const TRADE_FETCH_BATCH_SIZE = 6;
 const MARKET_STATS_CACHE_TTL_MS = 90_000;
@@ -1258,7 +1258,7 @@ export default function StrategyBuilder() {
             <div>
               <label className={fieldLabelClass}>dYdX Market Universe</label>
               <p className={helperTextClass}>
-                Choose 2-50 markets to constrain live pair discovery and strategy backtests.
+                Choose 2-150 markets to constrain live pair discovery and strategy backtests.
               </p>
             </div>
             <Controller
@@ -1298,7 +1298,7 @@ export default function StrategyBuilder() {
                         className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300 transition hover:border-cyan-500/60 hover:text-cyan-100"
                         aria-label="Reset auto-select market limit to default"
                       >
-                        Reset 20
+                        Reset 35
                       </button>
                     </label>
                     <select

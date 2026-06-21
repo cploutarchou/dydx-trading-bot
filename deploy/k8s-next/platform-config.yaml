@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-config
+data:
+  APP_ENV: production
+  LOG_LEVEL: info
+  FRONTEND_PUBLIC_ORIGIN: https://app.example.com
+  BACKEND_PUBLIC_ORIGIN: https://api.example.com
+  BACKEND_BASE_URL: http://backend:8888
+  BOT_API_BASE_URL: http://bot-api:8889
+  DB_TYPE: postgres
+  BOT_DB_TYPE: postgres
+  DATABASE_SERVICE_HOST: pgbouncer
+  DATABASE_SERVICE_PORT: "6432"
+  DATABASE_NAME: dydx_platform
+  BOT_DATABASE_NAME: dydx_bot
+  POSTGRES_SERVICE_HOST: postgresql
+  POSTGRES_SERVICE_PORT: "5432"
+  PGBOUNCER_SERVICE_HOST: pgbouncer
+  PGBOUNCER_SERVICE_PORT: "6432"
+  REDIS_URL: redis://valkey:6379/0
+  VALKEY_URL: redis://valkey:6379/0
+  NATS_URL: nats://nats:4222
+  CLICKHOUSE_URL: http://clickhouse:8123
+  MINIO_ENDPOINT: http://minio:9000
+  BACKTEST_ARTIFACTS_DIR: /var/lib/dydx/backtest-artifacts
+  BACKTEST_MINIO_ENABLED: "false"
+  BACKTEST_CLICKHOUSE_ENABLED: "false"
+  NATS_ENABLED: "false"
+  BOT_COMMAND_BUS_ENABLED: "false"
+  BACKTEST_MINIO_BUCKET: backtests
+  BACKTEST_CLICKHOUSE_DATABASE: default
+  FRONTEND_PORT: "8080"
+  BACKEND_PORT: "8888"
+  BOT_API_PORT: "8889"

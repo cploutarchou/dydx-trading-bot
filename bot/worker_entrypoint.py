@@ -14,6 +14,8 @@ load_repo_env(__file__)
 
 from src.shared.env_loader import load_file_env_values
 
+DEFAULT_CELERY_QUEUES = "backtests,default,high_priority,scheduled"
+
 
 def _sanitize_node_url_env(var_name: str) -> None:
     raw = os.getenv(var_name, "")
@@ -112,7 +114,7 @@ def main() -> int:
             "--loglevel",
             os.getenv("CELERY_LOG_LEVEL", os.getenv("LOG_LEVEL", "INFO")).lower(),
             "--queues",
-            os.getenv("CELERY_QUEUES", "celery"),
+            os.getenv("CELERY_QUEUES", DEFAULT_CELERY_QUEUES),
             "-E",
         ]
         argv.extend(_celery_pool_args())

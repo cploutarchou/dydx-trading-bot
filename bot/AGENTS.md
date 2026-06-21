@@ -6,9 +6,8 @@ Repository-level guidance for coding agents working on this project.
 
 1. Read `../.github/copilot-instructions.md`
 2. Read `.github/copilot-instructions.md`
-3. Read `.github/CUSTOMIZATION_INDEX.md`
-4. Choose task-specific instruction files (see below)
-5. Prefer `.github/agents/senior-python-defi-runtime.agent.md` for bot implementation work
+3. Choose task-specific instruction files (see below)
+4. Prefer `.github/agents/senior-python-defi-runtime.agent.md` for bot implementation work
 
 ## Task-specific instruction files
 
@@ -38,7 +37,7 @@ Repository-level guidance for coding agents working on this project.
 
 1. **Environment load order**
     - Entry points must call `load_repo_env(__file__)` before importing config/constants (see `src/api/server.py`,
-      `src/api/start_api.py`, `app.py`, `start_api.py`, `main.py`, `src/main_instance.py`,
+      `src/api/start_api.py`, `main.py`, `src/main_instance.py`,
       `src/bot_instance_manager.py`).
     - Runtime config is structured (`run.json` or `config/profiles/*`), not `bot/.env`.
 2. **No direct process management outside manager layer**
@@ -55,8 +54,7 @@ Repository-level guidance for coding agents working on this project.
     - If runtime behavior or operations change, update `README.md`, `../docs/OPERATIONS.md`, `openapi.json`, and
       `tasks.md` in the same change.
 8. **Canonical API entrypoints**
-    - Treat `src/api/server.py` as the canonical API; keep `app.py` and `start_api.py` as compatibility wrappers around
-      `src.api.server` / `src.api.start_api`.
+    - Treat `src/api/server.py` as the canonical API app and `src/api/start_api.py` as the canonical launcher.
 9. **API/auth contract stability**
     - Preserve the standardized `api_response(...)` envelope in `src/api/server.py` routes and keep websocket auth
       aligned with `authenticate_bearer_token(...)`.
@@ -67,8 +65,50 @@ Repository-level guidance for coding agents working on this project.
 - Keep overlap support for `BOT_API_TOKEN`, `BOT_API_TOKEN_PREVIOUS`, and `BOT_API_TOKENS`; if changed, update
   `tests/test_auth_middleware_service_token.py`.
 11. **Supervised async background work**
-    - Launch long-running/background tasks via `src/infrastructure/use_cases/async_job_manager.py` so task
-      failures/progress persist to job state and are visible to operators.
+     - Launch long-running/background tasks via `src/infrastructure/use_cases/async_job_manager.py` so task
+       failures/progress persist to job state and are visible to operators.
+
+## Local Development Commands
+
+**API and runtime (use `.venv` interpreter):**
+- `make local-api` — Start canonical API server locally on port 8889 (default: no hot-reload for clean shutdown)
+- `make local-api-reload` — Start API with hot-reload (dev/debug only; use `BOT_API_RELOAD=true`)
+- `make local-bot` — Start bot instance runtime worker locally
+- `make local-worker` — Start Celery worker for backtest tasks (requires Redis broker at `$CELERY_BROKER_URL` or `localhost:6379/0`)
+- `make local-flower` — Start Celery Flower UI locally on port 5555 (requires active worker)
+
+**Important workflow**: When using Celery for backtest execution, start `make local-worker` BEFORE `make local-api` so the API startup probes detect the Celery backend. If worker comes online later, restart the API. For legacy `/api/backtest/jobs` requests, also ensure `BACKTEST_TASK_ALWAYS_EAGER=false` so tasks execute asynchronously instead of inline.
+
+**Testing and validation:**
+- `make test` — Run full pytest suite
+- `make preflight-testnet` — Run testnet preflight checks with production-like simulation
+- `make preflight-testnet-strict` — Run strict preflight (warnings fail; required for release)
+- `make test-execution-safety` — Run regression tests for order execution, emergency cleanup, and position reconciliation
+
+**Docker orchestration:**
+- `make setup` — Initialize development environment
+- `make dev` — Start development environment with Docker (hot reload enabled)
+- `make dev-detached` — Start development environment in background
+
+## Celery and Backtest Patterns
+
+**Backtest job architecture:**
+- Backtest execution is Celery-backed when `make local-worker` is running and available at startup
+- Long-running backtests persist per-job logs to `bot_states/backtest_<run_id>.log` (Loguru handler)
+- Backtest progress is throttled in the database to reduce IO pressure
+- Log retrieval: `GET /api/v1/backtests/{run_id}/logs` returns detailed execution logs
+- Startup recovery modes:
+  - Default (fail-safe): stale backtest rows marked as failed, orphaned live bots marked error
+  - `BACKTEST_AUTO_RECOVERY_MODE=restart`: stale backtests requeued (waits for `BACKTEST_AUTO_RECOVERY_MIN_AGE_SECONDS`)
+  - `BOT_AUTO_RECOVER_LIVE_RUNTIMES=true`: testnet live bots auto-restarted on missing worker
+  - Mainnet auto-restart also requires `BOT_AUTO_RECOVER_LIVE_MAINNET=true`
+- Heartbeat keepalive: active backtests refresh heartbeat to avoid being flagged stale; override with `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS`
+
+**Worker startup and config:**
+- Workers load structured config from `src.infrastructure.workers.celery_app:celery_app`
+- Celery broker/backend configured via `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` environment variables
+- Redis is the standard backend (local default: `redis://localhost:6379/0` for broker, `/1` for results)
+- Flower connects to the same broker/backend and displays worker status only after worker is online
 
 ## Required checks for bot-runtime changes
 
@@ -103,8 +143,12 @@ Repository-level guidance for coding agents working on this project.
 
 ## Latest bot context (2026-06)
 
-- Keep `src/api/server.py` as canonical API entrypoint and preserve compatibility wrappers (`app.py`, `start_api.py`).
+- Keep `src/api/server.py` as canonical API entrypoint and `src/api/start_api.py` as canonical launcher.
 - Preserve backend-facing normalized status/progress fields (and compatibility aliases) used by delegated runtime/backtest contracts.
 - Service-token overlap behavior (`BOT_API_TOKEN`, `BOT_API_TOKEN_PREVIOUS`, `BOT_API_TOKENS`) and readiness semantics remain active contracts with backend delegation.
 - Strategy runtime websocket expectations remain operator-critical: snapshot on connect plus lifecycle/status updates after runtime changes.
 - Use supervised job pattern (`async_job_manager`) for all long-running background work; task state must persist to `jobs` table for operator visibility.
+- **Celery and Flower**: Backtest execution is Celery-backed when Redis is available; `make local-worker` must start before `make local-api`; Flower UI connects to active workers on port 5555.
+- **Backtest logging**: Long-running backtests capture per-job logs to `bot_states/backtest_<run_id>.log`; retrieve via `GET /api/v1/backtests/{run_id}/logs` endpoint; progress reporting is throttled to reduce DB IO pressure.
+- **Runtime config**: Bot instances load config from `bot_instances.config` only (DB-first approach); deprecated `bot_states/config_*.yaml` files are no longer read; use `scripts/migrate_yaml_configs_to_db.py` for one-time migration if needed.
+- **Startup recovery**: Stale backtests and orphaned live bots are reconciled to failed state by default; use `BACKTEST_AUTO_RECOVERY_MODE=restart` and `BOT_AUTO_RECOVER_LIVE_*` flags to enable auto-recovery.

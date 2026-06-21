@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
-API Server Startup Script
+Canonical API process launcher.
+
+Use this module when running the API process directly.
 """
 
 import os
@@ -13,10 +15,14 @@ from src.shared.env_loader import load_repo_env
 load_repo_env(__file__)
 
 
+def _env_bool(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).strip().lower() == "true"
+
+
 def main() -> None:
     host = os.getenv("BOT_API_HOST", "0.0.0.0")
     port = int(os.getenv("BOT_API_PORT", "8889"))
-    reload_enabled = os.getenv("BOT_API_RELOAD", "false").lower() == "true"
+    reload_enabled = _env_bool("BOT_API_RELOAD")
 
     print("🚀 Starting dYdX Trading Bot API Server...")
     print(f"📊 Dashboard will be available at: http://localhost:{port}")

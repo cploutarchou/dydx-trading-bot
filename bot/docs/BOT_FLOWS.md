@@ -10,7 +10,7 @@ The repository includes a `.vscode/` workspace setup for day-to-day bot developm
 
 - `settings.json` points Python tooling at the project `.venv` and enables pytest + analysis defaults.
 - `extensions.json` recommends the core Python, formatter, linting, and Docker extensions.
-- `launch.json` includes debug profiles for the FastAPI API, the local API wrapper, the bot runtime, and compound
+- `launch.json` includes debug profiles for the FastAPI API, the canonical API launcher, the bot runtime, and compound
   API/bot launches.
 - `tasks.json` provides Makefile-backed run/test/preflight tasks plus stop tasks for the long-running local services.
 
@@ -23,7 +23,7 @@ For the smoothest experience, open the repo in VS Code, install the recommended 
 
 | Component | Responsibility | Canonical files |
 | --- | --- | --- |
-| FastAPI control plane | Authenticated HTTP and websocket API, request tracing, readiness, lifecycle orchestration, backtest orchestration | `src/api/server.py`, `src/api/start_api.py`, `app.py`, `start_api.py` |
+| FastAPI control plane | Authenticated HTTP and websocket API, request tracing, readiness, lifecycle orchestration, backtest orchestration | `src/api/server.py`, `src/api/start_api.py` |
 | Bot instance manager | Creates DB-backed instance config records, starts/stops/deletes worker subprocesses, tracks status, persists lifecycle state, monitors dead workers | `src/bot_instance_manager.py` |
 | Worker runtime | Loads per-instance config, connects to dYdX, optionally aborts all positions, optionally scans cointegration pairs, runs the trading loop | `src/main_instance.py`, `worker_entrypoint.py`, `main.py` |
 | Trading runtime | Finds entries, manages exits, tracks open pairs, executes two-leg orders, performs emergency cleanup | `src/trading/position_manager.py`, `src/trading/bot_agent.py`, `src/trading/account_manager.py` |

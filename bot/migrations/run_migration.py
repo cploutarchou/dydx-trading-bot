@@ -51,7 +51,7 @@ def main():
             print("   - BacktestTrade table created/updated")
             print("   - All relationships and indexes configured")
             print("\n🚀 Backtesting API is now ready to use!")
-            print("   Start the API server with: python start_api.py")
+            print("   Start the API server with: python src/api/start_api.py")
             return 0
         else:
             print("❌ Database migration failed!")

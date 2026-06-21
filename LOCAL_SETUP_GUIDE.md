@@ -25,9 +25,9 @@ Infrastructure services are based on the **k3s-next production architecture**, r
 
 - **PostgreSQL** (main database): `localhost:5432`
 - **Valkey** (Redis-compatible cache): `localhost:6379`
-- **NATS JetStream** (event/command bus): `localhost:4222`
+- **NATS JetStream** (event/command bus): `localhost:4222` (monitoring: `8222`)
 - **ClickHouse** (analytics database): `localhost:8123`
-- **MinIO** (object storage): `localhost:9000` (API), `localhost:9001` (console)
+- **MinIO** (object storage): `localhost:9010` (API), `localhost:9011` (console)
 
 ### Start Infrastructure
 
@@ -124,7 +124,7 @@ This starts **all services in isolated containers**:
 - **Valkey**: `localhost:6379`
 - **NATS JetStream**: `localhost:4222`, monitoring: `8222`
 - **ClickHouse**: `localhost:8123`, API: `9000`
-- **MinIO**: `localhost:9000` (API), `localhost:9001` (console)
+- **MinIO**: `localhost:9010` (API), `localhost:9011` (console)
 
 ### Check Status
 
@@ -139,7 +139,7 @@ make stack-logs    # Follow all logs
 Frontend:           http://localhost:5173
 Backend API:        http://localhost:8888
 Bot API:            http://localhost:8889
-MinIO Console:      http://localhost:9001
+MinIO Console:      http://localhost:9011
 NATS Monitoring:    http://localhost:8222
 ```
 
@@ -302,7 +302,7 @@ curl http://localhost:8222/healthz
 
 ```bash
 # MinIO console
-http://localhost:9001
+http://localhost:9011
 # Default credentials: minioadmin / change-me-minio
 
 # Create a test bucket

@@ -12,9 +12,7 @@
 #   - valkey (6379): Redis-compatible cache
 #   - nats (4222): Event/command bus
 #   - clickhouse (8123): Analytics database
-#   - minio (9000): Object storage
-
-version: "3.9"
+#   - minio (9010/9011): Object storage
 
 services:
   # ============================================================================
@@ -121,10 +119,10 @@ services:
       - server
       - /data
       - --console-address
-      - :9001
+      - :9011
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9010:9000"
+      - "9011:9001"
     volumes:
       - minio_data:/data
     healthcheck:

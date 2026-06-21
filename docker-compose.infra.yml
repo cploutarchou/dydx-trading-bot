@@ -8,9 +8,7 @@
 #   - Valkey (6379): Redis-compatible cache/locks/state
 #   - NATS JetStream (4222): Event/command bus
 #   - ClickHouse (8123): Analytics database
-#   - MinIO (9000/9001): Object storage for artifacts
-
-version: "3.9"
+#   - MinIO (9010/9011): Object storage for artifacts
 
 services:
   # ============================================================================
@@ -117,10 +115,10 @@ services:
       - server
       - /data
       - --console-address
-      - :9001
+      - :9011
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9010:9000"
+      - "9011:9001"
     volumes:
       - minio_data:/data
     healthcheck:

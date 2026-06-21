@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +27,11 @@ func resetBacktestRunSyncOutcomeCounters(t *testing.T) {
 // is invalid (null), letting the COALESCE in the SQL preserve the DB value.
 func TestUpsertBacktestRunPreservesErrorMessageWhenPayloadNil(t *testing.T) {
 	db := openBacktestScriptedDB(t, []backtestScriptedStep{
+		{
+			op:            "query",
+			queryContains: "SELECT id FROM backtest_runs",
+			err:           sql.ErrNoRows,
+		},
 		{
 			op:            "exec",
 			queryContains: "INSERT INTO backtest_runs",
@@ -75,6 +81,11 @@ func TestUpsertBacktestRunPreservesErrorMessageWhenPayloadNil(t *testing.T) {
 func TestUpsertBacktestRunUpsertsByRunID(t *testing.T) {
 	db := openBacktestScriptedDB(t, []backtestScriptedStep{
 		{
+			op:            "query",
+			queryContains: "SELECT id FROM backtest_runs",
+			rows:          singleRowRows("id", []driver.Value{1}),
+		},
+		{
 			op:            "exec",
 			queryContains: "INSERT INTO backtest_runs",
 			assertArgs: func(t *testing.T, args []driver.NamedValue) {
@@ -102,6 +113,7 @@ func TestUpsertBacktestRunOutcomeCounters(t *testing.T) {
 	resetBacktestRunSyncOutcomeCounters(t)
 
 	insertDB := openBacktestScriptedDB(t, []backtestScriptedStep{
+		{op: "query", queryContains: "SELECT id FROM backtest_runs", err: sql.ErrNoRows},
 		{op: "exec", queryContains: "INSERT INTO backtest_runs", result: driver.RowsAffected(1)},
 	})
 	defer func() { _ = insertDB.Close() }()
@@ -123,6 +135,7 @@ func TestUpsertBacktestRunOutcomeCounters(t *testing.T) {
 	}
 
 	updateDB := openBacktestScriptedDB(t, []backtestScriptedStep{
+		{op: "query", queryContains: "SELECT id FROM backtest_runs", rows: singleRowRows("id", []driver.Value{1})},
 		{op: "exec", queryContains: "INSERT INTO backtest_runs", result: driver.RowsAffected(0)},
 	})
 	defer func() { _ = updateDB.Close() }()
@@ -150,6 +163,7 @@ type backtestScriptedStep struct {
 	op            string
 	queryContains string
 	assertArgs    func(*testing.T, []driver.NamedValue)
+	rows          driver.Rows
 	result        driver.Result
 	err           error
 }
@@ -232,9 +246,34 @@ func (c *backtestScriptedConn) QueryContext(_ context.Context, query string, arg
 		return nil, nil
 	}
 	step := c.sc.next("query", query, args)
-	if step.result == nil {
+	if step.rows == nil {
 		return nil, step.err
 	}
-	return step.result.(driver.Rows), step.err
+	return step.rows, step.err
 }
 func (c *backtestScriptedConn) CheckNamedValue(*driver.NamedValue) error { return nil }
+
+type singleRowFakeRows struct {
+	cols []string
+	vals []driver.Value
+	done bool
+}
+
+func singleRowRows(column string, values []driver.Value) driver.Rows {
+	return &singleRowFakeRows{cols: []string{column}, vals: values}
+}
+
+func (r *singleRowFakeRows) Columns() []string { return r.cols }
+func (r *singleRowFakeRows) Close() error       { return nil }
+func (r *singleRowFakeRows) Next(dest []driver.Value) error {
+	if r.done {
+		return fmt.Errorf("EOF")
+	}
+	for i := range dest {
+		if i < len(r.vals) {
+			dest[i] = r.vals[i]
+		}
+	}
+	r.done = true
+	return nil
+}

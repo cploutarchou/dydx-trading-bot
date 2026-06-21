@@ -84,7 +84,10 @@ class BacktestRepository:
                 enabled=True,
                 database=cls._env_str("BACKTEST_CLICKHOUSE_DATABASE", "default"),
                 host=cls._env_str("BACKTEST_CLICKHOUSE_HOST", "localhost"),
-                port=int(cls._env_str("BACKTEST_CLICKHOUSE_PORT", "9000")),
+                port=int(cls._env_str("BACKTEST_CLICKHOUSE_PORT", "8123")),
+                username=cls._env_str("BACKTEST_CLICKHOUSE_USER", "default"),
+                password=cls._env_str("BACKTEST_CLICKHOUSE_PASSWORD", ""),
+                secure=cls._env_bool("BACKTEST_CLICKHOUSE_SECURE", False),
             )
         return NoopAnalyticsWriter()
 

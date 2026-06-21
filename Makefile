@@ -122,6 +122,9 @@ test: ## Run pytest suite (tests/ directory only)
 docs-governance: ## Validate canonical docs links and archival policy
 	python3 scripts/validate_docs_governance.py
 
+validate-k8s-secrets: ## Fail when tracked k8s YAML contains plaintext secret values
+	python3 scripts/check_no_plaintext_k8s_secrets.py
+
 lint: ## Check code with flake8 and pylint
 	.venv/bin/flake8 bot/src tests scripts --max-line-length=120 --exclude=__pycache__
 	.venv/bin/pylint bot/src --disable=C0111,W0212 || true

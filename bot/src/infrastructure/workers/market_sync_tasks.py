@@ -143,7 +143,6 @@ async def _sync_market_candles_async() -> Dict[str, Any]:
     synced = 0
     failed = 0
     failures: List[str] = []
-    markets: List[str] = []
     resolution = _sync_resolution()
     ttl_seconds = _sync_ttl_seconds()
     candle_limit = _sync_limit()
@@ -218,7 +217,7 @@ def _run_market_sync() -> Dict[str, Any]:
 
 @celery_app.task(name="bot.sync_market_candles")
 def sync_market_candles() -> Dict[str, Any]:
-    """Sync active market candles to shared Redis cache for runtime reuse."""
+    """Sync active market candles to the shared Redis cache for runtime reuse."""
     if not _enabled():
         return {
             "status": "skipped",

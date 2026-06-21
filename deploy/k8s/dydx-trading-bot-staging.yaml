@@ -583,6 +583,12 @@ spec:
             - configMapRef:
                 name: dydx-config
           env:
+            - name: WORKER_MODE
+              value: celery
+            - name: BACKTEST_WORKER_BACKEND
+              value: celery
+            - name: CELERY_QUEUES
+              value: backtests,default,high_priority,scheduled
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:

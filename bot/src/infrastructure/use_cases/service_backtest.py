@@ -12,6 +12,7 @@ import random
 import threading
 import time
 import traceback as traceback_module
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Awaitable, Dict, List, Optional, cast
 from uuid import uuid4
@@ -33,6 +34,15 @@ from src.infrastructure.use_cases.async_job_manager import async_job_manager
 from src.trading.dydx_client import connect_dydx
 
 logger = logging.getLogger(__name__)
+
+_BACKEND_PROBE_EXECUTOR = ThreadPoolExecutor(
+    max_workers=1,
+    thread_name_prefix="backtest-celery-probe",
+)
+
+
+class BacktestEnqueueError(RuntimeError):
+    """Raised when a backtest cannot be handed off to its configured worker."""
 
 
 def _linregress_slope(x: Any, y: Any) -> float:
@@ -82,6 +92,8 @@ class _BacktestRunStatus(BaseModel):
     error_message: Optional[str] = None
     error_code: Optional[str] = None
     traceback: Optional[str] = None
+    result_location: Optional[str] = None
+    result_summary: Optional[Dict[str, Any]] = None
     strategy_id: Optional[int] = None
     bot_id: Optional[str] = None
     source: Optional[str] = None
@@ -146,6 +158,8 @@ class _BacktestRunDetails(BaseModel):
     error_message: Optional[str] = None
     error_code: Optional[str] = None
     traceback: Optional[str] = None
+    result_location: Optional[str] = None
+    result_summary: Optional[Dict[str, Any]] = None
     strategy_id: Optional[int] = None
     bot_id: Optional[str] = None
     source: Optional[str] = None
@@ -191,7 +205,7 @@ class BacktestService:
         "stale",
         "stalled",
     }
-    _ACTIVE_STATUSES = {"pending", "running", "paused"}
+    _ACTIVE_STATUSES = {"pending", "running", "paused", "retrying"}
     _CONTROL_KEY = "_runtime_control"
     _BASELINE_METRICS: Dict[str, float] = {
         "total_pnl": 48.2,
@@ -201,6 +215,10 @@ class BacktestService:
         "total_trades": 24,
     }
     _INTERRUPTION_ERROR = "Backtest interrupted by API reload or restart"
+    _BACKEND_REPROBE_COOLDOWN_SECONDS = 15.0
+    _backend_reprobe_lock = threading.Lock()
+    _backend_reprobe_last_monotonic = 0.0
+    _backend_reprobe_last_available = False
 
     def __init__(self, session: Any):
         self.repository = (
@@ -236,6 +254,8 @@ class BacktestService:
             "in_progress": "running",
             "processing": "running",
             "active": "running",
+            "started": "running",
+            "retry": "retrying",
             "succeeded": "completed",
             "success": "completed",
             "done": "completed",
@@ -432,6 +452,18 @@ class BacktestService:
                 persisted[key] = run_data[key]
         self._runs[str(persisted["run_id"])] = dict(persisted)
         return dict(persisted)
+
+    def _persist_progress_data(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Persist scalar progress without rewriting accumulated result JSON blobs."""
+        run_id = str(run_data.get("run_id") or "").strip()
+        if not run_id or not self.repository.update_run_progress(run_data):
+            raise RuntimeError(
+                f"Backtest run '{run_id}' is unavailable for progress update"
+            )
+        cached = dict(self._runs.get(run_id) or {})
+        cached.update(run_data)
+        self._runs[run_id] = cached
+        return dict(run_data)
 
     def _update_run_data(self, run_id: str, **updates: Any) -> Optional[Dict[str, Any]]:
         run_data = self._load_run_data(run_id)
@@ -755,6 +787,11 @@ class BacktestService:
         if isinstance(existing_metadata, dict):
             merged_metadata.update(existing_metadata)
         merged_metadata.update(metadata)
+        queue = str(
+            overrides.get("queue")
+            or existing.get("queue")
+            or os.getenv("BACKTEST_CELERY_QUEUE", "backtests")
+        ).strip()
 
         context: Dict[str, Any] = {
             **existing,
@@ -773,6 +810,7 @@ class BacktestService:
             "requested_by_user_id": requested_by_user_id,
             "strategy_name": strategy_name,
             "source_strategy_version": source_strategy_version,
+            "queue": queue or "backtests",
             "payload_hash": payload_hash,
             "metadata": merged_metadata,
         }
@@ -852,7 +890,7 @@ class BacktestService:
 
     def _load_fresh_runtime_control(self, run_id: str) -> Dict[str, Any]:
         try:
-            persisted = self.repository.get_run(run_id)
+            persisted = self.repository.get_run_overview(run_id)
         except Exception:
             persisted = None
         if persisted:
@@ -903,7 +941,27 @@ class BacktestService:
         payload["retry_count"] = task_context.get("retry_count")
         payload["error_code"] = task_failure.get("error_code")
         payload["traceback"] = task_failure.get("traceback")
+        payload["result_location"] = cls._result_location(payload)
+        payload["result_summary"] = cls._result_summary(payload)
         return payload
+
+    @staticmethod
+    def _result_location(payload: Dict[str, Any]) -> str:
+        run_id = str(payload.get("run_id") or "").strip()
+        return f"/api/v1/backtests/{run_id}" if run_id else ""
+
+    @classmethod
+    def _result_summary(cls, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        status = cls._canonical_status(payload.get("status"))
+        if status not in {"completed", "failed", "timeout", "cancelled"}:
+            return None
+        return {
+            "status": status,
+            "total_pnl": cls._safe_float(payload.get("total_pnl"), 0.0),
+            "total_trades": int(payload.get("total_trades") or 0),
+            "win_rate": cls._safe_float(payload.get("win_rate"), 0.0),
+            "sharpe_ratio": cls._safe_float(payload.get("sharpe_ratio"), 0.0),
+        }
 
     @staticmethod
     def _configured_worker_backend() -> str:
@@ -911,6 +969,81 @@ class BacktestService:
         if backend in {"celery", "asyncio"}:
             return backend
         return "asyncio"
+
+    @classmethod
+    def _worker_backend_reprobe_cooldown_seconds(cls) -> float:
+        raw = os.getenv("BACKTEST_WORKER_BACKEND_REPROBE_COOLDOWN_SECONDS")
+        if raw in (None, ""):
+            return float(cls._BACKEND_REPROBE_COOLDOWN_SECONDS)
+        try:
+            return max(0.0, float(raw))
+        except (TypeError, ValueError):
+            return float(cls._BACKEND_REPROBE_COOLDOWN_SECONDS)
+
+    @staticmethod
+    def _probe_celery_worker_available(timeout_seconds: float = 1.5) -> bool:
+        try:
+            from src.infrastructure.workers.celery_app import celery_app
+
+            ping = celery_app.control.ping(timeout=float(timeout_seconds), limit=1)
+            return bool(ping)
+        except Exception:
+            return False
+
+    @classmethod
+    async def _resolve_worker_backend(cls) -> str:
+        backend = cls._configured_worker_backend()
+        if backend == "celery":
+            return "celery"
+
+        auto_reprobe = cls._coerce_bool(
+            os.getenv("BACKTEST_WORKER_BACKEND_AUTO_REPROBE", "true"),
+            default=True,
+        )
+        if not auto_reprobe:
+            return backend
+
+        now_monotonic = time.monotonic()
+        cooldown_seconds = cls._worker_backend_reprobe_cooldown_seconds()
+        with cls._backend_reprobe_lock:
+            last_probe = float(cls._backend_reprobe_last_monotonic)
+            if now_monotonic - last_probe < cooldown_seconds:
+                return "celery" if cls._backend_reprobe_last_available else backend
+            cls._backend_reprobe_last_monotonic = now_monotonic
+
+        celery_available = False
+        try:
+            probe_timeout = 2.5
+            celery_available = bool(
+                await asyncio.wait_for(
+                    asyncio.get_running_loop().run_in_executor(
+                        _BACKEND_PROBE_EXECUTOR,
+                        cls._probe_celery_worker_available,
+                    ),
+                    timeout=probe_timeout,
+                )
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Celery backend re-probe exceeded %.1fs; keeping backend=%s",
+                probe_timeout,
+                backend,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("Celery backend re-probe failed: %s", exc)
+
+        with cls._backend_reprobe_lock:
+            cls._backend_reprobe_last_available = celery_available
+            cls._backend_reprobe_last_monotonic = time.monotonic()
+
+        if celery_available:
+            os.environ["BACKTEST_WORKER_BACKEND"] = "celery"
+            logger.info(
+                "Celery worker detected after startup; promoting BACKTEST_WORKER_BACKEND=celery"
+            )
+            return "celery"
+
+        return backend
 
     @staticmethod
     def _env_positive_int(name: str, default: int) -> int:
@@ -1039,12 +1172,22 @@ class BacktestService:
         """Refresh only the stored heartbeat for a run without rewriting the row."""
         timestamp = datetime.now(timezone.utc).isoformat()
         if self.repository.session is None:
-            return self.repository.touch_run(run_id, timestamp)
+            touched = self.repository.touch_run(run_id, timestamp)
+            if touched and run_id in self._runs:
+                cached = dict(self._runs.get(run_id) or {})
+                cached["updated_at"] = timestamp
+                self._runs[run_id] = cached
+            return touched
 
         session = db.get_session()
         try:
             repository = BacktestRepository(session)
-            return repository.touch_run(run_id, timestamp)
+            touched = repository.touch_run(run_id, timestamp)
+            if touched and run_id in self._runs:
+                cached = dict(self._runs.get(run_id) or {})
+                cached["updated_at"] = timestamp
+                self._runs[run_id] = cached
+            return touched
         finally:
             session.close()
 
@@ -1372,6 +1515,8 @@ class BacktestService:
         self,
         run_id: str,
         progress_callback: Any = None,
+        *,
+        propagate_exceptions: bool = False,
     ) -> None:
         """Execute an already-persisted run. Used by external worker backends."""
         run_data = self._load_run_data(run_id)
@@ -1384,6 +1529,7 @@ class BacktestService:
             run_id=run_id,
             request_payload=request_payload,
             progress_callback=progress_callback,
+            propagate_exceptions=propagate_exceptions,
         )
 
     def _enqueue_celery_backtest(
@@ -1397,12 +1543,102 @@ class BacktestService:
         except Exception as exc:
             raise RuntimeError("Celery backtest worker is not available") from exc
 
+        queue = str(
+            (task_context or {}).get("queue")
+            or os.getenv("BACKTEST_CELERY_QUEUE", "backtests")
+        ).strip() or "backtests"
         async_result = run_backtest_task.apply_async(
             args=(run_id,),
             kwargs={"task_context": task_context or {}},
             task_id=run_id,
+            queue=queue,
+        )
+        logger.info(
+            "celery_backtest_task_created run_id=%s task_id=%s queue=%s",
+            run_id,
+            async_result.id,
+            queue,
         )
         return str(async_result.id)
+
+    def mark_backtest_retrying(
+        self,
+        run_id: str,
+        *,
+        error: BaseException | str,
+        countdown_seconds: float,
+        retry_count: int,
+        task_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Persist retry visibility for a Celery-managed backtest run."""
+        data = self._load_run_data(run_id)
+        if not data:
+            return None
+
+        message = (
+            self._describe_exception(error)
+            if isinstance(error, BaseException)
+            else str(error)
+        )
+        request_payload = dict(data.get("request") or {})
+        task_context = self._task_context_from_request(request_payload)
+        task_context["retry_count"] = retry_count
+        task_context["last_retry_at"] = datetime.now(timezone.utc).isoformat()
+        task_context["next_retry_in_seconds"] = round(float(countdown_seconds), 3)
+        request_payload = self._set_task_context(request_payload, task_context)
+        request_payload = self._set_task_failure(
+            request_payload,
+            {
+                "error_code": self._error_code_from_message(
+                    message, "BACKTEST_TRANSIENT_RETRY"
+                ),
+                "error_message": message,
+                "traceback": traceback_module.format_exc(),
+            },
+        )
+
+        data["request"] = request_payload
+        data = self._set_runtime_control(
+            data,
+            status="retrying",
+            action="retry",
+            pause_requested=False,
+            resume_requested=False,
+            cancel_requested=False,
+            worker_backend="celery",
+            worker_task_id=task_id or data.get("worker_task_id") or run_id,
+            retry_count=retry_count,
+            retry_after_seconds=round(float(countdown_seconds), 3),
+        )
+        now = datetime.now(timezone.utc).isoformat()
+        data.update(
+            {
+                "status": "retrying",
+                "current_task": "retrying",
+                "error": message,
+                "error_message": message,
+                "updated_at": now,
+            }
+        )
+        async_job_manager.mark_progress(
+            run_id,
+            float(data.get("progress_pct") or 0.0),
+            metadata={
+                "run_id": run_id,
+                "status": "retrying",
+                "retry_count": retry_count,
+                "retry_after_seconds": round(float(countdown_seconds), 3),
+            },
+        )
+        logger.warning(
+            "celery_backtest_task_retrying run_id=%s task_id=%s retry_count=%s countdown_seconds=%.3f error=%s",
+            run_id,
+            task_id or data.get("worker_task_id") or run_id,
+            retry_count,
+            float(countdown_seconds),
+            message,
+        )
+        return self._persist_run_data(data)
 
     def _revoke_celery_backtest(self, task_id: Optional[str]) -> None:
         if not task_id:
@@ -1413,6 +1649,56 @@ class BacktestService:
             celery_app.control.revoke(str(task_id), terminate=True, signal="SIGTERM")
         except Exception as exc:
             logger.warning("Failed to revoke Celery backtest task %s: %s", task_id, exc)
+
+    def _mark_celery_enqueue_failed(
+        self,
+        run_data: Dict[str, Any],
+        exc: BaseException,
+        *,
+        action: str = "enqueue_failed",
+    ) -> Dict[str, Any]:
+        """Persist a failed handoff so the API never executes Celery runs inline."""
+        run_id = str(run_data.get("run_id") or "")
+        message = str(exc) or exc.__class__.__name__
+        now = datetime.now(timezone.utc).isoformat()
+        request_payload = dict(run_data.get("request") or {})
+        request_payload = self._set_task_failure(
+            request_payload,
+            {
+                "error_code": self._error_code_from_message(
+                    message, "BACKTEST_ENQUEUE_FAILED"
+                ),
+                "error_message": message,
+                "traceback": traceback_module.format_exc(),
+            },
+        )
+        failed = dict(run_data)
+        failed["request"] = request_payload
+        failed = self._set_runtime_control(
+            failed,
+            status="failed",
+            action=action,
+            pause_requested=False,
+            resume_requested=False,
+            cancel_requested=False,
+            worker_backend="celery",
+            worker_task_id=failed.get("worker_task_id") or run_id,
+        )
+        failed.update(
+            {
+                "status": "failed",
+                "current_task": "enqueue failed",
+                "error": message,
+                "error_message": message,
+                "finished_at": now,
+                "completed_at": now,
+                "updated_at": now,
+                "worker_backend": "celery",
+                "worker_task_id": failed.get("worker_task_id") or run_id,
+            }
+        )
+        async_job_manager.mark_failed(run_id, message)
+        return self._persist_run_data(failed)
 
     @staticmethod
     def _extract_request_payload(request: Any) -> Dict[str, Any]:
@@ -1537,7 +1823,7 @@ class BacktestService:
         if not request_payload:
             return None
 
-        worker_backend = self._configured_worker_backend()
+        worker_backend = await self._resolve_worker_backend()
         if worker_backend == "celery":
             try:
                 task_id = self._enqueue_celery_backtest(
@@ -1550,10 +1836,14 @@ class BacktestService:
                     worker_task_id=task_id,
                 )
             except Exception as exc:
-                logger.warning(
-                    "Celery recovery enqueue failed for run %s; falling back to asyncio backend: %s",
+                logger.exception(
+                    "Celery recovery enqueue failed for run %s; marking failed",
                     run_id,
+                )
+                return self._mark_celery_enqueue_failed(
+                    run_data,
                     exc,
+                    action="auto_recover_enqueue_failed",
                 )
 
         task = async_job_manager.create_supervised_task(
@@ -2513,6 +2803,8 @@ class BacktestService:
         run_id: str,
         request_payload: Dict[str, Any],
         progress_callback: Any,
+        *,
+        propagate_exceptions: bool = False,
     ) -> None:
         run_data = self._load_run_data(run_id)
         if not run_data:
@@ -2688,6 +2980,10 @@ class BacktestService:
             all_trades: List[Dict[str, Any]] = []
             all_snapshots: List[Dict[str, Any]] = []
             daily_pnl_agg: Dict[str, float] = {}
+            running_total_pnl = 0.0
+            running_winners = 0
+            running_gross_profit = 0.0
+            running_gross_loss = 0.0
             heavy_every_pairs = self._env_positive_int(
                 "BACKTEST_HEAVY_PROGRESS_PERSIST_EVERY_PAIRS",
                 self._HEAVY_PROGRESS_PERSIST_EVERY_PAIRS,
@@ -2717,7 +3013,7 @@ class BacktestService:
                 # Optimization: Only persist progress if it's significant or enough time passed.
                 # This drastically reduces DB pressure for large backtests with many pairs.
                 if async_job_manager._should_persist_progress(run_id, progress):
-                    run_data = self._persist_run_data(run_data)
+                    run_data = self._persist_progress_data(run_data)
                     async_job_manager.mark_progress(
                         run_id,
                         progress,
@@ -2805,6 +3101,12 @@ class BacktestService:
                     )
                     market_history_cache[m2] = candles_2
 
+                # A pause/cancel can arrive while either history request is in flight.
+                # Re-check before entering the CPU-heavy simulation section so control
+                # latency is bounded by one external fetch instead of a full pair run.
+                run_data = await self._honor_runtime_control(
+                    run_id, run_data, deadline_monotonic
+                )
                 timestamps, p1, p2 = self._align_series(candles_1, candles_2)
                 trades, snapshots, daily_pnl = await self._simulate_pair(
                     run_id=run_id,
@@ -2818,14 +3120,22 @@ class BacktestService:
                     heartbeat_callback=lambda: self._touch_run_heartbeat_async(run_id),
                 )
 
+                for trade in trades:
+                    trade_pnl = float(trade["pnl_usd"])
+                    running_total_pnl += trade_pnl
+                    if bool(trade["win"]):
+                        running_winners += 1
+                    if trade_pnl > 0:
+                        running_gross_profit += trade_pnl
+                    elif trade_pnl < 0:
+                        running_gross_loss += trade_pnl
+
                 all_trades.extend(trades)
                 all_snapshots.extend(snapshots)
                 for day, pnl in daily_pnl.items():
                     daily_pnl_agg[day] = round(daily_pnl_agg.get(day, 0.0) + pnl, 4)
 
-                running_total_pnl = float(sum(t["pnl_usd"] for t in all_trades))
                 running_total_trades = len(all_trades)
-                running_winners = len([t for t in all_trades if t["win"]])
                 running_win_rate = (
                     running_winners / running_total_trades
                     if running_total_trades > 0
@@ -2841,11 +3151,7 @@ class BacktestService:
                     ordered_running_daily, initial_balance
                 )
                 running_profit_factor = (
-                    sum(t["pnl_usd"] for t in all_trades if t["pnl_usd"] > 0)
-                    / max(
-                        1e-9,
-                        abs(sum(t["pnl_usd"] for t in all_trades if t["pnl_usd"] < 0)),
-                    )
+                    running_gross_profit / max(1e-9, abs(running_gross_loss))
                     if running_total_trades > 0
                     else 0.0
                 )
@@ -2888,15 +3194,13 @@ class BacktestService:
                 # Yield control so other coroutines (status polling) run smoothly.
                 await asyncio.sleep(0)
 
-            total_pnl = float(sum(t["pnl_usd"] for t in all_trades))
+            total_pnl = float(running_total_pnl)
             total_trades = len(all_trades)
-            winners = len([t for t in all_trades if t["win"]])
-            win_rate = (winners / total_trades) if total_trades > 0 else 0.0
+            win_rate = (
+                running_winners / total_trades if total_trades > 0 else 0.0
+            )
             profit_factor = (
-                sum(t["pnl_usd"] for t in all_trades if t["pnl_usd"] > 0)
-                / max(
-                    1e-9, abs(sum(t["pnl_usd"] for t in all_trades if t["pnl_usd"] < 0))
-                )
+                running_gross_profit / max(1e-9, abs(running_gross_loss))
                 if total_trades > 0
                 else 0.0
             )
@@ -3018,6 +3322,8 @@ class BacktestService:
             )
             run_data = self._persist_run_data(run_data)
             async_job_manager.mark_cancelled(run_id, reason="Backtest cancelled")
+            if propagate_exceptions:
+                raise
         except TimeoutError as exc:
             error_message = str(exc) or "Backtest timed out"
             failure_payload = {
@@ -3057,8 +3363,10 @@ class BacktestService:
                 run_data,
                 history_fetch_telemetry,
             )
-            run_data = self._persist_run_data(run_data)
+            run_data = self._persist_progress_data(run_data)
             async_job_manager.mark_failed(run_id, error_message)
+            if propagate_exceptions:
+                raise
         except Exception as exc:
             error_message = str(exc)
             failure_payload = {
@@ -3098,8 +3406,10 @@ class BacktestService:
                 run_data,
                 history_fetch_telemetry,
             )
-            run_data = self._persist_run_data(run_data)
+            run_data = self._persist_progress_data(run_data)
             async_job_manager.mark_failed(run_id, error_message)
+            if propagate_exceptions:
+                raise
         finally:
             heartbeat_stop_event.set()
             if heartbeat_thread is not None and heartbeat_thread.is_alive():
@@ -3138,6 +3448,7 @@ class BacktestService:
             or "unnamed-backtest"
         )
 
+        worker_backend = await self._resolve_worker_backend()
         run_data: Dict[str, Any] = {
             "run_id": run_id,
             "name": name,
@@ -3171,10 +3482,9 @@ class BacktestService:
             "cancel_requested": False,
             "control_status": "pending",
             "control_action": "create",
-            "worker_backend": self._configured_worker_backend(),
+            "worker_backend": worker_backend,
             "worker_task_id": run_id,
         }
-        worker_backend = self._configured_worker_backend()
         run_data = self._set_runtime_control(
             run_data,
             status="pending",
@@ -3212,25 +3522,14 @@ class BacktestService:
                 run_data = self._persist_run_data(run_data)
                 return _BacktestRunDetails(**self._resolve_stale_run_data(run_data))
             except Exception as exc:
-                logger.warning(
-                    "Celery enqueue failed for run %s; falling back to asyncio backend: %s",
+                logger.exception(
+                    "Celery enqueue failed for run %s; marking failed",
                     run_id,
-                    exc,
                 )
-                run_data["worker_backend"] = "asyncio"
-                run_data["worker_task_id"] = run_id
-                run_data = self._set_runtime_control(
-                    run_data,
-                    status="pending",
-                    action="enqueue_fallback_asyncio",
-                    pause_requested=False,
-                    resume_requested=False,
-                    cancel_requested=False,
-                    worker_backend="asyncio",
-                    worker_task_id=run_id,
-                )
-                run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-                run_data = self._persist_run_data(run_data)
+                run_data = self._mark_celery_enqueue_failed(run_data, exc)
+                raise BacktestEnqueueError(
+                    f"Failed to enqueue backtest '{run_id}' on Celery: {exc}"
+                ) from exc
 
         task = async_job_manager.create_supervised_task(
             self._execute_backtest(
@@ -3406,6 +3705,16 @@ class BacktestService:
             traceback=(
                 str(data.get("traceback"))
                 if data.get("traceback") is not None
+                else None
+            ),
+            result_location=(
+                str(data.get("result_location"))
+                if data.get("result_location") is not None
+                else None
+            ),
+            result_summary=(
+                data.get("result_summary")
+                if isinstance(data.get("result_summary"), dict)
                 else None
             ),
             strategy_id=(
@@ -3715,7 +4024,7 @@ class BacktestService:
             self._resolve_stale_run_data(run)
             for run in self.repository.list_runs(limit=None, offset=0)
         ]
-        active_statuses = {"pending", "running", "paused"}
+        active_statuses = set(self._ACTIVE_STATUSES)
         queued_or_running = [
             r
             for r in runs
@@ -3795,6 +4104,9 @@ class BacktestService:
             "current_task": data.get("current_task"),
             "error": data.get("error"),
             "error_message": data.get("error_message"),
+            "error_code": data.get("error_code"),
+            "result_location": data.get("result_location"),
+            "result_summary": data.get("result_summary"),
         }
 
     def compare_backtests(

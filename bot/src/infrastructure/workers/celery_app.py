@@ -6,11 +6,13 @@ import os
 from urllib.parse import quote
 
 from celery import Celery
+from kombu import Queue
 
 from src.shared import env_loader
 
 env_loader.load_repo_env(__file__)
 
+DEFAULT_CELERY_QUEUES = ("backtests", "default", "high_priority", "scheduled")
 
 
 def _redis_url(db_offset: int = 0) -> str:
@@ -27,6 +29,30 @@ def _redis_url(db_offset: int = 0) -> str:
     return f"{scheme}://{auth}{host}:{port}/{db}"
 
 
+def _queue_names() -> tuple[str, ...]:
+    raw = os.getenv("CELERY_QUEUES", ",".join(DEFAULT_CELERY_QUEUES))
+    queues = tuple(queue.strip() for queue in raw.split(",") if queue.strip())
+    return queues or DEFAULT_CELERY_QUEUES
+
+
+def _beat_schedule() -> dict[str, dict[str, object]]:
+    enabled = os.getenv("MARKET_SYNC_ENABLED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if not enabled:
+        return {}
+    return {
+        "sync-market-candles": {
+            "task": "bot.sync_market_candles",
+            "schedule": _MARKET_SYNC_INTERVAL,
+            "options": {"queue": "scheduled"},
+        },
+    }
+
+
 celery_app = Celery(
     "dydx_bot",
     broker=_redis_url(0),
@@ -39,8 +65,16 @@ celery_app = Celery(
 )
 
 _MARKET_SYNC_INTERVAL = float(os.getenv("MARKET_SYNC_INTERVAL_SECONDS", "10"))
+_QUEUES = _queue_names()
 
 celery_app.conf.update(
+    task_default_queue="default",
+    task_queues=tuple(Queue(name) for name in _QUEUES),
+    task_routes={
+        "backtests.run": {"queue": os.getenv("BACKTEST_CELERY_QUEUE", "backtests")},
+        "backtests.aggregate_candles": {"queue": "default"},
+        "bot.sync_market_candles": {"queue": "scheduled"},
+    },
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=int(os.getenv("CELERY_WORKER_PREFETCH_MULTIPLIER", "1")),
@@ -58,10 +92,5 @@ celery_app.conf.update(
     result_expires=int(os.getenv("CELERY_RESULT_EXPIRES", str(24 * 60 * 60))),
     timezone="UTC",
     enable_utc=True,
-    beat_schedule={
-        "sync-market-candles": {
-            "task": "bot.sync_market_candles",
-            "schedule": _MARKET_SYNC_INTERVAL,
-        },
-    },
+    beat_schedule=_beat_schedule(),
 )

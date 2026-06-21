@@ -338,7 +338,7 @@ class AsyncJobManager:
                 task.set_name(resolved_job_id)
         elif asyncio.iscoroutine(awaitable):
             task = asyncio.create_task(
-                cast(Coroutine[Any, Any, Any], awaitable),
+                awaitable,
                 name=resolved_job_id,
             )
         else:

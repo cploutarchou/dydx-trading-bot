@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import create_engine
+from sqlalchemy import event
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
@@ -50,5 +51,88 @@ def test_save_run_rolls_back_and_retries_mariadb_record_changed(monkeypatch, tmp
     assert persisted["status"] == "running"
     assert calls["commit"] == 2
     assert repository.get_run("run-retry-1020")["current_task"] == "processing pair"
+
+    session.close()
+
+
+def test_list_run_overviews_uses_one_query_and_omits_heavy_results(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'monitor.sqlite'}", future=True)
+    Base.metadata.create_all(bind=engine)
+    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+    session = SessionLocal()
+    repository = BacktestRepository(session)
+
+    for index in range(3):
+        repository.save_run(
+            {
+                "run_id": f"run-monitor-{index}",
+                "name": f"monitor-{index}",
+                "status": "running",
+                "request": {"strategy_id": index, "pairs": ["BTC-USD/ETH-USD"]},
+                "trades": [{"trade_id": f"trade-{index}"}],
+                "position_snapshots": [{"position_id": f"position-{index}"}],
+                "daily_pnl": [{"date": "2026-01-01", "pnl": index}],
+            }
+        )
+
+    statements = []
+
+    def record_statement(*args):
+        statements.append(args[2])
+
+    event.listen(engine, "before_cursor_execute", record_statement)
+    try:
+        overviews = repository.list_run_overviews(limit=None, offset=0)
+    finally:
+        event.remove(engine, "before_cursor_execute", record_statement)
+
+    assert len(overviews) == 3
+    assert len(statements) == 1
+    assert overviews[0]["request"]["pairs"] == ["BTC-USD/ETH-USD"]
+    assert "trades" not in overviews[0]
+    assert "position_snapshots" not in overviews[0]
+    assert "daily_pnl" not in overviews[0]
+
+    session.close()
+
+
+def test_update_run_progress_preserves_heavy_result_payloads(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'progress.sqlite'}", future=True)
+    Base.metadata.create_all(bind=engine)
+    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+    session = SessionLocal()
+    repository = BacktestRepository(session)
+    repository.save_run(
+        {
+            "run_id": "run-progress",
+            "name": "progress",
+            "status": "running",
+            "request": {"pairs": ["BTC-USD/ETH-USD"]},
+            "trades": [{"trade_id": "trade-1"}],
+            "position_snapshots": [{"position_id": "position-1"}],
+            "daily_pnl": [{"date": "2026-01-01", "pnl": 1.25}],
+        }
+    )
+
+    updated = repository.update_run_progress(
+        {
+            "run_id": "run-progress",
+            "status": "running",
+            "progress_pct": 42.5,
+            "current_pair": "BTC-USD/ETH-USD",
+            "current_task": "processing pair",
+            "total_pnl": 1.25,
+            "total_trades": 1,
+        }
+    )
+    persisted = repository.get_run("run-progress")
+
+    assert updated is True
+    assert persisted is not None
+    assert persisted["progress_pct"] == 42.5
+    assert persisted["current_task"] == "processing pair"
+    assert persisted["trades"] == [{"trade_id": "trade-1"}]
+    assert persisted["position_snapshots"] == [{"position_id": "position-1"}]
+    assert persisted["daily_pnl"] == [{"date": "2026-01-01", "pnl": 1.25}]
 
     session.close()

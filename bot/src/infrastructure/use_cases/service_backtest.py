@@ -12,6 +12,7 @@ import random
 import threading
 import time
 import traceback as traceback_module
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Awaitable, Dict, List, Optional, cast
 from uuid import uuid4
@@ -33,6 +34,11 @@ from src.infrastructure.use_cases.async_job_manager import async_job_manager
 from src.trading.dydx_client import connect_dydx
 
 logger = logging.getLogger(__name__)
+
+_BACKEND_PROBE_EXECUTOR = ThreadPoolExecutor(
+    max_workers=1,
+    thread_name_prefix="backtest-celery-probe",
+)
 
 
 class BacktestEnqueueError(RuntimeError):
@@ -446,6 +452,18 @@ class BacktestService:
                 persisted[key] = run_data[key]
         self._runs[str(persisted["run_id"])] = dict(persisted)
         return dict(persisted)
+
+    def _persist_progress_data(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Persist scalar progress without rewriting accumulated result JSON blobs."""
+        run_id = str(run_data.get("run_id") or "").strip()
+        if not run_id or not self.repository.update_run_progress(run_data):
+            raise RuntimeError(
+                f"Backtest run '{run_id}' is unavailable for progress update"
+            )
+        cached = dict(self._runs.get(run_id) or {})
+        cached.update(run_data)
+        self._runs[run_id] = cached
+        return dict(run_data)
 
     def _update_run_data(self, run_id: str, **updates: Any) -> Optional[Dict[str, Any]]:
         run_data = self._load_run_data(run_id)
@@ -872,7 +890,7 @@ class BacktestService:
 
     def _load_fresh_runtime_control(self, run_id: str) -> Dict[str, Any]:
         try:
-            persisted = self.repository.get_run(run_id)
+            persisted = self.repository.get_run_overview(run_id)
         except Exception:
             persisted = None
         if persisted:
@@ -995,8 +1013,21 @@ class BacktestService:
 
         celery_available = False
         try:
+            probe_timeout = 2.5
             celery_available = bool(
-                await asyncio.to_thread(cls._probe_celery_worker_available)
+                await asyncio.wait_for(
+                    asyncio.get_running_loop().run_in_executor(
+                        _BACKEND_PROBE_EXECUTOR,
+                        cls._probe_celery_worker_available,
+                    ),
+                    timeout=probe_timeout,
+                )
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Celery backend re-probe exceeded %.1fs; keeping backend=%s",
+                probe_timeout,
+                backend,
             )
         except Exception as exc:  # pragma: no cover - defensive
             logger.debug("Celery backend re-probe failed: %s", exc)
@@ -2949,6 +2980,10 @@ class BacktestService:
             all_trades: List[Dict[str, Any]] = []
             all_snapshots: List[Dict[str, Any]] = []
             daily_pnl_agg: Dict[str, float] = {}
+            running_total_pnl = 0.0
+            running_winners = 0
+            running_gross_profit = 0.0
+            running_gross_loss = 0.0
             heavy_every_pairs = self._env_positive_int(
                 "BACKTEST_HEAVY_PROGRESS_PERSIST_EVERY_PAIRS",
                 self._HEAVY_PROGRESS_PERSIST_EVERY_PAIRS,
@@ -2978,7 +3013,7 @@ class BacktestService:
                 # Optimization: Only persist progress if it's significant or enough time passed.
                 # This drastically reduces DB pressure for large backtests with many pairs.
                 if async_job_manager._should_persist_progress(run_id, progress):
-                    run_data = self._persist_run_data(run_data)
+                    run_data = self._persist_progress_data(run_data)
                     async_job_manager.mark_progress(
                         run_id,
                         progress,
@@ -3066,6 +3101,12 @@ class BacktestService:
                     )
                     market_history_cache[m2] = candles_2
 
+                # A pause/cancel can arrive while either history request is in flight.
+                # Re-check before entering the CPU-heavy simulation section so control
+                # latency is bounded by one external fetch instead of a full pair run.
+                run_data = await self._honor_runtime_control(
+                    run_id, run_data, deadline_monotonic
+                )
                 timestamps, p1, p2 = self._align_series(candles_1, candles_2)
                 trades, snapshots, daily_pnl = await self._simulate_pair(
                     run_id=run_id,
@@ -3079,14 +3120,22 @@ class BacktestService:
                     heartbeat_callback=lambda: self._touch_run_heartbeat_async(run_id),
                 )
 
+                for trade in trades:
+                    trade_pnl = float(trade["pnl_usd"])
+                    running_total_pnl += trade_pnl
+                    if bool(trade["win"]):
+                        running_winners += 1
+                    if trade_pnl > 0:
+                        running_gross_profit += trade_pnl
+                    elif trade_pnl < 0:
+                        running_gross_loss += trade_pnl
+
                 all_trades.extend(trades)
                 all_snapshots.extend(snapshots)
                 for day, pnl in daily_pnl.items():
                     daily_pnl_agg[day] = round(daily_pnl_agg.get(day, 0.0) + pnl, 4)
 
-                running_total_pnl = float(sum(t["pnl_usd"] for t in all_trades))
                 running_total_trades = len(all_trades)
-                running_winners = len([t for t in all_trades if t["win"]])
                 running_win_rate = (
                     running_winners / running_total_trades
                     if running_total_trades > 0
@@ -3102,11 +3151,7 @@ class BacktestService:
                     ordered_running_daily, initial_balance
                 )
                 running_profit_factor = (
-                    sum(t["pnl_usd"] for t in all_trades if t["pnl_usd"] > 0)
-                    / max(
-                        1e-9,
-                        abs(sum(t["pnl_usd"] for t in all_trades if t["pnl_usd"] < 0)),
-                    )
+                    running_gross_profit / max(1e-9, abs(running_gross_loss))
                     if running_total_trades > 0
                     else 0.0
                 )
@@ -3149,15 +3194,13 @@ class BacktestService:
                 # Yield control so other coroutines (status polling) run smoothly.
                 await asyncio.sleep(0)
 
-            total_pnl = float(sum(t["pnl_usd"] for t in all_trades))
+            total_pnl = float(running_total_pnl)
             total_trades = len(all_trades)
-            winners = len([t for t in all_trades if t["win"]])
-            win_rate = (winners / total_trades) if total_trades > 0 else 0.0
+            win_rate = (
+                running_winners / total_trades if total_trades > 0 else 0.0
+            )
             profit_factor = (
-                sum(t["pnl_usd"] for t in all_trades if t["pnl_usd"] > 0)
-                / max(
-                    1e-9, abs(sum(t["pnl_usd"] for t in all_trades if t["pnl_usd"] < 0))
-                )
+                running_gross_profit / max(1e-9, abs(running_gross_loss))
                 if total_trades > 0
                 else 0.0
             )

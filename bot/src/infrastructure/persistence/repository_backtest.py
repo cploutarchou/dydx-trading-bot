@@ -388,7 +388,9 @@ class BacktestRepository:
             payload = self._normalize_run_data(record)
             return {
                 **payload,
-                "request": self._sanitize_request_payload(payload.get("request") or {}),
+                # Internal overview consumers need runtime-control fields for
+                # pause/resume/cancel reconciliation, matching the DB-backed path.
+                "request": dict(payload.get("request") or {}),
             }
 
         record = (
@@ -402,6 +404,138 @@ class BacktestRepository:
             .first()
         )
         return self._record_to_overview_dict(record) if record else None
+
+    def list_run_overviews(
+        self,
+        *,
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """Return monitor-safe runs in one query without loading result JSON blobs.
+
+        Celery monitoring needs request/task context, but never the potentially large
+        trade, position-snapshot, or daily-PnL payloads.  Joining the normalized
+        request snapshot here avoids the previous list-then-get N+1 query pattern.
+        """
+        if self.session is None:
+            runs = sorted(
+                BacktestRepository._memory_runs.values(),
+                key=lambda row: str(row.get("updated_at", "")),
+                reverse=True,
+            )
+            selected = (
+                runs[offset:] if limit is None else runs[offset : offset + limit]
+            )
+            overviews: List[Dict[str, Any]] = []
+            for row in selected:
+                payload = self._normalize_run_data(dict(row))
+                request_payload = dict(payload.get("request") or {})
+                if not request_payload:
+                    request_payload = dict(
+                        BacktestRepository._memory_request_snapshots.get(
+                            str(payload.get("run_id") or "")
+                        )
+                        or {}
+                    )
+                overviews.append(
+                    {
+                        **{
+                            key: value
+                            for key, value in payload.items()
+                            if key
+                            not in {
+                                "request",
+                                "trades",
+                                "position_snapshots",
+                                "daily_pnl",
+                            }
+                        },
+                        "request": request_payload,
+                    }
+                )
+            return overviews
+
+        query = (
+            self.session.query(
+                BacktestRun,
+                BacktestRunRequestPayload.request_json.label("snapshot_request_json"),
+            )
+            .outerjoin(
+                BacktestRunRequestPayload,
+                BacktestRunRequestPayload.run_id == BacktestRun.run_id,
+            )
+            .options(
+                defer(BacktestRun.trades_json),
+                defer(BacktestRun.position_snapshots_json),
+                defer(BacktestRun.daily_pnl_json),
+            )
+            .order_by(BacktestRun.updated_at.desc())
+        )
+        if offset:
+            query = query.offset(offset)
+        if limit is not None:
+            query = query.limit(limit)
+
+        overviews = []
+        for record, snapshot_request_json in query.all():
+            request_payload = dict(record.request_json or {})
+            if not request_payload:
+                request_payload = dict(snapshot_request_json or {})
+            overviews.append(
+                {
+                    **self._record_to_summary_dict(record),
+                    "request": request_payload,
+                }
+            )
+        return overviews
+
+    def update_run_progress(self, run_data: Dict[str, Any]) -> bool:
+        """Persist lightweight progress/metric fields without rewriting JSON results."""
+        run_id = str(run_data.get("run_id") or "").strip()
+        if not run_id:
+            return False
+
+        scalar_updates = {
+            "status": str(run_data.get("status") or "running"),
+            "progress_pct": float(run_data.get("progress_pct", 0.0) or 0.0),
+            "current_pair": run_data.get("current_pair"),
+            "current_task": run_data.get("current_task"),
+            "total_pnl": float(run_data.get("total_pnl", 0.0) or 0.0),
+            "win_rate": float(run_data.get("win_rate", 0.0) or 0.0),
+            "sharpe_ratio": float(run_data.get("sharpe_ratio", 0.0) or 0.0),
+            "max_drawdown_pct": float(
+                run_data.get("max_drawdown_pct", 0.0) or 0.0
+            ),
+            "total_trades": int(run_data.get("total_trades", 0) or 0),
+            "profit_factor": float(run_data.get("profit_factor", 0.0) or 0.0),
+            "updated_at": self._parse_dt(
+                run_data.get("updated_at"), default=self._now()
+            )
+            or self._now(),
+        }
+
+        if self.session is None:
+            record = BacktestRepository._memory_runs.get(run_id)
+            if record is None:
+                return False
+            record.update(scalar_updates)
+            record["updated_at"] = self._serialize_dt(record.get("updated_at"))
+            return True
+
+        def _update_once() -> bool:
+            updated = (
+                self.session.query(BacktestRun)
+                .filter(BacktestRun.run_id == run_id)
+                .update(scalar_updates, synchronize_session=False)
+            )
+            self.session.commit()
+            return bool(updated)
+
+        try:
+            return self._retry_with_backoff(_update_once, max_attempts=5)
+        except OperationalError:
+            self.session.rollback()
+            raise
 
     def list_runs(
         self,

@@ -361,14 +361,7 @@ def _load_backtest_runs() -> List[Dict[str, Any]]:
     session = db.get_session()
     try:
         repository = BacktestRepository(session)
-        summaries = repository.list_runs(limit=None, offset=0)
-        runs: List[Dict[str, Any]] = []
-        for summary in summaries:
-            run_id = str(summary.get("run_id") or "").strip()
-            if not run_id:
-                continue
-            runs.append(repository.get_run(run_id) or summary)
-        return runs
+        return repository.list_run_overviews(limit=None, offset=0)
     finally:
         session.close()
 

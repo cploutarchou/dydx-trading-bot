@@ -1,0 +1,63 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: backend-postgres-migrate
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: backend-postgres-migrate
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: ghcr.io/cploutarchou/dydx-trading-bot/backend-migrator:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -ec
+            - |
+              echo "Run backend PostgreSQL migrations explicitly before rolling out app workloads."
+              ./migrate up
+          envFrom:
+            - configMapRef:
+                name: platform-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: backend-database
+                  key: url
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bot-postgres-migrate
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bot-postgres-migrate
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: ghcr.io/cploutarchou/dydx-trading-bot/bot-migrator:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -ec
+            - |
+              echo "Run bot Alembic migrations explicitly before rolling out bot workloads."
+              python -m alembic upgrade head
+          envFrom:
+            - configMapRef:
+                name: platform-config
+          env:
+            - name: BOT_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: bot-database
+                  key: url

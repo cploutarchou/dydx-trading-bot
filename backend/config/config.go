@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -61,27 +62,67 @@ type DatabaseSettings struct {
 }
 
 func (db *DatabaseSettings) DSN() string {
-	dsn := db.User
-	if db.Password != "" {
-		dsn += ":" + db.Password
+	dbType := strings.ToLower(strings.TrimSpace(db.Type))
+	if dbType == "postgresql" {
+		dbType = "postgres"
 	}
-	dsn += "@tcp(" + db.Host + ":" + strconv.Itoa(db.Port) + ")/" + db.Dbname
-	dsn += "?charset=utf8mb4&parseTime=true&loc=UTC"
-	if db.SSL {
-		// Use TLS transport for MariaDB/MySQL connections.
-		// "skip-verify" is used for staging/private CA scenarios where the CA
-		// is not registered in the container trust store.
-		dsn += "&tls=skip-verify"
+
+	switch dbType {
+	case "postgres":
+		query := url.Values{}
+		if db.SSL {
+			query.Set("sslmode", "require")
+		} else {
+			query.Set("sslmode", "disable")
+		}
+		if db.Timeout > 0 {
+			query.Set("connect_timeout", strconv.Itoa(db.Timeout))
+		}
+		query.Set("TimeZone", "UTC")
+
+		host := db.Host
+		if db.Port > 0 {
+			host = fmt.Sprintf("%s:%d", host, db.Port)
+		}
+
+		u := url.URL{Scheme: "postgres", Host: host, Path: "/" + db.Dbname}
+		if db.User != "" {
+			if db.Password != "" {
+				u.User = url.UserPassword(db.User, db.Password)
+			} else {
+				u.User = url.User(db.User)
+			}
+		}
+		u.RawQuery = query.Encode()
+		return u.String()
+	default:
+		dsn := db.User
+		if db.Password != "" {
+			dsn += ":" + db.Password
+		}
+		dsn += "@tcp(" + db.Host + ":" + strconv.Itoa(db.Port) + ")/" + db.Dbname
+		dsn += "?charset=utf8mb4&parseTime=true&loc=UTC"
+		if db.SSL {
+			// Use TLS transport for MariaDB/MySQL connections.
+			// "skip-verify" is used for staging/private CA scenarios where the CA
+			// is not registered in the container trust store.
+			dsn += "&tls=skip-verify"
+		}
+		dsn += "&timeout=" + strconv.Itoa(db.Timeout) + "s"
+		dsn += "&readTimeout=" + strconv.Itoa(db.Timeout) + "s"
+		dsn += "&writeTimeout=" + strconv.Itoa(db.Timeout) + "s"
+		return dsn
 	}
-	dsn += "&timeout=" + strconv.Itoa(db.Timeout) + "s"
-	dsn += "&readTimeout=" + strconv.Itoa(db.Timeout) + "s"
-	dsn += "&writeTimeout=" + strconv.Itoa(db.Timeout) + "s"
-	return dsn
 }
 
 // MigrationsPath returns the migrations directory based on database type.
 func (db *DatabaseSettings) MigrationsPath() string {
-	return "migrations/mysql"
+	switch strings.ToLower(strings.TrimSpace(db.Type)) {
+	case "postgres", "postgresql":
+		return "migrations/postgres"
+	default:
+		return "migrations/mysql"
+	}
 }
 
 type RedisSettings struct {
@@ -156,8 +197,11 @@ func LoadConfig() error {
 	case "mysql", "mariadb":
 		normalizedDBType = "mysql"
 		defaultPort = 3306
+	case "postgres", "postgresql":
+		normalizedDBType = "postgres"
+		defaultPort = 5432
 	default:
-		return fmt.Errorf("unsupported DB_TYPE %q: production database support is MariaDB/MySQL only", dbType)
+		return fmt.Errorf("unsupported DB_TYPE %q: supported values are mysql, mariadb, postgres, and postgresql", dbType)
 	}
 
 	database := DatabaseSettings{

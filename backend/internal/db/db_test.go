@@ -17,6 +17,15 @@ func TestSetConfigDefaultsUsesCorrectMigrationPath_MariaDB(t *testing.T) {
 	}
 }
 
+func TestSetConfigDefaultsUsesCorrectMigrationPath_Postgres(t *testing.T) {
+	cfg := Config{Driver: "postgres", DSN: "postgres://user:pass@localhost:5432/test"}
+	setConfigDefaults(&cfg)
+
+	if cfg.MigrationsPath != "migrations/postgres" {
+		t.Fatalf("expected Postgres migrations path, got %q", cfg.MigrationsPath)
+	}
+}
+
 func TestSetConfigDefaultsUsesMySQLPoolSizes(t *testing.T) {
 	cfg := Config{Driver: "mysql", DSN: "mysql://localhost/test"}
 	setConfigDefaults(&cfg)
@@ -58,5 +67,26 @@ func TestValidateConfigRejectsLegacyDrivers(t *testing.T) {
 
 	if err := validateConfig(&cfg); err == nil {
 		t.Fatal("expected unsupported legacy driver to be rejected")
+	}
+}
+
+func TestValidateConfigAcceptsPostgres(t *testing.T) {
+	cfg := Config{Driver: "postgresql", DSN: "postgres://user:pass@localhost:5432/test"}
+
+	if err := validateConfig(&cfg); err != nil {
+		t.Fatalf("expected postgres driver to be accepted, got %v", err)
+	}
+	if cfg.Driver != "postgres" {
+		t.Fatalf("expected postgres driver normalization, got %q", cfg.Driver)
+	}
+}
+
+func TestBuildMigrateDatabaseURL_Postgres(t *testing.T) {
+	url, err := BuildMigrateDatabaseURL(Config{Driver: "postgres", DSN: "postgres://user:pass@localhost:5432/test"})
+	if err != nil {
+		t.Fatalf("BuildMigrateDatabaseURL returned error: %v", err)
+	}
+	if url != "postgres://user:pass@localhost:5432/test" {
+		t.Fatalf("expected postgres URL to pass through, got %q", url)
 	}
 }

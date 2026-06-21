@@ -45,6 +45,8 @@ func TestLoadConfig_SupportedDatabases(t *testing.T) {
 	}{
 		{"mysql", "mysql"},
 		{"mariadb", "mysql"}, // mariadb is normalized to mysql
+		{"postgres", "postgres"},
+		{"postgresql", "postgres"},
 	}
 
 	for _, tc := range testCases {
@@ -137,6 +139,47 @@ func TestDatabaseSettingsDSN_EnablesTLSWhenSSLModeEnabled(t *testing.T) {
 	dsn := db.DSN()
 	if !strings.Contains(dsn, "tls=skip-verify") {
 		t.Fatalf("expected tls=skip-verify in DSN when SSL is enabled, got %q", dsn)
+	}
+}
+
+func TestDatabaseSettingsDSN_BuildsPostgresURI(t *testing.T) {
+	db := DatabaseSettings{
+		Host:    "postgres",
+		Port:    5432,
+		Dbname:  "dydx_bot",
+		User:    "dydx_bot",
+		Password: "secret",
+		Type:    "postgres",
+		SSL:     false,
+		Timeout: 5,
+	}
+
+	dsn := db.DSN()
+	if !strings.HasPrefix(dsn, "postgres://dydx_bot:secret@postgres:5432/dydx_bot") {
+		t.Fatalf("expected postgres URI prefix, got %q", dsn)
+	}
+	if !strings.Contains(dsn, "sslmode=disable") || !strings.Contains(dsn, "connect_timeout=5") {
+		t.Fatalf("expected postgres URI query parameters, got %q", dsn)
+	}
+	if strings.Contains(dsn, "charset=utf8mb4") || strings.Contains(dsn, "readTimeout") {
+		t.Fatalf("expected postgres DSN to omit MySQL-specific params, got %q", dsn)
+	}
+}
+
+func TestDatabaseSettingsDSN_UsesPostgresSSLModeWhenEnabled(t *testing.T) {
+	db := DatabaseSettings{
+		Host:    "postgres",
+		Port:    5432,
+		Dbname:  "dydx_bot",
+		User:    "dydx_bot",
+		Type:    "postgresql",
+		SSL:     true,
+		Timeout: 5,
+	}
+
+	dsn := db.DSN()
+	if !strings.Contains(dsn, "sslmode=require") {
+		t.Fatalf("expected sslmode=require in Postgres DSN, got %q", dsn)
 	}
 }
 

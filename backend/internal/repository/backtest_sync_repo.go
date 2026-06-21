@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,19 +21,12 @@ func BacktestRunSyncOutcomeCounters() map[string]uint64 {
 	}
 }
 
-func classifyBacktestRunUpsertOutcome(rowsAffected int64) string {
-	if rowsAffected == 1 {
-		return "insert"
-	}
-	// MySQL upsert rowsAffected semantics:
-	// 2 => existing row changed, 0 => existing row unchanged.
-	// Both are rerun updates for run_id visibility.
-	return "update"
-}
-
-func recordBacktestRunUpsertOutcome(runID string, rowsAffected int64) {
-	outcome := classifyBacktestRunUpsertOutcome(rowsAffected)
-	if outcome == "insert" {
+func recordBacktestRunUpsertOutcome(runID string, inserted bool) {
+	outcome := "update"
+	rowsAffected := int64(0)
+	if inserted {
+		outcome = "insert"
+		rowsAffected = 1
 		backtestRunSyncFreshInsertTotal.Add(1)
 	} else {
 		backtestRunSyncRerunUpdateTotal.Add(1)
@@ -45,23 +39,6 @@ func recordBacktestRunUpsertOutcome(runID string, rowsAffected int64) {
 		backtestRunSyncFreshInsertTotal.Load(),
 		backtestRunSyncRerunUpdateTotal.Load(),
 	)
-}
-
-func isUpsertDialectError(err error) bool {
-	if err == nil {
-		return false
-	}
-	lower := strings.ToLower(err.Error())
-	if strings.Contains(lower, "on duplicate key update") {
-		return true
-	}
-	if strings.Contains(lower, "near \"duplicate\"") {
-		return true
-	}
-	if strings.Contains(lower, "syntax error") && strings.Contains(lower, "duplicate") {
-		return true
-	}
-	return false
 }
 
 // BacktestRunSyncPayload contains the subset of backtest run fields we can
@@ -163,11 +140,27 @@ type BacktestSyncHealth struct {
 
 type BacktestSyncRepository struct {
 	db       *sql.DB
+	dbDriver string
 	runLocks sync.Map
 }
 
 func NewBacktestSyncRepository(db *sql.DB) *BacktestSyncRepository {
-	return &BacktestSyncRepository{db: db}
+	driver := os.Getenv("DB_TYPE")
+	if driver == "" {
+		driver = os.Getenv("DB_DRIVER")
+	}
+	if driver == "" {
+		driver = "postgres"
+	}
+
+	return &BacktestSyncRepository{db: db, dbDriver: driver}
+}
+
+func NewBacktestSyncRepositoryWithDriver(db *sql.DB, driver string) *BacktestSyncRepository {
+	if strings.TrimSpace(driver) == "" {
+		driver = "postgres"
+	}
+	return &BacktestSyncRepository{db: db, dbDriver: driver}
 }
 
 func (r *BacktestSyncRepository) withRunLock(runID string, fn func() error) error {
@@ -188,6 +181,42 @@ func (r *BacktestSyncRepository) DB() *sql.DB {
 		return nil
 	}
 	return r.db
+}
+
+func (r *BacktestSyncRepository) bindQuery(query string) string {
+	if r == nil {
+		return query
+	}
+	if !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
+		return query
+	}
+	var builder strings.Builder
+	builder.Grow(len(query) + 16)
+	argIndex := 1
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' {
+			builder.WriteString(fmt.Sprintf("$%d", argIndex))
+			argIndex++
+			continue
+		}
+		builder.WriteByte(query[i])
+	}
+	return builder.String()
+}
+
+func (r *BacktestSyncRepository) runExists(runID string) (bool, error) {
+	if strings.TrimSpace(runID) == "" {
+		return false, fmt.Errorf("run_id is required")
+	}
+	var id int
+	err := r.db.QueryRow(r.bindQuery(`SELECT id FROM backtest_runs WHERE run_id = ? LIMIT 1`), runID).Scan(&id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check existing backtest run: %w", err)
+	}
+	return true, nil
 }
 
 func nullableStringValue(value sql.NullString) interface{} {
@@ -223,6 +252,11 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 			return fmt.Errorf("end_date is required")
 		}
 
+		existing, err := r.runExists(payload.RunID)
+		if err != nil {
+			return err
+		}
+
 		upsertQuery := `
 		INSERT INTO backtest_runs (
 			run_id, status, created_at, started_at, completed_at, duration_seconds,
@@ -237,70 +271,28 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 			?, ?, ?, ?,
 			?, ?, ?
 		)
-		ON DUPLICATE KEY UPDATE
-			status = VALUES(status),
-			user_id = VALUES(user_id),
-			start_date = VALUES(start_date),
-			end_date = VALUES(end_date),
-			num_pairs = VALUES(num_pairs),
-			total_markets = VALUES(total_markets),
-			resolution = VALUES(resolution),
-			config = VALUES(config),
-			started_at = COALESCE(VALUES(started_at), started_at),
-			completed_at = COALESCE(VALUES(completed_at), completed_at),
-			duration_seconds = COALESCE(VALUES(duration_seconds), duration_seconds),
-			error_message = COALESCE(VALUES(error_message), error_message),
-			total_trades = COALESCE(VALUES(total_trades), total_trades),
-			profitable_trades = COALESCE(VALUES(profitable_trades), profitable_trades),
-			losing_trades = COALESCE(VALUES(losing_trades), losing_trades),
-			win_rate = COALESCE(VALUES(win_rate), win_rate),
-			total_pnl = COALESCE(VALUES(total_pnl), total_pnl),
-			total_pnl_usd = COALESCE(VALUES(total_pnl_usd), total_pnl_usd),
-			sharpe_ratio = COALESCE(VALUES(sharpe_ratio), sharpe_ratio),
-			max_drawdown = COALESCE(VALUES(max_drawdown), max_drawdown),
-			strategy_id = COALESCE(VALUES(strategy_id), strategy_id)
-	`
-
-		insertQuery := `
-		INSERT INTO backtest_runs (
-			run_id, status, created_at, started_at, completed_at, duration_seconds,
-			start_date, end_date, num_pairs, total_markets, resolution, config,
-			total_trades, profitable_trades, losing_trades, win_rate,
-			total_pnl, total_pnl_usd, sharpe_ratio, max_drawdown,
-			error_message, user_id, strategy_id
-		) VALUES (
-			?, ?, ?, ?, ?, ?,
-			?, ?, ?, ?, ?, ?,
-			?, ?, ?, ?,
-			?, ?, ?, ?,
-			?, ?, ?
-		)
-	`
-
-		updateQuery := `
-		UPDATE backtest_runs
-		SET status = ?,
-			user_id = ?,
-			start_date = ?,
-			end_date = ?,
-			num_pairs = ?,
-			total_markets = ?,
-			resolution = ?,
-			config = ?,
-			started_at = COALESCE(?, started_at),
-			completed_at = COALESCE(?, completed_at),
-			duration_seconds = COALESCE(?, duration_seconds),
-			error_message = COALESCE(?, error_message),
-			total_trades = COALESCE(?, total_trades),
-			profitable_trades = COALESCE(?, profitable_trades),
-			losing_trades = COALESCE(?, losing_trades),
-			win_rate = COALESCE(?, win_rate),
-			total_pnl = COALESCE(?, total_pnl),
-			total_pnl_usd = COALESCE(?, total_pnl_usd),
-			sharpe_ratio = COALESCE(?, sharpe_ratio),
-			max_drawdown = COALESCE(?, max_drawdown),
-			strategy_id = COALESCE(?, strategy_id)
-		WHERE run_id = ?
+		ON CONFLICT (run_id) DO UPDATE SET
+			status = EXCLUDED.status,
+			user_id = EXCLUDED.user_id,
+			start_date = EXCLUDED.start_date,
+			end_date = EXCLUDED.end_date,
+			num_pairs = EXCLUDED.num_pairs,
+			total_markets = EXCLUDED.total_markets,
+			resolution = EXCLUDED.resolution,
+			config = EXCLUDED.config,
+			started_at = COALESCE(EXCLUDED.started_at, backtest_runs.started_at),
+			completed_at = COALESCE(EXCLUDED.completed_at, backtest_runs.completed_at),
+			duration_seconds = COALESCE(EXCLUDED.duration_seconds, backtest_runs.duration_seconds),
+			error_message = COALESCE(EXCLUDED.error_message, backtest_runs.error_message),
+			total_trades = COALESCE(EXCLUDED.total_trades, backtest_runs.total_trades),
+			profitable_trades = COALESCE(EXCLUDED.profitable_trades, backtest_runs.profitable_trades),
+			losing_trades = COALESCE(EXCLUDED.losing_trades, backtest_runs.losing_trades),
+			win_rate = COALESCE(EXCLUDED.win_rate, backtest_runs.win_rate),
+			total_pnl = COALESCE(EXCLUDED.total_pnl, backtest_runs.total_pnl),
+			total_pnl_usd = COALESCE(EXCLUDED.total_pnl_usd, backtest_runs.total_pnl_usd),
+			sharpe_ratio = COALESCE(EXCLUDED.sharpe_ratio, backtest_runs.sharpe_ratio),
+			max_drawdown = COALESCE(EXCLUDED.max_drawdown, backtest_runs.max_drawdown),
+			strategy_id = COALESCE(EXCLUDED.strategy_id, backtest_runs.strategy_id)
 	`
 
 		upsertArgs := []interface{}{
@@ -329,55 +321,11 @@ func (r *BacktestSyncRepository) UpsertBacktestRun(payload BacktestRunSyncPayloa
 			nullableInt64Value(payload.StrategyID),
 		}
 
-		execResult, err := r.db.Exec(upsertQuery, upsertArgs...)
-		if err != nil && isUpsertDialectError(err) {
-			updateArgs := []interface{}{
-				payload.Status,
-				payload.UserID,
-				payload.StartDate,
-				payload.EndDate,
-				payload.NumPairs,
-				payload.TotalMarkets,
-				nullableStringValue(payload.Resolution),
-				nullableStringValue(payload.Config),
-				payload.StartedAt,
-				payload.CompletedAt,
-				payload.DurationSeconds,
-				nullableStringValue(payload.ErrorMessage),
-				nullableInt64Value(payload.TotalTrades),
-				nullableInt64Value(payload.WinningTrades),
-				nullableInt64Value(payload.LosingTrades),
-				nullableFloat64Value(payload.WinRate),
-				nullableFloat64Value(payload.TotalPnL),
-				nullableFloat64Value(payload.TotalPnLUSD),
-				nullableFloat64Value(payload.SharpeRatio),
-				nullableFloat64Value(payload.MaxDrawdown),
-				nullableInt64Value(payload.StrategyID),
-				payload.RunID,
-			}
-
-			updateResult, updateErr := r.db.Exec(updateQuery, updateArgs...)
-			if updateErr != nil {
-				return fmt.Errorf("failed to update backtest run during fallback upsert: %w", updateErr)
-			}
-
-			updatedRows, rowsErr := updateResult.RowsAffected()
-			if rowsErr == nil && updatedRows > 0 {
-				execResult = updateResult
-				err = nil
-			} else {
-				execResult, err = r.db.Exec(insertQuery, upsertArgs...)
-			}
-		}
-		if err != nil {
+		if _, err := r.db.Exec(r.bindQuery(upsertQuery), upsertArgs...); err != nil {
 			return fmt.Errorf("failed to upsert backtest run: %w", err)
 		}
 
-		if rowsAffected, rowsErr := execResult.RowsAffected(); rowsErr == nil {
-			recordBacktestRunUpsertOutcome(payload.RunID, rowsAffected)
-		} else {
-			log.Printf("backtest_sync_upsert outcome=unknown run_id=%s rows_affected_error=%v", payload.RunID, rowsErr)
-		}
+		recordBacktestRunUpsertOutcome(payload.RunID, !existing)
 
 		return nil
 	})
@@ -428,32 +376,32 @@ func (r *BacktestSyncRepository) UpsertBacktestTrades(runID string, items []Back
 				?, ?, ?, ?,
 				?, ?, ?, ?, ?, ?
 			)
-			ON DUPLICATE KEY UPDATE
-				%s = VALUES(%s),
-				market_1 = VALUES(market_1),
-				market_2 = VALUES(market_2),
-				entry_timestamp = VALUES(entry_timestamp),
-				entry_price_1 = VALUES(entry_price_1),
-				entry_price_2 = VALUES(entry_price_2),
-				entry_z_score = VALUES(entry_z_score),
-				side_1 = VALUES(side_1),
-				side_2 = VALUES(side_2),
-				size_1 = VALUES(size_1),
-				size_2 = VALUES(size_2),
-				exit_timestamp = VALUES(exit_timestamp),
-				exit_price_1 = VALUES(exit_price_1),
-				exit_price_2 = VALUES(exit_price_2),
-				exit_z_score = VALUES(exit_z_score),
-				pnl = VALUES(pnl),
-				pnl_pct = VALUES(pnl_pct),
-				duration_hours = VALUES(duration_hours),
-				hedge_ratio = VALUES(hedge_ratio),
-				transaction_fee = VALUES(transaction_fee),
-				slippage = VALUES(slippage)
+			ON CONFLICT (trade_id) DO UPDATE SET
+				%s = EXCLUDED.%s,
+				market_1 = EXCLUDED.market_1,
+				market_2 = EXCLUDED.market_2,
+				entry_timestamp = EXCLUDED.entry_timestamp,
+				entry_price_1 = EXCLUDED.entry_price_1,
+				entry_price_2 = EXCLUDED.entry_price_2,
+				entry_z_score = EXCLUDED.entry_z_score,
+				side_1 = EXCLUDED.side_1,
+				side_2 = EXCLUDED.side_2,
+				size_1 = EXCLUDED.size_1,
+				size_2 = EXCLUDED.size_2,
+				exit_timestamp = EXCLUDED.exit_timestamp,
+				exit_price_1 = EXCLUDED.exit_price_1,
+				exit_price_2 = EXCLUDED.exit_price_2,
+				exit_z_score = EXCLUDED.exit_z_score,
+				pnl = EXCLUDED.pnl,
+				pnl_pct = EXCLUDED.pnl_pct,
+				duration_hours = EXCLUDED.duration_hours,
+				hedge_ratio = EXCLUDED.hedge_ratio,
+				transaction_fee = EXCLUDED.transaction_fee,
+				slippage = EXCLUDED.slippage
 		`, fkColumn, fkColumn, fkColumn)
 
 			if _, err := r.db.Exec(
-				upsertQuery,
+				r.bindQuery(upsertQuery),
 				runPK,
 				item.TradeID,
 				item.Market1,
@@ -535,30 +483,30 @@ func (r *BacktestSyncRepository) UpsertBacktestPositions(runID string, items []B
 				?, ?, ?, ?, ?,
 				?, ?
 			)
-			ON DUPLICATE KEY UPDATE
-				%s = VALUES(%s),
-				market_1 = VALUES(market_1),
-				market_2 = VALUES(market_2),
-				status = VALUES(status),
-				entry_timestamp = VALUES(entry_timestamp),
-				close_timestamp = VALUES(close_timestamp),
-				entry_price_1 = VALUES(entry_price_1),
-				entry_price_2 = VALUES(entry_price_2),
-				entry_z_score = VALUES(entry_z_score),
-				current_price_1 = VALUES(current_price_1),
-				current_price_2 = VALUES(current_price_2),
-				current_z_score = VALUES(current_z_score),
-				size_1 = VALUES(size_1),
-				size_2 = VALUES(size_2),
-				side_1 = VALUES(side_1),
-				side_2 = VALUES(side_2),
-				hedge_ratio = VALUES(hedge_ratio),
-				unrealized_pnl = VALUES(unrealized_pnl),
-				realized_pnl = VALUES(realized_pnl)
+			ON CONFLICT (position_id) DO UPDATE SET
+				%s = EXCLUDED.%s,
+				market_1 = EXCLUDED.market_1,
+				market_2 = EXCLUDED.market_2,
+				status = EXCLUDED.status,
+				entry_timestamp = EXCLUDED.entry_timestamp,
+				close_timestamp = EXCLUDED.close_timestamp,
+				entry_price_1 = EXCLUDED.entry_price_1,
+				entry_price_2 = EXCLUDED.entry_price_2,
+				entry_z_score = EXCLUDED.entry_z_score,
+				current_price_1 = EXCLUDED.current_price_1,
+				current_price_2 = EXCLUDED.current_price_2,
+				current_z_score = EXCLUDED.current_z_score,
+				size_1 = EXCLUDED.size_1,
+				size_2 = EXCLUDED.size_2,
+				side_1 = EXCLUDED.side_1,
+				side_2 = EXCLUDED.side_2,
+				hedge_ratio = EXCLUDED.hedge_ratio,
+				unrealized_pnl = EXCLUDED.unrealized_pnl,
+				realized_pnl = EXCLUDED.realized_pnl
 		`, fkColumn, fkColumn, fkColumn)
 
 			if _, err := r.db.Exec(
-				upsertQuery,
+				r.bindQuery(upsertQuery),
 				runPK,
 				item.PositionID,
 				item.Market1,
@@ -614,16 +562,16 @@ func (r *BacktestSyncRepository) UpsertBacktestCandles(runID string, items []Bac
 				?, ?, ?, ?, ?,
 				?, ?, ?, ?, ?, ?
 			)
-			ON DUPLICATE KEY UPDATE
-				open_price = VALUES(open_price),
-				high_price = VALUES(high_price),
-				low_price = VALUES(low_price),
-				close_price = VALUES(close_price),
-				volume = VALUES(volume),
-				trades_count = VALUES(trades_count)
-		`, fkColumn)
+			ON CONFLICT (%s, market, timestamp, resolution) DO UPDATE SET
+				open_price = EXCLUDED.open_price,
+				high_price = EXCLUDED.high_price,
+				low_price = EXCLUDED.low_price,
+				close_price = EXCLUDED.close_price,
+				volume = EXCLUDED.volume,
+				trades_count = EXCLUDED.trades_count
+		`, fkColumn, fkColumn)
 			if _, err := r.db.Exec(
-				upsertQuery,
+				r.bindQuery(upsertQuery),
 				runPK,
 				item.Market,
 				item.Timestamp,
@@ -661,7 +609,7 @@ func (r *BacktestSyncRepository) getRunPrimaryKey(runID string) (int, error) {
 		return 0, fmt.Errorf("run_id is required")
 	}
 	var id int
-	err := r.db.QueryRow(`SELECT id FROM backtest_runs WHERE run_id = ? LIMIT 1`, runID).Scan(&id)
+	err := r.db.QueryRow(r.bindQuery(`SELECT id FROM backtest_runs WHERE run_id = ? LIMIT 1`), runID).Scan(&id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return 0, fmt.Errorf("backtest run not found for run_id=%s", runID)
@@ -723,7 +671,7 @@ func (r *BacktestSyncRepository) GetSyncHealthByRun(userID int, runID string, li
 	query += " ORDER BY created_at DESC LIMIT ?"
 	args = append(args, limit)
 
-	rows, err := r.db.Query(query, args...)
+	rows, err := r.db.Query(r.bindQuery(query), args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query backtest runs for sync health: %w", err)
 	}
@@ -813,12 +761,12 @@ func (r *BacktestSyncRepository) countRowsForRunByRunID(tableName string, runID 
 			WHERE r.run_id = ? AND r.user_id = ?
 		`, tableName, fkColumn)
 		var count int
-		err := r.db.QueryRow(query, runID, userID).Scan(&count)
+			err := r.db.QueryRow(r.bindQuery(query), runID, userID).Scan(&count)
 		if err == nil {
 			return count, nil
 		}
 		lower := strings.ToLower(err.Error())
-		if strings.Contains(lower, "no such column") || strings.Contains(lower, "undefined column") {
+		if strings.Contains(lower, "no such column") || strings.Contains(lower, "undefined column") || strings.Contains(lower, "does not exist") {
 			lastErr = err
 			continue
 		}
@@ -839,10 +787,10 @@ func (r *BacktestSyncRepository) countDataQualityIssuesByRunID(runID string, use
 	total := 0
 	for _, query := range queries {
 		var count int
-		err := r.db.QueryRow(query, runID, userID).Scan(&count)
+		err := r.db.QueryRow(r.bindQuery(query), runID, userID).Scan(&count)
 		if err != nil {
 			lower := strings.ToLower(err.Error())
-			if strings.Contains(lower, "no such column") || strings.Contains(lower, "undefined column") {
+			if strings.Contains(lower, "no such column") || strings.Contains(lower, "undefined column") || strings.Contains(lower, "does not exist") {
 				continue
 			}
 			return 0, err
@@ -862,10 +810,10 @@ func (r *BacktestSyncRepository) getLastSyncedAtByRunID(runID string, userID int
 	found := false
 	for _, query := range candidates {
 		var ts sql.NullTime
-		err := r.db.QueryRow(query, runID, userID).Scan(&ts)
+		err := r.db.QueryRow(r.bindQuery(query), runID, userID).Scan(&ts)
 		if err != nil {
 			lower := strings.ToLower(err.Error())
-			if strings.Contains(lower, "no such column") || strings.Contains(lower, "undefined column") {
+			if strings.Contains(lower, "no such column") || strings.Contains(lower, "undefined column") || strings.Contains(lower, "does not exist") {
 				continue
 			}
 			return nil, err

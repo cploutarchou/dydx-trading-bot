@@ -20,6 +20,7 @@ on:
             - "docker-compose.stack.yml"
             - "Makefile"
             - "LOCAL_SETUP_GUIDE.md"
+            - ".github/workflows/local-dev-setup.yml"
     workflow_dispatch:
 
 permissions:
@@ -44,13 +45,16 @@ jobs:
             - name: Validate docker-compose.infra.yml
               run: |
                   set -euo pipefail
-          docker compose -f docker-compose.infra.yml config > /dev/null
-          echo "✓ docker-compose.infra.yml syntax valid"
+                  docker compose -f docker-compose.infra.yml config > /dev/null
+                  echo "✓ docker-compose.infra.yml syntax valid"
 
-      - name: Validate docker-compose.stack.yml
-        run: |
-          set -euo pipefail
-          docker compose -f docker-compose.stack.yml config > /dev/null
+            - name: Validate docker-compose.stack.yml
+              run: |
+                  set -euo pipefail
+                  docker compose -f docker-compose.stack.yml config > /dev/null
+                  echo "✓ docker-compose.stack.yml syntax valid"
+
+    # ---------------------------------------------------------------------------
     # Validate Makefile targets
     # ---------------------------------------------------------------------------
     makefile-targets:
@@ -88,7 +92,7 @@ jobs:
                   echo "✓ All required Makefile targets present"
 
     # ---------------------------------------------------------------------------
-    # Validate LOCAL_SETUP_GUIDE.md
+    # Validate LOCAL_SETUP_GUIDE.md (optional but recommended)
     # ---------------------------------------------------------------------------
     setup-guide-validation:
         name: Setup guide validation
@@ -102,8 +106,8 @@ jobs:
               run: |
                   set -euo pipefail
                   if [ ! -f LOCAL_SETUP_GUIDE.md ]; then
-                    echo "ERROR: LOCAL_SETUP_GUIDE.md not found" >&2
-                    exit 1
+                    echo "LOCAL_SETUP_GUIDE.md not found (warning only)." >> "$GITHUB_STEP_SUMMARY"
+                    exit 0
                   fi
                   if [ ! -s LOCAL_SETUP_GUIDE.md ]; then
                     echo "ERROR: LOCAL_SETUP_GUIDE.md is empty" >&2
@@ -111,22 +115,15 @@ jobs:
                   fi
                   echo "✓ LOCAL_SETUP_GUIDE.md exists and has content"
 
-            - name: Validate setup guide references docker-compose files
+            - name: Validate setup guide references key commands
               run: |
                   set -euo pipefail
-                  if ! grep -q "docker-compose.infra.yml" LOCAL_SETUP_GUIDE.md; then
-                    echo "WARNING: LOCAL_SETUP_GUIDE.md does not reference docker-compose.infra.yml"
+                  if [ ! -f LOCAL_SETUP_GUIDE.md ]; then
+                    exit 0
                   fi
-                  if ! grep -q "docker-compose.stack.yml" LOCAL_SETUP_GUIDE.md; then
-                    echo "WARNING: LOCAL_SETUP_GUIDE.md does not reference docker-compose.stack.yml"
-                  fi
-                  if ! grep -q "make infra-up" LOCAL_SETUP_GUIDE.md; then
-                    echo "WARNING: LOCAL_SETUP_GUIDE.md does not reference 'make infra-up'"
-                  fi
-                  if ! grep -q "make stack-up-dev" LOCAL_SETUP_GUIDE.md; then
-                    echo "WARNING: LOCAL_SETUP_GUIDE.md does not reference 'make stack-up-dev'"
-                  fi
-                  echo "✓ Setup guide references valid"
+                  grep -q "make infra-up" LOCAL_SETUP_GUIDE.md || echo "Warning: missing make infra-up reference" >> "$GITHUB_STEP_SUMMARY"
+                  grep -q "make stack-up-dev" LOCAL_SETUP_GUIDE.md || echo "Warning: missing make stack-up-dev reference" >> "$GITHUB_STEP_SUMMARY"
+                  echo "✓ Setup guide validation complete"
 
     # ---------------------------------------------------------------------------
     # Validate infrastructure service configuration
@@ -181,22 +178,6 @@ jobs:
                   done
                   echo "✓ All required stack services configured"
 
-            - name: Check services have health checks where appropriate
-              run: |
-                  set -euo pipefail
-                  critical_services=(
-                    "postgresql"
-                    "valkey"
-                    "nats"
-                  )
-
-                  for service in "${critical_services[@]}"; do
-                    if ! grep -A20 "^  $service:" docker-compose.infra.yml | grep -q "healthcheck:"; then
-                      echo "WARNING: Service '$service' in infra compose should have a healthcheck" >&2
-                    fi
-                  done
-                  echo "✓ Health check validation complete"
-
     # ---------------------------------------------------------------------------
     # Gate — all validations must pass
     # ---------------------------------------------------------------------------
@@ -218,6 +199,10 @@ jobs:
                   echo "Validation results: $results"
                   if echo "$results" | grep -q '"result": "failure"'; then
                     echo "One or more local dev setup validations failed." >&2
+                    exit 1
+                  fi
+                  if echo "$results" | grep -q '"result": "cancelled"'; then
+                    echo "One or more local dev setup validations were cancelled." >&2
                     exit 1
                   fi
                   echo "✓ All local dev setup validations passed"

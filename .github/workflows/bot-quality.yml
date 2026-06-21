@@ -63,6 +63,11 @@ jobs:
             - name: Install dependencies
               run: pip install -r requirements.txt
 
+            - name: Prepare CI config key
+              run: |
+                  set -euo pipefail
+                  python ../scripts/secure_config.py keygen
+
             - name: Run bot tests
               run: |
                   set -euo pipefail
@@ -163,7 +168,7 @@ jobs:
             - name: Validate base
               run: |
                   set -euo pipefail
-                  kustomize build deploy/k8s-next > /dev/null
+                  kustomize build deploy/k8s-next/base > /dev/null
                   echo "Base build: OK" >> "$GITHUB_STEP_SUMMARY"
 
             - name: Validate staging overlay

@@ -16,7 +16,7 @@ from loguru import logger
 
 
 def _resolve_pair_storage_path() -> str:
-    """Resolve pair storage path from environment for multi-instance mode."""
+    """Resolve pair storage path from the environment for multi-instance mode."""
     configured_path = os.getenv("BOT_PAIRS_FILE")
     if not configured_path:
         return "pair_history/cointegration_results.json"
@@ -50,7 +50,7 @@ class CointegrationResult:
 
     @property
     def is_high_confidence(self) -> bool:
-        """Returns True if confidence score is above threshold (0.7)."""
+        """Returns True if the confidence score is above the threshold (0.7)."""
         return self.confidence_score >= 0.7
 
     @property
@@ -154,7 +154,9 @@ class PairStorage:
     # ------------------------------------------------------------------
 
     def _db_save(self, storage_data: dict) -> bool:
-        """Upsert cointegration results into the database. Returns True on success."""
+        """Upsert cointegration results into the database. Returns True on success.
+        :rtype: bool
+        """
         try:
             from sqlalchemy import text
             from src.infrastructure.database import db

@@ -20,10 +20,10 @@
 			"console": "integratedTerminal"
 		},
 		{
-			"name": "Python: Local API wrapper (start_api.py)",
+			"name": "Python: API launcher (src/api/start_api.py)",
 			"type": "debugpy",
 			"request": "launch",
-			"program": "${workspaceFolder}/start_api.py",
+			"program": "${workspaceFolder}/src/api/start_api.py",
 			"cwd": "${workspaceFolder}",
 			"envFile": "${workspaceFolder}/.env",
 			"justMyCode": true,
@@ -44,7 +44,7 @@
 		{
 			"name": "Python: API + Bot runtime",
 			"configurations": [
-				"Python: Local API wrapper (start_api.py)",
+				"Python: API launcher (src/api/start_api.py)",
 				"Python: Bot runtime (main.py)"
 			],
 			"stopAll": true

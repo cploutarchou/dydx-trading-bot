@@ -1,5 +1,11 @@
-# ⚠️ CRITICAL: Load environment variables FIRST, before any other imports
-# This ensures DB_* and REDIS_* environment variables are available to config loader
+"""Legacy standalone bot runtime entrypoint.
+
+For API-managed multi-instance operation, prefer `src/main_instance.py` via
+`src/bot_instance_manager.py`.
+"""
+
+# ⚠️ CRITICAL: Load environment variables FIRST, before any other imports.
+# This ensures DB_* and REDIS_* environment variables are available to config loader.
 from src.shared.env_loader import load_repo_env
 
 load_repo_env(__file__)

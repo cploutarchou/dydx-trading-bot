@@ -15,4 +15,4 @@ echo "📖 API Documentation available at: http://localhost:8889/docs"
 echo "🔍 Health check available at: http://localhost:8889/health"
 echo ""
 
-.venv/bin/python start_api.py
+.venv/bin/python src/api/start_api.py

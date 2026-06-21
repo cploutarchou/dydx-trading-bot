@@ -30,7 +30,7 @@ Architect, implement, review, and operate features for this multi-instance dYdX 
 ### 1. Environment and Entry Points
 
 - **Always** call `load_repo_env(__file__)` before importing config/constants in entry points
-- Entry points: `src/api/server.py`, `src/api/start_api.py`, `app.py`, `start_api.py`, `main.py`, `src/main_instance.py`, `src/bot_instance_manager.py`
+- Entry points: `src/api/server.py`, `src/api/start_api.py`, `main.py`, `src/main_instance.py`, `src/bot_instance_manager.py`
 - Structured config lives in `run.json` or `config/profiles/*`, NOT `bot/.env`
 - Keep testnet/mainnet credentials completely isolated
 
@@ -105,7 +105,7 @@ Before shipping any bot-runtime change:
 | Component               | File                                                |
 | ----------------------- | --------------------------------------------------- |
 | API Server (Canonical)  | `src/api/server.py`                                 |
-| Compatibility Wrappers  | `app.py`, `start_api.py`                            |
+| API Launcher            | `src/api/start_api.py`                              |
 | Bot Manager (Lifecycle) | `src/bot_instance_manager.py`                       |
 | Worker Runtime          | `src/main_instance.py`                              |
 | Trading Logic           | `src/trading/*`                                     |

@@ -8,6 +8,7 @@ python-dotenv==1.2.2
 sqlalchemy==2.0.51
 alembic==1.18.4
 pymysql==1.2.0
+psycopg2-binary==2.9.12
 # Authentication and security
 python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4

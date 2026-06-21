@@ -1,39 +1,23 @@
-import os
 from logging.config import fileConfig
+from pathlib import Path
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
+from src.infrastructure.database import DatabaseConfig
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
 
-# Allow runtime / CI to override the DB URL via environment variable.
-# Resolution order:
-#   1. BOT_DATABASE_URL env var (explicit override — used in production and CI)
-#   2. Constructed from individual BOT_DB_* env vars (matches how the app builds it)
-#   3. sqlalchemy.url from alembic.ini (local dev default)
-_env_url = os.environ.get("BOT_DATABASE_URL")
-if not _env_url:
-    _host = os.environ.get("BOT_DB_HOST")
-    _port = os.environ.get("BOT_DB_PORT")
-    _name = os.environ.get("BOT_DB_NAME") or os.environ.get("DB_NAME") or os.environ.get("MYSQL_DATABASE")
-    _user = os.environ.get("BOT_DB_USER") or os.environ.get("DB_USER") or os.environ.get("MYSQL_USER")
-    _pass = os.environ.get("BOT_DB_PASSWORD") or os.environ.get("DB_PASSWORD") or os.environ.get("MYSQL_PASSWORD")
-    _type = os.environ.get("BOT_DB_TYPE", os.environ.get("DB_TYPE", "mysql")).lower()
-    
-    if _host and _port and _name and _user:
-        from urllib.parse import quote_plus as _quote_plus
-        
-        legacy_types = ("post" + "gres", "post" + "gresql")
-        if _type in legacy_types:
-            raise ValueError("Legacy database type is unsupported; use MariaDB.")
-        if _type not in ("mysql", "mariadb"):
-            raise ValueError("Unsupported DB_TYPE. Supported: mysql, mariadb.")
-        _env_url = f"mysql+pymysql://{_quote_plus(_user)}:{_quote_plus(_pass or '')}@{_host}:{_port}/{_name}?charset=utf8mb4"
+database_config = DatabaseConfig()
+config.set_main_option("sqlalchemy.url", database_config.get_connection_string())
 
-if _env_url:
-    config.set_main_option("sqlalchemy.url", _env_url)
+project_root = Path(__file__).resolve().parents[1]
+version_location = "postgres" if database_config.db_type == "postgres" else "mariadb"
+config.set_main_option(
+    "version_locations",
+    str(project_root / "migrations" / version_location),
+)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

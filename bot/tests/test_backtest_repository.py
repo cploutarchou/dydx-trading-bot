@@ -1,12 +1,47 @@
+import json
 from datetime import datetime, timezone
 
-from sqlalchemy import create_engine
-from sqlalchemy import event
+from internal.domain import Base
+from sqlalchemy import create_engine, event
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
-
-from internal.domain import Base
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
+from src.infrastructure.storage.analytics import AnalyticsWriter
+from src.infrastructure.storage.artifacts import ArtifactStore
+
+
+class _RecordingArtifactStore(ArtifactStore):
+    def __init__(self):
+        self._payloads: dict[str, bytes] = {}
+
+    def reference_for(self, key: str) -> str:
+        return f"artifact://{key}"
+
+    def put_bytes(
+        self, key: str, data: bytes, *, content_type: str | None = None
+    ) -> str:
+        del content_type
+        self._payloads[key] = bytes(data)
+        return self.reference_for(key)
+
+    def read_bytes(self, key: str) -> bytes:
+        return self._payloads[key]
+
+    def exists(self, key: str) -> bool:
+        return key in self._payloads
+
+    def read_json(self, key: str):
+        return json.loads(self.read_bytes(key).decode("utf-8"))
+
+
+class _RecordingAnalyticsWriter(AnalyticsWriter):
+    def __init__(self):
+        self.calls: list[tuple[str, list[dict[str, object]]]] = []
+
+    def write_rows(self, table_name: str, rows):
+        materialized = [dict(row) for row in rows]
+        self.calls.append((table_name, materialized))
+        return len(materialized)
 
 
 class _MariaDbRecordChanged(Exception):
@@ -29,7 +64,9 @@ def test_save_run_rolls_back_and_retries_mariadb_record_changed(monkeypatch, tmp
     def flaky_commit():
         calls["commit"] += 1
         if calls["commit"] == 1:
-            raise OperationalError("UPDATE backtest_runtime_runs", {}, _MariaDbRecordChanged())
+            raise OperationalError(
+                "UPDATE backtest_runtime_runs", {}, _MariaDbRecordChanged()
+            )
         return real_commit()
 
     def tracked_rollback():
@@ -147,7 +184,9 @@ def test_update_run_progress_preserves_heavy_result_payloads(tmp_path):
 
 
 def test_update_run_progress_can_mark_failed_without_rewriting_results(tmp_path):
-    engine = create_engine(f"sqlite:///{tmp_path / 'failed-progress.sqlite'}", future=True)
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'failed-progress.sqlite'}", future=True
+    )
     Base.metadata.create_all(bind=engine)
     SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
     session = SessionLocal()
@@ -193,3 +232,52 @@ def test_update_run_progress_can_mark_failed_without_rewriting_results(tmp_path)
 
     session.close()
 
+
+def test_save_run_writes_backtest_sidecars_and_analytics(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'sidecars.sqlite'}", future=True)
+    Base.metadata.create_all(bind=engine)
+    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+    session = SessionLocal()
+    artifact_store = _RecordingArtifactStore()
+    analytics_writer = _RecordingAnalyticsWriter()
+    repository = BacktestRepository(
+        session,
+        artifact_store=artifact_store,
+        analytics_writer=analytics_writer,
+    )
+
+    persisted = repository.save_run(
+        {
+            "run_id": "run-sidecars",
+            "name": "sidecars",
+            "status": "completed",
+            "request": {"pairs": ["BTC-USD/ETH-USD"], "start_date": "2026-04-01"},
+            "trades": [{"trade_id": "trade-1", "pnl": 12.5}],
+            "position_snapshots": [{"snapshot_id": "position-1"}],
+            "daily_pnl": [{"date": "2026-04-01", "pnl": 12.5}],
+        }
+    )
+
+    assert persisted["artifact_refs"]["run_root"] == "artifact://backtests/run-sidecars"
+    assert artifact_store.read_json("backtests/run-sidecars/request.json")["pairs"] == [
+        "BTC-USD/ETH-USD"
+    ]
+    assert artifact_store.read_json("backtests/run-sidecars/trades.json") == [
+        {"trade_id": "trade-1", "pnl": 12.5}
+    ]
+    assert artifact_store.read_json(
+        "backtests/run-sidecars/position_snapshots.json"
+    ) == [{"snapshot_id": "position-1"}]
+    assert artifact_store.read_json("backtests/run-sidecars/daily_pnl.json") == [
+        {"date": "2026-04-01", "pnl": 12.5}
+    ]
+
+    assert [call[0] for call in analytics_writer.calls] == [
+        "backtest_trades",
+        "backtest_position_snapshots",
+        "backtest_daily_pnl",
+    ]
+    assert analytics_writer.calls[0][1][0]["run_id"] == "run-sidecars"
+    assert analytics_writer.calls[0][1][0]["trade_id"] == "trade-1"
+
+    session.close()

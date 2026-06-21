@@ -4,17 +4,45 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 )
 
 type PartnerApplicationRepository struct {
-	db *sql.DB
+	db       *sql.DB
+	dbDriver string
 }
 
 func NewPartnerApplicationRepository(db *sql.DB) *PartnerApplicationRepository {
-	return &PartnerApplicationRepository{db: db}
+	driver := os.Getenv("DB_TYPE")
+	if driver == "" {
+		driver = os.Getenv("DB_DRIVER")
+	}
+	if driver == "" {
+		driver = "postgres"
+	}
+	return &PartnerApplicationRepository{db: db, dbDriver: driver}
+}
+
+func (r *PartnerApplicationRepository) bindQuery(query string) string {
+	if r == nil || !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
+		return query
+	}
+	var b strings.Builder
+	b.Grow(len(query) + 16)
+	idx := 1
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' {
+			b.WriteString(fmt.Sprintf("$%d", idx))
+			idx++
+			continue
+		}
+		b.WriteByte(query[i])
+	}
+	return b.String()
 }
 
 func (r *PartnerApplicationRepository) Create(application *models.PartnerApplication) error {
@@ -25,11 +53,12 @@ func (r *PartnerApplicationRepository) Create(application *models.PartnerApplica
 			created_at, updated_at
 		)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		RETURNING id
 	`
 
 	now := time.Now().UTC()
-	result, err := r.db.Exec(
-		query,
+	if err := r.db.QueryRow(
+		r.bindQuery(query),
 		application.ApplicantUserID,
 		application.SponsorUserID,
 		application.RequestedRole,
@@ -41,18 +70,9 @@ func (r *PartnerApplicationRepository) Create(application *models.PartnerApplica
 		application.ReviewedAt,
 		now,
 		now,
-	)
-
-	if err != nil {
+	).Scan(&application.ID); err != nil {
 		return fmt.Errorf("failed to create partner application: %w", err)
 	}
-
-	lastID, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert ID: %w", err)
-	}
-
-	application.ID = int(lastID)
 	application.CreatedAt = now
 	application.UpdatedAt = now
 
@@ -70,7 +90,7 @@ func (r *PartnerApplicationRepository) GetByID(id int) (*models.PartnerApplicati
 	`
 
 	application := &models.PartnerApplication{}
-	if err := r.db.QueryRow(query, id).Scan(
+	if err := r.db.QueryRow(r.bindQuery(query), id).Scan(
 		&application.ID,
 		&application.ApplicantUserID,
 		&application.SponsorUserID,
@@ -133,7 +153,7 @@ func (r *PartnerApplicationRepository) ListBySponsor(sponsorUserID int, limit in
 
 func (r *PartnerApplicationRepository) CountPending() (int, error) {
 	var count int
-	if err := r.db.QueryRow(`SELECT COUNT(*) FROM partner_applications WHERE status = 'pending'`).Scan(&count); err != nil {
+	if err := r.db.QueryRow(r.bindQuery(`SELECT COUNT(*) FROM partner_applications WHERE status = 'pending'`)).Scan(&count); err != nil {
 		return 0, fmt.Errorf("failed to count pending partner applications: %w", err)
 	}
 	return count, nil
@@ -152,7 +172,7 @@ func (r *PartnerApplicationRepository) UpdateReview(application *models.PartnerA
 
 	now := time.Now().UTC()
 	result, err := r.db.Exec(
-		query,
+		r.bindQuery(query),
 		application.Status,
 		application.ReviewNotes,
 		application.ReviewedByUserID,
@@ -177,7 +197,7 @@ func (r *PartnerApplicationRepository) UpdateReview(application *models.PartnerA
 }
 
 func (r *PartnerApplicationRepository) queryMany(query string, args ...interface{}) ([]*models.PartnerApplication, error) {
-	rows, err := r.db.Query(query, args...)
+	rows, err := r.db.Query(r.bindQuery(query), args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query partner applications: %w", err)
 	}

@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -11,12 +13,38 @@ import (
 
 // TradeLogRepository handles trade log database operations
 type TradeLogRepository struct {
-	db *sql.DB
+	db       *sql.DB
+	dbDriver string
 }
 
 // NewTradeLogRepository creates a new trade log repository
 func NewTradeLogRepository(db *sql.DB) *TradeLogRepository {
-	return &TradeLogRepository{db: db}
+	driver := os.Getenv("DB_TYPE")
+	if driver == "" {
+		driver = os.Getenv("DB_DRIVER")
+	}
+	if driver == "" {
+		driver = "postgres"
+	}
+	return &TradeLogRepository{db: db, dbDriver: driver}
+}
+
+func (r *TradeLogRepository) bindQuery(query string) string {
+	if r == nil || !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
+		return query
+	}
+	var b strings.Builder
+	b.Grow(len(query) + 16)
+	idx := 1
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' {
+			b.WriteString(fmt.Sprintf("$%d", idx))
+			idx++
+			continue
+		}
+		b.WriteByte(query[i])
+	}
+	return b.String()
 }
 
 // CreateTradeLog creates a new trade log entry
@@ -28,27 +56,19 @@ func (r *TradeLogRepository) CreateTradeLog(tradeLog *models.TradeLog) error {
 			side_1, side_2, pnl, pnl_usd, entry_zscore, exit_zscore,
 			entry_timestamp, exit_timestamp, created_at
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			RETURNING id
 		`
 
 	now := time.Now()
-	result, err := r.db.Exec(
-		query,
+	if err := r.db.QueryRow(
+		r.bindQuery(query),
 		tradeLog.ResultIDFK, tradeLog.TradeNumber, tradeLog.EntryPrice1, tradeLog.EntryPrice2,
 		tradeLog.ExitPrice1, tradeLog.ExitPrice2, tradeLog.Quantity1, tradeLog.Quantity2,
 		tradeLog.Side1, tradeLog.Side2, tradeLog.Pnl, tradeLog.PnlUSD, tradeLog.EntryZScore,
 		tradeLog.ExitZScore, tradeLog.EntryTimestamp, tradeLog.ExitTimestamp, now,
-	)
-
-	if err != nil {
+	).Scan(&tradeLog.ID); err != nil {
 		return fmt.Errorf("failed to create trade log: %w", err)
 	}
-
-	lastID, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert ID: %w", err)
-	}
-
-	tradeLog.ID = int(lastID)
 	tradeLog.CreatedAt = now
 
 	return nil
@@ -67,7 +87,7 @@ func (r *TradeLogRepository) GetTradeLogByID(id int) (*models.TradeLog, error) {
 	`
 
 	tradeLog := &models.TradeLog{}
-	err := r.db.QueryRow(query, id).Scan(
+	err := r.db.QueryRow(r.bindQuery(query), id).Scan(
 		&tradeLog.ID, &tradeLog.ResultIDFK, &tradeLog.TradeNumber, &tradeLog.EntryPrice1,
 		&tradeLog.EntryPrice2, &tradeLog.ExitPrice1, &tradeLog.ExitPrice2, &tradeLog.Quantity1,
 		&tradeLog.Quantity2, &tradeLog.Side1, &tradeLog.Side2, &tradeLog.Pnl, &tradeLog.PnlUSD,
@@ -97,7 +117,7 @@ func (r *TradeLogRepository) GetTradeLogsByResult(resultIDFK int) ([]models.Trad
 		ORDER BY trade_number ASC
 	`
 
-	rows, err := r.db.Query(query, resultIDFK)
+	rows, err := r.db.Query(r.bindQuery(query), resultIDFK)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query trade logs: %w", err)
 	}
@@ -138,7 +158,7 @@ func (r *TradeLogRepository) UpdateTradeLog(tradeLog *models.TradeLog) error {
 	`
 
 	result, err := r.db.Exec(
-		query,
+		r.bindQuery(query),
 		tradeLog.TradeNumber, tradeLog.EntryPrice1, tradeLog.EntryPrice2,
 		tradeLog.ExitPrice1, tradeLog.ExitPrice2, tradeLog.Quantity1, tradeLog.Quantity2,
 		tradeLog.Side1, tradeLog.Side2, tradeLog.Pnl, tradeLog.PnlUSD, tradeLog.EntryZScore,
@@ -165,7 +185,7 @@ func (r *TradeLogRepository) UpdateTradeLog(tradeLog *models.TradeLog) error {
 func (r *TradeLogRepository) DeleteTradeLog(id int) error {
 	query := `DELETE FROM trade_logs WHERE id = ?`
 
-	result, err := r.db.Exec(query, id)
+	result, err := r.db.Exec(r.bindQuery(query), id)
 	if err != nil {
 		return fmt.Errorf("failed to delete trade log: %w", err)
 	}
@@ -195,7 +215,7 @@ func (r *TradeLogRepository) GetTradeLogsByBacktestRun(runID int) ([]models.Trad
 		ORDER BY tl.entry_timestamp ASC
 	`
 
-	rows, err := r.db.Query(query, runID)
+	rows, err := r.db.Query(r.bindQuery(query), runID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query trade logs: %w", err)
 	}

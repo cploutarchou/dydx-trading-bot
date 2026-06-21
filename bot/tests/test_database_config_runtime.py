@@ -1,17 +1,35 @@
 import pytest
-
-from src.infrastructure.database import DatabaseConfig
 from conftest import assert_db_type_supported
+from src.infrastructure.database import DatabaseConfig
 
 
 def test_database_config_prefers_bot_database_url(monkeypatch):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "dedicated")
-    monkeypatch.setenv("BOT_DATABASE_URL", "mysql://bot_user:secret@db-host:3306/bot_db")
+    monkeypatch.setenv(
+        "BOT_DATABASE_URL", "mysql://bot_user:secret@db-host:3306/bot_db"
+    )
     monkeypatch.setenv("DATABASE_URL", "mysql://fallback:secret@other:3306/other_db")
 
     config = DatabaseConfig()
 
-    assert config.get_connection_string().startswith("mysql+pymysql://bot_user:secret@db-host:3306/bot_db")
+    assert config.get_connection_string().startswith(
+        "mysql+pymysql://bot_user:secret@db-host:3306/bot_db"
+    )
+
+
+def test_database_config_prefers_postgres_bot_database_url(monkeypatch):
+    monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "dedicated")
+    monkeypatch.setenv("BOT_DB_TYPE", "postgres")
+    monkeypatch.setenv(
+        "BOT_DATABASE_URL", "postgres://bot_user:secret@db-host:5432/bot_db"
+    )
+
+    config = DatabaseConfig()
+
+    assert config.db_type == "postgres"
+    assert config.get_connection_string().startswith(
+        "postgresql+psycopg2://bot_user:secret@db-host:5432/bot_db"
+    )
 
 
 def test_database_config_rejects_unsupported_url(monkeypatch):
@@ -45,8 +63,12 @@ def test_database_config_prefers_bot_db_fields(monkeypatch):
 
 def test_database_config_shared_mode_ignores_bot_values(monkeypatch):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "shared")
-    monkeypatch.setenv("BOT_DATABASE_URL", "mysql://bot_user:secret@bot-host:3306/bot_db")
-    monkeypatch.setenv("DATABASE_URL", "mysql://shared_user:secret@shared-host:3306/shared_db")
+    monkeypatch.setenv(
+        "BOT_DATABASE_URL", "mysql://bot_user:secret@bot-host:3306/bot_db"
+    )
+    monkeypatch.setenv(
+        "DATABASE_URL", "mysql://shared_user:secret@shared-host:3306/shared_db"
+    )
 
     config = DatabaseConfig()
 
@@ -56,11 +78,13 @@ def test_database_config_shared_mode_ignores_bot_values(monkeypatch):
 
 
 def test_database_config_dedicated_with_shared_fallback_uses_shared_when_bot_unset(
-        monkeypatch,
+    monkeypatch,
 ):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "dedicated_with_shared_fallback")
     monkeypatch.delenv("BOT_DATABASE_URL", raising=False)
-    monkeypatch.setenv("DATABASE_URL", "mysql://shared_user:secret@shared-host:3306/shared_db")
+    monkeypatch.setenv(
+        "DATABASE_URL", "mysql://shared_user:secret@shared-host:3306/shared_db"
+    )
 
     config = DatabaseConfig()
 
@@ -78,7 +102,9 @@ def test_database_config_dedicated_requires_bot_target(monkeypatch):
     monkeypatch.delenv("BOT_DB_USER", raising=False)
     monkeypatch.delenv("BOT_DB_PASSWORD", raising=False)
 
-    with pytest.raises(ValueError, match="requires BOT_DATABASE_URL or BOT_DB_\\* values"):
+    with pytest.raises(
+        ValueError, match="requires BOT_DATABASE_URL or BOT_DB_\\* values"
+    ):
         DatabaseConfig()
 
 
@@ -86,6 +112,19 @@ def test_database_config_rejects_invalid_cutover_mode(monkeypatch):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "invalid_mode")
 
     with pytest.raises(ValueError, match="Unsupported BOT_DB_CUTOVER_MODE"):
+        DatabaseConfig()
+
+
+def test_database_config_rejects_mixed_database_modes(monkeypatch):
+    monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "dedicated")
+    monkeypatch.setenv("BOT_DB_TYPE", "postgres")
+    monkeypatch.setenv(
+        "BOT_DATABASE_URL", "mysql://bot_user:secret@bot-host:3306/bot_db"
+    )
+
+    with pytest.raises(
+        ValueError, match="Conflicting DB_TYPE and database URL schemes"
+    ):
         DatabaseConfig()
 
 
@@ -128,6 +167,21 @@ def test_database_config_uses_timeout_max_connections_and_ssl(monkeypatch):
     assert kwargs["connect_args"]["charset"] == "utf8mb4"
 
 
+def test_database_config_uses_postgres_engine_kwargs(monkeypatch):
+    monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "shared")
+    monkeypatch.setenv("DB_TYPE", "postgres")
+    monkeypatch.setenv(
+        "DATABASE_URL", "postgres://shared_user:secret@shared-host:5432/shared_db"
+    )
+
+    config = DatabaseConfig()
+    kwargs = config.get_engine_kwargs()
+
+    assert kwargs["connect_args"]["connect_timeout"] == config.timeout_seconds
+    assert kwargs["connect_args"]["options"] == "-c timezone=UTC"
+    assert "charset" not in kwargs["connect_args"]
+
+
 def test_database_config_diagnostics_payload_is_sanitized(monkeypatch):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "shared")
     monkeypatch.setenv("DB_HOST", "localhost")
@@ -150,20 +204,30 @@ def test_database_config_diagnostics_payload_is_sanitized(monkeypatch):
 
 def test_database_config_dedicated_blocks_shared_target_regression(monkeypatch):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "dedicated")
-    monkeypatch.setenv("BOT_DATABASE_URL", "mysql://bot_user:secret@shared-host:3306/shared_db")
-    monkeypatch.setenv("DATABASE_URL", "mysql://shared_user:secret@shared-host:3306/shared_db")
+    monkeypatch.setenv(
+        "BOT_DATABASE_URL", "mysql://bot_user:secret@shared-host:3306/shared_db"
+    )
+    monkeypatch.setenv(
+        "DATABASE_URL", "mysql://shared_user:secret@shared-host:3306/shared_db"
+    )
 
     with pytest.raises(
-            ValueError,
-            match="cannot target the same database as the shared DB configuration",
+        ValueError,
+        match="cannot target the same database as the shared DB configuration",
     ):
         DatabaseConfig()
 
 
-def test_database_config_dedicated_with_fallback_reports_shared_target_match(monkeypatch):
+def test_database_config_dedicated_with_fallback_reports_shared_target_match(
+    monkeypatch,
+):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "dedicated_with_shared_fallback")
-    monkeypatch.setenv("BOT_DATABASE_URL", "mysql://bot_user:secret@bot-host:3307/bot_db")
-    monkeypatch.setenv("DATABASE_URL", "mysql://shared_user:secret@shared-host:3306/shared_db")
+    monkeypatch.setenv(
+        "BOT_DATABASE_URL", "mysql://bot_user:secret@bot-host:3307/bot_db"
+    )
+    monkeypatch.setenv(
+        "DATABASE_URL", "mysql://shared_user:secret@shared-host:3306/shared_db"
+    )
 
     config = DatabaseConfig()
     payload = config.to_diagnostics()

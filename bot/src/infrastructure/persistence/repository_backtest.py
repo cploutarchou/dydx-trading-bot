@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
-import time
 import logging
+import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
 from internal.domain.models import BacktestRun, BacktestRunRequestPayload
 from sqlalchemy.exc import OperationalError, PendingRollbackError
+
 logger = logging.getLogger(__name__)
 
 from sqlalchemy.orm import Session, defer
+from src.infrastructure.storage import (
+    AnalyticsWriter,
+    ArtifactStore,
+    ClickHouseAnalyticsWriter,
+    LocalArtifactStore,
+    MinIOArtifactStore,
+    NoopAnalyticsWriter,
+)
 
 
 class BacktestRepository:
@@ -20,8 +30,66 @@ class BacktestRepository:
     _memory_runs: Dict[str, Dict[str, Any]] = {}
     _memory_request_snapshots: Dict[str, Dict[str, Any]] = {}
 
-    def __init__(self, session: Optional[Session]):
+    def __init__(
+        self,
+        session: Optional[Session],
+        artifact_store: Optional[ArtifactStore] = None,
+        analytics_writer: Optional[AnalyticsWriter] = None,
+    ):
         self.session = session
+        self.artifact_store = artifact_store or self._build_artifact_store()
+        self.analytics_writer = analytics_writer or self._build_analytics_writer()
+
+    @staticmethod
+    def _env_bool(name: str, default: bool = False) -> bool:
+        raw = os.getenv(name, "").strip().lower()
+        if raw == "":
+            return default
+        return raw in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def _env_str(name: str, default: str = "") -> str:
+        raw = os.getenv(name)
+        if raw in (None, ""):
+            return default
+        return str(raw)
+
+    @classmethod
+    def _build_artifact_store(cls) -> ArtifactStore:
+        root = cls._env_str("BACKTEST_ARTIFACTS_DIR", "bot_states/backtest_artifacts")
+        if cls._env_bool("BACKTEST_MINIO_ENABLED", False):
+            extra_config: Dict[str, Any] = {
+                "access_key": cls._env_str("BACKTEST_MINIO_ACCESS_KEY", ""),
+                "secret_key": cls._env_str("BACKTEST_MINIO_SECRET_KEY", ""),
+                "session_token": cls._env_str("BACKTEST_MINIO_SESSION_TOKEN", ""),
+                "region": cls._env_str("BACKTEST_MINIO_REGION", ""),
+                "auto_create_bucket": cls._env_bool(
+                    "BACKTEST_MINIO_AUTO_CREATE_BUCKET", True
+                ),
+            }
+            return MinIOArtifactStore(
+                bucket=cls._env_str("BACKTEST_MINIO_BUCKET", "backtests"),
+                enabled=True,
+                fallback=LocalArtifactStore(root),
+                endpoint_url=cls._env_str("BACKTEST_MINIO_ENDPOINT", ""),
+                secure=cls._env_bool("BACKTEST_MINIO_SECURE", True),
+                extra_config=extra_config,
+            )
+        return LocalArtifactStore(root)
+
+    @classmethod
+    def _build_analytics_writer(cls) -> AnalyticsWriter:
+        if cls._env_bool("BACKTEST_CLICKHOUSE_ENABLED", False):
+            return ClickHouseAnalyticsWriter(
+                enabled=True,
+                database=cls._env_str("BACKTEST_CLICKHOUSE_DATABASE", "default"),
+                host=cls._env_str("BACKTEST_CLICKHOUSE_HOST", "localhost"),
+                port=int(cls._env_str("BACKTEST_CLICKHOUSE_PORT", "8123")),
+                username=cls._env_str("BACKTEST_CLICKHOUSE_USER", "default"),
+                password=cls._env_str("BACKTEST_CLICKHOUSE_PASSWORD", ""),
+                secure=cls._env_bool("BACKTEST_CLICKHOUSE_SECURE", False),
+            )
+        return NoopAnalyticsWriter()
 
     @staticmethod
     def _now() -> datetime:
@@ -218,26 +286,94 @@ class BacktestRepository:
             "updated_at": cls._serialize_dt(record.updated_at),
         }
 
+    @staticmethod
+    def _safe_artifact_key(parts: Sequence[str]) -> str:
+        cleaned = [str(part).strip().strip("/") for part in parts if str(part).strip()]
+        if not cleaned:
+            raise ValueError("artifact path cannot be empty")
+        return "/".join(cleaned)
+
+    @staticmethod
+    def _materialize_rows(rows: Any) -> list[dict[str, Any]]:
+        if not isinstance(rows, list):
+            return []
+        return [dict(row) for row in rows if isinstance(row, dict)]
+
+    def _sync_backtest_sidecars(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        run_id = str(payload.get("run_id") or "").strip()
+        if not run_id:
+            return {}
+
+        artifact_refs: Dict[str, str] = {}
+        artifact_payloads = {
+            "request": payload.get("request") or {},
+            "trades": self._materialize_rows(payload.get("trades")),
+            "position_snapshots": self._materialize_rows(
+                payload.get("position_snapshots")
+            ),
+            "daily_pnl": self._materialize_rows(payload.get("daily_pnl")),
+        }
+
+        for name, content in artifact_payloads.items():
+            key = self._safe_artifact_key(["backtests", run_id, f"{name}.json"])
+            artifact_refs[name] = self.artifact_store.put_json(key, content)
+
+        trade_rows = [dict(row, run_id=run_id) for row in artifact_payloads["trades"]]
+        position_rows = [
+            dict(row, run_id=run_id) for row in artifact_payloads["position_snapshots"]
+        ]
+        daily_pnl_rows = [
+            dict(row, run_id=run_id) for row in artifact_payloads["daily_pnl"]
+        ]
+
+        analytics_rows_written = {
+            "backtest_trades": self.analytics_writer.write_rows(
+                "backtest_trades", trade_rows
+            ),
+            "backtest_position_snapshots": self.analytics_writer.write_rows(
+                "backtest_position_snapshots", position_rows
+            ),
+            "backtest_daily_pnl": self.analytics_writer.write_rows(
+                "backtest_daily_pnl", daily_pnl_rows
+            ),
+        }
+
+        artifact_refs["run_root"] = self.artifact_store.reference_for(
+            self._safe_artifact_key(["backtests", run_id])
+        )
+
+        return {
+            "artifact_refs": artifact_refs,
+            "analytics_rows_written": analytics_rows_written,
+        }
+
     def _record_to_dict(self, record: BacktestRun) -> Dict[str, Any]:
         request_payload = dict(record.request_json or {})
         if not request_payload:
             request_payload = self._get_request_snapshot(record.run_id)
-        return {
+        payload = {
             **self._record_to_summary_dict(record),
             "request": request_payload,
             "trades": list(record.trades_json or []),
             "position_snapshots": list(record.position_snapshots_json or []),
             "daily_pnl": list(record.daily_pnl_json or []),
         }
+        return payload
 
     def _record_to_overview_dict(self, record: BacktestRun) -> Dict[str, Any]:
         request_payload = dict(record.request_json or {})
         if not request_payload:
             request_payload = self._get_request_snapshot(record.run_id)
-        return {
+        payload = {
             **self._record_to_summary_dict(record),
             "request": request_payload,
         }
+        payload["artifact_refs"] = {
+            "run_root": self.artifact_store.reference_for(
+                self._safe_artifact_key(["backtests", str(record.run_id)])
+            )
+        }
+        return payload
 
     def _upsert_request_snapshot(self, run_id: str, request_payload: Any) -> None:
         cleaned = self._sanitize_request_payload(request_payload)
@@ -286,7 +422,9 @@ class BacktestRepository:
             if cleaned_request:
                 BacktestRepository._memory_request_snapshots[run_id] = cleaned_request
             BacktestRepository._memory_runs[run_id] = payload
-            return dict(payload)
+            result = dict(payload)
+            result.update(self._sync_backtest_sidecars(result))
+            return result
 
         return self._retry_with_backoff(
             self._save_run_once,
@@ -352,7 +490,10 @@ class BacktestRepository:
 
         self.session.commit()
         self.session.refresh(record)
-        return self._record_to_dict(record)
+        persisted = self._record_to_dict(record)
+        persisted.update(self._sync_backtest_sidecars(persisted))
+        BacktestRepository._memory_runs[run_id] = dict(persisted)
+        return persisted
 
     def touch_run(self, run_id: str, updated_at: Optional[str] = None) -> bool:
         """Refresh only the heartbeat timestamp for an existing run."""
@@ -444,9 +585,7 @@ class BacktestRepository:
                 key=lambda row: str(row.get("updated_at", "")),
                 reverse=True,
             )
-            selected = (
-                runs[offset:] if limit is None else runs[offset : offset + limit]
-            )
+            selected = runs[offset:] if limit is None else runs[offset : offset + limit]
             overviews: List[Dict[str, Any]] = []
             for row in selected:
                 payload = self._normalize_run_data(dict(row))
@@ -524,9 +663,7 @@ class BacktestRepository:
             "total_pnl": float(run_data.get("total_pnl", 0.0) or 0.0),
             "win_rate": float(run_data.get("win_rate", 0.0) or 0.0),
             "sharpe_ratio": float(run_data.get("sharpe_ratio", 0.0) or 0.0),
-            "max_drawdown_pct": float(
-                run_data.get("max_drawdown_pct", 0.0) or 0.0
-            ),
+            "max_drawdown_pct": float(run_data.get("max_drawdown_pct", 0.0) or 0.0),
             "total_trades": int(run_data.get("total_trades", 0) or 0),
             "profit_factor": float(run_data.get("profit_factor", 0.0) or 0.0),
             "error": run_data.get("error"),
@@ -560,7 +697,9 @@ class BacktestRepository:
                 .update(scalar_updates, synchronize_session=False)
             )
             if "request" in run_data and isinstance(run_data.get("request"), dict):
-                self.session.query(BacktestRun).filter(BacktestRun.run_id == run_id).update(
+                self.session.query(BacktestRun).filter(
+                    BacktestRun.run_id == run_id
+                ).update(
                     {"request_json": dict(run_data.get("request") or {})},
                     synchronize_session=False,
                 )

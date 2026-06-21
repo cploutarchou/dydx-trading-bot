@@ -20,7 +20,7 @@ func (r *ExternalAPICredentialRepository) GetByUserAndProvider(userID int, provi
 	query := `
 		SELECT id, user_id, provider, label, encrypted_api_key, COALESCE(api_key_hash, ''), COALESCE(api_key_masked, ''), is_active, created_at, updated_at
 		FROM external_api_credentials
-		WHERE user_id = ? AND provider = ?
+		WHERE user_id = $1 AND provider = $2
 		LIMIT 1
 	`
 
@@ -55,17 +55,18 @@ func (r *ExternalAPICredentialRepository) Upsert(credential *models.ExternalAPIC
 
 	query := `
 		INSERT INTO external_api_credentials (user_id, provider, label, encrypted_api_key, api_key_hash, api_key_masked, is_active, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE
-			label = VALUES(label),
-			encrypted_api_key = VALUES(encrypted_api_key),
-			api_key_hash = VALUES(api_key_hash),
-			api_key_masked = VALUES(api_key_masked),
-			is_active = VALUES(is_active),
-			updated_at = VALUES(updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (user_id, provider) DO UPDATE SET
+			label = EXCLUDED.label,
+			encrypted_api_key = EXCLUDED.encrypted_api_key,
+			api_key_hash = EXCLUDED.api_key_hash,
+			api_key_masked = EXCLUDED.api_key_masked,
+			is_active = EXCLUDED.is_active,
+			updated_at = EXCLUDED.updated_at
+		RETURNING id, created_at, updated_at
 	`
 
-	if _, err := r.db.Exec(
+	if err := r.db.QueryRow(
 		query,
 		credential.UserID,
 		credential.Provider,
@@ -76,21 +77,9 @@ func (r *ExternalAPICredentialRepository) Upsert(credential *models.ExternalAPIC
 		credential.IsActive,
 		now,
 		now,
-	); err != nil {
+	).Scan(&credential.ID, &credential.CreatedAt, &credential.UpdatedAt); err != nil {
 		return fmt.Errorf("failed to upsert external api credential: %w", err)
 	}
-
-	stored, err := r.GetByUserAndProvider(credential.UserID, credential.Provider)
-	if err != nil {
-		return fmt.Errorf("failed to reload external api credential after upsert: %w", err)
-	}
-	if stored == nil {
-		return fmt.Errorf("external api credential was not found after upsert")
-	}
-
-	credential.ID = stored.ID
-	credential.CreatedAt = stored.CreatedAt
-	credential.UpdatedAt = stored.UpdatedAt
 	return nil
 }
 
@@ -111,7 +100,7 @@ func (r *ExternalAPICredentialRepository) upsertSQLite(credential *models.Extern
 	if existing == nil {
 		if _, err := r.db.Exec(
 			`INSERT INTO external_api_credentials (user_id, provider, label, encrypted_api_key, api_key_hash, api_key_masked, is_active, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 			credential.UserID,
 			credential.Provider,
 			credential.Label,
@@ -126,8 +115,8 @@ func (r *ExternalAPICredentialRepository) upsertSQLite(credential *models.Extern
 		}
 	} else if _, err := r.db.Exec(
 		`UPDATE external_api_credentials
-		SET label = ?, encrypted_api_key = ?, api_key_hash = ?, api_key_masked = ?, is_active = ?, updated_at = ?
-		WHERE user_id = ? AND provider = ?`,
+		SET label = $1, encrypted_api_key = $2, api_key_hash = $3, api_key_masked = $4, is_active = $5, updated_at = $6
+		WHERE user_id = $7 AND provider = $8`,
 		credential.Label,
 		credential.EncryptedAPIKey,
 		credential.APIKeyHash,
@@ -155,7 +144,7 @@ func (r *ExternalAPICredentialRepository) upsertSQLite(credential *models.Extern
 
 func (r *ExternalAPICredentialRepository) Deactivate(userID int, provider string) error {
 	result, err := r.db.Exec(
-		`UPDATE external_api_credentials SET is_active = false, updated_at = ? WHERE user_id = ? AND provider = ?`,
+		`UPDATE external_api_credentials SET is_active = false, updated_at = $1 WHERE user_id = $2 AND provider = $3`,
 		time.Now().UTC(),
 		userID,
 		provider,

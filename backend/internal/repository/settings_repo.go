@@ -101,10 +101,10 @@ func scanBotSetting(scanner settingScanner) (*models.BotSetting, error) {
 
 // CreateBotSetting creates a new bot setting
 func (r *SettingsRepository) CreateBotSetting(setting *models.BotSetting) error {
-	query := "INSERT INTO bot_settings (section, `key`, value, value_type, description, default_value, is_active, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	query := "INSERT INTO bot_settings (section, \"key\", value, value_type, description, default_value, is_active, version, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id"
 
 	now := time.Now()
-	result, err := r.db.Exec(
+	err := r.db.QueryRow(
 		query,
 		setting.Section,
 		setting.Key,
@@ -116,17 +116,10 @@ func (r *SettingsRepository) CreateBotSetting(setting *models.BotSetting) error 
 		setting.Version,
 		now,
 		now,
-	)
+	).Scan(&setting.ID)
 	if err != nil {
 		return fmt.Errorf("failed to create bot setting: %w", err)
 	}
-
-	lastID, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert ID: %w", err)
-	}
-
-	setting.ID = int(lastID)
 	setting.CreatedAt = now
 	setting.UpdatedAt = now
 
@@ -135,7 +128,7 @@ func (r *SettingsRepository) CreateBotSetting(setting *models.BotSetting) error 
 
 // GetBotSettingByID retrieves a bot setting by ID
 func (r *SettingsRepository) GetBotSettingByID(id int) (*models.BotSetting, error) {
-	query := "SELECT id, section, `key`, value, value_type, description, default_value, is_active, version, created_at, updated_at FROM bot_settings WHERE id = ? LIMIT 1"
+	query := "SELECT id, section, \"key\", value, value_type, description, default_value, is_active, version, created_at, updated_at FROM bot_settings WHERE id = $1 LIMIT 1"
 
 	setting, err := scanBotSetting(r.db.QueryRow(query, id))
 	if err != nil {
@@ -150,7 +143,7 @@ func (r *SettingsRepository) GetBotSettingByID(id int) (*models.BotSetting, erro
 
 // GetBotSettingBySectionAndKey retrieves a bot setting by section and key
 func (r *SettingsRepository) GetBotSettingBySectionAndKey(section, key string) (*models.BotSetting, error) {
-	query := "SELECT id, section, `key`, value, value_type, description, default_value, is_active, version, created_at, updated_at FROM bot_settings WHERE section = ? AND `key` = ? LIMIT 1"
+	query := "SELECT id, section, \"key\", value, value_type, description, default_value, is_active, version, created_at, updated_at FROM bot_settings WHERE section = $1 AND \"key\" = $2 LIMIT 1"
 
 	setting, err := scanBotSetting(r.db.QueryRow(query, section, key))
 	if err != nil {
@@ -165,7 +158,7 @@ func (r *SettingsRepository) GetBotSettingBySectionAndKey(section, key string) (
 
 // GetBotSettingsBySection retrieves all settings in a section
 func (r *SettingsRepository) GetBotSettingsBySection(section string) ([]models.BotSetting, error) {
-	query := "SELECT id, section, `key`, value, value_type, description, default_value, is_active, version, created_at, updated_at FROM bot_settings WHERE section = ? ORDER BY `key` ASC"
+	query := "SELECT id, section, \"key\", value, value_type, description, default_value, is_active, version, created_at, updated_at FROM bot_settings WHERE section = $1 ORDER BY \"key\" ASC"
 
 	rows, err := r.db.Query(query, section)
 	if err != nil {
@@ -191,7 +184,7 @@ func (r *SettingsRepository) GetBotSettingsBySection(section string) ([]models.B
 
 // GetAllBotSettings retrieves all bot settings
 func (r *SettingsRepository) GetAllBotSettings() ([]models.BotSetting, error) {
-	query := "SELECT id, section, `key`, value, value_type, description, default_value, is_active, version, created_at, updated_at FROM bot_settings ORDER BY section, `key` ASC"
+	query := "SELECT id, section, \"key\", value, value_type, description, default_value, is_active, version, created_at, updated_at FROM bot_settings ORDER BY section, \"key\" ASC"
 
 	rows, err := r.db.Query(query)
 	if err != nil {
@@ -219,8 +212,8 @@ func (r *SettingsRepository) GetAllBotSettings() ([]models.BotSetting, error) {
 func (r *SettingsRepository) UpdateBotSetting(setting *models.BotSetting) error {
 	query := `
 		UPDATE bot_settings
-		SET value = ?, description = ?, is_active = ?, version = ?, updated_at = ?
-		WHERE id = ?
+		SET value = $1, description = $2, is_active = $3, version = $4, updated_at = $5
+		WHERE id = $6
 	`
 
 	now := time.Now()
@@ -244,7 +237,7 @@ func (r *SettingsRepository) UpdateBotSetting(setting *models.BotSetting) error 
 
 // DeleteBotSetting deletes a bot setting
 func (r *SettingsRepository) DeleteBotSetting(id int) error {
-	query := `DELETE FROM bot_settings WHERE id = ?`
+	query := `DELETE FROM bot_settings WHERE id = $1`
 
 	result, err := r.db.Exec(query, id)
 	if err != nil {
@@ -267,10 +260,10 @@ func (r *SettingsRepository) DeleteBotSetting(id int) error {
 
 // CreateRedisSetting creates a new redis setting
 func (r *SettingsRepository) CreateRedisSetting(setting *models.RedisSetting) error {
-	query := "\n\t\tINSERT INTO redis_settings (enabled, host, port, db, password, `ssl`, created_at, updated_at)\n\t\tVALUES (?, ?, ?, ?, ?, ?, ?, ?)\n\t"
+	query := "\n\t\tINSERT INTO redis_settings (enabled, host, port, db, password, \"ssl\", created_at, updated_at)\n\t\tVALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n\t\tRETURNING id\n\t"
 
 	now := time.Now()
-	result, err := r.db.Exec(
+	err := r.db.QueryRow(
 		query,
 		setting.Enabled,
 		setting.Host,
@@ -280,17 +273,10 @@ func (r *SettingsRepository) CreateRedisSetting(setting *models.RedisSetting) er
 		setting.SSL,
 		now,
 		now,
-	)
+	).Scan(&setting.ID)
 	if err != nil {
 		return fmt.Errorf("failed to create redis setting: %w", err)
 	}
-
-	lastID, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert ID: %w", err)
-	}
-
-	setting.ID = int(lastID)
 	setting.CreatedAt = now
 	setting.UpdatedAt = now
 
@@ -299,7 +285,7 @@ func (r *SettingsRepository) CreateRedisSetting(setting *models.RedisSetting) er
 
 // GetRedisSetting retrieves redis settings (usually only one row)
 func (r *SettingsRepository) GetRedisSetting() (*models.RedisSetting, error) {
-	query := "\n\t\tSELECT id, enabled, host, port, db, password, `ssl`, created_at, updated_at\n\t\tFROM redis_settings\n\t\tLIMIT 1\n\t"
+	query := "\n\t\tSELECT id, enabled, host, port, db, password, \"ssl\", created_at, updated_at\n\t\tFROM redis_settings\n\t\tLIMIT 1\n\t"
 
 	setting := &models.RedisSetting{}
 	err := r.db.QueryRow(query).Scan(
@@ -325,7 +311,7 @@ func (r *SettingsRepository) GetRedisSetting() (*models.RedisSetting, error) {
 
 // UpdateRedisSetting updates redis settings
 func (r *SettingsRepository) UpdateRedisSetting(setting *models.RedisSetting) error {
-	query := "\n\t\tUPDATE redis_settings\n\t\tSET enabled = ?, host = ?, port = ?, db = ?, password = ?, `ssl` = ?, updated_at = ?\n\t\tWHERE id = ?\n\t"
+	query := "\n\t\tUPDATE redis_settings\n\t\tSET enabled = $1, host = $2, port = $3, db = $4, password = $5, \"ssl\" = $6, updated_at = $7\n\t\tWHERE id = $8\n\t"
 
 	now := time.Now()
 	result, err := r.db.Exec(query, setting.Enabled, setting.Host, setting.Port, setting.Db, setting.Password, setting.SSL, now, setting.ID)

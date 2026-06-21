@@ -49,7 +49,7 @@ func normalizeDBTarget(target DatabaseTarget) DatabaseTarget {
 	return target
 }
 
-func parseMySQLTarget(rawURL string, source string) (*DatabaseTarget, bool) {
+func parseDatabaseTarget(rawURL string, source string) (*DatabaseTarget, bool) {
 	candidate := strings.TrimSpace(rawURL)
 	if candidate == "" {
 		return nil, false
@@ -61,7 +61,7 @@ func parseMySQLTarget(rawURL string, source string) (*DatabaseTarget, bool) {
 	}
 
 	scheme := strings.ToLower(parsed.Scheme)
-	if scheme != "mysql" && scheme != "mariadb" {
+	if scheme != "mysql" && scheme != "mariadb" && scheme != "postgres" && scheme != "postgresql" {
 		return nil, false
 	}
 
@@ -72,13 +72,17 @@ func parseMySQLTarget(rawURL string, source string) (*DatabaseTarget, bool) {
 		Source: source,
 	})
 	if target.Port == "" {
-		target.Port = "3306"
+		if scheme == "postgres" || scheme == "postgresql" {
+			target.Port = "5432"
+		} else {
+			target.Port = "3306"
+		}
 	}
 	return &target, true
 }
 
 func parseAnyDatabaseTarget(rawURL string, source string) (*DatabaseTarget, bool) {
-	if target, ok := parseMySQLTarget(rawURL, source); ok {
+	if target, ok := parseDatabaseTarget(rawURL, source); ok {
 		return target, true
 	}
 	return nil, false
@@ -90,7 +94,7 @@ func resolveSharedDBTargetFromEnv() (*DatabaseTarget, bool) {
 	}
 
 	host := strings.TrimSpace(firstNonEmpty(os.Getenv("DB_HOST"), "localhost"))
-	port := strings.TrimSpace(firstNonEmpty(os.Getenv("DB_PORT"), "3306"))
+	port := strings.TrimSpace(firstNonEmpty(os.Getenv("DB_PORT"), "5432"))
 	name := strings.TrimSpace(firstNonEmpty(os.Getenv("DB_NAME"), "dydx_bot"))
 
 	target := normalizeDBTarget(DatabaseTarget{

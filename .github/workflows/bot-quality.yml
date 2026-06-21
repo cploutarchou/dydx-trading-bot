@@ -108,13 +108,13 @@ jobs:
             - name: Validate infra compose file syntax
               run: |
                   set -euo pipefail
-                  docker-compose -f docker-compose.infra.yml config > /dev/null
+                  docker compose -f docker-compose.infra.yml config > /dev/null
                   echo "docker-compose.infra.yml: OK" >> "$GITHUB_STEP_SUMMARY"
 
             - name: Validate stack compose file syntax
               run: |
                   set -euo pipefail
-                  docker-compose -f docker-compose.stack.yml config > /dev/null
+                  docker compose -f docker-compose.stack.yml config > /dev/null
                   echo "docker-compose.stack.yml: OK" >> "$GITHUB_STEP_SUMMARY"
 
             - name: Check required services in infra compose

@@ -9,6 +9,7 @@ The biggest wins in this pass were:
 - backend database defaults now prefer PostgreSQL
 - backend database ownership checks now recognize PostgreSQL URLs and default ports
 - several backend repositories now use PostgreSQL-style placeholders and `ON CONFLICT` semantics
+- the remaining live backend repositories and route seed helpers were converted away from `LastInsertId()`
 - the bot runtime now defaults to PostgreSQL connection settings and Alembic bootstrapping
 - bot database runtime tests and migration docs were updated to match the PostgreSQL-first posture
 
@@ -33,6 +34,20 @@ The biggest wins in this pass were:
   - PostgreSQL placeholders (`$1`, `$2`, …)
   - quoted identifiers for reserved names like `key` and `ssl`
   - `RETURNING id` used instead of `LastInsertId()`
+- `backend/internal/repository/backtest_sync_repo.go`
+  - PostgreSQL `ON CONFLICT` sync semantics for runs, trades, positions, and candles
+- `backend/internal/repository/bot_instance_repository.go`
+  - PostgreSQL placeholder binding and `RETURNING id`
+- `backend/internal/repository/bot_position_repository.go`
+  - PostgreSQL placeholder binding and `RETURNING id`
+- `backend/internal/repository/bot_trade_repository.go`
+  - PostgreSQL placeholder binding and `RETURNING id`
+- `backend/internal/repository/user_repo.go`
+  - PostgreSQL placeholder binding and `RETURNING id`
+- `backend/internal/repository/strategy_repo.go`
+  - PostgreSQL placeholder binding and `RETURNING id` for strategies, execution state, and version history
+- `backend/internal/repository/ico_whitelist_repo.go`
+  - PostgreSQL placeholder binding, `ON CONFLICT` upserts, and `RETURNING id`
 - `backend/internal/repository/user_mfa_repo.go`
   - `ON DUPLICATE KEY UPDATE` replaced with `ON CONFLICT (user_id) DO UPDATE`
 - `backend/internal/repository/external_api_credential_repo.go`
@@ -47,6 +62,9 @@ The biggest wins in this pass were:
 
 - `backend/internal/repository/settings_repo_test.go`
 - `backend/cmd/server/db_ownership_test.go`
+- `backend/internal/repository/...` (`go test ./internal/repository/...`)
+- `backend/internal/routes/...` (`go test ./internal/routes`)
+- `backend/...` (`go test ./...`)
 
 ## Bot changes applied
 
@@ -80,12 +98,11 @@ The biggest wins in this pass were:
 
 ## Remaining MySQL/MariaDB hotspots
 
-There are still MySQL-flavored queries and migration artifacts elsewhere in the backend and bot that should be reviewed in a follow-up pass, including:
+There are still MySQL-flavored migration artifacts and compatibility references elsewhere in the backend and bot that should be reviewed in a follow-up pass, including:
 
 - MySQL migrations under `backend/migrations/mysql/`
-- repository and route files that still use `?` placeholders or `LastInsertId()`
-- remaining `INSERT IGNORE` / `ON DUPLICATE KEY UPDATE` SQL in backend repositories and tests
-- bot test fixtures and some legacy helper defaults that still mention MySQL/MariaDB for compatibility scenarios
+- MariaDB migration files under `bot/migrations/mariadb/`
+- docs, checks, and compatibility tests that still mention MySQL/MariaDB for legacy support or migration inventory
 
 ## Notes
 

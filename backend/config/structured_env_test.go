@@ -72,7 +72,7 @@ func TestLoadConfig_SupportedDatabases(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_UsesMariaDBByDefault(t *testing.T) {
+func TestLoadConfig_UsesPostgresByDefault(t *testing.T) {
 	t.Setenv("APP_ENV", "test")
 
 	defer func() {
@@ -86,8 +86,8 @@ func TestLoadConfig_UsesMariaDBByDefault(t *testing.T) {
 	if ConfigInstance == nil {
 		t.Fatal("expected ConfigInstance to be initialized")
 	}
-	if got := ConfigInstance.Database.Type; got != "mysql" {
-		t.Fatalf("expected mysql database type, got %q", got)
+	if got := ConfigInstance.Database.Type; got != "postgres" {
+		t.Fatalf("expected postgres database type, got %q", got)
 	}
 }
 

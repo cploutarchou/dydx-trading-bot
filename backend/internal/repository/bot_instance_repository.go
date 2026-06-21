@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -12,11 +13,37 @@ import (
 )
 
 type BotInstanceRepository struct {
-	db *sql.DB
+	db       *sql.DB
+	dbDriver string
 }
 
 func NewBotInstanceRepository(db *sql.DB) *BotInstanceRepository {
-	return &BotInstanceRepository{db: db}
+	driver := os.Getenv("DB_TYPE")
+	if driver == "" {
+		driver = os.Getenv("DB_DRIVER")
+	}
+	if driver == "" {
+		driver = "postgres"
+	}
+	return &BotInstanceRepository{db: db, dbDriver: driver}
+}
+
+func (r *BotInstanceRepository) bindQuery(query string) string {
+	if r == nil || !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
+		return query
+	}
+	var b strings.Builder
+	b.Grow(len(query) + 16)
+	idx := 1
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' {
+			b.WriteString(fmt.Sprintf("$%d", idx))
+			idx++
+			continue
+		}
+		b.WriteByte(query[i])
+	}
+	return b.String()
 }
 
 func isUndefinedColumnError(err error) bool {
@@ -77,11 +104,12 @@ func (r *BotInstanceRepository) CreateBotInstance(instance *models.BotInstance) 
 			instance_id, instance_name, user_id, status, network, strategy,
 			config, trading_params, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		RETURNING id
 	`
 
 	now := time.Now()
-	result, err := r.db.Exec(
-		query,
+	if err := r.db.QueryRow(
+		r.bindQuery(query),
 		instance.InstanceID,
 		instance.InstanceName,
 		instance.UserID,
@@ -92,19 +120,18 @@ func (r *BotInstanceRepository) CreateBotInstance(instance *models.BotInstance) 
 		instance.TradingParams,
 		now,
 		now,
-	)
-
-	if err != nil {
+	).Scan(&instance.ID); err != nil {
 		if db.IsUndefinedColumnError(err) {
 			fallbackQuery := `
 				INSERT INTO bot_instances (
 					instance_id, status, network, strategy, config, process_id, created_at, updated_at
 				) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+				RETURNING id
 			`
 
 			fallbackNow := time.Now()
-			result, err = r.db.Exec(
-				fallbackQuery,
+			if err = r.db.QueryRow(
+				r.bindQuery(fallbackQuery),
 				instance.InstanceID,
 				normalizeBotStatus(instance.Status),
 				instance.Network,
@@ -113,28 +140,16 @@ func (r *BotInstanceRepository) CreateBotInstance(instance *models.BotInstance) 
 				instance.ProcessID,
 				fallbackNow,
 				fallbackNow,
-			)
-
-			if err == nil {
-				lastID, _ := result.LastInsertId()
-				instance.ID = int(lastID)
+			).Scan(&instance.ID); err == nil {
 				instance.CreatedAt = fallbackNow
 				instance.UpdatedAt = fallbackNow
 				return nil
 			}
 		}
+		if err != nil {
+			return db.WrapSQLError(err)
+		}
 	}
-
-	if err != nil {
-		return db.WrapSQLError(err)
-	}
-
-	lastID, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert ID: %w", err)
-	}
-
-	instance.ID = int(lastID)
 	instance.CreatedAt = now
 	instance.UpdatedAt = now
 
@@ -154,7 +169,7 @@ func (r *BotInstanceRepository) GetBotInstanceByID(id int) (*models.BotInstance,
 		WHERE id = ?
 	`
 
-	err := r.db.QueryRow(query, id).Scan(
+	err := r.db.QueryRow(r.bindQuery(query), id).Scan(
 		&instance.ID, &instance.InstanceID, &instance.InstanceName, &instance.UserID,
 		&instance.Status, &instance.Network, &instance.Strategy,
 		&instance.Config, &instance.TradingParams, &instance.TotalTrades, &instance.TotalPnL,
@@ -165,7 +180,7 @@ func (r *BotInstanceRepository) GetBotInstanceByID(id int) (*models.BotInstance,
 
 	if err != nil && isUndefinedColumnError(err) {
 		fallbackQuery := selectBotInstancesCompatColumns + ` WHERE id = ?`
-		err = r.db.QueryRow(fallbackQuery, id).Scan(
+		err = r.db.QueryRow(r.bindQuery(fallbackQuery), id).Scan(
 			&instance.ID, &instance.InstanceID, &instance.InstanceName, &instance.UserID,
 			&instance.Status, &instance.Network, &instance.Strategy,
 			&instance.Config, &instance.TradingParams, &instance.TotalTrades, &instance.TotalPnL,
@@ -198,7 +213,7 @@ func (r *BotInstanceRepository) GetBotInstanceByInstanceID(instanceID string) (*
 		WHERE instance_id = ?
 	`
 
-	err := r.db.QueryRow(query, instanceID).Scan(
+	err := r.db.QueryRow(r.bindQuery(query), instanceID).Scan(
 		&instance.ID, &instance.InstanceID, &instance.InstanceName, &instance.UserID,
 		&instance.Status, &instance.Network, &instance.Strategy,
 		&instance.Config, &instance.TradingParams, &instance.TotalTrades, &instance.TotalPnL,
@@ -209,7 +224,7 @@ func (r *BotInstanceRepository) GetBotInstanceByInstanceID(instanceID string) (*
 
 	if err != nil && isUndefinedColumnError(err) {
 		fallbackQuery := selectBotInstancesCompatColumns + ` WHERE instance_id = ?`
-		err = r.db.QueryRow(fallbackQuery, instanceID).Scan(
+		err = r.db.QueryRow(r.bindQuery(fallbackQuery), instanceID).Scan(
 			&instance.ID, &instance.InstanceID, &instance.InstanceName, &instance.UserID,
 			&instance.Status, &instance.Network, &instance.Strategy,
 			&instance.Config, &instance.TradingParams, &instance.TotalTrades, &instance.TotalPnL,
@@ -242,7 +257,7 @@ func (r *BotInstanceRepository) ListBotInstancesByUserID(userID int, limit int, 
 		LIMIT ? OFFSET ?
 	`
 
-	rows, err := r.db.Query(query, userID, limit, offset)
+	rows, err := r.db.Query(r.bindQuery(query), userID, limit, offset)
 	if err != nil {
 		if isUndefinedColumnError(err) {
 			log.Printf("Error querying bot instances: schema missing user_id column; refusing unsafe compatibility fallback")
@@ -284,7 +299,7 @@ func (r *BotInstanceRepository) ListBotInstancesByUserID(userID int, limit int, 
 
 func (r *BotInstanceRepository) CountBotInstancesByUserID(userID int) (int, error) {
 	var count int
-	err := r.db.QueryRow(`SELECT COUNT(*) FROM bot_instances WHERE user_id = ?`, userID).Scan(&count)
+	err := r.db.QueryRow(r.bindQuery(`SELECT COUNT(*) FROM bot_instances WHERE user_id = ?`), userID).Scan(&count)
 	if err != nil {
 		if isUndefinedColumnError(err) {
 			return 0, fmt.Errorf("failed to count bot instances: current schema missing user_id; run migrations before enforcing user-scoped bot quotas")
@@ -302,14 +317,14 @@ func (r *BotInstanceRepository) UpdateBotInstanceStatus(instanceID string, statu
 		WHERE instance_id = ?
 	`
 
-	result, err := r.db.Exec(query, normalizeBotStatus(status), time.Now(), instanceID)
+	result, err := r.db.Exec(r.bindQuery(query), normalizeBotStatus(status), time.Now(), instanceID)
 	if err != nil && isUndefinedColumnError(err) {
 		fallbackQuery := `
 			UPDATE bot_instances
 			SET status = ?
 			WHERE instance_id = ?
 		`
-		result, err = r.db.Exec(fallbackQuery, normalizeBotStatus(status), instanceID)
+		result, err = r.db.Exec(r.bindQuery(fallbackQuery), normalizeBotStatus(status), instanceID)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to update bot instance status: %w", err)
@@ -335,14 +350,14 @@ func (r *BotInstanceRepository) UpdateBotInstanceMetrics(instanceID string, tota
 		WHERE instance_id = ?
 	`
 
-	result, err := r.db.Exec(query, totalTrades, totalPnL, currentBalance, time.Now(), instanceID)
+	result, err := r.db.Exec(r.bindQuery(query), totalTrades, totalPnL, currentBalance, time.Now(), instanceID)
 	if err != nil && isUndefinedColumnError(err) {
 		fallbackQuery := `
 			UPDATE bot_instances
 			SET updated_at = ?
 			WHERE instance_id = ?
 		`
-		result, err = r.db.Exec(fallbackQuery, time.Now(), instanceID)
+		result, err = r.db.Exec(r.bindQuery(fallbackQuery), time.Now(), instanceID)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to update bot instance metrics: %w", err)
@@ -370,7 +385,7 @@ func (r *BotInstanceRepository) UpdateBotInstanceProcess(instanceID string, proc
 
 	normalizedStatus := normalizeBotStatus(status)
 	result, err := r.db.Exec(
-		query,
+		r.bindQuery(query),
 		processID, pid, host, port, normalizedStatus, time.Now(), time.Now(), instanceID,
 	)
 	if err != nil && isUndefinedColumnError(err) {
@@ -380,7 +395,7 @@ func (r *BotInstanceRepository) UpdateBotInstanceProcess(instanceID string, proc
 			WHERE instance_id = ?
 		`
 		result, err = r.db.Exec(
-			fallbackQuery,
+			r.bindQuery(fallbackQuery),
 			processID, normalizedStatus, time.Now(), instanceID,
 		)
 		if err != nil && isUndefinedColumnError(err) {
@@ -389,7 +404,7 @@ func (r *BotInstanceRepository) UpdateBotInstanceProcess(instanceID string, proc
 				SET status = ?
 				WHERE instance_id = ?
 			`
-			result, err = r.db.Exec(minimalFallbackQuery, normalizedStatus, instanceID)
+			result, err = r.db.Exec(r.bindQuery(minimalFallbackQuery), normalizedStatus, instanceID)
 		}
 	}
 	if err != nil {
@@ -417,14 +432,14 @@ func (r *BotInstanceRepository) UpdateBotInstanceError(instanceID string, errorM
 	`
 
 	normalizedStatus := normalizeBotStatus("ERROR")
-	result, err := r.db.Exec(query, errorMessage, time.Now(), normalizedStatus, time.Now(), instanceID)
+	result, err := r.db.Exec(r.bindQuery(query), errorMessage, time.Now(), normalizedStatus, time.Now(), instanceID)
 	if err != nil && isUndefinedColumnError(err) {
 		fallbackQuery := `
 			UPDATE bot_instances
 			SET status = ?, updated_at = ?
 			WHERE instance_id = ?
 		`
-		result, err = r.db.Exec(fallbackQuery, normalizedStatus, time.Now(), instanceID)
+		result, err = r.db.Exec(r.bindQuery(fallbackQuery), normalizedStatus, time.Now(), instanceID)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to update bot instance error: %w", err)
@@ -446,7 +461,7 @@ func (r *BotInstanceRepository) UpdateBotInstanceError(instanceID string, errorM
 func (r *BotInstanceRepository) DeleteBotInstance(instanceID string) error {
 	query := `DELETE FROM bot_instances WHERE instance_id = ?`
 
-	result, err := r.db.Exec(query, instanceID)
+	result, err := r.db.Exec(r.bindQuery(query), instanceID)
 	if err != nil {
 		return fmt.Errorf("failed to delete bot instance: %w", err)
 	}

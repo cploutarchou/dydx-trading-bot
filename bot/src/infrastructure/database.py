@@ -103,7 +103,7 @@ class DatabaseConfig:
             raise ValueError(
                 f"Unsupported DB_TYPE '{value}'. Supported: mysql, mariadb, postgres, postgresql."
             )
-        return "mysql"
+        return "postgres"
 
     def _resolve_db_type(self) -> str:
         bot_type_raw = self._env("BOT_DB_TYPE", "")
@@ -115,9 +115,12 @@ class DatabaseConfig:
         )
 
         if bot_type and shared_type and bot_type != shared_type:
-            raise ValueError(
-                "Conflicting BOT_DB_TYPE and DB_TYPE values are not allowed; use a single database mode"
-            )
+            if self.cutover_mode == "shared":
+                raise ValueError(
+                    "Conflicting BOT_DB_TYPE and DB_TYPE values are not allowed; use a single database mode"
+                )
+            # Dedicated bot modes may intentionally diverge from shared DB settings.
+            shared_type = ""
 
         explicit_type = bot_type or shared_type
 
@@ -137,7 +140,7 @@ class DatabaseConfig:
                 "Conflicting DB_TYPE and database URL schemes are not allowed"
             )
 
-        return explicit_type or inferred_type or "mysql"
+        return explicit_type or inferred_type or "postgres"
 
     @staticmethod
     def _url_db_type(raw_url: str) -> Optional[str]:
@@ -398,7 +401,7 @@ class DatabaseConfig:
         return (
             os.getenv("BOT_DB_NAME", "dydx_bot"),
             os.getenv("BOT_DB_HOST", "localhost"),
-            os.getenv("BOT_DB_PORT", "3306"),
+            os.getenv("BOT_DB_PORT", "5432"),
             os.getenv("BOT_DB_USER", "app"),
             os.getenv("BOT_DB_PASSWORD", ""),
         )

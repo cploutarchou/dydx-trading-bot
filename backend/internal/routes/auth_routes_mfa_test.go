@@ -79,7 +79,7 @@ func setupAuthMFATestRouter(t *testing.T) (*gin.Engine, *sql.DB, int) {
 	}
 
 	now := time.Now().UTC()
-	result, err := dbConn.Exec(
+	_, err := dbConn.Exec(
 		`INSERT INTO users (username, email, role, full_name, avatar, hashed_password, is_active, is_admin, mfa_enabled, password_change_required, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		"alice",
 		"alice@example.local",
@@ -97,14 +97,14 @@ func setupAuthMFATestRouter(t *testing.T) (*gin.Engine, *sql.DB, int) {
 	if err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
-	insertID, err := result.LastInsertId()
-	if err != nil {
-		t.Fatalf("last insert id: %v", err)
+	var insertID int
+	if err := dbConn.QueryRow(`SELECT id FROM users WHERE username = ?`, "alice").Scan(&insertID); err != nil {
+		t.Fatalf("lookup inserted user id: %v", err)
 	}
 
 	router := gin.New()
 	RegisterAuthRoutes(router, dbConn)
-	return router, dbConn, int(insertID)
+	return router, dbConn, insertID
 }
 
 func issueMFATestBearerToken(t *testing.T, userID int, username, role string) string {

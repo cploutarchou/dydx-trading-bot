@@ -5,17 +5,45 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 )
 
 type ICOWhitelistRepository struct {
-	db *sql.DB
+	db       *sql.DB
+	dbDriver string
 }
 
 func NewICOWhitelistRepository(db *sql.DB) *ICOWhitelistRepository {
-	return &ICOWhitelistRepository{db: db}
+	driver := os.Getenv("DB_TYPE")
+	if driver == "" {
+		driver = os.Getenv("DB_DRIVER")
+	}
+	if driver == "" {
+		driver = "postgres"
+	}
+	return &ICOWhitelistRepository{db: db, dbDriver: driver}
+}
+
+func (r *ICOWhitelistRepository) bindQuery(query string) string {
+	if r == nil || !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
+		return query
+	}
+	var b strings.Builder
+	b.Grow(len(query) + 16)
+	idx := 1
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' {
+			b.WriteString(fmt.Sprintf("$%d", idx))
+			idx++
+			continue
+		}
+		b.WriteByte(query[i])
+	}
+	return b.String()
 }
 
 type ICOWhitelistCreateParams struct {
@@ -125,7 +153,7 @@ func (r *ICOWhitelistRepository) CreateOrRefreshPending(
 }
 
 func (r *ICOWhitelistRepository) ConfirmByTokenHash(ctx context.Context, tokenHash string, now time.Time) (bool, error) {
-	result, err := r.db.ExecContext(ctx, `
+	result, err := r.db.ExecContext(ctx, r.bindQuery(`
 		UPDATE ico_whitelist_applications
 		SET status = CASE WHEN status = ? THEN ? ELSE status END,
 		    email_confirmed_at = ?,
@@ -135,7 +163,7 @@ func (r *ICOWhitelistRepository) ConfirmByTokenHash(ctx context.Context, tokenHa
 		  AND confirmation_expires_at > ?
 		  AND email_confirmed_at IS NULL
 		  AND status <> ?
-	`,
+	`),
 		models.ICOWhitelistStatusPendingConfirmation,
 		models.ICOWhitelistStatusConfirmed,
 		now,
@@ -156,14 +184,14 @@ func (r *ICOWhitelistRepository) ConfirmByTokenHash(ctx context.Context, tokenHa
 }
 
 func (r *ICOWhitelistRepository) UnsubscribeByTokenHash(ctx context.Context, tokenHash string, now time.Time) (bool, error) {
-	result, err := r.db.ExecContext(ctx, `
+	result, err := r.db.ExecContext(ctx, r.bindQuery(`
 		UPDATE ico_whitelist_applications
 		SET unsubscribed_at = COALESCE(unsubscribed_at, ?),
 		    marketing_confirmed_at = NULL,
 		    updated_at = ?
 		WHERE unsubscribe_token_hash = ?
 		  AND unsubscribed_at IS NULL
-	`, now, now, tokenHash)
+	`), now, now, tokenHash)
 	if err != nil {
 		return false, fmt.Errorf("failed to unsubscribe whitelist applicant: %w", err)
 	}
@@ -175,7 +203,7 @@ func (r *ICOWhitelistRepository) UnsubscribeByTokenHash(ctx context.Context, tok
 }
 
 func (r *ICOWhitelistRepository) WithdrawByTokenHash(ctx context.Context, tokenHash string, now time.Time) (bool, error) {
-	result, err := r.db.ExecContext(ctx, `
+	result, err := r.db.ExecContext(ctx, r.bindQuery(`
 		UPDATE ico_whitelist_applications
 		SET status = ?,
 		    withdrawn_at = COALESCE(withdrawn_at, ?),
@@ -183,7 +211,7 @@ func (r *ICOWhitelistRepository) WithdrawByTokenHash(ctx context.Context, tokenH
 		WHERE withdraw_token_hash = ?
 		  AND withdrawn_at IS NULL
 		  AND status <> ?
-	`, models.ICOWhitelistStatusWithdrawn, now, now, tokenHash, models.ICOWhitelistStatusWithdrawn)
+	`), models.ICOWhitelistStatusWithdrawn, now, now, tokenHash, models.ICOWhitelistStatusWithdrawn)
 	if err != nil {
 		return false, fmt.Errorf("failed to withdraw whitelist application: %w", err)
 	}
@@ -195,7 +223,7 @@ func (r *ICOWhitelistRepository) WithdrawByTokenHash(ctx context.Context, tokenH
 }
 
 func (r *ICOWhitelistRepository) getByNormalizedEmail(ctx context.Context, exec QueryExecutor, normalizedEmail string) (*models.ICOWhitelistApplication, error) {
-	row := exec.QueryRowContext(ctx, `
+	row := exec.QueryRowContext(ctx, r.bindQuery(`
 		SELECT id, email, normalized_email, status, marketing_consent, marketing_consent_version,
 		       marketing_consent_text, marketing_consented_at, marketing_confirmed_at,
 		       privacy_notice_version, privacy_accepted_at, confirmation_token_hash,
@@ -206,12 +234,13 @@ func (r *ICOWhitelistRepository) getByNormalizedEmail(ctx context.Context, exec 
 		FROM ico_whitelist_applications
 		WHERE normalized_email = ?
 		LIMIT 1
-	`, normalizedEmail)
+	`), normalizedEmail)
 	return scanICOWhitelistApplication(row)
 }
 
 func (r *ICOWhitelistRepository) createApplication(ctx context.Context, exec QueryExecutor, params ICOWhitelistCreateParams) (*models.ICOWhitelistApplication, error) {
-	result, err := exec.ExecContext(ctx, `
+	var id int64
+	err := exec.QueryRowContext(ctx, r.bindQuery(`
 		INSERT INTO ico_whitelist_applications (
 			email, normalized_email, status, marketing_consent, marketing_consent_version,
 			marketing_consent_text, marketing_consented_at, privacy_notice_version,
@@ -220,7 +249,8 @@ func (r *ICOWhitelistRepository) createApplication(ctx context.Context, exec Que
 			source, locale, referral_code, campaign, email_fingerprint, created_at, updated_at
 		)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`,
+		RETURNING id
+	`),
 		params.Email,
 		params.NormalizedEmail,
 		params.Status,
@@ -241,19 +271,15 @@ func (r *ICOWhitelistRepository) createApplication(ctx context.Context, exec Que
 		params.EmailFingerprint,
 		time.Now().UTC(),
 		time.Now().UTC(),
-	)
+	).Scan(&id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create whitelist application: %w", err)
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get whitelist application id: %w", err)
 	}
 	return r.getByID(ctx, exec, id)
 }
 
 func (r *ICOWhitelistRepository) refreshPendingApplication(ctx context.Context, exec QueryExecutor, id int64, params ICOWhitelistCreateParams) (*models.ICOWhitelistApplication, error) {
-	_, err := exec.ExecContext(ctx, `
+	_, err := exec.ExecContext(ctx, r.bindQuery(`
 		UPDATE ico_whitelist_applications
 		SET email = ?,
 		    marketing_consent = ?,
@@ -274,7 +300,7 @@ func (r *ICOWhitelistRepository) refreshPendingApplication(ctx context.Context, 
 		    updated_at = ?
 		WHERE id = ?
 		  AND status IN (?, ?)
-	`,
+	`),
 		params.Email,
 		params.MarketingConsent,
 		params.MarketingConsentVersion,
@@ -303,7 +329,7 @@ func (r *ICOWhitelistRepository) refreshPendingApplication(ctx context.Context, 
 }
 
 func (r *ICOWhitelistRepository) getByID(ctx context.Context, exec QueryExecutor, id int64) (*models.ICOWhitelistApplication, error) {
-	row := exec.QueryRowContext(ctx, `
+	row := exec.QueryRowContext(ctx, r.bindQuery(`
 		SELECT id, email, normalized_email, status, marketing_consent, marketing_consent_version,
 		       marketing_consent_text, marketing_consented_at, marketing_confirmed_at,
 		       privacy_notice_version, privacy_accepted_at, confirmation_token_hash,
@@ -314,17 +340,17 @@ func (r *ICOWhitelistRepository) getByID(ctx context.Context, exec QueryExecutor
 		FROM ico_whitelist_applications
 		WHERE id = ?
 		LIMIT 1
-	`, id)
+	`), id)
 	return scanICOWhitelistApplication(row)
 }
 
 func (r *ICOWhitelistRepository) createConsentEvent(ctx context.Context, exec QueryExecutor, params ICOConsentEventParams) error {
-	_, err := exec.ExecContext(ctx, `
+	_, err := exec.ExecContext(ctx, r.bindQuery(`
 		INSERT INTO ico_consent_events (
 			whitelist_application_id, event_type, policy_version, consent_text, source, metadata_json, occurred_at
 		)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`,
+	`),
 		params.WhitelistApplicationID,
 		params.EventType,
 		params.PolicyVersion,
@@ -343,13 +369,14 @@ func (r *ICOWhitelistRepository) createOutboxEntryIfMissing(ctx context.Context,
 	if params.WhitelistApplicationID == nil {
 		return fmt.Errorf("whitelist application id is required for outbox entry")
 	}
-	_, err := exec.ExecContext(ctx, `
-		INSERT IGNORE INTO ico_email_outbox (
+	_, err := exec.ExecContext(ctx, r.bindQuery(`
+		INSERT INTO ico_email_outbox (
 			whitelist_application_id, idempotency_key, email_type, recipient_email,
 			recipient_fingerprint, subject, template_key, payload_encrypted, scheduled_at
 		)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`,
+		ON CONFLICT (idempotency_key) DO NOTHING
+	`),
 		*params.WhitelistApplicationID,
 		params.IdempotencyKey,
 		params.EmailType,
@@ -370,7 +397,7 @@ func (r *ICOWhitelistRepository) ListPendingOutbox(ctx context.Context, limit in
 	if limit <= 0 || limit > 100 {
 		limit = 25
 	}
-	rows, err := r.db.QueryContext(ctx, `
+	rows, err := r.db.QueryContext(ctx, r.bindQuery(`
 		SELECT id, whitelist_application_id, idempotency_key, email_type, recipient_email,
 		       recipient_fingerprint, subject, template_key, payload_encrypted, status,
 		       attempts, max_attempts, last_error, provider_message_id, scheduled_at,
@@ -381,7 +408,7 @@ func (r *ICOWhitelistRepository) ListPendingOutbox(ctx context.Context, limit in
 		  AND attempts < max_attempts
 		ORDER BY scheduled_at ASC, id ASC
 		LIMIT ?
-	`, now, limit)
+	`), now, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list pending ICO email outbox: %w", err)
 	}
@@ -399,7 +426,7 @@ func (r *ICOWhitelistRepository) ListPendingOutbox(ctx context.Context, limit in
 }
 
 func (r *ICOWhitelistRepository) MarkOutboxSent(ctx context.Context, id int64, providerMessageID string, now time.Time) error {
-	_, err := r.db.ExecContext(ctx, `
+	_, err := r.db.ExecContext(ctx, r.bindQuery(`
 		UPDATE ico_email_outbox
 		SET status = 'sent',
 		    attempts = attempts + 1,
@@ -407,7 +434,7 @@ func (r *ICOWhitelistRepository) MarkOutboxSent(ctx context.Context, id int64, p
 		    sent_at = ?,
 		    updated_at = ?
 		WHERE id = ?
-	`, providerMessageID, now, now, id)
+	`), providerMessageID, now, now, id)
 	if err != nil {
 		return fmt.Errorf("failed to mark ICO email outbox sent: %w", err)
 	}
@@ -419,15 +446,19 @@ func (r *ICOWhitelistRepository) MarkOutboxFailed(ctx context.Context, id int64,
 	if retry {
 		status = "retry"
 	}
-	_, err := r.db.ExecContext(ctx, `
+	nextScheduledAt := now
+	if retry {
+		nextScheduledAt = now.Add(15 * time.Minute)
+	}
+	_, err := r.db.ExecContext(ctx, r.bindQuery(`
 		UPDATE ico_email_outbox
 		SET status = ?,
 		    attempts = attempts + 1,
 		    last_error = ?,
-		    scheduled_at = CASE WHEN ? THEN DATE_ADD(?, INTERVAL 15 MINUTE) ELSE scheduled_at END,
+		    scheduled_at = ?,
 		    updated_at = ?
 		WHERE id = ?
-	`, status, message, retry, now, now, id)
+	`), status, message, nextScheduledAt, now, id)
 	if err != nil {
 		return fmt.Errorf("failed to mark ICO email outbox failed: %w", err)
 	}
@@ -456,7 +487,7 @@ func (r *ICOWhitelistRepository) ListApplications(ctx context.Context, filter IC
 	query += ` ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
 	args = append(args, limit, maxInt(filter.Offset, 0))
 
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	rows, err := r.db.QueryContext(ctx, r.bindQuery(query), args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list whitelist applications: %w", err)
 	}
@@ -473,14 +504,14 @@ func (r *ICOWhitelistRepository) ListApplications(ctx context.Context, filter IC
 }
 
 func (r *ICOWhitelistRepository) UpsertSuppression(ctx context.Context, normalizedEmail, fingerprint, reason, source string) error {
-	_, err := r.db.ExecContext(ctx, `
+	_, err := r.db.ExecContext(ctx, r.bindQuery(`
 		INSERT INTO ico_marketing_suppressions (normalized_email, email_fingerprint, reason, source, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE
-			reason = VALUES(reason),
-			source = VALUES(source),
-			updated_at = VALUES(updated_at)
-	`, normalizedEmail, fingerprint, reason, source, time.Now().UTC(), time.Now().UTC())
+		ON CONFLICT (normalized_email) DO UPDATE SET
+			reason = EXCLUDED.reason,
+			source = EXCLUDED.source,
+			updated_at = EXCLUDED.updated_at
+	`), normalizedEmail, fingerprint, reason, source, time.Now().UTC(), time.Now().UTC())
 	if err != nil {
 		return fmt.Errorf("failed to upsert ICO suppression: %w", err)
 	}
@@ -488,12 +519,13 @@ func (r *ICOWhitelistRepository) UpsertSuppression(ctx context.Context, normaliz
 }
 
 func (r *ICOWhitelistRepository) RecordEmailEvent(ctx context.Context, providerMessageID, eventType, recipientFingerprint string, providerTimestamp *time.Time, eventHash, metadataJSON string) error {
-	_, err := r.db.ExecContext(ctx, `
-		INSERT IGNORE INTO ico_email_events (
+	_, err := r.db.ExecContext(ctx, r.bindQuery(`
+		INSERT INTO ico_email_events (
 			provider_message_id, event_type, recipient_fingerprint, provider_timestamp, event_hash, metadata_json, created_at
 		)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, providerMessageID, eventType, recipientFingerprint, providerTimestamp, eventHash, metadataJSON, time.Now().UTC())
+		ON CONFLICT (event_hash) DO NOTHING
+	`), providerMessageID, eventType, recipientFingerprint, providerTimestamp, eventHash, metadataJSON, time.Now().UTC())
 	if err != nil {
 		return fmt.Errorf("failed to record ICO email event: %w", err)
 	}

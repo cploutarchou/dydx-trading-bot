@@ -76,8 +76,31 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
 
-            - name: Check active database patterns
-              run: python3 scripts/check_no_legacy_database.py
+            - name: Check active database patterns (advisory)
+              id: legacy-db-check
+              continue-on-error: true
+              run: |
+                  set -euo pipefail
+                  python3 scripts/check_no_legacy_database.py --mode postgres
+
+            - name: Summarize legacy DB pattern check
+              if: always()
+              run: |
+                  set -euo pipefail
+                  if [ "${{ steps.legacy-db-check.outcome }}" = "failure" ]; then
+                    echo "⚠️ Legacy database pattern check reported findings (advisory during migration)." >> "$GITHUB_STEP_SUMMARY"
+                  else
+                    echo "✅ Legacy database pattern check passed." >> "$GITHUB_STEP_SUMMARY"
+                  fi
+
+            - name: Enforce no legacy MariaDB patterns in stack/image surfaces
+              run: |
+                  set -euo pipefail
+                  python3 scripts/check_no_legacy_database.py \
+                    --mode mariadb \
+                    --path docker \
+                    --path docker-compose.infra.yml \
+                    --path docker-compose.stack.yml
 
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v3

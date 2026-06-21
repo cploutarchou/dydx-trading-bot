@@ -12,4 +12,9 @@ For local bootstrap, copy `secrets.local-secret.yaml.example` to
 `secrets.local-secret.yaml`, replace the placeholders, and keep the copied file
 out of Git.
 
+Overlay entry points:
+
+- `overlays/staging` for smaller replica counts and staging hostnames
+- `overlays/production` for production hostnames and the full base bundle
+
 The resources here are a skeleton. Replace the placeholder image tags, hosts, and secret names with your real deployment values before applying to a cluster.

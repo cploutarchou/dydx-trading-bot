@@ -38,8 +38,13 @@ def test_makefile_local_worker_and_flower_use_workers_celery_app():
     assert "local-worker: ensure-venv" in content
     assert "src.infrastructure.workers.celery_app:celery_app worker -l info" in content
     assert "-Q $${CELERY_QUEUES:-backtests,default,high_priority,scheduled}" in content
-    assert "src.infrastructure.workers.celery_app:celery_app flower --address=0.0.0.0 --port=5555" in content
-    assert "CELERY_BROKER_URL=$${CELERY_BROKER_URL:-redis://localhost:6379/0}" in content
+    assert (
+        "src.infrastructure.workers.celery_app:celery_app flower --address=0.0.0.0 --port=5555"
+        in content
+    )
+    assert (
+        "CELERY_BROKER_URL=$${CELERY_BROKER_URL:-redis://localhost:6379/0}" in content
+    )
     assert (
         "CELERY_RESULT_BACKEND=$${CELERY_RESULT_BACKEND:-redis://localhost:6379/1}"
         in content
@@ -191,6 +196,9 @@ def test_mark_worker_failure_reuses_existing_task_context_without_duplicate_kwar
                 "run_id": stored_run["run_id"],
                 "request": {**stored_run["request"]},
             }
+
+        def get_run_overview(self, run_id):
+            return self.get_run(run_id)
 
         def save_run(self, data):
             saved.update(data)

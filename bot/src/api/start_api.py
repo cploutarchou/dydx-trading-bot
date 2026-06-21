@@ -3,7 +3,6 @@
 Canonical API process launcher.
 
 Use this module when running the API process directly.
-Compatibility wrappers (`app.py`, `start_api.py`) should delegate here.
 """
 
 import os

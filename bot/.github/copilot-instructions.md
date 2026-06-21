@@ -26,7 +26,7 @@ Bot instances run as **separate processes** (not threads), with isolated state f
 
 Use these as source-of-truth when in doubt:
 
-- Canonical API remains `src/api/server.py`; preserve compatibility wrappers without duplicating business logic.
+- Canonical API remains `src/api/server.py`; use `src/api/start_api.py` as the API process launcher.
 - Backend relies on normalized status/progress fields for delegated backtest/runtime contracts; avoid removing aliases without coordinated backend/frontend updates.
 - Service-token overlap and `/ready` strictness are active operational contracts and should remain covered by tests when touched.
 

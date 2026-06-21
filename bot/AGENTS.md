@@ -37,7 +37,7 @@ Repository-level guidance for coding agents working on this project.
 
 1. **Environment load order**
     - Entry points must call `load_repo_env(__file__)` before importing config/constants (see `src/api/server.py`,
-      `src/api/start_api.py`, `app.py`, `start_api.py`, `main.py`, `src/main_instance.py`,
+      `src/api/start_api.py`, `main.py`, `src/main_instance.py`,
       `src/bot_instance_manager.py`).
     - Runtime config is structured (`run.json` or `config/profiles/*`), not `bot/.env`.
 2. **No direct process management outside manager layer**
@@ -54,8 +54,7 @@ Repository-level guidance for coding agents working on this project.
     - If runtime behavior or operations change, update `README.md`, `../docs/OPERATIONS.md`, `openapi.json`, and
       `tasks.md` in the same change.
 8. **Canonical API entrypoints**
-    - Treat `src/api/server.py` as the canonical API; keep `app.py` and `start_api.py` as compatibility wrappers around
-      `src.api.server` / `src.api.start_api`.
+    - Treat `src/api/server.py` as the canonical API app and `src/api/start_api.py` as the canonical launcher.
 9. **API/auth contract stability**
     - Preserve the standardized `api_response(...)` envelope in `src/api/server.py` routes and keep websocket auth
       aligned with `authenticate_bearer_token(...)`.
@@ -144,7 +143,7 @@ Repository-level guidance for coding agents working on this project.
 
 ## Latest bot context (2026-06)
 
-- Keep `src/api/server.py` as canonical API entrypoint and preserve compatibility wrappers (`app.py`, `start_api.py`).
+- Keep `src/api/server.py` as canonical API entrypoint and `src/api/start_api.py` as canonical launcher.
 - Preserve backend-facing normalized status/progress fields (and compatibility aliases) used by delegated runtime/backtest contracts.
 - Service-token overlap behavior (`BOT_API_TOKEN`, `BOT_API_TOKEN_PREVIOUS`, `BOT_API_TOKENS`) and readiness semantics remain active contracts with backend delegation.
 - Strategy runtime websocket expectations remain operator-critical: snapshot on connect plus lifecycle/status updates after runtime changes.

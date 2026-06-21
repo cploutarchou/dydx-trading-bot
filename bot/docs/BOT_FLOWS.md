@@ -23,7 +23,7 @@ For the smoothest experience, open the repo in VS Code, install the recommended 
 
 | Component | Responsibility | Canonical files |
 | --- | --- | --- |
-| FastAPI control plane | Authenticated HTTP and websocket API, request tracing, readiness, lifecycle orchestration, backtest orchestration | `src/api/server.py`, `src/api/start_api.py` (canonical), `app.py`, `start_api.py` (compatibility wrappers) |
+| FastAPI control plane | Authenticated HTTP and websocket API, request tracing, readiness, lifecycle orchestration, backtest orchestration | `src/api/server.py`, `src/api/start_api.py` |
 | Bot instance manager | Creates DB-backed instance config records, starts/stops/deletes worker subprocesses, tracks status, persists lifecycle state, monitors dead workers | `src/bot_instance_manager.py` |
 | Worker runtime | Loads per-instance config, connects to dYdX, optionally aborts all positions, optionally scans cointegration pairs, runs the trading loop | `src/main_instance.py`, `worker_entrypoint.py`, `main.py` |
 | Trading runtime | Finds entries, manages exits, tracks open pairs, executes two-leg orders, performs emergency cleanup | `src/trading/position_manager.py`, `src/trading/bot_agent.py`, `src/trading/account_manager.py` |

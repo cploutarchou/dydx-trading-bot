@@ -72,3 +72,16 @@
   - Kept `app.py` and `start_api.py` as compatibility wrappers and added visible runtime deprecation warnings.
   - Added wrapper-removal criteria: only remove after one full release cycle with zero references in scripts/docs/CI and no observed runtime usage.
 
+- Wrapper-removal readiness audit (`app.py`, `start_api.py`): **NOT READY**
+  - Active contract blockers still reference wrappers:
+    - `AGENTS.md`
+    - `.github/agents/senior-python-defi-runtime.agent.md`
+    - `README.md`
+    - `docs/BOT_FLOWS.md`
+  - Current decision: keep wrappers for compatibility and remove only after a breaking-change window that updates those contracts.
+
+- Breaking-change entrypoint cleanup completed:
+  - Updated contract/docs references to canonical API paths (`src/api/server.py`, `src/api/start_api.py`).
+  - Removed legacy wrapper files `app.py` and `start_api.py`.
+  - Re-ran targeted startup/lifecycle validation after removal.
+

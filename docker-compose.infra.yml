@@ -1,0 +1,149 @@
+---
+# Infrastructure-only compose for local service development
+# Run this with: make infra-up
+# Use for Option 1: Service-first development workflow
+#
+# Services:
+#   - PostgreSQL (5432): Main transactional database
+#   - Valkey (6379): Redis-compatible cache/locks/state
+#   - NATS JetStream (4222): Event/command bus
+#   - ClickHouse (8123): Analytics database
+#   - MinIO (9000/9001): Object storage for artifacts
+
+version: "3.9"
+
+services:
+  # ============================================================================
+  # DATA LAYER
+  # ============================================================================
+
+  postgresql:
+    image: postgres:16-alpine
+    container_name: dydx-postgresql
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-dydx_bot}
+      POSTGRES_USER: ${DATABASE_USER:-dydx_bot}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-change-me-postgres}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-dydx_bot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dydx-infra
+
+  valkey:
+    image: valkey/valkey:7.2-alpine
+    container_name: dydx-valkey
+    restart: unless-stopped
+    command:
+      - valkey-server
+      - --appendonly
+      - "yes"
+      - --save
+      - "60"
+      - "1"
+    ports:
+      - "6379:6379"
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dydx-infra
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: dydx-nats
+    restart: unless-stopped
+    command:
+      - -js
+      - -m
+      - "8222"
+      - -sd
+      - /data
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dydx-infra
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.1-alpine
+    container_name: dydx-clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-dydx_analytics}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-clickhouse}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dydx-infra
+
+  minio:
+    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    container_name: dydx-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me-minio}
+    command:
+      - server
+      - /data
+      - --console-address
+      - :9001
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dydx-infra
+
+networks:
+  dydx-infra:
+    driver: bridge
+    name: dydx-infra
+
+volumes:
+  postgresql_data:
+    driver: local
+  valkey_data:
+    driver: local
+  nats_data:
+    driver: local
+  clickhouse_data:
+    driver: local
+  minio_data:
+    driver: local

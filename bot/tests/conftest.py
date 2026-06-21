@@ -20,49 +20,54 @@ _ensure_path(BOT_ROOT)
 # MariaDB database helper functions
 # ============================================================================
 
+
 def get_expected_db_dialect() -> str:
     """Return the expected database dialect for current environment."""
     db_type = os.getenv("DB_TYPE", "mysql").lower()
     if db_type in ("mysql", "mariadb"):
         return "mysql"
+    if db_type in ("postgres", "postgresql"):
+        return "postgresql"
     raise AssertionError(f"Unsupported test DB_TYPE: {db_type}")
 
 
 def get_driver_name() -> str:
-    """Return the Python driver name for MariaDB tests."""
+    """Return the Python driver name for the active test database."""
+    if get_expected_db_dialect() == "postgresql":
+        return "psycopg2"
     return "pymysql"
 
 
 def assert_connection_string_valid(conn_str: str) -> None:
     """Assert connection string is valid for current database environment.
-    
+
     Args:
         conn_str: Connection string to validate
-        
+
     Raises:
         AssertionError: If connection string doesn't match expected dialect
     """
     dialect = get_expected_db_dialect()
     driver = get_driver_name()
     expected_prefix = f"{dialect}+{driver}://"
-    assert conn_str.startswith(expected_prefix), (
-        f"Expected {expected_prefix} in connection string, got: {conn_str}"
-    )
+    assert conn_str.startswith(
+        expected_prefix
+    ), f"Expected {expected_prefix} in connection string, got: {conn_str}"
 
 
 def assert_db_type_supported(db_type_str: str) -> None:
     """Assert db_type field contains supported value.
-    
+
     Args:
         db_type_str: The db_type value from payload or config
-        
+
     Raises:
         AssertionError: If db_type is not a supported database type
     """
-    supported = ("mysql", "mariadb")
-    assert db_type_str in supported, (
-        f"Unsupported db_type: {db_type_str}. Supported: {supported}"
-    )
+    supported = ("mysql", "mariadb", "postgres", "postgresql")
+    assert (
+        db_type_str in supported
+    ), f"Unsupported db_type: {db_type_str}. Supported: {supported}"
 
 
 def get_test_db_port() -> str:
@@ -77,15 +82,20 @@ def get_test_connection_string(
     db_name: str = "bot_db",
 ) -> str:
     """Generate a test connection string for current database environment.
-    
+
     Args:
         user: Database user
         password: Database password
         host: Database host
         db_name: Database name
-        
+
     Returns:
         Full connection string with appropriate dialect and driver
     """
-    port = get_test_db_port()
+    port = get_test_db_port() if get_expected_db_dialect() == "mysql" else "5432"
+    if get_expected_db_dialect() == "postgresql":
+        return (
+            f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db_name}"
+            "?sslmode=disable"
+        )
     return f"mysql://{user}:{password}@{host}:{port}/{db_name}"

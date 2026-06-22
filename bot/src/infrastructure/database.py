@@ -1,4 +1,4 @@
-"""Database configuration and connection management for MariaDB/PostgreSQL."""
+"""Database configuration and connection management for PostgreSQL."""
 
 import os
 from contextlib import contextmanager
@@ -18,14 +18,8 @@ from sqlalchemy.pool import QueuePool
 class DatabaseConfig:
     """Database configuration manager"""
 
-    _SUPPORTED_DB_TYPES = {"mysql", "mariadb", "postgres", "postgresql"}
+    _SUPPORTED_DB_TYPES = {"postgres", "postgresql"}
     _SUPPORTED_URL_SCHEMES = {
-        "mysql://",
-        "mysql+pymysql://",
-        "mysql+asyncmy://",
-        "mariadb://",
-        "mariadb+pymysql://",
-        "mariadb+asyncmy://",
         "postgres://",
         "postgresql://",
         "postgresql+psycopg://",
@@ -95,15 +89,13 @@ class DatabaseConfig:
     @staticmethod
     def _normalize_db_type(db_type: str) -> str:
         value = (db_type or "").strip().lower()
-        if value in {"mysql", "mariadb"}:
-            return "mysql"
         if value in {"postgres", "postgresql"}:
             return "postgres"
         if value:
             raise ValueError(
-                f"Unsupported DB_TYPE '{value}'. Supported: mysql, mariadb, postgres, postgresql."
+                f"Unsupported DB_TYPE '{value}'. Supported: postgres, postgresql."
             )
-        return "mysql"
+        return "postgres"
 
     def _resolve_db_type(self) -> str:
         bot_type_raw = self._env("BOT_DB_TYPE", "")
@@ -140,7 +132,7 @@ class DatabaseConfig:
                 "Conflicting DB_TYPE and database URL schemes are not allowed"
             )
 
-        return explicit_type or inferred_type or "mysql"
+        return explicit_type or inferred_type or "postgres"
 
     @staticmethod
     def _url_db_type(raw_url: str) -> Optional[str]:
@@ -149,17 +141,6 @@ class DatabaseConfig:
             return None
         if candidate.startswith(("postgres://", "postgresql://", "postgresql+")):
             return "postgres"
-        if candidate.startswith(
-            (
-                "mysql://",
-                "mysql+pymysql://",
-                "mysql+asyncmy://",
-                "mariadb://",
-                "mariadb+pymysql://",
-                "mariadb+asyncmy://",
-            )
-        ):
-            return "mysql"
         raise ValueError(f"Unsupported database URL scheme: {raw_url}")
 
     def _fields_from_url(
@@ -171,16 +152,13 @@ class DatabaseConfig:
         parsed = urlparse(normalized)
         db_name = parsed.path.lstrip("/") or "dydx_bot"
         host = parsed.hostname or "localhost"
-        port = str(
-            parsed.port
-            or (5432 if self._url_db_type(normalized) == "postgres" else 3306)
-        )
+        port = str(parsed.port or 5432)
         user = parsed.username or "app"
         password = parsed.password or ""
         return db_name, host, port, user, password
 
     def _normalize_database_url(self, raw_url: str) -> str:
-        """Normalize a MariaDB/MySQL or PostgreSQL URL for SQLAlchemy."""
+        """Normalize a PostgreSQL URL for SQLAlchemy."""
         candidate = (raw_url or "").strip()
         if not candidate:
             return ""
@@ -189,22 +167,8 @@ class DatabaseConfig:
             return "postgresql+psycopg2://" + candidate.split("://", 1)[1]
         if lowered.startswith(("postgresql+psycopg://", "postgresql+psycopg2://")):
             return candidate
-        if lowered.startswith("mysql+pymysql://"):
-            return candidate
-        if lowered.startswith("mysql+asyncmy://"):
-            # Convert asyncmy URLs to pymysql for sync usage
-            return "mysql+pymysql://" + candidate[len("mysql+asyncmy://") :]
-        if lowered.startswith("mysql://"):
-            return "mysql+pymysql://" + candidate[len("mysql://") :]
-        if lowered.startswith("mariadb+pymysql://"):
-            return candidate
-        if lowered.startswith("mariadb+asyncmy://"):
-            # Convert asyncmy URLs to pymysql for sync usage
-            return "mysql+pymysql://" + candidate[len("mariadb+asyncmy://") :]
-        if lowered.startswith("mariadb://"):
-            return "mysql+pymysql://" + candidate[len("mariadb://") :]
         raise ValueError(
-            "Unsupported database URL scheme. Supported: mysql, mariadb, postgres, postgresql."
+            "Unsupported database URL scheme. Supported: postgres, postgresql."
         )
 
     def _validate_url_type(self, raw_url: str, url_name: str) -> None:
@@ -252,7 +216,7 @@ class DatabaseConfig:
 
     def _resolve_db_fields(self) -> tuple[str, str, str, str, str]:
         """Resolve host/port/name/user/password based on cutover mode."""
-        default_port = "5432" if self.db_type == "postgres" else "3306"
+        default_port = "5432"
         default_user = "app"
 
         if self.cutover_mode == "shared":
@@ -401,7 +365,7 @@ class DatabaseConfig:
         return (
             os.getenv("BOT_DB_NAME", "dydx_bot"),
             os.getenv("BOT_DB_HOST", "localhost"),
-            os.getenv("BOT_DB_PORT", "3306"),
+            os.getenv("BOT_DB_PORT", "5432"),
             os.getenv("BOT_DB_USER", "app"),
             os.getenv("BOT_DB_PASSWORD", ""),
         )
@@ -411,40 +375,25 @@ class DatabaseConfig:
         if self.database_url:
             return self.database_url
 
-        if self.db_type == "postgres":
-            driver = "postgresql+psycopg2"
-            query = urlencode(
-                {
-                    "sslmode": "require" if self.ssl_mode else "disable",
-                    "connect_timeout": self.timeout_seconds,
-                    "options": "-c timezone=UTC",
-                }
-            )
-            return (
-                f"{driver}://{self.db_user}:{self.db_password}"
-                f"@{self.db_host}:{self.db_port}/{self.db_name}?{query}"
-            )
-        else:
-            driver = "mysql+pymysql"
-
+        driver = "postgresql+psycopg2"
+        query = urlencode(
+            {
+                "sslmode": "require" if self.ssl_mode else "disable",
+                "connect_timeout": self.timeout_seconds,
+                "options": "-c timezone=UTC",
+            }
+        )
         return (
             f"{driver}://{self.db_user}:{self.db_password}"
-            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+            f"@{self.db_host}:{self.db_port}/{self.db_name}?{query}"
         )
 
     def get_engine_kwargs(self) -> dict:
         """Get SQLAlchemy engine kwargs based on database type."""
         connect_args: dict[str, object] = {
             "connect_timeout": self.timeout_seconds,
+            "options": "-c timezone=UTC",
         }
-
-        if self.db_type == "postgres":
-            connect_args["options"] = "-c timezone=UTC"
-        else:
-            connect_args["charset"] = "utf8mb4"
-            connect_args["autocommit"] = False
-            connect_args["read_timeout"] = self.timeout_seconds
-            connect_args["write_timeout"] = self.timeout_seconds
 
         return {
             "echo": self.echo_sql,
@@ -664,7 +613,7 @@ class DatabaseManager:
                         "Applying compatibility fix: allowing jobs.bot_id to be nullable"
                     )
                     connection.execute(
-                        text("ALTER TABLE jobs MODIFY COLUMN bot_id INTEGER NULL")
+                        text("ALTER TABLE jobs ALTER COLUMN bot_id DROP NOT NULL")
                     )
 
             if inspector.has_table("backtest_runtime_runs"):

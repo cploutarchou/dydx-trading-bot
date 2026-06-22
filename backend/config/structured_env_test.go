@@ -43,8 +43,6 @@ func TestLoadConfig_SupportedDatabases(t *testing.T) {
 		inputType  string
 		expectType string
 	}{
-		{"mysql", "mysql"},
-		{"mariadb", "mysql"}, // mariadb is normalized to mysql
 		{"postgres", "postgres"},
 		{"postgresql", "postgres"},
 	}
@@ -72,7 +70,7 @@ func TestLoadConfig_SupportedDatabases(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_UsesMariaDBByDefault(t *testing.T) {
+func TestLoadConfig_UsesPostgresByDefault(t *testing.T) {
 	t.Setenv("APP_ENV", "test")
 
 	defer func() {
@@ -86,8 +84,8 @@ func TestLoadConfig_UsesMariaDBByDefault(t *testing.T) {
 	if ConfigInstance == nil {
 		t.Fatal("expected ConfigInstance to be initialized")
 	}
-	if got := ConfigInstance.Database.Type; got != "mysql" {
-		t.Fatalf("expected mysql database type, got %q", got)
+	if got := ConfigInstance.Database.Type; got != "postgres" {
+		t.Fatalf("expected postgres database type, got %q", got)
 	}
 }
 
@@ -107,10 +105,11 @@ func TestLoadConfig_ReturnsErrorForUnsupportedDBType(t *testing.T) {
 
 func TestDatabaseSettingsDSN_OmitsEmptyPasswordAndDisablesSSL(t *testing.T) {
 	db := DatabaseSettings{
-		Host:    "mariadb",
-		Port:    3306,
+		Host:    "postgres",
+		Port:    5432,
 		Dbname:  "dydx_bot",
 		User:    "dydx_bot",
+		Type:    "postgres",
 		Timeout: 5,
 	}
 
@@ -118,27 +117,28 @@ func TestDatabaseSettingsDSN_OmitsEmptyPasswordAndDisablesSSL(t *testing.T) {
 	if strings.Contains(dsn, "password") {
 		t.Fatalf("expected empty password to be omitted from DSN, got %q", dsn)
 	}
-	if !strings.Contains(dsn, "charset=utf8mb4") || !strings.Contains(dsn, "parseTime=true") || !strings.Contains(dsn, "loc=UTC") {
-		t.Fatalf("expected MariaDB DSN options in DSN, got %q", dsn)
+	if !strings.Contains(dsn, "sslmode=disable") || !strings.Contains(dsn, "TimeZone=UTC") {
+		t.Fatalf("expected postgres DSN options in DSN, got %q", dsn)
 	}
-	if strings.Contains(dsn, "tls=") {
-		t.Fatalf("expected tls param to be omitted when SSL is disabled, got %q", dsn)
+	if strings.Contains(dsn, "charset=utf8mb4") {
+		t.Fatalf("expected mysql params to be omitted from postgres DSN, got %q", dsn)
 	}
 }
 
 func TestDatabaseSettingsDSN_EnablesTLSWhenSSLModeEnabled(t *testing.T) {
 	db := DatabaseSettings{
-		Host:    "mariadb",
-		Port:    3306,
+		Host:    "postgres",
+		Port:    5432,
 		Dbname:  "dydx_bot",
 		User:    "dydx_bot",
+		Type:    "postgres",
 		SSL:     true,
 		Timeout: 5,
 	}
 
 	dsn := db.DSN()
-	if !strings.Contains(dsn, "tls=skip-verify") {
-		t.Fatalf("expected tls=skip-verify in DSN when SSL is enabled, got %q", dsn)
+	if !strings.Contains(dsn, "sslmode=require") {
+		t.Fatalf("expected sslmode=require in DSN when SSL is enabled, got %q", dsn)
 	}
 }
 

@@ -34,7 +34,7 @@ Root-agent selection:
   Agent mode for production-readiness audits, Python/Go service hardening, long-running backtest hangs, and DeFi bot-instance risk reviews.
 
 - `backend/.github/agents/senior-go-defi-backend.agent.md`
-  Service-specific backend expert for Go APIs, MariaDB, delegated bot integration, auth, and websocket proxying.
+  Service-specific backend expert for Go APIs, PostgreSQL, delegated bot integration, auth, and websocket proxying.
 
 - `bot/.github/agents/senior-python-defi-runtime.agent.md`
   Service-specific bot expert for FastAPI, runtime safety, backtests, websocket streams, and dYdX execution flows.
@@ -88,10 +88,7 @@ Root-agent selection:
 
 - Frontend backtest operational UX is concentrated in `frontend/src/pages/Backtests.tsx` and `frontend/src/components/StrategyManager.tsx`.
 - Backend backtest delegation and normalization behavior is concentrated in `backend/internal/routes/bot_api_delegate_routes.go`.
-- Recent index migrations were adjusted for transaction-safe execution in:
-  - `backend/migrations/mysql/000047_backtest_list_perf_index.up.sql`
-  - `backend/migrations/mysql/000051_phase1_missing_indexes.{up,down}.sql`
-  - `backend/migrations/mysql/000053_phase4_drop_redundant_indexes.up.sql`
+- Recent index migrations were adjusted for transaction-safe execution in `backend/migrations/postgres/`.
 
 ## Customization Audit (2026-05)
 

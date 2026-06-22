@@ -1303,13 +1303,13 @@ def test_runtime_db_config_endpoint_returns_sanitized_payload(monkeypatch):
     class _FakeDbConfig:
         def to_diagnostics(self):
             return {
-                "db_type": "mariadb",
+                "db_type": "postgres",
                 "cutover_mode": "shared",
                 "connection_source": "shared_db_fields",
                 "field_source": "shared_db_fields",
                 "database_url_configured": False,
                 "host": "localhost",
-                "port": "3306",
+                "port": "5432",
                 "name": "dydx_bot",
                 "user": "dydx_bot",
                 "password_configured": True,
@@ -1327,7 +1327,7 @@ def test_runtime_db_config_endpoint_returns_sanitized_payload(monkeypatch):
     payload = json.loads(response.body)
 
     assert payload["success"] is True
-    assert payload["data"]["db_type"] in ("mysql", "mariadb")
+    assert payload["data"]["db_type"] in ("postgres", "postgresql")
     assert payload["data"]["password_configured"] is True
     assert payload["data"]["max_connections"] == 10
     assert payload["data"]["count"] == 1

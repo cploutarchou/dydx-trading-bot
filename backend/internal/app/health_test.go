@@ -12,7 +12,7 @@ func TestBuildBotReadinessSummary_ClassifiesBotDatabaseUnavailable(t *testing.T)
 		"error":       "",
 		"payload": map[string]interface{}{
 			"ready":   false,
-			"message": "bot database unavailable: dial tcp 10.0.0.5:3306: connect: connection refused",
+			"message": "bot database unavailable: dial tcp 10.0.0.5:5432: connect: connection refused",
 		},
 	}
 
@@ -45,7 +45,7 @@ func TestBuildBotReadinessSummary_ClassifiesMissingBotMigrations(t *testing.T) {
 
 func TestBuildDependencySnapshot_RedactsSecretsFromURLAndPayload(t *testing.T) {
 	payload := map[string]interface{}{
-		"database_url": "mysql://bot_user:super-secret@db.local:3306/bot",
+		"database_url": "postgres://bot_user:super-secret@db.local:5432/bot",
 		"message":      "password=super-secret token=abc123",
 		"data": map[string]interface{}{
 			"api_key": "abc123",
@@ -72,7 +72,7 @@ func TestBuildDependencySnapshot_RedactsSecretsFromURLAndPayload(t *testing.T) {
 
 func TestBuildDependencySnapshot_RedactsDatabaseURLSecrets(t *testing.T) {
 	payload := map[string]interface{}{
-		"database_url": "mysql://bot_user:super-secret@db.local:3306/bot",
+		"database_url": "postgres://bot_user:super-secret@db.local:5432/bot",
 	}
 
 	sanitized := sanitizeDependencyPayload(payload).(map[string]interface{})

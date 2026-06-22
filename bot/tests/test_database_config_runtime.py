@@ -6,14 +6,14 @@ from src.infrastructure.database import DatabaseConfig
 def test_database_config_prefers_bot_database_url(monkeypatch):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "dedicated")
     monkeypatch.setenv(
-        "BOT_DATABASE_URL", "mysql://bot_user:secret@db-host:3306/bot_db"
+        "BOT_DATABASE_URL", "postgres://bot_user:secret@db-host:5432/bot_db"
     )
-    monkeypatch.setenv("DATABASE_URL", "mysql://fallback:secret@other:3306/other_db")
+    monkeypatch.setenv("DATABASE_URL", "postgres://fallback:secret@other:5432/other_db")
 
     config = DatabaseConfig()
 
     assert config.get_connection_string().startswith(
-        "mysql+pymysql://bot_user:secret@db-host:3306/bot_db"
+        "postgresql+psycopg2://bot_user:secret@db-host:5432/bot_db"
     )
 
 
@@ -64,16 +64,16 @@ def test_database_config_prefers_bot_db_fields(monkeypatch):
 def test_database_config_shared_mode_ignores_bot_values(monkeypatch):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "shared")
     monkeypatch.setenv(
-        "BOT_DATABASE_URL", "mysql://bot_user:secret@bot-host:3306/bot_db"
+        "BOT_DATABASE_URL", "postgres://bot_user:secret@bot-host:5432/bot_db"
     )
     monkeypatch.setenv(
-        "DATABASE_URL", "mysql://shared_user:secret@shared-host:3306/shared_db"
+        "DATABASE_URL", "postgres://shared_user:secret@shared-host:5432/shared_db"
     )
 
     config = DatabaseConfig()
 
     assert config.get_connection_string().startswith(
-        "mysql+pymysql://shared_user:secret@shared-host:3306/shared_db"
+        "postgresql+psycopg2://shared_user:secret@shared-host:5432/shared_db"
     )
 
 
@@ -83,7 +83,7 @@ def test_database_config_dedicated_with_shared_fallback_uses_shared_when_bot_uns
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "dedicated_with_shared_fallback")
     monkeypatch.delenv("BOT_DATABASE_URL", raising=False)
     monkeypatch.setenv(
-        "DATABASE_URL", "mysql://shared_user:secret@shared-host:3306/shared_db"
+        "DATABASE_URL", "postgres://shared_user:secret@shared-host:5432/shared_db"
     )
 
     config = DatabaseConfig()
@@ -115,16 +115,14 @@ def test_database_config_rejects_invalid_cutover_mode(monkeypatch):
         DatabaseConfig()
 
 
-def test_database_config_rejects_mixed_database_modes(monkeypatch):
+def test_database_config_rejects_non_postgres_database_url_scheme(monkeypatch):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "dedicated")
     monkeypatch.setenv("BOT_DB_TYPE", "postgres")
     monkeypatch.setenv(
         "BOT_DATABASE_URL", "mysql://bot_user:secret@bot-host:3306/bot_db"
     )
 
-    with pytest.raises(
-        ValueError, match="Conflicting DB_TYPE and database URL schemes"
-    ):
+    with pytest.raises(ValueError, match="Unsupported database URL scheme"):
         DatabaseConfig()
 
 
@@ -136,7 +134,7 @@ def test_database_config_shared_uses_db_field_fallbacks(monkeypatch):
     monkeypatch.delenv("DB_USER", raising=False)
     monkeypatch.delenv("DB_PASSWORD", raising=False)
     monkeypatch.setenv("DB_HOST", "db-host")
-    monkeypatch.setenv("DB_PORT", "3309")
+    monkeypatch.setenv("DB_PORT", "5439")
     monkeypatch.setenv("DB_NAME", "bot_db")
     monkeypatch.setenv("DB_USER", "db_user")
     monkeypatch.setenv("DB_PASSWORD", "db_pass")
@@ -144,7 +142,7 @@ def test_database_config_shared_uses_db_field_fallbacks(monkeypatch):
     config = DatabaseConfig()
 
     assert config.db_host == "db-host"
-    assert config.db_port == "3309"
+    assert config.db_port == "5439"
     assert config.db_name == "bot_db"
     assert config.db_user == "db_user"
     assert config.db_password == "db_pass"
@@ -164,7 +162,7 @@ def test_database_config_uses_timeout_max_connections_and_ssl(monkeypatch):
     assert kwargs["max_overflow"] == 5
     assert kwargs["pool_timeout"] == 5
     assert kwargs["connect_args"]["connect_timeout"] == 5
-    assert kwargs["connect_args"]["charset"] == "utf8mb4"
+    assert kwargs["connect_args"]["options"] == "-c timezone=UTC"
 
 
 def test_database_config_uses_postgres_engine_kwargs(monkeypatch):
@@ -185,7 +183,7 @@ def test_database_config_uses_postgres_engine_kwargs(monkeypatch):
 def test_database_config_diagnostics_payload_is_sanitized(monkeypatch):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "shared")
     monkeypatch.setenv("DB_HOST", "localhost")
-    monkeypatch.setenv("DB_PORT", "3306")
+    monkeypatch.setenv("DB_PORT", "5432")
     monkeypatch.setenv("DB_NAME", "dydx_bot")
     monkeypatch.setenv("DB_USER", "dydx_bot")
     monkeypatch.setenv("DB_PASSWORD", "change-me-db-password")
@@ -205,10 +203,10 @@ def test_database_config_diagnostics_payload_is_sanitized(monkeypatch):
 def test_database_config_dedicated_blocks_shared_target_regression(monkeypatch):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "dedicated")
     monkeypatch.setenv(
-        "BOT_DATABASE_URL", "mysql://bot_user:secret@shared-host:3306/shared_db"
+        "BOT_DATABASE_URL", "postgres://bot_user:secret@shared-host:5432/shared_db"
     )
     monkeypatch.setenv(
-        "DATABASE_URL", "mysql://shared_user:secret@shared-host:3306/shared_db"
+        "DATABASE_URL", "postgres://shared_user:secret@shared-host:5432/shared_db"
     )
 
     with pytest.raises(
@@ -223,10 +221,10 @@ def test_database_config_dedicated_with_fallback_reports_shared_target_match(
 ):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "dedicated_with_shared_fallback")
     monkeypatch.setenv(
-        "BOT_DATABASE_URL", "mysql://bot_user:secret@bot-host:3307/bot_db"
+        "BOT_DATABASE_URL", "postgres://bot_user:secret@bot-host:5432/bot_db"
     )
     monkeypatch.setenv(
-        "DATABASE_URL", "mysql://shared_user:secret@shared-host:3306/shared_db"
+        "DATABASE_URL", "postgres://shared_user:secret@shared-host:5432/shared_db"
     )
 
     config = DatabaseConfig()

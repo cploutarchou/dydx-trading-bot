@@ -387,7 +387,7 @@ func backofficeAuditLogsHandler(database *sql.DB) gin.HandlerFunc {
 
 func upsertPlatformSetting(database *sql.DB, key string, value string, valueType string, description string) error {
 	now := time.Now().UTC()
-	_, err := database.Exec("INSERT INTO bot_settings (section, `key`, value, value_type, description, default_value, is_active, version, created_at, updated_at) VALUES ('platform', ?, ?, ?, ?, ?, TRUE, 1, ?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value), value_type = VALUES(value_type), description = VALUES(description), updated_at = VALUES(updated_at), version = COALESCE(bot_settings.version, 0) + 1", strings.TrimSpace(key), value, valueType, description, value, now, now)
+	_, err := database.Exec("INSERT INTO bot_settings (section, \"key\", value, value_type, description, default_value, is_active, version, created_at, updated_at) VALUES ('platform', $1, $2, $3, $4, $5, TRUE, 1, $6, $7) ON CONFLICT (section, \"key\") DO UPDATE SET value = EXCLUDED.value, value_type = EXCLUDED.value_type, description = EXCLUDED.description, updated_at = EXCLUDED.updated_at, version = COALESCE(bot_settings.version, 0) + 1", strings.TrimSpace(key), value, valueType, description, value, now, now)
 	return err
 }
 

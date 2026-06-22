@@ -52,7 +52,7 @@ func TestSettingsRepositoryScansNullableBotSettingRows(t *testing.T) {
 
 	if _, err := dbConn.Exec(
 		`INSERT INTO bot_settings (section, key, value, value_type, description, default_value, is_active, version, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		"platform",
 		"coming_soon_enabled",
 		"false",
@@ -113,7 +113,7 @@ func TestSettingsServiceCreateBotSettingIsIdempotentOnDuplicateKey(t *testing.T)
 	}
 
 	var count int
-	if err := dbConn.QueryRow(`SELECT COUNT(*) FROM bot_settings WHERE section = ? AND key = ?`, "platform", "coming_soon_enabled").Scan(&count); err != nil {
+	if err := dbConn.QueryRow(`SELECT COUNT(*) FROM bot_settings WHERE section = $1 AND key = $2`, "platform", "coming_soon_enabled").Scan(&count); err != nil {
 		t.Fatalf("count settings: %v", err)
 	}
 	if count != 1 {

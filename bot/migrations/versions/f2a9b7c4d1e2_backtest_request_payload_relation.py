@@ -5,7 +5,6 @@ Revises: c4d5e6f7a8b9
 Create Date: 2026-05-03 00:00:00.000000
 """
 
-import json
 from datetime import datetime, timezone
 from typing import Sequence, Union
 
@@ -51,32 +50,17 @@ def upgrade() -> None:
 
     now = datetime.now(timezone.utc)
 
-    # Insert request payloads from backtest runs (database-compatible syntax)
-    # PostgreSQL uses ON CONFLICT; MySQL uses ON DUPLICATE KEY UPDATE.
-    if bind.dialect.name == "postgresql":
-        bind.execute(
-            sa.text("""
-                INSERT INTO backtest_run_requests (run_id, request_json, created_at, updated_at)
-                SELECT run_id, request_json, :now, :now
-                FROM backtest_runtime_runs
-                WHERE request_json IS NOT NULL
-                  AND request_json::text NOT IN ('null', '{}', '')
-                ON CONFLICT (run_id) DO NOTHING
-            """),
-            {"now": now},
-        )
-    else:
-        # MySQL version (skip duplicates with INSERT IGNORE)
-        bind.execute(
-            sa.text("""
-                INSERT IGNORE INTO backtest_run_requests (run_id, request_json, created_at, updated_at)
-                SELECT run_id, request_json, :now, :now
-                FROM backtest_runtime_runs
-                WHERE request_json IS NOT NULL
-                  AND request_json NOT IN ('null', '{}', '')
-            """),
-            {"now": now},
-        )
+    bind.execute(
+        sa.text("""
+            INSERT INTO backtest_run_requests (run_id, request_json, created_at, updated_at)
+            SELECT run_id, request_json, :now, :now
+            FROM backtest_runtime_runs
+            WHERE request_json IS NOT NULL
+              AND request_json::text NOT IN ('null', '{}', '')
+            ON CONFLICT (run_id) DO NOTHING
+        """),
+        {"now": now},
+    )
 
 
 def downgrade() -> None:

@@ -30,7 +30,7 @@ func NewBacktestRepository(db *sql.DB) *BacktestRepository {
 		driver = os.Getenv("DB_DRIVER")
 	}
 	if driver == "" {
-		driver = "mysql"
+		driver = "postgres"
 	}
 
 	return &BacktestRepository{
@@ -58,12 +58,33 @@ func isAdvisoryLockUnsupportedError(err error) bool {
 		return false
 	}
 	lower := strings.ToLower(err.Error())
-	if strings.Contains(lower, "get_lock") {
+	if strings.Contains(lower, "pg_try_advisory_lock") || strings.Contains(lower, "pg_advisory_unlock") {
 		if strings.Contains(lower, "does not exist") || strings.Contains(lower, "unknown function") {
 			return true
 		}
 	}
 	return false
+}
+
+func (r *BacktestRepository) bindQuery(query string) string {
+	if r == nil {
+		return query
+	}
+	if !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
+		return query
+	}
+	var builder strings.Builder
+	builder.Grow(len(query) + 16)
+	argIndex := 1
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' {
+			builder.WriteString(fmt.Sprintf("$%d", argIndex))
+			argIndex++
+			continue
+		}
+		builder.WriteByte(query[i])
+	}
+	return builder.String()
 }
 
 func (r *BacktestRepository) withInProcessAdmissionLock(userID int, fn func() error) error {
@@ -87,22 +108,21 @@ func (r *BacktestRepository) withNamedAdmissionLock(ctx context.Context, userID 
 
 	lockKey := backtestAdmissionLockKey(userID)
 
-	// Try to acquire lock with 30-second timeout
-	var acquired int
-	if err := conn.QueryRowContext(ctx, `SELECT GET_LOCK(?, ?)`, lockKey, 30).Scan(&acquired); err != nil {
+	// Try to acquire non-blocking advisory lock.
+	var acquired bool
+	if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock(hashtext($1))`, lockKey).Scan(&acquired); err != nil {
 		if isAdvisoryLockUnsupportedError(err) {
 			return errAdvisoryLockUnsupported
 		}
 		return fmt.Errorf("failed to acquire lock for user %d: %w", userID, err)
 	}
 
-	// GET_LOCK returns 1 on success, 0 on timeout, NULL on error
-	if acquired != 1 {
-		return fmt.Errorf("failed to acquire admission lock for user %d: lock acquisition returned %d", userID, acquired)
+	if !acquired {
+		return fmt.Errorf("failed to acquire admission lock for user %d: lock is already held", userID)
 	}
 
 	defer func() {
-		if _, unlockErr := conn.ExecContext(context.Background(), `SELECT RELEASE_LOCK(?)`, lockKey); unlockErr != nil {
+		if _, unlockErr := conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock(hashtext($1))`, lockKey); unlockErr != nil {
 			log.Printf("failed to release admission lock for user %d: %v", userID, unlockErr)
 		}
 	}()
@@ -113,8 +133,8 @@ func (r *BacktestRepository) withNamedAdmissionLock(ctx context.Context, userID 
 // WithUserAdmissionLock serializes admission checks per user.
 //
 // Behavior:
-// - MariaDB: uses named locks via GET_LOCK/RELEASE_LOCK (cross-replica safe).
-// - Other engines/test setups: falls back to in-process mutex lock.
+// - PostgreSQL runtime: uses advisory locks via pg_try_advisory_lock/pg_advisory_unlock.
+// - Unsupported engines/test setups: falls back to in-process mutex lock.
 func (r *BacktestRepository) WithUserAdmissionLock(ctx context.Context, userID int, fn func() error) error {
 	if userID <= 0 {
 		return fmt.Errorf("invalid user id")
@@ -149,7 +169,7 @@ func (r *BacktestRepository) GetRunByID(runID string) (*models.BacktestRun, erro
 	query := "SELECT id FROM backtest_runs WHERE run_id = ? LIMIT 1"
 
 	run := &models.BacktestRun{}
-	err := r.db.QueryRow(query, runID).Scan(&run.ID)
+	err := r.db.QueryRow(r.bindQuery(query), runID).Scan(&run.ID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -164,7 +184,7 @@ func (r *BacktestRepository) GetRunOwnerID(runID string) (*int, error) {
 	query := "SELECT user_id FROM backtest_runs WHERE run_id = ? LIMIT 1"
 
 	var owner sql.NullInt64
-	err := r.db.QueryRow(query, runID).Scan(&owner)
+	err := r.db.QueryRow(r.bindQuery(query), runID).Scan(&owner)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -212,7 +232,7 @@ func (r *BacktestRepository) GetCandles(filter CandleFilter) ([]models.BacktestC
 		args = append(args, filter.Limit, filter.Skip)
 	}
 
-	rows, err := r.db.Query(query, args...)
+	rows, err := r.db.Query(r.bindQuery(query), args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query candles: %w", err)
 	}
@@ -312,7 +332,7 @@ func (r *BacktestRepository) GetPositions(filter PositionFilter) ([]models.Backt
 
 	query += " ORDER BY entry_timestamp"
 
-	rows, err := r.db.Query(query, args...)
+	rows, err := r.db.Query(r.bindQuery(query), args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query positions: %w", err)
 	}
@@ -372,12 +392,12 @@ func (r *BacktestRepository) GetPositionCountsByStatus(runID int) (open, closed 
 	openQuery := fmt.Sprintf("SELECT COUNT(*) FROM backtest_positions WHERE %s = ? AND status = 'OPEN'", fkColumn)
 	closedQuery := fmt.Sprintf("SELECT COUNT(*) FROM backtest_positions WHERE %s = ? AND status = 'CLOSED'", fkColumn)
 
-	err = r.db.QueryRow(openQuery, runID).Scan(&open)
+	err = r.db.QueryRow(r.bindQuery(openQuery), runID).Scan(&open)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get open positions count: %w", err)
 	}
 
-	err = r.db.QueryRow(closedQuery, runID).Scan(&closed)
+	err = r.db.QueryRow(r.bindQuery(closedQuery), runID).Scan(&closed)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get closed positions count: %w", err)
 	}
@@ -427,7 +447,7 @@ func (r *BacktestRepository) GetTrades(filter TradeFilter) ([]models.BacktestTra
 	query += " LIMIT ? OFFSET ?"
 	args = append(args, filter.Limit, filter.Skip)
 
-	rows, err := r.db.Query(query, args...)
+	rows, err := r.db.Query(r.bindQuery(query), args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query trades: %w", err)
 	}
@@ -501,7 +521,7 @@ func (r *BacktestRepository) GetTradesCount(runID int, market1, market2 string) 
 	}
 
 	var count int
-	err = r.db.QueryRow(query, args...).Scan(&count)
+	err = r.db.QueryRow(r.bindQuery(query), args...).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count trades: %w", err)
 	}
@@ -517,7 +537,7 @@ func (r *BacktestRepository) GetUniqueMarkets(runID int) ([]string, error) {
 
 	query := fmt.Sprintf("SELECT DISTINCT market FROM backtest_candles WHERE %s = ? ORDER BY market", fkColumn)
 
-	rows, err := r.db.Query(query, runID)
+	rows, err := r.db.Query(r.bindQuery(query), runID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query markets: %w", err)
 	}
@@ -603,7 +623,7 @@ func (r *BacktestRepository) GetRunsByUserID(userID int, skip int, limit int) ([
 		LIMIT ? OFFSET ?
 	`
 
-	rows, err := r.db.Query(query, userID, limit, skip)
+	rows, err := r.db.Query(r.bindQuery(query), userID, limit, skip)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query backtest runs: %w", err)
 	}
@@ -664,7 +684,7 @@ func (r *BacktestRepository) GetRunsByUserID(userID int, skip int, limit int) ([
 
 func (r *BacktestRepository) CountRunsByUserID(userID int) (int, error) {
 	var count int
-	if err := r.db.QueryRow(`SELECT COUNT(*) FROM backtest_runs WHERE user_id = ?`, userID).Scan(&count); err != nil {
+	if err := r.db.QueryRow(r.bindQuery(`SELECT COUNT(*) FROM backtest_runs WHERE user_id = ?`), userID).Scan(&count); err != nil {
 		return 0, fmt.Errorf("failed to count backtest runs: %w", err)
 	}
 	return count, nil
@@ -688,7 +708,7 @@ func (r *BacktestRepository) GetExperimentGroupsByUserID(userID int, runScanLimi
 		LIMIT ?
 	`
 
-	rows, err := r.db.Query(query, userID, runScanLimit)
+	rows, err := r.db.Query(r.bindQuery(query), userID, runScanLimit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query experiment runs: %w", err)
 	}
@@ -925,7 +945,7 @@ func (r *BacktestRepository) GetRunsByStrategyID(userID int, strategyID int, lim
 		ORDER BY created_at DESC
 		LIMIT ?
 	`
-	rows, err := r.db.Query(query, userID, strategyID, limit)
+	rows, err := r.db.Query(r.bindQuery(query), userID, strategyID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query strategy backtest runs: %w", err)
 	}
@@ -973,7 +993,7 @@ func (r *BacktestRepository) CountActiveRunsByUserID(userID int) (int, error) {
 		`
 
 	var count int
-	if err := r.db.QueryRow(query, userID).Scan(&count); err != nil {
+	if err := r.db.QueryRow(r.bindQuery(query), userID).Scan(&count); err != nil {
 		return 0, fmt.Errorf("failed to count active backtest runs: %w", err)
 	}
 	return count, nil

@@ -87,7 +87,7 @@ doctor:
 	else \
 		echo "$(CYAN)migrate CLI not installed; run make install-tools if you need manual migrations$(NC)"; \
 	fi
-	@echo "$(CYAN)MariaDB is the only supported production database; set DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD$(NC)"
+	@echo "$(CYAN)PostgreSQL is the supported runtime database; set DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD$(NC)"
 	@echo "$(GREEN)✓ Doctor checks complete$(NC)"
 
 ## build: Build the application binary
@@ -214,9 +214,9 @@ install-tools:
 	@if ! command -v air > /dev/null; then \
 		go install github.com/air-verse/air@v1.61.7; \
 	fi
-	@echo "Installing golang-migrate with MariaDB/MySQL support..."
+	@echo "Installing golang-migrate with PostgreSQL support..."
 	@if ! command -v migrate > /dev/null; then \
-		go install -tags 'mysql' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.0; \
+		go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.0; \
 	fi
 	@echo "Installing mockgen..."
 	@if ! command -v mockgen > /dev/null; then \
@@ -247,7 +247,7 @@ migrate-create:
 		exit 1; \
 	fi
 	@echo "$(CYAN)Creating migration: $(NAME)...$(NC)"
-	$(MIGRATE) create -ext sql -dir migrations/mysql -seq $(NAME)
+	$(MIGRATE) create -ext sql -dir migrations/postgres -seq $(NAME)
 	@echo "$(GREEN)✓ Migration files created$(NC)"
 
 ## tasks-summary: Recompute Completed/Pending summary counts in backend/bot/frontend tasks.md files

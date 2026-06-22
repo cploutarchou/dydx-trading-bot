@@ -62,67 +62,37 @@ type DatabaseSettings struct {
 }
 
 func (db *DatabaseSettings) DSN() string {
-	dbType := strings.ToLower(strings.TrimSpace(db.Type))
-	if dbType == "postgresql" {
-		dbType = "postgres"
+	query := url.Values{}
+	if db.SSL {
+		query.Set("sslmode", "require")
+	} else {
+		query.Set("sslmode", "disable")
+	}
+	if db.Timeout > 0 {
+		query.Set("connect_timeout", strconv.Itoa(db.Timeout))
+	}
+	query.Set("TimeZone", "UTC")
+
+	host := db.Host
+	if db.Port > 0 {
+		host = fmt.Sprintf("%s:%d", host, db.Port)
 	}
 
-	switch dbType {
-	case "postgres":
-		query := url.Values{}
-		if db.SSL {
-			query.Set("sslmode", "require")
-		} else {
-			query.Set("sslmode", "disable")
-		}
-		if db.Timeout > 0 {
-			query.Set("connect_timeout", strconv.Itoa(db.Timeout))
-		}
-		query.Set("TimeZone", "UTC")
-
-		host := db.Host
-		if db.Port > 0 {
-			host = fmt.Sprintf("%s:%d", host, db.Port)
-		}
-
-		u := url.URL{Scheme: "postgres", Host: host, Path: "/" + db.Dbname}
-		if db.User != "" {
-			if db.Password != "" {
-				u.User = url.UserPassword(db.User, db.Password)
-			} else {
-				u.User = url.User(db.User)
-			}
-		}
-		u.RawQuery = query.Encode()
-		return u.String()
-	default:
-		dsn := db.User
+	u := url.URL{Scheme: "postgres", Host: host, Path: "/" + db.Dbname}
+	if db.User != "" {
 		if db.Password != "" {
-			dsn += ":" + db.Password
+			u.User = url.UserPassword(db.User, db.Password)
+		} else {
+			u.User = url.User(db.User)
 		}
-		dsn += "@tcp(" + db.Host + ":" + strconv.Itoa(db.Port) + ")/" + db.Dbname
-		dsn += "?charset=utf8mb4&parseTime=true&loc=UTC"
-		if db.SSL {
-			// Use TLS transport for MariaDB/MySQL connections.
-			// "skip-verify" is used for staging/private CA scenarios where the CA
-			// is not registered in the container trust store.
-			dsn += "&tls=skip-verify"
-		}
-		dsn += "&timeout=" + strconv.Itoa(db.Timeout) + "s"
-		dsn += "&readTimeout=" + strconv.Itoa(db.Timeout) + "s"
-		dsn += "&writeTimeout=" + strconv.Itoa(db.Timeout) + "s"
-		return dsn
 	}
+	u.RawQuery = query.Encode()
+	return u.String()
 }
 
 // MigrationsPath returns the migrations directory based on database type.
 func (db *DatabaseSettings) MigrationsPath() string {
-	switch strings.ToLower(strings.TrimSpace(db.Type)) {
-	case "postgres", "postgresql":
-		return "migrations/postgres"
-	default:
-		return "migrations/mysql"
-	}
+	return "migrations/postgres"
 }
 
 type RedisSettings struct {
@@ -189,27 +159,20 @@ func LoadConfig() error {
 		Labels:   parseLabels(os.Getenv("LOKI_LABELS")),
 	}
 
-	dbType := strings.ToLower(getEnv("DB_TYPE", "mysql"))
-	var normalizedDBType string
-	var defaultPort int
-
-	switch dbType {
-	case "mysql", "mariadb":
-		normalizedDBType = "mysql"
-		defaultPort = 3306
-	case "postgres", "postgresql":
-		normalizedDBType = "postgres"
-		defaultPort = 5432
-	default:
-		return fmt.Errorf("unsupported DB_TYPE %q: supported values are mysql, mariadb, postgres, and postgresql", dbType)
+	dbType := strings.ToLower(getEnv("DB_TYPE", "postgres"))
+	if dbType == "postgresql" {
+		dbType = "postgres"
+	}
+	if dbType != "postgres" {
+		return fmt.Errorf("unsupported DB_TYPE %q: supported values are postgres and postgresql", dbType)
 	}
 
 	database := DatabaseSettings{
 		Host:           getEnvAny([]string{"DB_HOST"}, "localhost"),
-		Port:           getEnvInt("DB_PORT", defaultPort),
+		Port:           getEnvInt("DB_PORT", 5432),
 		Dbname:         getEnv("DB_NAME", "dydx_bot"),
 		User:           getEnv("DB_USER", "dydx_bot"),
-		Type:           normalizedDBType,
+		Type:           "postgres",
 		Password:       getEnv("DB_PASSWORD", ""),
 		SSL:            getEnvBool("SSL_MODE", false),
 		Timeout:        getEnvInt("DB_TIMEOUT", 5),

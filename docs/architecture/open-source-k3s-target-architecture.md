@@ -8,10 +8,10 @@ The repository is currently organized around a three-service product path:
 - `backend/` is the public Go API, auth/orchestration layer, and frontend-facing contract owner.
 - `bot/` is the Python FastAPI control plane and runtime owner for live execution and backtests.
 
-The present runtime is still centered on MariaDB + Redis + file-backed runtime state:
+The present runtime is centered on PostgreSQL + Redis + file-backed runtime state:
 
-- backend uses MariaDB migrations under `backend/migrations/mysql`
-- bot uses MariaDB/Alembic migrations under `bot/migrations/mariadb` / `bot/migrations/versions`
+- backend uses PostgreSQL migrations under `backend/migrations/postgres`
+- bot uses PostgreSQL/Alembic migrations under `bot/migrations/postgres`
 - backtest runs persist large JSON arrays in `backtest_runtime_runs`
 - Redis backs Celery, locks, caches, and temporary state
 - `bot_states/` holds logs and per-instance runtime files
@@ -49,10 +49,10 @@ The desired target shape is a production-shaped, open-source k3s stack with a cl
 ## Key risks
 
 1. **Large transactional payloads**
-   - Backtest result arrays in PostgreSQL/MariaDB can trigger large row rewrites, packet limits, and lock amplification.
+   - Backtest result arrays in PostgreSQL can trigger large row rewrites and lock amplification.
 
 2. **Dialect drift**
-   - Existing SQL uses MySQL/MariaDB-specific patterns such as `ON DUPLICATE KEY UPDATE` and `GET_LOCK`.
+   - Existing SQL and docs can drift if PostgreSQL-specific patterns are not kept consistent across services.
 
 3. **Startup migration coupling**
    - Application startup must not run schema migrations in production.
@@ -64,7 +64,7 @@ The desired target shape is a production-shaped, open-source k3s stack with a cl
    - Frontend/backoffice clients must keep talking to the backend, not directly to bot or data services.
 
 6. **Hybrid migration complexity**
-   - The system must stay usable on MariaDB/Redis until PostgreSQL and the new data path are fully introduced.
+   - The system must stay usable on PostgreSQL/Redis while new data paths are introduced incrementally.
 
 7. **Operational blast radius**
    - Stateful services need probes, PDBs, resource limits, and explicit rollout ownership.
@@ -80,7 +80,6 @@ The desired target shape is a production-shaped, open-source k3s stack with a cl
 ### Phase 1 — PostgreSQL foundation
 
 - add config support for PostgreSQL in backend and bot
-- keep MariaDB as the default runtime
 - add explicit postgres migration paths/placeholders
 - document SQL conversion hotspots
 
@@ -112,18 +111,18 @@ The desired target shape is a production-shaped, open-source k3s stack with a cl
 
 ## Rollback plan
 
-- Keep MariaDB/Redis defaults in place until each new path is verified.
+- Keep PostgreSQL/Redis defaults in place until each new path is verified.
 - Use feature flags to enable PostgreSQL, NATS, ClickHouse, and MinIO behavior incrementally.
 - If a phase fails, roll back the application change first and keep the previous data path active.
-- Do not drop MariaDB migrations or data until PostgreSQL is proven in staging.
+- Do not drop production data paths until replacement behavior is proven in staging.
 - For k8s, revert to the previous manifest set rather than mutating live secrets in place.
 
 ## Testing plan
 
 ### Configuration and validation
 
-- backend config tests for MariaDB and PostgreSQL DSN / migration-path behavior
-- bot database config tests for MariaDB and PostgreSQL URL handling
+- backend config tests for PostgreSQL DSN / migration-path behavior
+- bot database config tests for PostgreSQL URL handling
 - secret-scan script against `deploy/k8s/**/*.yaml`
 
 ### Runtime tests

@@ -28,6 +28,6 @@ controlled by `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS`, and staging pins it in
 
 - [Database migrations audit](database-migrations.md)
 - [Database migration audit](database-migration-audit.md)
-- Database removal notes and migration cleanup audit are tracked alongside the other docs in this folder.
+- [MySQL to PostgreSQL migration report](mysql-to-postgres-migration-report.md)
 - [Scripts usage audit](scripts-usage-audit.md)
 - [Admin coming soon and light theme plan](admin-coming-soon-and-light-theme-plan.md)

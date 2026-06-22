@@ -17,15 +17,13 @@ _ensure_path(BOT_ROOT)
 
 
 # ============================================================================
-# MariaDB database helper functions
+# PostgreSQL database helper functions
 # ============================================================================
 
 
 def get_expected_db_dialect() -> str:
     """Return the expected database dialect for current environment."""
-    db_type = os.getenv("DB_TYPE", "mysql").lower()
-    if db_type in ("mysql", "mariadb"):
-        return "mysql"
+    db_type = os.getenv("DB_TYPE", "postgres").lower()
     if db_type in ("postgres", "postgresql"):
         return "postgresql"
     raise AssertionError(f"Unsupported test DB_TYPE: {db_type}")
@@ -33,9 +31,7 @@ def get_expected_db_dialect() -> str:
 
 def get_driver_name() -> str:
     """Return the Python driver name for the active test database."""
-    if get_expected_db_dialect() == "postgresql":
-        return "psycopg2"
-    return "pymysql"
+    return "psycopg2"
 
 
 def assert_connection_string_valid(conn_str: str) -> None:
@@ -64,15 +60,15 @@ def assert_db_type_supported(db_type_str: str) -> None:
     Raises:
         AssertionError: If db_type is not a supported database type
     """
-    supported = ("mysql", "mariadb", "postgres", "postgresql")
+    supported = ("postgres", "postgresql")
     assert (
         db_type_str in supported
     ), f"Unsupported db_type: {db_type_str}. Supported: {supported}"
 
 
 def get_test_db_port() -> str:
-    """Get the bot test MariaDB port."""
-    return "3307"
+    """Get the bot test PostgreSQL port."""
+    return "5432"
 
 
 def get_test_connection_string(
@@ -92,10 +88,8 @@ def get_test_connection_string(
     Returns:
         Full connection string with appropriate dialect and driver
     """
-    port = get_test_db_port() if get_expected_db_dialect() == "mysql" else "5432"
-    if get_expected_db_dialect() == "postgresql":
-        return (
-            f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db_name}"
-            "?sslmode=disable"
-        )
-    return f"mysql://{user}:{password}@{host}:{port}/{db_name}"
+    port = get_test_db_port()
+    return (
+        f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db_name}"
+        "?sslmode=disable"
+    )

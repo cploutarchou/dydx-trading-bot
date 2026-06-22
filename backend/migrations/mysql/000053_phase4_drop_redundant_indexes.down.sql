@@ -1,2 +1,0 @@
--- Rollback for 000053_phase4_drop_redundant_indexes
--- Review manually - rollback not auto-generated

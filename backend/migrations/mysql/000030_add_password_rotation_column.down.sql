@@ -1,2 +1,0 @@
--- Rollback for 000030_add_password_rotation_column
--- Review manually - rollback not auto-generated

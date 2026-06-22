@@ -4,7 +4,7 @@
 
 ### Architecture and Entry Points
 
-- The monorepo is split into `frontend/` (React 19, TypeScript, Vite, Tailwind CSS v4), `backend/` (Go, Gin, MariaDB), and `bot/` (Python FastAPI trading runtime).
+- The monorepo is split into `frontend/` (React 19, TypeScript, Vite, Tailwind CSS v4), `backend/` (Go, Gin, PostgreSQL), and `bot/` (Python FastAPI trading runtime).
 - The strict integration boundary is `frontend -> backend -> bot`; browser code must not call the bot directly.
 - Frontend bootstraps from `frontend/src/main.tsx` into `frontend/src/App.tsx`, which wraps routing with `ThemeProvider`, React Query, global error handling, toast UI, and auth bootstrap.
 - Backend route assembly is centralized in `backend/internal/app/router.go`, with feature route registration under `/api/v1/*`.
@@ -28,7 +28,7 @@
 
 - Backend settings are persisted in `bot_settings` with `(section, key)` uniqueness.
 - Existing platform settings include registration and portal subdomain settings.
-- `platform.coming_soon_enabled` already exists in default backend settings initialization and is seeded by `backend/migrations/mysql/000060_add_coming_soon_setting.up.sql`.
+- `platform.coming_soon_enabled` already exists in default backend settings initialization and is seeded by `backend/migrations/postgres/000060_add_coming_soon_setting.up.sql`.
 - Public frontend bootstrap reads `GET /api/v1/public/app-config`, which currently returns `coming_soon_enabled`.
 - Existing generic `PUT /api/v1/settings` can update `platform.coming_soon_enabled`, but it is broad and lacks a dedicated confirmation-oriented contract for this production-impacting toggle.
 

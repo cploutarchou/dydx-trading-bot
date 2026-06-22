@@ -1,2 +1,0 @@
--- Rollback for 000041_add_portal_subdomain_platform_settings
--- Review manually - rollback not auto-generated

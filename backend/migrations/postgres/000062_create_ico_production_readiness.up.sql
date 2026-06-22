@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS ico_production_readiness (
-    id TINYINT PRIMARY KEY,
+    id SMALLINT PRIMARY KEY,
     tokenomics_allocation_finalized BOOLEAN NOT NULL DEFAULT FALSE,
     tokenomics_allocation_notes TEXT NOT NULL,
     vesting_schedule_finalized BOOLEAN NOT NULL DEFAULT FALSE,
@@ -29,12 +29,13 @@ CREATE TABLE IF NOT EXISTS ico_production_readiness (
     legal_approved BOOLEAN NOT NULL DEFAULT FALSE,
     technical_approved BOOLEAN NOT NULL DEFAULT FALSE,
     published BOOLEAN NOT NULL DEFAULT FALSE,
-    updated_by INT NULL,
+    updated_by INTEGER NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT fk_ico_readiness_updated_by
-        FOREIGN KEY (updated_by) REFERENCES users(id)
-        ON DELETE SET NULL
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_ico_readiness_updated_by FOREIGN KEY (updated_by) REFERENCES users (id) ON DELETE SET NULL
 );
 
-INSERT IGNORE INTO ico_production_readiness (id) VALUES (1);
+INSERT INTO
+    ico_production_readiness (id)
+VALUES
+    (1) ON CONFLICT (id) DO NOTHING;

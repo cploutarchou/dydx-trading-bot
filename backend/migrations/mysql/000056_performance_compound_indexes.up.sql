@@ -1,2 +1,0 @@
--- Migration disabled: Complex index/optimization migration
--- Original: 000056_performance_compound_indexes.up.sql

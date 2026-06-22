@@ -13,10 +13,9 @@ database_config = DatabaseConfig()
 config.set_main_option("sqlalchemy.url", database_config.get_connection_string())
 
 project_root = Path(__file__).resolve().parents[1]
-version_location = "postgres" if database_config.db_type == "postgres" else "mariadb"
 config.set_main_option(
     "version_locations",
-    str(project_root / "migrations" / version_location),
+    str(project_root / "migrations" / "postgres"),
 )
 
 # Interpret the config file for Python logging.

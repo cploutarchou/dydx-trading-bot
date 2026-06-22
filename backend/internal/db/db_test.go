@@ -2,8 +2,8 @@ package db
 
 import "testing"
 
-func TestSetConfigDefaultsUsesCorrectMigrationPath_MariaDB(t *testing.T) {
-	cfg := Config{Driver: "mysql", DSN: "user:pass@tcp(localhost:3306)/test"}
+func TestSetConfigDefaultsUsesCorrectMigrationPath_Postgres(t *testing.T) {
+	cfg := Config{Driver: "postgres", DSN: "postgres://user:pass@localhost:5432/test"}
 	setConfigDefaults(&cfg)
 
 	if cfg.MaxOpenConns != 25 {
@@ -12,44 +12,20 @@ func TestSetConfigDefaultsUsesCorrectMigrationPath_MariaDB(t *testing.T) {
 	if cfg.MaxIdleConns != 5 {
 		t.Fatalf("expected MaxIdleConns=5, got %d", cfg.MaxIdleConns)
 	}
-	if cfg.MigrationsPath != "migrations/mysql" {
-		t.Fatalf("expected MySQL migrations path, got %q", cfg.MigrationsPath)
-	}
-}
-
-func TestSetConfigDefaultsUsesCorrectMigrationPath_Postgres(t *testing.T) {
-	cfg := Config{Driver: "postgres", DSN: "postgres://user:pass@localhost:5432/test"}
-	setConfigDefaults(&cfg)
-
 	if cfg.MigrationsPath != "migrations/postgres" {
-		t.Fatalf("expected Postgres migrations path, got %q", cfg.MigrationsPath)
+		t.Fatalf("expected postgres migrations path, got %q", cfg.MigrationsPath)
 	}
 }
 
-func TestSetConfigDefaultsUsesMySQLPoolSizes(t *testing.T) {
-	cfg := Config{Driver: "mysql", DSN: "mysql://localhost/test"}
+func TestSetConfigDefaultsKeepsPostgresPoolDefaults(t *testing.T) {
+	cfg := Config{Driver: "postgres", DSN: "postgres://localhost/test"}
 	setConfigDefaults(&cfg)
 
 	if cfg.MaxOpenConns != 25 {
-		t.Fatalf("expected mysql MaxOpenConns=25, got %d", cfg.MaxOpenConns)
+		t.Fatalf("expected postgres MaxOpenConns=25, got %d", cfg.MaxOpenConns)
 	}
 	if cfg.MaxIdleConns != 5 {
-		t.Fatalf("expected mysql MaxIdleConns=5, got %d", cfg.MaxIdleConns)
-	}
-	if cfg.MigrationsPath != "migrations/mysql" {
-		t.Fatalf("expected mysql migrations path, got %q", cfg.MigrationsPath)
-	}
-}
-
-func TestSetConfigDefaultsKeepsMySQLPoolDefaults(t *testing.T) {
-	cfg := Config{Driver: "mysql", DSN: "mysql://localhost/test"}
-	setConfigDefaults(&cfg)
-
-	if cfg.MaxOpenConns != 25 {
-		t.Fatalf("expected mysql MaxOpenConns=25, got %d", cfg.MaxOpenConns)
-	}
-	if cfg.MaxIdleConns != 5 {
-		t.Fatalf("expected mysql MaxIdleConns=5, got %d", cfg.MaxIdleConns)
+		t.Fatalf("expected postgres MaxIdleConns=5, got %d", cfg.MaxIdleConns)
 	}
 }
 

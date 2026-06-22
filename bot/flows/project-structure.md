@@ -18,7 +18,7 @@ bot/
 │   ├── main_instance.py            # DB-configured per-instance trading worker
 │   ├── trading/                    # dYdX adapter, analysis, entry/exit and persistence
 │   ├── infrastructure/
-│   │   ├── database.py             # MariaDB engine, startup schema/migration checks
+│   │   ├── database.py             # PostgreSQL engine, startup schema/migration checks
 │   │   ├── domain/                 # Pydantic/API models and pair storage
 │   │   ├── persistence/            # core, backtest and realtime repositories
 │   │   ├── use_cases/              # BacktestService and AsyncJobManager
@@ -29,8 +29,8 @@ bot/
 │   ├── domain/                     # SQLAlchemy Base and core/realtime ORM models
 │   └── repository/                 # older duplicate realtime repository
 ├── migrations/
-│   ├── versions/                   # canonical Alembic revisions
-│   └── mariadb/                    # near-duplicate MariaDB revision set
+│   ├── versions/                   # legacy Alembic revision set
+│   └── postgres/                   # canonical PostgreSQL revision set
 ├── scripts/                        # preflight, backtest clients and repair utility
 ├── tests/                          # contract, safety, repository and runtime tests
 ├── bot_states/                     # runtime state locks and per-backtest logs
@@ -44,16 +44,16 @@ The tree also contains `.venv`, Python/mypy/pytest caches, `.idea`, `.vscode`, `
 
 ## Entrypoints and ownership
 
-| Entrypoint | Current role | Evidence |
-|---|---|---|
-| `src/api/start_api.py` | Canonical API launcher; loads repo env then starts Uvicorn on `BOT_API_PORT` (default 8889) | [`main`](../src/api/start_api.py) |
-| `src/api/server.py` | Canonical app, lifespan, HTTP and WebSocket routes | [`app`](../src/api/server.py), [`lifespan`](../src/api/server.py) |
-| `src/bot_instance_manager.py` | Sole intended owner of managed bot processes | [`BotInstanceManager`](../src/bot_instance_manager.py) |
-| `src/main_instance.py` | Managed worker; requires `bot_instances.config` | [`BotInstance`](../src/main_instance.py), [`main`](../src/main_instance.py) |
-| `worker_entrypoint.py` | Selects Celery mode from `WORKER_MODE`; otherwise shells to legacy `main.py` | [`main`](../worker_entrypoint.py) |
-| `main.py` | Legacy standalone runtime using shared environment configuration | [`main`](../main.py) |
-| `migrations/env.py` | Alembic online/offline migration entrypoint | [`run_migrations_online`](../migrations/env.py) |
-| `scripts/*.py` | Operator clients/preflight/repair, not server-side services | [`scripts`](../scripts) |
+| Entrypoint                    | Current role                                                                                | Evidence                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `src/api/start_api.py`        | Canonical API launcher; loads repo env then starts Uvicorn on `BOT_API_PORT` (default 8889) | [`main`](../src/api/start_api.py)                                           |
+| `src/api/server.py`           | Canonical app, lifespan, HTTP and WebSocket routes                                          | [`app`](../src/api/server.py), [`lifespan`](../src/api/server.py)           |
+| `src/bot_instance_manager.py` | Sole intended owner of managed bot processes                                                | [`BotInstanceManager`](../src/bot_instance_manager.py)                      |
+| `src/main_instance.py`        | Managed worker; requires `bot_instances.config`                                             | [`BotInstance`](../src/main_instance.py), [`main`](../src/main_instance.py) |
+| `worker_entrypoint.py`        | Selects Celery mode from `WORKER_MODE`; otherwise shells to legacy `main.py`                | [`main`](../worker_entrypoint.py)                                           |
+| `main.py`                     | Legacy standalone runtime using shared environment configuration                            | [`main`](../main.py)                                                        |
+| `migrations/env.py`           | Alembic online/offline migration entrypoint                                                 | [`run_migrations_online`](../migrations/env.py)                             |
+| `scripts/*.py`                | Operator clients/preflight/repair, not server-side services                                 | [`scripts`](../scripts)                                                     |
 
 ## Process and state boundaries
 
@@ -76,7 +76,7 @@ flowchart TB
   end
   FastAPI --> Manager --> BotProcess
   FastAPI --> CeleryProcess
-  APIProcess --> DB[(MariaDB)]
+  APIProcess --> DB[(PostgreSQL)]
   BotProcess --> DB
   CeleryProcess --> DB
   CeleryProcess --> Redis[(Redis)]
@@ -85,7 +85,7 @@ flowchart TB
 
 - API-process memory is not shared across Uvicorn workers: rate-limit fallback buckets, strategy store, market cache, WebSocket registry and manager subprocess handles are local to one process ([`src/api/server.py`](../src/api/server.py), [`ConnectionManager`](../src/api/websocket_server.py)).
 - Bot workers receive `BOT_INSTANCE_ID`, `BOT_AGENTS_FILE` and `BOT_PAIRS_FILE` through the manager and use a dedicated log file ([`_start_instance_locked`](../src/bot_instance_manager.py), [`BotInstance.__init__`](../src/main_instance.py)).
-- Durable primary stores are MariaDB for bot/runtime/backtest state and Redis for Celery/candle caches; tracked positions and cointegration pairs retain file fallbacks ([`src/trading/bot_agents_state.py`](../src/trading/bot_agents_state.py), [`src/infrastructure/domain/cointegration_storage.py`](../src/infrastructure/domain/cointegration_storage.py)).
+- Durable primary stores are PostgreSQL for bot/runtime/backtest state and Redis for Celery/candle caches; tracked positions and cointegration pairs retain file fallbacks ([`src/trading/bot_agents_state.py`](../src/trading/bot_agents_state.py), [`src/infrastructure/domain/cointegration_storage.py`](../src/infrastructure/domain/cointegration_storage.py)).
 
 ## Configuration flow
 
@@ -95,16 +95,30 @@ flowchart TB
 
 ## Build, deployment and CI files
 
-| File/path | Implemented role | Investigation result |
-|---|---|---|
-| `Makefile` | Local API/bot/Celery/Flower/preflight commands plus older Docker setup/build/deploy commands | Local `.venv` targets are usable from this directory. Docker targets point to `docker/docker-compose.yml` and scripts that are absent here. |
-| `run_api.sh` | Shell wrapper for `.venv/bin/python src/api/start_api.py` | Consistent with the canonical launcher. |
-| `worker_entrypoint.py` | Container/background entrypoint selecting Celery or legacy bot mode | Active code; no local Dockerfile references it because no Dockerfile is present in this directory. |
-| `.github/workflows/ci.yml` | Lint, MariaDB-backed pytest, Docker build | Workflow paths assume execution from the parent monorepo (`bot/**`). It references root `scripts/check_no_legacy_database.py` and `bot/Dockerfile`; neither target is present inside this bot directory. Parent-repository validation is required. Black failures are explicitly ignored with `|| true`; the build depends only on lint, not tests. |
-| `alembic.ini`, `migrations/env.py` | Alembic configuration and DB URL selection | Canonical migration runtime uses `migrations/versions`. |
-| `openapi.json` | Checked-in API description | May drift from decorators/manual JSON bodies; source decorators were treated as authoritative. |
-| `requirements.txt` | Pinned/runtime and development Python dependencies | Includes runtime, pytest, stubs, Flower and scientific libraries in one file; no separate lock file was found. |
-| `.pylintrc`, IDE files | Static-analysis/editor configuration | Tooling only; not runtime architecture. |
+- `Makefile`
+  - role: local API/bot/Celery/Flower/preflight commands plus older Docker setup/build/deploy commands
+  - note: local `.venv` targets are usable from this directory. Docker targets point to `docker/docker-compose.yml` and scripts that are absent here.
+- `run_api.sh`
+  - role: shell wrapper for `.venv/bin/python src/api/start_api.py`
+  - note: consistent with the canonical launcher.
+- `worker_entrypoint.py`
+  - role: container/background entrypoint selecting Celery or legacy bot mode
+  - note: active code; no local Dockerfile references it because no Dockerfile is present in this directory.
+- `.github/workflows/ci.yml`
+  - role: lint, PostgreSQL-backed pytest, Docker build
+  - note: workflow paths assume execution from the parent monorepo (`bot/**`). It references root `scripts/check_no_legacy_database.py` and `bot/Dockerfile`; neither target is present inside this bot directory. Parent-repository validation is required. Black failures are explicitly ignored with `|| true`; the build depends only on lint, not tests.
+- `alembic.ini`, `migrations/env.py`
+  - role: Alembic configuration and DB URL selection
+  - note: canonical migration runtime uses `migrations/versions`.
+- `openapi.json`
+  - role: checked-in API description
+  - note: may drift from decorators/manual JSON bodies; source decorators were treated as authoritative.
+- `requirements.txt`
+  - role: pinned/runtime and development Python dependencies
+  - note: includes runtime, pytest, stubs, Flower and scientific libraries in one file; no separate lock file was found.
+- `.pylintrc`, IDE files
+  - role: static-analysis/editor configuration
+  - note: tooling only; not runtime architecture.
 
 ## Tests and validation assets
 
@@ -113,6 +127,6 @@ flowchart TB
 ## Validation notes
 
 - Confirmed from the enumerated tree and entrypoint source.
-- `migrations/versions` is used by [`DatabaseManager.run_pending_migrations`](../src/infrastructure/database.py); why `migrations/mariadb` is also maintained is **UNKNOWN / NEEDS VALIDATION**.
+- `migrations/postgres` is the active migration path used by [`DatabaseManager.run_pending_migrations`](../src/infrastructure/database.py); any residual `migrations/versions` usage should be treated as legacy compatibility and validated before cleanup.
 - Deployment manifests are not present in this directory, so replicas, API worker count, Beat deployment and volumes are **UNKNOWN / NEEDS VALIDATION**.
 - The parent-monorepo paths assumed by CI and Docker commands were outside the requested write scope and must be validated from the repository root.

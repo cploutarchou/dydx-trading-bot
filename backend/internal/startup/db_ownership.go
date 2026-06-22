@@ -61,7 +61,7 @@ func parseDatabaseTarget(rawURL string, source string) (*DatabaseTarget, bool) {
 	}
 
 	scheme := strings.ToLower(parsed.Scheme)
-	if scheme != "mysql" && scheme != "mariadb" && scheme != "postgres" && scheme != "postgresql" {
+	if scheme != "postgres" && scheme != "postgresql" {
 		return nil, false
 	}
 
@@ -72,11 +72,7 @@ func parseDatabaseTarget(rawURL string, source string) (*DatabaseTarget, bool) {
 		Source: source,
 	})
 	if target.Port == "" {
-		if scheme == "postgres" || scheme == "postgresql" {
-			target.Port = "5432"
-		} else {
-			target.Port = "3306"
-		}
+		target.Port = "5432"
 	}
 	return &target, true
 }

@@ -12,19 +12,39 @@ The biggest wins in this pass were:
 - the remaining live backend repositories and route seed helpers were converted away from `LastInsertId()`
 - the bot runtime now defaults to PostgreSQL connection settings and Alembic bootstrapping
 - bot database runtime tests and migration docs were updated to match the PostgreSQL-first posture
+- root runtime profile defaults/docs were aligned to PostgreSQL ports and types
+- stale contradictory MariaDB-only audit artifacts were removed/rewritten
+
+## Root-level config and doc cleanup applied
+
+- `run.json`
+  - switched default `DB_TYPE` to `postgres`
+  - switched `DB_PORT` and `BOT_DB_PORT` defaults to `5432`
+  - removed legacy `MYSQL_*` keys from the active generated runtime profile
+- `config/profiles/example.config.json`
+  - switched default `DB_TYPE` to `postgres`
+  - switched `DB_PORT` and `BOT_DB_PORT` defaults to `5432`
+- `README.md`
+  - local infrastructure database defaults updated to PostgreSQL
+  - backend migration-path description updated to `backend/migrations/postgres` (with explicit legacy compatibility note)
+- `docs/database-migration-audit.md`
+  - rewritten to describe current PostgreSQL-first architecture
+- `docs/postgresql-removal-audit.md`
+  - removed as stale and contradictory to current runtime state
 
 ## Backend changes applied
 
 ### Configuration and runtime wiring
 
 - `backend/config/config.go`
-  - default `DB_TYPE` changed from MySQL to PostgreSQL
-  - PostgreSQL remains supported alongside MySQL/MariaDB for compatibility
+  - runtime DB configuration is now PostgreSQL-only (`postgres`/`postgresql`)
+  - DSN generation and migration-path resolution always target PostgreSQL
 - `backend/internal/db/db.go`
-  - default driver fallback now resolves to PostgreSQL
+  - runtime driver validation is now PostgreSQL-only
+  - MySQL driver and migrate adapter imports removed from active runtime DB layer
 - `backend/internal/startup/db_ownership.go`
-  - ownership parsing now accepts `postgres` and `postgresql` URLs
-  - PostgreSQL default port fallback updated to `5432`
+  - ownership parsing now accepts only `postgres` and `postgresql` URLs
+  - default port fallback is fixed at `5432`
 - `backend/cmd/server/db_ownership_test.go`
   - tests updated to validate PostgreSQL ownership URLs and defaults
 
@@ -71,21 +91,26 @@ The biggest wins in this pass were:
 ### Runtime defaults
 
 - `bot/config/config.py`
-  - database default type changed to PostgreSQL
-  - default port changed to `5432`
-  - DB type validation now allows PostgreSQL as a first-class default
+  - DB type validation is now PostgreSQL-only (`postgres`/`postgresql`)
 - `bot/src/infrastructure/database.py`
-  - DB type fallback now resolves to PostgreSQL
-  - default bot DB port now falls back to `5432`
+  - DB type/URL scheme support is now PostgreSQL-only
+  - MySQL/MariaDB URL normalization and engine kwargs paths removed
+  - compatibility DDL now uses PostgreSQL syntax (`ALTER COLUMN ... DROP NOT NULL`)
 - `bot/alembic.ini`
-  - default SQLAlchemy URL changed to PostgreSQL
+  - `version_locations` now points to `migrations/postgres`
+- `bot/migrations/env.py`
+  - migration version-location selection is fixed to the PostgreSQL migrations directory
 
 ### Tests and docs
 
 - `bot/tests/conftest.py`
-  - default expected DB dialect changed to PostgreSQL
+  - helper expectations are now PostgreSQL-only
 - `bot/tests/test_database_config_runtime.py`
-  - connection-string expectations updated to PostgreSQL
+  - runtime config assertions updated for PostgreSQL-only engine kwargs and scheme validation
+- `bot/tests/test_backtest_api_contract.py`
+  - runtime DB config contract assertions now expect PostgreSQL db_type/port values
+- `backend/internal/routes/bot_api_delegate_control_plane_test.go`
+  - runtime DB config delegated response assertions now expect PostgreSQL db_type values
 - `bot/migrations/postgres/README.md`
   - updated to describe PostgreSQL as the active/default bot migration path
 
@@ -98,10 +123,8 @@ The biggest wins in this pass were:
 
 ## Remaining MySQL/MariaDB hotspots
 
-There are still MySQL-flavored migration artifacts and compatibility references elsewhere in the backend and bot that should be reviewed in a follow-up pass, including:
+There are still legacy MySQL/MariaDB artifacts outside the active runtime DB wiring that should be reviewed in a follow-up pass, including:
 
-- MySQL migrations under `backend/migrations/mysql/`
-- MariaDB migration files under `bot/migrations/mariadb/`
 - docs, checks, and compatibility tests that still mention MySQL/MariaDB for legacy support or migration inventory
 
 ## Notes

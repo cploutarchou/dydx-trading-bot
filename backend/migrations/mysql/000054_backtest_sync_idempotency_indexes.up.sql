@@ -1,2 +1,0 @@
--- Migration disabled: Complex index/optimization migration
--- Original: 000054_backtest_sync_idempotency_indexes.up.sql

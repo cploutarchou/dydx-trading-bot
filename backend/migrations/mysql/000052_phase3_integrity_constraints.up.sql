@@ -1,4 +1,0 @@
--- Migration 000052 disabled: Complex legacy constraints (DO blocks)
--- These constraints can be applied manually if needed after schema is stable
--- Original legacy migration had DO block constraints
--- This migration is optional for basic functionality

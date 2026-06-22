@@ -1,11 +1,11 @@
-# Backend MariaDB Migrations
+# Backend PostgreSQL Migrations
 
-The active backend migration set is `backend/migrations/mysql`.
+The active backend migration set is `backend/migrations/postgres`.
 
-MariaDB 11.4 is the pinned local, CI, and deployment target. The backend uses:
+PostgreSQL is the supported runtime target. The backend uses:
 
-- `github.com/go-sql-driver/mysql` for runtime connections.
-- `golang-migrate` with its MySQL-compatible adapter for migration execution.
+- `github.com/jackc/pgx/v5/stdlib` for runtime connections.
+- `golang-migrate` with the PostgreSQL adapter for migration execution.
 - `schema_migrations` for migration state.
 
 ## Commands
@@ -24,11 +24,10 @@ rolled forward. Normal backend startup does not run migrations unless
 
 ## Rules
 
-- New migrations must be created under `migrations/mysql`.
-- Use `ENGINE=InnoDB`, `utf8mb4`, and UTC timestamps for new schema.
-- MariaDB DDL can implicitly commit and take metadata locks; do not assume a
-  surrounding transaction can roll back DDL.
-- Avoid destructive schema changes in the same deployment as replacement code.
+- New migrations must be created under `migrations/postgres`.
+- Use timezone-aware UTC timestamps for new schema.
+- Keep migrations deterministic and avoid destructive schema changes in the same
+  deployment as replacement code.
 - Use expand-and-contract for breaking changes and put large backfills in
   explicit bounded scripts or commands.
 

@@ -1,2 +1,0 @@
--- Rollback for 000042_seed_portal_test_clients_and_ibs
--- Review manually - rollback not auto-generated

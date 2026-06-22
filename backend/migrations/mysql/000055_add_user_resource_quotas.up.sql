@@ -1,2 +1,0 @@
--- Migration disabled: Complex index/optimization migration
--- Original: 000055_add_user_resource_quotas.up.sql

@@ -1,2 +1,0 @@
--- Rollback for 000026_align_strategy_execution_state_runtime_schema
--- Review manually - rollback not auto-generated

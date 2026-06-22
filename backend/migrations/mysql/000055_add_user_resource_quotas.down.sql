@@ -1,2 +1,0 @@
--- Rollback for 000055_add_user_resource_quotas
--- Review manually - rollback not auto-generated

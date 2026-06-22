@@ -207,25 +207,25 @@ func TestWithUserAdmissionLock_HandlesContextCancellation(t *testing.T) {
 	}
 }
 
-func TestIsAdvisoryLockUnsupportedError_DetectsMySQLErrors(t *testing.T) {
+func TestIsAdvisoryLockUnsupportedError_DetectsPostgresFunctionErrors(t *testing.T) {
 	tests := []struct {
 		name              string
 		err               error
 		expectUnsupported bool
 	}{
 		{
-			name:              "unknown_function_get_lock",
-			err:               errors.New("Error 1305 (42000): FUNCTION get_lock does not exist"),
+			name:              "undefined_pg_try_function",
+			err:               errors.New("ERROR: function pg_try_advisory_lock(integer) does not exist"),
 			expectUnsupported: true,
 		},
 		{
-			name:              "lowercase_unknown_function",
-			err:               errors.New("unknown function get_lock"),
+			name:              "lowercase_unknown_pg_function",
+			err:               errors.New("unknown function pg_advisory_unlock"),
 			expectUnsupported: true,
 		},
 		{
-			name:              "other_mysql_error",
-			err:               errors.New("Error 1054 (42S22): Unknown column 'user_id'"),
+			name:              "other_postgres_error",
+			err:               errors.New("ERROR: column user_id does not exist"),
 			expectUnsupported: false,
 		},
 	}

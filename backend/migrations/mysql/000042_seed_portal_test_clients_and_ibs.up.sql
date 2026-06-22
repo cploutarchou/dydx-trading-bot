@@ -1,2 +1,0 @@
--- Migration disabled: Complex legacy syntax
--- Original migration: 000042_seed_portal_test_clients_and_ibs.up.sql

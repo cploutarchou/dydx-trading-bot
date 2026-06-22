@@ -1,22 +1,21 @@
 # Database Migrations
 
-MariaDB is the only supported production database. PostgreSQL is deprecated and
-unsupported in active code, tests, configuration, Docker, and CI.
+PostgreSQL is the supported runtime database for active code, tests,
+configuration, Docker, and CI.
 
 ## Supported Version
 
-Use MariaDB 11.4. If production uses managed MariaDB, set and document the exact
-major/minor version before rollout.
+Use PostgreSQL 16+ (or the pinned platform version for your environment).
 
 ## Ownership
 
-- Backend schema: `backend/migrations/mysql`, owned by the Go backend.
-- Bot schema: `bot/migrations/mariadb`, owned by the Python bot.
+- Backend schema: `backend/migrations/postgres`, owned by the Go backend.
+- Bot schema: `bot/migrations/postgres`, owned by the Python bot.
 
 ## Drivers
 
-- Go: `github.com/go-sql-driver/mysql`.
-- Python: `PyMySQL` through SQLAlchemy URL `mysql+pymysql://`.
+- Go: `github.com/jackc/pgx/v5/stdlib`.
+- Python: `psycopg2` through SQLAlchemy URL `postgresql+psycopg2://`.
 
 ## Commands
 
@@ -41,19 +40,15 @@ alembic downgrade -1
 
 ## Configuration
 
-Use `DB_TYPE=mysql` or `DB_TYPE=mariadb`, `DB_HOST`, `DB_PORT=3306`,
+Use `DB_TYPE=postgres` or `DB_TYPE=postgresql`, `DB_HOST`, `DB_PORT=5432`,
 `DB_NAME`, `DB_USER`, and `DB_PASSWORD`. Bot dedicated databases use
 `BOT_DB_*` and `BOT_DB_CUTOVER_MODE=dedicated`.
 
-DSNs must use `utf8mb4`, UTC parsing, connection timeout, read timeout, and
-write timeout. Do not enable multi-statements unless a reviewed migration
-requires it and the risk is documented.
+DSNs must use UTC timezone settings and explicit connection timeout values.
 
 ## Charset And Time
 
-New tables use InnoDB and `utf8mb4`. UTC is the timestamp policy. MariaDB does
-not provide timezone-aware timestamp semantics equivalent to other engines, so
-applications must write and read UTC consistently.
+UTC is the timestamp policy. Applications must write and read UTC consistently.
 
 ## Locking And State
 

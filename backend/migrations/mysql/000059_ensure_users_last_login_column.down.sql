@@ -1,2 +1,0 @@
--- Rollback for 000059_ensure_users_last_login_column
--- Review manually - rollback not auto-generated

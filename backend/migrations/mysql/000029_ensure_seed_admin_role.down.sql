@@ -1,2 +1,0 @@
--- Rollback for 000029_ensure_seed_admin_role
--- Review manually - rollback not auto-generated

@@ -6,14 +6,14 @@ import (
 	"strings"
 )
 
-// MySQLError represents a MySQL database error
-type MySQLError struct {
+// SQLDriverError is a lightweight driver-agnostic SQL error shape.
+type SQLDriverError struct {
 	Number  uint16
 	Message string
 }
 
 // Error implements the error interface
-func (e *MySQLError) Error() string {
+func (e *SQLDriverError) Error() string {
 	return e.Message
 }
 
@@ -23,11 +23,10 @@ func ErrorCode(err error) string {
 		return ""
 	}
 
-	// Check for MySQL driver error format: "*mysql.MySQLError"
-	// MySQL errors come in format like "Error 1054: Unknown column 'xyz' in 'field list'"
+	// Parse common SQL driver error formats.
 	errStr := err.Error()
 
-	// Pattern: "Error XXXX:" (MySQL error number)
+	// Pattern: "Error XXXX:" (legacy numeric error format)
 	if strings.Contains(errStr, "Error") {
 		parts := strings.Fields(errStr)
 		for i, part := range parts {
@@ -40,10 +39,17 @@ func ErrorCode(err error) string {
 		}
 	}
 
+	// PostgreSQL errors often embed SQLSTATE codes directly.
+	for _, state := range []string{"23505", "40P01", "42703"} {
+		if strings.Contains(errStr, state) {
+			return state
+		}
+	}
+
 	return ""
 }
 
-// IsDuplicateKeyError checks if error is a duplicate key error (MariaDB/MySQL 1062)
+// IsDuplicateKeyError checks if error is a duplicate key / unique constraint violation.
 func IsDuplicateKeyError(err error) bool {
 	if err == nil {
 		return false
@@ -51,15 +57,18 @@ func IsDuplicateKeyError(err error) bool {
 
 	errStr := err.Error()
 
-	// MySQL: "Error 1062: Duplicate entry 'xyz' for key 'primary'"
-	if strings.Contains(errStr, "1062") || strings.Contains(errStr, "Duplicate entry") {
+	if strings.Contains(errStr, "23505") ||
+		strings.Contains(strings.ToLower(errStr), "duplicate key") ||
+		strings.Contains(strings.ToLower(errStr), "unique constraint") ||
+		strings.Contains(errStr, "1062") ||
+		strings.Contains(errStr, "Duplicate entry") {
 		return true
 	}
 
 	return false
 }
 
-// IsDeadlockError checks if error is a deadlock error (MariaDB/MySQL 1213)
+// IsDeadlockError checks if error is a deadlock error.
 func IsDeadlockError(err error) bool {
 	if err == nil {
 		return false
@@ -67,8 +76,7 @@ func IsDeadlockError(err error) bool {
 
 	errStr := err.Error()
 
-	// MySQL: "Error 1213: Deadlock found when trying to get lock"
-	if strings.Contains(errStr, "1213") || strings.Contains(errStr, "Deadlock found") {
+	if strings.Contains(errStr, "40P01") || strings.Contains(errStr, "1213") || strings.Contains(errStr, "Deadlock found") {
 		return true
 	}
 
@@ -79,16 +87,19 @@ func IsDeadlockError(err error) bool {
 	return false
 }
 
-// IsUndefinedColumnError checks if error is an undefined column error (MariaDB/MySQL 1054)
+// IsUndefinedColumnError checks if error is an undefined column error.
 func IsUndefinedColumnError(err error) bool {
 	if err == nil {
 		return false
 	}
 
 	errStr := err.Error()
+	errLower := strings.ToLower(errStr)
 
-	// MySQL: "Error 1054: Unknown column 'xyz' in 'field list'"
-	if strings.Contains(errStr, "1054") || strings.Contains(errStr, "Unknown column") {
+	if strings.Contains(errStr, "42703") ||
+		(strings.Contains(errLower, "column") && strings.Contains(errLower, "does not exist")) ||
+		strings.Contains(errStr, "1054") ||
+		strings.Contains(errStr, "Unknown column") {
 		return true
 	}
 

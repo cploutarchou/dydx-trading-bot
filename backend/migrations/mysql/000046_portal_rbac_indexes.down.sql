@@ -1,2 +1,0 @@
--- Rollback for 000046_portal_rbac_indexes
--- Review manually - rollback not auto-generated

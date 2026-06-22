@@ -1,2 +1,0 @@
--- Rollback for 000056_performance_compound_indexes
--- Review manually - rollback not auto-generated

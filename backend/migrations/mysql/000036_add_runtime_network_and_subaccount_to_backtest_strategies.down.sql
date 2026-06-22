@@ -1,2 +1,0 @@
--- Rollback for 000036_add_runtime_network_and_subaccount_to_backtest_strategies
--- Review manually - rollback not auto-generated

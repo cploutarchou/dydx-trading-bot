@@ -1,2 +1,0 @@
--- Migration disabled: Complex legacy syntax
--- Original migration: 000048_telegram_scoped_setting_keys.up.sql

@@ -1,6 +1,6 @@
 ---
 name: go-api-db-crypto-trading
-description: "Design, implement, review, and debug backend features in this dYdX trading bot Go API. Use when building or fixing Gin routes, handlers, services, repositories, MariaDB schema changes, delegated bot API behavior, auth-protected endpoints, backtest or trading workflows, risk controls, or database-heavy backend code."
+description: "Design, implement, review, and debug backend features in this dYdX trading bot Go API. Use when building or fixing Gin routes, handlers, services, repositories, PostgreSQL schema changes, delegated bot API behavior, auth-protected endpoints, backtest or trading workflows, risk controls, or database-heavy backend code."
 argument-hint: "Describe the backend feature, bug, endpoint, schema change, or trading workflow to implement or review"
 user-invocable: true
 ---
@@ -12,7 +12,7 @@ Use this skill when working on this repository as a senior Go backend engineer w
 This skill is optimized for tasks such as:
 
 - implementing or refactoring Go REST API endpoints
-- designing MariaDB-backed features and migrations
+- designing PostgreSQL-backed features and migrations
 - reviewing Gin route, handler, service, and repository flows
 - debugging auth, persistence, or request validation issues
 - adding exchange, backtest, delegated bot API, or trading-related backend logic
@@ -25,7 +25,7 @@ Assume the following unless the user says otherwise:
 - HTTP server uses Gin and routes are grouped under `/api/v1/...`.
 - Main runtime flow is route -> handler -> service -> repository -> database.
 - Protected routes typically use `RequireAuth()` and consume Gin context values such as `user_id`, `username`, `email`, and `is_admin`.
-- MariaDB is the primary runtime database and migrations live under `migrations/mysql`.
+- PostgreSQL is the primary runtime database and migrations live under `migrations/postgres`.
 - Some endpoints delegate to the upstream bot API, so auth forwarding, timeout handling, and compatibility routes matter.
 - Backtest, bot runtime, and trading features must preserve operational safety and caller compatibility.
 
@@ -47,7 +47,7 @@ Use this skill when the user asks for any of the following:
 - add, update, or debug a Go API route or handler
 - create a repository or service for new backend functionality
 - design database tables, queries, indexes, or migrations
-- fix issues involving MariaDB, transactions, locks, or data consistency
+- fix issues involving PostgreSQL, transactions, locks, or data consistency
 - connect trading, bot, or backtest workflows to persistent storage
 - review API correctness, schema design, exchange integration, or trading-domain logic
 - reason about crypto trading concepts that affect backend behavior

@@ -130,7 +130,7 @@ type APIResponse struct {
 // Accepts an optional ?resolution=1min|1hour query param.  When a resolution
 // is specified and the aggregated chart data is present in Redis
 // (backtest:chart:{resolution}:{run_id}:{market}), it is returned directly
-// without querying MariaDB.  Falls back to the full DB query on cache miss
+// without querying PostgreSQL. Falls back to the full DB query on cache miss
 // or when no resolution is given.
 func (h *BacktestHandler) GetBacktestCandles(c *gin.Context) {
 	runID := c.Param("run_id")

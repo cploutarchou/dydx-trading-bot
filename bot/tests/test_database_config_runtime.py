@@ -115,16 +115,14 @@ def test_database_config_rejects_invalid_cutover_mode(monkeypatch):
         DatabaseConfig()
 
 
-def test_database_config_rejects_mixed_database_modes(monkeypatch):
+def test_database_config_rejects_non_postgres_database_url_scheme(monkeypatch):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "dedicated")
     monkeypatch.setenv("BOT_DB_TYPE", "postgres")
     monkeypatch.setenv(
-        "BOT_DATABASE_URL", "postgres://bot_user:secret@bot-host:5432/bot_db"
+        "BOT_DATABASE_URL", "mysql://bot_user:secret@bot-host:3306/bot_db"
     )
 
-    with pytest.raises(
-        ValueError, match="Conflicting DB_TYPE and database URL schemes"
-    ):
+    with pytest.raises(ValueError, match="Unsupported database URL scheme"):
         DatabaseConfig()
 
 
@@ -136,7 +134,7 @@ def test_database_config_shared_uses_db_field_fallbacks(monkeypatch):
     monkeypatch.delenv("DB_USER", raising=False)
     monkeypatch.delenv("DB_PASSWORD", raising=False)
     monkeypatch.setenv("DB_HOST", "db-host")
-    monkeypatch.setenv("DB_PORT", "3309")
+    monkeypatch.setenv("DB_PORT", "5439")
     monkeypatch.setenv("DB_NAME", "bot_db")
     monkeypatch.setenv("DB_USER", "db_user")
     monkeypatch.setenv("DB_PASSWORD", "db_pass")
@@ -144,7 +142,7 @@ def test_database_config_shared_uses_db_field_fallbacks(monkeypatch):
     config = DatabaseConfig()
 
     assert config.db_host == "db-host"
-    assert config.db_port == "3309"
+    assert config.db_port == "5439"
     assert config.db_name == "bot_db"
     assert config.db_user == "db_user"
     assert config.db_password == "db_pass"
@@ -164,7 +162,7 @@ def test_database_config_uses_timeout_max_connections_and_ssl(monkeypatch):
     assert kwargs["max_overflow"] == 5
     assert kwargs["pool_timeout"] == 5
     assert kwargs["connect_args"]["connect_timeout"] == 5
-    assert kwargs["connect_args"]["charset"] == "utf8mb4"
+    assert kwargs["connect_args"]["options"] == "-c timezone=UTC"
 
 
 def test_database_config_uses_postgres_engine_kwargs(monkeypatch):

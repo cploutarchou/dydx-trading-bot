@@ -182,9 +182,18 @@ class BacktestRepository:
         orig = getattr(exc, "orig", None)
         args = getattr(orig, "args", ()) or ()
         code = args[0] if args else None
+        pg_code = getattr(orig, "pgcode", None)
         message = str(orig or exc)
-        return code in {1020, 1205, 1213} or (
-            "Record has changed since last read" in message
+        message_lower = message.lower()
+        return (
+            code in {1020, 1205, 1213}
+            or pg_code in {"40P01", "40001", "55P03"}
+            or (
+                "record has changed since last read" in message_lower
+                or "deadlock detected" in message_lower
+                or "could not serialize access" in message_lower
+                or "could not obtain lock" in message_lower
+            )
         )
 
     def _rollback_safely(self) -> None:
@@ -207,8 +216,9 @@ class BacktestRepository:
         """
         Retry operation with exponential backoff for transient database errors.
 
-        Handles MySQL concurrency errors (1020, 1205, 1213) which can occur when
-        heartbeat updates and progress updates collide on the same row.
+        Handles transient concurrency/locking errors (including PostgreSQL
+        SQLSTATE 40P01/40001/55P03) which can occur when heartbeat updates and
+        progress updates collide on the same row.
 
         Args:
             operation: Callable to retry
@@ -223,7 +233,7 @@ class BacktestRepository:
             OperationalError: If all retries exhausted or non-retryable error
         """
         backoff_ms = initial_backoff_ms
-        last_exc = None
+        last_exc: Exception | None = None
 
         for attempt in range(max_attempts):
             try:

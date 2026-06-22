@@ -4,17 +4,45 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 )
 
 type ICOReadinessRepository struct {
-	db *sql.DB
+	db       *sql.DB
+	dbDriver string
 }
 
 func NewICOReadinessRepository(db *sql.DB) *ICOReadinessRepository {
-	return &ICOReadinessRepository{db: db}
+	driver := os.Getenv("DB_TYPE")
+	if driver == "" {
+		driver = os.Getenv("DB_DRIVER")
+	}
+	if driver == "" {
+		driver = "postgres"
+	}
+	return &ICOReadinessRepository{db: db, dbDriver: driver}
+}
+
+func (r *ICOReadinessRepository) bindQuery(query string) string {
+	if r == nil || !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
+		return query
+	}
+	var b strings.Builder
+	b.Grow(len(query) + 16)
+	idx := 1
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' {
+			b.WriteString(fmt.Sprintf("$%d", idx))
+			idx++
+			continue
+		}
+		b.WriteByte(query[i])
+	}
+	return b.String()
 }
 
 type ICOReadinessUpdateParams struct {
@@ -53,7 +81,7 @@ func (r *ICOReadinessRepository) Get(ctx context.Context) (*models.ICOProduction
 	if err := r.ensureSingleton(ctx); err != nil {
 		return nil, err
 	}
-	row := r.db.QueryRowContext(ctx, readinessSelectSQL()+` WHERE id = 1 LIMIT 1`)
+	row := r.db.QueryRowContext(ctx, r.bindQuery(readinessSelectSQL()+` WHERE id = 1 LIMIT 1`))
 	readiness, err := scanICOProductionReadiness(row)
 	if err != nil {
 		return nil, err
@@ -65,7 +93,7 @@ func (r *ICOReadinessRepository) Update(ctx context.Context, params ICOReadiness
 	if err := r.ensureSingleton(ctx); err != nil {
 		return nil, err
 	}
-	_, err := r.db.ExecContext(ctx, `
+	_, err := r.db.ExecContext(ctx, r.bindQuery(`
 		UPDATE ico_production_readiness
 		SET tokenomics_allocation_finalized = ?,
 		    tokenomics_allocation_notes = ?,
@@ -99,7 +127,7 @@ func (r *ICOReadinessRepository) Update(ctx context.Context, params ICOReadiness
 		    updated_by = ?,
 		    updated_at = ?
 		WHERE id = 1
-	`,
+	`),
 		params.TokenomicsAllocationFinalized,
 		params.TokenomicsAllocationNotes,
 		params.VestingScheduleFinalized,
@@ -139,7 +167,7 @@ func (r *ICOReadinessRepository) Update(ctx context.Context, params ICOReadiness
 }
 
 func (r *ICOReadinessRepository) ensureSingleton(ctx context.Context) error {
-	_, err := r.db.ExecContext(ctx, `INSERT INTO ico_production_readiness (id) VALUES (1) ON CONFLICT (id) DO NOTHING`)
+	_, err := r.db.ExecContext(ctx, r.bindQuery(`INSERT INTO ico_production_readiness (id) VALUES (1) ON CONFLICT (id) DO NOTHING`))
 	if err != nil {
 		return fmt.Errorf("failed to ensure ICO readiness row: %w", err)
 	}

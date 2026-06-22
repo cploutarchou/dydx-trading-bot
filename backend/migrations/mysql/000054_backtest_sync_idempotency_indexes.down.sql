@@ -1,2 +1,0 @@
--- Rollback for 000054_backtest_sync_idempotency_indexes
--- Review manually - rollback not auto-generated

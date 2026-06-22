@@ -2,26 +2,26 @@
 
 ## Inventory
 
-| Integration | Purpose | Protocol/client | Configuration | Failure behavior | Evidence |
-|---|---|---|---|---|---|
-| dYdX v4 Indexer | markets, candles, accounts, positions, orders/fills | `dydx-v4-client` async Indexer APIs | network, Indexer URLs, address/subaccount | rate limit/circuit handling, stale cache where implemented, retry/fail | [`dydx_client.py`](../src/trading/dydx_client.py), [`market_data.py`](../src/trading/market_data.py) |
-| dYdX v4 Node | signed order placement/cancel/close | `dydx-v4-client` Node/Wallet | node URL, mnemonic/address, chain/network | paired emergency cleanup; critical alert on orphan | [`connect_dydx_runtime`](../src/trading/dydx_client.py), [`account_manager.py`](../src/trading/account_manager.py) |
-| MariaDB | primary persistence and auth | SQLAlchemy/PyMySQL/Alembic | shared/dedicated cutover env | API startup fatal; some runtime writes degrade to file/best effort | [`DatabaseConfig`](../src/infrastructure/database.py) |
-| Redis | Celery, caches, locks, pub-sub, rate limits | redis-py/Celery | `CELERY_*`, `REDIS_*` | endpoint-specific fallback; Celery enqueue fails without broker | [`celery_app.py`](../src/infrastructure/workers/celery_app.py) |
-| Telegram Bot API | lifecycle, account, trade, recovery and error notifications | HTTPS requests | token/chat ID, retries/dedupe | disabled when unconfigured; send failures return false/log | [`TelegramMessenger`](../src/shared/notifications.py) |
-| Grafana Loki | optional centralized logs | synchronous HTTP push | URL/credentials/tenant/labels | skipped when disabled/misconfigured; failed sends swallowed | [`logging_setup.py`](../src/shared/logging_setup.py) |
-| HTTP/WebSocket callers | backend/dashboard/operator control and streaming | FastAPI/Uvicorn WebSocket | bearer JWT/service token | route-specific auth and standard/error envelopes | [`src/api/server.py`](../src/api/server.py) |
+| Integration            | Purpose                                                     | Protocol/client                     | Configuration                             | Failure behavior                                                       | Evidence                                                                                                           |
+| ---------------------- | ----------------------------------------------------------- | ----------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| dYdX v4 Indexer        | markets, candles, accounts, positions, orders/fills         | `dydx-v4-client` async Indexer APIs | network, Indexer URLs, address/subaccount | rate limit/circuit handling, stale cache where implemented, retry/fail | [`dydx_client.py`](../src/trading/dydx_client.py), [`market_data.py`](../src/trading/market_data.py)               |
+| dYdX v4 Node           | signed order placement/cancel/close                         | `dydx-v4-client` Node/Wallet        | node URL, mnemonic/address, chain/network | paired emergency cleanup; critical alert on orphan                     | [`connect_dydx_runtime`](../src/trading/dydx_client.py), [`account_manager.py`](../src/trading/account_manager.py) |
+| PostgreSQL             | primary persistence and auth                                | SQLAlchemy/psycopg2/Alembic         | shared/dedicated cutover env              | API startup fatal; some runtime writes degrade to file/best effort     | [`DatabaseConfig`](../src/infrastructure/database.py)                                                              |
+| Redis                  | Celery, caches, locks, pub-sub, rate limits                 | redis-py/Celery                     | `CELERY_*`, `REDIS_*`                     | endpoint-specific fallback; Celery enqueue fails without broker        | [`celery_app.py`](../src/infrastructure/workers/celery_app.py)                                                     |
+| Telegram Bot API       | lifecycle, account, trade, recovery and error notifications | HTTPS requests                      | token/chat ID, retries/dedupe             | disabled when unconfigured; send failures return false/log             | [`TelegramMessenger`](../src/shared/notifications.py)                                                              |
+| Grafana Loki           | optional centralized logs                                   | synchronous HTTP push               | URL/credentials/tenant/labels             | skipped when disabled/misconfigured; failed sends swallowed            | [`logging_setup.py`](../src/shared/logging_setup.py)                                                               |
+| HTTP/WebSocket callers | backend/dashboard/operator control and streaming            | FastAPI/Uvicorn WebSocket           | bearer JWT/service token                  | route-specific auth and standard/error envelopes                       | [`src/api/server.py`](../src/api/server.py)                                                                        |
 
 ## Configuration and authentication matrix
 
-| Integration | Visible configuration variables | Authentication/identity |
-|---|---|---|
-| dYdX | `IS_TESTNET`, `DYDX_TESTNET_ADDRESS`, `DYDX_TESTNET_MNEMONIC`, `DYDX_TESTNET_NODE_URL`, mainnet equivalents/structured credential fields, `BOT_SUBACCOUNT_NUMBER`, rate/circuit/cache settings | Mnemonic-derived wallet for Node writes; address/subaccount for Indexer account reads; public market reads |
-| MariaDB | `BOT_DB_CUTOVER_MODE`, `BOT_DATABASE_URL`, `DATABASE_URL`, `BOT_DB_*`, `DB_*`, `MYSQL_*` migration aliases, pool/timeouts, `SSL_MODE` | Database username/password in URL or fields; TLS enforcement is **NEEDS VALIDATION** |
-| Redis/Celery | `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`, `REDIS_PASSWORD`, `REDIS_SSL`, queue/task-limit/retry/lock settings | Redis URL/password; TLS when `rediss`/`REDIS_SSL` is used |
-| Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, retry/dedupe/category settings or per-instance DB config | Bot token in HTTPS API path; target chat ID |
-| Loki | `LOKI_ENABLED`, `LOKI_URL`, `LOKI_USERNAME`, `LOKI_PASSWORD`, `LOKI_TENANT_ID`, `LOKI_LABELS` | Optional HTTP basic auth and tenant header |
-| Bot API callers | `BOT_API_TOKEN`, `BOT_API_TOKEN_PREVIOUS`, `BOT_API_TOKENS`, JWT secret/expiry settings, `API_BYPASS_AUTH`, CORS/runtime host/port settings | Rotating constant-time service-token match or user JWT; WebSockets also accept query token |
+| Integration     | Visible configuration variables                                                                                                                                                                | Authentication/identity                                                                                    |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| dYdX            | `IS_TESTNET`, `DYDX_TESTNET_ADDRESS`, `DYDX_TESTNET_MNEMONIC`, `DYDX_TESTNET_NODE_URL`, mainnet equivalents/structured credential fields, `BOT_SUBACCOUNT_NUMBER`, rate/circuit/cache settings | Mnemonic-derived wallet for Node writes; address/subaccount for Indexer account reads; public market reads |
+| PostgreSQL      | `BOT_DB_CUTOVER_MODE`, `BOT_DATABASE_URL`, `DATABASE_URL`, `BOT_DB_*`, `DB_*`, pool/timeouts, `SSL_MODE`                                                                                       | Database username/password in URL or fields; TLS enforcement is **NEEDS VALIDATION**                       |
+| Redis/Celery    | `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`, `REDIS_PASSWORD`, `REDIS_SSL`, queue/task-limit/retry/lock settings                         | Redis URL/password; TLS when `rediss`/`REDIS_SSL` is used                                                  |
+| Telegram        | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, retry/dedupe/category settings or per-instance DB config                                                                                             | Bot token in HTTPS API path; target chat ID                                                                |
+| Loki            | `LOKI_ENABLED`, `LOKI_URL`, `LOKI_USERNAME`, `LOKI_PASSWORD`, `LOKI_TENANT_ID`, `LOKI_LABELS`                                                                                                  | Optional HTTP basic auth and tenant header                                                                 |
+| Bot API callers | `BOT_API_TOKEN`, `BOT_API_TOKEN_PREVIOUS`, `BOT_API_TOKENS`, JWT secret/expiry settings, `API_BYPASS_AUTH`, CORS/runtime host/port settings                                                    | Rotating constant-time service-token match or user JWT; WebSockets also accept query token                 |
 
 ## dYdX flows
 
@@ -47,9 +47,9 @@
 - Exit persistence occurs after submission rather than confirmed fill.
 - Network/rate-limit resilience differs between live and backtest paths.
 
-## MariaDB flows
+## PostgreSQL flows
 
-[`DatabaseConfig`](../src/infrastructure/database.py) supports `shared`, `dedicated`, and `dedicated_with_shared_fallback`. Dedicated mode rejects a target identical to configured shared DB. Only MySQL/MariaDB URLs are accepted. The global manager uses a synchronous `QueuePool`, so database calls inside async handlers/workers can block their event loops.
+[`DatabaseConfig`](../src/infrastructure/database.py) supports `shared`, `dedicated`, and `dedicated_with_shared_fallback`. Dedicated mode rejects a target identical to configured shared DB. PostgreSQL URLs are required. The global manager uses a synchronous `QueuePool`, so database calls inside async handlers/workers can block their event loops.
 
 Startup performs health check, metadata `create_all`, compatibility SQL, Alembic upgrade and required-table checks. Pool settings and sanitized target are logged. Runtime code uses ORM repositories plus raw SQL for tracked positions/pairs and compatibility recovery.
 
@@ -78,7 +78,7 @@ The parent workspace instructions describe `frontend → Go backend → Python b
 ## Validation checklist
 
 - Testnet: market list, account read, one safe paired order/cleanup path.
-- MariaDB: `alembic current`, required-table verification, dedicated cutover guardrail and TLS inspection.
+- PostgreSQL: `alembic current`, required-table verification, dedicated cutover guardrail and TLS inspection.
 - Redis: broker/result ping, duplicate backtest lock, candle key TTL and failure fallback.
 - Telegram/Loki: non-production test message/log with secret redaction.
 - WebSocket: authenticated/unauthenticated matrix for all five paths and multi-API-worker delivery.

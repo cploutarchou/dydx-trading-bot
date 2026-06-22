@@ -1,2 +1,0 @@
--- Rollback for 000057_align_backtest_status_index_name
--- Review manually - rollback not auto-generated

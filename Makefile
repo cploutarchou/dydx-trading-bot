@@ -5,22 +5,6 @@ INFRA_COMPOSE_FILE ?= docker-compose.infra.yml
 IMAGE_REGISTRY ?= ghcr.io/cploutarchou/dydx-trading-bot
 IMAGE_TAG ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo latest)
 
-DEV_INFRA_NETWORK ?= dydx-dev-infra
-DEV_MARIADB_CONTAINER ?= dydx-dev-mariadb
-DEV_BOT_MARIADB_CONTAINER ?= dydx-dev-bot-mariadb
-DEV_REDIS_CONTAINER ?= dydx-dev-redis
-DEV_MARIADB_VOLUME ?= dydx-dev-mariadb-data
-DEV_BOT_MARIADB_VOLUME ?= dydx-dev-bot-mariadb-data
-DEV_MARIADB_USER ?= dydx_bot
-DEV_MARIADB_PASSWORD ?= change-me-db-password
-DEV_MARIADB_DB ?= dydx_bot
-DEV_MARIADB_PORT ?= 3306
-DEV_BOT_MARIADB_USER ?= dydx_bot
-DEV_BOT_MARIADB_PASSWORD ?= change-me-db-password
-DEV_BOT_MARIADB_DB ?= dydx_bot
-DEV_BOT_MARIADB_PORT ?= 3307
-DEV_REDIS_PORT ?= 6379
-
 # Default target - show help when running just 'make'
 help: ## Show this help message
 	@echo "dYdX Trading Bot - Available Commands:"
@@ -34,7 +18,7 @@ help: ## Show this help message
 	@echo "  1. make config-keygen"
 	@echo "  2. make dev-config"
 	@echo "  3. make dev"
-	@echo "  4. make infra-up       # Start MariaDB + Redis"
+	@echo "  4. make infra-up       # Start PostgreSQL + Valkey + NATS + ClickHouse + MinIO"
 	@echo "  5. cd <service> && npm run dev  OR  cd backend && make run  OR  cd bot && make api-run"
 	@echo "  6. make infra-down     # Stop infrastructure when done"
 	@echo ""
@@ -433,31 +417,17 @@ db-migrate-legacy: ## Run legacy migration (migrate_db.py)
 # UTILITY
 # ============================================================================
 
-db-up: ## Start backend DB services (mariadb + redis) via Docker Compose
-	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		docker compose -f backend/docker-compose.yml up -d mariadb redis; \
-		echo "✅ Backend DB services started"; \
-	else \
-		echo "⚠️  Docker daemon unavailable; cannot start DB services"; \
-		exit 0; \
-	fi
+db-up: ## Deprecated alias: start the shared local infrastructure stack
+	@echo "⚠️  db-up is deprecated; using make infra-up"
+	@$(MAKE) infra-up
 
-db-status: ## Show backend DB services status via Docker Compose
-	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		docker compose -f backend/docker-compose.yml ps mariadb redis; \
-	else \
-		echo "⚠️  Docker daemon unavailable; cannot query DB service status"; \
-		exit 0; \
-	fi
+db-status: ## Deprecated alias: show the shared local infrastructure status
+	@echo "⚠️  db-status is deprecated; using make infra-ps"
+	@$(MAKE) infra-ps
 
-db-down: ## Stop backend DB services (mariadb + redis) via Docker Compose
-	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		docker compose -f backend/docker-compose.yml stop mariadb redis; \
-		echo "✅ Backend DB services stopped"; \
-	else \
-		echo "⚠️  Docker daemon unavailable; cannot stop DB services"; \
-		exit 0; \
-	fi
+db-down: ## Deprecated alias: stop the shared local infrastructure stack
+	@echo "⚠️  db-down is deprecated; using make infra-down"
+	@$(MAKE) infra-down
 
 infra-up: ## Start shared infra only (PostgreSQL, Valkey, NATS, ClickHouse, MinIO) for local service development
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
@@ -524,109 +494,15 @@ infra-ps: ## Show status for shared infra services (PostgreSQL, Valkey, NATS, Cl
 check-no-legacy-db: ## Fail if active code/config contains legacy database patterns
 	python3 scripts/check_no_legacy_database.py
 
-dev-infra: ## Start local backend MariaDB + bot MariaDB + Redis and print matching runtime config
-	@if ! command -v docker >/dev/null 2>&1; then \
-		echo "⚠️  Docker CLI is not installed"; \
-		exit 0; \
-	elif ! docker info >/dev/null 2>&1; then \
-		echo "⚠️  Docker daemon is not reachable from this shell."; \
-		echo "   If the error is 'permission denied' on /var/run/docker.sock, add your user to the docker group and re-login."; \
-		echo "   Socket owner/group is typically root:docker and your user must be in that group."; \
-		exit 0; \
-	else \
-		set -e; \
-		docker network inspect $(DEV_INFRA_NETWORK) >/dev/null 2>&1 || docker network create $(DEV_INFRA_NETWORK); \
-		docker volume inspect $(DEV_MARIADB_VOLUME) >/dev/null 2>&1 || docker volume create $(DEV_MARIADB_VOLUME) >/dev/null; \
-		docker volume inspect $(DEV_BOT_MARIADB_VOLUME) >/dev/null 2>&1 || docker volume create $(DEV_BOT_MARIADB_VOLUME) >/dev/null; \
-		if docker ps -a --format '{{.Names}}' | grep -qx '$(DEV_MARIADB_CONTAINER)'; then \
-			docker start $(DEV_MARIADB_CONTAINER) >/dev/null; \
-		else \
-			docker run -d --name $(DEV_MARIADB_CONTAINER) \
-				--network $(DEV_INFRA_NETWORK) \
-				-p $(DEV_MARIADB_PORT):3306 \
-				-e MYSQL_USER=$(DEV_MARIADB_USER) \
-				-e MYSQL_PASSWORD=$(DEV_MARIADB_PASSWORD) \
-				-e MYSQL_DATABASE=$(DEV_MARIADB_DB) \
-				-e MYSQL_ROOT_PASSWORD=$(DEV_MARIADB_PASSWORD) \
-				-v $(DEV_MARIADB_VOLUME):/var/lib/mysql \
-				mariadb:11 >/dev/null; \
-		fi; \
-		if docker ps -a --format '{{.Names}}' | grep -qx '$(DEV_BOT_MARIADB_CONTAINER)'; then \
-			docker start $(DEV_BOT_MARIADB_CONTAINER) >/dev/null; \
-		else \
-			docker run -d --name $(DEV_BOT_MARIADB_CONTAINER) \
-				--network $(DEV_INFRA_NETWORK) \
-				-p $(DEV_BOT_MARIADB_PORT):3306 \
-				-e MYSQL_USER=$(DEV_BOT_MARIADB_USER) \
-				-e MYSQL_PASSWORD=$(DEV_BOT_MARIADB_PASSWORD) \
-				-e MYSQL_DATABASE=$(DEV_BOT_MARIADB_DB) \
-				-e MYSQL_ROOT_PASSWORD=$(DEV_BOT_MARIADB_PASSWORD) \
-				-v $(DEV_BOT_MARIADB_VOLUME):/var/lib/mysql \
-				mariadb:11 >/dev/null; \
-		fi; \
-		if docker ps -a --format '{{.Names}}' | grep -qx '$(DEV_REDIS_CONTAINER)'; then \
-			docker start $(DEV_REDIS_CONTAINER) >/dev/null; \
-		else \
-			docker run -d --name $(DEV_REDIS_CONTAINER) \
-				--network $(DEV_INFRA_NETWORK) \
-				-p $(DEV_REDIS_PORT):6379 \
-				redis:7-alpine >/dev/null; \
-		fi; \
-		for i in 1 2 3 4 5 6 7 8 9 10; do \
-			docker exec $(DEV_MARIADB_CONTAINER) mysqladmin ping -u $(DEV_MARIADB_USER) -p$(DEV_MARIADB_PASSWORD) >/dev/null 2>&1 && break; \
-			sleep 1; \
-		done; \
-		for i in 1 2 3 4 5 6 7 8 9 10; do \
-			docker exec $(DEV_BOT_MARIADB_CONTAINER) mysqladmin ping -u $(DEV_BOT_MARIADB_USER) -p$(DEV_BOT_MARIADB_PASSWORD) >/dev/null 2>&1 && break; \
-			sleep 1; \
-		done; \
-		echo "✅ Dev infra ready: backend-mariadb=$(DEV_MARIADB_CONTAINER):$(DEV_MARIADB_PORT), bot-mariadb=$(DEV_BOT_MARIADB_CONTAINER):$(DEV_BOT_MARIADB_PORT), redis=$(DEV_REDIS_CONTAINER):$(DEV_REDIS_PORT)"; \
-		echo "Use this runtime config:"; \
-		echo '  "database": {'; \
-		echo '    "DB_TYPE": "mysql",'; \
-		echo '    "DB_HOST": "localhost",'; \
-		echo '    "DB_PORT": '$(DEV_MARIADB_PORT)','; \
-		echo '    "DB_NAME": "$(DEV_MARIADB_DB)",'; \
-		echo '    "DB_USER": "$(DEV_MARIADB_USER)",'; \
-		echo '    "DB_PASSWORD": "$(DEV_MARIADB_PASSWORD)",'; \
-		echo '    "MYSQL_HOST": "localhost",'; \
-		echo '    "MYSQL_PORT": '$(DEV_MARIADB_PORT)','; \
-		echo '    "MYSQL_DATABASE": "$(DEV_MARIADB_DB)",'; \
-		echo '    "MYSQL_USER": "$(DEV_MARIADB_USER)",'; \
-		echo '    "MYSQL_PASSWORD": "$(DEV_MARIADB_PASSWORD)"'; \
-		echo '  },'; \
-		echo '  "bot_database": {'; \
-		echo '    "BOT_DB_CUTOVER_MODE": "dedicated",'; \
-		echo '    "BOT_DB_HOST": "localhost",'; \
-		echo '    "BOT_DB_PORT": '$(DEV_BOT_MARIADB_PORT)','; \
-		echo '    "BOT_DB_NAME": "$(DEV_BOT_MARIADB_DB)",'; \
-		echo '    "BOT_DB_USER": "$(DEV_BOT_MARIADB_USER)",'; \
-		echo '    "BOT_DB_PASSWORD": "$(DEV_BOT_MARIADB_PASSWORD)"'; \
-		echo '  },'; \
-		echo '  "redis": {'; \
-		echo '    "REDIS_ENABLED": true,'; \
-		echo '    "REDIS_HOST": "localhost",'; \
-		echo '    "REDIS_PORT": '$(DEV_REDIS_PORT)','; \
-		echo '    "REDIS_DB": 0,'; \
-		echo '    "REDIS_SSL": false'; \
-		echo '  }'; \
-	fi
+dev-infra: ## Deprecated alias: start the shared local infrastructure stack
+	@echo "⚠️  dev-infra is deprecated; using make infra-up"
+	@$(MAKE) infra-up
 
-dev-infra-down: ## Stop/remove local backend MariaDB + bot MariaDB + Redis created by dev-infra
-	@if ! command -v docker >/dev/null 2>&1; then \
-		echo "⚠️  Docker CLI is not installed"; \
-		exit 0; \
-	elif ! docker info >/dev/null 2>&1; then \
-		echo "⚠️  Docker daemon is not reachable from this shell."; \
-		echo "   If the error is 'permission denied' on /var/run/docker.sock, add your user to the docker group and re-login."; \
-		exit 0; \
-	else \
-		docker rm -f $(DEV_MARIADB_CONTAINER) $(DEV_BOT_MARIADB_CONTAINER) $(DEV_REDIS_CONTAINER) >/dev/null 2>&1 || true; \
-		echo "✅ Dev infra containers removed"; \
-		echo "ℹ️  Volumes $(DEV_MARIADB_VOLUME) and $(DEV_BOT_MARIADB_VOLUME) were kept (data preserved)."; \
-	fi
+dev-infra-down: ## Deprecated alias: stop the shared local infrastructure stack
+	@echo "⚠️  dev-infra-down is deprecated; using make infra-down"
+	@$(MAKE) infra-down
 
-stack-up-dev: ## Start full integration stack (api + worker + frontend dev + mariadb + redis)
+stack-up-dev: ## Start full integration stack (frontend + backend + bot + PostgreSQL + Valkey + NATS + ClickHouse + MinIO)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		if [ ! -f "$(STACK_COMPOSE_FILE)" ]; then \
 			echo "❌ Missing $(STACK_COMPOSE_FILE)."; \
@@ -636,13 +512,13 @@ stack-up-dev: ## Start full integration stack (api + worker + frontend dev + mar
 		set -e; \
 		python3 scripts/validate_stack_env.py --environment development; \
 		APP_CONFIG_ENV=development docker compose -f $(STACK_COMPOSE_FILE) --profile dev up -d --remove-orphans; \
-		echo "✅ Dev stack started (frontend:5173, api:8889, worker enabled)"; \
+		echo "✅ Dev stack started (frontend:5173, backend:8888, bot-api:8889, worker enabled)"; \
 	else \
 		echo "⚠️  Docker daemon unavailable; cannot start stack"; \
 		exit 0; \
 	fi
 
-stack-up-prod: ## Start split app stack (api + worker + frontend preview + mariadb + redis)
+stack-up-prod: ## Start production-like stack (frontend + backend + bot + PostgreSQL + Valkey + NATS + ClickHouse + MinIO)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		if [ ! -f "$(STACK_COMPOSE_FILE)" ]; then \
 			echo "❌ Missing $(STACK_COMPOSE_FILE)."; \

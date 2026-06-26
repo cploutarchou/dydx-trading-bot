@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 
 from loguru import logger
 from src.infrastructure.workers.celery_app import celery_app
+from src.shared.redis_env import redis_url
 
 
 def _enabled() -> bool:
@@ -26,11 +27,7 @@ def _now_iso() -> str:
 
 
 def _redis_url() -> str:
-    return (
-        os.getenv("CELERY_BROKER_URL")
-        or os.getenv("REDIS_URL")
-        or "redis://localhost:6379/0"
-    )
+    return redis_url(prefer_celery_broker=True)
 
 
 def _sync_resolution() -> str:

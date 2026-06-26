@@ -7,6 +7,7 @@ import os
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence
+from urllib.parse import urlsplit
 
 from internal.domain.models import BacktestRun, BacktestRunRequestPayload
 from sqlalchemy.exc import OperationalError, PendingRollbackError
@@ -55,24 +56,127 @@ class BacktestRepository:
         return str(raw)
 
     @classmethod
+    def _env_first(cls, *names: str, default: str = "") -> str:
+        for name in names:
+            raw = os.getenv(name)
+            if raw not in (None, ""):
+                return str(raw)
+        return default
+
+    @classmethod
+    def _urlsplit_with_default_scheme(cls, raw: str, default_scheme: str) -> Any:
+        value = str(raw or "").strip()
+        if not value:
+            return None
+        if "://" not in value:
+            value = f"{default_scheme}://{value}"
+        return urlsplit(value)
+
+    @classmethod
+    def _resolve_clickhouse_target(cls) -> tuple[str, int, bool, str, str, str]:
+        parsed = cls._urlsplit_with_default_scheme(
+            cls._env_first("BACKTEST_CLICKHOUSE_URL", "CLICKHOUSE_URL", default=""),
+            "http",
+        )
+
+        host = cls._env_first("BACKTEST_CLICKHOUSE_HOST", "CLICKHOUSE_HOST", default="")
+        port_raw = cls._env_first(
+            "BACKTEST_CLICKHOUSE_PORT",
+            "CLICKHOUSE_PORT",
+            default="",
+        )
+        database = cls._env_first(
+            "BACKTEST_CLICKHOUSE_DATABASE",
+            "CLICKHOUSE_DATABASE",
+            default="default",
+        )
+        username = cls._env_first(
+            "BACKTEST_CLICKHOUSE_USER",
+            "CLICKHOUSE_USER",
+            default="",
+        )
+        password = cls._env_first(
+            "BACKTEST_CLICKHOUSE_PASSWORD",
+            "CLICKHOUSE_PASSWORD",
+            default="",
+        )
+        secure = cls._env_bool("BACKTEST_CLICKHOUSE_SECURE", False)
+
+        if parsed is not None:
+            host = host or parsed.hostname or "localhost"
+            if not port_raw and parsed.port is not None:
+                port_raw = str(parsed.port)
+            if parsed.username:
+                username = username or parsed.username
+            if parsed.password:
+                password = password or parsed.password
+            if parsed.path and parsed.path != "/":
+                database = parsed.path.lstrip("/") or database
+            if parsed.scheme == "https":
+                secure = True
+        else:
+            host = host or "localhost"
+
+        try:
+            port = int(port_raw or "8123")
+        except ValueError:
+            port = 8123
+
+        username = username or "default"
+        return host, port, secure, database, username, password
+
+    @classmethod
+    def _resolve_minio_endpoint(cls) -> str:
+        return cls._env_first(
+            "BACKTEST_MINIO_ENDPOINT",
+            "S3_ENDPOINT",
+            "MINIO_ENDPOINT",
+            default="",
+        )
+
+    @classmethod
     def _build_artifact_store(cls) -> ArtifactStore:
         root = cls._env_str("BACKTEST_ARTIFACTS_DIR", "bot_states/backtest_artifacts")
         if cls._env_bool("BACKTEST_MINIO_ENABLED", False):
             extra_config: Dict[str, Any] = {
-                "access_key": cls._env_str("BACKTEST_MINIO_ACCESS_KEY", ""),
-                "secret_key": cls._env_str("BACKTEST_MINIO_SECRET_KEY", ""),
-                "session_token": cls._env_str("BACKTEST_MINIO_SESSION_TOKEN", ""),
-                "region": cls._env_str("BACKTEST_MINIO_REGION", ""),
+                "access_key": cls._env_first(
+                    "BACKTEST_MINIO_ACCESS_KEY",
+                    "MINIO_ACCESS_KEY",
+                    "MINIO_ROOT_USER",
+                    default="",
+                ),
+                "secret_key": cls._env_first(
+                    "BACKTEST_MINIO_SECRET_KEY",
+                    "MINIO_SECRET_KEY",
+                    "MINIO_ROOT_PASSWORD",
+                    default="",
+                ),
+                "session_token": cls._env_first(
+                    "BACKTEST_MINIO_SESSION_TOKEN",
+                    default="",
+                ),
+                "region": cls._env_first(
+                    "BACKTEST_MINIO_REGION",
+                    "S3_REGION",
+                    default="",
+                ),
                 "auto_create_bucket": cls._env_bool(
                     "BACKTEST_MINIO_AUTO_CREATE_BUCKET", True
                 ),
+                "force_path_style": cls._env_bool("S3_FORCE_PATH_STYLE", True),
             }
+            endpoint_url = cls._resolve_minio_endpoint()
+            secure = cls._env_bool("BACKTEST_MINIO_SECURE", endpoint_url.startswith("https://"))
             return MinIOArtifactStore(
-                bucket=cls._env_str("BACKTEST_MINIO_BUCKET", "backtests"),
+                bucket=cls._env_first(
+                    "BACKTEST_MINIO_BUCKET",
+                    "MINIO_BUCKET",
+                    default="backtests",
+                ),
                 enabled=True,
                 fallback=LocalArtifactStore(root),
-                endpoint_url=cls._env_str("BACKTEST_MINIO_ENDPOINT", ""),
-                secure=cls._env_bool("BACKTEST_MINIO_SECURE", True),
+                endpoint_url=endpoint_url,
+                secure=secure,
                 extra_config=extra_config,
             )
         return LocalArtifactStore(root)
@@ -80,14 +184,17 @@ class BacktestRepository:
     @classmethod
     def _build_analytics_writer(cls) -> AnalyticsWriter:
         if cls._env_bool("BACKTEST_CLICKHOUSE_ENABLED", False):
+            host, port, secure, database, username, password = (
+                cls._resolve_clickhouse_target()
+            )
             return ClickHouseAnalyticsWriter(
                 enabled=True,
-                database=cls._env_str("BACKTEST_CLICKHOUSE_DATABASE", "default"),
-                host=cls._env_str("BACKTEST_CLICKHOUSE_HOST", "localhost"),
-                port=int(cls._env_str("BACKTEST_CLICKHOUSE_PORT", "8123")),
-                username=cls._env_str("BACKTEST_CLICKHOUSE_USER", "default"),
-                password=cls._env_str("BACKTEST_CLICKHOUSE_PASSWORD", ""),
-                secure=cls._env_bool("BACKTEST_CLICKHOUSE_SECURE", False),
+                database=database,
+                host=host,
+                port=port,
+                username=username,
+                password=password,
+                secure=secure,
             )
         return NoopAnalyticsWriter()
 

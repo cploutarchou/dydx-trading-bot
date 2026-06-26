@@ -89,9 +89,9 @@ func resolveSharedDBTargetFromEnv() (*DatabaseTarget, bool) {
 		return target, true
 	}
 
-	host := strings.TrimSpace(firstNonEmpty(os.Getenv("DB_HOST"), "localhost"))
-	port := strings.TrimSpace(firstNonEmpty(os.Getenv("DB_PORT"), "5432"))
-	name := strings.TrimSpace(firstNonEmpty(os.Getenv("DB_NAME"), "dydx_bot"))
+	host := strings.TrimSpace(firstNonEmpty(os.Getenv("DB_HOST"), os.Getenv("POSTGRES_HOST"), "localhost"))
+	port := strings.TrimSpace(firstNonEmpty(os.Getenv("DB_PORT"), os.Getenv("POSTGRES_PORT"), "5432"))
+	name := strings.TrimSpace(firstNonEmpty(os.Getenv("DB_NAME"), os.Getenv("POSTGRES_DB"), "dydx_bot"))
 
 	target := normalizeDBTarget(DatabaseTarget{
 		Host:   host,

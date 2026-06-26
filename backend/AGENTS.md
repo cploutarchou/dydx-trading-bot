@@ -16,7 +16,10 @@
 
 ## Critical Runtime Behavior
 
-- `cmd/server/main.go` auto-loads structured runtime config from repo-root `run.json` or `config/profiles/{environment}.config(.enc).json` before `config.LoadConfig()`, then validates DB ownership and starts DB with `AutoMigrate: true` using `config.Database.MigrationsPath()`.
+- `cmd/server/main.go` loads `_FILE`-backed env values via `config.LoadFileEnvValues(true)`, auto-loads structured runtime config from repo-root `run.json` or `config/profiles/{environment}.config(.enc).json`, then re-applies `_FILE` env loading before `config.LoadConfig()`.
+- Startup validates DB ownership and security/encryption guardrails (`startup.ValidateDatabaseOwnership`, `startup.ValidateSecurityBaseline`, `services.ValidateEncryptionKeyConfiguration`) before opening request traffic.
+- Database startup uses `AutoMigrate: autoMigrateEnabled()` (controlled by `DB_AUTO_MIGRATE`) with `config.Database.MigrationsPath()`; do not assume migrations run automatically unless explicitly enabled.
+- After DB init, startup runs `startup.EnsureBootstrapAdmin(conn)` to idempotently provision bootstrap admin access.
 - The backend runtime supports PostgreSQL (`postgres`/`postgresql`) only.
 - Health endpoint `/health` checks both local DB health and upstream bot API reachability.
 - Readiness endpoint `/ready` is stricter than `/health`: it blocks on DB ownership violations, local DB health, and upstream bot `/ready`; `/metrics` exposes local DB stats plus proxied bot metrics.
@@ -50,13 +53,15 @@
 ## Developer Workflows That Matter
 
 - Use the Unix-like `Makefile` targets in `backend/` for local development on macOS/Linux.
+- Run `make doctor` early when setting up/debugging local dev: it validates Go toolchain requirements (including the unsupported `/snap/bin/go` case) and prints required runtime dependency/env hints.
 - First-time local setup: `make install-tools` and `make deps`; `make dev-env` is deprecated because the backend now reads structured config profiles directly.
 - Core verification command is `make verify`; use `make test` (or `go test -v -race -coverprofile=coverage.out ./...`) for focused backend confidence.
-- Useful integration confidence tests: `internal/routes/bot_api_delegate_routes_smoke_test.go` and `internal/routes/settings_integration_test.go`.
+- Useful integration confidence tests: `internal/routes/bot_api_delegate_routes_smoke_test.go`, `internal/routes/contract_lock_integration_test.go`, `internal/routes/bot_instance_contract_lock_test.go`, and `internal/routes/settings_integration_test.go`.
 
 ## Project-Specific Implementation Patterns
 
 - JSON response shapes are feature-specific (not globally uniform); mirror existing handler response envelopes in the same domain file.
+- Delegated/non-stream backtest routes are contract-locked to `{ success, message, data, timestamp }`; keep legacy compatibility aliases (for example top-level `error` on delegated upstream failures) where existing routes already expose them.
 - Time values in API output are typically RFC3339-formatted (`time.RFC3339`), often using UTC.
 - Models are centralized in `internal/models/models.go` with both `db` and `json` tags; nullable DB fields use pointers or `sql.NullString`.
 - Route grouping convention is `/api/v1/...`; protected groups apply `RequireAuth()` at group level, then define sub-routes.

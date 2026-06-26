@@ -3,7 +3,7 @@
 ## Mission-critical context
 - Frontend is React 19 + TypeScript + Vite, now a multi-portal workspace (`client`, `backoffice`, `ib`) selected by `VITE_APP_PORTAL_TYPE` (`src/app/portal.ts`, `src/App.tsx`).
 - Backend base URL is `VITE_API_BASE_URL` (`VITE_API_URL` fallback), default `http://localhost:8888` when unset (`src/api/origin.ts`, `vite.config.ts`).
-- Service boundary: this UI does not call dYdX directly; backend orchestrates auth, backtests, bots, Redis, and strategy APIs.
+- Service boundary: this UI does not call dYdX directly; backend orchestrates auth, backtests, bots, Valkey/Redis-compatible cache flows, and strategy APIs.
 - Root app wiring is in `src/App.tsx`: `QueryProvider` + global `ErrorBoundary` + `ToastContainer` + route guards.
 
 ## Start-of-task checklist
@@ -52,7 +52,7 @@
 - Build targets now include portal-specific outputs: `npm run build:client`, `npm run build:backoffice`, `npm run build:ib` (`package.json`).
 - Validation commands include `npm run test:contracts` and responsive QA scripts (`npm run qa:screenshots:plan|capture|sync`) (`package.json`, `scripts/`).
 - API proxy in dev server maps `/api` and `/ws` to `VITE_API_BASE_URL || VITE_API_URL` (`vite.config.ts`).
-- Root Makefile workflows are documented in `README.md` (`make infra-up`, `make stack-up-dev`, `make stack-down`); expected local service ports are backend `8888`, MariaDB `3306`, Redis `6379`.
+- Root Makefile workflows are documented in `README.md` (`make infra-up`, `make stack-up-dev`, `make stack-down`); expected local service ports are backend `8888`, PostgreSQL `5432`, Valkey `6379`, NATS `4222/8222`, ClickHouse `8123`, and MinIO `9010/9011`.
 - TypeScript is strict (`strict`, `noUnusedLocals`, `noUnusedParameters`, `noFallthroughCasesInSwitch`) in `tsconfig.json`.
 
 ## High-value files to read before major edits

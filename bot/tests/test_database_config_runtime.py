@@ -148,6 +148,28 @@ def test_database_config_shared_uses_db_field_fallbacks(monkeypatch):
     assert config.db_password == "db_pass"
 
 
+def test_database_config_shared_uses_postgres_aliases(monkeypatch):
+    monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "shared")
+    monkeypatch.delenv("DB_HOST", raising=False)
+    monkeypatch.delenv("DB_PORT", raising=False)
+    monkeypatch.delenv("DB_NAME", raising=False)
+    monkeypatch.delenv("DB_USER", raising=False)
+    monkeypatch.delenv("DB_PASSWORD", raising=False)
+    monkeypatch.setenv("POSTGRES_HOST", "postgres-host")
+    monkeypatch.setenv("POSTGRES_PORT", "5544")
+    monkeypatch.setenv("POSTGRES_DB", "postgres_db")
+    monkeypatch.setenv("POSTGRES_USER", "postgres_user")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "postgres_pass")
+
+    config = DatabaseConfig()
+
+    assert config.db_host == "postgres-host"
+    assert config.db_port == "5544"
+    assert config.db_name == "postgres_db"
+    assert config.db_user == "postgres_user"
+    assert config.db_password == "postgres_pass"
+
+
 def test_database_config_uses_timeout_max_connections_and_ssl(monkeypatch):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "shared")
     monkeypatch.setenv("DB_TIMEOUT", "5")

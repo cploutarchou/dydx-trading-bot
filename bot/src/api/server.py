@@ -36,6 +36,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
 from src.shared.env_loader import load_repo_env
+from src.shared.redis_env import redis_url
 
 # Load structured config BEFORE importing project modules that initialize config/database.
 load_repo_env(__file__)
@@ -235,11 +236,7 @@ class _RedisSlidingWindowRateLimiter:
         try:
             import redis as _redis
 
-            url = (
-                os.getenv("CELERY_BROKER_URL")
-                or os.getenv("REDIS_URL")
-                or "redis://localhost:6379/0"
-            )
+            url = redis_url(prefer_celery_broker=True)
             self._redis_client = _redis.from_url(
                 url,
                 decode_responses=True,

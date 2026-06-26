@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.storage import (
     ClickHouseAnalyticsWriter,
     LocalArtifactStore,
@@ -140,6 +141,28 @@ def test_minio_artifact_store_falls_back_when_enabled_client_fails(tmp_path):
 
     assert ref.startswith("file:")
     assert fallback.read_bytes("run-2/out.bin") == b"payload"
+
+
+def test_backtest_repository_resolves_minio_endpoint_aliases(monkeypatch):
+    monkeypatch.setenv("MINIO_ENDPOINT", "localhost:9010")
+    monkeypatch.setenv("S3_ENDPOINT", "http://localhost:9010")
+
+    assert BacktestRepository._resolve_minio_endpoint() == "http://localhost:9010"
+
+
+def test_backtest_repository_resolves_clickhouse_url_alias(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_URL", "http://analytics:8123/dydx_analytics")
+
+    host, port, secure, database, username, password = (
+        BacktestRepository._resolve_clickhouse_target()
+    )
+
+    assert host == "analytics"
+    assert port == 8123
+    assert secure is False
+    assert database == "dydx_analytics"
+    assert username == "default"
+    assert password == ""
 
 
 # ---------------------------------------------------------------------------

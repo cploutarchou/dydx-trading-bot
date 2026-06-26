@@ -4,8 +4,8 @@
 
 | Store | Role | Access pattern | Source evidence |
 |---|---|---|---|
-| MariaDB | Primary durable bot, jobs, trades, events, backtests, auth, realtime, tracked pair/position state | synchronous SQLAlchemy plus some raw SQL | [`database.py`](../src/infrastructure/database.py), [`internal/domain/models.py`](../internal/domain/models.py) |
-| Redis | Celery broker/results, rate limits, recent-candle cache, market-sync cache, backtest lock and status pub-sub, optional token blacklist | sync Redis clients | [`celery_app.py`](../src/infrastructure/workers/celery_app.py), [`market_data.py`](../src/trading/market_data.py), [`backtest_tasks.py`](../src/infrastructure/workers/backtest_tasks.py) |
+| PostgreSQL | Primary durable bot, jobs, trades, events, backtests, auth, realtime, tracked pair/position state | synchronous SQLAlchemy plus some raw SQL | [`database.py`](../src/infrastructure/database.py), [`internal/domain/models.py`](../internal/domain/models.py) |
+| Valkey / Redis | Celery broker/results, rate limits, recent-candle cache, market-sync cache, backtest lock and status pub-sub, optional token blacklist | sync Redis clients | [`celery_app.py`](../src/infrastructure/workers/celery_app.py), [`market_data.py`](../src/trading/market_data.py), [`backtest_tasks.py`](../src/infrastructure/workers/backtest_tasks.py) |
 | `bot_states/` | Per-bot logs/state fallback and per-backtest logs | atomic JSON replace/file lock; append log sinks | [`bot_agents_state.py`](../src/trading/bot_agents_state.py), [`bot_instance_manager.py`](../src/bot_instance_manager.py), [`backtest_tasks.py`](../src/infrastructure/workers/backtest_tasks.py) |
 | API memory | manager state/process handles, strategy store, route caches/rate limits/metrics, WebSocket connections | process-local dictionaries/locks | [`server.py`](../src/api/server.py), [`websocket_server.py`](../src/api/websocket_server.py) |
 | Bot-worker memory | imported config constants, dYdX client, cooldown/cache state | isolated per subprocess | [`main_instance.py`](../src/main_instance.py), [`position_manager.py`](../src/trading/position_manager.py) |
@@ -101,7 +101,7 @@ Canonical revisions under [`migrations/versions`](../migrations/versions) form t
 
 At API startup, [`create_all_tables`](../src/infrastructure/database.py) runs before compatibility fixes and Alembic migrations. This can create ORM-defined tables outside a migration revision, masking missing migration coverage and producing schemas different from a migration-only deployment.
 
-## Redis key/data flows
+## Valkey key/data flows
 
 | Purpose | Key/channel shape | Producer | Consumer |
 |---|---|---|---|

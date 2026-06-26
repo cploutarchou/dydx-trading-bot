@@ -21,6 +21,14 @@ from src.infrastructure.persistence.repository_backtest import BacktestRepositor
 from src.infrastructure.use_cases.service_backtest import BacktestService
 from src.infrastructure.workers.celery_app import celery_app
 from src.infrastructure.workers.celery_monitor import build_progress_meta, failure_meta
+from src.shared.redis_env import (
+    redis_db,
+    redis_host,
+    redis_password,
+    redis_port,
+    redis_ssl_enabled,
+    redis_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,21 +85,16 @@ def _get_redis_client():
     import redis as _redis
 
     try:
-        explicit_url = os.getenv("CELERY_BROKER_URL") or os.getenv("REDIS_URL")
+        explicit_url = redis_url(prefer_celery_broker=True)
         if explicit_url:
             return _redis.from_url(explicit_url, decode_responses=True)
 
-        host = os.getenv("REDIS_HOST", "localhost")
-        port = int(os.getenv("REDIS_PORT", "6379"))
-        db_index = int(os.getenv("REDIS_DB", "0") or 0)
-        password = os.getenv("REDIS_PASSWORD", "")
-        ssl = os.getenv("REDIS_SSL", "false").lower() == "true"
         return _redis.Redis(
-            host=host,
-            port=port,
-            db=db_index,
-            password=password or None,
-            ssl=ssl,
+            host=redis_host(),
+            port=int(redis_port()),
+            db=int(redis_db() or "0"),
+            password=redis_password() or None,
+            ssl=redis_ssl_enabled(),
             decode_responses=True,
         )
     except Exception as exc:
@@ -100,8 +103,12 @@ def _get_redis_client():
 
 
 def _redis_lock_url() -> str | None:
-    url = os.getenv("BACKTEST_LOCK_REDIS_URL") or os.getenv("REDIS_URL")
-    broker_url = os.getenv("CELERY_BROKER_URL", "")
+    url = (
+        os.getenv("BACKTEST_LOCK_REDIS_URL")
+        or os.getenv("REDIS_URL")
+        or os.getenv("VALKEY_URL")
+    )
+    broker_url = redis_url(prefer_celery_broker=True)
     if not url and broker_url:
         parsed = urlparse(broker_url)
         if parsed.scheme in {"redis", "rediss"}:

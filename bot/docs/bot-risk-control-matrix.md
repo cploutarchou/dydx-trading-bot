@@ -1,0 +1,14 @@
+# Bot Risk Control Matrix
+
+| Config Field | Current Code Path | Enforced On Entry | Enforced On Exit | Test Exists | Status | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| `max_positions` | `src/trading/position_manager.py::open_positions` | Yes | No | Yes | ENFORCED | Entry is rejected when tracked live positions already meet `MAX_POSITIONS`. |
+| `usd_min_collateral` | `src/trading/position_manager.py::open_positions`, `src/api/server.py::runtime_preflight` | Yes | No | Existing coverage + preflight checks | ENFORCED | Entry blocks when free collateral is below configured minimum. |
+| `usd_per_trade` | `src/trading/position_manager.py::open_positions`, `src/api/server.py::runtime_preflight` | Yes | No | Existing coverage + preflight checks | ENFORCED | Order size is derived from `USD_PER_TRADE`; preflight blocks if collateral is below per-trade size. |
+| `stop_loss_pct` | `src/trading/position_manager.py::_resolve_exit_reason`, `manage_trade_exits` | No | Yes | Yes | ENFORCED | Live exits now trigger on realized PnL threshold evaluation from tracked entry prices and current market prices. |
+| `take_profit_pct` | `src/trading/position_manager.py::_resolve_exit_reason`, `manage_trade_exits` | No | Yes | Yes | ENFORCED | Live exits now trigger when configured profit threshold is reached. |
+| `position_timeout_hours` | `src/trading/position_manager.py::_resolve_exit_reason`, `manage_trade_exits` | No | Yes | Yes | ENFORCED | Live exits now trigger when tracked position age reaches the configured timeout. |
+| `close_at_zscore_cross` | `src/trading/position_manager.py::_resolve_exit_reason`, `manage_trade_exits` | No | Yes | Existing coverage + updated exit tests | ENFORCED | Existing z-score reversion exit remains active and now waits for exchange-flat confirmation before closure. |
+| `max_drawdown_pct` | `src/shared/live_risk_controls.py`, `src/api/server.py::runtime_preflight`, `src/api/server.py::create_bot_instance`, `src/bot_instance_manager.py`, `src/main_instance.py` | Rejected | Rejected | Yes | REJECTED | Rejected because no live runtime drawdown monitor currently enforces it. Operators must set this to `0`. |
+| `trailing_stop_pct` | `src/shared/live_risk_controls.py`, `src/api/server.py::runtime_preflight`, `src/api/server.py::create_bot_instance`, `src/bot_instance_manager.py`, `src/main_instance.py` | Rejected | Rejected | Yes | REJECTED | Rejected because trailing-stop logic is not implemented in the live runtime. Operators must set this to `0`. |
+| `capital_allocation_usd` | `src/shared/live_risk_controls.py`, `src/api/server.py::runtime_preflight`, `src/api/server.py::create_bot_instance`, `src/bot_instance_manager.py`, `src/main_instance.py` | Rejected | Rejected | Yes | REJECTED | Rejected because the live runtime does not enforce cumulative allocation limits at order-entry time. Operators must set this to `0`. |

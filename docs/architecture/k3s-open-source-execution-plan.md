@@ -2,7 +2,8 @@
 
 ## Objective
 
-Deliver a production-shaped, fully open-source k3s stack for the trading platform without breaking the current MariaDB/Redis development defaults.
+Deliver a production-shaped, fully open-source k3s stack for the trading platform without breaking the current
+PostgreSQL/Valkey local-development defaults or the current PostgreSQL-backed backtest path.
 
 ## Implementation phases
 
@@ -19,7 +20,7 @@ Deliver a production-shaped, fully open-source k3s stack for the trading platfor
 **Risk:** medium
 
 - add PostgreSQL config support
-- keep MariaDB as the default
+- keep PostgreSQL as the default active database path
 - add migration-path selection
 - document conversion hotspots
 
@@ -88,7 +89,7 @@ Deliver a production-shaped, fully open-source k3s stack for the trading platfor
 
 ## Local development strategy
 
-- keep MariaDB / Redis defaults in place
+- keep PostgreSQL / Valkey defaults in place
 - gate new services with feature flags
 - avoid requiring k8s-only dependencies for local unit tests
 - preserve backend-only and bot-only local workflows
@@ -105,7 +106,7 @@ Deliver a production-shaped, fully open-source k3s stack for the trading platfor
 
 - revert feature flags first
 - roll back deployment manifests second
-- keep MariaDB/Redis paths operational during the transition
+- keep PostgreSQL/Valkey paths operational during the transition
 - do not remove old schemas until the new path is proven
 
 ## Acceptance criteria

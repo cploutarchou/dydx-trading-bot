@@ -190,7 +190,7 @@ services:
       VALKEY_PORT: 6379
       VALKEY_URL: redis://valkey:6379/0
       # NATS
-      NATS_ENABLED: "true"
+      NATS_ENABLED: "false"
       NATS_URL: nats://nats:4222
       NATS_MONITORING_URL: http://nats:8222
       NATS_STREAM_PREFIX: bot
@@ -207,8 +207,6 @@ services:
       postgresql:
         condition: service_healthy
       valkey:
-        condition: service_healthy
-      nats:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8888/health"]
@@ -257,12 +255,13 @@ services:
       VALKEY_PORT: 6379
       VALKEY_URL: redis://valkey:6379/0
       # NATS
-      NATS_ENABLED: "true"
+      NATS_ENABLED: "false"
       NATS_URL: nats://nats:4222
       NATS_MONITORING_URL: http://nats:8222
       NATS_STREAM_PREFIX: bot
       # ClickHouse
-      BACKTEST_CLICKHOUSE_ENABLED: "true"
+      BACKTEST_ARTIFACT_STORAGE_ENABLED: "false"
+      BACKTEST_CLICKHOUSE_WRITES_ENABLED: "false"
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: 8123
@@ -270,14 +269,14 @@ services:
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-clickhouse}
       # MinIO
-      BACKTEST_MINIO_ENABLED: "true"
+      BACKTEST_MINIO_ARTIFACTS_ENABLED: "false"
       MINIO_ENDPOINT: minio:9000
       MINIO_CONSOLE_URL: http://minio:9001
       MINIO_BUCKET: backtests
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-change-me-minio}
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-change-me-minio}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-change-me-minio-access-key}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-change-me-minio-secret-key}
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-change-me-minio-access-key}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-change-me-minio-secret-key}
       S3_ENDPOINT: http://minio:9000
       S3_REGION: us-east-1
       S3_FORCE_PATH_STYLE: "true"
@@ -292,12 +291,6 @@ services:
       postgresql:
         condition: service_healthy
       valkey:
-        condition: service_healthy
-      nats:
-        condition: service_healthy
-      clickhouse:
-        condition: service_healthy
-      minio:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8889/health"]
@@ -346,12 +339,13 @@ services:
       VALKEY_PORT: 6379
       VALKEY_URL: redis://valkey:6379/0
       # NATS
-      NATS_ENABLED: "true"
+      NATS_ENABLED: "false"
       NATS_URL: nats://nats:4222
       NATS_MONITORING_URL: http://nats:8222
       NATS_STREAM_PREFIX: bot
       # ClickHouse
-      BACKTEST_CLICKHOUSE_ENABLED: "true"
+      BACKTEST_ARTIFACT_STORAGE_ENABLED: "false"
+      BACKTEST_CLICKHOUSE_WRITES_ENABLED: "false"
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: 8123
@@ -359,14 +353,14 @@ services:
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-clickhouse}
       # MinIO
-      BACKTEST_MINIO_ENABLED: "true"
+      BACKTEST_MINIO_ARTIFACTS_ENABLED: "false"
       MINIO_ENDPOINT: minio:9000
       MINIO_CONSOLE_URL: http://minio:9001
       MINIO_BUCKET: backtests
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-change-me-minio}
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-change-me-minio}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-change-me-minio-access-key}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-change-me-minio-secret-key}
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-change-me-minio-access-key}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-change-me-minio-secret-key}
       S3_ENDPOINT: http://minio:9000
       S3_REGION: us-east-1
       S3_FORCE_PATH_STYLE: "true"
@@ -379,12 +373,6 @@ services:
       postgresql:
         condition: service_healthy
       valkey:
-        condition: service_healthy
-      nats:
-        condition: service_healthy
-      clickhouse:
-        condition: service_healthy
-      minio:
         condition: service_healthy
       bot-api:
         condition: service_healthy

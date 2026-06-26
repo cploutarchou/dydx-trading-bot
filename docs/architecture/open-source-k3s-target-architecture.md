@@ -8,14 +8,17 @@ The repository is currently organized around a three-service product path:
 - `backend/` is the public Go API, auth/orchestration layer, and frontend-facing contract owner.
 - `bot/` is the Python FastAPI control plane and runtime owner for live execution and backtests.
 
-The present runtime is centered on PostgreSQL + Valkey + the local/k3s-next auxiliary stack:
+The present runtime is centered on PostgreSQL + the Redis-compatible Valkey/Celery path, with the rest of the
+local/k3s-next auxiliary stack available but not all active by default:
 
 - backend uses PostgreSQL migrations under `backend/migrations/postgres`
 - bot uses PostgreSQL/Alembic migrations under `bot/migrations/postgres`
-- Valkey is the Redis-compatible cache/broker surface on `6379`
-- NATS JetStream is the command/event transport target on `4222`
-- ClickHouse HTTP is the analytical store target on `8123`
-- MinIO is the S3-compatible artifact target on `9010` / `9011`
+- PostgreSQL is the only active application database/persistence path today
+- backtest runs still persist transactional metadata and legacy JSON fields in PostgreSQL
+- Valkey is the Redis-compatible cache/broker surface on `6379` for existing Celery, lock, and cache flows
+- NATS JetStream is available on `4222` as a future/feature-gated transport target
+- ClickHouse HTTP is available on `8123` as a future/feature-gated analytical target
+- MinIO is available on `9010` / `9011` as a future/feature-gated artifact target
 - backtest runs persist large JSON arrays in `backtest_runtime_runs`
 - Valkey backs Celery, locks, caches, and temporary state
 - `bot_states/` holds logs and per-instance runtime files
@@ -116,7 +119,7 @@ The desired target shape is a production-shaped, open-source k3s stack with a cl
 ## Rollback plan
 
 - Keep PostgreSQL/Valkey defaults in place until each new path is verified.
-- Use feature flags to enable PostgreSQL, NATS, ClickHouse, and MinIO behavior incrementally.
+- Keep NATS, ClickHouse, and MinIO behavior behind disabled-by-default feature flags until validated.
 - If a phase fails, roll back the application change first and keep the previous data path active.
 - Do not drop production data paths until replacement behavior is proven in staging.
 - For k8s, revert to the previous manifest set rather than mutating live secrets in place.

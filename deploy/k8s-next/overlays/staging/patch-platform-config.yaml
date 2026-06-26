@@ -7,7 +7,8 @@ data:
   BACKEND_PUBLIC_ORIGIN: https://staging-api.example.com
   BACKEND_BASE_URL: http://backend:8888
   BOT_API_BASE_URL: http://bot-api:8889
-  # Staging enables MinIO and ClickHouse so the path is validated before
-  # production promotion.  Credentials are injected via staging-secrets Secret.
-  BACKTEST_MINIO_ENABLED: "true"
-  BACKTEST_CLICKHOUSE_ENABLED: "true"
+  # Checked-in defaults stay off until the alternative storage paths are
+  # explicitly validated for the target environment.
+  BACKTEST_ARTIFACT_STORAGE_ENABLED: "false"
+  BACKTEST_MINIO_ARTIFACTS_ENABLED: "false"
+  BACKTEST_CLICKHOUSE_WRITES_ENABLED: "false"

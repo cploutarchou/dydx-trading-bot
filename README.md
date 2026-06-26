@@ -18,13 +18,22 @@ All local services should discover infrastructure through environment variables.
 
 | Service | Host | Port | Purpose | Environment variables |
 | --- | --- | --- | --- | --- |
-| PostgreSQL | `localhost` | `5432` | transactional data for backend and bot | `DATABASE_URL`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `DB_*` |
-| Valkey | `localhost` | `6379` | Redis-compatible cache, Celery broker/backend, locks, rate limits | `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `VALKEY_HOST`, `VALKEY_PORT`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND` |
-| NATS JetStream | `localhost` | `4222` | command/event transport | `NATS_URL` |
+| PostgreSQL | `localhost` | `5432` | active transactional database and persistence path for backend and bot | `DATABASE_URL`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `DB_*` |
+| Valkey | `localhost` | `6379` | Redis-compatible cache/broker surface for existing Celery, lock, rate-limit, and cache flows | `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `VALKEY_HOST`, `VALKEY_PORT`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND` |
+| NATS JetStream | `localhost` | `4222` | available command/event transport, not a required runtime dependency in the current checked-in app path | `NATS_URL` |
 | NATS monitoring | `localhost` | `8222` | readiness and operator monitoring | `NATS_MONITORING_URL` |
-| ClickHouse HTTP | `localhost` | `8123` | analytical backtest storage | `CLICKHOUSE_URL`, `CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD` |
-| MinIO API | `localhost` | `9010` | S3-compatible artifact storage | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE` |
+| ClickHouse HTTP | `localhost` | `8123` | optional analytical backtest writer target, disabled by default | `CLICKHOUSE_URL`, `CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD` |
+| MinIO API | `localhost` | `9010` | optional S3-compatible backtest artifact target, disabled by default | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE` |
 | MinIO Console | `localhost` | `9011` | object-storage admin UI | `MINIO_CONSOLE_URL` |
+
+PostgreSQL remains the only active application database/persistence path today, including the default backtest
+persistence path. Backtests still keep their current PostgreSQL-backed metadata and legacy JSON fields for
+compatibility and rollback. ClickHouse and MinIO are live locally and auto-discovered through environment variables,
+but the checked-in backtest adapter paths stay disabled by default behind:
+
+- `BACKTEST_ARTIFACT_STORAGE_ENABLED=false`
+- `BACKTEST_CLICKHOUSE_WRITES_ENABLED=false`
+- `BACKTEST_MINIO_ARTIFACTS_ENABLED=false`
 
 ## Repository Structure
 
@@ -51,6 +60,9 @@ make dev
 ```
 
 The structured profile flow populates the standard local aliases above. `.env.example` remains a compatibility example, but the encrypted profile under `config/profiles/` is the canonical startup source.
+
+Optional backtest adapter flags belong in the structured profile too. Checked-in local/dev defaults keep PostgreSQL as
+the active persistence path and leave the alternative storage paths disabled until explicitly validated.
 
 ### 2. Choose your local workflow
 

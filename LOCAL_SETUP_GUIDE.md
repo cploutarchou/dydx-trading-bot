@@ -25,13 +25,18 @@ Infrastructure services are based on the **k3s-next production architecture**, r
 
 | Service | Host | Port | Purpose | Environment variables |
 | --- | --- | --- | --- | --- |
-| PostgreSQL | `localhost` | `5432` | transactional database | `DATABASE_URL`, `POSTGRES_*`, `DB_*` |
-| Valkey | `localhost` | `6379` | Redis-compatible cache, Celery broker/backend, locks | `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `VALKEY_HOST`, `VALKEY_PORT`, `CELERY_*` |
-| NATS JetStream | `localhost` | `4222` | command/event bus | `NATS_URL` |
+| PostgreSQL | `localhost` | `5432` | active transactional database and persistence path | `DATABASE_URL`, `POSTGRES_*`, `DB_*` |
+| Valkey | `localhost` | `6379` | Redis-compatible cache/broker surface for existing Celery, lock, and cache flows | `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `VALKEY_HOST`, `VALKEY_PORT`, `CELERY_*` |
+| NATS JetStream | `localhost` | `4222` | available command/event transport, not required by the current checked-in runtime path | `NATS_URL` |
 | NATS monitoring | `localhost` | `8222` | health and operator visibility | `NATS_MONITORING_URL` |
-| ClickHouse HTTP | `localhost` | `8123` | analytical backtest storage | `CLICKHOUSE_URL`, `CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD` |
-| MinIO API | `localhost` | `9010` | S3-compatible artifact storage | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE` |
+| ClickHouse HTTP | `localhost` | `8123` | optional analytical backtest writer target, disabled by default | `CLICKHOUSE_URL`, `CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD` |
+| MinIO API | `localhost` | `9010` | optional S3-compatible backtest artifact target, disabled by default | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE` |
 | MinIO Console | `localhost` | `9011` | bucket/object admin UI | `MINIO_CONSOLE_URL` |
+
+PostgreSQL remains the active/default application persistence path and the active/default backtest persistence path.
+Valkey is used only by services that already rely on Redis-compatible caching/broker behavior. NATS JetStream,
+ClickHouse, and MinIO are live locally and discoverable through environment variables, but the checked-in app defaults
+do not require them for normal startup or for PostgreSQL-backed backtests.
 
 ### Start Infrastructure
 
@@ -63,8 +68,8 @@ cd backend && make run
 cd bot && python -m uvicorn src.api.server:app --reload --host 0.0.0.0 --port 8889
 # → Runs on http://localhost:8889
 
-# Bot Worker (Celery/NATS Backtest Worker)
-cd bot && python worker_entrypoint.py
+# Bot Worker (Celery backtest worker)
+cd bot && make local-worker
 # → Processes backtest jobs
 ```
 
@@ -100,6 +105,9 @@ MINIO_BUCKET=backtests
 S3_ENDPOINT=http://localhost:9010
 S3_REGION=us-east-1
 S3_FORCE_PATH_STYLE=true
+BACKTEST_ARTIFACT_STORAGE_ENABLED=false
+BACKTEST_CLICKHOUSE_WRITES_ENABLED=false
+BACKTEST_MINIO_ARTIFACTS_ENABLED=false
 ```
 
 ### Stop Infrastructure
@@ -115,7 +123,7 @@ make infra-down
 - ✅ Easy debugging with local IDE
 - ✅ Independent service testing
 - ✅ Low resource consumption
-- ✅ Matches production infrastructure (PostgreSQL, Valkey, NATS, ClickHouse, MinIO)
+- ✅ Matches the available local infrastructure contract without forcing every service into active app use
 
 ---
 
@@ -147,6 +155,9 @@ This starts **all services in isolated containers**:
 - **NATS JetStream**: `localhost:4222`, monitoring: `8222`
 - **ClickHouse HTTP**: `localhost:8123`
 - **MinIO**: `localhost:9010` (API), `localhost:9011` (console)
+
+Checked-in stack defaults still keep PostgreSQL as the active persistence path and leave the optional backtest adapter
+flags off. Flip those flags only when you are intentionally validating the ClickHouse and MinIO paths.
 
 ### Check Status
 

@@ -115,13 +115,14 @@
     "CLICKHOUSE_URL": "http://localhost:8123",
     "MINIO_ENDPOINT": "localhost:9010",
     "MINIO_CONSOLE_URL": "http://localhost:9011",
-    "MINIO_ACCESS_KEY": "minioadmin",
-    "MINIO_SECRET_KEY": "change-me-minio",
+    "MINIO_ACCESS_KEY": "change-me-minio-access-key",
+    "MINIO_SECRET_KEY": "change-me-minio-secret-key",
     "MINIO_BUCKET": "backtests",
     "S3_ENDPOINT": "http://localhost:9010",
     "S3_REGION": "us-east-1",
     "S3_FORCE_PATH_STYLE": true,
-    "BACKTEST_MINIO_ENABLED": true,
-    "BACKTEST_CLICKHOUSE_ENABLED": true
+    "BACKTEST_ARTIFACT_STORAGE_ENABLED": false,
+    "BACKTEST_MINIO_ARTIFACTS_ENABLED": false,
+    "BACKTEST_CLICKHOUSE_WRITES_ENABLED": false
   }
 }

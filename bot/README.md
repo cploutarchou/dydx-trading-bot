@@ -108,6 +108,9 @@ curl http://localhost:8889/api/v1/celery/tasks/<task_id> -H "Authorization: Bear
 curl http://localhost:8889/api/v1/backtests/<run_id>/logs -H "Authorization: Bearer $BOT_API_TOKEN"
 ```
 
+All `/api/v1/backtests*` HTTP routes now enforce bearer authentication at the FastAPI dependency layer. Admin repair and
+interrupted-run operations under `/api/v1/admin/backtests*` additionally require an authenticated admin user.
+
 Backtest status remains backward-compatible (`pending`, `running`, `completed`, `failed`, `retrying`, `timeout`,
 `cancelled`). Admin Celery task responses additionally expose `normalized_status` as `pending`, `running`, `success`,
 `failed`, `retrying`, or `cancelled`.
@@ -144,6 +147,17 @@ credentials/trading parameters, the worker fails fast instead of falling back to
 
 Async background work must be launched through the supervised job helper so task failures, cancellations, progress, and
 traceback summaries are persisted in the `jobs` table instead of disappearing as unobserved task exceptions.
+
+`API_BYPASS_AUTH=true` is restricted to explicit local/test environments only (`development`, `dev`, `local`, `test`,
+`testing`, `ci`). API startup fails closed if auth bypass is enabled in `production`, `prod`, `live`, or `mainnet`.
+
+Live runtime exit state is now confirmation-based: submitting reduce-only close orders is not enough to mark a trade or
+position closed. The runtime waits for exchange-flat confirmation before closing persistence state; partial, timed-out,
+or orphaned exits remain visible in tracked state and emit critical operator alerts.
+
+Unsupported live risk controls are rejected instead of being accepted as no-ops. Operators must keep
+`max_drawdown_pct`, `trailing_stop_pct`, and `capital_allocation_usd` at `0` until live enforcement exists. See
+`docs/bot-risk-control-matrix.md` for the current enforcement matrix.
 
 Startup recovery is fail-safe by default: stale orphaned in-progress backtests are reconciled to failed, and active live
 bot rows with missing workers are marked error. Set `BACKTEST_AUTO_RECOVERY_MODE=restart` for stale backtest requeueing

@@ -1,5 +1,16 @@
 # Tasks Log
 
+## 2026-06-25
+
+- Implemented Sprint 1 bot safety fixes:
+  - Added executable auth dependencies to `/api/v1/backtests*` routes and kept admin-only backtest aliases on admin auth.
+  - Hardened `API_BYPASS_AUTH` so startup fails closed in `production`, `prod`, `live`, and `mainnet`.
+  - Updated live exit handling so trades are closed only after exchange-flat confirmation; partial/orphaned/timeout exits now remain tracked and alert operators.
+  - Enforced `max_positions`, `stop_loss_pct`, `take_profit_pct`, and `position_timeout_hours` in the live runtime.
+  - Rejected unsupported live controls `max_drawdown_pct`, `trailing_stop_pct`, and `capital_allocation_usd` instead of silently accepting them.
+  - Added `docs/bot-risk-control-matrix.md` and `docs/sprint-1-bot-python-safety-implementation.md`.
+  - Synced `README.md` and `openapi.json` with the Sprint 1 safety behavior.
+
 ## 2026-05-16
 
 - Migrated bot runtime config handling to DB-only startup:
@@ -84,4 +95,3 @@
   - Updated contract/docs references to canonical API paths (`src/api/server.py`, `src/api/start_api.py`).
   - Removed legacy wrapper files `app.py` and `start_api.py`.
   - Re-ran targeted startup/lifecycle validation after removal.
-

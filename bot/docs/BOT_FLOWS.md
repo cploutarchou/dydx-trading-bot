@@ -28,7 +28,7 @@ For the smoothest experience, open the repo in VS Code, install the recommended 
 | Worker runtime | Loads per-instance config, connects to dYdX, optionally aborts all positions, optionally scans cointegration pairs, runs the trading loop | `src/main_instance.py`, `worker_entrypoint.py`, `main.py` |
 | Trading runtime | Finds entries, manages exits, tracks open pairs, executes two-leg orders, performs emergency cleanup | `src/trading/position_manager.py`, `src/trading/bot_agent.py`, `src/trading/account_manager.py` |
 | Exchange adapter | dYdX wallet/client creation, market data, account/order/position calls | `src/trading/dydx_client.py`, `src/trading/market_data.py`, `src/trading/account_manager.py` |
-| Persistence | MariaDB bot metadata/events/jobs/trades/backtests/realtime state, plus per-instance state files under `bot_states/` | `src/infrastructure/database.py`, `src/infrastructure/persistence/*.py`, `src/infrastructure/domain/*.py` |
+| Persistence | PostgreSQL bot metadata/events/jobs/trades/backtests/realtime state, plus per-instance state files under `bot_states/` | `src/infrastructure/database.py`, `src/infrastructure/persistence/*.py`, `src/infrastructure/domain/*.py` |
 | Realtime channels | Websocket initial state, live bot/backtest/strategy lifecycle events | `src/api/websocket_server.py`, `src/api/server.py` |
 
 ### Runtime Boundaries
@@ -39,7 +39,7 @@ For the smoothest experience, open the repo in VS Code, install the recommended 
   - `BOT_AGENTS_FILE`
   - `BOT_PAIRS_FILE`
 - The manager owns worker lifecycle. API routes should call `bot_manager` methods rather than creating or killing processes directly.
-- MariaDB is the authoritative instance metadata/config store. Legacy disk snapshots are optional debug artifacts only and are disabled unless `BOT_WRITE_LEGACY_STATE_SNAPSHOT` is enabled.
+- PostgreSQL is the authoritative instance metadata/config store. Legacy disk snapshots are optional debug artifacts only and are disabled unless `BOT_WRITE_LEGACY_STATE_SNAPSHOT` is enabled.
 
 ### Component Diagram
 
@@ -51,7 +51,7 @@ flowchart LR
     API --> Backtests["BacktestService<br/>src/infrastructure/use_cases/service_backtest.py"]
     API --> WS["WebSocket channels<br/>src/api/websocket_server.py"]
 
-    Manager --> DB["MariaDB<br/>bots/events/jobs/trades/backtests"]
+    Manager --> DB["PostgreSQL<br/>bots/events/jobs/trades/backtests"]
     Manager --> StateFiles["bot_states/*<br/>config, logs, tracked pairs"]
     Manager --> Worker["Worker subprocess<br/>python -m src.main_instance"]
 
@@ -123,7 +123,7 @@ flowchart TD
     EntryMgmt --> Exchange
     ExitMgmt --> LocalState["bot_agents_<id>.json"]
     EntryMgmt --> LocalState
-    Manager --> DB["MariaDB lifecycle state"]
+    Manager --> DB["PostgreSQL lifecycle state"]
     Repos --> DB
     BacktestSvc --> DB
     Socket --> ClientEvents["Initial state + runtime events"]
@@ -177,7 +177,7 @@ Postconditions:
 - Before returning `LIVE`, `BotAgent` reconciles both filled orders from dYdX and records weighted average fill prices when fill records are available.
 - The worker appends the live pair to `BOT_AGENTS_FILE` using an atomic file write and lock.
 - Telegram trade-opened notification is sent from the actual `BotAgent.open_trades()` order fields: base/quote side, size, z-score, hedge ratio, half-life, and both order ids.
-- When MariaDB persistence is enabled and a `BOT_INSTANCE_ID` maps to a bot row, the worker best-effort persists the opened pair to the existing core `trades` table and realtime `positions_realtime` table.
+- When PostgreSQL persistence is enabled and a `BOT_INSTANCE_ID` maps to a bot row, the worker best-effort persists the opened pair to the existing core `trades` table and realtime `positions_realtime` table.
 - If entry fails before the first leg fills, the pair is marked `ERROR` or `FAILED` and no tracked position is appended.
 - If the first leg fills and the second leg fails, the runtime attempts reduce-only emergency cleanup of the first leg.
 
@@ -234,7 +234,7 @@ Decision points:
 Postconditions:
 
 - On successful close of both legs, the position is omitted from the saved tracked-position list.
-- On successful close of both legs, the worker best-effort marks the existing core trade and realtime position closed when MariaDB persistence is enabled.
+- On successful close of both legs, the worker best-effort marks the existing core trade and realtime position closed when PostgreSQL persistence is enabled.
 - If the first close leg succeeds but the second fails, the runtime retries the orphaned close leg.
 - If orphan close retry fails, the tracked position is retained with `pair_status="ORPHANED_EXIT_FAILED"` and error metadata.
 - Remaining positions are written with `_save_processed_positions(...)`, preserving concurrent appends.
@@ -415,7 +415,7 @@ sequenceDiagram
     participant Worker as src.main_instance subprocess
     participant Runtime as position_manager/BotAgent
     participant Exchange as dYdX
-    participant DB as MariaDB
+    participant DB as PostgreSQL
     participant Files as bot_states/*
 
     Client->>API: POST /api/v1/bots/{id}/start
@@ -489,7 +489,7 @@ sequenceDiagram
     participant Exchange as dYdX
     participant Files as bot_agents_<id>.json
     participant Manager as BotInstanceManager
-    participant DB as MariaDB events/state
+    participant DB as PostgreSQL events/state
     participant Alert as Telegram/websocket
 
     Runtime->>Agent: open_trades()
@@ -514,7 +514,7 @@ sequenceDiagram
 
 ### Persistent Stores
 
-MariaDB:
+PostgreSQL:
 
 - Bot metadata and runtime config: managed through `UnitOfWork.bots`.
 - Lifecycle and runtime events: managed through `UnitOfWork.events`.
@@ -563,7 +563,7 @@ flowchart LR
         PairsFile["cointegrated_pairs_<id>.json"]
     end
 
-    subgraph Database["MariaDB"]
+    subgraph Database["PostgreSQL"]
         Bots["bot_instances + runtime_state"]
         Events["events"]
         Jobs["jobs"]
@@ -701,7 +701,7 @@ Use a testnet config and small `usd_per_trade`.
 
 ## Assumptions, Unknowns, And Documentation Gaps
 
-- MariaDB is authoritative for bot instance recovery and runtime configuration in every environment; YAML config fallback is removed.
+- PostgreSQL is authoritative for bot instance recovery and runtime configuration in every environment; YAML config fallback is removed.
 - Inferred: `recovering`, `safeguarded`, and parts of heartbeat-based `degraded` state are operational vocabulary for incident handling. Startup auto-recovery now covers orphaned backtests and missing live worker processes, but it intentionally defaults to fail-safe marking rather than unattended live restart.
 - Gap: Live DB persistence records accepted order prices and best-effort fill averages when the exchange exposes fills; operators should still reconcile against exchange-reported fills for settlement-grade accounting.
 - Gap: The worker signal handler calls `sys.exit(0)` directly. This is acceptable at the process entrypoint boundary, but library/service code should continue raising typed errors instead.

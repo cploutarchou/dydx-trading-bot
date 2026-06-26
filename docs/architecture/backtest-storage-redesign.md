@@ -11,6 +11,18 @@ The main risk areas are:
 - `position_snapshots_json`
 - `daily_pnl_json`
 
+## Current runtime reality
+
+- PostgreSQL is still the active/default application persistence path.
+- PostgreSQL is still the active/default backtest persistence path.
+- Existing PostgreSQL-backed backtest execution must keep working during the migration.
+- Legacy PostgreSQL fields remain in place for compatibility and rollback:
+  - `request_json`
+  - `trades_json`
+  - `position_snapshots_json`
+  - `daily_pnl_json`
+- ClickHouse and MinIO remain optional adapter targets and stay disabled by default until validated.
+
 ## Target design
 
 ### PostgreSQL keeps only transactional metadata
@@ -67,6 +79,7 @@ Introduce small storage abstractions:
 - preserve existing backtest status endpoints
 - avoid breaking the Celery-backed execution path
 - keep a fallback path available while the new storage layer is introduced
+- keep rollback available by disabling the feature flags and continuing on the PostgreSQL path
 
 ## Suggested implementation order
 

@@ -11,7 +11,7 @@
 
 The bot service is not production-hard enough yet. The most dangerous problems are not UI polish or small code cleanup. The dangerous problems are security gaps, process-local state, non-transactional trading state, weak runtime ownership, and misleading API contracts.
 
-The current architecture has a working control plane, managed bot subprocesses, Celery backtests, MariaDB persistence, Redis coordination, dYdX integrations, Telegram alerts, and WebSocket/realtime APIs. That is enough to operate a bot. It is not enough to safely scale or trust the system under failure without fixing the items below.
+The current architecture has a working control plane, managed bot subprocesses, Celery backtests, PostgreSQL persistence, Valkey coordination, dYdX integrations, Telegram alerts, and WebSocket/realtime APIs. That is enough to operate a bot. It is not enough to safely scale or trust the system under failure without fixing the items below.
 
 The execution plan must start with control-plane safety, then trading-state correctness, then reliability/observability, then refactoring. Refactoring first would be wasted effort because it would make the code prettier while the business risk stays alive.
 
@@ -24,7 +24,7 @@ The execution plan must start with control-plane safety, then trading-state corr
 | Team | Ownership |
 |---|---|
 | Bot / Python | Trading runtime, bot manager, backtests, Celery workers, dYdX integration, runtime state, risk controls, persistence correctness |
-| Backend | API contracts, auth, database/migrations, Redis/Celery infrastructure, deployment ownership, service-token policy |
+| Backend | API contracts, auth, database/migrations, Valkey/Celery infrastructure, deployment ownership, service-token policy |
 | Frontend | Dashboard state, websocket behaviour, operator screens, error messages, runtime control UX |
 
 ### Delivery phases
@@ -33,7 +33,7 @@ The execution plan must start with control-plane safety, then trading-state corr
 |---|---|---|
 | Phase 0 — Freeze and prove | Stop unknown damage | Ingress/auth verified, production bypass impossible, unsafe routes protected |
 | Phase 1 — Trading safety | Prevent wrong exposure and false state | Exit confirmation, tracked-state reconciliation, risk control matrix tested |
-| Phase 2 — Runtime reliability | Make runtime deterministic | Single owner/leader rules, Celery/Redis/backtest lifecycle hardened |
+| Phase 2 — Runtime reliability | Make runtime deterministic | Single owner/leader rules, Celery/Valkey/backtest lifecycle hardened |
 | Phase 3 — Observability | Operators can trust the screen | Freshness, task health, orphan state, websocket delivery visible |
 | Phase 4 — Cleanup/refactor | Reduce blast radius | Large modules split only after tests lock behaviour |
 
@@ -209,7 +209,7 @@ The execution plan must start with control-plane safety, then trading-state corr
 **Scope**
 - Decide: single API owner process or distributed state architecture.
 - If single-owner: enforce deployment constraint and health check.
-- If distributed: move manager ownership, broadcasts, rate limits, runtime settings, metrics to Redis/DB/distributed primitives.
+- If distributed: move manager ownership, broadcasts, rate limits, runtime settings, metrics to Valkey/DB/distributed primitives.
 
 **Acceptance criteria**
 - Deployment cannot accidentally run unsafe multiple owners.
@@ -287,10 +287,10 @@ The execution plan must start with control-plane safety, then trading-state corr
 
 ---
 
-#### BOT-BT-03 — Add Redis pub-sub subscriber or remove producer expectation
+#### BOT-BT-03 — Add Valkey pub-sub subscriber or remove producer expectation
 **Priority:** High  
 **Owner:** Bot / Python + Backend  
-**Problem:** Backtest Redis status pub-sub producer exists but no subscriber was found in the repo. Progress push may be missing.
+**Problem:** Backtest Valkey/Redis status pub-sub producer exists but no subscriber was found in the repo. Progress push may be missing.
 
 **Scope**
 - Confirm external bridge/subscriber.
@@ -309,7 +309,7 @@ The execution plan must start with control-plane safety, then trading-state corr
 **Problem:** Recovery exists, but lock TTL/redelivery/heartbeat behaviour must be proven under real worker crashes.
 
 **Scope**
-- Test worker kill, API restart, Redis restart, DB temporary outage.
+- Test worker kill, API restart, Valkey restart, DB temporary outage.
 - Verify run statuses and idempotency.
 - Add repair command/runbook.
 
@@ -355,7 +355,7 @@ The execution plan must start with control-plane safety, then trading-state corr
 
 ---
 
-#### BOT-DB-03 — Validate MariaDB TLS configuration
+#### BOT-DB-03 — Validate PostgreSQL TLS configuration
 **Priority:** Medium  
 **Owner:** Backend  
 **Problem:** TLS is represented by diagnostics, but connection SSL parameters were not clearly visible in engine kwargs.
@@ -484,7 +484,7 @@ The execution plan must start with control-plane safety, then trading-state corr
 4. BOT-OBS-02 — Critical trading incident events.
 
 ### Sprint 3 — Backtest/Celery reliability
-1. BOT-BT-03 — Redis pub-sub subscriber/contract.
+1. BOT-BT-03 — Valkey pub-sub subscriber/contract.
 2. BOT-BT-04 — Backtest recovery crash testing.
 3. BOT-BT-01 — Celery Beat validation.
 4. BOT-BT-02 — Candle aggregation hook decision.
@@ -492,7 +492,7 @@ The execution plan must start with control-plane safety, then trading-state corr
 ### Sprint 4 — Database discipline
 1. BOT-DB-01 — Migration-only schema ownership.
 2. BOT-DB-02 — Canonical realtime schema.
-3. BOT-DB-03 — MariaDB TLS validation.
+3. BOT-DB-03 — PostgreSQL TLS validation.
 
 ### Sprint 5 — Refactor safely
 1. BOT-REF-01 — Split API server module.

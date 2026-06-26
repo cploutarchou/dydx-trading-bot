@@ -47,12 +47,13 @@ SSR-safe helpers accept an explicit location/runtime context and do not require 
 
 ## Kubernetes Runtime Config
 
-Kubernetes manifests are single-file environment manifests:
+Kubernetes runtime config is now driven by `deploy/k8s-next/`:
 
-- `deploy/k8s/dydx-trading-bot-staging.yaml`
-- `deploy/k8s/dydx-trading-bot-production.yaml`
+- base shared config: `deploy/k8s-next/platform-config.yaml`
+- staging overlay: `deploy/k8s-next/overlays/staging/patch-platform-config.yaml`
+- production overlay: `deploy/k8s-next/overlays/production/patch-platform-config.yaml`
 
-Each environment defines a non-secret `dydx-frontend-runtime-config` ConfigMap mounted into the frontend Nginx container at:
+The frontend bundle still expects a non-secret runtime config file at:
 
 ```text
 /usr/share/nginx/html/executionlab-config.js
@@ -64,7 +65,7 @@ The browser loads this file before the Vite bundle:
 <script src="/executionlab-config.js"></script>
 ```
 
-The staging file sets:
+The staging overlay carries the staging origin values that should be rendered into that file:
 
 ```js
 window.__EXECUTIONLAB_CONFIG__ = {
@@ -72,7 +73,7 @@ window.__EXECUTIONLAB_CONFIG__ = {
 };
 ```
 
-The production file sets:
+The production overlay carries the production origin values that should be rendered into that file:
 
 ```js
 window.__EXECUTIONLAB_CONFIG__ = {
@@ -127,11 +128,9 @@ make lint
 make build
 
 cd ..
-kubectl kustomize deploy/k8s
+kubectl kustomize deploy/k8s-next
 ```
-
-For this repository layout, the deploy directory currently contains complete staging and production YAML files rather than Kustomize overlays.
 
 ## Deployment Notes
 
-Do not assume container environment variables are visible to browser JavaScript. The static frontend uses the mounted runtime config file for environment-specific API routing, with hostname detection as a fallback for shared images.
+Do not assume container environment variables are visible to browser JavaScript. The static frontend uses `executionlab-config.js` for environment-specific API routing, with hostname detection as a fallback for shared images. `deploy/k8s-next/` now provides the source values; your cluster packaging still needs to render or mount the file into the frontend container.

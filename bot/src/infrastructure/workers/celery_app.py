@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import os
-from urllib.parse import quote
 
 from celery import Celery
 from kombu import Queue
 
 from src.shared import env_loader
+from src.shared.redis_env import redis_url
 
 env_loader.load_repo_env(__file__)
 
@@ -16,17 +16,7 @@ DEFAULT_CELERY_QUEUES = ("backtests", "default", "high_priority", "scheduled")
 
 
 def _redis_url(db_offset: int = 0) -> str:
-    explicit_url = os.getenv("CELERY_BROKER_URL") or os.getenv("REDIS_URL")
-    if explicit_url:
-        return explicit_url
-
-    host = os.getenv("REDIS_HOST", "localhost")
-    port = os.getenv("REDIS_PORT", "6379")
-    db = int(os.getenv("REDIS_DB", "0") or 0) + db_offset
-    password = os.getenv("REDIS_PASSWORD", "")
-    scheme = "rediss" if os.getenv("REDIS_SSL", "false").lower() == "true" else "redis"
-    auth = f":{quote(password)}@" if password else ""
-    return f"{scheme}://{auth}{host}:{port}/{db}"
+    return redis_url(db_offset=db_offset, prefer_celery_broker=True)
 
 
 def _queue_names() -> tuple[str, ...]:

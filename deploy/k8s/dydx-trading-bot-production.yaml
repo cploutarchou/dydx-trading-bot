@@ -1,3 +1,6 @@
+# Legacy manifest retained for historical reference only.
+# Current active Kubernetes layout is deploy/k8s-next/ and the local infrastructure
+# contract is PostgreSQL + Valkey + NATS JetStream + ClickHouse + MinIO.
 ---
 apiVersion: v1
 kind: Namespace

@@ -12,10 +12,28 @@ This repository contains the active dYdX trading platform across three runtime s
 | `backend/`  | public application API, auth, orchestration, bot proxy   | `8888`       |
 | `bot/`      | Python bot API, trading runtime, backtests, live workers | `8889`       |
 
-Supporting local infrastructure:
+## Local Infrastructure Stack
 
-- PostgreSQL: `5432`
-- Redis: `6379`
+All local services should discover infrastructure through environment variables. The canonical local-development stack is:
+
+| Service | Host | Port | Purpose | Environment variables |
+| --- | --- | --- | --- | --- |
+| PostgreSQL | `localhost` | `5432` | active transactional database and persistence path for backend and bot | `DATABASE_URL`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `DB_*` |
+| Valkey | `localhost` | `6379` | Redis-compatible cache/broker surface for existing Celery, lock, rate-limit, and cache flows | `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `VALKEY_HOST`, `VALKEY_PORT`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND` |
+| NATS JetStream | `localhost` | `4222` | available command/event transport, not a required runtime dependency in the current checked-in app path | `NATS_URL` |
+| NATS monitoring | `localhost` | `8222` | readiness and operator monitoring | `NATS_MONITORING_URL` |
+| ClickHouse HTTP | `localhost` | `8123` | optional analytical backtest writer target, disabled by default | `CLICKHOUSE_URL`, `CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD` |
+| MinIO API | `localhost` | `9010` | optional S3-compatible backtest artifact target, disabled by default | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE` |
+| MinIO Console | `localhost` | `9011` | object-storage admin UI | `MINIO_CONSOLE_URL` |
+
+PostgreSQL remains the only active application database/persistence path today, including the default backtest
+persistence path. Backtests still keep their current PostgreSQL-backed metadata and legacy JSON fields for
+compatibility and rollback. ClickHouse and MinIO are live locally and auto-discovered through environment variables,
+but the checked-in backtest adapter paths stay disabled by default behind:
+
+- `BACKTEST_ARTIFACT_STORAGE_ENABLED=false`
+- `BACKTEST_CLICKHOUSE_WRITES_ENABLED=false`
+- `BACKTEST_MINIO_ARTIFACTS_ENABLED=false`
 
 ## Repository Structure
 
@@ -41,6 +59,11 @@ make dev-config
 make dev
 ```
 
+The structured profile flow populates the standard local aliases above. `.env.example` remains a compatibility example, but the encrypted profile under `config/profiles/` is the canonical startup source.
+
+Optional backtest adapter flags belong in the structured profile too. Checked-in local/dev defaults keep PostgreSQL as
+the active persistence path and leave the alternative storage paths disabled until explicitly validated.
+
 ### 2. Choose your local workflow
 
 #### Service-first development (recommended for daily work)
@@ -56,6 +79,7 @@ Then start the service you are actively developing:
 - frontend: `cd frontend && npm install && npm run dev`
 - backend: `cd backend && make run`
 - bot API: `cd bot && make local-api`
+- bot worker: `cd bot && make local-worker`
 
 When finished:
 
@@ -112,6 +136,16 @@ This path submits a real Nomad job (`nomad job run ...`) so allocations and stat
 - use each service `README.md` for service-specific commands and responsibilities
 - treat generated artifacts such as `bot/openapi.json` as canonical contracts when detailed schema accuracy matters
 - run `python3 scripts/validate_docs_governance.py` before merge for doc/contract changes
+- run `python3 scripts/validate_stack_env.py --environment development` after structured-config changes
+
+## Local Troubleshooting
+
+- PostgreSQL not ready: `docker exec dydx-postgresql pg_isready -U dydx_bot -d dydx_bot`
+- Valkey not ready: `docker exec dydx-valkey valkey-cli ping`
+- NATS not ready: `curl http://localhost:8222/healthz`
+- ClickHouse not ready: `curl http://localhost:8123/ping`
+- MinIO not ready: `curl http://localhost:9010/minio/health/live`
+- Compose syntax validation: `docker compose -f docker-compose.infra.yml config` and `docker compose -f docker-compose.stack.yml config`
 
 Backtest runtime tuning note: active long-running backtests refresh their heartbeat periodically to avoid false stale
 classification. `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS` controls that cadence, and staging already pins it in

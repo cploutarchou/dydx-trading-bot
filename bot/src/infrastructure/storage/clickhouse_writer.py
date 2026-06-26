@@ -17,9 +17,8 @@ logger = logging.getLogger(__name__)
 
 # DDL templates for auto-provisioned backtest analytics tables.
 # Uses MergeTree for simplicity; teams can tune engine/TTL per environment.
-_TABLE_DDL: dict[str, str] = {
-    "backtest_trade_rows": """\
-CREATE TABLE IF NOT EXISTS `{db}`.`backtest_trade_rows` (
+_BACKTEST_TRADES_DDL = """\
+CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
     run_id           String,
     trade_id         String,
     pair1            String,
@@ -37,9 +36,10 @@ CREATE TABLE IF NOT EXISTS `{db}`.`backtest_trade_rows` (
     status           String DEFAULT '',
     created_at       DateTime64(3, 'UTC') DEFAULT now64()
 ) ENGINE = MergeTree()
-ORDER BY (run_id, created_at)""",
-    "backtest_daily_pnl_rows": """\
-CREATE TABLE IF NOT EXISTS `{db}`.`backtest_daily_pnl_rows` (
+ORDER BY (run_id, created_at)"""
+
+_BACKTEST_DAILY_PNL_DDL = """\
+CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
     run_id          String,
     date            String,
     pnl             Float64 DEFAULT 0,
@@ -47,9 +47,10 @@ CREATE TABLE IF NOT EXISTS `{db}`.`backtest_daily_pnl_rows` (
     drawdown        Float64 DEFAULT 0,
     created_at      DateTime64(3, 'UTC') DEFAULT now64()
 ) ENGINE = MergeTree()
-ORDER BY (run_id, date)""",
-    "backtest_position_snapshot_rows": """\
-CREATE TABLE IF NOT EXISTS `{db}`.`backtest_position_snapshot_rows` (
+ORDER BY (run_id, date)"""
+
+_BACKTEST_POSITION_SNAPSHOTS_DDL = """\
+CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
     run_id          String,
     snapshot_time   String,
     pair1           String DEFAULT '',
@@ -58,7 +59,15 @@ CREATE TABLE IF NOT EXISTS `{db}`.`backtest_position_snapshot_rows` (
     z_score         Nullable(Float64),
     created_at      DateTime64(3, 'UTC') DEFAULT now64()
 ) ENGINE = MergeTree()
-ORDER BY (run_id, snapshot_time)""",
+ORDER BY (run_id, snapshot_time)"""
+
+_TABLE_DDL: dict[str, str] = {
+    "backtest_trade_rows": _BACKTEST_TRADES_DDL,
+    "backtest_trades": _BACKTEST_TRADES_DDL,
+    "backtest_daily_pnl_rows": _BACKTEST_DAILY_PNL_DDL,
+    "backtest_daily_pnl": _BACKTEST_DAILY_PNL_DDL,
+    "backtest_position_snapshot_rows": _BACKTEST_POSITION_SNAPSHOTS_DDL,
+    "backtest_position_snapshots": _BACKTEST_POSITION_SNAPSHOTS_DDL,
 }
 
 
@@ -146,7 +155,9 @@ class ClickHouseAnalyticsWriter(AnalyticsWriter):
             self._provisioned.add(table_name)
             return
         try:
-            self._client.command(ddl_template.format(db=self.database))
+            self._client.command(
+                ddl_template.format(db=self.database, table=table_name)
+            )
             self._provisioned.add(table_name)
         except Exception as exc:
             logger.warning(

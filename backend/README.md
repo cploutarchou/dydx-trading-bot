@@ -17,7 +17,10 @@ The backend is the public application API for the platform. It is the only servi
 ## Local Runtime
 
 - default port: `8888`
-- database: backend PostgreSQL on `5432`
+- database: PostgreSQL on `localhost:5432` by default in local service-first mode
+- supported database envs: `DATABASE_URL` first, then `DB_*` / `POSTGRES_*`
+- supported cache envs: `REDIS_URL` / `VALKEY_URL`, or `REDIS_*` / `VALKEY_*`
+- optional local NATS contract: `NATS_URL=nats://localhost:4222`, monitoring `NATS_MONITORING_URL=http://localhost:8222`
 - upstream bot API: `BOT_API_URL` or default `http://127.0.0.1:8889`
 
 ## Key Packages
@@ -124,6 +127,7 @@ Migration `000060_add_coming_soon_setting` seeds the setting for PostgreSQL depl
 - liveness: `GET /health`
 - readiness: `GET /ready`
 - tests: `make test`
+- local stack dependencies: PostgreSQL, Valkey for existing Redis-compatible flows, and optional NATS via `make infra-up`
 
 ## Database Migration Posture
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.storage import (
     ClickHouseAnalyticsWriter,
     LocalArtifactStore,
@@ -140,6 +141,65 @@ def test_minio_artifact_store_falls_back_when_enabled_client_fails(tmp_path):
 
     assert ref.startswith("file:")
     assert fallback.read_bytes("run-2/out.bin") == b"payload"
+
+
+def test_backtest_repository_resolves_minio_endpoint_aliases(monkeypatch):
+    monkeypatch.setenv("MINIO_ENDPOINT", "localhost:9010")
+    monkeypatch.setenv("S3_ENDPOINT", "http://localhost:9010")
+
+    assert BacktestRepository._resolve_minio_endpoint() == "http://localhost:9010"
+
+
+def test_backtest_repository_resolves_clickhouse_url_alias(monkeypatch):
+    monkeypatch.setenv("CLICKHOUSE_URL", "http://analytics:8123/dydx_analytics")
+
+    host, port, secure, database, username, password = (
+        BacktestRepository._resolve_clickhouse_target()
+    )
+
+    assert host == "analytics"
+    assert port == 8123
+    assert secure is False
+    assert database == "dydx_analytics"
+    assert username == "default"
+    assert password == ""
+
+
+def test_backtest_repository_keeps_minio_disabled_without_master_artifact_flag(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("BACKTEST_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
+    monkeypatch.setenv("BACKTEST_ARTIFACT_STORAGE_ENABLED", "false")
+    monkeypatch.setenv("BACKTEST_MINIO_ARTIFACTS_ENABLED", "true")
+    monkeypatch.setenv("MINIO_ENDPOINT", "localhost:9010")
+
+    store = BacktestRepository._build_artifact_store()
+
+    assert isinstance(store, LocalArtifactStore)
+
+
+def test_backtest_repository_enables_minio_when_both_new_flags_are_true(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("BACKTEST_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
+    monkeypatch.setenv("BACKTEST_ARTIFACT_STORAGE_ENABLED", "true")
+    monkeypatch.setenv("BACKTEST_MINIO_ARTIFACTS_ENABLED", "true")
+    monkeypatch.setenv("MINIO_ENDPOINT", "localhost:9010")
+    monkeypatch.setenv("MINIO_BUCKET", "backtests")
+
+    store = BacktestRepository._build_artifact_store()
+
+    assert isinstance(store, MinIOArtifactStore)
+    assert store.enabled is True
+
+
+def test_backtest_repository_prefers_new_clickhouse_flag_over_legacy_alias(monkeypatch):
+    monkeypatch.setenv("BACKTEST_CLICKHOUSE_WRITES_ENABLED", "false")
+    monkeypatch.setenv("BACKTEST_CLICKHOUSE_ENABLED", "true")
+
+    writer = BacktestRepository._build_analytics_writer()
+
+    assert isinstance(writer, NoopAnalyticsWriter)
 
 
 # ---------------------------------------------------------------------------

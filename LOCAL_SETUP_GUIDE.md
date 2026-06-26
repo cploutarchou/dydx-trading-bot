@@ -23,11 +23,20 @@ make dev
 
 Infrastructure services are based on the **k3s-next production architecture**, running locally:
 
-- **PostgreSQL** (main database): `localhost:5432`
-- **Valkey** (Redis-compatible cache): `localhost:6379`
-- **NATS JetStream** (event/command bus): `localhost:4222` (monitoring: `8222`)
-- **ClickHouse** (analytics database): `localhost:8123`
-- **MinIO** (object storage): `localhost:9010` (API), `localhost:9011` (console)
+| Service | Host | Port | Purpose | Environment variables |
+| --- | --- | --- | --- | --- |
+| PostgreSQL | `localhost` | `5432` | active transactional database and persistence path | `DATABASE_URL`, `POSTGRES_*`, `DB_*` |
+| Valkey | `localhost` | `6379` | Redis-compatible cache/broker surface for existing Celery, lock, and cache flows | `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `VALKEY_HOST`, `VALKEY_PORT`, `CELERY_*` |
+| NATS JetStream | `localhost` | `4222` | available command/event transport, not required by the current checked-in runtime path | `NATS_URL` |
+| NATS monitoring | `localhost` | `8222` | health and operator visibility | `NATS_MONITORING_URL` |
+| ClickHouse HTTP | `localhost` | `8123` | optional analytical backtest writer target, disabled by default | `CLICKHOUSE_URL`, `CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD` |
+| MinIO API | `localhost` | `9010` | optional S3-compatible backtest artifact target, disabled by default | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE` |
+| MinIO Console | `localhost` | `9011` | bucket/object admin UI | `MINIO_CONSOLE_URL` |
+
+PostgreSQL remains the active/default application persistence path and the active/default backtest persistence path.
+Valkey is used only by services that already rely on Redis-compatible caching/broker behavior. NATS JetStream,
+ClickHouse, and MinIO are live locally and discoverable through environment variables, but the checked-in app defaults
+do not require them for normal startup or for PostgreSQL-backed backtests.
 
 ### Start Infrastructure
 
@@ -59,8 +68,8 @@ cd backend && make run
 cd bot && python -m uvicorn src.api.server:app --reload --host 0.0.0.0 --port 8889
 # → Runs on http://localhost:8889
 
-# Bot Worker (Celery/NATS Backtest Worker)
-cd bot && python worker_entrypoint.py
+# Bot Worker (Celery backtest worker)
+cd bot && make local-worker
 # → Processes backtest jobs
 ```
 
@@ -69,15 +78,36 @@ cd bot && python worker_entrypoint.py
 Each service automatically discovers the infrastructure using these defaults:
 
 ```
-DATABASE_HOST=localhost
-DATABASE_PORT=5432
+DATABASE_URL=postgres://dydx_bot:change-me-db-password@localhost:5432/dydx_bot?sslmode=disable
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=dydx_bot
+POSTGRES_USER=dydx_bot
+POSTGRES_PASSWORD=change-me-db-password
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=dydx_bot
+DB_USER=dydx_bot
+DB_PASSWORD=change-me-db-password
+REDIS_URL=redis://localhost:6379/0
 REDIS_HOST=localhost
 REDIS_PORT=6379
+VALKEY_HOST=localhost
+VALKEY_PORT=6379
 NATS_URL=nats://localhost:4222
+NATS_MONITORING_URL=http://localhost:8222
+CLICKHOUSE_URL=http://localhost:8123
 CLICKHOUSE_HOST=localhost
 CLICKHOUSE_PORT=8123
-MINIO_HOST=localhost
-MINIO_PORT=9000
+MINIO_ENDPOINT=localhost:9010
+MINIO_CONSOLE_URL=http://localhost:9011
+MINIO_BUCKET=backtests
+S3_ENDPOINT=http://localhost:9010
+S3_REGION=us-east-1
+S3_FORCE_PATH_STYLE=true
+BACKTEST_ARTIFACT_STORAGE_ENABLED=false
+BACKTEST_CLICKHOUSE_WRITES_ENABLED=false
+BACKTEST_MINIO_ARTIFACTS_ENABLED=false
 ```
 
 ### Stop Infrastructure
@@ -93,7 +123,7 @@ make infra-down
 - ✅ Easy debugging with local IDE
 - ✅ Independent service testing
 - ✅ Low resource consumption
-- ✅ Matches production infrastructure (PostgreSQL, Valkey, NATS, ClickHouse, MinIO)
+- ✅ Matches the available local infrastructure contract without forcing every service into active app use
 
 ---
 
@@ -123,8 +153,11 @@ This starts **all services in isolated containers**:
 - **PostgreSQL**: `localhost:5432`
 - **Valkey**: `localhost:6379`
 - **NATS JetStream**: `localhost:4222`, monitoring: `8222`
-- **ClickHouse**: `localhost:8123`, API: `9000`
+- **ClickHouse HTTP**: `localhost:8123`
 - **MinIO**: `localhost:9010` (API), `localhost:9011` (console)
+
+Checked-in stack defaults still keep PostgreSQL as the active persistence path and leave the optional backtest adapter
+flags off. Flip those flags only when you are intentionally validating the ClickHouse and MinIO paths.
 
 ### Check Status
 
@@ -209,13 +242,28 @@ make infra-up
 Services automatically discover infrastructure on localhost. If you need to override, set:
 
 ```bash
-export DATABASE_HOST=localhost
-export DATABASE_PORT=5432
+export DATABASE_URL=postgres://dydx_bot:change-me-db-password@localhost:5432/dydx_bot?sslmode=disable
+export POSTGRES_HOST=localhost
+export POSTGRES_PORT=5432
+export POSTGRES_DB=dydx_bot
+export POSTGRES_USER=dydx_bot
+export POSTGRES_PASSWORD=change-me-db-password
 export REDIS_HOST=localhost
 export REDIS_PORT=6379
+export REDIS_URL=redis://localhost:6379/0
+export VALKEY_HOST=localhost
+export VALKEY_PORT=6379
 export NATS_URL=nats://localhost:4222
+export NATS_MONITORING_URL=http://localhost:8222
+export CLICKHOUSE_URL=http://localhost:8123
 export CLICKHOUSE_HOST=localhost
-export MINIO_HOST=localhost
+export CLICKHOUSE_PORT=8123
+export MINIO_ENDPOINT=localhost:9010
+export MINIO_CONSOLE_URL=http://localhost:9011
+export MINIO_BUCKET=backtests
+export S3_ENDPOINT=http://localhost:9010
+export S3_REGION=us-east-1
+export S3_FORCE_PATH_STYLE=true
 ```
 
 ### For Option 2 (Full Stack)
@@ -224,8 +272,8 @@ All environment variables are managed by docker-compose. Override defaults:
 
 ```bash
 # Before stack-up-dev
-export DATABASE_PASSWORD=my-secure-password
-export MINIO_ROOT_PASSWORD=my-minio-password
+export POSTGRES_PASSWORD=my-secure-password
+export MINIO_SECRET_KEY=my-minio-password
 make stack-up-dev
 ```
 
@@ -296,17 +344,19 @@ docker exec dydx-valkey valkey-cli ping
 
 # Check NATS
 curl http://localhost:8222/healthz
+
+# Check ClickHouse
+curl http://localhost:8123/ping
+
+# Check MinIO
+curl http://localhost:9010/minio/health/live
 ```
 
 ### MinIO access issues
 
 ```bash
-# MinIO console
-http://localhost:9011
-# Default credentials: minioadmin / change-me-minio
-
-# Create a test bucket
-docker exec dydx-minio mc mb minio/dydx-artifacts
+# MinIO console: http://localhost:9011
+# Default local credentials: minioadmin / change-me-minio
 ```
 
 ---

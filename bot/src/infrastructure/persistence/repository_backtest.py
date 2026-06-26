@@ -64,6 +64,17 @@ class BacktestRepository:
         return default
 
     @classmethod
+    def _env_bool_prefer(
+        cls, primary: str, *aliases: str, default: bool = False
+    ) -> bool:
+        names = (primary, *aliases)
+        for name in names:
+            raw = os.getenv(name)
+            if raw not in (None, ""):
+                return cls._env_bool(name, default)
+        return default
+
+    @classmethod
     def _urlsplit_with_default_scheme(cls, raw: str, default_scheme: str) -> Any:
         value = str(raw or "").strip()
         if not value:
@@ -135,9 +146,35 @@ class BacktestRepository:
         )
 
     @classmethod
+    def _artifact_storage_enabled(cls) -> bool:
+        return cls._env_bool_prefer(
+            "BACKTEST_ARTIFACT_STORAGE_ENABLED",
+            "BACKTEST_MINIO_ENABLED",
+            default=False,
+        )
+
+    @classmethod
+    def _minio_artifacts_enabled(cls) -> bool:
+        if not cls._artifact_storage_enabled():
+            return False
+        return cls._env_bool_prefer(
+            "BACKTEST_MINIO_ARTIFACTS_ENABLED",
+            "BACKTEST_MINIO_ENABLED",
+            default=False,
+        )
+
+    @classmethod
+    def _clickhouse_writes_enabled(cls) -> bool:
+        return cls._env_bool_prefer(
+            "BACKTEST_CLICKHOUSE_WRITES_ENABLED",
+            "BACKTEST_CLICKHOUSE_ENABLED",
+            default=False,
+        )
+
+    @classmethod
     def _build_artifact_store(cls) -> ArtifactStore:
         root = cls._env_str("BACKTEST_ARTIFACTS_DIR", "bot_states/backtest_artifacts")
-        if cls._env_bool("BACKTEST_MINIO_ENABLED", False):
+        if cls._minio_artifacts_enabled():
             extra_config: Dict[str, Any] = {
                 "access_key": cls._env_first(
                     "BACKTEST_MINIO_ACCESS_KEY",
@@ -183,7 +220,7 @@ class BacktestRepository:
 
     @classmethod
     def _build_analytics_writer(cls) -> AnalyticsWriter:
-        if cls._env_bool("BACKTEST_CLICKHOUSE_ENABLED", False):
+        if cls._clickhouse_writes_enabled():
             host, port, secure, database, username, password = (
                 cls._resolve_clickhouse_target()
             )

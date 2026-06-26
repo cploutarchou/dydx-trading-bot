@@ -49,16 +49,17 @@ data:
   S3_FORCE_PATH_STYLE: "true"
   BACKTEST_ARTIFACTS_DIR: /var/lib/dydx/backtest-artifacts
   BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS: "30"
-  # MinIO artifact store — flip ENABLED to "true" once MinIO is provisioned
-  BACKTEST_MINIO_ENABLED: "false"
+  BACKTEST_ARTIFACT_STORAGE_ENABLED: "false"
+  # MinIO artifact store — flip both artifact flags to "true" after validation
+  BACKTEST_MINIO_ARTIFACTS_ENABLED: "false"
   BACKTEST_MINIO_ENDPOINT: http://minio:9000
   BACKTEST_MINIO_BUCKET: backtests
   BACKTEST_MINIO_SECURE: "false"
   BACKTEST_MINIO_AUTO_CREATE_BUCKET: "true"
   # Credentials must come from a Secret; reference them in the Deployment env
   # via secretKeyRef (BACKTEST_MINIO_ACCESS_KEY / BACKTEST_MINIO_SECRET_KEY).
-  # ClickHouse analytics writer — flip ENABLED to "true" once ClickHouse is up
-  BACKTEST_CLICKHOUSE_ENABLED: "false"
+  # ClickHouse analytics writer — flip to "true" after validation
+  BACKTEST_CLICKHOUSE_WRITES_ENABLED: "false"
   BACKTEST_CLICKHOUSE_URL: http://clickhouse:8123
   BACKTEST_CLICKHOUSE_HOST: clickhouse
   BACKTEST_CLICKHOUSE_PORT: "8123"

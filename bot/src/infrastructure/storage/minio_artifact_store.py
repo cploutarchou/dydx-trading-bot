@@ -60,7 +60,11 @@ class MinIOArtifactStore(ArtifactStore):
             logger.warning("MinIO adapter enabled but minio package is not installed")
             return None
 
-        parsed = urlsplit(self.endpoint_url)
+        endpoint_url = self.endpoint_url
+        if endpoint_url and "://" not in endpoint_url:
+            endpoint_url = f"http://{endpoint_url}"
+
+        parsed = urlsplit(endpoint_url)
         endpoint = (parsed.netloc or parsed.path or "").strip()
         if not endpoint:
             logger.warning("MinIO adapter enabled but endpoint is missing")

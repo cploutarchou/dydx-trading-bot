@@ -16,6 +16,7 @@ from src.constants import (
     RESOLUTION,
 )
 from src.shared.notifications import send_error_notification as _send_error_notification
+from src.shared.redis_env import redis_url
 from src.shared.utils import get_ISO_times
 from src.trading.arbitrage_observability import increment_metric
 
@@ -63,14 +64,11 @@ def _get_recent_candles_from_redis(market: str, resolution: str):
     """
     try:
         import json as _json
-        import os as _os
 
         import redis as _redis
 
         _rc = _redis.from_url(
-            _os.getenv("CELERY_BROKER_URL")
-            or _os.getenv("REDIS_URL")
-            or "redis://localhost:6379/0",
+            redis_url(prefer_celery_broker=True),
             decode_responses=True,
             socket_connect_timeout=1,
             socket_timeout=1,

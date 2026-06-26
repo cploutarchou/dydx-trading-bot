@@ -123,9 +123,9 @@ make infra-up
 make infra-logs
 ```
 
-### MariaDB connection fails
+### PostgreSQL connection fails
 
-**Problem:** Cannot connect to MariaDB at localhost:3306.
+**Problem:** Cannot connect to PostgreSQL at localhost:5432.
 
 **Solutions:**
 
@@ -138,18 +138,18 @@ make infra-logs
 
 # Verify connection parameters
 # User: dydx_bot
-# Password: configured DB_PASSWORD
-# Database: dydx_trading
+# Password: configured POSTGRES_PASSWORD / DB_PASSWORD
+# Database: dydx_bot
 # Host: localhost
-# Port: 3306
+# Port: 5432
 
 # Start shared infra if needed
 make infra-up
 ```
 
-### Redis connection fails
+### Valkey / Redis connection fails
 
-**Problem:** Cannot connect to Redis at localhost:6379.
+**Problem:** Cannot connect to Valkey / Redis-compatible cache at localhost:6379.
 
 **Solutions:**
 
@@ -158,7 +158,7 @@ make infra-up
 make infra-ps
 
 # Test connection
-redis-cli ping
+valkey-cli ping  # or redis-cli ping if valkey-cli is unavailable
 
 # If redis-cli not available, use telnet
 telnet localhost 6379
@@ -329,7 +329,7 @@ echo $VITE_API_URL
 make stack-logs
 
 # Check firewall rules
-# Ensure ports 8888 (UI backend), 3306, 6379 are accessible
+# Ensure ports 8888 (UI backend), 5432, 6379, 4222, 8123, and 9010 are accessible
 ```
 
 ## Other Issues

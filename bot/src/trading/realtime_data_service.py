@@ -21,6 +21,7 @@ from src.api.websocket_server import (
 )
 from src.infrastructure.database import db
 from src.infrastructure.use_cases.async_job_manager import async_job_manager
+from src.shared.redis_env import redis_url
 from src.shared.time_utils import utc_now_iso
 
 
@@ -41,9 +42,7 @@ class RealTimeDataService:
             import redis as _redis
 
             return _redis.from_url(
-                os.getenv("CELERY_BROKER_URL")
-                or os.getenv("REDIS_URL")
-                or "redis://localhost:6379/0",
+                redis_url(prefer_celery_broker=True),
                 decode_responses=True,
                 socket_connect_timeout=1,
                 socket_timeout=1,

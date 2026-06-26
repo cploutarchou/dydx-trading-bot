@@ -5,16 +5,17 @@
 
 set -e
 
-DB_USER="${DB_USER:-dydx_bot}"
-DB_HOST="${DB_HOST:-localhost}"
-DB_NAME="${DB_NAME:-dydx_bot}"
-DB_PORT="${DB_PORT:-5432}"
+DB_USER="${DB_USER:-${POSTGRES_USER:-dydx_bot}}"
+DB_HOST="${DB_HOST:-${POSTGRES_HOST:-localhost}}"
+DB_NAME="${DB_NAME:-${POSTGRES_DB:-dydx_bot}}"
+DB_PORT="${DB_PORT:-${POSTGRES_PORT:-5432}}"
+DB_PASSWORD="${DB_PASSWORD:-${POSTGRES_PASSWORD:-}}"
 
 echo "🔄 Resetting PostgreSQL migrations..."
 
 # Connect using environment variables if available
 if command -v psql &> /dev/null; then
-    PGPASSWORD="${DB_PASSWORD:-secure_password}" psql \
+    PGPASSWORD="${DB_PASSWORD}" psql \
         -h "$DB_HOST" \
         -p "$DB_PORT" \
         -U "$DB_USER" \

@@ -33,6 +33,14 @@ class DatabaseConfig:
             return fallback
         return str(value)
 
+    @classmethod
+    def _env_any(cls, names: tuple[str, ...], fallback: str = "") -> str:
+        for name in names:
+            value = os.getenv(name)
+            if value not in (None, ""):
+                return str(value)
+        return fallback
+
     @staticmethod
     def _env_int(name: str, default: int) -> int:
         value = os.getenv(name)
@@ -153,7 +161,7 @@ class DatabaseConfig:
         db_name = parsed.path.lstrip("/") or "dydx_bot"
         host = parsed.hostname or "localhost"
         port = str(parsed.port or 5432)
-        user = parsed.username or "app"
+        user = parsed.username or "dydx_bot"
         password = parsed.password or ""
         return db_name, host, port, user, password
 
@@ -217,7 +225,7 @@ class DatabaseConfig:
     def _resolve_db_fields(self) -> tuple[str, str, str, str, str]:
         """Resolve host/port/name/user/password based on cutover mode."""
         default_port = "5432"
-        default_user = "app"
+        default_user = "dydx_bot"
 
         if self.cutover_mode == "shared":
             self.field_source = "shared_db_fields"
@@ -228,11 +236,11 @@ class DatabaseConfig:
                     self.field_source = "shared_database_url"
                     return parsed_fields
             return (
-                self._env("DB_NAME", "dydx_bot"),
-                self._env("DB_HOST", "localhost"),
-                self._env("DB_PORT", default_port),
-                self._env("DB_USER", default_user),
-                self._env("DB_PASSWORD", ""),
+                self._env_any(("DB_NAME", "POSTGRES_DB"), "dydx_bot"),
+                self._env_any(("DB_HOST", "POSTGRES_HOST"), "localhost"),
+                self._env_any(("DB_PORT", "POSTGRES_PORT"), default_port),
+                self._env_any(("DB_USER", "POSTGRES_USER"), default_user),
+                self._env_any(("DB_PASSWORD", "POSTGRES_PASSWORD"), ""),
             )
 
         if self.cutover_mode == "dedicated":
@@ -268,11 +276,11 @@ class DatabaseConfig:
                 return parsed_fields
         self.field_source = "shared_db_fields"
         return (
-            self._env("DB_NAME", "dydx_bot"),
-            self._env("DB_HOST", "localhost"),
-            self._env("DB_PORT", default_port),
-            self._env("DB_USER", default_user),
-            self._env("DB_PASSWORD", ""),
+            self._env_any(("DB_NAME", "POSTGRES_DB"), "dydx_bot"),
+            self._env_any(("DB_HOST", "POSTGRES_HOST"), "localhost"),
+            self._env_any(("DB_PORT", "POSTGRES_PORT"), default_port),
+            self._env_any(("DB_USER", "POSTGRES_USER"), default_user),
+            self._env_any(("DB_PASSWORD", "POSTGRES_PASSWORD"), ""),
         )
 
     def to_diagnostics(self) -> dict:
@@ -322,11 +330,11 @@ class DatabaseConfig:
                 return parsed_fields
 
         shared_fields = (
-            self._env("DB_NAME", ""),
-            self._env("DB_HOST", ""),
-            self._env("DB_PORT", ""),
-            self._env("DB_USER", ""),
-            self._env("DB_PASSWORD", ""),
+            self._env_any(("DB_NAME", "POSTGRES_DB"), ""),
+            self._env_any(("DB_HOST", "POSTGRES_HOST"), ""),
+            self._env_any(("DB_PORT", "POSTGRES_PORT"), ""),
+            self._env_any(("DB_USER", "POSTGRES_USER"), ""),
+            self._env_any(("DB_PASSWORD", "POSTGRES_PASSWORD"), ""),
         )
         if any(bool(str(value).strip()) for value in shared_fields):
             return shared_fields
@@ -366,7 +374,7 @@ class DatabaseConfig:
             os.getenv("BOT_DB_NAME", "dydx_bot"),
             os.getenv("BOT_DB_HOST", "localhost"),
             os.getenv("BOT_DB_PORT", "5432"),
-            os.getenv("BOT_DB_USER", "app"),
+            os.getenv("BOT_DB_USER", "dydx_bot"),
             os.getenv("BOT_DB_PASSWORD", ""),
         )
 

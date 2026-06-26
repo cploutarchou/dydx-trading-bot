@@ -8,15 +8,19 @@ The repository is currently organized around a three-service product path:
 - `backend/` is the public Go API, auth/orchestration layer, and frontend-facing contract owner.
 - `bot/` is the Python FastAPI control plane and runtime owner for live execution and backtests.
 
-The present runtime is centered on PostgreSQL + Redis + file-backed runtime state:
+The present runtime is centered on PostgreSQL + Valkey + the local/k3s-next auxiliary stack:
 
 - backend uses PostgreSQL migrations under `backend/migrations/postgres`
 - bot uses PostgreSQL/Alembic migrations under `bot/migrations/postgres`
+- Valkey is the Redis-compatible cache/broker surface on `6379`
+- NATS JetStream is the command/event transport target on `4222`
+- ClickHouse HTTP is the analytical store target on `8123`
+- MinIO is the S3-compatible artifact target on `9010` / `9011`
 - backtest runs persist large JSON arrays in `backtest_runtime_runs`
-- Redis backs Celery, locks, caches, and temporary state
+- Valkey backs Celery, locks, caches, and temporary state
 - `bot_states/` holds logs and per-instance runtime files
 
-Deployment is currently k3s-shaped only in the broad sense: the checked-in manifests under `deploy/k8s/` are single-manifest, secret-heavy environment bundles rather than a clean target layout with separate application and data primitives.
+The active deployment target layout is `deploy/k8s-next/`. The checked-in manifests under `deploy/k8s/` are older single-manifest, secret-heavy bundles retained only as legacy reference material.
 
 ## Target architecture
 
@@ -64,7 +68,7 @@ The desired target shape is a production-shaped, open-source k3s stack with a cl
    - Frontend/backoffice clients must keep talking to the backend, not directly to bot or data services.
 
 6. **Hybrid migration complexity**
-   - The system must stay usable on PostgreSQL/Redis while new data paths are introduced incrementally.
+   - The system must stay usable on PostgreSQL/Valkey while new data paths are introduced incrementally.
 
 7. **Operational blast radius**
    - Stateful services need probes, PDBs, resource limits, and explicit rollout ownership.
@@ -111,7 +115,7 @@ The desired target shape is a production-shaped, open-source k3s stack with a cl
 
 ## Rollback plan
 
-- Keep PostgreSQL/Redis defaults in place until each new path is verified.
+- Keep PostgreSQL/Valkey defaults in place until each new path is verified.
 - Use feature flags to enable PostgreSQL, NATS, ClickHouse, and MinIO behavior incrementally.
 - If a phase fails, roll back the application change first and keep the previous data path active.
 - Do not drop production data paths until replacement behavior is proven in staging.

@@ -24,6 +24,10 @@ The bot service is the Python runtime that manages bot instances, live strategy 
 
 - API port: `8889`
 - dedicated database: bot PostgreSQL on `5432`
+- database env aliases: `BOT_DATABASE_URL`, `DATABASE_URL`, `BOT_DB_*`, `DB_*`, `POSTGRES_*`
+- cache env aliases: `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `REDIS_URL`, `VALKEY_URL`, `REDIS_*`, `VALKEY_*`
+- analytics env aliases: `CLICKHOUSE_URL`, `CLICKHOUSE_*`
+- artifact storage env aliases: `MINIO_ENDPOINT`, `MINIO_CONSOLE_URL`, `MINIO_BUCKET`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE`
 - config source: root `run.json`
 - preferred DB mode: `BOT_DB_CUTOVER_MODE=dedicated`
 
@@ -61,7 +65,9 @@ business logic is not duplicated.
 
 Required local services:
 
-- Redis broker/result backend, defaulting to `redis://localhost:6379/0` and `redis://localhost:6379/1`
+- Valkey/Redis-compatible broker/result backend, defaulting to `redis://localhost:6379/1` and `redis://localhost:6379/2`
+- PostgreSQL on `localhost:5432`
+- optional but supported local integrations: NATS JetStream (`localhost:4222`), ClickHouse HTTP (`localhost:8123`), MinIO (`localhost:9010`)
 - API: `make local-api`
 - worker: `make local-worker`
 - optional Flower: `make local-flower`
@@ -70,6 +76,7 @@ Useful environment variables:
 
 - `BACKTEST_WORKER_BACKEND=celery` for worker-backed backtests; set `asyncio` only for focused local/unit debugging
 - `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` for broker/result backend
+- `REDIS_URL` / `VALKEY_URL` or `REDIS_*` / `VALKEY_*` as the shared cache aliases used by runtime modules
 - `CELERY_QUEUES=backtests,default,high_priority,scheduled` for a worker that consumes all standard queues
 - `BACKTEST_CELERY_QUEUE=backtests` for backtest dispatch
 - `BACKTEST_CELERY_MAX_RETRIES=3`
@@ -78,6 +85,9 @@ Useful environment variables:
 - `BACKTEST_CELERY_TASK_SOFT_TIME_LIMIT` and `BACKTEST_CELERY_TASK_TIME_LIMIT`
 - `BACKTEST_TASK_LOCK_TTL_SECONDS` or `BACKTEST_LOCK_REDIS_URL` for duplicate-run locking
 - `MARKET_SYNC_ENABLED=true` only when running Celery Beat for scheduled market candle sync
+- `NATS_URL` and `NATS_MONITORING_URL` for the command/event bus contract
+- `CLICKHOUSE_URL` or `CLICKHOUSE_HOST` / `CLICKHOUSE_PORT` for analytical backtest writes
+- `MINIO_ENDPOINT`, `MINIO_BUCKET`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE` for artifact storage
 
 Queues:
 

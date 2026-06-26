@@ -17,6 +17,13 @@ import qrcode
 from decouple import config
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from src.shared.redis_env import (
+    redis_db,
+    redis_host,
+    redis_password,
+    redis_port,
+    redis_ssl_enabled,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -401,23 +408,23 @@ class TokenBlacklist:
         try:
             import redis  # type: ignore[import]
 
-            host = os.getenv("REDIS_HOST", "localhost")
-            port = int(os.getenv("REDIS_PORT", "6379"))
-            db = int(os.getenv("REDIS_DB", "0"))
-            password = os.getenv("REDIS_PASSWORD") or None
-            ssl = os.getenv("REDIS_SSL", "false").lower() in ("true", "1", "yes")
             client = redis.Redis(
-                host=host,
-                port=port,
-                db=db,
-                password=password,
-                ssl=ssl,
+                host=redis_host(),
+                port=int(redis_port()),
+                db=int(redis_db() or "0"),
+                password=redis_password() or None,
+                ssl=redis_ssl_enabled(),
                 socket_timeout=5,
                 decode_responses=True,
             )
             client.ping()
             cls._redis_client = client
-            logger.info("TokenBlacklist: using Redis at %s:%s db=%s", host, port, db)
+            logger.info(
+                "TokenBlacklist: using Redis at %s:%s db=%s",
+                redis_host(),
+                redis_port(),
+                redis_db(),
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("TokenBlacklist: Redis unavailable, falling back to in-memory: %s", exc)
         return cls._redis_client

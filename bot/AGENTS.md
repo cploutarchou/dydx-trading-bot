@@ -74,7 +74,7 @@ Repository-level guidance for coding agents working on this project.
 - `make local-api` — Start canonical API server locally on port 8889 (default: no hot-reload for clean shutdown)
 - `make local-api-reload` — Start API with hot-reload (dev/debug only; use `BOT_API_RELOAD=true`)
 - `make local-bot` — Start bot instance runtime worker locally
-- `make local-worker` — Start Celery worker for backtest tasks (requires Redis broker at `$CELERY_BROKER_URL` or `localhost:6379/0`)
+- `make local-worker` — Start Celery worker for backtest tasks (requires Valkey/Redis-compatible broker at `$CELERY_BROKER_URL`, `REDIS_URL`, `VALKEY_URL`, or local `localhost:6379`)
 - `make local-flower` — Start Celery Flower UI locally on port 5555 (requires active worker)
 
 **Important workflow**: When using Celery for backtest execution, start `make local-worker` BEFORE `make local-api` so the API startup probes detect the Celery backend. If worker comes online later, restart the API. For legacy `/api/backtest/jobs` requests, also ensure `BACKTEST_TASK_ALWAYS_EAGER=false` so tasks execute asynchronously instead of inline.
@@ -107,7 +107,7 @@ Repository-level guidance for coding agents working on this project.
 **Worker startup and config:**
 - Workers load structured config from `src.infrastructure.workers.celery_app:celery_app`
 - Celery broker/backend configured via `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` environment variables
-- Redis is the standard backend (local default: `redis://localhost:6379/0` for broker, `/1` for results)
+- Valkey is the standard local Redis-compatible backend (local defaults: `redis://localhost:6379/1` for Celery broker and `redis://localhost:6379/2` for results when `CELERY_*` is unset)
 - Flower connects to the same broker/backend and displays worker status only after worker is online
 
 ## Required checks for bot-runtime changes
@@ -148,7 +148,7 @@ Repository-level guidance for coding agents working on this project.
 - Service-token overlap behavior (`BOT_API_TOKEN`, `BOT_API_TOKEN_PREVIOUS`, `BOT_API_TOKENS`) and readiness semantics remain active contracts with backend delegation.
 - Strategy runtime websocket expectations remain operator-critical: snapshot on connect plus lifecycle/status updates after runtime changes.
 - Use supervised job pattern (`async_job_manager`) for all long-running background work; task state must persist to `jobs` table for operator visibility.
-- **Celery and Flower**: Backtest execution is Celery-backed when Redis is available; `make local-worker` must start before `make local-api`; Flower UI connects to active workers on port 5555.
+- **Celery and Flower**: Backtest execution is Celery-backed when Valkey/Redis-compatible infrastructure is available; `make local-worker` must start before `make local-api`; Flower UI connects to active workers on port 5555.
 - **Backtest logging**: Long-running backtests capture per-job logs to `bot_states/backtest_<run_id>.log`; retrieve via `GET /api/v1/backtests/{run_id}/logs` endpoint; progress reporting is throttled to reduce DB IO pressure.
 - **Runtime config**: Bot instances load config from `bot_instances.config` only (DB-first approach); deprecated `bot_states/config_*.yaml` files are no longer read; use `scripts/migrate_yaml_configs_to_db.py` for one-time migration if needed.
 - **Startup recovery**: Stale backtests and orphaned live bots are reconciled to failed state by default; use `BACKTEST_AUTO_RECOVERY_MODE=restart` and `BOT_AUTO_RECOVER_LIVE_*` flags to enable auto-recovery.

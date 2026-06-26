@@ -221,6 +221,24 @@ spec:
                 secretKeyRef:
                   name: bot-secrets
                   key: bot-api-token
+            - name: BACKTEST_MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: backtest-minio
+                  key: access-key
+                  optional: true
+            - name: BACKTEST_MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: backtest-minio
+                  key: secret-key
+                  optional: true
+            - name: BACKTEST_CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backtest-clickhouse
+                  key: password
+                  optional: true
           readinessProbe:
             httpGet:
               path: /ready
@@ -298,6 +316,24 @@ spec:
                 secretKeyRef:
                   name: bot-database
                   key: url
+            - name: BACKTEST_MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: backtest-minio
+                  key: access-key
+                  optional: true
+            - name: BACKTEST_MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: backtest-minio
+                  key: secret-key
+                  optional: true
+            - name: BACKTEST_CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backtest-clickhouse
+                  key: password
+                  optional: true
           readinessProbe:
             exec:
               command:

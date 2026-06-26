@@ -4,9 +4,9 @@
 
 | Task/job | Trigger | Queue/executor | Durable state | Result/side effects | Evidence |
 |---|---|---|---|---|---|
-| `backtests.run` | Backtest create/restart/retry/recovery | Celery `backtests` | backtest tables + Celery backend; optional `jobs` | historical fetch/simulation/results, Redis status, run log | [`run_backtest_task`](../src/infrastructure/workers/backtest_tasks.py) |
+| `backtests.run` | Backtest create/restart/retry/recovery | Celery `backtests` | backtest tables + Celery backend; optional `jobs` | historical fetch/simulation/results, Valkey status, run log | [`run_backtest_task`](../src/infrastructure/workers/backtest_tasks.py) |
 | `backtests.aggregate_candles` | Successful Celery backtest | Celery `default` | Celery result only | Returns `skipped`; no aggregation | [`aggregate_backtest_candles`](../src/infrastructure/workers/candle_aggregate_tasks.py) |
-| `bot.sync_market_candles` | Beat interval or manual dispatch | Celery `scheduled` | Redis cache/task result | dYdX candles cached in Redis | [`sync_market_candles`](../src/infrastructure/workers/market_sync_tasks.py) |
+| `bot.sync_market_candles` | Beat interval or manual dispatch | Celery `scheduled` | Valkey cache/task result | dYdX candles cached in Valkey | [`sync_market_candles`](../src/infrastructure/workers/market_sync_tasks.py) |
 | `bot-manager-monitor` | API lifespan | API asyncio loop | best-effort `jobs` row | dead-process cleanup/readiness monitoring | [`_bot_manager_monitor_loop`](../src/api/server.py), [`lifespan`](../src/api/server.py) |
 | asyncio backtest | `BACKTEST_WORKER_BACKEND=asyncio` | API asyncio loop | backtest tables + `jobs` | same simulation in API process | [`create_and_run_backtest`](../src/infrastructure/use_cases/service_backtest.py) |
 | lifecycle jobs | bot start/stop/restart paths | synchronous manager + AsyncJobManager persistence calls | `jobs` | operator-visible lifecycle status | [`src/bot_instance_manager.py`](../src/bot_instance_manager.py) |
@@ -17,9 +17,9 @@
 
 | Task/job name | Trigger | Queue/broker or executor | Worker file | Business purpose | Input payload | Output/result | Retry behavior | Failure handling | Tables/files touched | Related flow |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `backtests.run` | Create/restart/retry/recovery dispatch | Redis/Celery queue `BACKTEST_CELERY_QUEUE` (`backtests`) | `src/infrastructure/workers/backtest_tasks.py` | Execute one persisted historical simulation | `run_id`; task context resolves stored request/strategy/pairs | Celery result with run/result context; persisted metrics/trades/progress | Only classified transient network/HTTP failures; configurable max 3, exponential bounded delay | Redis ownership lock, terminal error classification, run failure persistence, soft/hard timeout handling | `backtest_runtime_runs`, `backtest_run_requests`, optional `jobs`, `bot_states/backtest_<run_id>.log`, Redis lock/status | BF-07, BF-08 |
-| `backtests.aggregate_candles` | Successful `backtests.run` | Redis/Celery `default` | `src/infrastructure/workers/candle_aggregate_tasks.py` | Compatibility post-processing hook | `run_id` | `{status: "skipped", reason: ...}` | Celery defaults; no explicit retry | Returns skipped; exceptions use normal task failure | No application table write found | BF-07 |
-| `bot.sync_market_candles` | Beat interval/manual dispatch | Redis/Celery `scheduled` | `src/infrastructure/workers/market_sync_tasks.py` | Prewarm recent candle cache | No required payload; markets/resolution/limits from environment | Per-market success/failure summary and last-run cache | No explicit automatic retry | Disabled/missing dependency returns skipped; per-market failures collected | Redis candle keys and last-run summary | BF-11 |
+| `backtests.run` | Create/restart/retry/recovery dispatch | Valkey/Celery queue `BACKTEST_CELERY_QUEUE` (`backtests`) | `src/infrastructure/workers/backtest_tasks.py` | Execute one persisted historical simulation | `run_id`; task context resolves stored request/strategy/pairs | Celery result with run/result context; persisted metrics/trades/progress | Only classified transient network/HTTP failures; configurable max 3, exponential bounded delay | Valkey ownership lock, terminal error classification, run failure persistence, soft/hard timeout handling | `backtest_runtime_runs`, `backtest_run_requests`, optional `jobs`, `bot_states/backtest_<run_id>.log`, Valkey lock/status | BF-07, BF-08 |
+| `backtests.aggregate_candles` | Successful `backtests.run` | Valkey/Celery `default` | `src/infrastructure/workers/candle_aggregate_tasks.py` | Compatibility post-processing hook | `run_id` | `{status: "skipped", reason: ...}` | Celery defaults; no explicit retry | Returns skipped; exceptions use normal task failure | No application table write found | BF-07 |
+| `bot.sync_market_candles` | Beat interval/manual dispatch | Valkey/Celery `scheduled` | `src/infrastructure/workers/market_sync_tasks.py` | Prewarm recent candle cache | No required payload; markets/resolution/limits from environment | Per-market success/failure summary and last-run cache | No explicit automatic retry | Disabled/missing dependency returns skipped; per-market failures collected | Valkey candle keys and last-run summary | BF-11 |
 | `bot-manager-monitor` | API lifespan | API `AsyncJobManager`/asyncio | `src/api/server.py` | Reap dead workers and keep manager/readiness state current | Manager object; interval from environment | Long-running task, no normal business result | Loop continues after logged cycle errors; no cross-process retry | Job callback persists exception where enabled; API shutdown cancels | `bot_instances`, `jobs`, `event_logs`, worker/log state indirectly | BF-01, BF-03 |
 | Asyncio backtest | `BACKTEST_WORKER_BACKEND=asyncio` | API `AsyncJobManager` | `src/infrastructure/use_cases/service_backtest.py` | Fallback in-process backtest execution | Persisted `run_id` and normalized request | Same persisted run result as Celery path | No durable executor retry; service lifecycle/restart endpoints can redispatch | Done callback records traceback/job failure; startup recovery handles stale DB state | backtest tables, `jobs`, run log as implemented | BF-07, BF-08 |
 | Backtest heartbeat | Active simulation | asyncio task or worker thread | `src/infrastructure/use_cases/service_backtest.py` | Keep long-running run from stale recovery | `run_id`, interval | Timestamp/control refresh | Repeated loop; write failures logged | Main execution remains authoritative; stale detection may trigger after failures | `backtest_runtime_runs` and request/control state | BF-07, BF-08 |
@@ -28,11 +28,11 @@
 
 ## Celery topology
 
-[`celery_app`](../src/infrastructure/workers/celery_app.py) uses Redis as broker by default and a separate Redis DB offset as result backend. Configured queues default to `backtests,default,high_priority,scheduled`; no task is routed to `high_priority` in current source.
+[`celery_app`](../src/infrastructure/workers/celery_app.py) uses Valkey/Redis-compatible infrastructure as broker by default and a separate DB offset as result backend. Configured queues default to `backtests,default,high_priority,scheduled`; no task is routed to `high_priority` in current source.
 
 ```mermaid
 flowchart LR
-  API[BacktestService] -->|apply_async task_id=run_id| B[(Redis broker)]
+  API[BacktestService] -->|apply_async task_id=run_id| B[(Valkey broker)]
   Beat[Celery Beat] -->|interval if enabled| B
   B --> Q1[backtests queue]
   B --> Q2[scheduled queue]
@@ -40,10 +40,10 @@ flowchart LR
   Q1 --> Run[backtests.run]
   Q2 --> Sync[bot.sync_market_candles]
   Q3 --> Agg[aggregate compatibility hook]
-  Run --> DB[(MariaDB)]
+  Run --> DB[(PostgreSQL)]
   Run --> DX[dYdX]
   Run --> Log[bot_states/backtest_id.log]
-  Run --> Pub[Redis status channel]
+  Run --> Pub[Valkey status channel]
 ```
 
 Safety/reliability settings include late acknowledgements, reject-on-worker-loss, prefetch 1, sent/started events, extended results, UTC, broker startup retries, and configurable seven-day hard/soft task limits ([`celery_app.conf.update`](../src/infrastructure/workers/celery_app.py)). Worker startup is available through `make local-worker` and `WORKER_MODE=celery` ([`Makefile`](../Makefile), [`worker_entrypoint.py`](../worker_entrypoint.py)). A Beat start command is not present in this repository: **UNKNOWN / NEEDS VALIDATION**.
@@ -52,10 +52,10 @@ Safety/reliability settings include late acknowledgements, reject-on-worker-loss
 
 1. [`BacktestService.create_and_run_backtest`](../src/infrastructure/use_cases/service_backtest.py) persists `pending` before dispatch.
 2. `_enqueue_celery_backtest` uses `run_id` as Celery task ID and routes to `BACKTEST_CELERY_QUEUE`.
-3. [`run_backtest_task`](../src/infrastructure/workers/backtest_tasks.py) takes a Redis ownership lock. A second task returns `duplicate_skipped`.
+3. [`run_backtest_task`](../src/infrastructure/workers/backtest_tasks.py) takes a Valkey/Redis ownership lock. A second task returns `duplicate_skipped`.
 4. It validates selected pairs and strategy snapshot invariants, writes task context, marks `started`, and reports Celery `STARTED`/`PROGRESS` metadata.
 5. `execute_existing_backtest` runs the simulation and heartbeat. Lightweight progress checkpoints update only scalar columns; trade/snapshot/daily-PnL JSON is persisted on the heavier pair/time cadence.
-6. Status is published on `backtest:{run_id}:status`. No Redis pub-sub consumer was found in the API; WebSockets query/poll persisted state or receive API-process callbacks.
+6. Status is published on `backtest:{run_id}:status`. No Valkey/Redis pub-sub consumer was found in the API; WebSockets query/poll persisted state or receive API-process callbacks.
 7. Transient HTTP/network failures are retried with bounded exponential delay; validation, timeout and cancellation are terminal.
 8. Success enqueues the candle aggregation hook, which currently returns `skipped` and relies on DB fallback.
 
@@ -88,7 +88,7 @@ Live runtime recovery is separate in [`BotInstanceManager.auto_recover_live_runt
 |---|---|---|
 | Broker/enqueue unavailable | run marked failed with enqueue context | create error, status, logs |
 | Duplicate backtest owner | Celery result `duplicate_skipped`; existing run continues | Celery admin detail |
-| Worker lost | late ack/reject permits redelivery; Redis lock arbitrates | Celery events/health, stale recovery |
+| Worker lost | late ack/reject permits redelivery; Valkey lock arbitrates | Celery events/health, stale recovery |
 | Soft limit | run failed with `BACKTEST_TIMEOUT` | run status/log/task failure |
 | Transient dYdX error | retry count and retry-after stored | Celery task + run status |
 | API asyncio task exception | `jobs.error_*` and run failure path | jobs/backtest endpoints |
@@ -98,4 +98,4 @@ Live runtime recovery is separate in [`BotInstanceManager.auto_recover_live_runt
 ## Validation notes
 
 - Confirmed by task decorators, routes, manager and service code.
-- **NEEDS VALIDATION:** Redis lock TTL versus maximum backtest duration; actual worker/Beat replica counts; redelivery behavior with the configured broker visibility timeout (not set here); whether an external Redis-to-WebSocket bridge exists outside this repository.
+- **NEEDS VALIDATION:** Valkey lock TTL versus maximum backtest duration; actual worker/Beat replica counts; redelivery behavior with the configured broker visibility timeout (not set here); whether an external cache-to-WebSocket bridge exists outside this repository.

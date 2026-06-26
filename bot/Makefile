@@ -187,7 +187,7 @@ local-bot: ensure-venv ## Start trading bot runtime locally
 .PHONY: local-worker
 local-worker: ensure-venv ## Start Celery worker locally for backtests/runtime jobs
 	@echo "$(CYAN)👷 Starting local Celery worker for strategy backtests$(RESET)"
-	CELERY_BROKER_URL=$${CELERY_BROKER_URL:-redis://localhost:6379/0} CELERY_RESULT_BACKEND=$${CELERY_RESULT_BACKEND:-redis://localhost:6379/1} CELERY_QUEUES=$${CELERY_QUEUES:-backtests,default,high_priority,scheduled} $(VENV_PYTHON) -m celery -A src.infrastructure.workers.celery_app:celery_app worker -l info -Q $${CELERY_QUEUES:-backtests,default,high_priority,scheduled} -E
+	CELERY_BROKER_URL=$${CELERY_BROKER_URL:-$${REDIS_URL:-$${VALKEY_URL:-redis://localhost:6379/1}}} CELERY_RESULT_BACKEND=$${CELERY_RESULT_BACKEND:-$${REDIS_RESULT_BACKEND_URL:-$${VALKEY_RESULT_BACKEND_URL:-redis://localhost:6379/2}}} CELERY_QUEUES=$${CELERY_QUEUES:-backtests,default,high_priority,scheduled} $(VENV_PYTHON) -m celery -A src.infrastructure.workers.celery_app:celery_app worker -l info -Q $${CELERY_QUEUES:-backtests,default,high_priority,scheduled} -E
 
 .PHONY: dev-detached
 dev-detached: ## Start development environment in background
@@ -260,7 +260,7 @@ logs-api: ## Show API server logs
 
 .PHONY: logs-db
 logs-db: ## Show database logs
-	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) logs -f mariadb
+	@docker compose -f ../docker-compose.infra.yml logs -f postgresql
 
 .PHONY: logs-nginx
 logs-nginx: ## Show Nginx logs
@@ -273,31 +273,22 @@ logs-nginx: ## Show Nginx logs
 .PHONY: db-shell
 db-shell: ## Connect to database shell
 	@echo "$(CYAN)🗄️  Connecting to database...$(RESET)"
-	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec mariadb mariadb -u botuser -pdydx_trading_bot dydx_trading_bot
+	@docker exec -it dydx-postgresql psql -U $${POSTGRES_USER:-dydx_bot} -d $${POSTGRES_DB:-dydx_bot}
 
 .PHONY: db-backup
 db-backup: ## Backup database
 	@echo "$(CYAN)💾 Creating database backup...$(RESET)"
 	@mkdir -p backups
-	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec mariadb mariadb-dump -u botuser -pdydx_trading_bot dydx_trading_bot | gzip > backups/backup_$(shell date +%Y%m%d_%H%M%S).sql.gz
+	@docker exec dydx-postgresql pg_dump -U $${POSTGRES_USER:-dydx_bot} $${POSTGRES_DB:-dydx_bot} | gzip > backups/backup_$(shell date +%Y%m%d_%H%M%S).sql.gz
 	@echo "$(GREEN)✅ Database backup created in backups/$(RESET)"
 
 .PHONY: db-reset
 db-reset: ## Reset database (WARNING: deletes all data)
-	@echo "$(RED)⚠️  This will DELETE ALL DATABASE DATA!$(RESET)"
-	@read -p "Are you sure you want to reset the database? (y/N): " -n 1 -r; \
-	echo; \
-	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
-		docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) stop mariadb; \
-		docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) rm -f mariadb; \
-		docker volume rm $(PROJECT_NAME)_mariadb_data || true; \
-		docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) up -d mariadb; \
-		sleep 10; \
-		$(MAKE) init-auth; \
-		echo "$(GREEN)✅ Database reset complete$(RESET)"; \
-	else \
-		echo "$(YELLOW)Operation cancelled$(RESET)"; \
-	fi
+	@echo "$(YELLOW)⚠️  db-reset no longer manages a bot-local database container.$(RESET)"
+	@echo "Use the repo-root infrastructure workflow instead:"
+	@echo "  make infra-down"
+	@echo "  docker volume rm dydx-trading-bot_postgresql_data  # if a full local reset is intentional"
+	@echo "  make infra-up"
 
 # =============================================================================
 # SHELL AND DEBUGGING COMMANDS
@@ -313,7 +304,7 @@ shell-nginx: ## Open shell in Nginx container
 
 .PHONY: shell-db
 shell-db: ## Open shell in database container
-	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec mariadb /bin/bash
+	@docker exec -it dydx-postgresql /bin/sh
 
 # =============================================================================
 # SECURITY COMMANDS
@@ -333,13 +324,13 @@ health: ## Check health of all services
 	@echo "$(CYAN)🏥 Checking service health...$(RESET)"
 	@echo ""
 	@echo "$(GREEN)API Server:$(RESET)"
-	@curl -s http://localhost:8000/health | jq '.' 2>/dev/null || echo "  ❌ Not accessible"
+	@curl -s http://localhost:8889/health | jq '.' 2>/dev/null || echo "  ❌ Not accessible"
 	@echo ""
 	@echo "$(GREEN)Authentication:$(RESET)"
-	@curl -s http://localhost:8000/auth/health | jq '.' 2>/dev/null || echo "  ❌ Not accessible"
+	@curl -s http://localhost:8889/api/v1/auth/health | jq '.' 2>/dev/null || echo "  ❌ Not accessible"
 	@echo ""
 	@echo "$(GREEN)Database:$(RESET)"
-	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec mariadb mariadb-admin ping -h 127.0.0.1 -u botuser -pdydx_trading_bot --silent 2>/dev/null && echo "  ✅ Healthy" || echo "  ❌ Not healthy"
+	@docker exec dydx-postgresql pg_isready -U $${POSTGRES_USER:-dydx_bot} -d $${POSTGRES_DB:-dydx_bot} >/dev/null 2>&1 && echo "  ✅ Healthy" || echo "  ❌ Not healthy"
 	@echo ""
 
 # =============================================================================
@@ -416,4 +407,4 @@ $(ENV_FILE):
 .PHONY: local-flower
 local-flower: ensure-venv ## Start Celery Flower locally only (port 5555)
 	@echo "$(CYAN)🌸 Starting Celery Flower on http://0.0.0.0:5555$(RESET)"
-	FLOWER_UNAUTHENTICATED_API=false CELERY_BROKER_URL=$${CELERY_BROKER_URL:-redis://localhost:6379/0} CELERY_RESULT_BACKEND=$${CELERY_RESULT_BACKEND:-redis://localhost:6379/1} $(VENV_PYTHON) -m celery -A src.infrastructure.workers.celery_app:celery_app flower --address=0.0.0.0 --port=5555
+	FLOWER_UNAUTHENTICATED_API=false CELERY_BROKER_URL=$${CELERY_BROKER_URL:-$${REDIS_URL:-$${VALKEY_URL:-redis://localhost:6379/1}}} CELERY_RESULT_BACKEND=$${CELERY_RESULT_BACKEND:-$${REDIS_RESULT_BACKEND_URL:-$${VALKEY_RESULT_BACKEND_URL:-redis://localhost:6379/2}}} $(VENV_PYTHON) -m celery -A src.infrastructure.workers.celery_app:celery_app flower --address=0.0.0.0 --port=5555

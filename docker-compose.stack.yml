@@ -24,16 +24,16 @@ services:
     container_name: dydx-postgresql
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DATABASE_NAME:-dydx_bot}
-      POSTGRES_USER: ${DATABASE_USER:-dydx_bot}
-      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-change-me-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-dydx_bot}
+      POSTGRES_USER: ${POSTGRES_USER:-dydx_bot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5432:5432"
     volumes:
       - postgresql_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-dydx_bot}"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -91,7 +91,7 @@ services:
     container_name: dydx-clickhouse
     restart: unless-stopped
     environment:
-      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-dydx_analytics}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DATABASE:-dydx_analytics}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-clickhouse}
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
@@ -113,8 +113,8 @@ services:
     container_name: dydx-minio
     restart: unless-stopped
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me-minio}
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-change-me-minio}
     command:
       - server
       - /data
@@ -168,20 +168,31 @@ services:
     restart: unless-stopped
     environment:
       # Database
-      DATABASE_TYPE: postgres
-      DATABASE_HOST: postgresql
-      DATABASE_PORT: 5432
-      DATABASE_NAME: ${DATABASE_NAME:-dydx_bot}
-      DATABASE_USER: ${DATABASE_USER:-dydx_bot}
-      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-change-me-postgres}
+      DB_TYPE: postgres
+      DB_HOST: postgresql
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-dydx_bot}
+      DB_USER: ${POSTGRES_USER:-dydx_bot}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
+      POSTGRES_HOST: postgresql
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-dydx_bot}
+      POSTGRES_USER: ${POSTGRES_USER:-dydx_bot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
+      DATABASE_URL: postgres://${POSTGRES_USER:-dydx_bot}:${POSTGRES_PASSWORD:-change-me-db-password}@postgresql:5432/${POSTGRES_DB:-dydx_bot}?sslmode=disable
       # Cache
       REDIS_ENABLED: "true"
       REDIS_HOST: valkey
       REDIS_PORT: 6379
       REDIS_DB: 0
+      REDIS_URL: redis://valkey:6379/0
+      VALKEY_HOST: valkey
+      VALKEY_PORT: 6379
+      VALKEY_URL: redis://valkey:6379/0
       # NATS
       NATS_ENABLED: "true"
       NATS_URL: nats://nats:4222
+      NATS_MONITORING_URL: http://nats:8222
       NATS_STREAM_PREFIX: bot
       # Bot API
       BOT_API_URL: http://bot-api:8889
@@ -216,33 +227,60 @@ services:
     restart: unless-stopped
     environment:
       # Database
+      BOT_DB_CUTOVER_MODE: dedicated_with_shared_fallback
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-dydx_bot}:${POSTGRES_PASSWORD:-change-me-db-password}@postgresql:5432/${POSTGRES_DB:-dydx_bot}?sslmode=disable
+      POSTGRES_HOST: postgresql
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-dydx_bot}
+      POSTGRES_USER: ${POSTGRES_USER:-dydx_bot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
+      DB_TYPE: postgres
+      DB_HOST: postgresql
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-dydx_bot}
+      DB_USER: ${POSTGRES_USER:-dydx_bot}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
       BOT_DB_TYPE: postgres
       BOT_DB_HOST: postgresql
       BOT_DB_PORT: 5432
-      BOT_DB_NAME: ${DATABASE_NAME:-dydx_bot}
-      BOT_DB_USER: ${DATABASE_USER:-dydx_bot}
-      BOT_DB_PASSWORD: ${DATABASE_PASSWORD:-change-me-postgres}
+      BOT_DB_NAME: ${POSTGRES_DB:-dydx_bot}
+      BOT_DB_USER: ${POSTGRES_USER:-dydx_bot}
+      BOT_DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
+      BOT_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-dydx_bot}:${POSTGRES_PASSWORD:-change-me-db-password}@postgresql:5432/${POSTGRES_DB:-dydx_bot}?sslmode=disable
       # Cache
       REDIS_ENABLED: "true"
       REDIS_HOST: valkey
       REDIS_PORT: 6379
       REDIS_DB: 0
+      REDIS_URL: redis://valkey:6379/0
+      VALKEY_HOST: valkey
+      VALKEY_PORT: 6379
+      VALKEY_URL: redis://valkey:6379/0
       # NATS
       NATS_ENABLED: "true"
       NATS_URL: nats://nats:4222
+      NATS_MONITORING_URL: http://nats:8222
       NATS_STREAM_PREFIX: bot
       # ClickHouse
+      BACKTEST_CLICKHOUSE_ENABLED: "true"
+      CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: 8123
-      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DB:-dydx_analytics}
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-dydx_analytics}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-clickhouse}
       # MinIO
-      MINIO_HOST: minio
-      MINIO_PORT: 9000
-      MINIO_BUCKET: dydx-artifacts
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me-minio}
+      BACKTEST_MINIO_ENABLED: "true"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_CONSOLE_URL: http://minio:9001
+      MINIO_BUCKET: backtests
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-change-me-minio}
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-change-me-minio}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_FORCE_PATH_STYLE: "true"
       # Bot
       BOT_API_HOST: 0.0.0.0
       BOT_API_PORT: 8889
@@ -256,6 +294,10 @@ services:
       valkey:
         condition: service_healthy
       nats:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8889/health"]
@@ -274,33 +316,60 @@ services:
     restart: unless-stopped
     environment:
       # Database
+      BOT_DB_CUTOVER_MODE: dedicated_with_shared_fallback
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-dydx_bot}:${POSTGRES_PASSWORD:-change-me-db-password}@postgresql:5432/${POSTGRES_DB:-dydx_bot}?sslmode=disable
+      POSTGRES_HOST: postgresql
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-dydx_bot}
+      POSTGRES_USER: ${POSTGRES_USER:-dydx_bot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
+      DB_TYPE: postgres
+      DB_HOST: postgresql
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-dydx_bot}
+      DB_USER: ${POSTGRES_USER:-dydx_bot}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
       BOT_DB_TYPE: postgres
       BOT_DB_HOST: postgresql
       BOT_DB_PORT: 5432
-      BOT_DB_NAME: ${DATABASE_NAME:-dydx_bot}
-      BOT_DB_USER: ${DATABASE_USER:-dydx_bot}
-      BOT_DB_PASSWORD: ${DATABASE_PASSWORD:-change-me-postgres}
+      BOT_DB_NAME: ${POSTGRES_DB:-dydx_bot}
+      BOT_DB_USER: ${POSTGRES_USER:-dydx_bot}
+      BOT_DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
+      BOT_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-dydx_bot}:${POSTGRES_PASSWORD:-change-me-db-password}@postgresql:5432/${POSTGRES_DB:-dydx_bot}?sslmode=disable
       # Cache
       REDIS_ENABLED: "true"
       REDIS_HOST: valkey
       REDIS_PORT: 6379
       REDIS_DB: 0
+      REDIS_URL: redis://valkey:6379/0
+      VALKEY_HOST: valkey
+      VALKEY_PORT: 6379
+      VALKEY_URL: redis://valkey:6379/0
       # NATS
       NATS_ENABLED: "true"
       NATS_URL: nats://nats:4222
+      NATS_MONITORING_URL: http://nats:8222
       NATS_STREAM_PREFIX: bot
       # ClickHouse
+      BACKTEST_CLICKHOUSE_ENABLED: "true"
+      CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: 8123
-      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DB:-dydx_analytics}
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-dydx_analytics}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-clickhouse}
       # MinIO
-      MINIO_HOST: minio
-      MINIO_PORT: 9000
-      MINIO_BUCKET: dydx-artifacts
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me-minio}
+      BACKTEST_MINIO_ENABLED: "true"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_CONSOLE_URL: http://minio:9001
+      MINIO_BUCKET: backtests
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-change-me-minio}
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-change-me-minio}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_FORCE_PATH_STYLE: "true"
       # Celery
       CELERY_BROKER_URL: redis://valkey:6379/1
       CELERY_RESULT_BACKEND: redis://valkey:6379/2
@@ -312,6 +381,10 @@ services:
       valkey:
         condition: service_healthy
       nats:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      minio:
         condition: service_healthy
       bot-api:
         condition: service_healthy

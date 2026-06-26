@@ -12,7 +12,7 @@ This folder collects platform-level notes, audits, and rollout guidance that cut
 ## Operational notes
 
 - Backtest heartbeat tuning and stale-run behavior are documented in [bot/README.md](/home/chris/workspace/dydx-trading-bot/bot/README.md).
-- Staging deploy defaults for the backtest heartbeat keepalive are pinned in `deploy/k8s/dydx-trading-bot-staging.yaml`.
+- Active k3s manifests now live under `deploy/k8s-next/`; the older `deploy/k8s/` single-file bundles are legacy references only.
 
 ## Local docs in this folder
 

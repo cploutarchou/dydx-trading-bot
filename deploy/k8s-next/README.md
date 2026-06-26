@@ -18,3 +18,15 @@ Overlay entry points:
 - `overlays/production` for production hostnames and the full base bundle
 
 The resources here are a skeleton. Replace the placeholder image tags, hosts, and secret names with your real deployment values before applying to a cluster.
+
+## Infrastructure contract
+
+`platform-config.yaml` now carries the shared non-secret service-discovery values for:
+
+- PostgreSQL / PgBouncer via `DATABASE_URL` secrets plus `POSTGRES_*`, `DB_*`, `BOT_DB_*`
+- Valkey via `REDIS_URL`, `VALKEY_URL`, `REDIS_*`, `VALKEY_*`
+- NATS via `NATS_URL` and `NATS_MONITORING_URL`
+- ClickHouse via `CLICKHOUSE_URL` and `CLICKHOUSE_*`
+- MinIO via `MINIO_ENDPOINT`, `MINIO_CONSOLE_URL`, `MINIO_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE`
+
+`applications.yaml` injects only non-secret infrastructure config from the ConfigMap and keeps credentials in Secrets.

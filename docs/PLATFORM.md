@@ -21,8 +21,7 @@ This repository is organized around three runtime services and shared deployment
 ## Backtest runtime note
 
 Long-running backtests refresh their heartbeat periodically to avoid false stale classification. The keepalive cadence is
-controlled by `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS`, and staging pins it in
-`deploy/k8s/dydx-trading-bot-staging.yaml`.
+controlled by `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS`.
 
 ## Local docs
 

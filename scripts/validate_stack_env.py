@@ -33,6 +33,30 @@ OPTIONAL_KEYS = [
     "LOKI_TENANT_ID",
 ]
 
+RECOMMENDED_INFRA_KEYS = [
+    "DATABASE_URL",
+    "POSTGRES_HOST",
+    "POSTGRES_PORT",
+    "POSTGRES_DB",
+    "POSTGRES_USER",
+    "REDIS_URL",
+    "REDIS_HOST",
+    "REDIS_PORT",
+    "VALKEY_HOST",
+    "VALKEY_PORT",
+    "NATS_URL",
+    "NATS_MONITORING_URL",
+    "CLICKHOUSE_URL",
+    "CLICKHOUSE_HOST",
+    "CLICKHOUSE_PORT",
+    "MINIO_ENDPOINT",
+    "MINIO_CONSOLE_URL",
+    "MINIO_BUCKET",
+    "S3_ENDPOINT",
+    "S3_REGION",
+    "S3_FORCE_PATH_STYLE",
+]
+
 
 PLACEHOLDER_TOKENS = (
     "your_",
@@ -189,12 +213,18 @@ def main() -> int:
         return 1
 
     optional_empty = [k for k in OPTIONAL_KEYS if env.get(k, "") == ""]
+    missing_recommended = [k for k in RECOMMENDED_INFRA_KEYS if env.get(k, "") == ""]
 
     print(f"✅ Structured config is valid: {profile_path}")
     if optional_empty:
         print(
             "ℹ️ Optional keys not set (expected in non-live mode): "
             + ", ".join(optional_empty)
+        )
+    if missing_recommended:
+        print(
+            "ℹ️ Recommended local infrastructure keys not set: "
+            + ", ".join(missing_recommended)
         )
 
     bot_db_errors, bot_db_warnings = validate_bot_db_rules(env)

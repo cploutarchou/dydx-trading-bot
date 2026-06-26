@@ -168,12 +168,12 @@ func LoadConfig() error {
 	}
 
 	database := DatabaseSettings{
-		Host:           getEnvAny([]string{"DB_HOST"}, "localhost"),
-		Port:           getEnvInt("DB_PORT", 5432),
-		Dbname:         getEnv("DB_NAME", "dydx_bot"),
-		User:           getEnv("DB_USER", "dydx_bot"),
+		Host:           getEnvAny([]string{"DB_HOST", "POSTGRES_HOST"}, "localhost"),
+		Port:           getEnvIntAny([]string{"DB_PORT", "POSTGRES_PORT"}, 5432),
+		Dbname:         getEnvAny([]string{"DB_NAME", "POSTGRES_DB"}, "dydx_bot"),
+		User:           getEnvAny([]string{"DB_USER", "POSTGRES_USER"}, "dydx_bot"),
 		Type:           "postgres",
-		Password:       getEnv("DB_PASSWORD", ""),
+		Password:       getEnvAny([]string{"DB_PASSWORD", "POSTGRES_PASSWORD"}, "change-me-db-password"),
 		SSL:            getEnvBool("SSL_MODE", false),
 		Timeout:        getEnvInt("DB_TIMEOUT", 5),
 		MaxConnections: getEnvInt("DB_MAX_CONNECTIONS", 10),
@@ -181,10 +181,15 @@ func LoadConfig() error {
 		Enabled:        getEnvBool("DB_ENABLED", true),
 		PoolSize:       getEnvInt("DB_POOL_SIZE", 5),
 	}
+	if parsedDatabase, ok, err := parsePostgresDatabaseURL(strings.TrimSpace(os.Getenv("DATABASE_URL")), database); err != nil {
+		return err
+	} else if ok {
+		database = parsedDatabase
+	}
 
 	redis := RedisSettings{
-		Host:            getEnv("REDIS_HOST", "localhost"),
-		Port:            getEnvIntAny([]string{"REDIS_PORT"}, 6379),
+		Host:            getEnvAny([]string{"REDIS_HOST", "VALKEY_HOST"}, "localhost"),
+		Port:            getEnvIntAny([]string{"REDIS_PORT", "VALKEY_PORT"}, 6379),
 		DB:              getEnvInt("REDIS_DB", 0),
 		Password:        os.Getenv("REDIS_PASSWORD"),
 		SSL:             getEnvBool("REDIS_SSL", false),
@@ -192,6 +197,11 @@ func LoadConfig() error {
 		CacheTTLSeconds: getEnvIntAny([]string{"REDIS_CACHE_TTL", "REDIS_CACHE_TTL_SECONDS"}, 86400),
 		MaxConnections:  getEnvInt("REDIS_MAX_CONNECTIONS", 10),
 		Enabled:         getEnvBool("REDIS_ENABLED", true),
+	}
+	if parsedRedis, ok, err := parseRedisURL(getEnvAny([]string{"REDIS_URL", "VALKEY_URL"}, ""), redis); err != nil {
+		return err
+	} else if ok {
+		redis = parsedRedis
 	}
 
 	auth := AuthSettings{
@@ -212,6 +222,89 @@ func LoadConfig() error {
 	}
 
 	return nil
+}
+
+func parsePostgresDatabaseURL(raw string, defaults DatabaseSettings) (DatabaseSettings, bool, error) {
+	if strings.TrimSpace(raw) == "" {
+		return defaults, false, nil
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return defaults, false, fmt.Errorf("invalid DATABASE_URL: %w", err)
+	}
+
+	switch strings.ToLower(strings.TrimSpace(parsed.Scheme)) {
+	case "postgres", "postgresql":
+	default:
+		return defaults, false, fmt.Errorf("unsupported DATABASE_URL scheme %q", parsed.Scheme)
+	}
+
+	if host := strings.TrimSpace(parsed.Hostname()); host != "" {
+		defaults.Host = host
+	}
+	if port := parsed.Port(); port != "" {
+		if parsedPort, err := strconv.Atoi(port); err == nil {
+			defaults.Port = parsedPort
+		}
+	}
+	if dbName := strings.TrimPrefix(strings.TrimSpace(parsed.Path), "/"); dbName != "" {
+		defaults.Dbname = dbName
+	}
+	if user := parsed.User.Username(); strings.TrimSpace(user) != "" {
+		defaults.User = user
+	}
+	if password, ok := parsed.User.Password(); ok {
+		defaults.Password = password
+	}
+	if sslmode := strings.ToLower(strings.TrimSpace(parsed.Query().Get("sslmode"))); sslmode != "" {
+		defaults.SSL = sslmode != "disable"
+	}
+	if timeoutValue := strings.TrimSpace(parsed.Query().Get("connect_timeout")); timeoutValue != "" {
+		if timeout, err := strconv.Atoi(timeoutValue); err == nil {
+			defaults.Timeout = timeout
+		}
+	}
+
+	defaults.Type = "postgres"
+	return defaults, true, nil
+}
+
+func parseRedisURL(raw string, defaults RedisSettings) (RedisSettings, bool, error) {
+	if strings.TrimSpace(raw) == "" {
+		return defaults, false, nil
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return defaults, false, fmt.Errorf("invalid REDIS_URL: %w", err)
+	}
+
+	switch strings.ToLower(strings.TrimSpace(parsed.Scheme)) {
+	case "redis", "rediss":
+	default:
+		return defaults, false, fmt.Errorf("unsupported REDIS_URL scheme %q", parsed.Scheme)
+	}
+
+	if host := strings.TrimSpace(parsed.Hostname()); host != "" {
+		defaults.Host = host
+	}
+	if port := parsed.Port(); port != "" {
+		if parsedPort, err := strconv.Atoi(port); err == nil {
+			defaults.Port = parsedPort
+		}
+	}
+	if password, ok := parsed.User.Password(); ok {
+		defaults.Password = password
+	}
+	if parsed.Path != "" && parsed.Path != "/" {
+		if dbValue, err := strconv.Atoi(strings.TrimPrefix(parsed.Path, "/")); err == nil {
+			defaults.DB = dbValue
+		}
+	}
+	defaults.SSL = strings.EqualFold(parsed.Scheme, "rediss")
+
+	return defaults, true, nil
 }
 
 func LoadFileEnvValues(override bool) error {

@@ -192,7 +192,7 @@ class DatabaseSettings:
     type: str = "postgres"
     cutover_mode: str = "shared"
     name: str = "dydx_bot"
-    user: str = "app"
+    user: str = "dydx_bot"
     password: str = ""
     host: str = "localhost"
     port: str = "5432"
@@ -359,15 +359,31 @@ class ConfigurationManager:
         return DatabaseSettings(
             type="postgres",
             cutover_mode=cutover_mode,
-            name=_get_env("BOT_DB_NAME", "DB_NAME", default="dydx_bot"),
-            user=_get_env("BOT_DB_USER", "DB_USER", default="app"),
+            name=_get_env("BOT_DB_NAME", "DB_NAME", "POSTGRES_DB", default="dydx_bot"),
+            user=_get_env(
+                "BOT_DB_USER",
+                "DB_USER",
+                "POSTGRES_USER",
+                default="dydx_bot",
+            ),
             password=_get_env(
                 "BOT_DB_PASSWORD",
                 "DB_PASSWORD",
+                "POSTGRES_PASSWORD",
                 default="",
             ),
-            host=_get_env("BOT_DB_HOST", "DB_HOST", default="localhost"),
-            port=_get_env("BOT_DB_PORT", "DB_PORT", default="5432"),
+            host=_get_env(
+                "BOT_DB_HOST",
+                "DB_HOST",
+                "POSTGRES_HOST",
+                default="localhost",
+            ),
+            port=_get_env(
+                "BOT_DB_PORT",
+                "DB_PORT",
+                "POSTGRES_PORT",
+                default="5432",
+            ),
             pool_size=_get_env_int("DB_POOL_SIZE", default=5),
             max_overflow=_get_env_int("DB_MAX_OVERFLOW", default=10),
             timeout=_get_env_int("DB_TIMEOUT", default=5),
@@ -377,8 +393,8 @@ class ConfigurationManager:
         """Build Redis settings from environment variables."""
         return RedisSettings(
             enabled=_get_env("REDIS_ENABLED", default="false").lower() == "true",
-            host=_get_env("REDIS_HOST", default="localhost"),
-            port=_get_env_int("REDIS_PORT", default=6379),
+            host=_get_env("REDIS_HOST", "VALKEY_HOST", default="localhost"),
+            port=_get_env_int("REDIS_PORT", "VALKEY_PORT", default=6379),
             db=_get_env_int("REDIS_DB", default=0),
             password=_get_env("REDIS_PASSWORD", default=""),
             ssl=_get_env("REDIS_SSL", default="false").lower() == "true",

@@ -23,6 +23,7 @@ from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
 from src.shared.logging_setup import setup_logging
 from src.shared.notifications import TelegramMessenger
+from src.shared.live_risk_controls import assert_supported_live_risk_controls
 from src.trading.account_manager import abort_all_positions
 from src.trading.analysis.cointegration import store_cointegration_results
 from src.trading.dydx_client import connect_dydx_runtime
@@ -248,6 +249,7 @@ class BotInstance:
 
         credentials = self._required_mapping(payload, "credentials")
         trading = self._required_mapping(payload, "trading_params")
+        assert_supported_live_risk_controls(trading)
         if "is_testnet" not in trading:
             raise ValueError(
                 "DB runtime config is missing required 'trading_params.is_testnet' value"
@@ -307,10 +309,10 @@ class BotInstance:
                     "close_at_zscore_cross", True
                 ),
                 "maxPositions": trading.get("max_positions", 5),
-                "maxDrawdownPct": trading.get("max_drawdown_pct", 15.0),
+                "maxDrawdownPct": trading.get("max_drawdown_pct", 0.0),
                 "stopLossPct": trading.get("stop_loss_pct", 2.0),
                 "takeProfitPct": trading.get("take_profit_pct", 5.0),
-                "trailingStopPct": trading.get("trailing_stop_pct", 1.0),
+                "trailingStopPct": trading.get("trailing_stop_pct", 0.0),
                 "rebalanceIntervalHours": trading.get(
                     "rebalance_interval_hours", 24
                 ),

@@ -56,8 +56,11 @@ from src.infrastructure.domain.bot_api_models import (  # noqa: E402
 from src.infrastructure.domain.models.auth_models import User  # noqa: E402
 from src.middleware.auth_middleware import (  # noqa: E402
     authenticate_bearer_token,
+    current_environment_name,
     get_admin_user,
     get_current_active_user,
+    is_auth_bypass_enabled,
+    validate_auth_bypass_configuration,
 )
 
 try:
@@ -113,6 +116,7 @@ from src.infrastructure.workers.celery_monitor import (  # noqa: E402
     revoke_celery_task,
 )
 from src.shared.logging_setup import setup_logging  # noqa: E402
+from src.shared.live_risk_controls import assert_supported_live_risk_controls  # noqa: E402
 from src.shared.notifications import TelegramMessenger  # noqa: E402
 from src.shared.time_utils import utc_now_iso  # noqa: E402
 from src.trading.arbitrage_observability import snapshot_metrics  # noqa: E402
@@ -1767,21 +1771,13 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
                 _celery_probe_err,
             )
 
-    # Safety guard: API_BYPASS_AUTH must never be enabled in production.
-    if os.getenv("API_BYPASS_AUTH", "false").lower() == "true":
-        _env = os.getenv("ENVIRONMENT", "development").lower()
-        if _env == "production":
-            logger.critical(
-                "API_BYPASS_AUTH=true is NOT permitted in ENVIRONMENT=production. "
-                "Refusing to start. Unset API_BYPASS_AUTH or set it to false."
-            )
-            raise RuntimeError(
-                "API_BYPASS_AUTH=true is forbidden in production environment."
-            )
+    # Safety guard: API_BYPASS_AUTH must never be enabled outside explicit dev/test environments.
+    validate_auth_bypass_configuration()
+    if is_auth_bypass_enabled():
         logger.warning(
             "API_BYPASS_AUTH=true — authentication is DISABLED (environment={}). "
-            "Do not use in production.",
-            _env,
+            "Allowed only for explicit local/dev/test environments.",
+            current_environment_name().strip().lower() or "development",
         )
 
     logger.info("Starting Bot API Server...")
@@ -1942,6 +1938,17 @@ async def runtime_preflight(
     current_user: User = Depends(get_current_active_user),
 ):
     """Evaluate whether a live runtime is ready to start on the selected environment."""
+    del current_user
+    try:
+        assert_supported_live_risk_controls(request.trading_params.model_dump())
+    except ValueError as exc:
+        return api_response(
+            success=False,
+            message=f"Validation error: {exc}",
+            data={"error": "UNSUPPORTED_RISK_CONTROL"},
+            status_code=422,
+        )
+
     environment = (
         "mainnet"
         if str(request.credentials.chain_id).lower().startswith("dydx-mainnet")
@@ -2312,6 +2319,7 @@ async def create_bot_instance(
 ):
     """Create a new bot instance"""
     try:
+        assert_supported_live_risk_controls(config.trading_params.model_dump())
         if bot_manager is None:
             return _bot_manager_unavailable_response()
         result = await bot_manager.create_instance(config)
@@ -2422,6 +2430,13 @@ async def create_bot_instance(
             return api_response(success=False, message=result.message, status_code=400)
 
     except Exception as e:
+        if isinstance(e, ValueError):
+            return api_response(
+                success=False,
+                message=f"Validation error: {str(e)}",
+                data={"error": "UNSUPPORTED_RISK_CONTROL"},
+                status_code=422,
+            )
         logger.error(f"Error creating bot instance: {e}")
         return api_response(
             success=False, message=f"Internal server error: {str(e)}", status_code=500
@@ -4318,7 +4333,7 @@ async def websocket_backtest_progress_alias(websocket: WebSocket, run_id: str):
 
 async def _authorize_websocket_connection(websocket: WebSocket) -> bool:
     """Validate websocket bearer token via service-token or JWT path."""
-    if os.getenv("API_BYPASS_AUTH", "false").lower() == "true":
+    if is_auth_bypass_enabled():
         return True
 
     auth_header = websocket.headers.get("authorization", "").strip()
@@ -4537,8 +4552,10 @@ def _get_live_progress_sync(run_id: str):
 async def create_backtest(
     request: Union[BacktestConfigRequest, BacktestRunRequestCompat],
     _rate: None = Depends(_check_backtest_rate_limit),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Create and start a new backtest"""
+    del current_user
     try:
         if isinstance(request, BacktestRunRequestCompat):
             resolved_pairs = await _resolve_backtest_markets(
@@ -4604,8 +4621,10 @@ async def create_backtest(
 async def run_backtest_compat(
     request: BacktestRunRequestCompat,
     _rate: None = Depends(_check_backtest_rate_limit),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Frontend-compatible backtest execution route."""
+    del current_user
     try:
         resolved_pairs = await _resolve_backtest_markets(
             request.pairs,
@@ -4681,8 +4700,10 @@ async def list_backtests(
     offset: int = 0,
     status: Optional[str] = None,
     days: Optional[int] = None,
+    current_user: User = Depends(get_current_active_user),
 ):
     """List backtest runs with filtering"""
+    del current_user
     try:
         result = _list_backtests_sync(limit, offset, status, days)
         payload = result.model_dump()
@@ -4705,8 +4726,10 @@ async def list_backtests(
 @app.get("/api/v1/backtests/interrupted")
 async def list_interrupted_backtests(
     limit: int = 50,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Ops visibility for interrupted/orphaned persisted backtest runs."""
+    del current_user
     return _list_interrupted_backtests_response(limit=limit)
 
 
@@ -4733,8 +4756,10 @@ def _list_interrupted_backtests_response(limit: int):
 @app.post("/api/v1/backtests/interrupted/reconcile")
 async def reconcile_interrupted_backtests(
     dry_run: bool = True,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Explicitly reconcile persisted orphaned in-progress runs."""
+    del current_user
     return _reconcile_interrupted_backtests_response(dry_run=dry_run)
 
 
@@ -4820,8 +4845,10 @@ async def repair_backtest_request_admin(
 @app.get("/api/v1/backtests/{run_id}", response_model=BacktestDetailResponse)
 async def get_backtest_details(
     run_id: str,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get detailed backtest results"""
+    del current_user
     try:
         result = _get_backtest_details_sync(run_id)
         if not result:
@@ -4847,8 +4874,10 @@ async def get_backtest_details(
 @app.get("/api/v1/backtests/{run_id}/status")
 async def get_backtest_status(
     run_id: str,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get current backtest status and progress"""
+    del current_user
     try:
         result = _get_backtest_status_sync(run_id)
         if not result:
@@ -4882,8 +4911,10 @@ async def get_backtest_status(
 async def update_backtest_metadata(
     run_id: str,
     payload: Dict[str, Any] = Body(default_factory=dict),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Attach or merge structured metadata into a persisted backtest run."""
+    del current_user
     try:
         metadata = payload.get("metadata")
         if not isinstance(metadata, dict):
@@ -4925,8 +4956,10 @@ async def update_backtest_metadata(
 @app.get("/api/v1/backtests/{run_id}/websocket-metrics")
 async def get_backtest_websocket_metrics(
     run_id: str,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get per-run websocket send-failure metrics for reconnect-thrashing alerting."""
+    del current_user
     try:
         status = _get_backtest_status_sync(run_id)
         if status is None:
@@ -4959,8 +4992,10 @@ async def get_backtest_websocket_metrics(
 async def create_strategy_from_backtest(
     run_id: str,
     request: BacktestCreateStrategyRequest,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Create a strategy snapshot from an existing backtest."""
+    del current_user
     with backtest_service_scope() as service:
         details = service.get_backtest_details(run_id)
     if not details:
@@ -4993,8 +5028,10 @@ async def get_backtest_trades(
     limit: int = 100,
     offset: int = 0,
     winning_only: bool = False,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get trades for specific backtest run"""
+    del current_user
     try:
         started_at = time.perf_counter()
         cache_key = f"backtest:trades:{run_id}:limit={limit}:offset={offset}:winning_only={winning_only}"
@@ -5049,8 +5086,10 @@ async def get_backtest_trades(
 async def get_backtest_logs(
     run_id: str,
     tail: int = Query(default=1000, ge=1, le=10000),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Retrieve detailed execution logs for a specific backtest run."""
+    del current_user
     log_file = os.path.join("bot_states", f"backtest_{run_id}.log")
     if not os.path.exists(log_file):
         return api_response(
@@ -5091,8 +5130,10 @@ async def get_backtest_logs(
 @app.post("/api/v1/backtests/{run_id}/cancel")
 async def cancel_backtest(
     run_id: str,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Cancel running backtest"""
+    del current_user
     try:
         with backtest_service_scope() as service:
             success = service.cancel_backtest(run_id)
@@ -5117,8 +5158,10 @@ async def cancel_backtest(
 @app.post("/api/v1/backtests/{run_id}/pause")
 async def pause_backtest(
     run_id: str,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Request a cooperative pause for a running backtest."""
+    del current_user
     try:
         with backtest_service_scope() as service:
             result = service.pause_backtest(run_id)
@@ -5145,8 +5188,10 @@ async def pause_backtest(
 @app.post("/api/v1/backtests/{run_id}/resume")
 async def resume_backtest(
     run_id: str,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Resume a paused backtest."""
+    del current_user
     try:
         with backtest_service_scope() as service:
             result = service.resume_backtest(run_id)
@@ -5173,8 +5218,10 @@ async def resume_backtest(
 @app.post("/api/v1/backtests/{run_id}/restart")
 async def restart_backtest(
     run_id: str,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Cancel the current run if needed and start a fresh run from the same request."""
+    del current_user
     try:
         with backtest_service_scope() as service:
             status = service.get_backtest_status(run_id)
@@ -5220,8 +5267,10 @@ async def restart_backtest(
 @app.post("/api/v1/backtests/{run_id}/retry")
 async def retry_backtest(
     run_id: str,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Start a fresh run from the same request payload."""
+    del current_user
     try:
         with backtest_service_scope() as service:
             status = service.get_backtest_status(run_id)
@@ -5265,8 +5314,10 @@ async def retry_backtest(
 @app.delete("/api/v1/backtests/{run_id}")
 async def delete_backtest(
     run_id: str,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Delete backtest run and all associated data"""
+    del current_user
     try:
         with backtest_service_scope() as service:
             success = service.delete_backtest(run_id)
@@ -5289,8 +5340,10 @@ async def delete_backtest(
 @app.get("/api/v1/backtests/stats/summary")
 async def get_backtest_summary_stats(
     days: int = 30,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get backtest system summary statistics"""
+    del current_user
     try:
         stats = _get_backtest_summary_stats_sync(days)
 
@@ -5310,8 +5363,10 @@ async def get_backtest_summary_stats(
 @app.get("/api/v1/backtests/{run_id}/analytics")
 async def get_backtest_analytics(
     run_id: str,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get comprehensive analytics for a backtest run"""
+    del current_user
     try:
         started_at = time.perf_counter()
         cache_key = f"backtest:analytics:full:{run_id}"
@@ -5368,8 +5423,10 @@ async def get_backtest_analytics(
 @app.get("/api/v1/backtests/{run_id}/analytics/summary")
 async def get_backtest_analytics_summary(
     run_id: str,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get compact analytics summary for high-frequency dashboard surfaces."""
+    del current_user
     try:
         started_at = time.perf_counter()
         summary_cache_key = f"backtest:analytics:summary:{run_id}"
@@ -5423,8 +5480,10 @@ async def get_position_snapshots(
     limit: int = 100,
     offset: int = 0,
     market_pair: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get position snapshots for real-time backtest tracking"""
+    del current_user
     try:
         snapshots = _get_position_snapshots_sync(
             run_id,
@@ -5455,8 +5514,10 @@ async def get_position_snapshots(
 @app.post("/api/v1/backtests/compare")
 async def compare_backtests(
     request: dict,  # BacktestComparisonRequest - simplified for now
+    current_user: User = Depends(get_current_active_user),
 ):
     """Compare multiple backtest runs with advanced analytics"""
+    del current_user
     try:
         run_ids = request.get("run_ids", [])
         metrics = request.get(
@@ -5488,8 +5549,10 @@ async def compare_backtests(
 @app.get("/api/v1/backtests/sync-health")
 async def backtest_sync_health(
     metrics_only: bool = False,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Backend sync visibility endpoint for run orchestration health."""
+    del current_user
     try:
         metrics_snapshot = _strategy_resolution_metrics_snapshot()
         if metrics_only:
@@ -5576,8 +5639,10 @@ async def reset_strategy_resolution_metrics_admin(
 @app.get("/api/v1/backtests/{run_id}/dydx-validation")
 async def validate_against_dydx_data(
     run_id: str,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Validate backtest results against real dYdX market data"""
+    del current_user
     try:
         with backtest_service_scope() as service:
             validation_result = await service.validate_against_dydx_data(run_id)  # type: ignore[attr-defined]
@@ -5605,8 +5670,10 @@ async def validate_against_dydx_data(
 async def get_advanced_performance_metrics(
     run_id: str,
     benchmark: str = "BTC-USD",
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get advanced performance metrics with market benchmarking"""
+    del current_user
     try:
         metrics = _get_advanced_performance_metrics_sync(
             run_id,
@@ -5635,8 +5702,10 @@ async def get_advanced_performance_metrics(
 @app.get("/api/v1/backtests/{run_id}/live-progress")
 async def get_live_progress(
     run_id: str,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get real-time backtest progress with current positions"""
+    del current_user
     try:
         progress = _get_live_progress_sync(run_id)
         if not progress:

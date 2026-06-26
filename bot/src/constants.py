@@ -49,6 +49,10 @@ USD_MIN_COLLATERAL = bot_settings.usdMinCollateral
 
 # Thresholds - Closing
 CLOSE_AT_ZSCORE_CROSS = bot_settings.closeAtZscoreCross
+MAX_POSITIONS = int(getattr(bot_settings, "maxPositions", 5) or 0)
+STOP_LOSS_PCT = float(getattr(bot_settings, "stopLossPct", 2.0) or 0.0)
+TAKE_PROFIT_PCT = float(getattr(bot_settings, "takeProfitPct", 5.0) or 0.0)
+POSITION_TIMEOUT_HOURS = int(getattr(bot_settings, "positionTimeoutHours", 72) or 0)
 
 # Endpoint for Account Queries
 INDEXER_ENDPOINT_TESTNET = "https://indexer.v4testnet.dydx.exchange"

@@ -1,6 +1,4 @@
 """Authentication router."""
-
-import os
 from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -11,6 +9,7 @@ from sqlalchemy.orm import Session
 from src.api.auth_utils import JWTUtils, PasswordUtils, SecurityUtils
 from src.infrastructure.database import db
 from src.infrastructure.domain.models.auth_models import User
+from src.middleware.auth_middleware import is_auth_bypass_enabled
 from src.shared.time_utils import utc_now
 
 router = APIRouter()
@@ -57,7 +56,7 @@ def _authenticate_user(
     password: str,
     session: Session,
 ) -> dict:
-    if os.getenv("API_BYPASS_AUTH", "false").lower() == "true":
+    if is_auth_bypass_enabled():
         return _build_token_response(username)
 
     user = session.query(User).filter(User.username == username).first()

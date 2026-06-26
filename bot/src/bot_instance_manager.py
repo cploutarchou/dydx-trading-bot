@@ -31,6 +31,7 @@ from src.infrastructure.domain.bot_api_models import (
     BotOperationResult,
     BotStatus,
 )
+from src.shared.live_risk_controls import assert_supported_live_risk_controls
 from src.infrastructure.persistence.repository import UnitOfWork
 from src.infrastructure.use_cases.async_job_manager import async_job_manager
 
@@ -1050,6 +1051,8 @@ class BotInstanceManager:
     async def create_instance(self, config: BotInstanceConfig) -> BotOperationResult:
         """Create new bot instance"""
         try:
+            assert_supported_live_risk_controls(config.trading_params.model_dump())
+
             # Validate instance limit
             if self.max_instances > 0 and len(self.instances) >= self.max_instances:
                 return BotOperationResult(
@@ -1130,6 +1133,7 @@ class BotInstanceManager:
                 )
 
             instance = self.instances[instance_id]
+            assert_supported_live_risk_controls(instance.config.trading_params.model_dump())
 
             if instance.status in self.ACTIVE_RUNTIME_STATUSES:
                 return BotOperationResult(

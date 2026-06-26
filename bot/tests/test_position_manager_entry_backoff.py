@@ -184,3 +184,66 @@ def test_open_positions_clears_backoff_after_success(monkeypatch):
     now["value"] += 10.0
     asyncio.run(position_manager.open_positions(object()))
     assert pair_key not in position_manager._ENTRY_FAILURE_STATE
+
+
+def test_open_positions_enforces_max_positions(monkeypatch):
+    position_manager._ENTRY_FAILURE_STATE.clear()
+    monkeypatch.setattr(position_manager, "MAX_POSITIONS", 1)
+
+    monkeypatch.setattr(
+        position_manager.pair_storage,
+        "load_pairs",
+        lambda: [
+            _Pair(
+                {
+                    "base_market": "LINK-USD",
+                    "quote_market": "ATOM-USD",
+                    "hedge_ratio": 0.1,
+                    "half_life": 12,
+                }
+            )
+        ],
+    )
+
+    async def fake_get_markets(_client):
+        return {
+            "markets": {
+                "LINK-USD": {
+                    "tickSize": "0.001",
+                    "stepSize": "1",
+                    "oraclePrice": "10.0",
+                },
+                "ATOM-USD": {
+                    "tickSize": "0.001",
+                    "stepSize": "1",
+                    "oraclePrice": "8.0",
+                },
+            }
+        }
+
+    async def fake_get_candles_recent(_client, market):
+        if market == "LINK-USD":
+            return pd.Series([10.0, 10.1, 10.2])
+        return pd.Series([8.0, 7.9, 7.8])
+
+    def fake_calculate_zscore(_spread):
+        return pd.Series([2.0])
+
+    async def fake_is_open_positions(_client, _market):
+        return False
+
+    async def fake_load_tracked_positions():
+        return [{"market_1": "BTC-USD", "market_2": "ETH-USD"}]
+
+    class ShouldNotOpenAgent:
+        def __init__(self, *_args, **_kwargs):  # pragma: no cover - safety assertion
+            raise AssertionError("BotAgent should not be constructed when max_positions is reached")
+
+    monkeypatch.setattr(position_manager, "get_markets", fake_get_markets)
+    monkeypatch.setattr(position_manager, "get_candles_recent", fake_get_candles_recent)
+    monkeypatch.setattr(position_manager, "calculate_zscore", fake_calculate_zscore)
+    monkeypatch.setattr(position_manager, "is_open_positions", fake_is_open_positions)
+    monkeypatch.setattr(position_manager, "load_tracked_positions", fake_load_tracked_positions)
+    monkeypatch.setattr(position_manager, "BotAgent", ShouldNotOpenAgent)
+
+    asyncio.run(position_manager.open_positions(object()))

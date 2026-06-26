@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 from src.trading import bot_agents_state, position_manager
@@ -67,8 +68,10 @@ def test_trade_opened_notification_uses_fallback_context_when_payload_is_sparse(
     assert payload["hedge_ratio"] == -0.2032
 
 
-def test_manage_trade_exits_retries_second_leg_after_partial_close(monkeypatch, tmp_path):
-    """If leg 1 closes and leg 2 fails, retry leg 2 instead of leaving exposure."""
+def test_manage_trade_exits_keeps_orphan_state_when_second_leg_close_fails(
+    monkeypatch, tmp_path
+):
+    """If leg 1 closes and leg 2 fails, preserve the orphaned state for recovery."""
 
     class DummyMessenger:
         def __init__(self):
@@ -174,6 +177,244 @@ def test_manage_trade_exits_retries_second_leg_after_partial_close(monkeypatch, 
     assert calls[0]["market"] == "BTC-USD"
     assert calls[0]["reduce_only"] is True
     eth_calls = [call for call in calls if call["market"] == "ETH-USD"]
-    assert len(eth_calls) == 4
+    assert len(eth_calls) == 3
     assert all(call["reduce_only"] is True for call in eth_calls)
+    remaining = json.loads(bot_agents_path.read_text(encoding="utf-8"))
+    assert remaining[0]["pair_status"] == "ORPHANED_EXIT_FAILED"
+    assert remaining[0]["orphaned_market"] == "ETH-USD"
+
+
+def _tracked_live_position():
+    opened_at = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    return {
+        "market_1": "BTC-USD",
+        "market_2": "ETH-USD",
+        "order_id_m1": "m1-entry",
+        "order_id_m2": "m2-entry",
+        "order_m1_size": "0.1",
+        "order_m2_size": "1.0",
+        "order_m1_side": "BUY",
+        "order_m2_side": "SELL",
+        "order_m1_price": "100.0",
+        "order_m2_price": "100.0",
+        "order_time_m1": opened_at,
+        "order_time_m2": opened_at,
+        "z_score": -1.5,
+        "hedge_ratio": 1.0,
+        "pair_status": "LIVE",
+    }
+
+
+def _install_exit_test_runtime(monkeypatch, tmp_path, open_positions_sequence):
+    class DummyMessenger:
+        def __init__(self):
+            self.closed = []
+            self.errors = []
+
+        def send_trade_closed_message(self, trade_info, reason):
+            self.closed.append((trade_info, reason))
+
+        def send_error_message(self, *args, **kwargs):
+            self.errors.append((args, kwargs))
+
+    bot_agents_path = tmp_path / "bot_agents.json"
+    bot_agents_path.write_text(
+        json.dumps([_tracked_live_position()]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(bot_agents_state, "BOT_AGENTS_PATH", bot_agents_path)
+    monkeypatch.setattr(position_manager, "BOT_AGENTS_PATH", bot_agents_path)
+    monkeypatch.setattr(position_manager, "TelegramMessenger", DummyMessenger)
+    monkeypatch.setenv("BOT_EXIT_CONFIRM_MAX_ATTEMPTS", "2")
+    monkeypatch.setenv("BOT_EXIT_CONFIRM_DELAY_SECONDS", "0.1")
+
+    call_index = {"value": 0}
+
+    async def fake_get_open_positions(_client):
+        index = min(call_index["value"], len(open_positions_sequence) - 1)
+        call_index["value"] += 1
+        return open_positions_sequence[index]
+
+    async def fake_get_order(_client, order_id):
+        orders = {
+            "m1-entry": {"ticker": "BTC-USD", "size": "0.1", "side": "BUY"},
+            "m2-entry": {"ticker": "ETH-USD", "size": "1.0", "side": "SELL"},
+        }
+        return orders[order_id]
+
+    async def fake_get_candles_recent(_client, _market):
+        return pd.Series([100.0, 101.0, 102.0])
+
+    async def fake_get_markets(_client):
+        return {
+            "markets": {
+                "BTC-USD": {"tickSize": "0.1"},
+                "ETH-USD": {"tickSize": "0.01"},
+            }
+        }
+
+    async def fake_sleep(_seconds):
+        return None
+
+    def fake_calculate_zscore(_spread):
+        return pd.Series([2.0])
+
+    async def fake_place_market_order(
+        _client,
+        market,
+        side,
+        size,
+        price,
+        reduce_only,
+    ):
+        return {"id": f"close-{market}"}, f"close-{market}"
+
+    async def fake_get_order_fills(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr(position_manager, "get_open_positions", fake_get_open_positions)
+    monkeypatch.setattr(position_manager, "get_order", fake_get_order)
+    monkeypatch.setattr(position_manager, "get_candles_recent", fake_get_candles_recent)
+    monkeypatch.setattr(position_manager, "get_markets", fake_get_markets)
+    monkeypatch.setattr(position_manager, "calculate_zscore", fake_calculate_zscore)
+    monkeypatch.setattr(position_manager, "place_market_order", fake_place_market_order)
+    monkeypatch.setattr(position_manager, "get_order_fills", fake_get_order_fills)
+    monkeypatch.setattr(position_manager.asyncio, "sleep", fake_sleep)
+
+    return bot_agents_path, DummyMessenger
+
+
+def test_manage_trade_exits_does_not_mark_closed_without_flat_confirmation(
+    monkeypatch, tmp_path
+):
+    open_sequence = [
+        {
+            "BTC-USD": {"market": "BTC-USD", "side": "LONG", "sumOpen": "0.1"},
+            "ETH-USD": {"market": "ETH-USD", "side": "SHORT", "sumOpen": "1.0"},
+        },
+        {
+            "BTC-USD": {"market": "BTC-USD", "side": "LONG", "sumOpen": "0.1"},
+            "ETH-USD": {"market": "ETH-USD", "side": "SHORT", "sumOpen": "1.0"},
+        },
+        {
+            "BTC-USD": {"market": "BTC-USD", "side": "LONG", "sumOpen": "0.1"},
+            "ETH-USD": {"market": "ETH-USD", "side": "SHORT", "sumOpen": "1.0"},
+        },
+    ]
+    bot_agents_path, _messenger_cls = _install_exit_test_runtime(monkeypatch, tmp_path, open_sequence)
+
+    persisted = []
+    monkeypatch.setattr(
+        position_manager,
+        "persist_live_trade_closed",
+        lambda *_args, **_kwargs: persisted.append("closed"),
+    )
+
+    asyncio.run(position_manager.manage_trade_exits(object()))
+
+    remaining = json.loads(bot_agents_path.read_text(encoding="utf-8"))
+    assert persisted == []
+    assert len(remaining) == 1
+    assert remaining[0]["pair_status"] == "CLOSING"
+    assert remaining[0]["timed_out"] is True
+
+
+def test_manage_trade_exits_marks_close_confirmed_only_after_flat_exchange_state(
+    monkeypatch, tmp_path
+):
+    open_sequence = [
+        {
+            "BTC-USD": {"market": "BTC-USD", "side": "LONG", "sumOpen": "0.1"},
+            "ETH-USD": {"market": "ETH-USD", "side": "SHORT", "sumOpen": "1.0"},
+        },
+        {},
+    ]
+    bot_agents_path, _messenger_cls = _install_exit_test_runtime(
+        monkeypatch, tmp_path, open_sequence
+    )
+
+    persisted = []
+    monkeypatch.setattr(
+        position_manager,
+        "persist_live_trade_closed",
+        lambda *_args, **_kwargs: persisted.append("closed") or "trade-1",
+    )
+
+    asyncio.run(position_manager.manage_trade_exits(object()))
+
+    assert persisted == ["closed"]
     assert json.loads(bot_agents_path.read_text(encoding="utf-8")) == []
+
+
+def test_manage_trade_exits_persists_partial_close_state(monkeypatch, tmp_path):
+    open_sequence = [
+        {
+            "BTC-USD": {"market": "BTC-USD", "side": "LONG", "sumOpen": "0.1"},
+            "ETH-USD": {"market": "ETH-USD", "side": "SHORT", "sumOpen": "1.0"},
+        },
+        {
+            "BTC-USD": {"market": "BTC-USD", "side": "LONG", "sumOpen": "0.05"},
+            "ETH-USD": {"market": "ETH-USD", "side": "SHORT", "sumOpen": "0.5"},
+        },
+        {
+            "BTC-USD": {"market": "BTC-USD", "side": "LONG", "sumOpen": "0.05"},
+            "ETH-USD": {"market": "ETH-USD", "side": "SHORT", "sumOpen": "0.5"},
+        },
+    ]
+    bot_agents_path, _messenger_cls = _install_exit_test_runtime(
+        monkeypatch, tmp_path, open_sequence
+    )
+
+    persisted = []
+    monkeypatch.setattr(
+        position_manager,
+        "persist_live_trade_closed",
+        lambda *_args, **_kwargs: persisted.append("closed"),
+    )
+
+    asyncio.run(position_manager.manage_trade_exits(object()))
+
+    remaining = json.loads(bot_agents_path.read_text(encoding="utf-8"))
+    assert persisted == []
+    assert remaining[0]["pair_status"] == "PARTIALLY_CLOSED"
+
+
+def test_manage_trade_exits_marks_orphan_when_second_leg_close_fails(
+    monkeypatch, tmp_path
+):
+    open_sequence = [
+        {
+            "BTC-USD": {"market": "BTC-USD", "side": "LONG", "sumOpen": "0.1"},
+            "ETH-USD": {"market": "ETH-USD", "side": "SHORT", "sumOpen": "1.0"},
+        }
+    ]
+    bot_agents_path, _messenger_cls = _install_exit_test_runtime(
+        monkeypatch, tmp_path, open_sequence
+    )
+
+    async def fake_place_market_order(
+        _client,
+        market,
+        side,
+        size,
+        price,
+        reduce_only,
+    ):
+        if market == "BTC-USD":
+            return {"id": "close-BTC-USD"}, "close-BTC-USD"
+        raise RuntimeError("exchange rejected second leg")
+
+    persisted = []
+    monkeypatch.setattr(position_manager, "place_market_order", fake_place_market_order)
+    monkeypatch.setattr(
+        position_manager,
+        "persist_live_trade_closed",
+        lambda *_args, **_kwargs: persisted.append("closed"),
+    )
+
+    asyncio.run(position_manager.manage_trade_exits(object()))
+
+    remaining = json.loads(bot_agents_path.read_text(encoding="utf-8"))
+    assert persisted == []
+    assert remaining[0]["pair_status"] == "ORPHANED_EXIT_FAILED"
+    assert remaining[0]["orphaned_market"] == "ETH-USD"

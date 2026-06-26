@@ -40,10 +40,10 @@ class TradingParameters(BaseModel):
     usd_min_collateral: float = 100.0
     close_at_zscore_cross: bool = True
     max_positions: int = 5
-    max_drawdown_pct: float = 15.0
+    max_drawdown_pct: float = 0.0
     stop_loss_pct: float = 2.0
     take_profit_pct: float = 5.0
-    trailing_stop_pct: float = 1.0
+    trailing_stop_pct: float = 0.0
     rebalance_interval_hours: int = 24
     position_timeout_hours: int = 72
     selected_markets: List[str] = Field(default_factory=list)

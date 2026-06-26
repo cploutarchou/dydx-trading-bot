@@ -56,10 +56,10 @@ class BotSettings:
     usdMinCollateral: float = 100.0
     closeAtZscoreCross: bool = True
     maxPositions: int = 5
-    maxDrawdownPct: float = 15.0
+    maxDrawdownPct: float = 0.0
     stopLossPct: float = 2.0
     takeProfitPct: float = 5.0
-    trailingStopPct: float = 1.0
+    trailingStopPct: float = 0.0
     rebalanceIntervalHours: int = 24
     positionTimeoutHours: int = 72
     selectedMarkets: List[str] = field(default_factory=list)
@@ -95,10 +95,10 @@ class BotSettings:
             closeAtZscoreCross=os.getenv("BOT_CLOSE_AT_ZSCORE_CROSS", "true").lower()
             == "true",
             maxPositions=int(os.getenv("BOT_MAX_POSITIONS", "5")),
-            maxDrawdownPct=float(os.getenv("BOT_MAX_DRAWDOWN_PCT", "15.0")),
+            maxDrawdownPct=float(os.getenv("BOT_MAX_DRAWDOWN_PCT", "0.0")),
             stopLossPct=float(os.getenv("BOT_STOP_LOSS_PCT", "2.0")),
             takeProfitPct=float(os.getenv("BOT_TAKE_PROFIT_PCT", "5.0")),
-            trailingStopPct=float(os.getenv("BOT_TRAILING_STOP_PCT", "1.0")),
+            trailingStopPct=float(os.getenv("BOT_TRAILING_STOP_PCT", "0.0")),
             rebalanceIntervalHours=int(os.getenv("BOT_REBALANCE_INTERVAL_HOURS", "24")),
             positionTimeoutHours=int(os.getenv("BOT_POSITION_TIMEOUT_HOURS", "72")),
             selectedMarkets=[

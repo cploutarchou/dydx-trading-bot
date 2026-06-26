@@ -19,6 +19,21 @@ from src.infrastructure.domain.models.auth_models import User
 # FastAPI security scheme for JWT Bearer tokens
 security = HTTPBearer(auto_error=False)
 
+_AUTH_BYPASS_ALLOWED_ENVIRONMENTS = {
+    "development",
+    "dev",
+    "local",
+    "test",
+    "testing",
+    "ci",
+}
+_AUTH_BYPASS_FORBIDDEN_ENVIRONMENTS = {
+    "production",
+    "prod",
+    "live",
+    "mainnet",
+}
+
 
 @dataclass
 class _BypassUser:
@@ -34,6 +49,52 @@ class _ServiceTokenUser:
     email: str
     is_active: bool
     is_superuser: bool
+
+
+def _normalized_environment_name(raw: str) -> str:
+    value = str(raw or "").strip().lower()
+    if value in _AUTH_BYPASS_FORBIDDEN_ENVIRONMENTS:
+        return "production"
+    if value in _AUTH_BYPASS_ALLOWED_ENVIRONMENTS:
+        return "development" if value not in {"test", "testing", "ci"} else "test"
+    return value or "development"
+
+
+def current_environment_name() -> str:
+    for key in ("APP_CONFIG_ENV", "CONFIG_ENV", "ENVIRONMENT", "APP_ENV"):
+        value = os.getenv(key, "").strip()
+        if value:
+            return value
+    return "development"
+
+
+def auth_bypass_requested() -> bool:
+    return os.getenv("API_BYPASS_AUTH", "false").strip().lower() == "true"
+
+
+def auth_bypass_is_allowed_environment(environment: Optional[str] = None) -> bool:
+    raw = str(environment or current_environment_name()).strip().lower()
+    return raw in _AUTH_BYPASS_ALLOWED_ENVIRONMENTS
+
+
+def validate_auth_bypass_configuration() -> None:
+    if not auth_bypass_requested():
+        return
+
+    raw_environment = current_environment_name()
+    normalized_environment = _normalized_environment_name(raw_environment)
+    if auth_bypass_is_allowed_environment(raw_environment):
+        return
+
+    raise RuntimeError(
+        "API_BYPASS_AUTH=true is forbidden outside explicit local/dev/test environments. "
+        f"Resolved environment='{normalized_environment}' from ENVIRONMENT='{raw_environment or 'unset'}'. "
+        "Allowed values for auth bypass are: development, dev, local, test, testing, ci."
+    )
+
+
+def is_auth_bypass_enabled() -> bool:
+    return auth_bypass_requested() and auth_bypass_is_allowed_environment()
 
 
 def _configured_service_tokens() -> list[str]:
@@ -139,7 +200,7 @@ async def get_current_user(
     Raises:
         HTTPException: If token is invalid or user not found
     """
-    if os.getenv("API_BYPASS_AUTH", "false").lower() == "true":
+    if is_auth_bypass_enabled():
         return cast(
             User,
             _BypassUser(

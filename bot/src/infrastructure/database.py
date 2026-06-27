@@ -634,6 +634,8 @@ class DatabaseManager:
                     "completed_at": "ALTER TABLE backtest_runtime_runs ADD COLUMN completed_at TIMESTAMP NULL",
                     "deadline_at": "ALTER TABLE backtest_runtime_runs ADD COLUMN deadline_at TIMESTAMP NULL",
                     "timeout_seconds": "ALTER TABLE backtest_runtime_runs ADD COLUMN timeout_seconds FLOAT NULL",
+                    "artifact_refs": "ALTER TABLE backtest_runtime_runs ADD COLUMN artifact_refs JSONB NULL",
+                    "analytics_rows_written": "ALTER TABLE backtest_runtime_runs ADD COLUMN analytics_rows_written INTEGER NULL DEFAULT 0",
                 }
                 for column_name, statement in add_column_sql.items():
                     if column_name not in run_columns:

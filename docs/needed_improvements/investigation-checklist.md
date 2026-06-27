@@ -14,6 +14,10 @@
   - Files: `backend/internal/services/minio_artifact_signer.go`, `backend/internal/routes/bot_api_delegate_routes.go`, `backend/internal/routes/bot_api_delegate_backtest_run_test.go`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_api_contract.py -q -k 'backtest_details_expose_artifact_refs'` passed
   - Evidence: backend now exposes `GET /api/v1/backtests/:run_id/artifacts`, signs MinIO-backed artifact downloads, and preserves backend-owned authorization checks before emitting URLs.
+- [x] DONE — New backtest saves no longer persist result arrays in PostgreSQL rows
+  - Files: `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_backtest_repository.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_backtest_repository_payload_relation.py bot/tests/test_storage_adapters.py -q` passed; `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_service.py -q -k 'backtest_runs_async_and_completes_with_trades or comprehensive_analytics_includes_sub_objects_and_candle_fields'` passed
+  - Evidence: `_save_run_once()` now clears `trades_json`, `position_snapshots_json`, and `daily_pnl_json` on the `backtest_runtime_runs` row and rehydrates those payloads from `backtests/{run_id}/*.json` artifacts during read paths.
 
 ## Files That Write JSON Locally
 
@@ -85,7 +89,7 @@
 ## Database Tables With Large Payload Risk
 
 - `backtest_runtime_runs`
-  - risk from `request_json`, `trades_json`, `position_snapshots_json`, `daily_pnl_json`
+  - risk from `request_json` plus legacy/historical `trades_json`, `position_snapshots_json`, and `daily_pnl_json` columns
   - defined in `bot/internal/domain/models.py` and `bot/migrations/versions/b7a2d6c1f4e8_add_backtest_runs_table.py`
 - `backtest_run_requests`
   - risk from `request_json`
@@ -177,7 +181,7 @@
 ### Existing ClickHouse write path
 
 - `bot/src/infrastructure/storage/clickhouse_writer.py`
-  - present but feature-gated and limited to backtest sidecars
+  - present, still feature-gated, and still limited to immediate backtest sidecar writes
 
 ## Code That Should Write To MinIO
 

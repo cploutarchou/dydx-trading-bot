@@ -1,5 +1,15 @@
 # PostgreSQL Plan
 
+## Status Updates — 2026-06-28
+
+- [x] DONE — Stop persisting backtest result arrays in PostgreSQL runtime rows
+  - Files: `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_backtest_repository.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_backtest_repository_payload_relation.py bot/tests/test_storage_adapters.py -q` passed; `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_service.py -q -k 'backtest_runs_async_and_completes_with_trades or comprehensive_analytics_includes_sub_objects_and_candle_fields'` passed
+  - Evidence: `BacktestRepository._save_run_once()` now persists summary-only rows and repopulates `trades`, `position_snapshots`, and `daily_pnl` from artifact sidecars when callers read the run back.
+- [~] PARTIAL — Remove oversized PostgreSQL backtest payloads completely
+  - Files: `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/internal/domain/models.py`
+  - Acceptance result: new writes no longer persist the three largest result arrays, but `request_json`, legacy schema columns, and historical rows still require follow-up migration work.
+
 ## Role of PostgreSQL
 
 PostgreSQL remains the transactional source of truth for the platform. It should store:
@@ -80,7 +90,7 @@ PostgreSQL must stop storing:
 ### Current code paths that still write oversized payloads
 
 - `bot/src/infrastructure/persistence/repository_backtest.py`
-  - still writes `request_json`, `trades_json`, `position_snapshots_json`, and `daily_pnl_json` into PostgreSQL during `_save_run_once`
+  - still writes `request_json` into PostgreSQL during `_save_run_once`, but new writes now clear `trades_json`, `position_snapshots_json`, and `daily_pnl_json` and serve those payloads back from artifacts
 - `bot/src/trading/bot_agents_state.py`
   - updates `positions_json`
 - `bot/src/infrastructure/domain/cointegration_storage.py`

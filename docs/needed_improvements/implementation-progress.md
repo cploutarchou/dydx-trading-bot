@@ -1,5 +1,97 @@
 # Implementation Progress
 
+## Latest Run — 2026-06-28T02:05:00+03:00
+
+### Documents read
+
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/current-state-assessment.md`
+- `docs/needed_improvements/target-architecture.md`
+- `docs/needed_improvements/data-storage-matrix.md`
+- `docs/needed_improvements/postgresql-plan.md`
+- `docs/needed_improvements/minio-artifact-plan.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/nats-jetstream-plan.md`
+- `docs/needed_improvements/nats-command-event-contract.md`
+- `docs/needed_improvements/valkey-plan.md`
+- `docs/needed_improvements/observability-plan.md`
+- `docs/needed_improvements/k3s-open-source-execution-plan.md`
+- `docs/needed_improvements/kubernetes-devops-plan.md`
+- `docs/needed_improvements/migration-plan.md`
+- `bot/.github/copilot-instructions.md`
+- `bot/.github/CUSTOMIZATION_INDEX.md`
+- `.github/skills/defi-python-algo-trading/SKILL.md`
+- NOT FOUND: none
+
+### Task selected
+
+- Remove new `trades_json`, `position_snapshots_json`, and `daily_pnl_json` writes from the bot PostgreSQL runtime row while preserving existing detail read behavior through artifact hydration.
+
+### Reason selected
+
+- `implementation-progress.md` listed the oversized PostgreSQL result arrays as the next Phase 3 storage problem after Phase 2 completed.
+- `implementation-backlog.md` still marked large backtest JSON writes as the highest-priority unfinished PostgreSQL cleanup item.
+- `master-implementation-plan.md`, `current-state-assessment.md`, and `postgresql-plan.md` all still identified the active runtime row bloat as the next dependency-safe storage boundary issue ahead of JetStream and Valkey work.
+
+### Implementation completed
+
+- Changed `BacktestRepository._save_run_once()` in `bot/src/infrastructure/persistence/repository_backtest.py` so the transactional `backtest_runtime_runs` row keeps summary fields plus `request_json`, but no longer stores `trades_json`, `position_snapshots_json`, or `daily_pnl_json` for new saves.
+- Reordered the repository save flow so artifact sidecars and optional ClickHouse rows are produced from the incoming payload rather than the freshly persisted row, avoiding empty sidecar regressions after the PostgreSQL arrays were cleared.
+- Added artifact-backed rehydration for `request`, `trades`, `position_snapshots`, and `daily_pnl` detail reads when the PostgreSQL row no longer carries those payloads.
+- Added regression assertions proving the database row is summary-only for new writes while service-level read paths still return trades and analytics from artifact sidecars.
+
+### Files changed
+
+- `bot/src/infrastructure/persistence/repository_backtest.py`
+- `bot/tests/test_backtest_repository.py`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/postgresql-plan.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/current-state-assessment.md`
+- `bot/README.md`
+
+### Tests and checks run
+
+- `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_backtest_repository_payload_relation.py bot/tests/test_storage_adapters.py -q`
+  - result: passed (`26 passed, 1 warning`)
+- `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_service.py -q -k 'backtest_runs_async_and_completes_with_trades or comprehensive_analytics_includes_sub_objects_and_candle_fields'`
+  - result: passed (`2 passed, 36 deselected, 1 warning`)
+- `python3 -m compileall bot/src/infrastructure/persistence/repository_backtest.py bot/tests/test_backtest_repository.py`
+  - result: passed
+
+### Result
+
+- New backtest saves no longer persist the three largest result arrays in PostgreSQL runtime rows.
+- Backtest detail APIs and service reads continue to return `trades`, `position_snapshots`, and `daily_pnl` by loading the already-written artifact sidecars.
+- Phase 3 is now started safely without changing the live queueing model or the backend/frontend contract.
+
+### Risks
+
+- ClickHouse writes are still feature-gated and immediate; if they remain disabled in an environment, analytics durability relies on the artifact sidecars rather than ClickHouse.
+- `request_json` still remains in PostgreSQL for runtime compatibility, so the row is smaller but not fully normalized yet.
+- Historical rows and schema columns still exist; this change prevents new bloat but does not migrate old data.
+
+### Known gaps
+
+- ClickHouse writes are still immediate/non-batched and remain disabled by default.
+- JetStream remains NOT FOUND in active runtime paths.
+- `request_json` and legacy large-result columns remain in the PostgreSQL schema.
+
+### Next recommended task
+
+- Phase 3: finish the ClickHouse analytical cutover by expanding `bot/src/infrastructure/storage/clickhouse_writer.py` beyond the current three-table immediate-insert path and adding batching/default-on rollout criteria for analytical rows.
+
+### Manual steps required
+
+- Validate a real completed backtest run with `BACKTEST_CLICKHOUSE_WRITES_ENABLED=true` and confirm `backtest_trades`, `backtest_position_snapshots`, and `backtest_daily_pnl` receive rows while the corresponding PostgreSQL arrays remain empty.
+- Plan the migration/backfill for historical `backtest_runtime_runs` rows and eventual column retirement once analytical durability is proven.
+
 ## Latest Run — 2026-06-28T00:58:00+03:00
 
 ### Documents read

@@ -461,6 +461,25 @@ class BacktestRepository:
             payload, ensure_ascii=False, separators=(",", ":")
         ).encode("utf-8")
 
+    def _read_backtest_artifact_json(
+        self,
+        run_id: str,
+        artifact_name: str,
+    ) -> Any | None:
+        key = self._safe_artifact_key(["backtests", run_id, f"{artifact_name}.json"])
+        try:
+            if not self.artifact_store.exists(key):
+                return None
+            return json.loads(self.artifact_store.read_text(key))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "backtest_artifact_read_failed run_id=%s artifact=%s error=%s",
+                run_id,
+                artifact_name,
+                exc,
+            )
+            return None
+
     @staticmethod
     def _split_artifact_reference(reference: str) -> tuple[str, str]:
         parsed = urlsplit(str(reference or "").strip())
@@ -616,12 +635,41 @@ class BacktestRepository:
         request_payload = dict(record.request_json or {})
         if not request_payload:
             request_payload = self._get_request_snapshot(record.run_id)
+        if not request_payload:
+            artifact_request = self._read_backtest_artifact_json(
+                record.run_id, "request"
+            )
+            if isinstance(artifact_request, dict):
+                request_payload = artifact_request
+
+        trades_payload = list(record.trades_json or [])
+        if not trades_payload:
+            artifact_trades = self._read_backtest_artifact_json(record.run_id, "trades")
+            if isinstance(artifact_trades, list):
+                trades_payload = artifact_trades
+
+        snapshots_payload = list(record.position_snapshots_json or [])
+        if not snapshots_payload:
+            artifact_snapshots = self._read_backtest_artifact_json(
+                record.run_id, "position_snapshots"
+            )
+            if isinstance(artifact_snapshots, list):
+                snapshots_payload = artifact_snapshots
+
+        daily_pnl_payload = list(record.daily_pnl_json or [])
+        if not daily_pnl_payload:
+            artifact_daily_pnl = self._read_backtest_artifact_json(
+                record.run_id, "daily_pnl"
+            )
+            if isinstance(artifact_daily_pnl, list):
+                daily_pnl_payload = artifact_daily_pnl
+
         payload = {
             **self._record_to_summary_dict(record),
             "request": request_payload,
-            "trades": list(record.trades_json or []),
-            "position_snapshots": list(record.position_snapshots_json or []),
-            "daily_pnl": list(record.daily_pnl_json or []),
+            "trades": trades_payload,
+            "position_snapshots": snapshots_payload,
+            "daily_pnl": daily_pnl_payload,
             "artifact_refs": dict(record.artifact_refs or {}),
             "analytics_rows_written": int(record.analytics_rows_written or 0),
         }
@@ -740,9 +788,9 @@ class BacktestRepository:
         record.error = payload.get("error")
         record.error_message = payload.get("error_message")
         record.request_json = payload.get("request") or {}
-        record.trades_json = payload.get("trades") or []
-        record.position_snapshots_json = payload.get("position_snapshots") or []
-        record.daily_pnl_json = payload.get("daily_pnl") or []
+        record.trades_json = []
+        record.position_snapshots_json = []
+        record.daily_pnl_json = []
         record.cancel_requested = bool(payload.get("cancel_requested", False))
         parsed_created_at = self._parse_dt(
             payload.get("created_at"), default=self._now()
@@ -766,8 +814,9 @@ class BacktestRepository:
 
         self.session.commit()
         self.session.refresh(record)
+
+        self._sync_backtest_sidecars(dict(payload), record=record)
         persisted = self._record_to_dict(record)
-        persisted.update(self._sync_backtest_sidecars(persisted, record=record))
         BacktestRepository._memory_runs[run_id] = dict(persisted)
         return persisted
 

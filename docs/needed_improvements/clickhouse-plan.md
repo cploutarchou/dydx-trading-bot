@@ -1,5 +1,15 @@
 # ClickHouse Plan
 
+## Status Updates — 2026-06-28
+
+- [~] PARTIAL — PostgreSQL result-array writes were removed ahead of the full ClickHouse cutover
+  - Files: `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_backtest_repository.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_backtest_repository_payload_relation.py bot/tests/test_storage_adapters.py -q` passed
+  - Evidence: new backtest saves keep the PostgreSQL row summary-only and rehydrate detail payloads from artifacts, but the ClickHouse writer is still feature-gated and immediate rather than batched/default-on.
+- [ ] PENDING — Expand ClickHouse schemas and batching beyond the current backtest subset
+  - Files: NOT CHANGED
+  - Acceptance result: `bot/src/infrastructure/storage/clickhouse_writer.py` still provisions only the three backtest tables and still inserts rows immediately.
+
 ## Role of ClickHouse
 
 ClickHouse is the analytical store for high-volume, append-heavy, query-oriented data:
@@ -26,6 +36,7 @@ ClickHouse must not be used for:
 ## Current Findings From Repository
 
 - Existing ClickHouse integration is limited to optional backtest sidecar writes in `bot/src/infrastructure/storage/clickhouse_writer.py`.
+- Backtest repository writes no longer rely on PostgreSQL result arrays for detail reads, so ClickHouse is now the remaining missing durable analytical sink rather than a prerequisite for shrinking the runtime row.
 - Write path is feature-gated in `bot/src/infrastructure/persistence/repository_backtest.py`.
 - Runtime defaults disable it in:
   - `docker-compose.stack.yml`

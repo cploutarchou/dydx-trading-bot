@@ -14,15 +14,19 @@
   - Files: `backend/internal/services/minio_artifact_signer.go`, `backend/internal/routes/bot_api_delegate_routes.go`, `backend/internal/routes/bot_api_delegate_backtest_run_test.go`, `bot/src/infrastructure/domain/models_backtest.py`, `bot/src/infrastructure/use_cases/service_backtest.py`, `bot/tests/test_backtest_service.py`, `bot/tests/test_backtest_api_contract.py`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_service.py -q -k 'backtest_runs_async_and_completes_with_trades'` passed; `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_api_contract.py -q -k 'backtest_details_expose_artifact_refs'` passed
   - Evidence: backend now serves `GET /api/v1/backtests/:run_id/artifacts`, enforces backend-owned run access, emits signed MinIO download URLs for `artifact_refs`, and withholds local fallback file paths from clients.
-- [ ] PENDING — Remove large backtest JSON writes
-  - Files: NOT CHANGED
-  - Acceptance result: `trades_json`, `position_snapshots_json`, and `daily_pnl_json` are still written in `bot/src/infrastructure/persistence/repository_backtest.py`.
+- [x] DONE — Stop persisting backtest result arrays in PostgreSQL runtime rows
+  - Files: `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_backtest_repository.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_backtest_repository_payload_relation.py bot/tests/test_storage_adapters.py -q` passed; `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_service.py -q -k 'backtest_runs_async_and_completes_with_trades or comprehensive_analytics_includes_sub_objects_and_candle_fields'` passed; `python3 -m compileall bot/src/infrastructure/persistence/repository_backtest.py bot/tests/test_backtest_repository.py` passed
+  - Evidence: `_save_run_once()` now persists summary-only run rows while `trades`, `position_snapshots`, and `daily_pnl` are rehydrated from `backtests/{run_id}/*.json` artifacts on read.
+- [~] PARTIAL — Remove large backtest JSON writes
+  - Files: `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_backtest_repository.py`
+  - Acceptance result: new writes no longer persist `trades_json`, `position_snapshots_json`, or `daily_pnl_json`, but ClickHouse writes remain feature-gated and immediate rather than batched/default-on.
 
 ## PostgreSQL Cleanup
 
 | Title | Problem | Proposed Change | Affected Files | Target Service | Priority | Complexity | Risk | Dependencies | Acceptance Criteria |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Remove large backtest JSON writes | `repository_backtest.py` still writes `trades_json`, `position_snapshots_json`, `daily_pnl_json` into PostgreSQL | write summaries + artifact refs only; move row extraction to ClickHouse and bodies to MinIO | `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/internal/domain/models.py`, bot migrations | bot runtime / backtest worker | critical | high | high | artifact refs, ClickHouse, MinIO | no new large result arrays written to PostgreSQL |
+| Remove large backtest JSON writes | new writes now clear `trades_json`, `position_snapshots_json`, and `daily_pnl_json`, but ClickHouse persistence is still feature-gated and non-batched | keep summary-only PostgreSQL rows, hydrate detail reads from artifacts, and finish the analytical cutover in ClickHouse | `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/internal/domain/models.py`, bot migrations | bot runtime / backtest worker | critical | high | high | artifact refs, ClickHouse, MinIO | no new large result arrays written to PostgreSQL and analytical rows are durably captured outside PostgreSQL |
 | Introduce normalized task/run tables | current task state is split across request JSON and runtime state | add `task_commands`, `task_runs`, `task_attempts`, `worker_heartbeats` | backend and bot migrations, repositories | backend + bot runtime | critical | high | medium | schema design | async task state is queryable without reading large JSON blobs |
 | Add artifact reference table | no durable normalized artifact registry | create `artifact_references` and wire owner linkage | backend/bot migrations, repositories | shared data layer | critical | medium | low | schema design | large artifacts are referenced by id, bucket, key, checksum |
 

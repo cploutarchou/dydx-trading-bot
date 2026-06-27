@@ -6,7 +6,8 @@
   - Evidence: config, contracts, migration foundation, and k3s guardrails are already checked in and covered by targeted tests from the prior run.
 - [x] DONE — Phase 2: MinIO artifact storage
   - Evidence: completed runs now persist `full_result.json` plus sidecar artifacts through `bot/src/infrastructure/persistence/repository_backtest.py`, checked-in stack/k3s config defaults the MinIO artifact flags to `true`, local fallback behavior remains available for rollback, and backend now exposes `GET /api/v1/backtests/:run_id/artifacts` for signed MinIO download metadata.
-- [ ] PENDING — Phase 3: ClickHouse analytical storage
+- [~] PARTIAL — Phase 3: ClickHouse analytical storage
+  - Evidence: new backtest writes no longer persist `trades_json`, `position_snapshots_json`, or `daily_pnl_json` in PostgreSQL rows because `bot/src/infrastructure/persistence/repository_backtest.py` now serves those payloads back from artifact sidecars; ClickHouse writes are still feature-gated and immediate, so the analytical cutover is not complete.
 - [ ] PENDING — Phase 4: NATS JetStream command/event bus
 - [ ] PENDING — Phase 5: Valkey responsibility cleanup
 - [ ] PENDING — Phase 6: worker migration
@@ -22,7 +23,7 @@ The investigation documents are directionally correct and the live repository co
 Validated current-state issues:
 
 - Backend still owns local JSON/CSV persistence in `backend/internal/services/backtest_storage.go` and `backend/internal/services/pair_storage.go`.
-- Bot backtest persistence still writes large JSON payloads to PostgreSQL in `bot/src/infrastructure/persistence/repository_backtest.py` and `bot/internal/domain/models.py`.
+- Bot backtest persistence still keeps `request_json` and legacy large-column schema in PostgreSQL, but new repository writes no longer persist `trades_json`, `position_snapshots_json`, or `daily_pnl_json` in `bot/src/infrastructure/persistence/repository_backtest.py`.
 - Backtest execution still uses Celery and Redis-compatible locking/pub-sub in `bot/src/infrastructure/workers/backtest_tasks.py` and `bot/src/infrastructure/workers/celery_app.py`.
 - Backend live backtest push still depends on Redis pub/sub in `backend/internal/services/backtest_push_hub.go`.
 - Bot now has Phase 1 storage abstractions plus placeholder command-bus and cache/lock contracts, but no live JetStream or Valkey-backed implementation yet.
@@ -38,16 +39,16 @@ Phase 1 foundation work is now present in the repository:
 - bot PostgreSQL migration branch includes `artifact_references`
 - k3s guardrails and manifest skeleton are checked in and validated
 
-The remaining gap is implementation cutover, not planning/foundation. The active runtime is still Celery + Redis-compatible transport + local file / PostgreSQL-heavy persistence, but Phase 2 now has live artifact-reference writes for backtest sidecars plus a backend-owned signed download contract.
+The remaining gap is implementation cutover, not planning/foundation. The active runtime is still Celery + Redis-compatible transport + local file / PostgreSQL-heavy persistence, but Phase 2 now has live artifact-reference writes for backtest sidecars plus a backend-owned signed download contract, and Phase 3 has started by removing new large result-array writes from PostgreSQL rows.
 
 ## Current architecture problems
 
-1. PostgreSQL is overloaded with large payloads.
+1. PostgreSQL is still overloaded by `request_json`, legacy large columns, and historical rows even though new backtest result arrays are no longer written into runtime rows.
 2. Local filesystem is still a runtime artifact store.
 3. Redis-compatible infrastructure is still acting as durable queue substrate.
 4. Async execution semantics are split across Celery and in-process fallback code.
 5. Infra manifests are ahead of application ownership boundaries.
-6. `artifact_references` now receives normalized sidecar metadata from the bot backtest repository, MinIO is the default checked-in artifact path, and backend signed URL reads now exist; the remaining storage gap is oversized PostgreSQL payloads and fallback/local-path cleanup.
+6. `artifact_references` now receives normalized sidecar metadata from the bot backtest repository, MinIO is the default checked-in artifact path, backend signed URL reads now exist, and new backtest result arrays no longer persist in PostgreSQL rows; the remaining storage gap is ClickHouse cutover, `request_json`, and fallback/local-path cleanup.
 7. Shared Phase 1 contracts exist for event bus and cache/lock behavior, but they remain fail-closed placeholders until later phases wire them into runtime paths.
 
 ## Target architecture

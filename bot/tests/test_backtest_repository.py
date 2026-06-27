@@ -291,6 +291,9 @@ def test_save_run_writes_backtest_sidecars_and_analytics(tmp_path):
         session.query(BacktestRun).filter(BacktestRun.run_id == "run-sidecars").first()
     )
     assert db_run is not None
+    assert db_run.trades_json == []
+    assert db_run.position_snapshots_json == []
+    assert db_run.daily_pnl_json == []
     assert db_run.artifact_refs is not None
     assert db_run.artifact_refs["request"] == (
         "artifact://backtests/run-sidecars/request.json"
@@ -311,6 +314,12 @@ def test_save_run_writes_backtest_sidecars_and_analytics(tmp_path):
     assert artifact_rows[0].owner_type == "backtest_run"
     assert artifact_rows[0].checksum
     assert artifact_rows[0].size_bytes > 0
+
+    reloaded = repository.get_run("run-sidecars")
+    assert reloaded is not None
+    assert reloaded["trades"] == [{"trade_id": "trade-1", "pnl": 12.5}]
+    assert reloaded["position_snapshots"] == [{"snapshot_id": "position-1"}]
+    assert reloaded["daily_pnl"] == [{"date": "2026-04-01", "pnl": 12.5}]
 
     session.close()
 

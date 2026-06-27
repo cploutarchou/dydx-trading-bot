@@ -32,8 +32,9 @@ The bot service is the Python runtime that manages bot instances, live strategy 
 - preferred DB mode: `BOT_DB_CUTOVER_MODE=dedicated`
 
 PostgreSQL remains the active/default bot and backtest persistence path. Legacy PostgreSQL backtest fields such as
-`request_json`, `trades_json`, `position_snapshots_json`, and `daily_pnl_json` remain in place for compatibility and
-rollback while the alternative storage adapters stay feature-gated.
+`request_json`, `trades_json`, `position_snapshots_json`, and `daily_pnl_json` remain in the schema for compatibility
+and rollback, but new repository writes now keep the result arrays empty and serve detailed backtest payloads from the
+artifact sidecars while the alternative storage adapters stay feature-gated.
 
 ## Commands
 

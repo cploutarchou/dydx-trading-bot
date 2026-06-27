@@ -325,6 +325,10 @@ class BacktestRun(Base):
     daily_pnl_json: Mapped[list[dict[str, Any]]] = mapped_column(
         JSON, nullable=False, default=list
     )
+    artifact_refs: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    analytics_rows_written: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, default=0
+    )
     cancel_requested: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )

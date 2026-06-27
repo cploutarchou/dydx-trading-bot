@@ -1,5 +1,23 @@
 # MinIO Artifact Plan
 
+## Implementation Status — 2026-06-28
+
+- [x] DONE — Persist normalized artifact metadata for backtest sidecar writes
+  - Files: `bot/internal/domain/models.py`, `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_backtest_repository.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_backtest_repository_payload_relation.py bot/tests/test_storage_adapters.py -q` passed
+  - Evidence: `save_run()` now computes checksums, records `artifact_refs` on `backtest_runtime_runs`, and upserts `artifact_references` rows with owner linkage and object metadata.
+- [x] DONE — Keep local fallback compatibility during Phase 2
+  - Files: `bot/src/infrastructure/storage/minio_artifact_store.py`, `bot/src/infrastructure/persistence/repository_backtest.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py -q` passed
+  - Evidence: MinIO writes still fall back to `LocalArtifactStore` on client/object-store failures, and completed runs now persist `full_result.json` plus sidecars through the same abstraction.
+- [x] DONE — Make MinIO the default write path for bot backtest artifacts
+  - Files: `bot/src/infrastructure/persistence/repository_backtest.py`, `docker-compose.stack.yml`, `deploy/k8s-next/platform-config.yaml`, `deploy/k8s-next/overlays/staging/patch-platform-config.yaml`, `deploy/k8s-next/overlays/production/patch-platform-config.yaml`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_storage_adapters.py bot/tests/test_platform_runtime_config.py -q` passed
+  - Evidence: completed runs now upload `backtests/{run_id}/full_result.json` alongside JSON sidecars, and the checked-in stack/k3s manifests default both MinIO artifact flags to `true`.
+- [ ] PENDING — Add backend signed URL issuance
+  - Files: backend artifact lookup/signing path
+  - Acceptance result: backend artifact metadata lookup/signing endpoints remain NOT FOUND.
+
 ## Role of MinIO
 
 MinIO is the correct owner for large file-like outputs and bulky structured payloads:
@@ -19,10 +37,12 @@ PostgreSQL stores only references. ClickHouse stores only extracted queryable ro
 - MinIO adapter exists in `bot/src/infrastructure/storage/minio_artifact_store.py`.
 - Artifact abstraction exists in `bot/src/infrastructure/storage/artifacts.py`.
 - Runtime selection happens in `bot/src/infrastructure/persistence/repository_backtest.py`.
-- Local fallback remains active by default because:
-  - `BACKTEST_ARTIFACT_STORAGE_ENABLED=false`
-  - `BACKTEST_MINIO_ARTIFACTS_ENABLED=false`
-  - both flags are disabled in `docker-compose.stack.yml` and `deploy/k8s-next/platform-config.yaml`
+- Backtest sidecar sync now upserts normalized `artifact_references` rows and stores `artifact_refs` / `analytics_rows_written` on `backtest_runtime_runs` via `bot/src/infrastructure/persistence/repository_backtest.py`.
+- MinIO write-path defaults are now active in checked-in stack/k3s config because:
+  - `BACKTEST_ARTIFACT_STORAGE_ENABLED=true`
+  - `BACKTEST_MINIO_ARTIFACTS_ENABLED=true`
+  - both flags are enabled in `docker-compose.stack.yml` and `deploy/k8s-next/platform-config.yaml`
+- Local fallback remains available inside `MinIOArtifactStore` when the client cannot initialize or an object write fails.
 - Backend signed URL issuance for artifact download: NOT FOUND.
 
 ## Bucket Structure

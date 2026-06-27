@@ -1,5 +1,22 @@
 # Implementation Backlog
 
+## Status Updates — 2026-06-28
+
+- [x] DONE — Add artifact reference table owner linkage
+  - Files: `bot/internal/domain/models.py`, `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_backtest_repository.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_backtest_repository_payload_relation.py bot/tests/test_storage_adapters.py -q` passed
+  - Evidence: `BacktestRepository.save_run()` now upserts normalized `artifact_references` rows and stores `artifact_refs` / `analytics_rows_written` on `backtest_runtime_runs`.
+- [x] DONE — Make MinIO the default backtest artifact store
+  - Files: `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_backtest_repository.py`, `docker-compose.stack.yml`, `deploy/k8s-next/platform-config.yaml`, `deploy/k8s-next/overlays/staging/patch-platform-config.yaml`, `deploy/k8s-next/overlays/production/patch-platform-config.yaml`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_storage_adapters.py bot/tests/test_platform_runtime_config.py -q` passed
+  - Evidence: completed runs now write `backtests/{run_id}/full_result.json` plus sidecars through the configured artifact store, and the checked-in stack/k3s config now defaults both MinIO artifact flags to `true` while preserving local fallback behavior.
+- [ ] PENDING — Add backend signed artifact URLs
+  - Files: NOT CHANGED
+  - Acceptance result: backend-issued signed URL lookup/response path remains NOT FOUND.
+- [ ] PENDING — Remove large backtest JSON writes
+  - Files: NOT CHANGED
+  - Acceptance result: `trades_json`, `position_snapshots_json`, and `daily_pnl_json` are still written in `bot/src/infrastructure/persistence/repository_backtest.py`.
+
 ## PostgreSQL Cleanup
 
 | Title | Problem | Proposed Change | Affected Files | Target Service | Priority | Complexity | Risk | Dependencies | Acceptance Criteria |

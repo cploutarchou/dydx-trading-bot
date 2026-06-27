@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timezone
 
 from internal.domain import Base
+from internal.domain.models import ArtifactReference, BacktestRun
 from sqlalchemy import create_engine, event
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
@@ -93,7 +94,7 @@ def test_save_run_rolls_back_and_retries_mariadb_record_changed(monkeypatch, tmp
 
     assert persisted["run_id"] == "run-retry-1020"
     assert persisted["status"] == "running"
-    assert calls["commit"] == 2
+    assert calls["commit"] == 3
     assert rollbacks["count"] == 1
     assert repository.get_run("run-retry-1020")["current_task"] == "processing pair"
 
@@ -262,6 +263,12 @@ def test_save_run_writes_backtest_sidecars_and_analytics(tmp_path):
     assert artifact_store.read_json("backtests/run-sidecars/request.json")["pairs"] == [
         "BTC-USD/ETH-USD"
     ]
+    assert persisted["artifact_refs"]["full_result"] == (
+        "artifact://backtests/run-sidecars/full_result.json"
+    )
+    assert artifact_store.read_json("backtests/run-sidecars/full_result.json")[
+        "status"
+    ] == "completed"
     assert artifact_store.read_json("backtests/run-sidecars/trades.json") == [
         {"trade_id": "trade-1", "pnl": 12.5}
     ]
@@ -279,5 +286,94 @@ def test_save_run_writes_backtest_sidecars_and_analytics(tmp_path):
     ]
     assert analytics_writer.calls[0][1][0]["run_id"] == "run-sidecars"
     assert analytics_writer.calls[0][1][0]["trade_id"] == "trade-1"
+
+    db_run = (
+        session.query(BacktestRun).filter(BacktestRun.run_id == "run-sidecars").first()
+    )
+    assert db_run is not None
+    assert db_run.artifact_refs is not None
+    assert db_run.artifact_refs["request"] == (
+        "artifact://backtests/run-sidecars/request.json"
+    )
+    assert db_run.artifact_refs["full_result"] == (
+        "artifact://backtests/run-sidecars/full_result.json"
+    )
+    assert db_run.analytics_rows_written == 3
+
+    artifact_rows = (
+        session.query(ArtifactReference)
+        .filter(ArtifactReference.owner_id == "run-sidecars")
+        .order_by(ArtifactReference.object_key.asc())
+        .all()
+    )
+    assert len(artifact_rows) == 5
+    assert [row.bucket for row in artifact_rows] == ["backtests"] * 5
+    assert artifact_rows[0].owner_type == "backtest_run"
+    assert artifact_rows[0].checksum
+    assert artifact_rows[0].size_bytes > 0
+
+    session.close()
+
+
+def test_save_run_updates_existing_artifact_reference_rows(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'artifact-upsert.sqlite'}", future=True)
+    Base.metadata.create_all(bind=engine)
+    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+    session = SessionLocal()
+    artifact_store = _RecordingArtifactStore()
+    analytics_writer = _RecordingAnalyticsWriter()
+    repository = BacktestRepository(
+        session,
+        artifact_store=artifact_store,
+        analytics_writer=analytics_writer,
+    )
+
+    first_persisted = repository.save_run(
+        {
+            "run_id": "run-upsert",
+            "name": "upsert",
+            "status": "running",
+            "request": {"pairs": ["BTC-USD/ETH-USD"]},
+            "trades": [{"trade_id": "trade-1", "pnl": 1.0}],
+        }
+    )
+    second_persisted = repository.save_run(
+        {
+            "run_id": "run-upsert",
+            "name": "upsert",
+            "status": "completed",
+            "request": {"pairs": ["BTC-USD/ETH-USD"]},
+            "trades": [{"trade_id": "trade-1", "pnl": 10.0}],
+        }
+    )
+
+    assert "full_result" not in first_persisted["artifact_refs"]
+    assert second_persisted["artifact_refs"]["full_result"] == (
+        "artifact://backtests/run-upsert/full_result.json"
+    )
+
+    artifact_rows = (
+        session.query(ArtifactReference)
+        .filter(ArtifactReference.owner_id == "run-upsert")
+        .order_by(ArtifactReference.object_key.asc())
+        .all()
+    )
+    assert len(artifact_rows) == 5
+    trades_row = next(
+        row for row in artifact_rows if row.object_key == "run-upsert/trades.json"
+    )
+    full_result_row = next(
+        row for row in artifact_rows if row.object_key == "run-upsert/full_result.json"
+    )
+    assert trades_row.bucket == "backtests"
+    assert trades_row.metadata_json["artifact_kind"] == "trades"
+    assert full_result_row.metadata_json["artifact_kind"] == "full_result_json"
+    assert trades_row.size_bytes == len(
+        json.dumps(
+            [{"trade_id": "trade-1", "pnl": 10.0}],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
 
     session.close()

@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — ClickHouse writes now buffer and flush in process
+  - Files: `bot/src/infrastructure/storage/analytics.py`, `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/config/config.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_backtest_repository.py`, `bot/tests/test_platform_runtime_config.py`, `config/profiles/example.config.json`, `deploy/k8s-next/platform-config.yaml`, `docker-compose.stack.yml`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py bot/tests/test_platform_runtime_config.py -q` passed; `docker compose -f docker-compose.stack.yml config` passed
+  - Evidence: the writer now buffers rows by `BACKTEST_CLICKHOUSE_BATCH_SIZE` / `BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS`, and repository terminal saves force-flush pending analytical batches before persisting the final row counts.
 - [x] DONE — Backtest sidecar writes now persist normalized artifact-reference metadata
   - Files: `bot/internal/domain/models.py`, `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_backtest_repository.py`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_backtest_repository_payload_relation.py bot/tests/test_storage_adapters.py -q` passed
@@ -185,7 +189,7 @@
 ### Existing ClickHouse write path
 
 - `bot/src/infrastructure/storage/clickhouse_writer.py`
-  - present, still feature-gated, and now provisions five backtest tables (`backtest_trades`, `backtest_position_snapshots`, `backtest_daily_pnl`, `backtest_equity_curve`, `strategy_metrics`), but it still inserts immediately rather than buffering
+  - present, still feature-gated, now provisions five backtest tables (`backtest_trades`, `backtest_position_snapshots`, `backtest_daily_pnl`, `backtest_equity_curve`, `strategy_metrics`), buffers rows by batch size / flush interval, and force-flushes terminal repository saves
 
 ## Code That Should Write To MinIO
 

@@ -93,6 +93,7 @@ Useful environment variables:
 - `NATS_URL` and `NATS_MONITORING_URL` for the optional command/event bus contract
 - `BACKTEST_ARTIFACT_STORAGE_ENABLED=false` keeps artifact persistence on the local fallback path
 - `BACKTEST_CLICKHOUSE_WRITES_ENABLED=false` keeps analytical writes disabled by default
+- `BACKTEST_CLICKHOUSE_BATCH_SIZE=1000` and `BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS=5` control buffered analytical flushes when ClickHouse writes are enabled
 - `BACKTEST_MINIO_ARTIFACTS_ENABLED=false` keeps MinIO artifacts disabled by default
 - `CLICKHOUSE_URL` or `CLICKHOUSE_HOST` / `CLICKHOUSE_PORT` for optional analytical backtest writes
 - `MINIO_ENDPOINT`, `MINIO_BUCKET`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE` for optional artifact storage

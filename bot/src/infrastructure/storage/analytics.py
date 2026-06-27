@@ -14,6 +14,17 @@ class AnalyticsWriter(ABC):
     def write_rows(self, table_name: str, rows: Sequence[Mapping[str, Any]]) -> int:
         """Write rows and return the count accepted by the destination."""
 
+    def flush(
+        self, table_name: str | None = None, *, force: bool = False
+    ) -> dict[str, int]:
+        """Flush pending rows and return inserted counts keyed by table name."""
+        del table_name, force
+        return {}
+
+    def close(self) -> None:
+        """Release buffered state before shutdown."""
+        self.flush(force=True)
+
 
 class NoopAnalyticsWriter(AnalyticsWriter):
     """Fallback writer that intentionally discards analytics rows."""

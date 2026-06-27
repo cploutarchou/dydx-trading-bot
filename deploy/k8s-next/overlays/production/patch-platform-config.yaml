@@ -7,8 +7,8 @@ data:
   BACKEND_PUBLIC_ORIGIN: https://api.dydx.example.com
   BACKEND_BASE_URL: http://backend:8888
   BOT_API_BASE_URL: http://bot-api:8889
-  # Production keeps feature flags off until staging validation is complete.
-  # Flip to "true" after a successful staging soak and runbook sign-off.
-  BACKTEST_ARTIFACT_STORAGE_ENABLED: "false"
-  BACKTEST_MINIO_ARTIFACTS_ENABLED: "false"
+  # Production now inherits the default MinIO artifact path. Operators can still
+  # force a rollback by setting either flag back to "false".
+  BACKTEST_ARTIFACT_STORAGE_ENABLED: "true"
+  BACKTEST_MINIO_ARTIFACTS_ENABLED: "true"
   BACKTEST_CLICKHOUSE_WRITES_ENABLED: "false"

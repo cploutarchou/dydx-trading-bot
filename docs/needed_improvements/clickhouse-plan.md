@@ -6,9 +6,13 @@
   - Files: `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_backtest_repository.py`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_backtest_repository_payload_relation.py bot/tests/test_storage_adapters.py -q` passed
   - Evidence: new backtest saves keep the PostgreSQL row summary-only and rehydrate detail payloads from artifacts, but the ClickHouse writer is still feature-gated and immediate rather than batched/default-on.
-- [ ] PENDING — Expand ClickHouse schemas and batching beyond the current backtest subset
-  - Files: NOT CHANGED
-  - Acceptance result: `bot/src/infrastructure/storage/clickhouse_writer.py` still provisions only the three backtest tables and still inserts rows immediately.
+- [x] DONE — Expand backtest ClickHouse schemas for equity curve and strategy metrics
+  - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_backtest_repository.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py -q` passed; `python3 -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository_backtest.py bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py` passed
+  - Evidence: the writer now provisions `backtest_equity_curve` and `strategy_metrics`, and completed repository saves emit those row families when the payload carries `equity_curve` or `metrics`.
+- [~] PARTIAL — Expand ClickHouse schemas and batching beyond the current backtest subset
+  - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository_backtest.py`
+  - Acceptance result: `bot/src/infrastructure/storage/clickhouse_writer.py` now provisions five backtest analytical tables, but it still inserts rows immediately and broader live-bot analytical tables remain pending.
 
 ## Role of ClickHouse
 
@@ -41,10 +45,12 @@ ClickHouse must not be used for:
 - Runtime defaults disable it in:
   - `docker-compose.stack.yml`
   - `deploy/k8s-next/platform-config.yaml`
-- Existing writer does immediate inserts and only provisions:
+- Existing writer does immediate inserts and now provisions:
   - `backtest_trades`
   - `backtest_daily_pnl`
   - `backtest_position_snapshots`
+  - `backtest_equity_curve`
+  - `strategy_metrics`
 
 This is a start, not a scalable analytics contract.
 
@@ -622,9 +628,9 @@ Migration source:
 
 ## Immediate Repository Changes Implied Later
 
-The eventual implementation should replace the current narrow ClickHouse adapter in `bot/src/infrastructure/storage/clickhouse_writer.py` with:
+The eventual implementation should replace the current still-narrow ClickHouse adapter in `bot/src/infrastructure/storage/clickhouse_writer.py` with:
 
 - batched insert buffers
-- more tables than the current backtest-only subset
+- more tables than the current five-table backtest subset
 - schema versioning
 - backpressure and failed-insert telemetry

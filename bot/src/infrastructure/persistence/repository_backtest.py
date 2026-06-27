@@ -273,6 +273,22 @@ class BacktestRepository:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt
 
+    @staticmethod
+    def _safe_float(value: Any, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _safe_int(value: Any) -> Optional[int]:
+        if value in (None, ""):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
     @classmethod
     def _normalize_run_data(cls, run_data: Dict[str, Any]) -> Dict[str, Any]:
         payload = dict(run_data)
@@ -600,16 +616,30 @@ class BacktestRepository:
         daily_pnl_rows = [
             dict(row, run_id=run_id) for row in artifact_payloads["daily_pnl"]
         ]
+        equity_curve_rows = [
+            dict(row, run_id=run_id)
+            for row in self._materialize_rows(payload.get("equity_curve"))
+        ]
+        strategy_metric_rows = self._materialize_strategy_metric_rows(
+            run_id=run_id,
+            payload=payload,
+        )
 
         analytics_rows_written = {
-            "backtest_trades": self.analytics_writer.write_rows(
+            "backtest_trades": self._write_analytics_rows(
                 "backtest_trades", trade_rows
             ),
-            "backtest_position_snapshots": self.analytics_writer.write_rows(
+            "backtest_position_snapshots": self._write_analytics_rows(
                 "backtest_position_snapshots", position_rows
             ),
-            "backtest_daily_pnl": self.analytics_writer.write_rows(
+            "backtest_daily_pnl": self._write_analytics_rows(
                 "backtest_daily_pnl", daily_pnl_rows
+            ),
+            "backtest_equity_curve": self._write_analytics_rows(
+                "backtest_equity_curve", equity_curve_rows
+            ),
+            "strategy_metrics": self._write_analytics_rows(
+                "strategy_metrics", strategy_metric_rows
             ),
         }
 
@@ -630,6 +660,49 @@ class BacktestRepository:
             "artifact_refs": artifact_refs,
             "analytics_rows_written": analytics_rows_written,
         }
+
+    def _materialize_strategy_metric_rows(
+        self, *, run_id: str, payload: Dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        metrics = payload.get("metrics")
+        if not isinstance(metrics, dict):
+            return []
+
+        request_payload = payload.get("request")
+        strategy_id = self._safe_int(payload.get("strategy_id"))
+        if strategy_id is None and isinstance(request_payload, dict):
+            strategy_id = self._safe_int(request_payload.get("strategy_id"))
+
+        metric_time = self._serialize_dt(
+            payload.get("completed_at")
+            or payload.get("finished_at")
+            or payload.get("updated_at")
+            or payload.get("created_at")
+        ) or self._now().isoformat()
+
+        rows: list[dict[str, Any]] = []
+        for metric_name, raw_value in sorted(metrics.items()):
+            metric_value = self._safe_float(raw_value, default=float("nan"))
+            if metric_value != metric_value:
+                continue
+            rows.append(
+                {
+                    "run_id": run_id,
+                    "metric_name": str(metric_name),
+                    "metric_value": metric_value,
+                    "strategy_id": strategy_id,
+                    "scope": "backtest",
+                    "metric_time": metric_time,
+                }
+            )
+        return rows
+
+    def _write_analytics_rows(
+        self, table_name: str, rows: Sequence[Dict[str, Any]]
+    ) -> int:
+        if not rows:
+            return 0
+        return self.analytics_writer.write_rows(table_name, rows)
 
     def _record_to_dict(self, record: BacktestRun) -> Dict[str, Any]:
         request_payload = dict(record.request_json or {})

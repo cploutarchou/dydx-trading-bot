@@ -386,3 +386,87 @@ def test_save_run_updates_existing_artifact_reference_rows(tmp_path):
     )
 
     session.close()
+
+
+def test_save_run_writes_equity_curve_and_strategy_metrics_when_present(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'analytics.sqlite'}", future=True)
+    Base.metadata.create_all(bind=engine)
+    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+    session = SessionLocal()
+    artifact_store = _RecordingArtifactStore()
+    analytics_writer = _RecordingAnalyticsWriter()
+    repository = BacktestRepository(
+        session,
+        artifact_store=artifact_store,
+        analytics_writer=analytics_writer,
+    )
+
+    persisted = repository.save_run(
+        {
+            "run_id": "run-analytics",
+            "name": "analytics",
+            "status": "completed",
+            "request": {
+                "pairs": ["BTC-USD/ETH-USD"],
+                "strategy_id": 42,
+            },
+            "trades": [{"trade_id": "trade-1", "pnl": 12.5}],
+            "position_snapshots": [{"snapshot_id": "position-1"}],
+            "daily_pnl": [{"date": "2026-04-01", "pnl": 12.5}],
+            "equity_curve": [
+                {"point_time": "2026-04-01T00:00:00+00:00", "equity": 1000.0},
+                {"point_time": "2026-04-02T00:00:00+00:00", "equity": 1012.5},
+            ],
+            "metrics": {
+                "sharpe_ratio": 1.25,
+                "max_drawdown_pct": -4.5,
+            },
+            "updated_at": "2026-04-03T00:00:00+00:00",
+        }
+    )
+
+    assert [call[0] for call in analytics_writer.calls] == [
+        "backtest_trades",
+        "backtest_position_snapshots",
+        "backtest_daily_pnl",
+        "backtest_equity_curve",
+        "strategy_metrics",
+    ]
+    assert analytics_writer.calls[3][1] == [
+        {
+            "run_id": "run-analytics",
+            "point_time": "2026-04-01T00:00:00+00:00",
+            "equity": 1000.0,
+        },
+        {
+            "run_id": "run-analytics",
+            "point_time": "2026-04-02T00:00:00+00:00",
+            "equity": 1012.5,
+        },
+    ]
+    assert analytics_writer.calls[4][1] == [
+        {
+            "run_id": "run-analytics",
+            "metric_name": "max_drawdown_pct",
+            "metric_value": -4.5,
+            "strategy_id": 42,
+            "scope": "backtest",
+            "metric_time": "2026-04-03T00:00:00+00:00",
+        },
+        {
+            "run_id": "run-analytics",
+            "metric_name": "sharpe_ratio",
+            "metric_value": 1.25,
+            "strategy_id": 42,
+            "scope": "backtest",
+            "metric_time": "2026-04-03T00:00:00+00:00",
+        },
+    ]
+
+    db_run = (
+        session.query(BacktestRun).filter(BacktestRun.run_id == "run-analytics").first()
+    )
+    assert db_run is not None
+    assert db_run.analytics_rows_written == 7
+
+    session.close()

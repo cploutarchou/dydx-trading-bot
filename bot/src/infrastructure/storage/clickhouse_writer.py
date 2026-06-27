@@ -61,6 +61,28 @@ CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
 ) ENGINE = MergeTree()
 ORDER BY (run_id, snapshot_time)"""
 
+_BACKTEST_EQUITY_CURVE_DDL = """\
+CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
+    run_id          String,
+    point_time      String,
+    equity          Float64 DEFAULT 0,
+    cash            Nullable(Float64),
+    drawdown_pct    Nullable(Float64),
+    created_at      DateTime64(3, 'UTC') DEFAULT now64()
+) ENGINE = MergeTree()
+ORDER BY (run_id, point_time)"""
+
+_STRATEGY_METRICS_DDL = """\
+CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
+    run_id          String,
+    metric_name     LowCardinality(String),
+    metric_value    Float64 DEFAULT 0,
+    strategy_id     Nullable(UInt64),
+    scope           LowCardinality(String) DEFAULT 'backtest',
+    metric_time     DateTime64(3, 'UTC') DEFAULT now64()
+) ENGINE = MergeTree()
+ORDER BY (run_id, metric_name, metric_time)"""
+
 _TABLE_DDL: dict[str, str] = {
     "backtest_trade_rows": _BACKTEST_TRADES_DDL,
     "backtest_trades": _BACKTEST_TRADES_DDL,
@@ -68,6 +90,10 @@ _TABLE_DDL: dict[str, str] = {
     "backtest_daily_pnl": _BACKTEST_DAILY_PNL_DDL,
     "backtest_position_snapshot_rows": _BACKTEST_POSITION_SNAPSHOTS_DDL,
     "backtest_position_snapshots": _BACKTEST_POSITION_SNAPSHOTS_DDL,
+    "backtest_equity_curve_rows": _BACKTEST_EQUITY_CURVE_DDL,
+    "backtest_equity_curve": _BACKTEST_EQUITY_CURVE_DDL,
+    "strategy_metric_rows": _STRATEGY_METRICS_DDL,
+    "strategy_metrics": _STRATEGY_METRICS_DDL,
 }
 
 

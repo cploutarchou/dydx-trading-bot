@@ -10,7 +10,7 @@ The main scale blockers are current code, not missing infrastructure:
 - Large artifacts can still persist to local disk through `bot/src/infrastructure/storage/artifacts.py` and `bot/src/infrastructure/storage/minio_artifact_store.py` when MinIO fallback is exercised, but the checked-in stack/k3s configs now default the MinIO artifact path on.
 - Durable async execution is still Celery on Redis-compatible transport in `bot/src/infrastructure/workers/celery_app.py` and `bot/src/infrastructure/workers/backtest_tasks.py`.
 - Backend push notifications still use Redis pub/sub in `backend/internal/services/backtest_push_hub.go` and bot worker `_publish_backtest_status()` in `bot/src/infrastructure/workers/backtest_tasks.py`.
-- NATS JetStream, ClickHouse, and MinIO exist in `docker-compose.infra.yml`, `docker-compose.stack.yml`, and `deploy/k8s-next/`; checked-in runtime flags still keep NATS and ClickHouse disabled by default, while MinIO-backed backtest artifacts are now enabled with local fallback compatibility.
+- NATS JetStream, ClickHouse, and MinIO exist in `docker-compose.infra.yml`, `docker-compose.stack.yml`, and `deploy/k8s-next/`; checked-in runtime flags still keep NATS and ClickHouse disabled by default, while MinIO-backed backtest artifacts are now enabled with local fallback compatibility and the ClickHouse writer now covers five backtest analytical tables.
 
 For million-task scale, the current implementation is unsafe because task durability, artifact durability, analytical storage, and distributed rate limiting are not separated cleanly.
 
@@ -45,7 +45,7 @@ For million-task scale, the current implementation is unsafe because task durabi
 - Transactional state: PostgreSQL.
 - Caches and Celery transport: Valkey/Redis.
 - Large backtest artifacts: MinIO by default in checked-in stack/k3s config, with local fallback compatibility if the adapter cannot use object storage.
-- Analytical sidecar rows: optional ClickHouse adapter exists but remains disabled by default.
+- Analytical sidecar rows: optional ClickHouse adapter exists, now covers five backtest analytical tables, and remains disabled by default.
 - Object storage: MinIO adapter exists and is enabled by default in checked-in stack/k3s config, with local fallback still present.
 
 ### NOT FOUND in active runtime path
@@ -62,7 +62,7 @@ For million-task scale, the current implementation is unsafe because task durabi
 | PostgreSQL | Main transactional store for backend and bot runtime | `backend/internal/db/db.go`, `bot/src/infrastructure/database.py` | Correct as system of record, but still carries `request_json`, legacy large columns, and historical oversized rows |
 | Valkey / Redis | Cache, Celery broker/backend, pub/sub, locks, optional rate limit support | `backend/internal/services/cache_service.go`, `backend/internal/services/backtest_push_hub.go`, `bot/src/infrastructure/workers/celery_app.py`, `bot/src/infrastructure/workers/backtest_tasks.py`, `bot/src/api/server.py` | Overused for durable queueing and progress signaling |
 | Local filesystem | Backtest results, pair analysis, bot state snapshots, logs, script exports | `backend/internal/services/backtest_storage.go`, `backend/internal/services/pair_storage.go`, `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/src/trading/bot_agents_state.py`, `bot/src/infrastructure/domain/cointegration_storage.py`, `scripts/analyze_backtest_results.py` | Unsafe for multi-replica, crash recovery, and bounded retention |
-| ClickHouse | Optional analytics adapter for backtest sidecars only | `bot/src/infrastructure/storage/clickhouse_writer.py` | Present but not operationally adopted |
+| ClickHouse | Optional analytics adapter for five backtest analytical tables | `bot/src/infrastructure/storage/clickhouse_writer.py` | Present but not operationally adopted |
 | MinIO | Backtest artifact adapter with local fallback | `bot/src/infrastructure/storage/minio_artifact_store.py`, `bot/src/infrastructure/persistence/repository_backtest.py`, `docker-compose.stack.yml`, `deploy/k8s-next/platform-config.yaml` | Enabled by default in checked-in stack/k3s config, but fallback still writes local disk during MinIO client/object-store failures |
 | NATS JetStream | Provisioned in infra, not active in app logic | `deploy/k8s-next/nats.yaml`, `docker-compose.stack.yml` with `NATS_ENABLED=false` | Infrastructure-ready, app integration missing |
 

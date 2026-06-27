@@ -18,6 +18,10 @@
   - Files: `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_backtest_repository.py`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_backtest_repository_payload_relation.py bot/tests/test_storage_adapters.py -q` passed; `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_service.py -q -k 'backtest_runs_async_and_completes_with_trades or comprehensive_analytics_includes_sub_objects_and_candle_fields'` passed
   - Evidence: `_save_run_once()` now clears `trades_json`, `position_snapshots_json`, and `daily_pnl_json` on the `backtest_runtime_runs` row and rehydrates those payloads from `backtests/{run_id}/*.json` artifacts during read paths.
+- [x] DONE — ClickHouse backtest schema expanded for equity-curve and summary metrics rows
+  - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_backtest_repository.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py -q` passed
+  - Evidence: the repository now emits `backtest_equity_curve` and `strategy_metrics` rows when those payloads are present, and the writer provisions both tables on first use.
 
 ## Files That Write JSON Locally
 
@@ -181,7 +185,7 @@
 ### Existing ClickHouse write path
 
 - `bot/src/infrastructure/storage/clickhouse_writer.py`
-  - present, still feature-gated, and still limited to immediate backtest sidecar writes
+  - present, still feature-gated, and now provisions five backtest tables (`backtest_trades`, `backtest_position_snapshots`, `backtest_daily_pnl`, `backtest_equity_curve`, `strategy_metrics`), but it still inserts immediately rather than buffering
 
 ## Code That Should Write To MinIO
 

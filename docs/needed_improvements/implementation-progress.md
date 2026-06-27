@@ -1,5 +1,95 @@
 # Implementation Progress
 
+## Latest Run — 2026-06-28T02:21:35+03:00
+
+### Documents read
+
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/current-state-assessment.md`
+- `docs/needed_improvements/target-architecture.md`
+- `docs/needed_improvements/data-storage-matrix.md`
+- `docs/needed_improvements/postgresql-plan.md`
+- `docs/needed_improvements/minio-artifact-plan.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/nats-jetstream-plan.md`
+- `docs/needed_improvements/nats-command-event-contract.md`
+- `docs/needed_improvements/valkey-plan.md`
+- `docs/needed_improvements/observability-plan.md`
+- `docs/needed_improvements/k3s-open-source-execution-plan.md`
+- `docs/needed_improvements/kubernetes-devops-plan.md`
+- `docs/needed_improvements/migration-plan.md`
+- `bot/.github/copilot-instructions.md`
+- `bot/.github/CUSTOMIZATION_INDEX.md`
+- `.github/skills/defi-python-algo-trading/SKILL.md`
+- NOT FOUND: none
+
+### Task selected
+
+- Expand the bot ClickHouse analytical schema for the next Phase 3 slice by wiring `backtest_equity_curve` and `strategy_metrics` through the existing repository-owned analytics path.
+
+### Reason selected
+
+- The previous latest run in `implementation-progress.md` recommended expanding `bot/src/infrastructure/storage/clickhouse_writer.py` beyond the current three-table path before queue and Valkey work.
+- `implementation-backlog.md` still listed ClickHouse schema expansion as the highest-priority unfinished Phase 3 item once PostgreSQL array writes were removed.
+- `master-implementation-plan.md`, `clickhouse-plan.md`, and `current-state-assessment.md` all still described the writer as limited to three backtest tables and immediate inserts, making this the next dependency-safe storage task.
+
+### Implementation completed
+
+- Added ClickHouse DDL support for `backtest_equity_curve` and `strategy_metrics` in `bot/src/infrastructure/storage/clickhouse_writer.py`.
+- Extended `BacktestRepository._sync_backtest_sidecars()` in `bot/src/infrastructure/persistence/repository_backtest.py` to emit `equity_curve` rows and summary `metrics` rows when those payloads are present, while preserving the existing `trades`, `position_snapshots`, and `daily_pnl` flow.
+- Added a small repository helper so empty analytical row sets do not invoke the writer, avoiding noisy no-op writes for absent optional tables.
+- Added regression coverage proving the writer provisions the new tables and the repository records the expected analytical row counts for completed runs with equity-curve and metrics payloads.
+
+### Files changed
+
+- `bot/src/infrastructure/storage/clickhouse_writer.py`
+- `bot/src/infrastructure/persistence/repository_backtest.py`
+- `bot/tests/test_storage_adapters.py`
+- `bot/tests/test_backtest_repository.py`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/current-state-assessment.md`
+
+### Tests and checks run
+
+- `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py -q`
+  - result: passed (`25 passed, 1 warning`)
+- `python3 -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository_backtest.py bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py`
+  - result: passed
+
+### Result
+
+- The optional ClickHouse write path now understands five backtest analytical tables: `backtest_trades`, `backtest_position_snapshots`, `backtest_daily_pnl`, `backtest_equity_curve`, and `strategy_metrics`.
+- Completed runs that already include `equity_curve` or `metrics` payloads can now emit those rows through the repository-owned analytical writer without changing the backend/frontend contract.
+- Phase 3 remains PARTIAL because the writer is still feature-gated and immediate rather than buffered/default-on.
+
+### Risks
+
+- ClickHouse writes are still disabled by default in checked-in runtime config, so this slice does not yet prove analytical durability in a live stack.
+- The writer still inserts immediately per repository call; throughput and retry/backpressure behavior are not improved yet.
+- Backend read models and dashboards still do not consume the new ClickHouse tables.
+
+### Known gaps
+
+- ClickHouse batching is still NOT FOUND.
+- ClickHouse writes remain disabled by default in `docker-compose.stack.yml` and `deploy/k8s-next/platform-config.yaml`.
+- Live bot analytics tables and backend ClickHouse read paths remain PENDING.
+
+### Next recommended task
+
+- Phase 3: add batched ClickHouse writes in `bot/src/infrastructure/storage/clickhouse_writer.py` so analytical rows are buffered and flushed deliberately instead of inserted immediately per repository call.
+
+### Manual steps required
+
+- Validate a real completed backtest run with `BACKTEST_CLICKHOUSE_WRITES_ENABLED=true` and confirm `backtest_equity_curve` and `strategy_metrics` receive rows alongside the existing three backtest tables.
+- Decide the buffer/flush policy and retry telemetry needed before enabling ClickHouse writes by default.
+
 ## Latest Run — 2026-06-28T02:05:00+03:00
 
 ### Documents read

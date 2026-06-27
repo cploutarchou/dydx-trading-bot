@@ -107,6 +107,47 @@ type RedisSettings struct {
 	Enabled         bool
 }
 
+type ValkeySettings struct {
+	Host            string
+	Port            int
+	DB              int
+	Password        string
+	SSL             bool
+	Timeout         int
+	CacheTTLSeconds int
+	MaxConnections  int
+	Enabled         bool
+}
+
+type NATSSettings struct {
+	Enabled           bool
+	URL               string
+	MonitoringURL     string
+	StreamPrefix      string
+	CommandBusEnabled bool
+}
+
+type ClickHouseSettings struct {
+	Enabled  bool
+	URL      string
+	Host     string
+	Port     int
+	Database string
+	User     string
+	Password string
+	Secure   bool
+}
+
+type MinIOSettings struct {
+	Enabled    bool
+	Endpoint   string
+	ConsoleURL string
+	Bucket     string
+	AccessKey  string
+	SecretKey  string
+	Secure     bool
+}
+
 type AuthSettings struct {
 	JWTSecretKey             string
 	JWTAlgorithm             string
@@ -121,6 +162,10 @@ type Config struct {
 	DYDX     DYDX
 	Loki     LokiSettings
 	Redis    RedisSettings
+	Valkey   ValkeySettings
+	NATS     NATSSettings
+	ClickHouse ClickHouseSettings
+	MinIO    MinIOSettings
 	Auth     AuthSettings
 }
 
@@ -190,18 +235,58 @@ func LoadConfig() error {
 	redis := RedisSettings{
 		Host:            getEnvAny([]string{"REDIS_HOST", "VALKEY_HOST"}, "localhost"),
 		Port:            getEnvIntAny([]string{"REDIS_PORT", "VALKEY_PORT"}, 6379),
-		DB:              getEnvInt("REDIS_DB", 0),
-		Password:        os.Getenv("REDIS_PASSWORD"),
-		SSL:             getEnvBool("REDIS_SSL", false),
-		Timeout:         getEnvInt("REDIS_TIMEOUT", 5),
-		CacheTTLSeconds: getEnvIntAny([]string{"REDIS_CACHE_TTL", "REDIS_CACHE_TTL_SECONDS"}, 86400),
-		MaxConnections:  getEnvInt("REDIS_MAX_CONNECTIONS", 10),
-		Enabled:         getEnvBool("REDIS_ENABLED", true),
+		DB:              getEnvIntAny([]string{"REDIS_DB", "VALKEY_DB"}, 0),
+		Password:        getEnvAny([]string{"REDIS_PASSWORD", "VALKEY_PASSWORD"}, ""),
+		SSL:             getEnvBoolAny([]string{"REDIS_SSL", "VALKEY_SSL"}, false),
+		Timeout:         getEnvIntAny([]string{"REDIS_TIMEOUT", "VALKEY_TIMEOUT"}, 5),
+		CacheTTLSeconds: getEnvIntAny([]string{"REDIS_CACHE_TTL", "REDIS_CACHE_TTL_SECONDS", "VALKEY_CACHE_TTL", "VALKEY_CACHE_TTL_SECONDS"}, 86400),
+		MaxConnections:  getEnvIntAny([]string{"REDIS_MAX_CONNECTIONS", "VALKEY_MAX_CONNECTIONS"}, 10),
+		Enabled:         getEnvBoolAny([]string{"REDIS_ENABLED", "VALKEY_ENABLED"}, true),
 	}
 	if parsedRedis, ok, err := parseRedisURL(getEnvAny([]string{"REDIS_URL", "VALKEY_URL"}, ""), redis); err != nil {
 		return err
 	} else if ok {
 		redis = parsedRedis
+	}
+	valkey := ValkeySettings{
+		Host:            redis.Host,
+		Port:            redis.Port,
+		DB:              redis.DB,
+		Password:        redis.Password,
+		SSL:             redis.SSL,
+		Timeout:         redis.Timeout,
+		CacheTTLSeconds: redis.CacheTTLSeconds,
+		MaxConnections:  redis.MaxConnections,
+		Enabled:         redis.Enabled,
+	}
+
+	nats := NATSSettings{
+		Enabled:           getEnvBool("NATS_ENABLED", false),
+		URL:               getEnv("NATS_URL", "nats://localhost:4222"),
+		MonitoringURL:     getEnv("NATS_MONITORING_URL", "http://localhost:8222"),
+		StreamPrefix:      getEnv("NATS_STREAM_PREFIX", "bot"),
+		CommandBusEnabled: getEnvBool("BOT_COMMAND_BUS_ENABLED", false),
+	}
+
+	clickHouse := ClickHouseSettings{
+		Enabled:  getEnvBoolAny([]string{"CLICKHOUSE_ENABLED", "BACKTEST_CLICKHOUSE_WRITES_ENABLED"}, false),
+		URL:      getEnvAny([]string{"CLICKHOUSE_URL", "BACKTEST_CLICKHOUSE_URL"}, ""),
+		Host:     getEnvAny([]string{"CLICKHOUSE_HOST", "BACKTEST_CLICKHOUSE_HOST"}, "localhost"),
+		Port:     getEnvIntAny([]string{"CLICKHOUSE_PORT", "BACKTEST_CLICKHOUSE_PORT"}, 8123),
+		Database: getEnvAny([]string{"CLICKHOUSE_DATABASE", "BACKTEST_CLICKHOUSE_DATABASE"}, "default"),
+		User:     getEnvAny([]string{"CLICKHOUSE_USER", "BACKTEST_CLICKHOUSE_USER"}, "default"),
+		Password: getEnvAny([]string{"CLICKHOUSE_PASSWORD", "BACKTEST_CLICKHOUSE_PASSWORD"}, ""),
+		Secure:   getEnvBoolAny([]string{"CLICKHOUSE_SECURE", "BACKTEST_CLICKHOUSE_SECURE"}, false),
+	}
+
+	minIO := MinIOSettings{
+		Enabled:    getEnvBoolAny([]string{"MINIO_ENABLED", "BACKTEST_ARTIFACT_STORAGE_ENABLED", "BACKTEST_MINIO_ARTIFACTS_ENABLED"}, false),
+		Endpoint:   getEnvAny([]string{"MINIO_ENDPOINT", "BACKTEST_MINIO_ENDPOINT", "S3_ENDPOINT"}, ""),
+		ConsoleURL: getEnv("MINIO_CONSOLE_URL", ""),
+		Bucket:     getEnvAny([]string{"MINIO_BUCKET", "BACKTEST_MINIO_BUCKET"}, "backtests"),
+		AccessKey:  getEnvAny([]string{"MINIO_ACCESS_KEY", "BACKTEST_MINIO_ACCESS_KEY", "MINIO_ROOT_USER"}, ""),
+		SecretKey:  getEnvAny([]string{"MINIO_SECRET_KEY", "BACKTEST_MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD"}, ""),
+		Secure:     getEnvBool("BACKTEST_MINIO_SECURE", false),
 	}
 
 	auth := AuthSettings{
@@ -218,6 +303,10 @@ func LoadConfig() error {
 		DYDX:     dydx,
 		Loki:     loki,
 		Redis:    redis,
+		Valkey:   valkey,
+		NATS:     nats,
+		ClickHouse: clickHouse,
+		MinIO:    minIO,
 		Auth:     auth,
 	}
 
@@ -374,6 +463,17 @@ func getEnvBool(key string, defaultValue bool) bool {
 	if value := os.Getenv(key); value != "" {
 		if boolValue, err := strconv.ParseBool(value); err == nil {
 			return boolValue
+		}
+	}
+	return defaultValue
+}
+
+func getEnvBoolAny(keys []string, defaultValue bool) bool {
+	for _, key := range keys {
+		if value := os.Getenv(key); value != "" {
+			if boolValue, err := strconv.ParseBool(value); err == nil {
+				return boolValue
+			}
 		}
 	}
 	return defaultValue

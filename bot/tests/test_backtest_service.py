@@ -243,6 +243,10 @@ def test_backtest_runs_async_and_completes_with_trades(monkeypatch):
         assert details is not None
         assert details.status == "completed"
         assert details.total_trades >= 0
+        assert details.artifact_refs["full_result"].endswith(
+            f"/backtests/{created.run_id}/full_result.json"
+        )
+        assert details.analytics_rows_written >= 0
 
         trades = service.get_backtest_trades(created.run_id, limit=500)
         assert len(trades) == details.total_trades

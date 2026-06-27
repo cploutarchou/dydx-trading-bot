@@ -167,6 +167,8 @@ class _BacktestRunDetails(BaseModel):
     metadata: Dict[str, Any] = {}
     worker_hostname: Optional[str] = None
     retry_count: Optional[int] = None
+    artifact_refs: Dict[str, str] = {}
+    analytics_rows_written: int = 0
 
 
 class _BacktestRunList(BaseModel):
@@ -450,8 +452,26 @@ class BacktestService:
         ):
             if key in run_data and key not in persisted:
                 persisted[key] = run_data[key]
+        persisted["analytics_rows_written"] = self._normalize_analytics_rows_written(
+            persisted.get("analytics_rows_written")
+        )
         self._runs[str(persisted["run_id"])] = dict(persisted)
         return dict(persisted)
+
+    @staticmethod
+    def _normalize_analytics_rows_written(value: Any) -> int:
+        if isinstance(value, dict):
+            total = 0
+            for item in value.values():
+                try:
+                    total += max(0, int(item or 0))
+                except (TypeError, ValueError):
+                    continue
+            return total
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
 
     def _persist_progress_data(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
         """Persist scalar progress without rewriting accumulated result JSON blobs."""

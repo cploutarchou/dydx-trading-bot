@@ -10,9 +10,10 @@
   - Files: `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_backtest_repository.py`, `docker-compose.stack.yml`, `deploy/k8s-next/platform-config.yaml`, `deploy/k8s-next/overlays/staging/patch-platform-config.yaml`, `deploy/k8s-next/overlays/production/patch-platform-config.yaml`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_storage_adapters.py bot/tests/test_platform_runtime_config.py -q` passed
   - Evidence: completed runs now write `backtests/{run_id}/full_result.json` plus sidecars through the configured artifact store, and the checked-in stack/k3s config now defaults both MinIO artifact flags to `true` while preserving local fallback behavior.
-- [ ] PENDING — Add backend signed artifact URLs
-  - Files: NOT CHANGED
-  - Acceptance result: backend-issued signed URL lookup/response path remains NOT FOUND.
+- [x] DONE — Add backend signed artifact URLs
+  - Files: `backend/internal/services/minio_artifact_signer.go`, `backend/internal/routes/bot_api_delegate_routes.go`, `backend/internal/routes/bot_api_delegate_backtest_run_test.go`, `bot/src/infrastructure/domain/models_backtest.py`, `bot/src/infrastructure/use_cases/service_backtest.py`, `bot/tests/test_backtest_service.py`, `bot/tests/test_backtest_api_contract.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_service.py -q -k 'backtest_runs_async_and_completes_with_trades'` passed; `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_api_contract.py -q -k 'backtest_details_expose_artifact_refs'` passed
+  - Evidence: backend now serves `GET /api/v1/backtests/:run_id/artifacts`, enforces backend-owned run access, emits signed MinIO download URLs for `artifact_refs`, and withholds local fallback file paths from clients.
 - [ ] PENDING — Remove large backtest JSON writes
   - Files: NOT CHANGED
   - Acceptance result: `trades_json`, `position_snapshots_json`, and `daily_pnl_json` are still written in `bot/src/infrastructure/persistence/repository_backtest.py`.

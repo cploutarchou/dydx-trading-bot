@@ -1,5 +1,105 @@
 # Implementation Progress
 
+## Latest Run — 2026-06-28T00:58:00+03:00
+
+### Documents read
+
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/current-state-assessment.md`
+- `docs/needed_improvements/target-architecture.md`
+- `docs/needed_improvements/data-storage-matrix.md`
+- `docs/needed_improvements/postgresql-plan.md`
+- `docs/needed_improvements/minio-artifact-plan.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/nats-jetstream-plan.md`
+- `docs/needed_improvements/nats-command-event-contract.md`
+- `docs/needed_improvements/valkey-plan.md`
+- `docs/needed_improvements/observability-plan.md`
+- `docs/needed_improvements/k3s-open-source-execution-plan.md`
+- `docs/needed_improvements/kubernetes-devops-plan.md`
+- `docs/needed_improvements/migration-plan.md`
+- NOT FOUND: none
+
+### Task selected
+
+- Implement backend artifact metadata lookup and signed MinIO URL issuance to finish the backend side of Phase 2.
+
+### Reason selected
+
+- The previous latest run in `implementation-progress.md` marked backend signed URLs as the next recommended task.
+- `implementation-backlog.md` still had backend signed artifact URLs as the highest-priority unfinished Phase 2 backend item.
+- `minio-artifact-plan.md` and `investigation-checklist.md` still marked backend signing as PENDING while later ClickHouse/NATS work remained blocked behind Phase 2 completion.
+
+### Implementation completed
+
+- Added backend MinIO presigning logic in `backend/internal/services/minio_artifact_signer.go` for short-lived S3-compatible GET URLs without introducing a new runtime dependency.
+- Added delegated backend route `GET /api/v1/backtests/:run_id/artifacts` in `backend/internal/routes/bot_api_delegate_routes.go` that:
+  - enforces backend-owned run access checks
+  - fetches delegated backtest details
+  - reads upstream `artifact_refs` when present
+  - falls back to deterministic `backtests/{run_id}/...` MinIO object keys when refs are absent
+  - returns signed download metadata for MinIO-backed artifacts while withholding local fallback file paths
+- Extended bot backtest detail models so `artifact_refs` and `analytics_rows_written` survive the bot detail contract used by the backend route.
+- Added targeted backend and bot regression coverage for the new artifact contract.
+
+### Files changed
+
+- `backend/internal/services/minio_artifact_signer.go`
+- `backend/internal/services/minio_artifact_signer_test.go`
+- `backend/internal/routes/bot_api_delegate_routes.go`
+- `backend/internal/routes/bot_api_delegate_backtest_run_test.go`
+- `bot/src/infrastructure/domain/models_backtest.py`
+- `bot/src/infrastructure/use_cases/service_backtest.py`
+- `bot/tests/test_backtest_service.py`
+- `bot/tests/test_backtest_api_contract.py`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/minio-artifact-plan.md`
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/current-state-assessment.md`
+- `docs/needed_improvements/kubernetes-devops-plan.md`
+
+### Tests and checks run
+
+- `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_service.py -q -k 'backtest_runs_async_and_completes_with_trades'`
+- `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_api_contract.py -q -k 'backtest_details_expose_artifact_refs'`
+- `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_service.py bot/tests/test_backtest_api_contract.py -q`
+  - result: 1 unrelated failure remains in `test_resolve_worker_backend_promotes_asyncio_when_probe_succeeds`; artifact-related cases passed
+- `python3 -m compileall bot/src/infrastructure/domain/models_backtest.py bot/src/infrastructure/use_cases/service_backtest.py bot/tests/test_backtest_service.py bot/tests/test_backtest_api_contract.py`
+- Go formatting/tests: BLOCKED in this environment because both `go` and `gofmt` resolve to broken `/snap/bin/*` wrappers (`snap-confine ... Refusing to continue`)
+
+### Result
+
+- Backend now exposes a user-scoped artifact metadata + signed URL contract at `GET /api/v1/backtests/:run_id/artifacts`.
+- Bot detail responses now include artifact references needed by the backend artifact route, while still allowing deterministic fallback for older/missing metadata cases.
+- Phase 2 MinIO artifact storage is now complete from the checked-in bot write path through the backend download contract.
+
+### Risks
+
+- Go compilation and integration tests could not be executed in this environment because the Go toolchain is unavailable outside broken snap wrappers.
+- The deterministic backend fallback assumes the current `backtests/{run_id}/{artifact}.json` object-key convention and one default bucket; if those conventions drift, the route will rely on upstream `artifact_refs`.
+- Local-fallback file-backed artifacts intentionally do not return backend download URLs, so degraded environments without MinIO-backed objects still lack frontend-safe downloads.
+
+### Known gaps
+
+- ClickHouse writes are still immediate/non-batched and remain disabled by default.
+- JetStream remains NOT FOUND in active runtime paths.
+- Large backtest JSON columns remain in the active PostgreSQL write path.
+
+### Next recommended task
+
+- Phase 3: expand the ClickHouse backtest analytical schema and batch writer so `trades_json`, `position_snapshots_json`, and `daily_pnl_json` can be removed from the active PostgreSQL write path safely.
+
+### Manual steps required
+
+- Run targeted backend Go tests for `backend/internal/services` and `backend/internal/routes` once a non-snap Go toolchain is available.
+- Validate `GET /api/v1/backtests/:run_id/artifacts` against a live MinIO-backed completed run and confirm the signed `full_result.json` URL downloads successfully.
+- Decide whether later backend orchestration work should keep using delegated bot detail metadata or add a backend-owned artifact metadata projection.
+
 ## Latest Run — 2026-06-28T00:21:22+03:00
 
 ### Documents read

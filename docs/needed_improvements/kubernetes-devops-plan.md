@@ -46,7 +46,7 @@
 - `backtest-worker` still runs Celery, not JetStream consumer.
 - app feature flags still disable NATS, ClickHouse, and MinIO write paths by default.
 - local compose stack does not route application DB traffic through PgBouncer.
-- secrets are intentionally absent from Git, which is correct, but signed URL and object-storage runtime paths are not implemented in backend.
+- secrets are intentionally absent from Git, which is correct; backend signed artifact URLs now exist, but live object-storage validation in k3s still needs rollout testing.
 
 ## NOT FOUND
 

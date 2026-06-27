@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -2085,5 +2086,140 @@ func TestDelegatedBacktestDetails_PreservesZeroMetricsInSync(t *testing.T) {
 	}
 	if !totalPnLUSD.Valid || totalPnLUSD.Float64 != 0 {
 		t.Fatalf("expected total_pnl_usd valid zero, got %+v", totalPnLUSD)
+	}
+}
+
+func TestDelegatedBacktestArtifacts_ReturnsSignedURLsForOwnedRun(t *testing.T) {
+	t.Setenv("MINIO_ENABLED", "true")
+	t.Setenv("MINIO_ENDPOINT", "minio.internal:9000")
+	t.Setenv("MINIO_BUCKET", "backtests")
+	t.Setenv("MINIO_ACCESS_KEY", "access-key")
+	t.Setenv("MINIO_SECRET_KEY", "secret-key")
+
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/artifact-run", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"message":"ok","data":{"run_id":"artifact-run","status":"completed","start_date":"2025-08-01","end_date":"2025-08-31","num_pairs":2,"total_markets":5,"progress_pct":100,"artifact_refs":{"request":"s3://backtests/backtests/artifact-run/request.json","full_result":"s3://backtests/backtests/artifact-run/full_result.json","run_root":"s3://backtests/backtests/artifact-run"}}}`))
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	if _, err := dbConn.Exec(
+		`INSERT INTO backtest_runs (run_id, status, created_at, start_date, end_date, num_pairs, total_markets, total_pnl, total_pnl_usd, user_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"artifact-run",
+		"completed",
+		time.Now().UTC(),
+		"2025-08-01",
+		"2025-08-31",
+		2,
+		5,
+		0.0,
+		0.0,
+		1,
+	); err != nil {
+		t.Fatalf("seed owned artifact run: %v", err)
+	}
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/backtests/artifact-run/artifacts", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("artifact metadata request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode artifact payload: %v", err)
+	}
+	data, ok := payload["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected nested artifact data payload, got %T", payload["data"])
+	}
+	artifacts, ok := data["artifacts"].([]interface{})
+	if !ok || len(artifacts) == 0 {
+		t.Fatalf("expected artifacts array, got %T (%v)", data["artifacts"], data["artifacts"])
+	}
+
+	var fullResult map[string]interface{}
+	for _, item := range artifacts {
+		entry, ok := item.(map[string]interface{})
+		if ok && entry["artifact_name"] == "full_result" {
+			fullResult = entry
+			break
+		}
+	}
+	if fullResult == nil {
+		t.Fatalf("expected full_result artifact entry, got %v", artifacts)
+	}
+	if fullResult["bucket"] != "backtests" {
+		t.Fatalf("expected bucket backtests, got %v", fullResult["bucket"])
+	}
+	if fullResult["object_key"] != "backtests/artifact-run/full_result.json" {
+		t.Fatalf("unexpected object key: %v", fullResult["object_key"])
+	}
+	if available, ok := fullResult["download_available"].(bool); !ok || !available {
+		t.Fatalf("expected downloadable full_result entry, got %+v", fullResult)
+	}
+	downloadURL, _ := fullResult["download_url"].(string)
+	if !strings.Contains(downloadURL, "X-Amz-Signature=") {
+		t.Fatalf("expected signed download url, got %q", downloadURL)
+	}
+}
+
+func TestDelegatedBacktestArtifacts_HidesForeignRun(t *testing.T) {
+	t.Setenv("MINIO_ENABLED", "true")
+	t.Setenv("MINIO_ENDPOINT", "minio.internal:9000")
+	t.Setenv("MINIO_BUCKET", "backtests")
+	t.Setenv("MINIO_ACCESS_KEY", "access-key")
+	t.Setenv("MINIO_SECRET_KEY", "secret-key")
+
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/foreign-artifact-run", func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatalf("foreign artifact route should not hit upstream")
+	})
+
+	router, dbConn := setupDelegatedBacktestAuthRouterWithSync(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	if _, err := dbConn.Exec(
+		`INSERT INTO backtest_runs (run_id, status, created_at, start_date, end_date, num_pairs, total_markets, total_pnl, total_pnl_usd, user_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"foreign-artifact-run",
+		"completed",
+		time.Now().UTC(),
+		"2025-08-01",
+		"2025-08-31",
+		2,
+		5,
+		0.0,
+		0.0,
+		999,
+	); err != nil {
+		t.Fatalf("seed foreign artifact run: %v", err)
+	}
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/backtests/foreign-artifact-run/artifacts", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("foreign artifact metadata request failed: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 for foreign run, got %d", resp.StatusCode)
 	}
 }

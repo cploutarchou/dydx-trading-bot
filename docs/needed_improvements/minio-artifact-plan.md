@@ -14,9 +14,10 @@
   - Files: `bot/src/infrastructure/persistence/repository_backtest.py`, `docker-compose.stack.yml`, `deploy/k8s-next/platform-config.yaml`, `deploy/k8s-next/overlays/staging/patch-platform-config.yaml`, `deploy/k8s-next/overlays/production/patch-platform-config.yaml`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_storage_adapters.py bot/tests/test_platform_runtime_config.py -q` passed
   - Evidence: completed runs now upload `backtests/{run_id}/full_result.json` alongside JSON sidecars, and the checked-in stack/k3s manifests default both MinIO artifact flags to `true`.
-- [ ] PENDING — Add backend signed URL issuance
-  - Files: backend artifact lookup/signing path
-  - Acceptance result: backend artifact metadata lookup/signing endpoints remain NOT FOUND.
+- [x] DONE — Add backend signed URL issuance
+  - Files: `backend/internal/services/minio_artifact_signer.go`, `backend/internal/routes/bot_api_delegate_routes.go`, `backend/internal/routes/bot_api_delegate_backtest_run_test.go`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_api_contract.py -q -k 'backtest_details_expose_artifact_refs'` passed
+  - Evidence: backend now exposes `GET /api/v1/backtests/:run_id/artifacts`, emits signed MinIO download URLs for MinIO-backed artifacts, and preserves backend-side authorization before signing.
 
 ## Role of MinIO
 
@@ -43,7 +44,7 @@ PostgreSQL stores only references. ClickHouse stores only extracted queryable ro
   - `BACKTEST_MINIO_ARTIFACTS_ENABLED=true`
   - both flags are enabled in `docker-compose.stack.yml` and `deploy/k8s-next/platform-config.yaml`
 - Local fallback remains available inside `MinIOArtifactStore` when the client cannot initialize or an object write fails.
-- Backend signed URL issuance for artifact download: NOT FOUND.
+- Backend signed URL issuance for artifact download is now implemented in `backend/internal/services/minio_artifact_signer.go` and `backend/internal/routes/bot_api_delegate_routes.go`.
 
 ## Bucket Structure
 
@@ -136,8 +137,8 @@ Use the `artifact_references` table defined in `docs/architecture/postgresql-pla
 
 ### Signed URL flow in current repo
 
-- Backend implementation: NOT FOUND.
-- This is a required modernization task.
+- Backend implementation: `GET /api/v1/backtests/:run_id/artifacts` in `backend/internal/routes/bot_api_delegate_routes.go`, signed by `backend/internal/services/minio_artifact_signer.go`.
+- Remaining work is frontend adoption and later backend-owned metadata projection if delegation is replaced.
 
 ## Checksum Strategy
 

@@ -7,10 +7,10 @@ The repository already contains the shape of the target platform infrastructure,
 The main scale blockers are current code, not missing infrastructure:
 
 - Backtest runtime rows still store large JSON payloads in PostgreSQL in `bot/internal/domain/models.py` and `bot/src/infrastructure/persistence/repository_backtest.py`.
-- Large artifacts still persist to local disk by default in `bot_states/backtest_artifacts` through `bot/src/infrastructure/storage/artifacts.py` and `bot/src/infrastructure/storage/minio_artifact_store.py`.
+- Large artifacts can still persist to local disk through `bot/src/infrastructure/storage/artifacts.py` and `bot/src/infrastructure/storage/minio_artifact_store.py` when MinIO fallback is exercised, but the checked-in stack/k3s configs now default the MinIO artifact path on.
 - Durable async execution is still Celery on Redis-compatible transport in `bot/src/infrastructure/workers/celery_app.py` and `bot/src/infrastructure/workers/backtest_tasks.py`.
 - Backend push notifications still use Redis pub/sub in `backend/internal/services/backtest_push_hub.go` and bot worker `_publish_backtest_status()` in `bot/src/infrastructure/workers/backtest_tasks.py`.
-- NATS JetStream, ClickHouse, and MinIO exist in `docker-compose.infra.yml`, `docker-compose.stack.yml`, and `deploy/k8s-next/`, but runtime flags keep them disabled by default.
+- NATS JetStream, ClickHouse, and MinIO exist in `docker-compose.infra.yml`, `docker-compose.stack.yml`, and `deploy/k8s-next/`; checked-in runtime flags still keep NATS and ClickHouse disabled by default, while MinIO-backed backtest artifacts are now enabled with local fallback compatibility.
 
 For million-task scale, the current implementation is unsafe because task durability, artifact durability, analytical storage, and distributed rate limiting are not separated cleanly.
 
@@ -20,7 +20,7 @@ For million-task scale, the current implementation is unsafe because task durabi
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Frontend | `frontend/src/main.tsx`, `frontend/src/App.tsx`, `frontend/src/api.ts`, `frontend/src/pages/Backtests.tsx` | UI, polling, websocket subscriptions, dashboard rendering | API requests, client-side CSV exports | Backend REST + websocket payloads | Browser memory | Polling + backend websocket | Browser-side CSV export in `frontend/src/components/TableControls.tsx` | Depends on backend response shape for backtests and bot runtime views | Poll-heavy UI, contract coupling, no direct artifact path yet |
 | Go backend API | `backend/cmd/server/main.go`, `backend/internal/app/router.go`, `backend/internal/routes/bot_api_delegate_routes.go` | API boundary, auth, delegated bot/backtest orchestration, DB sync | API responses, synced backtest metadata, health/metrics payloads | Frontend requests, bot API responses, PostgreSQL rows, Redis cache/pubsub | PostgreSQL, optional Redis cache | HTTP to bot API, Redis pub/sub for push | JSON/CSV backtest and pair storage managers still exist in `backend/internal/services/backtest_storage.go` and `backend/internal/services/pair_storage.go` | `backtest_runs.config`, `strategy_snapshot`, `bot_instances.config`, `trading_params`, audit/details JSON | Mixed orchestration + storage duties, no durable bus, local file persistence still present |
-| Python bot API/runtime | `bot/src/api/start_api.py`, `bot/src/api/server.py`, `bot/src/infrastructure/database.py` | Bot lifecycle control, backtest API, strategy/runtime logic, fallback background execution | Runtime state, backtest run metadata, metrics endpoints | Backend delegated calls, PostgreSQL rows, Valkey/Redis cache, exchange data | PostgreSQL, Valkey/Redis, local files; optional ClickHouse/MinIO disabled by default | Celery handoff when enabled, otherwise in-process asyncio | `bot_states/*`, `pair_history/*`, backtest artifact root | Large JSON run payloads and JSON model fields across jobs/events/backtests | Huge module blast radius, mixed API/runtime/queue concerns, process-local state |
+| Python bot API/runtime | `bot/src/api/start_api.py`, `bot/src/api/server.py`, `bot/src/infrastructure/database.py` | Bot lifecycle control, backtest API, strategy/runtime logic, fallback background execution | Runtime state, backtest run metadata, metrics endpoints | Backend delegated calls, PostgreSQL rows, Valkey/Redis cache, exchange data | PostgreSQL, Valkey/Redis, local files, MinIO-backed artifacts; ClickHouse remains disabled by default | Celery handoff when enabled, otherwise in-process asyncio | `bot_states/*`, `pair_history/*`, backtest artifact root | Large JSON run payloads and JSON model fields across jobs/events/backtests | Huge module blast radius, mixed API/runtime/queue concerns, process-local state |
 | Bot worker | `bot/src/main_instance.py`, `deploy/k8s-next/applications.yaml` (`bot-worker`) | Long-running live trading worker | Orders, trades, positions, runtime logs | PostgreSQL config/state, exchange feeds, Valkey cache | PostgreSQL, Valkey, local logs/state | Process-local runtime loops; NATS runtime path NOT FOUND | `bot_states/backtest_*.log`, optional snapshots | Live state uses JSON columns and optional file snapshots | Process-local coordination and unclear distributed ownership |
 | Backtest worker | `bot/src/infrastructure/workers/celery_app.py`, `bot/src/infrastructure/workers/backtest_tasks.py`, `bot/worker_entrypoint.py` | Durable backtest execution, retries, progress events | Backtest status, logs, artifacts, analytical sidecars | Celery tasks, PostgreSQL rows, Valkey locks, market data | PostgreSQL, Valkey, local files; optional ClickHouse/MinIO adapters | Celery queues on Redis-compatible broker; Redis pub/sub status push | `bot_states/backtest_<run_id>.log`, `bot_states/backtest_artifacts/*` | Writes `request_json`, `trades_json`, `position_snapshots_json`, `daily_pnl_json` into PostgreSQL | Not JetStream-based, large-row writes, local disk default, retry semantics tied to Celery |
 | Database layer | `backend/internal/db/db.go`, backend postgres migrations, bot Alembic/postgres migrations | Transactional persistence for users, bots, strategies, backtests, jobs | Relational state | API/runtime/worker reads and writes | PostgreSQL | Direct DB access | N/A | Multiple JSON / JSONB / TEXT payload columns | Large-row bloat, mixed transactional + analytical storage |
@@ -44,9 +44,9 @@ For million-task scale, the current implementation is unsafe because task durabi
 
 - Transactional state: PostgreSQL.
 - Caches and Celery transport: Valkey/Redis.
-- Large backtest artifacts: local filesystem by default.
-- Analytical sidecar rows: optional ClickHouse adapter exists but disabled by default.
-- Object storage: optional MinIO adapter exists but disabled by default.
+- Large backtest artifacts: MinIO by default in checked-in stack/k3s config, with local fallback compatibility if the adapter cannot use object storage.
+- Analytical sidecar rows: optional ClickHouse adapter exists but remains disabled by default.
+- Object storage: MinIO adapter exists and is enabled by default in checked-in stack/k3s config, with local fallback still present.
 
 ### NOT FOUND in active runtime path
 
@@ -63,7 +63,7 @@ For million-task scale, the current implementation is unsafe because task durabi
 | Valkey / Redis | Cache, Celery broker/backend, pub/sub, locks, optional rate limit support | `backend/internal/services/cache_service.go`, `backend/internal/services/backtest_push_hub.go`, `bot/src/infrastructure/workers/celery_app.py`, `bot/src/infrastructure/workers/backtest_tasks.py`, `bot/src/api/server.py` | Overused for durable queueing and progress signaling |
 | Local filesystem | Backtest results, pair analysis, bot state snapshots, logs, script exports | `backend/internal/services/backtest_storage.go`, `backend/internal/services/pair_storage.go`, `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/src/trading/bot_agents_state.py`, `bot/src/infrastructure/domain/cointegration_storage.py`, `scripts/analyze_backtest_results.py` | Unsafe for multi-replica, crash recovery, and bounded retention |
 | ClickHouse | Optional analytics adapter for backtest sidecars only | `bot/src/infrastructure/storage/clickhouse_writer.py` | Present but not operationally adopted |
-| MinIO | Optional artifact adapter with local fallback | `bot/src/infrastructure/storage/minio_artifact_store.py` | Present but disabled and fallback still writes local disk |
+| MinIO | Backtest artifact adapter with local fallback | `bot/src/infrastructure/storage/minio_artifact_store.py`, `bot/src/infrastructure/persistence/repository_backtest.py`, `docker-compose.stack.yml`, `deploy/k8s-next/platform-config.yaml` | Enabled by default in checked-in stack/k3s config, but fallback still writes local disk during MinIO client/object-store failures |
 | NATS JetStream | Provisioned in infra, not active in app logic | `deploy/k8s-next/nats.yaml`, `docker-compose.stack.yml` with `NATS_ENABLED=false` | Infrastructure-ready, app integration missing |
 
 ## Current Local JSON / File Persistence
@@ -76,7 +76,8 @@ For million-task scale, the current implementation is unsafe because task durabi
 - `backend/internal/services/pair_storage.go`
   - Writes `app/cointegrated_pairs.json`, `app/cointegrated_pairs.csv`, and backup files under `app/pair_history`.
 - `bot/src/infrastructure/persistence/repository_backtest.py`
-  - Writes `request.json`, `trades.json`, `position_snapshots.json`, and `daily_pnl.json` under `bot_states/backtest_artifacts` when artifact storage is enabled, with local filesystem fallback by default.
+  - Writes `request.json`, `trades.json`, `position_snapshots.json`, `daily_pnl.json`, and `full_result.json` through the configured artifact store.
+  - Checked-in stack/k3s config now prefers MinIO and retains local filesystem fallback for degraded operation.
 - `bot/src/trading/bot_agents_state.py`
   - Writes `bot_states/bot_agents.json` fallback state.
 - `bot/src/infrastructure/domain/cointegration_storage.py`
@@ -214,18 +215,18 @@ That is not sufficient for high-concurrency durable execution.
   - Provisions PostgreSQL, Valkey, NATS, ClickHouse, MinIO.
 - `docker-compose.stack.yml`
   - Provisions full application stack plus data services.
-  - Important flags remain disabled:
+  - Important flags remain:
     - `NATS_ENABLED=false`
-    - `BACKTEST_ARTIFACT_STORAGE_ENABLED=false`
+    - `BACKTEST_ARTIFACT_STORAGE_ENABLED=true`
     - `BACKTEST_CLICKHOUSE_WRITES_ENABLED=false`
-    - `BACKTEST_MINIO_ARTIFACTS_ENABLED=false`
+    - `BACKTEST_MINIO_ARTIFACTS_ENABLED=true`
 
 ### Kubernetes / k3s target
 
 - `deploy/k8s-next/`
   - Includes `pgbouncer.yaml`, `nats.yaml`, `clickhouse.yaml`, `minio.yaml`, `valkey.yaml`, `applications.yaml`, `networkpolicies.yaml`.
   - `deploy/k8s-next/platform-config.yaml` points DB clients at `pgbouncer:6432`.
-  - Feature flags still disable bus and artifact analytics paths by default.
+  - Feature flags still disable bus and ClickHouse analytics paths by default; MinIO-backed backtest artifacts are enabled by default.
 - `deploy/k8s-next/applications.yaml`
   - `backtest-worker` still starts a Celery worker, not a NATS consumer.
   - `bot-worker` runs a single named runtime process `src/main_instance.py --instance-id bot-1`.

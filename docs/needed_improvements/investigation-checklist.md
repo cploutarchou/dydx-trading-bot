@@ -10,9 +10,10 @@
   - Files: `bot/src/infrastructure/persistence/repository_backtest.py`, `docker-compose.stack.yml`, `deploy/k8s-next/platform-config.yaml`, `deploy/k8s-next/overlays/staging/patch-platform-config.yaml`, `deploy/k8s-next/overlays/production/patch-platform-config.yaml`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_storage_adapters.py bot/tests/test_platform_runtime_config.py -q` passed
   - Evidence: completed runs now persist `full_result.json` alongside sidecars, and checked-in stack/k3s config defaults `BACKTEST_ARTIFACT_STORAGE_ENABLED=true` and `BACKTEST_MINIO_ARTIFACTS_ENABLED=true` while `MinIOArtifactStore` still falls back locally on client/object-store failures.
-- [ ] PENDING — Backend-issued MinIO signed URL implementation
-  - Files: NOT FOUND
-  - Acceptance result: backend artifact metadata lookup/signing endpoints still need to be implemented.
+- [x] DONE — Backend-issued MinIO signed URL implementation
+  - Files: `backend/internal/services/minio_artifact_signer.go`, `backend/internal/routes/bot_api_delegate_routes.go`, `backend/internal/routes/bot_api_delegate_backtest_run_test.go`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_api_contract.py -q -k 'backtest_details_expose_artifact_refs'` passed
+  - Evidence: backend now exposes `GET /api/v1/backtests/:run_id/artifacts`, signs MinIO-backed artifact downloads, and preserves backend-owned authorization checks before emitting URLs.
 
 ## Files That Write JSON Locally
 
@@ -224,6 +225,6 @@
 ## Additional Investigation Notes
 
 - Frontend direct storage access beyond backend API: NOT FOUND.
-- Backend-issued MinIO signed URL implementation: NOT FOUND.
+- Backend-issued MinIO signed URL implementation: FOUND in `backend/internal/services/minio_artifact_signer.go` and `backend/internal/routes/bot_api_delegate_routes.go`.
 - Helm charts: NOT FOUND.
 - `platform.yml` referenced by older docs: NOT FOUND in repository.

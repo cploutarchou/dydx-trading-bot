@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/dydx-trading-bot/backend-go/config"
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
@@ -378,6 +380,118 @@ func normalizeBacktestDetailsPayload(payload map[string]interface{}) map[string]
 		return payload
 	}
 	return normalizeBacktestDetailsFields(payload)
+}
+
+var orderedBacktestArtifactNames = []string{
+	"request",
+	"trades",
+	"position_snapshots",
+	"daily_pnl",
+	"full_result",
+	"run_root",
+}
+
+func buildBacktestArtifactPayload(runID string, payload map[string]interface{}, signer *services.MinIOArtifactSigner) (map[string]interface{}, error) {
+	artifactRefs, source := resolveBacktestArtifactRefs(runID, payload, signer.DefaultBucket())
+	artifacts := make([]interface{}, 0, len(artifactRefs))
+	for _, name := range orderedBacktestArtifactNames {
+		reference, ok := artifactRefs[name]
+		if !ok {
+			continue
+		}
+		entry, err := buildBacktestArtifactEntry(name, reference, signer)
+		if err != nil {
+			return nil, err
+		}
+		artifacts = append(artifacts, entry)
+	}
+	return map[string]interface{}{
+		"artifacts":       artifacts,
+		"count":           len(artifacts),
+		"artifact_source": source,
+	}, nil
+}
+
+func resolveBacktestArtifactRefs(runID string, payload map[string]interface{}, defaultBucket string) (map[string]string, string) {
+	resolved := map[string]string{}
+	if artifactRefMap := asMap(payload["artifact_refs"]); artifactRefMap != nil {
+		for _, name := range orderedBacktestArtifactNames {
+			if value, ok := artifactRefMap[name]; ok {
+				ref := strings.TrimSpace(fmt.Sprintf("%v", value))
+				if ref != "" {
+					resolved[name] = ref
+				}
+			}
+		}
+	}
+	if len(resolved) > 0 {
+		return resolved, "upstream"
+	}
+
+	defaultBucket = strings.TrimSpace(defaultBucket)
+	runID = strings.TrimSpace(runID)
+	if defaultBucket == "" || runID == "" {
+		return resolved, "missing"
+	}
+
+	basePrefix := fmt.Sprintf("s3://%s/backtests/%s", defaultBucket, runID)
+	resolved["request"] = basePrefix + "/request.json"
+	resolved["trades"] = basePrefix + "/trades.json"
+	resolved["position_snapshots"] = basePrefix + "/position_snapshots.json"
+	resolved["daily_pnl"] = basePrefix + "/daily_pnl.json"
+	resolved["run_root"] = basePrefix
+	progress := 0.0
+	if value, ok := getNumberField(payload, "progress_pct", "progress_percent", "progress"); ok {
+		progress = value
+	}
+	if strings.EqualFold(normalizeBacktestRunStatus(payload, progress), "completed") {
+		resolved["full_result"] = basePrefix + "/full_result.json"
+	}
+	return resolved, "derived"
+}
+
+func buildBacktestArtifactEntry(name, reference string, signer *services.MinIOArtifactSigner) (map[string]interface{}, error) {
+	entry := map[string]interface{}{
+		"artifact_name":      name,
+		"download_available": false,
+	}
+	parsed, err := url.Parse(reference)
+	if err != nil {
+		entry["storage_backend"] = "invalid_reference"
+		entry["reference_scheme"] = "invalid"
+		return entry, nil
+	}
+
+	scheme := strings.TrimSpace(parsed.Scheme)
+	if scheme == "" {
+		scheme = "path"
+	}
+	entry["reference_scheme"] = scheme
+
+	switch parsed.Scheme {
+	case "s3":
+		bucket := strings.TrimSpace(parsed.Host)
+		objectKey := strings.Trim(strings.TrimSpace(parsed.Path), "/")
+		entry["storage_backend"] = "minio"
+		entry["bucket"] = bucket
+		entry["object_key"] = objectKey
+		if name == "run_root" || bucket == "" || objectKey == "" {
+			return entry, nil
+		}
+		downloadURL, expiresAt, err := signer.PresignGet(bucket, objectKey, 15*time.Minute)
+		if err != nil {
+			return nil, fmt.Errorf("presign artifact %s: %w", name, err)
+		}
+		entry["download_available"] = true
+		entry["download_url"] = downloadURL
+		entry["download_url_expires_at"] = expiresAt.UTC().Format(time.RFC3339)
+	case "file":
+		entry["storage_backend"] = "local_fallback"
+	default:
+		entry["storage_backend"] = "unsupported"
+	}
+
+	return entry, nil
 }
 
 func normalizeBacktestStatusFields(payload map[string]interface{}) map[string]interface{} {
@@ -1053,6 +1167,16 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 	var candleCache *services.CandleCacheService
 	if cache != nil && backtestRepo != nil {
 		candleCache = services.NewCandleCacheServiceWithRepo(cache, backtestRepo)
+	}
+
+	minioSettings := config.MinIOSettings{}
+	if config.ConfigInstance != nil {
+		minioSettings = config.ConfigInstance.MinIO
+	}
+	artifactSigner, err := services.NewMinIOArtifactSigner(minioSettings)
+	if err != nil {
+		log.Printf("Backtest artifact signer disabled: %v", err)
+		artifactSigner = nil
 	}
 
 	syncRun := func(c *gin.Context, payload map[string]interface{}) {
@@ -2052,6 +2176,48 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			syncRun(c, result)
 			syncChildren(c, runID, result)
 			respondBacktestEnvelope(c, http.StatusOK, "Backtest fetched successfully", result)
+		})
+
+		backtestGroup.GET("/:run_id/artifacts", func(c *gin.Context) {
+			runID := strings.TrimSpace(c.Param("run_id"))
+			if runID == "" {
+				respondBacktestEnvelope(c, http.StatusBadRequest, "run_id required", map[string]interface{}{
+					"error": "run_id required",
+				})
+				return
+			}
+			if !requireBacktestRunAccess(c, runID) {
+				return
+			}
+			if artifactSigner == nil {
+				respondBacktestEnvelope(c, http.StatusServiceUnavailable, "Backtest artifact signing unavailable", map[string]interface{}{
+					"error": "backtest artifact signing unavailable",
+				})
+				return
+			}
+
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			detailsPayload, err := requestClient.GetBacktestDetails(runID)
+			if err != nil {
+				respondBotAPIError(c, err)
+				return
+			}
+			detailsPayload = normalizeBacktestDetailsPayload(detailsPayload)
+			syncRun(c, detailsPayload)
+
+			artifactPayload, err := buildBacktestArtifactPayload(runID, unwrapEnvelopePayload(detailsPayload), artifactSigner)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success":   false,
+					"message":   "Failed to build backtest artifact metadata",
+					"error":     err.Error(),
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest artifacts fetched successfully", artifactPayload)
 		})
 
 		backtestGroup.GET("/:run_id/summary", func(c *gin.Context) {

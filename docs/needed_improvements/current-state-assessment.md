@@ -52,7 +52,7 @@ For million-task scale, the current implementation is unsafe because task durabi
 
 - Code-level NATS JetStream publisher for task creation: NOT FOUND.
 - Code-level NATS JetStream durable consumer for bot or backtest work: NOT FOUND.
-- Backend-issued signed MinIO download URL flow: NOT FOUND.
+- Backend-issued signed MinIO download URL flow is now present in `backend/internal/services/minio_artifact_signer.go` and `backend/internal/routes/bot_api_delegate_routes.go`.
 - Frontend direct access to PostgreSQL / ClickHouse / MinIO / Valkey / NATS: NOT FOUND.
 
 ## Current Storage Usage

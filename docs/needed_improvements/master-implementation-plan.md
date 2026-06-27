@@ -5,7 +5,7 @@
 - [x] DONE — Phase 1: foundation and safety
   - Evidence: config, contracts, migration foundation, and k3s guardrails are already checked in and covered by targeted tests from the prior run.
 - [x] DONE — Phase 2: MinIO artifact storage
-  - Evidence: completed runs now persist `full_result.json` plus sidecar artifacts through `bot/src/infrastructure/persistence/repository_backtest.py`, checked-in stack/k3s config defaults the MinIO artifact flags to `true`, and local fallback behavior remains available for rollback. Backend signed URLs remain a separate unfinished backend task.
+  - Evidence: completed runs now persist `full_result.json` plus sidecar artifacts through `bot/src/infrastructure/persistence/repository_backtest.py`, checked-in stack/k3s config defaults the MinIO artifact flags to `true`, local fallback behavior remains available for rollback, and backend now exposes `GET /api/v1/backtests/:run_id/artifacts` for signed MinIO download metadata.
 - [ ] PENDING — Phase 3: ClickHouse analytical storage
 - [ ] PENDING — Phase 4: NATS JetStream command/event bus
 - [ ] PENDING — Phase 5: Valkey responsibility cleanup
@@ -38,7 +38,7 @@ Phase 1 foundation work is now present in the repository:
 - bot PostgreSQL migration branch includes `artifact_references`
 - k3s guardrails and manifest skeleton are checked in and validated
 
-The remaining gap is implementation cutover, not planning/foundation. The active runtime is still Celery + Redis-compatible transport + local file / PostgreSQL-heavy persistence, but Phase 2 now has live artifact-reference writes for backtest sidecars.
+The remaining gap is implementation cutover, not planning/foundation. The active runtime is still Celery + Redis-compatible transport + local file / PostgreSQL-heavy persistence, but Phase 2 now has live artifact-reference writes for backtest sidecars plus a backend-owned signed download contract.
 
 ## Current architecture problems
 
@@ -47,7 +47,7 @@ The remaining gap is implementation cutover, not planning/foundation. The active
 3. Redis-compatible infrastructure is still acting as durable queue substrate.
 4. Async execution semantics are split across Celery and in-process fallback code.
 5. Infra manifests are ahead of application ownership boundaries.
-6. `artifact_references` now receives normalized sidecar metadata from the bot backtest repository, but full-result uploads, default-MinIO cutover, and backend signed URL reads are still missing.
+6. `artifact_references` now receives normalized sidecar metadata from the bot backtest repository, MinIO is the default checked-in artifact path, and backend signed URL reads now exist; the remaining storage gap is oversized PostgreSQL payloads and fallback/local-path cleanup.
 7. Shared Phase 1 contracts exist for event bus and cache/lock behavior, but they remain fail-closed placeholders until later phases wire them into runtime paths.
 
 ## Target architecture

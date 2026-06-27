@@ -277,6 +277,27 @@ def test_clickhouse_writer_does_not_reprovision_on_subsequent_writes():
     assert ddl_count == 1
 
 
+def test_clickhouse_writer_provisions_equity_curve_and_strategy_metrics_tables():
+    client = _FakeClickHouseClient()
+    writer = ClickHouseAnalyticsWriter(
+        enabled=True,
+        database="analytics",
+        extra_config={"client": client},
+    )
+
+    writer.write_rows(
+        "backtest_equity_curve",
+        [{"run_id": "r1", "point_time": "2026-01-01T00:00:00+00:00"}],
+    )
+    writer.write_rows(
+        "strategy_metrics",
+        [{"run_id": "r1", "metric_name": "sharpe_ratio", "metric_value": 1.2}],
+    )
+
+    assert any("backtest_equity_curve" in cmd for cmd in client.commands)
+    assert any("strategy_metrics" in cmd for cmd in client.commands)
+
+
 def test_clickhouse_writer_falls_back_on_insert_error():
     client = _FailingClickHouseClient()
     fallback = NoopAnalyticsWriter()

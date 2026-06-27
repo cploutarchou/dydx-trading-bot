@@ -7,7 +7,7 @@
 - [x] DONE — Phase 2: MinIO artifact storage
   - Evidence: completed runs now persist `full_result.json` plus sidecar artifacts through `bot/src/infrastructure/persistence/repository_backtest.py`, checked-in stack/k3s config defaults the MinIO artifact flags to `true`, local fallback behavior remains available for rollback, and backend now exposes `GET /api/v1/backtests/:run_id/artifacts` for signed MinIO download metadata.
 - [~] PARTIAL — Phase 3: ClickHouse analytical storage
-  - Evidence: new backtest writes no longer persist `trades_json`, `position_snapshots_json`, or `daily_pnl_json` in PostgreSQL rows because `bot/src/infrastructure/persistence/repository_backtest.py` now serves those payloads back from artifact sidecars; ClickHouse writes are still feature-gated and immediate, so the analytical cutover is not complete.
+  - Evidence: new backtest writes no longer persist `trades_json`, `position_snapshots_json`, or `daily_pnl_json` in PostgreSQL rows because `bot/src/infrastructure/persistence/repository_backtest.py` now serves those payloads back from artifact sidecars; the ClickHouse path now provisions `backtest_equity_curve` and `strategy_metrics` in addition to the original three backtest tables, but writes are still feature-gated and immediate, so the analytical cutover is not complete.
 - [ ] PENDING — Phase 4: NATS JetStream command/event bus
 - [ ] PENDING — Phase 5: Valkey responsibility cleanup
 - [ ] PENDING — Phase 6: worker migration
@@ -39,7 +39,7 @@ Phase 1 foundation work is now present in the repository:
 - bot PostgreSQL migration branch includes `artifact_references`
 - k3s guardrails and manifest skeleton are checked in and validated
 
-The remaining gap is implementation cutover, not planning/foundation. The active runtime is still Celery + Redis-compatible transport + local file / PostgreSQL-heavy persistence, but Phase 2 now has live artifact-reference writes for backtest sidecars plus a backend-owned signed download contract, and Phase 3 has started by removing new large result-array writes from PostgreSQL rows.
+The remaining gap is implementation cutover, not planning/foundation. The active runtime is still Celery + Redis-compatible transport + local file / PostgreSQL-heavy persistence, but Phase 2 now has live artifact-reference writes for backtest sidecars plus a backend-owned signed download contract, and Phase 3 has started by removing new large result-array writes from PostgreSQL rows and extending the optional ClickHouse path to more backtest analytics.
 
 ## Current architecture problems
 
@@ -48,7 +48,7 @@ The remaining gap is implementation cutover, not planning/foundation. The active
 3. Redis-compatible infrastructure is still acting as durable queue substrate.
 4. Async execution semantics are split across Celery and in-process fallback code.
 5. Infra manifests are ahead of application ownership boundaries.
-6. `artifact_references` now receives normalized sidecar metadata from the bot backtest repository, MinIO is the default checked-in artifact path, backend signed URL reads now exist, and new backtest result arrays no longer persist in PostgreSQL rows; the remaining storage gap is ClickHouse cutover, `request_json`, and fallback/local-path cleanup.
+6. `artifact_references` now receives normalized sidecar metadata from the bot backtest repository, MinIO is the default checked-in artifact path, backend signed URL reads now exist, new backtest result arrays no longer persist in PostgreSQL rows, and the optional ClickHouse writer now covers five backtest analytical tables; the remaining storage gap is ClickHouse batching/default-on rollout, `request_json`, and fallback/local-path cleanup.
 7. Shared Phase 1 contracts exist for event bus and cache/lock behavior, but they remain fail-closed placeholders until later phases wire them into runtime paths.
 
 ## Target architecture

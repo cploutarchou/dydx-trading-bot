@@ -18,6 +18,10 @@
   - Files: `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_backtest_repository.py`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_backtest_repository_payload_relation.py bot/tests/test_storage_adapters.py -q` passed; `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_service.py -q -k 'backtest_runs_async_and_completes_with_trades or comprehensive_analytics_includes_sub_objects_and_candle_fields'` passed; `python3 -m compileall bot/src/infrastructure/persistence/repository_backtest.py bot/tests/test_backtest_repository.py` passed
   - Evidence: `_save_run_once()` now persists summary-only run rows while `trades`, `position_snapshots`, and `daily_pnl` are rehydrated from `backtests/{run_id}/*.json` artifacts on read.
+- [x] DONE — Expand backtest ClickHouse schemas for equity curve and strategy metrics
+  - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_backtest_repository.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py -q` passed; `python3 -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository_backtest.py bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py` passed
+  - Evidence: the optional analytics path now provisions `backtest_equity_curve` and `strategy_metrics`, and completed runs emit those row sets when `equity_curve` or `metrics` payloads are present.
 - [~] PARTIAL — Remove large backtest JSON writes
   - Files: `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_backtest_repository.py`
   - Acceptance result: new writes no longer persist `trades_json`, `position_snapshots_json`, or `daily_pnl_json`, but ClickHouse writes remain feature-gated and immediate rather than batched/default-on.
@@ -42,7 +46,7 @@
 
 | Title | Problem | Proposed Change | Affected Files | Target Service | Priority | Complexity | Risk | Dependencies | Acceptance Criteria |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Expand ClickHouse schemas beyond current backtest subset | current writer only supports a few backtest tables | add target analytical tables and DDL management | `bot/src/infrastructure/storage/clickhouse_writer.py` | shared analytics layer | high | high | medium | schema design | required tables exist and accept batch inserts |
+| Expand ClickHouse schemas beyond current backtest subset | current writer now supports five backtest tables, but broader live-bot analytical tables and batch-insert rollout are still missing | continue extending typed analytical tables and DDL management beyond the initial backtest coverage | `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository_backtest.py` | shared analytics layer | high | high | medium | schema design | required backtest analytical tables exist and remaining analytical families are explicitly tracked for follow-up |
 | Add batched ClickHouse writes | current writer inserts immediately | add buffer/flush strategy with retry telemetry | `bot/src/infrastructure/storage/clickhouse_writer.py`, worker writers | workers | high | high | medium | analytics adapter redesign | analytical write throughput scales without per-row overhead |
 | Move dashboard-heavy reads to ClickHouse | backend still relies on PostgreSQL and delegated payloads | add summary/read models backed by ClickHouse aggregates | backend query layer | backend API | high | medium | medium | ClickHouse schemas | heavy dashboards no longer depend on oversized PostgreSQL rows |
 

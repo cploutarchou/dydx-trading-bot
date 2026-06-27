@@ -202,6 +202,18 @@ def test_backtest_repository_prefers_new_clickhouse_flag_over_legacy_alias(monke
     assert isinstance(writer, NoopAnalyticsWriter)
 
 
+def test_backtest_repository_resolves_clickhouse_batch_settings(monkeypatch):
+    monkeypatch.setenv("BACKTEST_CLICKHOUSE_BATCH_SIZE", "250")
+    monkeypatch.setenv("BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS", "2.5")
+
+    batch_size, flush_interval_seconds = (
+        BacktestRepository._resolve_clickhouse_batch_settings()
+    )
+
+    assert batch_size == 250
+    assert flush_interval_seconds == 2.5
+
+
 # ---------------------------------------------------------------------------
 # ClickHouse analytics writer — real implementation tests
 # ---------------------------------------------------------------------------
@@ -244,6 +256,57 @@ def test_clickhouse_writer_inserts_rows_with_real_client():
     assert len(client.inserts) == 2
     assert client.inserts[0]["run_id"] == "r1"
     assert client.inserts[1]["trade_id"] == "t2"
+
+
+def test_clickhouse_writer_buffers_rows_until_batch_threshold():
+    client = _FakeClickHouseClient()
+    writer = ClickHouseAnalyticsWriter(
+        enabled=True,
+        database="analytics",
+        extra_config={
+            "client": client,
+            "batch_size": 3,
+            "flush_interval_seconds": 60,
+        },
+    )
+
+    first_count = writer.write_rows(
+        "backtest_trade_rows",
+        [{"run_id": "r1", "trade_id": "t1"}, {"run_id": "r1", "trade_id": "t2"}],
+    )
+    second_count = writer.write_rows(
+        "backtest_trade_rows",
+        [{"run_id": "r1", "trade_id": "t3"}],
+    )
+
+    assert first_count == 0
+    assert second_count == 3
+    assert writer.get_buffer("backtest_trade_rows") == []
+    assert len(client.inserts) == 3
+
+
+def test_clickhouse_writer_flushes_pending_rows_when_forced():
+    client = _FakeClickHouseClient()
+    writer = ClickHouseAnalyticsWriter(
+        enabled=True,
+        database="analytics",
+        extra_config={
+            "client": client,
+            "batch_size": 10,
+            "flush_interval_seconds": 60,
+        },
+    )
+
+    count = writer.write_rows(
+        "backtest_trade_rows",
+        [{"run_id": "r1", "trade_id": "t1"}, {"run_id": "r1", "trade_id": "t2"}],
+    )
+    flushed = writer.flush(force=True)
+
+    assert count == 0
+    assert flushed == {"backtest_trade_rows": 2}
+    assert writer.get_buffer("backtest_trade_rows") == []
+    assert len(client.inserts) == 2
 
 
 def test_clickhouse_writer_provisions_known_table_on_first_write():
@@ -325,7 +388,7 @@ def test_clickhouse_writer_uses_noop_fallback_when_disabled():
 
 
 def test_clickhouse_writer_get_buffer_returns_empty_list():
-    """get_buffer is a compatibility shim; always returns []."""
+    """get_buffer remains empty when no rows are buffered."""
     writer = ClickHouseAnalyticsWriter(
         enabled=True, extra_config={"client": _FakeClickHouseClient()}
     )

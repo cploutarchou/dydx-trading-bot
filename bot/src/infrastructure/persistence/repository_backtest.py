@@ -139,6 +139,31 @@ class BacktestRepository:
         return host, port, secure, database, username, password
 
     @classmethod
+    def _resolve_clickhouse_batch_settings(cls) -> tuple[int, float]:
+        batch_size_raw = cls._env_first(
+            "BACKTEST_CLICKHOUSE_BATCH_SIZE",
+            "CLICKHOUSE_BATCH_SIZE",
+            default="1000",
+        )
+        flush_interval_raw = cls._env_first(
+            "BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS",
+            "CLICKHOUSE_FLUSH_INTERVAL_SECONDS",
+            default="5",
+        )
+
+        try:
+            batch_size = max(1, int(batch_size_raw))
+        except ValueError:
+            batch_size = 1000
+
+        try:
+            flush_interval_seconds = max(0.0, float(flush_interval_raw))
+        except ValueError:
+            flush_interval_seconds = 5.0
+
+        return batch_size, flush_interval_seconds
+
+    @classmethod
     def _resolve_minio_endpoint(cls) -> str:
         return cls._env_first(
             "BACKTEST_MINIO_ENDPOINT",
@@ -226,6 +251,9 @@ class BacktestRepository:
             host, port, secure, database, username, password = (
                 cls._resolve_clickhouse_target()
             )
+            batch_size, flush_interval_seconds = (
+                cls._resolve_clickhouse_batch_settings()
+            )
             return ClickHouseAnalyticsWriter(
                 enabled=True,
                 database=database,
@@ -234,6 +262,10 @@ class BacktestRepository:
                 username=username,
                 password=password,
                 secure=secure,
+                extra_config={
+                    "batch_size": batch_size,
+                    "flush_interval_seconds": flush_interval_seconds,
+                },
             )
         return NoopAnalyticsWriter()
 
@@ -472,6 +504,11 @@ class BacktestRepository:
         return [dict(row) for row in rows if isinstance(row, dict)]
 
     @staticmethod
+    def _is_terminal_status(status: Any) -> bool:
+        normalized = str(status or "").strip().lower()
+        return normalized in {"completed", "failed", "cancelled", "canceled"}
+
+    @staticmethod
     def _serialize_json_bytes(payload: Any) -> bytes:
         return json.dumps(
             payload, ensure_ascii=False, separators=(",", ":")
@@ -642,6 +679,13 @@ class BacktestRepository:
                 "strategy_metrics", strategy_metric_rows
             ),
         }
+        flushed_analytics_rows = self.analytics_writer.flush(
+            force=self._is_terminal_status(payload.get("status"))
+        )
+        for table_name, count in flushed_analytics_rows.items():
+            analytics_rows_written[table_name] = (
+                analytics_rows_written.get(table_name, 0) + int(count or 0)
+            )
 
         artifact_refs["run_root"] = self.artifact_store.reference_for(
             self._safe_artifact_key(["backtests", run_id])

@@ -1,5 +1,109 @@
 # Implementation Progress
 
+## Latest Run — 2026-06-28T02:33:51+03:00
+
+### Documents read
+
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/current-state-assessment.md`
+- `docs/needed_improvements/target-architecture.md`
+- `docs/needed_improvements/data-storage-matrix.md`
+- `docs/needed_improvements/postgresql-plan.md`
+- `docs/needed_improvements/minio-artifact-plan.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/nats-jetstream-plan.md`
+- `docs/needed_improvements/nats-command-event-contract.md`
+- `docs/needed_improvements/valkey-plan.md`
+- `docs/needed_improvements/observability-plan.md`
+- `docs/needed_improvements/k3s-open-source-execution-plan.md`
+- `docs/needed_improvements/kubernetes-devops-plan.md`
+- `docs/needed_improvements/migration-plan.md`
+- `bot/.github/copilot-instructions.md`
+- `bot/.github/CUSTOMIZATION_INDEX.md`
+- `.github/skills/defi-python-algo-trading/SKILL.md`
+- `config/README.md`
+- `bot/README.md`
+- `README.md`
+- NOT FOUND: none
+
+### Task selected
+
+- Add batched ClickHouse writes in `bot/src/infrastructure/storage/clickhouse_writer.py` so repository-owned analytical rows are buffered and flushed deliberately instead of inserted immediately per save call.
+
+### Reason selected
+
+- The previous latest run in `implementation-progress.md` explicitly recommended ClickHouse batching as the next Phase 3 slice.
+- `implementation-backlog.md` still listed batched ClickHouse writes as the highest-priority unfinished analytical-storage task once the schema expansion landed.
+- `master-implementation-plan.md`, `clickhouse-plan.md`, and `current-state-assessment.md` still described the writer as immediate-insert only, so this was the next dependency-safe change before broader ClickHouse or JetStream work.
+
+### Implementation completed
+
+- Added in-process ClickHouse buffering in `bot/src/infrastructure/storage/clickhouse_writer.py` with configurable `batch_size` and `flush_interval_seconds`, plus explicit `flush()`/`close()` support and forced shutdown flush behavior.
+- Updated `bot/src/infrastructure/persistence/repository_backtest.py` to pass checked-in batch defaults, combine buffered flush counts with per-call write counts, and force-flush pending analytical rows for terminal backtest saves.
+- Extended bot runtime config surfaces with ClickHouse batching fields in `bot/config/config.py`, `config/profiles/example.config.json`, `deploy/k8s-next/platform-config.yaml`, and `docker-compose.stack.yml`.
+- Added regression coverage for buffered threshold flushes, forced flushes, repository terminal flush behavior, and config parsing of the new ClickHouse batch settings.
+
+### Files changed
+
+- `bot/src/infrastructure/storage/analytics.py`
+- `bot/src/infrastructure/storage/clickhouse_writer.py`
+- `bot/src/infrastructure/persistence/repository_backtest.py`
+- `bot/config/config.py`
+- `bot/tests/test_storage_adapters.py`
+- `bot/tests/test_backtest_repository.py`
+- `bot/tests/test_platform_runtime_config.py`
+- `config/README.md`
+- `config/profiles/example.config.json`
+- `deploy/k8s-next/platform-config.yaml`
+- `docker-compose.stack.yml`
+- `README.md`
+- `bot/README.md`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/current-state-assessment.md`
+
+### Tests and checks run
+
+- `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py bot/tests/test_platform_runtime_config.py -q`
+  - result: passed (`31 passed, 1 warning`)
+- `python3 -m compileall bot/src/infrastructure/storage/analytics.py bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository_backtest.py bot/config/config.py bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py bot/tests/test_platform_runtime_config.py`
+  - result: passed
+- `docker compose -f docker-compose.stack.yml config`
+  - result: passed
+
+### Result
+
+- The optional ClickHouse writer now buffers analytical rows in process and flushes them by threshold/interval instead of inserting immediately on every repository save.
+- Terminal completed/failed backtest saves now force-flush pending ClickHouse batches, so completed backtest analytical rows are durably pushed before the repository persists the final `analytics_rows_written` count.
+- Phase 3 remains PARTIAL because ClickHouse writes are still feature-gated/default-off and broader live-bot analytical tables plus backend read paths are still missing.
+
+### Risks
+
+- ClickHouse writes remain disabled by default in checked-in runtime config, so this run does not validate the buffered path against a live stack.
+- Buffering is process-local; non-terminal rows can still be lost on abrupt worker termination before a threshold/interval/terminal flush occurs.
+- Backend dashboards and summaries still do not read from ClickHouse.
+
+### Known gaps
+
+- ClickHouse writes remain disabled by default in `docker-compose.stack.yml` and `deploy/k8s-next/platform-config.yaml`.
+- Live bot analytical tables and backend ClickHouse read paths remain PENDING.
+- `request_json` and legacy PostgreSQL backtest columns remain in schema even though new large result arrays no longer persist there.
+
+### Next recommended task
+
+- Phase 3: extend `bot/src/infrastructure/storage/clickhouse_writer.py` and the owning producers beyond backtest-only rows by adding the first live-bot analytical table family (`bot_events`, `order_events`, or `trade_events`) with the same buffered write path.
+
+### Manual steps required
+
+- Validate a real completed backtest run with `BACKTEST_CLICKHOUSE_WRITES_ENABLED=true` and confirm buffered rows flush into ClickHouse on terminal save.
+- Decide whether the default checked-in batch policy (`BACKTEST_CLICKHOUSE_BATCH_SIZE=1000`, `BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS=5`) is acceptable before enabling ClickHouse writes by default.
+
 ## Latest Run — 2026-06-28T02:21:35+03:00
 
 ### Documents read

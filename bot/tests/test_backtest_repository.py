@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.storage.analytics import AnalyticsWriter
 from src.infrastructure.storage.artifacts import ArtifactStore
+from src.infrastructure.storage.clickhouse_writer import ClickHouseAnalyticsWriter
 
 
 class _RecordingArtifactStore(ArtifactStore):
@@ -43,6 +44,20 @@ class _RecordingAnalyticsWriter(AnalyticsWriter):
         materialized = [dict(row) for row in rows]
         self.calls.append((table_name, materialized))
         return len(materialized)
+
+
+class _FakeClickHouseClient:
+    def __init__(self):
+        self.commands: list[str] = []
+        self.inserts: list[dict[str, object]] = []
+
+    def command(self, sql: str) -> None:
+        self.commands.append(sql)
+
+    def insert(self, *, table: str, data: list, column_names: list) -> None:
+        del table
+        for row_values in data:
+            self.inserts.append(dict(zip(column_names, row_values)))
 
 
 class _MariaDbRecordChanged(Exception):
@@ -468,5 +483,48 @@ def test_save_run_writes_equity_curve_and_strategy_metrics_when_present(tmp_path
     )
     assert db_run is not None
     assert db_run.analytics_rows_written == 7
+
+    session.close()
+
+
+def test_save_run_forces_clickhouse_flush_for_terminal_completed_run(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'analytics-flush.sqlite'}", future=True)
+    Base.metadata.create_all(bind=engine)
+    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+    session = SessionLocal()
+    artifact_store = _RecordingArtifactStore()
+    analytics_client = _FakeClickHouseClient()
+    analytics_writer = ClickHouseAnalyticsWriter(
+        enabled=True,
+        database="analytics",
+        extra_config={
+            "client": analytics_client,
+            "batch_size": 50,
+            "flush_interval_seconds": 60,
+        },
+    )
+    repository = BacktestRepository(
+        session,
+        artifact_store=artifact_store,
+        analytics_writer=analytics_writer,
+    )
+
+    persisted = repository.save_run(
+        {
+            "run_id": "run-terminal-flush",
+            "name": "terminal-flush",
+            "status": "completed",
+            "request": {"pairs": ["BTC-USD/ETH-USD"]},
+            "trades": [{"trade_id": "trade-1", "pnl": 12.5}],
+            "position_snapshots": [{"snapshot_id": "position-1"}],
+            "daily_pnl": [{"date": "2026-04-01", "pnl": 12.5}],
+        }
+    )
+
+    assert persisted["analytics_rows_written"] == 3
+    assert analytics_writer.get_buffer("backtest_trades") == []
+    assert analytics_writer.get_buffer("backtest_position_snapshots") == []
+    assert analytics_writer.get_buffer("backtest_daily_pnl") == []
+    assert len(analytics_client.inserts) == 3
 
     session.close()

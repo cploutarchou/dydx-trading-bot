@@ -46,6 +46,8 @@ def test_configuration_manager_builds_nats_clickhouse_and_minio_settings(
     monkeypatch.setenv("CLICKHOUSE_ENABLED", "true")
     monkeypatch.setenv("CLICKHOUSE_USER", "analytics-user")
     monkeypatch.setenv("CLICKHOUSE_PASSWORD", "analytics-pass")
+    monkeypatch.setenv("BACKTEST_CLICKHOUSE_BATCH_SIZE", "250")
+    monkeypatch.setenv("BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS", "2.5")
     monkeypatch.setenv("BACKTEST_ARTIFACT_STORAGE_ENABLED", "true")
     monkeypatch.setenv("MINIO_ENDPOINT", "https://minio.internal:9000")
     monkeypatch.setenv("MINIO_BUCKET", "backtest-artifacts")
@@ -69,6 +71,8 @@ def test_configuration_manager_builds_nats_clickhouse_and_minio_settings(
     assert clickhouse.user == "analytics-user"
     assert clickhouse.password == "analytics-pass"
     assert clickhouse.secure is True
+    assert clickhouse.batch_size == 250
+    assert clickhouse.flush_interval_seconds == 2.5
 
     assert minio.enabled is True
     assert minio.endpoint == "https://minio.internal:9000"

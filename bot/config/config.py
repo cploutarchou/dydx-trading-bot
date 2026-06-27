@@ -32,6 +32,18 @@ def _get_env_int(*names: str, default: int) -> int:
     return default
 
 
+def _get_env_float(*names: str, default: float) -> float:
+    for name in names:
+        value = _get_env(name)
+        if value == "":
+            continue
+        try:
+            return float(value)
+        except ValueError:
+            continue
+    return default
+
+
 def _get_env_bool(*names: str, default: bool) -> bool:
     raw = _get_env(*names, default="")
     if raw == "":
@@ -267,6 +279,8 @@ class ClickHouseSettings:
     user: str = "default"
     password: str = ""
     secure: bool = False
+    batch_size: int = 1000
+    flush_interval_seconds: float = 5.0
 
 
 @dataclass
@@ -576,6 +590,16 @@ class ConfigurationManager:
                 "BACKTEST_CLICKHOUSE_SECURE",
                 "CLICKHOUSE_SECURE",
                 default=default_secure,
+            ),
+            batch_size=_get_env_int(
+                "BACKTEST_CLICKHOUSE_BATCH_SIZE",
+                "CLICKHOUSE_BATCH_SIZE",
+                default=1000,
+            ),
+            flush_interval_seconds=_get_env_float(
+                "BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS",
+                "CLICKHOUSE_FLUSH_INTERVAL_SECONDS",
+                default=5.0,
             ),
         )
 

@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — Add batched ClickHouse writes
+  - Files: `bot/src/infrastructure/storage/analytics.py`, `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/config/config.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_backtest_repository.py`, `bot/tests/test_platform_runtime_config.py`, `config/profiles/example.config.json`, `deploy/k8s-next/platform-config.yaml`, `docker-compose.stack.yml`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py bot/tests/test_platform_runtime_config.py -q` passed; `python3 -m compileall bot/src/infrastructure/storage/analytics.py bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository_backtest.py bot/config/config.py bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py bot/tests/test_platform_runtime_config.py` passed; `docker compose -f docker-compose.stack.yml config` passed
+  - Evidence: the ClickHouse writer now buffers rows by `BACKTEST_CLICKHOUSE_BATCH_SIZE` / `BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS`, and terminal repository saves force-flush pending analytical batches before persisting the final `analytics_rows_written` count.
 - [x] DONE — Add artifact reference table owner linkage
   - Files: `bot/internal/domain/models.py`, `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_backtest_repository.py`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_backtest_repository_payload_relation.py bot/tests/test_storage_adapters.py -q` passed
@@ -24,13 +28,13 @@
   - Evidence: the optional analytics path now provisions `backtest_equity_curve` and `strategy_metrics`, and completed runs emit those row sets when `equity_curve` or `metrics` payloads are present.
 - [~] PARTIAL — Remove large backtest JSON writes
   - Files: `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_backtest_repository.py`
-  - Acceptance result: new writes no longer persist `trades_json`, `position_snapshots_json`, or `daily_pnl_json`, but ClickHouse writes remain feature-gated and immediate rather than batched/default-on.
+  - Acceptance result: new writes no longer persist `trades_json`, `position_snapshots_json`, or `daily_pnl_json`, and ClickHouse writes now buffer/flush in process, but the analytical path remains feature-gated/default-off and broader schema cleanup is still pending.
 
 ## PostgreSQL Cleanup
 
 | Title | Problem | Proposed Change | Affected Files | Target Service | Priority | Complexity | Risk | Dependencies | Acceptance Criteria |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Remove large backtest JSON writes | new writes now clear `trades_json`, `position_snapshots_json`, and `daily_pnl_json`, but ClickHouse persistence is still feature-gated and non-batched | keep summary-only PostgreSQL rows, hydrate detail reads from artifacts, and finish the analytical cutover in ClickHouse | `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/internal/domain/models.py`, bot migrations | bot runtime / backtest worker | critical | high | high | artifact refs, ClickHouse, MinIO | no new large result arrays written to PostgreSQL and analytical rows are durably captured outside PostgreSQL |
+| Remove large backtest JSON writes | new writes now clear `trades_json`, `position_snapshots_json`, and `daily_pnl_json`, but ClickHouse persistence is still feature-gated/default-off and schema cleanup is incomplete | keep summary-only PostgreSQL rows, hydrate detail reads from artifacts, and finish the analytical cutover in ClickHouse | `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/internal/domain/models.py`, bot migrations | bot runtime / backtest worker | critical | high | high | artifact refs, ClickHouse, MinIO | no new large result arrays written to PostgreSQL and analytical rows are durably captured outside PostgreSQL |
 | Introduce normalized task/run tables | current task state is split across request JSON and runtime state | add `task_commands`, `task_runs`, `task_attempts`, `worker_heartbeats` | backend and bot migrations, repositories | backend + bot runtime | critical | high | medium | schema design | async task state is queryable without reading large JSON blobs |
 | Add artifact reference table | no durable normalized artifact registry | create `artifact_references` and wire owner linkage | backend/bot migrations, repositories | shared data layer | critical | medium | low | schema design | large artifacts are referenced by id, bucket, key, checksum |
 
@@ -47,7 +51,7 @@
 | Title | Problem | Proposed Change | Affected Files | Target Service | Priority | Complexity | Risk | Dependencies | Acceptance Criteria |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Expand ClickHouse schemas beyond current backtest subset | current writer now supports five backtest tables, but broader live-bot analytical tables and batch-insert rollout are still missing | continue extending typed analytical tables and DDL management beyond the initial backtest coverage | `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository_backtest.py` | shared analytics layer | high | high | medium | schema design | required backtest analytical tables exist and remaining analytical families are explicitly tracked for follow-up |
-| Add batched ClickHouse writes | current writer inserts immediately | add buffer/flush strategy with retry telemetry | `bot/src/infrastructure/storage/clickhouse_writer.py`, worker writers | workers | high | high | medium | analytics adapter redesign | analytical write throughput scales without per-row overhead |
+| Add batched ClickHouse writes | writer now buffers and terminal-flushes repository-owned backtest rows, but default-on rollout and richer telemetry are still pending | operationalize the buffered path and carry it forward to additional analytical producers | `bot/src/infrastructure/storage/clickhouse_writer.py`, worker writers | workers | high | high | medium | analytics adapter redesign | analytical write throughput scales without immediate per-save inserts |
 | Move dashboard-heavy reads to ClickHouse | backend still relies on PostgreSQL and delegated payloads | add summary/read models backed by ClickHouse aggregates | backend query layer | backend API | high | medium | medium | ClickHouse schemas | heavy dashboards no longer depend on oversized PostgreSQL rows |
 
 ## NATS JetStream Queue/Event Migration

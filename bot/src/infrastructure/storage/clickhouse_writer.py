@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import atexit
 import logging
+import threading
+import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -100,8 +103,9 @@ _TABLE_DDL: dict[str, str] = {
 class ClickHouseAnalyticsWriter(AnalyticsWriter):
     """Feature-flagged ClickHouse adapter with a safe no-op fallback path.
 
-    When enabled, rows are written immediately to ClickHouse over HTTP using
-    ``clickhouse-connect``.  On any connection or write error the writer falls
+    When enabled, rows are written to ClickHouse over HTTP using
+    ``clickhouse-connect``. Rows can be buffered in-memory and flushed by batch
+    size or flush interval. On any connection or write error the writer falls
     back to the configured ``fallback`` (default: ``NoopAnalyticsWriter``).
 
     Tables for known backtest analytics streams are auto-provisioned via DDL on
@@ -134,12 +138,43 @@ class ClickHouseAnalyticsWriter(AnalyticsWriter):
         self.password = password or ""
         self.secure = secure
         self.extra_config = dict(extra_config or {})
+        self.batch_size = self._coerce_positive_int(
+            self.extra_config.get("batch_size"), default=1
+        )
+        self.flush_interval_seconds = self._coerce_non_negative_float(
+            self.extra_config.get("flush_interval_seconds"),
+            default=0.0,
+        )
+        self._buffering_enabled = (
+            self.batch_size > 1 or self.flush_interval_seconds > 0
+        )
         self._provisioned: set[str] = set()
+        self._buffers: dict[str, list[dict[str, Any]]] = {}
+        self._buffer_started_at: dict[str, float] = {}
+        self._lock = threading.Lock()
         self._client = self._build_client()
+        if self._buffering_enabled:
+            atexit.register(self.close)
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _coerce_positive_int(raw: Any, *, default: int) -> int:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return default
+        return max(1, value)
+
+    @staticmethod
+    def _coerce_non_negative_float(raw: Any, *, default: float) -> float:
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return default
+        return max(0.0, value)
 
     def _build_client(self) -> Any | None:
         if not self.enabled:
@@ -190,12 +225,12 @@ class ClickHouseAnalyticsWriter(AnalyticsWriter):
                 "ClickHouse DDL provisioning failed for %s: %s", table_name, exc
             )
 
-    # ------------------------------------------------------------------
-    # AnalyticsWriter interface
-    # ------------------------------------------------------------------
-
-    def write_rows(self, table_name: str, rows: Sequence[Mapping[str, Any]]) -> int:
-        if not self.enabled or self._client is None:
+    def _insert_rows(
+        self,
+        table_name: str,
+        rows: Sequence[Mapping[str, Any]],
+    ) -> int:
+        if self._client is None:
             return self.fallback.write_rows(table_name, rows)
 
         materialized = [dict(row) for row in rows]
@@ -203,7 +238,6 @@ class ClickHouseAnalyticsWriter(AnalyticsWriter):
             return 0
 
         self._ensure_table(table_name)
-
         try:
             column_names = list(materialized[0].keys())
             data = [[row.get(col) for col in column_names] for row in materialized]
@@ -221,16 +255,76 @@ class ClickHouseAnalyticsWriter(AnalyticsWriter):
             )
             return self.fallback.write_rows(table_name, rows)
 
+    def _buffer_due(self, table_name: str, now: float) -> bool:
+        buffered = self._buffers.get(table_name) or []
+        if not buffered:
+            return False
+        if len(buffered) >= self.batch_size:
+            return True
+        if self.flush_interval_seconds <= 0:
+            return False
+        started_at = self._buffer_started_at.get(table_name, now)
+        return (now - started_at) >= self.flush_interval_seconds
+
+    def _flush_one_locked(
+        self, table_name: str, *, force: bool = False, now: float | None = None
+    ) -> int:
+        timestamp = time.monotonic() if now is None else now
+        if not force and not self._buffer_due(table_name, timestamp):
+            return 0
+
+        buffered = self._buffers.get(table_name) or []
+        if not buffered:
+            return 0
+
+        count = self._insert_rows(table_name, buffered)
+        self._buffers.pop(table_name, None)
+        self._buffer_started_at.pop(table_name, None)
+        return count
+
+    # ------------------------------------------------------------------
+    # AnalyticsWriter interface
+    # ------------------------------------------------------------------
+
+    def write_rows(self, table_name: str, rows: Sequence[Mapping[str, Any]]) -> int:
+        if not self.enabled or self._client is None:
+            return self.fallback.write_rows(table_name, rows)
+
+        materialized = [dict(row) for row in rows]
+        if not materialized:
+            return 0
+
+        if not self._buffering_enabled:
+            return self._insert_rows(table_name, materialized)
+
+        with self._lock:
+            buffer = self._buffers.setdefault(table_name, [])
+            if not buffer:
+                self._buffer_started_at[table_name] = time.monotonic()
+            buffer.extend(materialized)
+            return self._flush_one_locked(table_name)
+
+    def flush(
+        self, table_name: str | None = None, *, force: bool = False
+    ) -> dict[str, int]:
+        if not self._buffering_enabled:
+            return {}
+
+        with self._lock:
+            now = time.monotonic()
+            table_names = [table_name] if table_name else list(self._buffers.keys())
+            flushed: dict[str, int] = {}
+            for current_table in table_names:
+                count = self._flush_one_locked(current_table, force=force, now=now)
+                if count > 0:
+                    flushed[current_table] = count
+            return flushed
+
     # ------------------------------------------------------------------
     # Test / debug helpers
     # ------------------------------------------------------------------
 
     def get_buffer(self, table_name: str) -> list[dict[str, Any]]:
-        """No-op compatibility shim — the real writer has no in-memory buffer.
-
-        The buffer concept was present in the placeholder implementation.  Real
-        code should not depend on this method.  It exists only so that tests
-        that were written against the placeholder continue to pass.
-        """
-        del table_name
-        return []
+        """Return a copy of the pending in-memory buffer for tests/debugging."""
+        with self._lock:
+            return [dict(row) for row in self._buffers.get(table_name, [])]

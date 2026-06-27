@@ -59,14 +59,27 @@ PostgreSQL/Valkey local-development defaults or the current PostgreSQL-backed ba
 
 ## Task checklist
 
-- [ ] scan and remediate plaintext k8s secrets
-- [ ] add secret-scanner validation
-- [ ] add backend PostgreSQL DSN and migration-path support
-- [ ] add bot PostgreSQL SQLAlchemy support and env validation
-- [ ] add storage interfaces and fallback adapters for backtests
-- [ ] create the k3s target manifest skeleton
-- [ ] document NATS and Valkey contract behavior
-- [ ] run backend and bot tests for the touched code paths
+- [x] scan and remediate plaintext k8s secrets
+- [x] add secret-scanner validation
+- [x] add backend PostgreSQL DSN and migration-path support
+- [x] add bot PostgreSQL SQLAlchemy support and env validation
+- [x] add storage interfaces and fallback adapters for backtests
+- [x] create the k3s target manifest skeleton
+- [x] document NATS and Valkey contract behavior
+- [x] run backend and bot tests for the touched code paths
+
+Verified in repo as of 2026-06-27:
+
+- plaintext secret scan passes via `python3 scripts/check_no_plaintext_k8s_secrets.py`
+- secret-scanner validation is wired through `Makefile` and `.github/workflows/bot-quality.yml`
+- backend PostgreSQL DSN + migration-path support exists in `backend/config/config.go` and `backend/internal/db/db.go`
+- bot PostgreSQL SQLAlchemy/env validation exists in `bot/src/infrastructure/database.py` and `bot/tests/test_database_config_runtime.py`
+- storage interfaces/fallback adapters exist in `bot/src/infrastructure/storage/*`
+- k3s target manifest skeleton exists under `deploy/k8s-next/`
+- NATS and Valkey contract behavior is documented in `docs/needed_improvements/nats-command-event-contract.md` and `docs/needed_improvements/valkey-plan.md`
+- targeted validation passed:
+  - `./bot/.venv/bin/python -m pytest bot/tests/test_platform_runtime_config.py bot/tests/test_infrastructure_contracts.py bot/tests/test_storage_adapters.py bot/tests/test_database_config_runtime.py -q`
+  - `go test ./config ./internal/db ./cmd/server`
 
 ## Expected files touched
 

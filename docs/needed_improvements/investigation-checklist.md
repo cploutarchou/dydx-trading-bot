@@ -1,5 +1,19 @@
 # Investigation Checklist
 
+## Status Updates — 2026-06-28
+
+- [x] DONE — Backtest sidecar writes now persist normalized artifact-reference metadata
+  - Files: `bot/internal/domain/models.py`, `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_backtest_repository.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_backtest_repository_payload_relation.py bot/tests/test_storage_adapters.py -q` passed
+  - Evidence: each saved sidecar now records `owner_type`, `owner_id`, `bucket`, `object_key`, `content_type`, `size_bytes`, `checksum`, and `metadata_json` in `artifact_references`.
+- [x] DONE — Backtest artifact storage defaults to MinIO with local fallback compatibility
+  - Files: `bot/src/infrastructure/persistence/repository_backtest.py`, `docker-compose.stack.yml`, `deploy/k8s-next/platform-config.yaml`, `deploy/k8s-next/overlays/staging/patch-platform-config.yaml`, `deploy/k8s-next/overlays/production/patch-platform-config.yaml`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_storage_adapters.py bot/tests/test_platform_runtime_config.py -q` passed
+  - Evidence: completed runs now persist `full_result.json` alongside sidecars, and checked-in stack/k3s config defaults `BACKTEST_ARTIFACT_STORAGE_ENABLED=true` and `BACKTEST_MINIO_ARTIFACTS_ENABLED=true` while `MinIOArtifactStore` still falls back locally on client/object-store failures.
+- [ ] PENDING — Backend-issued MinIO signed URL implementation
+  - Files: NOT FOUND
+  - Acceptance result: backend artifact metadata lookup/signing endpoints still need to be implemented.
+
 ## Files That Write JSON Locally
 
 - `backend/internal/services/backtest_storage.go`
@@ -179,6 +193,8 @@
 
 - `bot/src/infrastructure/storage/minio_artifact_store.py`
   - present but feature-gated and still falls back to local disk
+- `bot/src/infrastructure/persistence/repository_backtest.py`
+  - now persists normalized `artifact_references` metadata for sidecar objects after each sidecar write
 
 ## Code That Should Use Valkey
 

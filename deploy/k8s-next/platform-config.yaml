@@ -49,9 +49,10 @@ data:
   S3_FORCE_PATH_STYLE: "true"
   BACKTEST_ARTIFACTS_DIR: /var/lib/dydx/backtest-artifacts
   BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS: "30"
-  BACKTEST_ARTIFACT_STORAGE_ENABLED: "false"
-  # MinIO artifact store — flip both artifact flags to "true" after validation
-  BACKTEST_MINIO_ARTIFACTS_ENABLED: "false"
+  BACKTEST_ARTIFACT_STORAGE_ENABLED: "true"
+  # MinIO artifact store is enabled by default; local fallback remains available
+  # if the client or object store is unavailable during rollout validation.
+  BACKTEST_MINIO_ARTIFACTS_ENABLED: "true"
   BACKTEST_MINIO_ENDPOINT: http://minio:9000
   BACKTEST_MINIO_BUCKET: backtests
   BACKTEST_MINIO_SECURE: "false"

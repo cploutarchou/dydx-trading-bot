@@ -1,5 +1,20 @@
 # Master Implementation Plan
 
+## Phase Status — 2026-06-28
+
+- [x] DONE — Phase 1: foundation and safety
+  - Evidence: config, contracts, migration foundation, and k3s guardrails are already checked in and covered by targeted tests from the prior run.
+- [x] DONE — Phase 2: MinIO artifact storage
+  - Evidence: completed runs now persist `full_result.json` plus sidecar artifacts through `bot/src/infrastructure/persistence/repository_backtest.py`, checked-in stack/k3s config defaults the MinIO artifact flags to `true`, and local fallback behavior remains available for rollback. Backend signed URLs remain a separate unfinished backend task.
+- [ ] PENDING — Phase 3: ClickHouse analytical storage
+- [ ] PENDING — Phase 4: NATS JetStream command/event bus
+- [ ] PENDING — Phase 5: Valkey responsibility cleanup
+- [ ] PENDING — Phase 6: worker migration
+- [ ] PENDING — Phase 7: backend API orchestration cutover
+- [ ] PENDING — Phase 8: frontend integration changes
+- [ ] PENDING — Phase 9: observability hardening
+- [ ] PENDING — Phase 10: k3s and DevOps rollout tightening
+
 ## Summary of findings from investigation docs and live code
 
 The investigation documents are directionally correct and the live repository confirms the same core gap: infrastructure for `PgBouncer`, `Valkey`, `NATS JetStream`, `ClickHouse`, and `MinIO` exists, but the active runtime still relies on `PostgreSQL + Celery + Redis-compatible transport + local files`.
@@ -10,8 +25,20 @@ Validated current-state issues:
 - Bot backtest persistence still writes large JSON payloads to PostgreSQL in `bot/src/infrastructure/persistence/repository_backtest.py` and `bot/internal/domain/models.py`.
 - Backtest execution still uses Celery and Redis-compatible locking/pub-sub in `bot/src/infrastructure/workers/backtest_tasks.py` and `bot/src/infrastructure/workers/celery_app.py`.
 - Backend live backtest push still depends on Redis pub/sub in `backend/internal/services/backtest_push_hub.go`.
-- Bot already has partial storage abstractions for artifacts and analytics, but no equivalent command-bus or cache/lock service contract yet.
-- Feature flags in `docker-compose.stack.yml` and `deploy/k8s-next/platform-config.yaml` keep NATS, ClickHouse, and MinIO write paths disabled by default.
+- Bot now has Phase 1 storage abstractions plus placeholder command-bus and cache/lock contracts, but no live JetStream or Valkey-backed implementation yet.
+- Feature flags in `docker-compose.stack.yml` and `deploy/k8s-next/platform-config.yaml` still keep NATS and ClickHouse write paths disabled by default. MinIO-backed backtest artifacts are now enabled by default with local fallback compatibility.
+
+## Status snapshot as of 2026-06-28
+
+Phase 1 foundation work is now present in the repository:
+
+- backend config has explicit `Valkey`, `NATS`, `ClickHouse`, and `MinIO` settings
+- bot config and DB runtime code support PostgreSQL cutover/env validation
+- bot storage and infra contracts include `ArtifactStore`, `AnalyticsWriter`, `EventBus`, and `CacheLockService`
+- bot PostgreSQL migration branch includes `artifact_references`
+- k3s guardrails and manifest skeleton are checked in and validated
+
+The remaining gap is implementation cutover, not planning/foundation. The active runtime is still Celery + Redis-compatible transport + local file / PostgreSQL-heavy persistence, but Phase 2 now has live artifact-reference writes for backtest sidecars.
 
 ## Current architecture problems
 
@@ -20,8 +47,8 @@ Validated current-state issues:
 3. Redis-compatible infrastructure is still acting as durable queue substrate.
 4. Async execution semantics are split across Celery and in-process fallback code.
 5. Infra manifests are ahead of application ownership boundaries.
-6. There is no normalized artifact registry table in the active bot PostgreSQL branch.
-7. There are no shared Phase 1 contracts yet for durable event bus and Valkey-backed cache/lock behavior.
+6. `artifact_references` now receives normalized sidecar metadata from the bot backtest repository, but full-result uploads, default-MinIO cutover, and backend signed URL reads are still missing.
+7. Shared Phase 1 contracts exist for event bus and cache/lock behavior, but they remain fail-closed placeholders until later phases wire them into runtime paths.
 
 ## Target architecture
 

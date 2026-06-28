@@ -1,5 +1,99 @@
 # Implementation Progress
 
+## Latest Run — 2026-06-28T15:13:58+03:00
+
+### Documents read
+
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/current-state-assessment.md`
+- `docs/needed_improvements/target-architecture.md`
+- `docs/needed_improvements/data-storage-matrix.md`
+- `docs/needed_improvements/postgresql-plan.md`
+- `docs/needed_improvements/minio-artifact-plan.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/nats-jetstream-plan.md`
+- `docs/needed_improvements/nats-command-event-contract.md`
+- `docs/needed_improvements/valkey-plan.md`
+- `docs/needed_improvements/observability-plan.md`
+- `docs/needed_improvements/k3s-open-source-execution-plan.md`
+- `docs/needed_improvements/kubernetes-devops-plan.md`
+- `docs/needed_improvements/migration-plan.md`
+- `bot/.github/copilot-instructions.md`
+- `bot/.github/CUSTOMIZATION_INDEX.md`
+- `bot/.github/agents/senior-python-defi-runtime.agent.md`
+- `.github/skills/defi-python-algo-trading/SKILL.md`
+- NOT FOUND: none
+
+### Task selected
+
+- Add the next Phase 3 live ClickHouse analytical family by mirroring committed live trade lifecycle writes into `trade_events`.
+
+### Reason selected
+
+- The previous latest run in `implementation-progress.md` explicitly recommended wiring either `order_events` or `trade_events` next.
+- `master-implementation-plan.md`, `implementation-backlog.md`, and `clickhouse-plan.md` still showed Phase 3 as the highest-priority unfinished dependency and still listed live `trade_events` as missing.
+- `TradeRepository` already owns the authoritative PostgreSQL trade open/close writes used by `bot/src/trading/trade_persistence.py`, so mirroring that repository path was the smallest safe slice that reused current ownership without changing runtime call flow.
+
+### Implementation completed
+
+- Added `trade_events` DDL provisioning to `bot/src/infrastructure/storage/clickhouse_writer.py` using the same buffered insert path already used for backtest analytical tables and `bot_events`.
+- Extended `bot/src/infrastructure/persistence/repository.py` so `TradeRepository.create_trade()`, `TradeRepository.close_trade()`, and `TradeRepository.update_trade_exit()` now best-effort mirror committed live trade lifecycle rows into ClickHouse `trade_events` when ClickHouse is enabled, while keeping PostgreSQL as the authoritative trade store.
+- Added regression coverage for `trade_events` DDL provisioning and for trade open/close mirroring through the repository-owned live persistence path.
+
+### Files changed
+
+- `bot/src/infrastructure/storage/clickhouse_writer.py`
+- `bot/src/infrastructure/persistence/repository.py`
+- `bot/tests/test_storage_adapters.py`
+- `bot/tests/test_trade_repository.py`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/current-state-assessment.md`
+- `docs/needed_improvements/data-storage-matrix.md`
+
+### Tests and checks run
+
+- `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_live_trade_persistence.py -q`
+  - result: passed (`27 passed, 1 warning`)
+- `python3 -m py_compile bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/tests/test_storage_adapters.py bot/tests/test_trade_repository.py`
+  - result: passed
+- `python3 -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/tests/test_storage_adapters.py bot/tests/test_trade_repository.py`
+  - result: passed
+
+### Result
+
+- The optional ClickHouse path now includes the next live-bot analytical family: `trade_events`.
+- Existing live trade open/close persistence that already commits through `TradeRepository` can now mirror paired trade lifecycle rows into ClickHouse without changing frontend or backend contracts.
+- Phase 3 remains PARTIAL because writes are still feature-gated/default-off and `order_events`, live `position_snapshots`, and backend ClickHouse read models are still missing.
+
+### Risks
+
+- `trade_events` currently mirrors the repository-owned paired trade lifecycle (`opened` / `closed`) rather than full per-order or per-fill execution detail, so deeper live execution analytics are still incomplete.
+- The new path is synchronous at the repository edge, although the shared ClickHouse writer still buffers inserts and falls back safely when ClickHouse is unavailable.
+- Checked-in runtime config still keeps ClickHouse disabled by default, so this run did not validate a real stack with live ClickHouse ingestion.
+
+### Known gaps
+
+- `order_events` and live `position_snapshots` analytical tables remain PENDING.
+- `trade_events` is now DONE for paired trade lifecycle rows, but finer-grained order/fill analytics remain PARTIAL.
+- Backend dashboards still do not read live analytical summaries from ClickHouse.
+- `request_json` and legacy backtest JSON columns still remain in PostgreSQL schema/history even though new writes are smaller.
+
+### Next recommended task
+
+- Phase 3: add `order_events` ClickHouse mirroring for the existing live execution path so order lifecycle detail joins the new `trade_events` paired trade rows.
+
+### Manual steps required
+
+- Run a real live trade open/close flow with `CLICKHOUSE_ENABLED=true` (or equivalent runtime flag) and verify `trade_events` rows land in ClickHouse.
+- Decide whether `trade_events` should stay as paired lifecycle analytics only or be expanded with per-fill/order identifiers before backend read models are built.
+
 ## Latest Run — 2026-06-28T15:00:49+03:00
 
 ### Documents read

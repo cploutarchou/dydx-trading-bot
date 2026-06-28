@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — Mirror committed live trade lifecycle writes into ClickHouse `trade_events`
+  - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_trade_repository.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_live_trade_persistence.py -q` passed; `python3 -m py_compile bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/tests/test_storage_adapters.py bot/tests/test_trade_repository.py` passed; `python3 -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/tests/test_storage_adapters.py bot/tests/test_trade_repository.py` passed
+  - Evidence: `TradeRepository.create_trade()`, `close_trade()`, and `update_trade_exit()` now best-effort mirror committed paired live trade lifecycle rows into buffered ClickHouse `trade_events` rows when ClickHouse is enabled.
 - [x] DONE — Mirror committed bot event logs into ClickHouse `bot_events`
   - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_event_repository.py`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_live_trade_persistence.py -q` passed; `python3 -m py_compile bot/src/infrastructure/persistence/repository.py bot/src/infrastructure/storage/clickhouse_writer.py bot/tests/test_event_repository.py bot/tests/test_storage_adapters.py` passed
@@ -20,7 +24,7 @@
   - Evidence: the writer now provisions `backtest_equity_curve` and `strategy_metrics`, and completed repository saves emit those row families when the payload carries `equity_curve` or `metrics`.
 - [~] PARTIAL — Expand ClickHouse schemas and batching beyond the current backtest subset
   - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/src/infrastructure/persistence/repository_backtest.py`
-  - Acceptance result: `bot/src/infrastructure/storage/clickhouse_writer.py` now provisions five backtest analytical tables plus live `bot_events`, and `bot/src/infrastructure/persistence/repository.py` mirrors committed bot event logs into the buffered writer, but `order_events`, `trade_events`, live position analytics, and backend read paths remain pending.
+  - Acceptance result: `bot/src/infrastructure/storage/clickhouse_writer.py` now provisions five backtest analytical tables plus live `bot_events` and `trade_events`, and `bot/src/infrastructure/persistence/repository.py` mirrors committed bot event logs plus committed trade lifecycle rows into the buffered writer, but `order_events`, deeper fill-level trade detail, live position analytics, and backend read paths remain pending.
 
 ## Role of ClickHouse
 
@@ -47,7 +51,7 @@ ClickHouse must not be used for:
 
 ## Current Findings From Repository
 
-- Existing ClickHouse integration now covers optional backtest sidecar writes plus optional bot event-log mirroring in `bot/src/infrastructure/storage/clickhouse_writer.py` and `bot/src/infrastructure/persistence/repository.py`.
+- Existing ClickHouse integration now covers optional backtest sidecar writes plus optional bot event-log and live trade lifecycle mirroring in `bot/src/infrastructure/storage/clickhouse_writer.py` and `bot/src/infrastructure/persistence/repository.py`.
 - Backtest repository writes no longer rely on PostgreSQL result arrays for detail reads, so ClickHouse is now the remaining missing durable analytical sink rather than a prerequisite for shrinking the runtime row.
 - Write path is feature-gated in `bot/src/infrastructure/persistence/repository_backtest.py`.
 - Runtime defaults disable it in:
@@ -55,6 +59,7 @@ ClickHouse must not be used for:
   - `deploy/k8s-next/platform-config.yaml`
 - Existing writer is feature-gated, buffers rows by batch size / flush interval, force-flushes terminal repository saves, and now provisions:
   - `bot_events`
+  - `trade_events`
   - `backtest_trades`
   - `backtest_daily_pnl`
   - `backtest_position_snapshots`
@@ -234,6 +239,11 @@ Insert strategy:
 Migration source:
 
 - live trade history currently split between bot runtime persistence and backend views
+
+Current implementation status:
+
+- [x] DONE — first slice is live through `bot/src/infrastructure/persistence/repository.py`, which now mirrors committed paired live trade open/close writes into ClickHouse `trade_events`
+- [~] PARTIAL — current rows capture paired trade lifecycle analytics, but order ids, per-fill detail, fees, and runtime position joins are still pending
 
 ## `position_snapshots`
 

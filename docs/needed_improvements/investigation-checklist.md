@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — Backend NATS JetStream publisher abstraction (Phase 4 first slice)
+  - Files: `backend/internal/nats/publisher.go`, `backend/internal/nats/publisher_test.go`, `backend/go.mod`, `backend/go.sum`
+  - Check: `cd backend && go mod tidy` added `nats.go` v1.52.0 + `nats-server/v2` v2.14.2; `cd backend && go build ./...` passed; `cd backend && go vet ./...` passed; `cd backend && go test ./...` passed (all `ok`); `cd backend && go test ./internal/nats/... -v` → 8/8 PASS (stable at `-count=3`)
+  - Evidence: a fail-closed, lazily-connected `nats.go`-backed `Publisher` now exists under `backend/internal/nats/` with the canonical command/event `Envelope`, contract subject namespace, idempotent stream provisioning, and JetStream `Msg-Id` dedupe; validated end-to-end against an embedded JetStream server. Not yet wired into any route.
 - [x] DONE — Third backend-owned ClickHouse read model (per-pair live performance breakdown)
   - Files: `backend/internal/services/live_pair_breakdown_reader.go`, `backend/internal/services/live_pair_breakdown_reader_test.go`, `backend/internal/app/analytics_routes.go`, `backend/internal/app/analytics_routes_test.go`, `backend/internal/app/router.go`
   - Check: `cd backend && go build ./...` passed; `cd backend && go vet ./internal/services/... ./internal/app/...` passed; `cd backend && go test ./internal/services/... ./internal/app/...` passed (`ok` both); `cd backend && go test ./internal/services/... -run 'LivePairBreakdownReader' -v` → 6/6 PASS; `cd backend && go test ./internal/app/... -run 'ServeLivePairBreakdown|BuildRouterRegistersAnalytics' -v` → 7/7 PASS
@@ -181,7 +185,8 @@
 
 ### Current durable NATS JetStream publishers
 
-- NOT FOUND
+- `backend/internal/nats/publisher.go`
+  - first code-level JetStream producer: a fail-closed, lazily-connected `nats.go`-backed `Publisher` with the canonical command/event `Envelope`, contract subject namespace (`bot.command.*`, `bot.event.*`, `backtest.command.*`, `backtest.event.*`), idempotent stream provisioning (`BOT_COMMANDS`, `BOT_EVENTS`, `BACKTEST_COMMANDS`, `BACKTEST_EVENTS`), and JetStream `Msg-Id` dedupe; returns `nil` when `NATS_ENABLED=false` and is not yet wired into any route
 
 ## Services That Should Publish To NATS
 

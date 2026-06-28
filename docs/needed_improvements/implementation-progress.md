@@ -1,5 +1,94 @@
 # Implementation Progress
 
+## Latest Run — 2026-06-28T21:35:00+03:00
+
+### Documents read
+
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/nats-jetstream-plan.md`
+- `docs/needed_improvements/nats-command-event-contract.md`
+- `backend/config/config.go` (`NATSSettings` fields), `backend/internal/services/clickhouse_reader.go` (fail-closed construction pattern reference)
+- NOT FOUND: `github.com/nats-io/nats.go` in `backend/go.mod` before this run (only Phase-1 `NATSSettings` config existed; no Go NATS client)
+
+### Current completed phase/task detected
+
+- [x] DONE — Phase 1, Phase 2.
+- [~] PARTIAL — Phase 3 remains PARTIAL (three backend ClickHouse read models exist; remaining Phase 3 work is frontend wiring (Phase 8), default-on rollout (manual), and finer-grained write detail (risky bot execution path)) — automatable Phase 3 read-path work is saturated.
+- [ ] PENDING → [~] PARTIAL — Phase 4 (NATS JetStream) had no backend code-level JetStream producer at all; this run adds the first one.
+
+### Task selected
+
+- Phase 4, first slice: add the backend-owned NATS JetStream publisher abstraction under `backend/internal/nats/` — a real `nats.go`-backed `Publisher` that is fail-closed nil when `NATS_ENABLED=false`, connects lazily (so it never couples application startup to bus availability), publishes the canonical command/event `Envelope` to the contract subject namespace with JetStream `Msg-Id` idempotency, and idempotently provisions the covering streams. It is intentionally not yet wired into any delegated route (the contract requires the HTTP/Celery path to stay authoritative until the NATS path is fully validated).
+
+### Reason selected
+
+- The master plan orders Phase 3 → Phase 4, and Phase 3's automatable read-path work is saturated (3 read models; remaining items are rollout/frontend/risky). The previous run's "Next recommended task" explicitly listed beginning Phase 4 NATS work as option (b).
+- `master-implementation-plan.md` Phase 4 item #1 is "add backend publisher abstraction"; `nats-command-event-contract.md` lists `backend/internal/nats/*` as expected to change; `implementation-backlog.md` lists "Add backend JetStream publisher" as critical priority and the dependency for every later NATS consumer/orchestration task. Nothing else unblocks the Phase 4/6/7 chain.
+- The contract mandates a safe first slice: fail-closed default-off, non-startup-coupled, HTTP path unchanged. The reusable `ClickHouseReader`/MinIO-signer fail-closed pattern already existed to mirror.
+
+### Implementation completed
+
+- Added `backend/internal/nats/publisher.go` (`package nats`, importing `nats.go` as `natsclient` to avoid the package/import name collision):
+  - `Envelope` struct + `Validate()` enforcing the non-negotiable identity fields (`message_id`, `idempotency_key`, `correlation_id`, `subject`, `occurred_at`) per the contract "Minimal payload shape" and the plan "Event Payload Rules" — large payloads stay reference-heavy.
+  - `Subject(owner, kind, action)` single source of truth for the subject namespace (`bot.command.start`, `backtest.event.completed`) and `StreamFor(subject)` mapping to `BOT_COMMANDS`/`BOT_EVENTS`/`BACKTEST_COMMANDS`/`BACKTEST_EVENTS`.
+  - `Publisher` with `NewPublisher(settings)` returning `nil` when `!Enabled`; lazy `ensureConnected()` (no startup coupling); `ensureStream()` idempotent `AddStream` with work-queue retention for commands and limits retention for events; `Publish(ctx, env)` publishing with `nats.MsgId(idempotency_key)` for server-side dedupe and returning a transport-agnostic `PublishResult{Stream, Sequence, Duplicate}`; `Close()`.
+  - `Publish` on a nil publisher returns `ErrPublisherDisabled`; on an unreachable bus it returns the dial error (fail-closed, no silent drop, no panic).
+- Added `backend/internal/nats/publisher_test.go` (8 tests) using an embedded `nats-server/v2` (unique per-test `StoreDir` so dedupe state never leaks across runs): disabled→nil, envelope validation, subject/stream mapping, envelope JSON shape, real publish→ack + `Msg-Id` dedupe, real publish→`PullSubscribe` delivery asserting the exact envelope payload, unreachable-bus fail-closed, nil-publisher fail-closed.
+- Added the `github.com/nats-io/nats.go` runtime dependency and `github.com/nats-io/nats-server/v2` test dependency to `backend/go.mod`/`go.sum` (first new runtime dependency introduced by the modernization; `golang.org/x/{crypto,net,sys,text,time}` were upgraded transitively).
+
+### Files changed
+
+- `backend/internal/nats/publisher.go` (new)
+- `backend/internal/nats/publisher_test.go` (new)
+- `backend/go.mod`, `backend/go.sum` (nats.go + nats-server/v2 deps)
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/nats-jetstream-plan.md`
+- `docs/needed_improvements/nats-command-event-contract.md`
+
+### Tests and checks run
+
+- `cd backend && go mod tidy` — added `nats.go` v1.52.0, `nats-server/v2` v2.14.2, transitive `nkeys`/`nuid`; upgraded `golang.org/x/{crypto,net,sys,text,time}`.
+- `cd backend && gofmt -l internal/nats/publisher.go internal/nats/publisher_test.go` → passed (clean after `gofmt -w`)
+- `cd backend && go build ./...` → passed (exit 0)
+- `cd backend && go vet ./...` → passed (no findings)
+- `cd backend && go test ./...` → passed (all packages `ok`; 0 non-ok lines)
+- `cd backend && go test ./internal/nats/... -v` → **8/8 PASS**; `-count=3` stable.
+
+### Result
+
+- [x] DONE — The backend now has its first code-level NATS JetStream producer: a fail-closed, lazily-connected, idempotent `Publisher` with the canonical command/event envelope and subject namespace, validated end-to-end against an embedded JetStream server.
+- [~] PARTIAL — Phase 4 is now PARTIAL: only the backend publisher abstraction exists. Worker durable consumers, retry/ack/dead-letter handling, and dual-write wiring behind delegated routes are still PENDING; the HTTP/Celery path remains authoritative.
+
+### Risks
+
+- This is the first new runtime dependency added by the modernization (`nats.go`). Build/transitive upgrades (`golang.org/x/*`) were verified with `go build ./...` and `go test ./...`, but downstream CI / container builds should be watched for module-cache or version-pinning effects.
+- The publisher is validated against an embedded `nats-server`, not a deployed NATS cluster; real-cluster behavior (TLS, auth, leafnodes, production retention limits) is not exercised. Lazy connect means a down bus surfaces as a `Publish` error, not a startup failure.
+- Stream configs are best-effort defaults (work-queue vs limits retention, 7-day `MaxAge`, file storage); the `nats-jetstream-plan` prescribes richer per-stream retention/max-delivery/dead-letter policy that the consumer slices will finalize. `StreamPrefix` config is reserved and not yet applied to stream/subject namespacing.
+- Not wired into any route yet by design (contract: do not replace HTTP control until validated), so this slice has no runtime effect when `NATS_ENABLED=false` (the checked-in default).
+
+### Known gaps
+
+- [ ] PENDING — No worker durable consumers (bot/backtest) consume from JetStream yet.
+- [ ] PENDING — No retry/ack/dead-letter (`DEAD_LETTER`) handling implemented yet.
+- [ ] PENDING — Publisher not yet dual-written behind any delegated route; HTTP/Celery path unchanged and authoritative.
+- [ ] PENDING — `StreamPrefix` config not yet applied to stream/subject namespacing.
+- [~] PARTIAL — Stream provisioning exists but with conservative defaults, not the full per-stream policy from `nats-jetstream-plan.md`.
+
+### Next recommended task
+
+- Phase 4: either (a) wire the publisher behind one delegated route as a dual-write (publish the command envelope to JetStream while the existing HTTP/Celery path stays authoritative and a flag gates the publish), validating idempotency end-to-end, or (b) add the first durable consumer (e.g., backtest command consumer in `bot/`) with explicit ack after authoritative PostgreSQL state, or (c) introduce the normalized `task_commands`/`task_runs` PostgreSQL tables the publisher and consumers will key command idempotency against.
+
+### Manual steps required
+
+- Decide whether `nats.go` v1.52.0 and the transitive `golang.org/x/*` upgrades are acceptable for the backend module before merge.
+- Validate the publisher against a deployed NATS JetStream endpoint with `NATS_ENABLED=true` before any dual-write wiring is enabled outside a non-production overlay.
+
 ## Latest Run — 2026-06-28T21:05:00+03:00
 
 ### Documents read

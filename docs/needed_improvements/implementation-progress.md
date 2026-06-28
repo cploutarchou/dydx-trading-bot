@@ -1,5 +1,99 @@
 # Implementation Progress
 
+## Latest Run — 2026-06-28T21:05:00+03:00
+
+### Documents read
+
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/postgresql-plan.md`
+- `docs/needed_improvements/current-state-assessment.md`
+- `backend/internal/services/clickhouse_reader.go`, `backend/internal/services/live_trade_summary_reader.go`, `backend/internal/app/analytics_routes.go`, `backend/internal/app/router.go` (read-model reuse reference)
+- `bot/src/infrastructure/storage/clickhouse_writer.py` (`trade_events` schema + `instance_id` keying reference)
+- NOT FOUND: none
+
+### Current completed phase/task detected
+
+- [~] PARTIAL — Phase 3 remains the active implementation phase.
+- [x] DONE — Two backend-owned ClickHouse read models existed from prior runs (live position history + live trade/order summary aggregates).
+- [ ] PENDING → [x] DONE — A third backend-owned ClickHouse read model (per-pair live performance breakdown) did not exist; this run adds it.
+
+### Task selected
+
+- Add the third backend-owned ClickHouse read model: a typed `LivePairBreakdownReader` that aggregates the bot-mirrored `trade_events` table into a per-pair (pair1/pair2) trade-performance breakdown keyed by the stable `instance_id`, reusing the existing `ClickHouseReader` and `DecodeRows` helper, exposed behind a new admin-gated `GET /api/v1/analytics/pair-breakdown` route with the same fail-closed `enabled=false` fallback as the other analytics routes.
+
+### Reason selected
+
+- The previous latest run listed "add a third read model (e.g., per-market/per-strategy breakdowns) reusing the same `ClickHouseReader`/`DecodeRows` pattern" as its option (c) next recommended task.
+- `implementation-progress.md` known gaps explicitly flagged "Additional summary dimensions (per-market, per-strategy, per-side) are still pending beyond the per-day and per-status rollups" as the remaining safe Phase 3 read-model gap.
+- This was the only remaining Phase 3 gap that is dependency-correct (does not skip to frontend/Phase 8 or NATS/Phase 4), rollout-free (no default-on decision or manual live-stack validation), and safe (backend-only, reuses the established, tested pattern, fully automatable with `httptest`). The dependencies were already satisfied: `trade_events` carries stable `instance_id` plus `pair1`/`pair2`/`realized_pnl`/`event_kind`, and the reusable `ClickHouseReader` + `DecodeRows[T]` already existed.
+
+### Implementation completed
+
+- Added `backend/internal/services/live_pair_breakdown_reader.go`: the third typed backend read model. `LivePairBreakdownReader.GetBreakdown(ctx, instanceID, hours)` aggregates `trade_events` grouped by `pair1, pair2` over the `event_kind = 'closed'` rows (so each closed trade counts once per pair), returning per-pair closed-trade counts, total/average realized PnL, win/loss counts, and best/worst realized PnL, ordered by total realized PnL descending. It reuses the shared `ClickHouseReader` and the generic `DecodeRows[T]` helper, returns `nil` from `NewLivePairBreakdownReader` when ClickHouse is disabled, keys exclusively by the backend-owned `instance_id` with server-side `{name:Type}` placeholder binding, and reuses the shared hour-clamping defaults.
+- Extended `backend/internal/app/analytics_routes.go`: `registerAnalyticsRoutes` now also accepts a `*LivePairBreakdownReader` and registers `GET /api/v1/analytics/pair-breakdown`; the new `serveLivePairBreakdown` handler mirrors the other analytics handlers (admin-gated, requires `instance_id`, fails closed to a stable `enabled=false` degraded envelope via `emptyPairBreakdownEnvelope` when the reader is nil, and surfaces a `success=false` envelope with the error reason on query failure).
+- Updated `backend/internal/app/router.go`: `BuildRouter` now constructs all three readers from `cfg.ClickHouse` and passes them to `registerAnalyticsRoutes`.
+- Added 11 regression tests: 6 in `live_pair_breakdown_reader_test.go` (nil fail-closed, instance_id required, aggregate decode through `httptest` asserting closed-only filter, pair grouping, server-side binding, and no interpolation, empty-result non-nil slice, hours clamping, upstream-error fail-closed) and 5 in `analytics_routes_test.go` (admin required, instance_id required, disabled fail-closed, serves ClickHouse rows, plus verification that the pair-breakdown route is registered on a fully built router).
+
+### Files changed
+
+- `backend/internal/services/live_pair_breakdown_reader.go` (new)
+- `backend/internal/services/live_pair_breakdown_reader_test.go` (new)
+- `backend/internal/app/analytics_routes.go`
+- `backend/internal/app/analytics_routes_test.go`
+- `backend/internal/app/router.go`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/current-state-assessment.md`
+
+### Tests and checks run
+
+- `cd backend && gofmt -l internal/services/live_pair_breakdown_reader.go internal/services/live_pair_breakdown_reader_test.go internal/app/analytics_routes.go internal/app/analytics_routes_test.go internal/app/router.go`
+  - result: passed (no files listed)
+- `cd backend && go build ./...`
+  - result: passed (exit 0)
+- `cd backend && go vet ./internal/services/... ./internal/app/...`
+  - result: passed (exit 0)
+- `cd backend && go test ./internal/services/... ./internal/app/...`
+  - result: passed (`ok github.com/dydx-trading-bot/backend-go/internal/services` and `ok .../internal/app`)
+- `cd backend && go test ./internal/services/... -run 'LivePairBreakdownReader' -v` → 6/6 PASS
+- `cd backend && go test ./internal/app/... -run 'ServeLivePairBreakdown|BuildRouterRegistersAnalytics' -v` → 7/7 PASS
+
+### Result
+
+- [x] DONE — The backend now has its third ClickHouse read model: a typed `LivePairBreakdownReader` aggregating `trade_events` per pair keyed by stable `instance_id`, exposed through admin-gated `GET /api/v1/analytics/pair-breakdown` that fails closed to a degraded `enabled=false` payload when ClickHouse is off and to a `success=false` payload on query failure.
+- [~] PARTIAL — "Move dashboard-heavy reads to ClickHouse" is still PARTIAL overall: position history, trade/order summary, and per-pair breakdown read models now exist, but frontend wiring and default-on ClickHouse writes are still pending, so the read models serve real data only when ClickHouse is enabled.
+
+### Risks
+
+- The read model was validated only against an `httptest` stand-in for ClickHouse, not a live ClickHouse instance, because checked-in config keeps ClickHouse disabled by default. The fail-closed design means production with ClickHouse off returns an empty disabled payload, not stale breakdowns.
+- The breakdown aggregates only `event_kind = 'closed'` rows and assumes the bot's paired `trade_events` lifecycle convention; if a future producer emits closed rows with a different `event_kind`, the per-pair counts would need revisiting.
+- The route is admin-gated under `/api/v1/analytics` as an operational read surface; production dashboard wiring (user-scoped access, frontend consumption) is intentionally deferred to a later slice.
+- `avg_realized_pnl_pct` is a simple arithmetic average over closed rows and is not trade-size-weighted.
+
+### Known gaps
+
+- [~] PARTIAL — Frontend/dashboard does not yet consume any of the three read models; wiring is still pending.
+- [~] PARTIAL — Older ClickHouse live rows are not backfilled with `instance_id`, so historical breakdowns may miss pre-`instance_id` rows until naturally superseded.
+- [~] PARTIAL — The bot API `position-history` placeholder still does not read historical snapshots back from ClickHouse; the backend read models are separate from that bot-side endpoint.
+- [~] PARTIAL — Finer-grained `order_events`/`trade_events` per-fill detail remains incomplete on the write side.
+- [ ] PENDING — ClickHouse writes remain feature-gated/default-off in checked-in config.
+
+### Next recommended task
+
+- Phase 3: either (a) enable ClickHouse writes by default in a non-production overlay so all three read models can be validated end-to-end against live mirrored rows, or (b) begin Phase 4 NATS JetStream work (backend publisher + task tables) since the Phase 3 read-path surface is now reasonably complete, or (c) wire the read models into the frontend/dashboard (Phase 8) with a polling fallback.
+
+### Manual steps required
+
+- Run the backend with `CLICKHOUSE_ENABLED=true` against a ClickHouse instance that has mirrored `trade_events` rows and exercise `GET /api/v1/analytics/pair-breakdown?instance_id=<stable bot instance id>&hours=24` as an admin.
+- Decide whether the three read models should stay admin-gated under `/api/v1/analytics` or move to user-scoped dashboard routes before frontend wiring.
+
 ## Latest Run — 2026-06-28T20:40:00+03:00
 
 ### Documents read

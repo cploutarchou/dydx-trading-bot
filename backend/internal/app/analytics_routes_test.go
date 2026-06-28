@@ -249,6 +249,95 @@ func TestBuildRouterRegistersAnalyticsTradeSummaryRoute(t *testing.T) {
 	}
 }
 
+func TestServeLivePairBreakdownRequiresAdmin(t *testing.T) {
+	ctx, recorder := newAnalyticsTestContext(t, "/?instance_id=inst-1")
+	// is_admin intentionally unset
+	serveLivePairBreakdown(ctx, nil)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for non-admin, got %d", recorder.Code)
+	}
+}
+
+func TestServeLivePairBreakdownRequiresInstanceID(t *testing.T) {
+	ctx, recorder := newAnalyticsTestContext(t, "/")
+	ctx.Set("is_admin", true)
+	serveLivePairBreakdown(ctx, services.NewLivePairBreakdownReader(services.NewClickHouseReader(config.ClickHouseSettings{Enabled: true, URL: "http://localhost:8123"})))
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing instance_id, got %d", recorder.Code)
+	}
+}
+
+func TestServeLivePairBreakdownDisabledFailsClosed(t *testing.T) {
+	ctx, recorder := newAnalyticsTestContext(t, "/?instance_id=inst-1")
+	ctx.Set("is_admin", true)
+
+	// nil breakdown reader simulates ClickHouse disabled (the checked-in default).
+	serveLivePairBreakdown(ctx, nil)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 degraded response when disabled, got %d", recorder.Code)
+	}
+	body := decodeAnalyticsBody(t, recorder)
+	if body["enabled"] != false || body["source"] != "disabled" {
+		t.Fatalf("expected enabled=false/source=disabled, got %+v", body)
+	}
+	data, ok := body["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data object, got %T", body["data"])
+	}
+	if data["instance_id"] != "inst-1" {
+		t.Fatalf("expected degraded data to echo instance_id, got %v", data["instance_id"])
+	}
+	if pairs, ok := data["pairs"].([]interface{}); !ok || len(pairs) != 0 {
+		t.Fatalf("expected empty pairs slice in degraded payload, got %v", data["pairs"])
+	}
+}
+
+func TestServeLivePairBreakdownServesClickHouseRows(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"pair1":"ETH-USD","pair2":"BTC-USD","trades_closed":2,"total_realized_pnl":50.0,"avg_realized_pnl_pct":0.02,"winning_trades":2,"losing_trades":0,"best_realized_pnl":30.0,"worst_realized_pnl":20.0}`+"\n")
+	}))
+	t.Cleanup(server.Close)
+
+	breakdownReader := services.NewLivePairBreakdownReader(services.NewClickHouseReader(config.ClickHouseSettings{
+		Enabled: true,
+		URL:     server.URL,
+	}))
+
+	ctx, recorder := newAnalyticsTestContext(t, "/?instance_id=inst-1&hours=12")
+	ctx.Set("is_admin", true)
+	serveLivePairBreakdown(ctx, breakdownReader)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body=%s)", recorder.Code, recorder.Body.String())
+	}
+	body := decodeAnalyticsBody(t, recorder)
+	if body["enabled"] != true || body["source"] != "clickhouse" {
+		t.Fatalf("expected enabled=true/source=clickhouse, got %+v", body)
+	}
+	data := body["data"].(map[string]interface{})
+	if data["instance_id"] != "inst-1" || data["hours"] != float64(12) {
+		t.Fatalf("unexpected envelope context: %+v", data)
+	}
+	pairs := data["pairs"].([]interface{})
+	if len(pairs) != 1 {
+		t.Fatalf("expected 1 pair row, got %d", len(pairs))
+	}
+	first := pairs[0].(map[string]interface{})
+	if first["pair1"] != "ETH-USD" || first["total_realized_pnl"] != float64(50.0) {
+		t.Fatalf("unexpected pair row: %+v", first)
+	}
+}
+
+func TestBuildRouterRegistersAnalyticsPairBreakdownRoute(t *testing.T) {
+	if !analyticsRouteRegistered(t, "/api/v1/analytics/pair-breakdown") {
+		t.Fatalf("analytics pair-breakdown route was not registered")
+	}
+}
+
 // analyticsRouteRegistered builds a fully wired router on an in-memory sqlite DB
 // and reports whether the given admin analytics route was registered.
 func analyticsRouteRegistered(t *testing.T, suffix string) bool {

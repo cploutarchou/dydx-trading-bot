@@ -119,6 +119,7 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 	registerAnalyticsRoutes(router,
 		services.NewLivePositionReader(clickHouseReader),
 		services.NewLiveTradeSummaryReader(clickHouseReader),
+		services.NewLivePairBreakdownReader(clickHouseReader),
 	)
 
 	return router, nil

@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — First backend-owned ClickHouse read model (live position history)
+  - Files: `backend/internal/services/clickhouse_reader.go`, `backend/internal/services/clickhouse_reader_test.go`, `backend/internal/services/live_position_reader.go`, `backend/internal/services/live_position_reader_test.go`, `backend/internal/app/analytics_routes.go`, `backend/internal/app/analytics_routes_test.go`, `backend/internal/app/router.go`
+  - Check: `cd backend && go build ./...` passed; `cd backend && go vet ./internal/services/... ./internal/app/...` passed; `cd backend && go test ./internal/services/... ./internal/app/...` passed (`ok` both); `cd backend && go test ./internal/services/... -run 'ClickHouseReader|LivePositionReader|EnsureJSONEachRow' -v` → 7/7 PASS; `cd backend && go test ./internal/app/... -run 'ServeLivePositionHistory|BuildRouterRegistersAnalytics' -v` → 6/6 PASS
+  - Evidence: a reusable stdlib HTTP `ClickHouseReader` (fail-closed `nil` when disabled, server-side `{name:Type}` parameter binding, auto-appends `FORMAT JSONEachRow`) now backs a typed `LivePositionReader.GetHistory` over `position_snapshots` keyed by the stable `instance_id`, exposed through the admin-gated `GET /api/v1/analytics/position-history` route that degrades to `enabled=false` when ClickHouse is off.
 - [x] DONE — Live ClickHouse order/trade/position rows now carry stable `instance_id` keys
   - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/src/infrastructure/persistence/repository_realtime.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_event_repository.py`, `bot/tests/test_trade_repository.py`, `bot/tests/test_realtime_position_repository.py`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_realtime_position_repository.py -q` passed; `./bot/.venv/bin/python -m py_compile bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/src/infrastructure/persistence/repository_realtime.py bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_realtime_position_repository.py` passed
@@ -222,6 +226,15 @@
   - existing committed live trade open/close writes now mirror into ClickHouse `trade_events` through the same buffered writer when ClickHouse is enabled, with stable `instance_id` values
 - `bot/src/infrastructure/persistence/repository_realtime.py`
   - existing repository-owned realtime position open/update/close writes now mirror into ClickHouse `position_snapshots` through the same buffered writer when ClickHouse is enabled, with stable `instance_id` values
+
+### Existing ClickHouse read path (backend)
+
+- `backend/internal/services/clickhouse_reader.go`
+  - first backend-owned read-only ClickHouse client; queries the HTTP interface (port 8123) with `net/http`, returns `JSONEachRow` rows as raw JSON, binds values server-side via `{name:Type}` placeholders, auto-appends `FORMAT JSONEachRow`, and fails closed with `ErrClickHouseDisabled`/`ErrClickHouseUnavailable`; `NewClickHouseReader` returns `nil` when disabled/unconfigured
+- `backend/internal/services/live_position_reader.go`
+  - first typed backend read model: `LivePositionReader.GetHistory` selects from `position_snapshots` keyed by the stable backend-owned `instance_id`, decoding into `LivePositionSnapshot` structs via a generic `DecodeRows[T]` helper
+- `backend/internal/app/analytics_routes.go`
+  - admin-gated `GET /api/v1/analytics/position-history` wired in `BuildRouter`; returns a degraded `enabled=false` envelope when ClickHouse is disabled (checked-in default), a `success=false` envelope with the error reason on query failure, and typed snapshots otherwise; additional trade/order/dashboard read models still PENDING
 
 ## Code That Should Write To MinIO
 

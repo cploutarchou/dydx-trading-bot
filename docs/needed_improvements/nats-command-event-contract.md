@@ -1,5 +1,12 @@
 # NATS command/event contract
 
+## Status Updates — 2026-06-28
+
+- [x] DONE — Backend publisher abstraction implements this contract's subject namespace and minimal payload shape
+  - Files: `backend/internal/nats/publisher.go`, `backend/internal/nats/publisher_test.go`
+  - Check: `cd backend && go test ./internal/nats/... -v` → 8/8 PASS (embedded JetStream server)
+  - Evidence: `Subject(owner, kind, action)` produces the contract subjects (`bot.command.start`, `backtest.event.completed`, etc.); the `Envelope` carries the minimal payload fields (correlation id, actor/owner id, UTC `occurred_at`, schema version, reference-heavy payload); the publisher is fail-closed (`NATS_ENABLED=false` → nil) and connects lazily so HTTP control stays authoritative. Not yet wired behind a route.
+
 ## Purpose
 
 Define the subject namespace for command and event transport while keeping the current HTTP control path active.
@@ -67,7 +74,8 @@ The payloads should include:
 ## Files expected to change
 
 - `backend/internal/nats/*`
-- `bot/src/infrastructure/nats/*`
-- `backend/config/config.go`
+  - DONE (first slice): `publisher.go` implements the fail-closed `Publisher`, `Envelope`, and `Subject`/`StreamFor` mapping for the contract namespace; `publisher_test.go` validates it end-to-end against an embedded JetStream server.
+- `bot/src/infrastructure/nats/*` — PENDING (durable consumers)
+- `backend/config/config.go` — already has `NATSSettings` (Phase 1); publisher reads `Enabled`/`URL`
 - `bot/src/infrastructure/database.py` or service config only if NATS values are wired there later
-- deployment manifests for JetStream, publisher, and subscriber wiring
+- deployment manifests for JetStream, publisher, and subscriber wiring — PENDING

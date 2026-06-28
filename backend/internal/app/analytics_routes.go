@@ -17,17 +17,20 @@ const (
 	defaultHistoryHours   = 24
 )
 
-// registerAnalyticsRoutes exposes the first backend-owned ClickHouse read models.
+// registerAnalyticsRoutes exposes the backend-owned ClickHouse read models.
 // All routes are admin-gated and fail closed: when ClickHouse is disabled the
 // response reports enabled=false with empty data so dashboards can degrade
 // gracefully instead of erroring, and a query failure surfaces an error without
 // returning stale or partial rows.
-func registerAnalyticsRoutes(router *gin.Engine, positionReader *services.LivePositionReader) {
+func registerAnalyticsRoutes(router *gin.Engine, positionReader *services.LivePositionReader, tradeSummaryReader *services.LiveTradeSummaryReader) {
 	group := router.Group("/api/v1/analytics")
 	group.Use(middleware.RequireAuth())
 
 	group.GET("/position-history", func(c *gin.Context) {
 		serveLivePositionHistory(c, positionReader)
+	})
+	group.GET("/trade-summary", func(c *gin.Context) {
+		serveLiveTradeSummary(c, tradeSummaryReader)
 	})
 }
 
@@ -120,4 +123,83 @@ func parseHistoryHours(raw string) int {
 		return defaultHistoryHours
 	}
 	return parsed
+}
+
+// serveLiveTradeSummary is the testable core of the trade-summary route. It
+// mirrors serveLivePositionHistory: admin-gated, requires instance_id, fails
+// closed with an enabled=false envelope when ClickHouse is off, and surfaces a
+// success=false envelope on query failure instead of partial aggregates.
+func serveLiveTradeSummary(c *gin.Context, tradeSummaryReader *services.LiveTradeSummaryReader) {
+	if !c.GetBool("is_admin") {
+		c.JSON(http.StatusForbidden, gin.H{
+			"success":  false,
+			"message":  "Admin access required",
+			"trace_id": middleware.GetTraceID(c),
+		})
+		return
+	}
+
+	instanceID := strings.TrimSpace(c.Query("instance_id"))
+	hours := parseHistoryHours(c.Query("hours"))
+
+	if instanceID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success":  false,
+			"message":  "instance_id query parameter is required",
+			"trace_id": middleware.GetTraceID(c),
+		})
+		return
+	}
+
+	// Fail closed when ClickHouse reads are not configured: return a stable,
+	// enabled=false envelope with empty data so dashboards degrade gracefully.
+	if tradeSummaryReader == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success":  true,
+			"enabled":  false,
+			"source":   "disabled",
+			"data":     emptyTradeSummaryEnvelope(instanceID, hours),
+			"trace_id": middleware.GetTraceID(c),
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), analyticsQueryTimeout)
+	defer cancel()
+
+	summary, err := tradeSummaryReader.GetSummary(ctx, instanceID, hours)
+	if err != nil {
+		// Query failed: do not return partial aggregates. Report enabled=true with
+		// the failure reason so operators can see ClickHouse is configured but unhealthy.
+		c.JSON(http.StatusOK, gin.H{
+			"success":  false,
+			"enabled":  true,
+			"source":   "clickhouse",
+			"message":  "ClickHouse trade summary query failed",
+			"error":    err.Error(),
+			"data":     emptyTradeSummaryEnvelope(instanceID, hours),
+			"trace_id": middleware.GetTraceID(c),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"enabled":  true,
+		"source":   "clickhouse",
+		"data":     summary,
+		"trace_id": middleware.GetTraceID(c),
+	})
+}
+
+// emptyTradeSummaryEnvelope is the stable degraded payload shared by the disabled
+// and query-failure paths so consumers always see the same shape.
+func emptyTradeSummaryEnvelope(instanceID string, hours int) gin.H {
+	return gin.H{
+		"instance_id":      instanceID,
+		"hours":            hours,
+		"totals":           services.LiveTradeTotals{},
+		"daily":            []interface{}{},
+		"orders_by_status": []interface{}{},
+	}
 }

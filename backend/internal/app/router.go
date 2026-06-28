@@ -112,11 +112,14 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 	registerFeatureRoutes(router, deps.Database, deps.BotAPIClient, deps.CacheService, deps.BacktestPushHub)
 	registerDebugRoutes(router, deps.Database)
 
-	// First backend-owned ClickHouse read model. The reader is nil when ClickHouse
-	// is disabled (the checked-in default), in which case analytics routes fail
+	// Backend-owned ClickHouse read models. Each reader is nil when ClickHouse is
+	// disabled (the checked-in default), in which case analytics routes fail
 	// closed with enabled=false instead of erroring.
 	clickHouseReader := services.NewClickHouseReader(cfg.ClickHouse)
-	registerAnalyticsRoutes(router, services.NewLivePositionReader(clickHouseReader))
+	registerAnalyticsRoutes(router,
+		services.NewLivePositionReader(clickHouseReader),
+		services.NewLiveTradeSummaryReader(clickHouseReader),
+	)
 
 	return router, nil
 }

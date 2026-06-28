@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — Second backend-owned ClickHouse read model (live trade/order summary aggregates)
+  - Files: `backend/internal/services/live_trade_summary_reader.go`, `backend/internal/services/live_trade_summary_reader_test.go`, `backend/internal/app/analytics_routes.go`, `backend/internal/app/analytics_routes_test.go`, `backend/internal/app/router.go`
+  - Check: `cd backend && go build ./...` passed; `cd backend && go vet ./internal/services/... ./internal/app/...` passed; `cd backend && go test ./internal/services/... ./internal/app/...` passed (`ok` both); `cd backend && go test ./internal/services/... -run 'LiveTradeSummaryReader' -v` → 5/5 PASS; `cd backend && go test ./internal/app/... -run 'ServeLiveTradeSummary|BuildRouterRegistersAnalytics' -v` → 6/6 PASS
+  - Evidence: a typed `LiveTradeSummaryReader.GetSummary` reuses the existing `ClickHouseReader` + generic `DecodeRows[T]` to aggregate `trade_events` (single-row totals + per-day rollup) and `order_events` (per-status counts) keyed by the stable `instance_id`, exposed through admin-gated `GET /api/v1/analytics/trade-summary` that degrades to `enabled=false` when ClickHouse is off and to `success=false` on query failure.
 - [x] DONE — First backend-owned ClickHouse read model (live position history)
   - Files: `backend/internal/services/clickhouse_reader.go`, `backend/internal/services/clickhouse_reader_test.go`, `backend/internal/services/live_position_reader.go`, `backend/internal/services/live_position_reader_test.go`, `backend/internal/app/analytics_routes.go`, `backend/internal/app/analytics_routes_test.go`, `backend/internal/app/router.go`
   - Check: `cd backend && go build ./...` passed; `cd backend && go vet ./internal/services/... ./internal/app/...` passed; `cd backend && go test ./internal/services/... ./internal/app/...` passed (`ok` both); `cd backend && go test ./internal/services/... -run 'ClickHouseReader|LivePositionReader|EnsureJSONEachRow' -v` → 7/7 PASS; `cd backend && go test ./internal/app/... -run 'ServeLivePositionHistory|BuildRouterRegistersAnalytics' -v` → 6/6 PASS
@@ -233,8 +237,10 @@
   - first backend-owned read-only ClickHouse client; queries the HTTP interface (port 8123) with `net/http`, returns `JSONEachRow` rows as raw JSON, binds values server-side via `{name:Type}` placeholders, auto-appends `FORMAT JSONEachRow`, and fails closed with `ErrClickHouseDisabled`/`ErrClickHouseUnavailable`; `NewClickHouseReader` returns `nil` when disabled/unconfigured
 - `backend/internal/services/live_position_reader.go`
   - first typed backend read model: `LivePositionReader.GetHistory` selects from `position_snapshots` keyed by the stable backend-owned `instance_id`, decoding into `LivePositionSnapshot` structs via a generic `DecodeRows[T]` helper
+- `backend/internal/services/live_trade_summary_reader.go`
+  - second typed backend read model: `LiveTradeSummaryReader.GetSummary` aggregates the bot-mirrored `trade_events` (single-row opened/closed/winning/losing totals plus per-day rollup) and `order_events` (per-status counts) keyed by the stable backend-owned `instance_id`, reusing the same `ClickHouseReader` and `DecodeRows[T]` helper and returning a combined `LiveTradeSummary` envelope
 - `backend/internal/app/analytics_routes.go`
-  - admin-gated `GET /api/v1/analytics/position-history` wired in `BuildRouter`; returns a degraded `enabled=false` envelope when ClickHouse is disabled (checked-in default), a `success=false` envelope with the error reason on query failure, and typed snapshots otherwise; additional trade/order/dashboard read models still PENDING
+  - admin-gated `GET /api/v1/analytics/position-history` and `GET /api/v1/analytics/trade-summary` wired in `BuildRouter`; both return a degraded `enabled=false` envelope when ClickHouse is disabled (checked-in default), a `success=false` envelope with the error reason on query failure, and typed results otherwise; additional dashboard read models still PENDING
 
 ## Code That Should Write To MinIO
 

@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
     order_id        String,
     trade_id        String DEFAULT '',
     bot_id          String,
+    instance_id     String DEFAULT '',
     bot_run_id      String,
     market          String,
     side            LowCardinality(String),
@@ -62,6 +63,7 @@ CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
     event_time        DateTime64(3, 'UTC'),
     trade_id          String,
     bot_id            String,
+    instance_id       String DEFAULT '',
     pair1             String,
     pair2             String,
     side1             LowCardinality(String),
@@ -89,6 +91,7 @@ CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
     snapshot_time       DateTime64(3, 'UTC'),
     position_id         String,
     bot_id              String,
+    instance_id         String DEFAULT '',
     pair1               String,
     pair2               String,
     side1               LowCardinality(String),
@@ -203,6 +206,27 @@ _TABLE_DDL: dict[str, str] = {
     "backtest_equity_curve": _BACKTEST_EQUITY_CURVE_DDL,
     "strategy_metric_rows": _STRATEGY_METRICS_DDL,
     "strategy_metrics": _STRATEGY_METRICS_DDL,
+}
+
+_TABLE_ALTERS: dict[str, tuple[str, ...]] = {
+    "order_event_rows": (
+        "ALTER TABLE `{db}`.`{table}` ADD COLUMN IF NOT EXISTS instance_id String DEFAULT '' AFTER bot_id",
+    ),
+    "order_events": (
+        "ALTER TABLE `{db}`.`{table}` ADD COLUMN IF NOT EXISTS instance_id String DEFAULT '' AFTER bot_id",
+    ),
+    "trade_event_rows": (
+        "ALTER TABLE `{db}`.`{table}` ADD COLUMN IF NOT EXISTS instance_id String DEFAULT '' AFTER bot_id",
+    ),
+    "trade_events": (
+        "ALTER TABLE `{db}`.`{table}` ADD COLUMN IF NOT EXISTS instance_id String DEFAULT '' AFTER bot_id",
+    ),
+    "position_snapshot_rows": (
+        "ALTER TABLE `{db}`.`{table}` ADD COLUMN IF NOT EXISTS instance_id String DEFAULT '' AFTER bot_id",
+    ),
+    "position_snapshots": (
+        "ALTER TABLE `{db}`.`{table}` ADD COLUMN IF NOT EXISTS instance_id String DEFAULT '' AFTER bot_id",
+    ),
 }
 
 
@@ -325,6 +349,10 @@ class ClickHouseAnalyticsWriter(AnalyticsWriter):
             self._client.command(
                 ddl_template.format(db=self.database, table=table_name)
             )
+            for alter_template in _TABLE_ALTERS.get(table_name, ()):
+                self._client.command(
+                    alter_template.format(db=self.database, table=table_name)
+                )
             self._provisioned.add(table_name)
         except Exception as exc:
             logger.warning(

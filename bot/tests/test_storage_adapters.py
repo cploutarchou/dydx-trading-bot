@@ -416,6 +416,7 @@ def test_clickhouse_writer_provisions_order_events_table():
                 "order_id": "entry-1",
                 "trade_id": "live-abc123",
                 "bot_id": "77",
+                "instance_id": "strategy-1-101",
                 "bot_run_id": "run-1",
                 "market": "BTC-USD",
                 "side": "BUY",
@@ -430,6 +431,7 @@ def test_clickhouse_writer_provisions_order_events_table():
     )
 
     assert any("order_events" in cmd for cmd in client.commands)
+    assert any("instance_id" in cmd for cmd in client.commands)
 
 
 def test_clickhouse_writer_provisions_trade_events_table():
@@ -448,6 +450,7 @@ def test_clickhouse_writer_provisions_trade_events_table():
                 "event_time": datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc),
                 "trade_id": "live-abc123",
                 "bot_id": "77",
+                "instance_id": "strategy-1-101",
                 "pair1": "BTC-USD",
                 "pair2": "ETH-USD",
                 "side1": "BUY",
@@ -470,6 +473,7 @@ def test_clickhouse_writer_provisions_trade_events_table():
     )
 
     assert any("trade_events" in cmd for cmd in client.commands)
+    assert any("instance_id" in cmd for cmd in client.commands)
 
 
 def test_clickhouse_writer_provisions_position_snapshots_table():
@@ -488,6 +492,7 @@ def test_clickhouse_writer_provisions_position_snapshots_table():
                 "snapshot_time": datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc),
                 "position_id": "live-pos-1",
                 "bot_id": "77",
+                "instance_id": "strategy-1-101",
                 "pair1": "BTC-USD",
                 "pair2": "ETH-USD",
                 "side1": "BUY",
@@ -518,6 +523,7 @@ def test_clickhouse_writer_provisions_position_snapshots_table():
     )
 
     assert any("position_snapshots" in cmd for cmd in client.commands)
+    assert any("instance_id" in cmd for cmd in client.commands)
 
 
 def test_clickhouse_writer_falls_back_on_insert_error():

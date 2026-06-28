@@ -9,6 +9,7 @@ from typing import Any, List, Optional
 
 from sqlalchemy.orm import Session
 
+from internal.domain.models import Bot
 from internal.domain.models_realtime import (
     Alert,
     BotStats,
@@ -21,6 +22,20 @@ from src.infrastructure.storage import AnalyticsWriter
 from src.shared.time_utils import utc_now
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_bot_instance_id(session: Session, bot_id: Any) -> str:
+    try:
+        normalized_bot_id = int(bot_id)
+    except (TypeError, ValueError):
+        return ""
+
+    try:
+        bot = session.query(Bot).filter(Bot.id == normalized_bot_id).first()
+    except Exception:
+        return ""
+
+    return str(getattr(bot, "instance_id", "") or "")
 
 
 def _float_or_default(value: Any, default: float = 0.0) -> float:
@@ -118,6 +133,9 @@ class PositionRepository:
             "snapshot_time": snapshot_time,
             "position_id": str(getattr(position, "position_id", "") or ""),
             "bot_id": str(getattr(position, "bot_instance_id", "") or ""),
+            "instance_id": str(
+                getattr(position, "_analytics_instance_id", "") or ""
+            ),
             "pair1": str(getattr(position, "pair1", "") or ""),
             "pair2": str(getattr(position, "pair2", "") or ""),
             "side1": str(getattr(position, "side1", "") or ""),
@@ -192,6 +210,13 @@ class PositionRepository:
     def _write_position_snapshot(
         self, position: Position, *, event_kind: str
     ) -> None:
+        setattr(
+            position,
+            "_analytics_instance_id",
+            _resolve_bot_instance_id(
+                self.session, getattr(position, "bot_instance_id", None)
+            ),
+        )
         try:
             self.analytics_writer.write_rows(
                 "position_snapshots",

@@ -15,19 +15,23 @@ class _RecordingAnalyticsWriter(AnalyticsWriter):
 
 
 class _FakeQuery:
-    def __init__(self, session: "_FakeSession"):
+    def __init__(self, session: "_FakeSession", model):
         self._session = session
+        self._model = model
 
     def filter(self, *_args, **_kwargs):
         return self
 
     def first(self):
+        if getattr(self._model, "__name__", "") == "Bot":
+            return self._session.bot
         return self._session.trade
 
 
 class _FakeSession:
     def __init__(self):
         self.trade = None
+        self.bot = type("BotRecord", (), {"instance_id": "strategy-1-101"})()
         self.added: list[object] = []
         self.commits = 0
 
@@ -38,8 +42,8 @@ class _FakeSession:
     def commit(self) -> None:
         self.commits += 1
 
-    def query(self, _model):
-        return _FakeQuery(self)
+    def query(self, model):
+        return _FakeQuery(self, model)
 
 
 def test_trade_repository_mirrors_opened_and_closed_trades_to_trade_events():
@@ -79,6 +83,7 @@ def test_trade_repository_mirrors_opened_and_closed_trades_to_trade_events():
     opened_row = opened_rows[0]
     assert opened_row["trade_id"] == "live-abc123"
     assert opened_row["bot_id"] == "77"
+    assert opened_row["instance_id"] == "strategy-1-101"
     assert opened_row["pair1"] == "BTC-USD"
     assert opened_row["pair2"] == "ETH-USD"
     assert opened_row["event_kind"] == "opened"
@@ -90,6 +95,7 @@ def test_trade_repository_mirrors_opened_and_closed_trades_to_trade_events():
     assert len(closed_rows) == 1
     closed_row = closed_rows[0]
     assert closed_row["trade_id"] == "live-abc123"
+    assert closed_row["instance_id"] == "strategy-1-101"
     assert closed_row["event_kind"] == "closed"
     assert closed_row["status"] == "closed"
     assert closed_row["exit_price1"] == 101000.0

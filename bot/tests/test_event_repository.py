@@ -117,6 +117,7 @@ def test_event_repository_mirrors_trade_lifecycle_orders_to_order_events():
     assert first_row["order_id"] == "entry-1"
     assert first_row["trade_id"] == "live-abc123"
     assert first_row["bot_id"] == "77"
+    assert first_row["instance_id"] == "strategy-1-101"
     assert first_row["bot_run_id"] == "run-abc"
     assert first_row["market"] == "BTC-USD"
     assert first_row["side"] == "BUY"
@@ -128,6 +129,7 @@ def test_event_repository_mirrors_trade_lifecycle_orders_to_order_events():
     assert first_row["correlation_id"] == "corr-order-1"
 
     assert second_row["order_id"] == "entry-2"
+    assert second_row["instance_id"] == "strategy-1-101"
     assert second_row["market"] == "ETH-USD"
     assert second_row["side"] == "SELL"
     assert second_row["status"] == "filled"

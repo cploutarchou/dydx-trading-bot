@@ -138,11 +138,11 @@ func (r *TaskRepository) UpdateTaskCommandStatus(ctx context.Context, id, status
 
 // TaskRunStatus constants for task execution lifecycle.
 const (
-	TaskRunStatusPending    = "pending"
-	TaskRunStatusRunning    = "running"
-	TaskRunStatusCompleted  = "completed"
-	TaskRunStatusFailed     = "failed"
-	TaskRunStatusCancelled  = "cancelled"
+	TaskRunStatusPending   = "pending"
+	TaskRunStatusRunning   = "running"
+	TaskRunStatusCompleted = "completed"
+	TaskRunStatusFailed    = "failed"
+	TaskRunStatusCancelled = "cancelled"
 )
 
 // CreateTaskRun creates a new task run linked to a command.

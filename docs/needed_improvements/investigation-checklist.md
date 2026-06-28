@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — Realtime position persistence now mirrors live `position_snapshots` into ClickHouse
+  - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository_realtime.py`, `bot/internal/repository/repository_realtime.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_realtime_position_repository.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_realtime_repository_pnl.py bot/tests/test_realtime_position_repository.py bot/tests/test_live_trade_persistence.py bot/tests/test_api_realtime_positions.py -q` passed; `./bot/.venv/bin/python -m py_compile bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository_realtime.py bot/internal/repository/repository_realtime.py bot/src/trading/realtime_data_service.py bot/src/api/websocket_server.py bot/tests/test_storage_adapters.py bot/tests/test_realtime_position_repository.py` passed
+  - Evidence: `PositionRepository.create_position()`, `update_position_prices()`, and `close_position()` now keep PostgreSQL authoritative while best-effort mirroring normalized open/mark-to-market/close rows into buffered ClickHouse `position_snapshots`, and the legacy `internal` realtime repository import now delegates to the canonical implementation so the active runtime path uses the same writer.
 - [x] DONE — Live order lifecycle events now mirror into ClickHouse `order_events`
   - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/src/trading/position_manager.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_event_repository.py`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_live_trade_persistence.py -q` passed; `./bot/.venv/bin/python -m py_compile bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/src/trading/position_manager.py bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py` passed
@@ -193,6 +197,8 @@
   - existing bot lifecycle and trade-activity event logs now mirror into `bot_events`
   - existing committed live order lifecycle events now mirror into `order_events`
   - existing live trade open/close persistence now mirrors paired lifecycle rows into `trade_events`
+- `bot/src/infrastructure/persistence/repository_realtime.py`
+  - existing repository-owned realtime position open/update/close writes now mirror normalized `position_snapshots`
 - `bot/src/infrastructure/persistence/repository_backtest.py`
   - current place where analytical sidecars are already extracted
 - `bot/src/main_instance.py`
@@ -205,11 +211,13 @@
 ### Existing ClickHouse write path
 
 - `bot/src/infrastructure/storage/clickhouse_writer.py`
-  - present, still feature-gated, now provisions five backtest tables plus `bot_events`, `order_events`, and `trade_events`, buffers rows by batch size / flush interval, and force-flushes terminal repository saves
+  - present, still feature-gated, now provisions five backtest tables plus `bot_events`, `order_events`, `trade_events`, and `position_snapshots`, buffers rows by batch size / flush interval, and force-flushes terminal repository saves
 - `bot/src/infrastructure/persistence/repository.py`
   - existing committed bot event-log rows now mirror into ClickHouse `bot_events` through the shared buffered writer when ClickHouse is enabled
   - existing committed live order lifecycle events now mirror into ClickHouse `order_events` through the same buffered writer when ClickHouse is enabled
   - existing committed live trade open/close writes now mirror into ClickHouse `trade_events` through the same buffered writer when ClickHouse is enabled
+- `bot/src/infrastructure/persistence/repository_realtime.py`
+  - existing repository-owned realtime position open/update/close writes now mirror into ClickHouse `position_snapshots` through the same buffered writer when ClickHouse is enabled
 
 ## Code That Should Write To MinIO
 

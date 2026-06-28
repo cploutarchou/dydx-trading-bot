@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — Mirror repository-owned realtime position snapshots into ClickHouse `position_snapshots`
+  - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository_realtime.py`, `bot/internal/repository/repository_realtime.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_realtime_position_repository.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_realtime_repository_pnl.py bot/tests/test_realtime_position_repository.py bot/tests/test_live_trade_persistence.py bot/tests/test_api_realtime_positions.py -q` passed; `./bot/.venv/bin/python -m py_compile bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository_realtime.py bot/internal/repository/repository_realtime.py bot/src/trading/realtime_data_service.py bot/src/api/websocket_server.py bot/tests/test_storage_adapters.py bot/tests/test_realtime_position_repository.py` passed; `./bot/.venv/bin/python -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository_realtime.py bot/internal/repository/repository_realtime.py bot/src/trading/realtime_data_service.py bot/src/api/websocket_server.py bot/tests/test_storage_adapters.py bot/tests/test_realtime_position_repository.py` passed
+  - Evidence: the canonical realtime `PositionRepository` now best-effort mirrors committed open/update/close position rows into buffered ClickHouse `position_snapshots`, and the legacy `bot/internal/repository/repository_realtime.py` path now re-exports that canonical implementation so the active monitor loop uses the same writer.
 - [x] DONE — Mirror committed live order lifecycle events into ClickHouse `order_events`
   - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/src/trading/position_manager.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_event_repository.py`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_live_trade_persistence.py -q` passed; `./bot/.venv/bin/python -m py_compile bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/src/trading/position_manager.py bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py` passed; `./bot/.venv/bin/python -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/src/trading/position_manager.py bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py` passed
@@ -27,8 +31,8 @@
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py -q` passed; `python3 -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository_backtest.py bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py` passed
   - Evidence: the writer now provisions `backtest_equity_curve` and `strategy_metrics`, and completed repository saves emit those row families when the payload carries `equity_curve` or `metrics`.
 - [~] PARTIAL — Expand ClickHouse schemas and batching beyond the current backtest subset
-  - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/src/infrastructure/persistence/repository_backtest.py`
-  - Acceptance result: `bot/src/infrastructure/storage/clickhouse_writer.py` now provisions five backtest analytical tables plus live `bot_events`, `order_events`, and `trade_events`, and `bot/src/infrastructure/persistence/repository.py` mirrors committed bot event logs, committed order lifecycle rows, and committed trade lifecycle rows into the buffered writer, but deeper fill-level trade detail, live position analytics, and backend read paths remain pending.
+  - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/src/infrastructure/persistence/repository_realtime.py`, `bot/src/infrastructure/persistence/repository_backtest.py`
+  - Acceptance result: `bot/src/infrastructure/storage/clickhouse_writer.py` now provisions five backtest analytical tables plus live `bot_events`, `order_events`, `trade_events`, and `position_snapshots`, and the repository-owned bot event, order, trade, and realtime position paths now mirror those rows into the buffered writer, but deeper fill-level trade detail and backend read paths remain pending.
 
 ## Role of ClickHouse
 
@@ -55,7 +59,7 @@ ClickHouse must not be used for:
 
 ## Current Findings From Repository
 
-- Existing ClickHouse integration now covers optional backtest sidecar writes plus optional bot event-log, live order lifecycle, and live trade lifecycle mirroring in `bot/src/infrastructure/storage/clickhouse_writer.py` and `bot/src/infrastructure/persistence/repository.py`.
+- Existing ClickHouse integration now covers optional backtest sidecar writes plus optional bot event-log, live order lifecycle, live trade lifecycle, and repository-owned realtime position mirroring in `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, and `bot/src/infrastructure/persistence/repository_realtime.py`.
 - Backtest repository writes no longer rely on PostgreSQL result arrays for detail reads, so ClickHouse is now the remaining missing durable analytical sink rather than a prerequisite for shrinking the runtime row.
 - Write path is feature-gated in `bot/src/infrastructure/persistence/repository_backtest.py`.
 - Runtime defaults disable it in:
@@ -65,6 +69,7 @@ ClickHouse must not be used for:
   - `bot_events`
   - `order_events`
   - `trade_events`
+  - `position_snapshots`
   - `backtest_trades`
   - `backtest_daily_pnl`
   - `backtest_position_snapshots`
@@ -304,6 +309,11 @@ Insert strategy:
 Migration source:
 
 - `bot/src/trading/bot_agents_state.py` and related runtime state paths
+
+Current implementation status:
+
+- [x] DONE — first slice is live through `bot/src/infrastructure/persistence/repository_realtime.py`, which now mirrors repository-owned realtime position open/update/close rows into ClickHouse `position_snapshots`
+- [~] PARTIAL — current rows cover repository-owned position lifecycle and mark-to-market state, but backend read models and any direct exchange-native fill/update snapshot producers are still pending
 
 ## `backtest_trades`
 

@@ -152,6 +152,14 @@ def test_backtest_repository_resolves_minio_endpoint_aliases(monkeypatch):
 
 
 def test_backtest_repository_resolves_clickhouse_url_alias(monkeypatch):
+    monkeypatch.delenv("BACKTEST_CLICKHOUSE_HOST", raising=False)
+    monkeypatch.delenv("CLICKHOUSE_HOST", raising=False)
+    monkeypatch.delenv("BACKTEST_CLICKHOUSE_PASSWORD", raising=False)
+    monkeypatch.delenv("CLICKHOUSE_PASSWORD", raising=False)
+    monkeypatch.delenv("BACKTEST_CLICKHOUSE_USER", raising=False)
+    monkeypatch.delenv("CLICKHOUSE_USER", raising=False)
+    monkeypatch.delenv("BACKTEST_CLICKHOUSE_DATABASE", raising=False)
+    monkeypatch.delenv("CLICKHOUSE_DATABASE", raising=False)
     monkeypatch.setenv("CLICKHOUSE_URL", "http://analytics:8123/dydx_analytics")
 
     host, port, secure, database, username, password = (
@@ -462,6 +470,54 @@ def test_clickhouse_writer_provisions_trade_events_table():
     )
 
     assert any("trade_events" in cmd for cmd in client.commands)
+
+
+def test_clickhouse_writer_provisions_position_snapshots_table():
+    client = _FakeClickHouseClient()
+    writer = ClickHouseAnalyticsWriter(
+        enabled=True,
+        database="analytics",
+        extra_config={"client": client},
+    )
+
+    writer.write_rows(
+        "position_snapshots",
+        [
+            {
+                "snapshot_date": datetime(2026, 1, 1, tzinfo=timezone.utc).date(),
+                "snapshot_time": datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc),
+                "position_id": "live-pos-1",
+                "bot_id": "77",
+                "pair1": "BTC-USD",
+                "pair2": "ETH-USD",
+                "side1": "BUY",
+                "side2": "SELL",
+                "status": "open",
+                "event_kind": "mark_to_market",
+                "entry_price1": 100000.0,
+                "entry_price2": 3000.0,
+                "current_price1": 101000.0,
+                "current_price2": 2900.0,
+                "entry_size1": 0.1,
+                "entry_size2": 2.0,
+                "current_size1": 0.1,
+                "current_size2": 2.0,
+                "unrealized_pnl": 300.0,
+                "unrealized_pnl_pct": 1.5,
+                "realized_pnl": 0.0,
+                "realized_pnl_pct": 0.0,
+                "z_score_entry": 2.1,
+                "z_score_current": 0.8,
+                "hedge_ratio": 0.6,
+                "correlation": 0.9,
+                "half_life": 12.0,
+                "funding_rate": 0.001,
+                "closed_at": None,
+            }
+        ],
+    )
+
+    assert any("position_snapshots" in cmd for cmd in client.commands)
 
 
 def test_clickhouse_writer_falls_back_on_insert_error():

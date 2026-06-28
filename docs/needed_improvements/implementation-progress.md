@@ -1,5 +1,108 @@
 # Implementation Progress
 
+## Latest Run — 2026-06-28T15:46:12+03:00
+
+### Documents read
+
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/current-state-assessment.md`
+- `docs/needed_improvements/target-architecture.md`
+- `docs/needed_improvements/data-storage-matrix.md`
+- `docs/needed_improvements/postgresql-plan.md`
+- `docs/needed_improvements/minio-artifact-plan.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/nats-jetstream-plan.md`
+- `docs/needed_improvements/nats-command-event-contract.md`
+- `docs/needed_improvements/valkey-plan.md`
+- `docs/needed_improvements/observability-plan.md`
+- `docs/needed_improvements/k3s-open-source-execution-plan.md`
+- `docs/needed_improvements/kubernetes-devops-plan.md`
+- `docs/needed_improvements/migration-plan.md`
+- `.github/copilot-instructions.md`
+- `.github/CUSTOMIZATION_INDEX.md`
+- `.github/agents/senior-defi-monorepo-platform.agent.md`
+- `bot/.github/copilot-instructions.md`
+- `bot/.github/CUSTOMIZATION_INDEX.md`
+- `bot/.github/agents/senior-python-defi-runtime.agent.md`
+- `bot/.github/instructions/runtime-safety.instructions.md`
+- `bot/.github/instructions/improvement-output.instructions.md`
+- `.github/skills/defi-python-algo-trading/SKILL.md`
+- NOT FOUND: none
+
+### Task selected
+
+- Add Phase 3 live `position_snapshots` ClickHouse mirroring from the owning realtime position repository.
+
+### Reason selected
+
+- The previous latest run in `implementation-progress.md` explicitly recommended live `position_snapshots` as the next highest-priority unfinished Phase 3 slice.
+- `master-implementation-plan.md`, `implementation-backlog.md`, `investigation-checklist.md`, and `clickhouse-plan.md` still showed Phase 3 as the active dependency chain with live position analytics missing while `bot_events`, `order_events`, and `trade_events` were already done.
+- The safest ownership point already existed in `bot/src/infrastructure/persistence/repository_realtime.py`, which owns the authoritative realtime position create/update/close writes used by live trade persistence and the realtime monitor loop.
+
+### Implementation completed
+
+- Added `position_snapshots` DDL provisioning to `bot/src/infrastructure/storage/clickhouse_writer.py` alongside the existing buffered writer tables.
+- Extended the canonical realtime `PositionRepository` in `bot/src/infrastructure/persistence/repository_realtime.py` so committed open/update/close position writes now best-effort mirror normalized `position_snapshots` rows into ClickHouse while PostgreSQL remains the authoritative realtime position store.
+- Replaced `bot/internal/repository/repository_realtime.py` with a compatibility shim that re-exports the canonical realtime repository implementation, so runtime consumers that still import the legacy path now use the same ClickHouse-enabled position repository.
+- Added regression coverage for `position_snapshots` DDL provisioning and for realtime position open/update/close mirroring.
+- Hardened the existing ClickHouse URL alias test in `bot/tests/test_storage_adapters.py` so it clears ambient ClickHouse env vars before asserting URL-derived defaults.
+
+### Files changed
+
+- `bot/src/infrastructure/storage/clickhouse_writer.py`
+- `bot/src/infrastructure/persistence/repository_realtime.py`
+- `bot/internal/repository/repository_realtime.py`
+- `bot/tests/test_storage_adapters.py`
+- `bot/tests/test_realtime_position_repository.py`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/current-state-assessment.md`
+- `docs/needed_improvements/data-storage-matrix.md`
+
+### Tests and checks run
+
+- `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_realtime_repository_pnl.py bot/tests/test_realtime_position_repository.py bot/tests/test_live_trade_persistence.py bot/tests/test_api_realtime_positions.py -q`
+  - result: passed (`30 passed, 1 warning`)
+- `./bot/.venv/bin/python -m py_compile bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository_realtime.py bot/internal/repository/repository_realtime.py bot/src/trading/realtime_data_service.py bot/src/api/websocket_server.py bot/tests/test_storage_adapters.py bot/tests/test_realtime_position_repository.py`
+  - result: passed
+- `./bot/.venv/bin/python -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository_realtime.py bot/internal/repository/repository_realtime.py bot/src/trading/realtime_data_service.py bot/src/api/websocket_server.py bot/tests/test_storage_adapters.py bot/tests/test_realtime_position_repository.py`
+  - result: passed
+- `./bot/.venv/bin/python -m pytest bot/tests/test_websocket_server.py -q`
+  - result: NOT COMPLETED in this environment; the file appeared to hang during collection, so websocket-specific verification was limited to import/syntax checks on `bot/src/api/websocket_server.py` and the `bot/tests/test_api_realtime_positions.py` route check.
+
+### Result
+
+- [x] DONE — `position_snapshots` is now provisioned and the repository-owned realtime position open/update/close path can mirror normalized live position state rows into ClickHouse.
+- [~] PARTIAL — Phase 3 remains incomplete because writes are still feature-gated/default-off, finer-grained fill/order detail is still missing, and backend ClickHouse read models do not exist yet.
+
+### Risks
+
+- Live position analytics now mirror repository-owned position state transitions, but they do not yet capture every possible exchange-side fill/update transition independently of the repository-owned path.
+- The compatibility shim removes runtime divergence by pointing legacy imports at the canonical realtime repository, but websocket-specific behavior was only syntax/import checked in this environment because the dedicated websocket test file did not complete.
+- Checked-in runtime config still keeps ClickHouse disabled by default, so this run did not validate a live stack with real ClickHouse ingestion.
+
+### Known gaps
+
+- [~] PARTIAL — `trade_events` still capture paired lifecycle analytics rather than full per-fill trade detail.
+- [~] PARTIAL — `order_events` still do not cover every exchange-native submit/update/cancel/fill transition.
+- [~] PARTIAL — The bot API `position-history` placeholder still does not read historical snapshots back from ClickHouse.
+- [ ] PENDING — Backend dashboards still do not read live analytical summaries from ClickHouse.
+
+### Next recommended task
+
+- Phase 3: move the first backend live-bot read models to ClickHouse so dashboards and operational summaries can consume the new `bot_events`, `order_events`, `trade_events`, and `position_snapshots` tables instead of oversized PostgreSQL/delegated payload paths.
+
+### Manual steps required
+
+- Run a real live entry/update/exit flow with `CLICKHOUSE_ENABLED=true` (or equivalent runtime flag) and verify `position_snapshots` rows land in ClickHouse for open, mark-to-market, and close transitions.
+- Decide whether the existing bot `position-history` API should stay placeholder until backend-owned analytical reads exist or gain a direct ClickHouse-backed read path in a later Phase 3 slice.
+
 ## Latest Run — 2026-06-28T15:45:00+03:00
 
 ### Documents read

@@ -1,5 +1,12 @@
 # NATS JetStream Plan
 
+## Status Updates — 2026-06-28
+
+- [x] DONE — Add the backend NATS JetStream publisher abstraction (Phase 4 first slice)
+  - Files: `backend/internal/nats/publisher.go`, `backend/internal/nats/publisher_test.go`, `backend/go.mod`, `backend/go.sum`
+  - Check: `cd backend && go mod tidy` added `nats.go` v1.52.0 + `nats-server/v2` v2.14.2; `cd backend && gofmt -l <changed files>` passed; `cd backend && go build ./...` passed; `cd backend && go vet ./...` passed; `cd backend && go test ./...` passed (all `ok`); `cd backend && go test ./internal/nats/... -v` → 8/8 PASS (stable at `-count=3`)
+  - Evidence: a fail-closed, lazily-connected `nats.go`-backed `Publisher` now publishes the canonical command/event `Envelope` to the contract subject namespace with JetStream `Msg-Id` dedupe and idempotent stream provisioning; validated end-to-end against an embedded JetStream server. Not yet wired into any route; durable consumers, retry/ack/dead-letter, and dual-write are still PENDING.
+
 ## Role of NATS JetStream
 
 NATS JetStream is the durable async transport for:
@@ -24,7 +31,7 @@ Valkey is not the durable queue. PostgreSQL stores final state. Workers must be 
 - Runtime flags exist but are disabled:
   - `NATS_ENABLED=false`
   - `BOT_COMMAND_BUS_ENABLED=false`
-- Active code-level JetStream producer: NOT FOUND.
+- Active code-level JetStream producer: PARTIAL — a fail-closed, lazily-connected `nats.go`-backed `Publisher` exists in `backend/internal/nats/publisher.go` (envelope contract, subject namespace, idempotent stream provisioning, `Msg-Id` dedupe) but is not yet wired into any route.
 - Active code-level JetStream consumer: NOT FOUND.
 - Current durable path is Celery in `bot/src/infrastructure/workers/celery_app.py`.
 

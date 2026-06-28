@@ -87,9 +87,9 @@
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.wordWrap": "on",
     "editor.quickSuggestions": {
-        "comments": "off",
-        "strings": "off",
-        "other": "off"
+      "comments": "off",
+      "strings": "off",
+      "other": "off"
     }
   },
   "markdown.preview.breaks": true,
@@ -150,5 +150,8 @@
   "docker.commands.build.useDefaultContext": true,
 
   // ========== GIT ==========
-  "git.ignoreLimitWarning": true
+  "git.ignoreLimitWarning": true,
+  "containers.commands.build": {
+    "useDefaultContext": true
+  }
 }

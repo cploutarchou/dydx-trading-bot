@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — Add the first backend-owned ClickHouse read model (live position history)
+  - Files: `backend/internal/services/clickhouse_reader.go`, `backend/internal/services/clickhouse_reader_test.go`, `backend/internal/services/live_position_reader.go`, `backend/internal/services/live_position_reader_test.go`, `backend/internal/app/analytics_routes.go`, `backend/internal/app/analytics_routes_test.go`, `backend/internal/app/router.go`
+  - Check: `cd backend && go build ./...` passed; `cd backend && go vet ./internal/services/... ./internal/app/...` passed; `cd backend && go test ./internal/services/... ./internal/app/...` passed (`ok` both); reader/read-model route tests 13/13 PASS across the two packages
+  - Evidence: a reusable stdlib HTTP `ClickHouseReader` (fail-closed `nil` when disabled, server-side `{name:Type}` parameter binding, auto-appends `FORMAT JSONEachRow`) now backs a typed `LivePositionReader.GetHistory` over `position_snapshots` keyed by the stable `instance_id`, exposed through admin-gated `GET /api/v1/analytics/position-history` with a degraded `enabled=false` envelope when ClickHouse is off.
 - [x] DONE — Add stable `instance_id` keying to live `order_events`, `trade_events`, and `position_snapshots`
   - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/src/infrastructure/persistence/repository_realtime.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_event_repository.py`, `bot/tests/test_trade_repository.py`, `bot/tests/test_realtime_position_repository.py`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_realtime_position_repository.py -q` passed; `./bot/.venv/bin/python -m py_compile bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/src/infrastructure/persistence/repository_realtime.py bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_realtime_position_repository.py` passed; `./bot/.venv/bin/python -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/src/infrastructure/persistence/repository_realtime.py bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_realtime_position_repository.py` passed
@@ -65,6 +69,7 @@ ClickHouse must not be used for:
 
 - Existing ClickHouse integration now covers optional backtest sidecar writes plus optional bot event-log, live order lifecycle, live trade lifecycle, and repository-owned realtime position mirroring in `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, and `bot/src/infrastructure/persistence/repository_realtime.py`.
 - Live `order_events`, `trade_events`, and `position_snapshots` rows now carry stable string `instance_id` keys alongside numeric `bot_id`, which removes the unsafe backend dependency on cross-DB numeric IDs for upcoming dashboard read models.
+- The first backend-owned read path now exists: `backend/internal/services/clickhouse_reader.go` provides a reusable stdlib HTTP `ClickHouseReader` (fail-closed, server-side parameter binding), and `backend/internal/services/live_position_reader.go` exposes a typed `LivePositionReader` over `position_snapshots` keyed by `instance_id`, served by admin-gated `GET /api/v1/analytics/position-history` in `backend/internal/app/analytics_routes.go`.
 - Backtest repository writes no longer rely on PostgreSQL result arrays for detail reads, so ClickHouse is now the remaining missing durable analytical sink rather than a prerequisite for shrinking the runtime row.
 - Write path is feature-gated in `bot/src/infrastructure/persistence/repository_backtest.py`.
 - Runtime defaults disable it in:
@@ -321,7 +326,8 @@ Current implementation status:
 
 - [x] DONE — first slice is live through `bot/src/infrastructure/persistence/repository_realtime.py`, which now mirrors repository-owned realtime position open/update/close rows into ClickHouse `position_snapshots`
 - [x] DONE — those mirrored `position_snapshots` rows now also carry the stable runtime `instance_id` needed by backend read models
-- [~] PARTIAL — current rows cover repository-owned position lifecycle and mark-to-market state, but backend read models and any direct exchange-native fill/update snapshot producers are still pending
+- [x] DONE — first backend-owned read model consumes this table: `LivePositionReader.GetHistory` in `backend/internal/services/live_position_reader.go` queries `position_snapshots` by `instance_id` and is served by admin-gated `GET /api/v1/analytics/position-history` (fail-closed when ClickHouse disabled)
+- [~] PARTIAL — current rows cover repository-owned position lifecycle and mark-to-market state, and the first backend read model covers position history, but trade/order summary read models, frontend dashboard wiring, and any direct exchange-native fill/update snapshot producers are still pending
 
 ## `backtest_trades`
 

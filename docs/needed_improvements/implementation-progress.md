@@ -1,5 +1,103 @@
 # Implementation Progress
 
+## Latest Run — 2026-06-28T20:15:00+03:00
+
+### Documents read
+
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/current-state-assessment.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/postgresql-plan.md`
+- `docs/needed_improvements/minio-artifact-plan.md`
+- `backend/config/config.go`, `backend/internal/app/router.go`, `backend/internal/app/router_manifest_test.go`
+- `backend/internal/services/minio_artifact_signer.go` (no-new-dependency pattern reference)
+- `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository_realtime.py` (position_snapshots schema + mirror reference)
+- NOT FOUND: none
+
+### Current completed phase/task detected
+
+- [~] PARTIAL — Phase 3 remains the active implementation phase.
+- [x] DONE — The bot-owned ClickHouse live write path covers `bot_events`, `order_events`, `trade_events`, and `position_snapshots`, now with stable `instance_id` keys.
+- [ ] PENDING → [~] PARTIAL — Backend live ClickHouse read models had not existed at all; this run adds the first one.
+
+### Task selected
+
+- Add the first backend-owned ClickHouse read model: a reusable stdlib HTTP `ClickHouseReader`, a typed `LivePositionReader` over the bot-mirrored `position_snapshots` table keyed by the stable `instance_id`, and an admin-gated `GET /api/v1/analytics/position-history` route that fails closed to a degraded `enabled=false` payload when ClickHouse is disabled (the checked-in default).
+
+### Reason selected
+
+- The previous latest run explicitly recommended "move the first backend live-bot read models to ClickHouse using the new stable `instance_id` dimension, starting with position/summary surfaces" as the next highest-priority Phase 3 task.
+- `implementation-backlog.md` still listed "Move dashboard-heavy reads to ClickHouse" as the highest-priority unfinished analytical item, and its dependencies (ClickHouse schemas + stable `instance_id` live analytics rows) were already DONE, so this task was unblocked.
+- The Go toolchain was now available (go1.26.4), removing the earlier BLOCKED reason that had prevented backend Go work in the 2026-06-28T00:58 run.
+- Backend had ClickHouse config (Phase 1) but no ClickHouse client/read path, and `position_snapshots` already carried `instance_id`, so a position-history read model was the smallest safe slice that created the first backend read path without changing frontend contracts, bot runtime control flow, or the authoritative PostgreSQL store.
+
+### Implementation completed
+
+- Added `backend/internal/services/clickhouse_reader.go`: a read-only `ClickHouseReader` that queries the ClickHouse HTTP interface (port 8123) with `net/http`, returns `JSONEachRow` rows as `json.RawMessage`, binds values server-side via `{name:Type}` placeholders + `param_*` query args (no interpolation), auto-appends `FORMAT JSONEachRow`, and fails closed with `ErrClickHouseDisabled`/`ErrClickHouseUnavailable`. `NewClickHouseReader` returns `nil` when disabled or unconfigured, mirroring the MinIO signer pattern with no new runtime dependency.
+- Added `backend/internal/services/live_position_reader.go`: the `LivePositionSnapshot` read model + `LivePositionReader.GetHistory(ctx, instanceID, positionID, hours)` that selects from `position_snapshots` keyed exclusively by the backend-owned `instance_id`, plus a generic `DecodeRows[T]` helper.
+- Added `backend/internal/app/analytics_routes.go` and wired `registerAnalyticsRoutes(...)` into `BuildRouter` in `backend/internal/app/router.go`, constructing the reader from `cfg.ClickHouse`. The route is admin-gated (`RequireAuth` + `is_admin`) and returns a degraded `enabled=false`/`source=disabled` envelope when the reader is nil, a `success=false` envelope with the error reason on query failure, and typed snapshots on success.
+- Added 16 regression tests: 7 reader/read-model tests in `clickhouse_reader_test.go` + `live_position_reader_test.go` using `httptest`, and 6 route/handler tests in `analytics_routes_test.go` plus verification that the route is registered on a fully built router.
+
+### Files changed
+
+- `backend/internal/services/clickhouse_reader.go` (new)
+- `backend/internal/services/clickhouse_reader_test.go` (new)
+- `backend/internal/services/live_position_reader.go` (new)
+- `backend/internal/services/live_position_reader_test.go` (new)
+- `backend/internal/app/analytics_routes.go` (new)
+- `backend/internal/app/analytics_routes_test.go` (new)
+- `backend/internal/app/router.go`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+
+### Tests and checks run
+
+- `cd backend && gofmt -l internal/services/clickhouse_reader.go internal/services/clickhouse_reader_test.go internal/services/live_position_reader.go internal/services/live_position_reader_test.go internal/app/analytics_routes.go internal/app/analytics_routes_test.go internal/app/router.go`
+  - result: passed (no files listed after `gofmt -w` was applied)
+- `cd backend && go build ./...`
+  - result: passed (exit 0)
+- `cd backend && go vet ./internal/services/... ./internal/app/...`
+  - result: passed (exit 0)
+- `cd backend && go test ./internal/services/... ./internal/app/...`
+  - result: passed (`ok github.com/dydx-trading-bot/backend-go/internal/services` and `ok .../internal/app`)
+- `cd backend && go test ./internal/services/... -run 'ClickHouseReader|LivePositionReader|EnsureJSONEachRow' -v` → 7/7 PASS
+- `cd backend && go test ./internal/app/... -run 'ServeLivePositionHistory|BuildRouterRegistersAnalytics' -v` → 6/6 PASS
+
+### Result
+
+- [x] DONE — The backend now has its first ClickHouse read path: a reusable fail-closed `ClickHouseReader`, a typed `LivePositionReader` over `position_snapshots` keyed by stable `instance_id`, and an admin-gated `GET /api/v1/analytics/position-history` route that degrades gracefully when ClickHouse is off.
+- [~] PARTIAL — "Move dashboard-heavy reads to ClickHouse" is still PARTIAL overall: only the live position-history read model exists so far; trade/order summary surfaces and frontend wiring remain pending, and live ClickHouse writes are still feature-gated/default-off, so the read model serves real data only when ClickHouse is enabled.
+
+### Risks
+
+- The read model was validated only against an `httptest` stand-in for ClickHouse, not a live ClickHouse instance, because checked-in config keeps ClickHouse disabled by default. The fail-closed design means production with ClickHouse off returns an empty disabled payload, not stale data.
+- The route is admin-gated under `/api/v1/analytics` as an operational read surface; production dashboard wiring (user-scoped access, frontend consumption, replacing delegated bot-API reads) is intentionally deferred to a later slice.
+- The query relies on ClickHouse server-side `{name:Type}` parameter binding; if a future ClickHouse version changes HTTP param handling, the reader would surface `ErrClickHouseUnavailable` rather than misbehave silently.
+- `snapshot_time` is returned as a string (ClickHouse `DateTime64` `JSONEachRow` output is not RFC3339); consumers that need a parsed timestamp must parse it themselves.
+
+### Known gaps
+
+- [~] PARTIAL — Only one backend read model (position history) exists; trade/order/dashboard-summary ClickHouse read models are still pending.
+- [~] PARTIAL — Older ClickHouse live rows are not backfilled with `instance_id`, so historical position-history reads may return pre-`instance_id` rows as blank-`instance_id` misses until naturally superseded.
+- [~] PARTIAL — The bot API `position-history` placeholder still does not read historical snapshots back from ClickHouse; the new backend read model is separate from that bot-side endpoint.
+- [~] PARTIAL — Finer-grained `order_events`/`trade_events` per-fill detail remains incomplete on the write side.
+- [ ] PENDING — ClickHouse writes remain feature-gated/default-off in checked-in config.
+
+### Next recommended task
+
+- Phase 3: either (a) add the next backend ClickHouse read model for live trade/order summary surfaces reusing `ClickHouseReader`/`DecodeRows`, or (b) wire the new backend position-history read model into the frontend/dashboard with a polling fallback, or (c) enable ClickHouse writes by default in a non-production overlay so the read model can be validated end-to-end against live mirrored rows.
+
+### Manual steps required
+
+- Run the backend with `CLICKHOUSE_ENABLED=true` against a ClickHouse instance that has mirrored `position_snapshots` rows and exercise `GET /api/v1/analytics/position-history?instance_id=<stable bot instance id>&hours=24` as an admin.
+- Decide whether the first read model should stay admin-gated under `/api/v1/analytics` or move to a user-scoped dashboard route before frontend wiring.
+
 ## Latest Run — 2026-06-28T16:09:57+03:00
 
 ### Documents read

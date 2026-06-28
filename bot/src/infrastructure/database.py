@@ -1,10 +1,34 @@
 """Database configuration and connection management for PostgreSQL."""
 
 import os
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
 from urllib.parse import urlencode, urlparse
+
+# =============================================================================
+# macOS multiprocessing workaround
+# =============================================================================
+# On macOS, the default fork() multiprocessing start method is incompatible with
+# the Objective-C runtime. If any library (e.g., PIL/Pillow via qrcode, pandas, etc.)
+# has initialized the Objective-C runtime in the parent process, child processes
+# created via fork() will crash with:
+#   "objc_initializeAfterForkError: Objective-C runtime was already initialized..."
+# 
+# Solution: Use 'spawn' as the multiprocessing start method on macOS.
+# This must be set BEFORE any imports that might trigger Objective-C initialization.
+# =============================================================================
+if sys.platform == "darwin":
+    # On macOS, set multiprocessing start method to 'spawn'
+    # This must happen before any other imports that might load Objective-C
+    import multiprocessing
+    try:
+        multiprocessing.set_start_method("spawn", force=True)
+        os.environ["PYTHON_MULTIPROCESSING_START_METHOD"] = "spawn"
+    except RuntimeError:
+        # Already set, that's fine
+        pass
 
 from alembic import command
 from alembic.config import Config
@@ -444,7 +468,12 @@ class DatabaseManager:
         self._fork_hook_registered = True
 
     def _after_fork_child_reset(self):
-        """Ensure child processes never reuse inherited pooled DB sockets."""
+        """Ensure child processes never reuse inherited pooled DB sockets.
+        
+        Note: With 'spawn' start method (used on macOS), child processes start
+        fresh with no inherited connections, so this cleanup is primarily for
+        'fork' start method compatibility on Linux/Unix systems.
+        """
         if self._engine is None:
             return
         try:

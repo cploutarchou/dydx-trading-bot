@@ -18,8 +18,24 @@ from .analytics import AnalyticsWriter, NoopAnalyticsWriter
 
 logger = logging.getLogger(__name__)
 
-# DDL templates for auto-provisioned backtest analytics tables.
+# DDL templates for auto-provisioned analytics tables.
 # Uses MergeTree for simplicity; teams can tune engine/TTL per environment.
+_BOT_EVENTS_DDL = """\
+CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
+    event_date      Date,
+    event_time      DateTime64(3, 'UTC'),
+    bot_run_id      String,
+    bot_id          String,
+    event_type      LowCardinality(String),
+    status          LowCardinality(String),
+    strategy_id     Nullable(UInt64),
+    worker_id       String,
+    correlation_id  String,
+    payload_attrs   String DEFAULT '{{}}'
+) ENGINE = MergeTree()
+PARTITION BY toYYYYMM(event_date)
+ORDER BY (bot_id, bot_run_id, event_time, event_type)"""
+
 _BACKTEST_TRADES_DDL = """\
 CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
     run_id           String,
@@ -87,6 +103,8 @@ CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
 ORDER BY (run_id, metric_name, metric_time)"""
 
 _TABLE_DDL: dict[str, str] = {
+    "bot_event_rows": _BOT_EVENTS_DDL,
+    "bot_events": _BOT_EVENTS_DDL,
     "backtest_trade_rows": _BACKTEST_TRADES_DDL,
     "backtest_trades": _BACKTEST_TRADES_DDL,
     "backtest_daily_pnl_rows": _BACKTEST_DAILY_PNL_DDL,

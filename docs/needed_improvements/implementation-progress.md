@@ -1,5 +1,97 @@
 # Implementation Progress
 
+## Latest Run — 2026-06-28T15:00:49+03:00
+
+### Documents read
+
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/current-state-assessment.md`
+- `docs/needed_improvements/target-architecture.md`
+- `docs/needed_improvements/data-storage-matrix.md`
+- `docs/needed_improvements/postgresql-plan.md`
+- `docs/needed_improvements/minio-artifact-plan.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/nats-jetstream-plan.md`
+- `docs/needed_improvements/nats-command-event-contract.md`
+- `docs/needed_improvements/valkey-plan.md`
+- `docs/needed_improvements/observability-plan.md`
+- `docs/needed_improvements/k3s-open-source-execution-plan.md`
+- `docs/needed_improvements/kubernetes-devops-plan.md`
+- `docs/needed_improvements/migration-plan.md`
+- `bot/.github/copilot-instructions.md`
+- `bot/.github/CUSTOMIZATION_INDEX.md`
+- `.github/skills/defi-python-algo-trading/SKILL.md`
+- `config/README.md`
+- NOT FOUND: none
+
+### Task selected
+
+- Add the first live-bot ClickHouse table family by mirroring existing bot lifecycle and trade-activity event logs into `bot_events`.
+
+### Reason selected
+
+- `implementation-progress.md` and `clickhouse-plan.md` both recommended extending the buffered ClickHouse path beyond backtest-only rows before starting JetStream or Valkey migration work.
+- `implementation-backlog.md` still left Phase 3 as the highest-priority unfinished dependency, with broader live-bot analytical tables explicitly pending.
+- The existing bot event log repository already sits under API lifecycle and live trade activity producers, so adding `bot_events` there was the smallest safe slice that stayed inside `bot/` and reused the buffered writer.
+
+### Implementation completed
+
+- Added `bot_events` DDL provisioning to `bot/src/infrastructure/storage/clickhouse_writer.py` with the same buffered insert path used by the backtest analytical tables.
+- Extended `bot/src/infrastructure/persistence/repository.py` so `EventRepository.log_event()` now best-effort mirrors committed event-log rows into ClickHouse `bot_events` rows when ClickHouse is enabled, while keeping PostgreSQL as the authoritative event store.
+- Added regression coverage for `bot_events` DDL provisioning and for event-log mirroring of bot lifecycle metadata into the new ClickHouse row shape.
+
+### Files changed
+
+- `bot/src/infrastructure/storage/clickhouse_writer.py`
+- `bot/src/infrastructure/persistence/repository.py`
+- `bot/tests/test_storage_adapters.py`
+- `bot/tests/test_event_repository.py`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/current-state-assessment.md`
+
+### Tests and checks run
+
+- `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_live_trade_persistence.py -q`
+  - result: passed (`25 passed, 1 warning`)
+- `python3 -m py_compile bot/src/infrastructure/persistence/repository.py bot/src/infrastructure/storage/clickhouse_writer.py bot/tests/test_event_repository.py bot/tests/test_storage_adapters.py`
+  - result: passed
+- `python3 -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py`
+  - result: passed
+
+### Result
+
+- The optional ClickHouse path now includes the first live-bot analytical table family: `bot_events`.
+- Existing bot lifecycle and trade-activity event producers that already call `EventRepository.log_event()` can now mirror those events into ClickHouse without changing frontend or backend contracts.
+- Phase 3 remains PARTIAL because writes are still feature-gated/default-off and there are still no `order_events`, `trade_events`, `position_snapshots`, or backend ClickHouse read models for live runtime analytics.
+
+### Risks
+
+- `bot_events` mirroring only covers producers that already log through `EventRepository`; direct runtime/trading paths that do not emit event-log rows still remain outside ClickHouse.
+- The new path is still synchronous at the repository edge, although the underlying writer buffers inserts and falls back safely when ClickHouse is unavailable.
+- Checked-in runtime config still keeps ClickHouse disabled by default, so this run did not validate a live stack with real ClickHouse ingestion.
+
+### Known gaps
+
+- `order_events`, `trade_events`, and live `position_snapshots` analytical tables remain PENDING.
+- Backend dashboards still do not read live analytical summaries from ClickHouse.
+- `request_json` and legacy backtest JSON columns still remain in PostgreSQL schema/history even though new writes are smaller.
+
+### Next recommended task
+
+- Phase 3: add the next live analytical family by wiring normalized `order_events` or `trade_events` rows from live execution persistence into `bot/src/infrastructure/storage/clickhouse_writer.py`.
+
+### Manual steps required
+
+- Run a real bot lifecycle or live-trade event flow with `CLICKHOUSE_ENABLED=true` (or equivalent runtime flag) and verify `bot_events` rows land in ClickHouse.
+- Decide whether live bot-event mirroring should get its own explicit feature flag before broader live analytical rollout.
+
 ## Latest Run — 2026-06-28T02:33:51+03:00
 
 ### Documents read

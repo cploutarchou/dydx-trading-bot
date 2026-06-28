@@ -2,7 +2,11 @@
 Repository classes for core bot operations
 """
 
-from datetime import timedelta
+import json
+import logging
+import os
+import threading
+from datetime import timedelta, timezone
 from typing import Any, List, Optional
 
 from sqlalchemy.orm import Session
@@ -18,7 +22,14 @@ from internal.domain.models import (
     JobStatusEnum,
     TradeStatusEnum,
 )
+from src.infrastructure.storage import (
+    AnalyticsWriter,
+    ClickHouseAnalyticsWriter,
+    NoopAnalyticsWriter,
+)
 from src.shared.time_utils import utc_now
+
+logger = logging.getLogger(__name__)
 
 
 class BotRepository:
@@ -392,8 +403,129 @@ class TradeRepository:
 class EventRepository:
     """Repository for event logging operations"""
 
-    def __init__(self, session: Session):
+    _default_analytics_writer: AnalyticsWriter | None = None
+    _analytics_writer_lock = threading.Lock()
+
+    def __init__(
+        self, session: Session, analytics_writer: AnalyticsWriter | None = None
+    ):
         self.session = session
+        self.analytics_writer = analytics_writer or self._resolve_analytics_writer()
+
+    @classmethod
+    def _resolve_analytics_writer(cls) -> AnalyticsWriter:
+        if cls._default_analytics_writer is not None:
+            return cls._default_analytics_writer
+
+        with cls._analytics_writer_lock:
+            if cls._default_analytics_writer is None:
+                cls._default_analytics_writer = cls._build_analytics_writer()
+        return cls._default_analytics_writer
+
+    @staticmethod
+    def _build_analytics_writer() -> AnalyticsWriter:
+        try:
+            from config.config import config as load_runtime_config
+
+            runtime_config = load_runtime_config()
+            clickhouse = getattr(runtime_config, "clickhouse", None)
+            if clickhouse is None or not getattr(clickhouse, "enabled", False):
+                return NoopAnalyticsWriter()
+
+            return ClickHouseAnalyticsWriter(
+                enabled=True,
+                database=str(getattr(clickhouse, "database", "default") or "default"),
+                host=str(getattr(clickhouse, "host", "localhost") or "localhost"),
+                port=int(getattr(clickhouse, "port", 8123) or 8123),
+                username=str(getattr(clickhouse, "user", "default") or "default"),
+                password=str(getattr(clickhouse, "password", "") or ""),
+                secure=bool(getattr(clickhouse, "secure", False)),
+                extra_config={
+                    "batch_size": int(getattr(clickhouse, "batch_size", 1000) or 1000),
+                    "flush_interval_seconds": float(
+                        getattr(clickhouse, "flush_interval_seconds", 5.0) or 5.0
+                    ),
+                },
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to initialize bot event ClickHouse writer; using noop fallback: %s",
+                exc,
+            )
+            return NoopAnalyticsWriter()
+
+    @staticmethod
+    def _coerce_optional_int(value: Any) -> int | None:
+        if value in (None, ""):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def _build_analytics_row(cls, event: Event) -> dict[str, Any]:
+        details = dict(event.details or {}) if isinstance(event.details, dict) else {}
+        created_at = event.created_at or utc_now()
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+
+        correlation_id = (
+            details.get("correlation_id")
+            or details.get("trace_id")
+            or details.get("request_id")
+            or event.related_job_id
+            or ""
+        )
+        worker_id = (
+            details.get("instance_id")
+            or details.get("worker_id")
+            or os.getenv("BOT_INSTANCE_ID", "")
+        )
+        bot_run_id = (
+            details.get("bot_run_id")
+            or details.get("run_id")
+            or details.get("runtime_run_id")
+            or ""
+        )
+        status = details.get("status") or details.get("state") or event.severity or ""
+        strategy_id = cls._coerce_optional_int(
+            details.get("strategy_id") or details.get("strategyId")
+        )
+
+        payload_attrs = {
+            "message": event.message,
+            "severity": event.severity,
+            "details": details,
+            "user_id": event.user_id,
+            "related_job_id": event.related_job_id,
+            "related_trade_id": event.related_trade_id,
+        }
+
+        return {
+            "event_date": created_at.date(),
+            "event_time": created_at,
+            "bot_run_id": str(bot_run_id),
+            "bot_id": str(event.bot_instance_id),
+            "event_type": str(event.event_type or ""),
+            "status": str(status),
+            "strategy_id": strategy_id,
+            "worker_id": str(worker_id or ""),
+            "correlation_id": str(correlation_id),
+            "payload_attrs": json.dumps(payload_attrs, sort_keys=True, default=str),
+        }
+
+    def _write_analytics_event(self, event: Event) -> None:
+        try:
+            self.analytics_writer.write_rows(
+                "bot_events", [self._build_analytics_row(event)]
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to mirror bot event %s to ClickHouse: %s",
+                event.event_type,
+                exc,
+            )
 
     def log_event(
             self,
@@ -416,9 +548,11 @@ class EventRepository:
             user_id=user_id,
             related_job_id=related_job_id,
             related_trade_id=related_trade_id,
+            created_at=utc_now(),
         )
         self.session.add(event)
         self.session.commit()
+        self._write_analytics_event(event)
         return event
 
     def get_bot_events(self, bot_instance_id: int, days: int = 7) -> list[type[Event]]:

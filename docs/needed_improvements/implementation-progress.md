@@ -1,5 +1,116 @@
 # Implementation Progress
 
+## Latest Run — 2026-06-28T16:09:57+03:00
+
+### Documents read
+
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/current-state-assessment.md`
+- `docs/needed_improvements/target-architecture.md`
+- `docs/needed_improvements/data-storage-matrix.md`
+- `docs/needed_improvements/postgresql-plan.md`
+- `docs/needed_improvements/minio-artifact-plan.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/nats-jetstream-plan.md`
+- `docs/needed_improvements/nats-command-event-contract.md`
+- `docs/needed_improvements/valkey-plan.md`
+- `docs/needed_improvements/observability-plan.md`
+- `docs/needed_improvements/k3s-open-source-execution-plan.md`
+- `docs/needed_improvements/kubernetes-devops-plan.md`
+- `docs/needed_improvements/migration-plan.md`
+- `.github/copilot-instructions.md`
+- `.github/CUSTOMIZATION_INDEX.md`
+- `.github/agents/senior-defi-monorepo-platform.agent.md`
+- `backend/.github/copilot-instructions.md`
+- `backend/.github/CUSTOMIZATION_INDEX.md`
+- `backend/.github/agents/senior-go-defi-backend.agent.md`
+- `bot/.github/copilot-instructions.md`
+- `bot/.github/CUSTOMIZATION_INDEX.md`
+- `bot/.github/agents/senior-python-defi-runtime.agent.md`
+- `bot/.github/instructions/runtime-safety.instructions.md`
+- `.github/skills/defi-python-algo-trading/SKILL.md`
+- NOT FOUND: none
+
+### Current completed phase/task detected
+
+- [~] PARTIAL — Phase 3 remains the active implementation phase.
+- [x] DONE — The bot-owned ClickHouse write path already covered `bot_events`, `order_events`, `trade_events`, and `position_snapshots`.
+- [ ] PENDING — Backend live dashboard/read-model cutover to ClickHouse had not started safely.
+
+### Task selected
+
+- Add a stable backend-owned `instance_id` dimension to live ClickHouse `order_events`, `trade_events`, and `position_snapshots`.
+
+### Reason selected
+
+- The previous latest run recommended backend live-bot read models as the next highest-priority Phase 3 task.
+- Inspecting `backend/` and `bot/` in dependency order showed those read models were not safe yet because the live analytical tables only carried the bot runtime's numeric `bot_id`, while the backend owns and routes by string `instance_id` across a logically separate DB boundary.
+- Adding `instance_id` to the existing repository-owned live analytics rows was the smallest prerequisite change that unblocked the documented next backend task without changing runtime control flow or frontend contracts.
+
+### Implementation completed
+
+- Added `instance_id` columns plus `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` compatibility DDL for live `order_events`, `trade_events`, and `position_snapshots` in `bot/src/infrastructure/storage/clickhouse_writer.py`.
+- Extended `TradeRepository` in `bot/src/infrastructure/persistence/repository.py` so live `trade_events` rows now resolve and mirror the stable bot `instance_id` alongside numeric `bot_id`.
+- Extended `EventRepository` order-event mirroring so live `order_events` rows now persist the emitted runtime `instance_id` alongside numeric `bot_id`.
+- Extended the canonical realtime `PositionRepository` in `bot/src/infrastructure/persistence/repository_realtime.py` so live `position_snapshots` rows now resolve and mirror the stable bot `instance_id`.
+- Added regression coverage for the new DDL shape and for `instance_id` propagation through order/trade/position analytical rows.
+
+### Files changed
+
+- `bot/src/infrastructure/storage/clickhouse_writer.py`
+- `bot/src/infrastructure/persistence/repository.py`
+- `bot/src/infrastructure/persistence/repository_realtime.py`
+- `bot/tests/test_storage_adapters.py`
+- `bot/tests/test_event_repository.py`
+- `bot/tests/test_trade_repository.py`
+- `bot/tests/test_realtime_position_repository.py`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/current-state-assessment.md`
+
+### Tests and checks run
+
+- `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_realtime_position_repository.py -q`
+  - result: passed (`29 passed, 1 warning`)
+- `./bot/.venv/bin/python -m py_compile bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/src/infrastructure/persistence/repository_realtime.py bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_realtime_position_repository.py`
+  - result: passed
+- `./bot/.venv/bin/python -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/src/infrastructure/persistence/repository_realtime.py bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_realtime_position_repository.py`
+  - result: passed
+
+### Result
+
+- [x] DONE — Live ClickHouse `order_events`, `trade_events`, and `position_snapshots` rows now carry stable `instance_id` values plus compatibility DDL for already-provisioned tables.
+- [~] PARTIAL — Phase 3 remains incomplete because backend read models still need to switch to ClickHouse, ClickHouse writes remain feature-gated/default-off, and finer-grained order/fill detail is still missing.
+
+### Risks
+
+- Existing historical ClickHouse rows written before this run will keep blank `instance_id` values unless they are backfilled or naturally superseded by newer lifecycle rows.
+- `order_events` instance identifiers still depend on the runtime emitters continuing to include `details["instance_id"]`; the current committed lifecycle emitters do, but deeper direct order/fill producers are still pending.
+- Checked-in runtime config still keeps ClickHouse disabled by default, so this run did not validate a live stack with real ClickHouse ingestion.
+
+### Known gaps
+
+- [~] PARTIAL — Older ClickHouse live rows are not backfilled with `instance_id`.
+- [~] PARTIAL — `trade_events` still capture paired lifecycle analytics rather than full per-fill trade detail.
+- [~] PARTIAL — `order_events` still do not cover every exchange-native submit/update/cancel/fill transition.
+- [~] PARTIAL — The bot API `position-history` placeholder still does not read historical snapshots back from ClickHouse.
+- [ ] PENDING — Backend dashboards still do not read live analytical summaries from ClickHouse.
+
+### Next recommended task
+
+- Phase 3: move the first backend live-bot read models to ClickHouse using the new stable `instance_id` dimension, starting with position/summary surfaces that currently depend on PostgreSQL or delegated runtime payloads.
+
+### Manual steps required
+
+- Run a real live entry/update/exit flow with `CLICKHOUSE_ENABLED=true` (or equivalent runtime flag) and verify `instance_id` is populated on new `order_events`, `trade_events`, and `position_snapshots` rows.
+- Decide whether historical live analytical rows need an explicit backfill for `instance_id` before backend dashboards start depending on them.
+
 ## Latest Run — 2026-06-28T15:46:12+03:00
 
 ### Documents read

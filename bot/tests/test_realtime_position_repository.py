@@ -15,19 +15,23 @@ class _RecordingAnalyticsWriter(AnalyticsWriter):
 
 
 class _FakeQuery:
-    def __init__(self, session: "_FakeSession"):
+    def __init__(self, session: "_FakeSession", model):
         self._session = session
+        self._model = model
 
     def filter(self, *_args, **_kwargs):
         return self
 
     def first(self):
+        if getattr(self._model, "__name__", "") == "Bot":
+            return self._session.bot
         return self._session.position
 
 
 class _FakeSession:
     def __init__(self):
         self.position = None
+        self.bot = type("BotRecord", (), {"instance_id": "strategy-1-101"})()
         self.added: list[object] = []
         self.commits = 0
 
@@ -38,8 +42,8 @@ class _FakeSession:
     def commit(self) -> None:
         self.commits += 1
 
-    def query(self, _model):
-        return _FakeQuery(self)
+    def query(self, model):
+        return _FakeQuery(self, model)
 
 
 def test_position_repository_mirrors_open_update_and_close_snapshots():
@@ -80,6 +84,7 @@ def test_position_repository_mirrors_open_update_and_close_snapshots():
     assert opened_table == "position_snapshots"
     assert opened_rows[0]["position_id"] == "live-pos-1"
     assert opened_rows[0]["bot_id"] == "77"
+    assert opened_rows[0]["instance_id"] == "strategy-1-101"
     assert opened_rows[0]["event_kind"] == "opened"
     assert opened_rows[0]["status"] == "open"
     assert opened_rows[0]["z_score_entry"] == 2.1
@@ -89,6 +94,7 @@ def test_position_repository_mirrors_open_update_and_close_snapshots():
     updated_table, updated_rows = analytics_writer.calls[1]
     assert updated_table == "position_snapshots"
     assert updated_rows[0]["event_kind"] == "mark_to_market"
+    assert updated_rows[0]["instance_id"] == "strategy-1-101"
     assert updated_rows[0]["current_price1"] == 110.0
     assert updated_rows[0]["current_price2"] == 45.0
     assert updated_rows[0]["current_size1"] == 2.0
@@ -101,5 +107,6 @@ def test_position_repository_mirrors_open_update_and_close_snapshots():
     closed_table, closed_rows = analytics_writer.calls[2]
     assert closed_table == "position_snapshots"
     assert closed_rows[0]["event_kind"] == "closed"
+    assert closed_rows[0]["instance_id"] == "strategy-1-101"
     assert closed_rows[0]["status"] == "closed"
     assert closed_rows[0]["closed_at"] is not None

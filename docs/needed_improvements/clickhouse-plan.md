@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — Add stable `instance_id` keying to live `order_events`, `trade_events`, and `position_snapshots`
+  - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/src/infrastructure/persistence/repository_realtime.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_event_repository.py`, `bot/tests/test_trade_repository.py`, `bot/tests/test_realtime_position_repository.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_realtime_position_repository.py -q` passed; `./bot/.venv/bin/python -m py_compile bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/src/infrastructure/persistence/repository_realtime.py bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_realtime_position_repository.py` passed; `./bot/.venv/bin/python -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/src/infrastructure/persistence/repository_realtime.py bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_realtime_position_repository.py` passed
+  - Evidence: the live order/trade/position tables now mirror stable string `instance_id` values alongside numeric `bot_id`, and the writer auto-adds those columns for already-provisioned tables so backend ClickHouse read models can key by the backend-owned bot identifier instead of an unsafe cross-DB numeric id.
 - [x] DONE — Mirror repository-owned realtime position snapshots into ClickHouse `position_snapshots`
   - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository_realtime.py`, `bot/internal/repository/repository_realtime.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_realtime_position_repository.py`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_realtime_repository_pnl.py bot/tests/test_realtime_position_repository.py bot/tests/test_live_trade_persistence.py bot/tests/test_api_realtime_positions.py -q` passed; `./bot/.venv/bin/python -m py_compile bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository_realtime.py bot/internal/repository/repository_realtime.py bot/src/trading/realtime_data_service.py bot/src/api/websocket_server.py bot/tests/test_storage_adapters.py bot/tests/test_realtime_position_repository.py` passed; `./bot/.venv/bin/python -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository_realtime.py bot/internal/repository/repository_realtime.py bot/src/trading/realtime_data_service.py bot/src/api/websocket_server.py bot/tests/test_storage_adapters.py bot/tests/test_realtime_position_repository.py` passed
@@ -60,6 +64,7 @@ ClickHouse must not be used for:
 ## Current Findings From Repository
 
 - Existing ClickHouse integration now covers optional backtest sidecar writes plus optional bot event-log, live order lifecycle, live trade lifecycle, and repository-owned realtime position mirroring in `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, and `bot/src/infrastructure/persistence/repository_realtime.py`.
+- Live `order_events`, `trade_events`, and `position_snapshots` rows now carry stable string `instance_id` keys alongside numeric `bot_id`, which removes the unsafe backend dependency on cross-DB numeric IDs for upcoming dashboard read models.
 - Backtest repository writes no longer rely on PostgreSQL result arrays for detail reads, so ClickHouse is now the remaining missing durable analytical sink rather than a prerequisite for shrinking the runtime row.
 - Write path is feature-gated in `bot/src/infrastructure/persistence/repository_backtest.py`.
 - Runtime defaults disable it in:
@@ -205,6 +210,7 @@ Migration source:
 Current implementation status:
 
 - [x] DONE — first slice is live through committed event-log rows in `bot/src/infrastructure/persistence/repository.py`, which now mirror normalized entry-opened and exit-confirmed/orphaned order lifecycle rows into ClickHouse `order_events`
+- [x] DONE — those mirrored `order_events` rows now also carry the stable runtime `instance_id` needed by backend read models
 - [~] PARTIAL — exchange-native submit/update/cancel/fill transitions still need their own direct normalized producer path if deeper order analytics are required
 
 ## `trade_events`
@@ -260,6 +266,7 @@ Migration source:
 Current implementation status:
 
 - [x] DONE — first slice is live through `bot/src/infrastructure/persistence/repository.py`, which now mirrors committed paired live trade open/close writes into ClickHouse `trade_events`
+- [x] DONE — those mirrored `trade_events` rows now also carry the stable runtime `instance_id` needed by backend read models
 - [~] PARTIAL — current rows capture paired trade lifecycle analytics, but order ids, per-fill detail, fees, and runtime position joins are still pending
 
 ## `position_snapshots`
@@ -313,6 +320,7 @@ Migration source:
 Current implementation status:
 
 - [x] DONE — first slice is live through `bot/src/infrastructure/persistence/repository_realtime.py`, which now mirrors repository-owned realtime position open/update/close rows into ClickHouse `position_snapshots`
+- [x] DONE — those mirrored `position_snapshots` rows now also carry the stable runtime `instance_id` needed by backend read models
 - [~] PARTIAL — current rows cover repository-owned position lifecycle and mark-to-market state, but backend read models and any direct exchange-native fill/update snapshot producers are still pending
 
 ## `backtest_trades`

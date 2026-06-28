@@ -32,6 +32,20 @@ from src.shared.time_utils import utc_now
 logger = logging.getLogger(__name__)
 
 
+def _resolve_bot_instance_id(session: Session, bot_id: Any) -> str:
+    try:
+        normalized_bot_id = int(bot_id)
+    except (TypeError, ValueError):
+        return ""
+
+    try:
+        bot = session.query(Bot).filter(Bot.id == normalized_bot_id).first()
+    except Exception:
+        return ""
+
+    return str(getattr(bot, "instance_id", "") or "")
+
+
 def _build_clickhouse_analytics_writer(purpose: str) -> AnalyticsWriter:
     try:
         from config.config import config as load_runtime_config
@@ -352,6 +366,7 @@ class TradeRepository:
             "event_time": event_time,
             "trade_id": str(trade.trade_id or ""),
             "bot_id": str(trade.bot_id),
+            "instance_id": str(getattr(trade, "_analytics_instance_id", "") or ""),
             "pair1": str(trade.pair1 or ""),
             "pair2": str(trade.pair2 or ""),
             "side1": str(trade.side1 or ""),
@@ -384,6 +399,11 @@ class TradeRepository:
         }
 
     def _write_analytics_trade(self, trade: Trade, *, event_kind: str) -> None:
+        setattr(
+            trade,
+            "_analytics_instance_id",
+            _resolve_bot_instance_id(self.session, getattr(trade, "bot_id", None)),
+        )
         try:
             self.analytics_writer.write_rows(
                 "trade_events",
@@ -668,6 +688,11 @@ class EventRepository:
     def _build_order_analytics_rows(cls, event: Event) -> list[dict[str, Any]]:
         details, created_at, correlation_id, bot_run_id = cls._event_context(event)
         event_type = str(event.event_type or "")
+        instance_id = str(
+            details.get("instance_id")
+            or details.get("bot_instance_id")
+            or ""
+        )
         trade_id = str(
             event.related_trade_id or details.get("trade_id") or details.get("related_trade_id") or ""
         )
@@ -736,6 +761,7 @@ class EventRepository:
                     "order_id": str(order_id),
                     "trade_id": trade_id,
                     "bot_id": str(event.bot_instance_id),
+                    "instance_id": instance_id,
                     "bot_run_id": bot_run_id,
                     "market": str(details.get(spec["market_key"]) or ""),
                     "side": str(details.get(spec["side_key"]) or ""),

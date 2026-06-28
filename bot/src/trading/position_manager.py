@@ -978,6 +978,14 @@ async def open_positions(client) -> None:
                                     ),
                                     "order_id_m1": bot_open_dict.get("order_id_m1"),
                                     "order_id_m2": bot_open_dict.get("order_id_m2"),
+                                    "order_m1_side": bot_open_dict.get("order_m1_side"),
+                                    "order_m2_side": bot_open_dict.get("order_m2_side"),
+                                    "order_m1_size": bot_open_dict.get("order_m1_size"),
+                                    "order_m2_size": bot_open_dict.get("order_m2_size"),
+                                    "order_m1_price": bot_open_dict.get("order_m1_price"),
+                                    "order_m2_price": bot_open_dict.get("order_m2_price"),
+                                    "order_time_m1": bot_open_dict.get("order_time_m1"),
+                                    "order_time_m2": bot_open_dict.get("order_time_m2"),
                                 },
                                 related_trade_id=persisted_trade_id,
                             )
@@ -1280,6 +1288,8 @@ async def manage_trade_exits(client) -> str | None:
             close_order_m2 = None
             close_order_m1_id = ""
             close_order_m2_id = ""
+            close_order_time_m1 = ""
+            close_order_time_m2 = ""
             exit_reason_key = str(exit_reason or "exit_signal")
             exit_reason_text = _exit_reason_label(exit_reason_key)
             position["pair_status"] = "CLOSE_SUBMITTED"
@@ -1320,6 +1330,7 @@ async def manage_trade_exits(client) -> str | None:
 
                 logger.debug("Close order m1 id: {}", close_order_m1.get("id"))
                 position["close_order_m1_id"] = close_order_m1_id
+                close_order_time_m1 = _utc_now_iso()
 
                 # Close position for market 2
                 logger.info(
@@ -1340,6 +1351,7 @@ async def manage_trade_exits(client) -> str | None:
 
                 logger.debug("Close order m2 id: {}", close_order_m2.get("id"))
                 position["close_order_m2_id"] = close_order_m2_id
+                close_order_time_m2 = _utc_now_iso()
                 position["pair_status"] = "CLOSING"
 
                 close_confirmation = await _confirm_exchange_flat_after_close(
@@ -1385,6 +1397,14 @@ async def manage_trade_exits(client) -> str | None:
                             "market_2": position_market_m2,
                             "close_order_m1_id": close_order_m1_id,
                             "close_order_m2_id": close_order_m2_id,
+                            "close_order_m1_side": side_m1,
+                            "close_order_m2_side": side_m2,
+                            "close_order_m1_size": position_size_m1,
+                            "close_order_m2_size": position_size_m2,
+                            "close_order_m1_price": accept_price_m1,
+                            "close_order_m2_price": accept_price_m2,
+                            "close_order_time_m1": close_order_time_m1,
+                            "close_order_time_m2": close_order_time_m2,
                             "z_score": float(z_score_current),
                             "exit_reason": exit_reason_key,
                             "confirmation_attempts": int(
@@ -1462,6 +1482,10 @@ async def manage_trade_exits(client) -> str | None:
                             "market_1": position_market_m1,
                             "market_2": position_market_m2,
                             "close_order_m1_id": close_order_m1_id,
+                            "close_order_m1_side": side_m1,
+                            "close_order_m1_size": position_size_m1,
+                            "close_order_m1_price": accept_price_m1,
+                            "close_order_time_m1": close_order_time_m1,
                             "exit_reason": exit_reason_key,
                             "error": str(exc),
                         },

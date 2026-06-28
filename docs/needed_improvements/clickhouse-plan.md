@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — Mirror committed live order lifecycle events into ClickHouse `order_events`
+  - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/src/trading/position_manager.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_event_repository.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_live_trade_persistence.py -q` passed; `./bot/.venv/bin/python -m py_compile bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/src/trading/position_manager.py bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py` passed; `./bot/.venv/bin/python -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/src/trading/position_manager.py bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py` passed
+  - Evidence: `EventRepository.log_event()` now best-effort mirrors normalized order rows derived from committed `trade_entry_opened`, `trade_exit_close_confirmed`, and `trade_exit_orphaned` events into buffered ClickHouse `order_events`.
 - [x] DONE — Mirror committed live trade lifecycle writes into ClickHouse `trade_events`
   - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_trade_repository.py`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_live_trade_persistence.py -q` passed; `python3 -m py_compile bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/tests/test_storage_adapters.py bot/tests/test_trade_repository.py` passed; `python3 -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/tests/test_storage_adapters.py bot/tests/test_trade_repository.py` passed
@@ -24,7 +28,7 @@
   - Evidence: the writer now provisions `backtest_equity_curve` and `strategy_metrics`, and completed repository saves emit those row families when the payload carries `equity_curve` or `metrics`.
 - [~] PARTIAL — Expand ClickHouse schemas and batching beyond the current backtest subset
   - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/src/infrastructure/persistence/repository_backtest.py`
-  - Acceptance result: `bot/src/infrastructure/storage/clickhouse_writer.py` now provisions five backtest analytical tables plus live `bot_events` and `trade_events`, and `bot/src/infrastructure/persistence/repository.py` mirrors committed bot event logs plus committed trade lifecycle rows into the buffered writer, but `order_events`, deeper fill-level trade detail, live position analytics, and backend read paths remain pending.
+  - Acceptance result: `bot/src/infrastructure/storage/clickhouse_writer.py` now provisions five backtest analytical tables plus live `bot_events`, `order_events`, and `trade_events`, and `bot/src/infrastructure/persistence/repository.py` mirrors committed bot event logs, committed order lifecycle rows, and committed trade lifecycle rows into the buffered writer, but deeper fill-level trade detail, live position analytics, and backend read paths remain pending.
 
 ## Role of ClickHouse
 
@@ -51,7 +55,7 @@ ClickHouse must not be used for:
 
 ## Current Findings From Repository
 
-- Existing ClickHouse integration now covers optional backtest sidecar writes plus optional bot event-log and live trade lifecycle mirroring in `bot/src/infrastructure/storage/clickhouse_writer.py` and `bot/src/infrastructure/persistence/repository.py`.
+- Existing ClickHouse integration now covers optional backtest sidecar writes plus optional bot event-log, live order lifecycle, and live trade lifecycle mirroring in `bot/src/infrastructure/storage/clickhouse_writer.py` and `bot/src/infrastructure/persistence/repository.py`.
 - Backtest repository writes no longer rely on PostgreSQL result arrays for detail reads, so ClickHouse is now the remaining missing durable analytical sink rather than a prerequisite for shrinking the runtime row.
 - Write path is feature-gated in `bot/src/infrastructure/persistence/repository_backtest.py`.
 - Runtime defaults disable it in:
@@ -59,6 +63,7 @@ ClickHouse must not be used for:
   - `deploy/k8s-next/platform-config.yaml`
 - Existing writer is feature-gated, buffers rows by batch size / flush interval, force-flushes terminal repository saves, and now provisions:
   - `bot_events`
+  - `order_events`
   - `trade_events`
   - `backtest_trades`
   - `backtest_daily_pnl`
@@ -151,11 +156,13 @@ Rough schema:
 - `event_date Date`
 - `event_time DateTime64(3, 'UTC')`
 - `order_id String`
+- `trade_id String`
 - `bot_id String`
 - `bot_run_id String`
 - `market String`
 - `side LowCardinality(String)`
 - `status LowCardinality(String)`
+- `event_type LowCardinality(String)`
 - `price Decimal(20,8)`
 - `size Decimal(20,8)`
 - `exchange_time Nullable(DateTime64(3, 'UTC'))`
@@ -188,7 +195,12 @@ Insert strategy:
 
 Migration source:
 
-- live order paths in bot trading modules; structured analytics target currently NOT FOUND
+- live order paths in bot trading modules, with the first normalized slice now extracted from committed lifecycle events in `bot/src/trading/position_manager.py` and mirrored through `bot/src/infrastructure/persistence/repository.py`
+
+Current implementation status:
+
+- [x] DONE — first slice is live through committed event-log rows in `bot/src/infrastructure/persistence/repository.py`, which now mirror normalized entry-opened and exit-confirmed/orphaned order lifecycle rows into ClickHouse `order_events`
+- [~] PARTIAL — exchange-native submit/update/cancel/fill transitions still need their own direct normalized producer path if deeper order analytics are required
 
 ## `trade_events`
 

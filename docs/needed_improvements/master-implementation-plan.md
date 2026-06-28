@@ -7,7 +7,7 @@
 - [x] DONE — Phase 2: MinIO artifact storage
   - Evidence: completed runs now persist `full_result.json` plus sidecar artifacts through `bot/src/infrastructure/persistence/repository_backtest.py`, checked-in stack/k3s config defaults the MinIO artifact flags to `true`, local fallback behavior remains available for rollback, and backend now exposes `GET /api/v1/backtests/:run_id/artifacts` for signed MinIO download metadata.
 - [~] PARTIAL — Phase 3: ClickHouse analytical storage
-  - Evidence: new backtest writes no longer persist `trades_json`, `position_snapshots_json`, or `daily_pnl_json` in PostgreSQL rows because `bot/src/infrastructure/persistence/repository_backtest.py` now serves those payloads back from artifact sidecars; the ClickHouse path now provisions `backtest_equity_curve`, `strategy_metrics`, live `bot_events`, and live `trade_events`, and `bot/src/infrastructure/storage/clickhouse_writer.py` now buffers rows by batch size / flush interval with forced terminal flushes while `bot/src/infrastructure/persistence/repository.py` mirrors committed event-log rows into `bot_events` plus committed trade lifecycle rows into `trade_events`, but writes are still feature-gated/default-off and broader live-bot analytics are still missing.
+  - Evidence: new backtest writes no longer persist `trades_json`, `position_snapshots_json`, or `daily_pnl_json` in PostgreSQL rows because `bot/src/infrastructure/persistence/repository_backtest.py` now serves those payloads back from artifact sidecars; the ClickHouse path now provisions `backtest_equity_curve`, `strategy_metrics`, live `bot_events`, live `order_events`, and live `trade_events`, and `bot/src/infrastructure/storage/clickhouse_writer.py` now buffers rows by batch size / flush interval with forced terminal flushes while `bot/src/infrastructure/persistence/repository.py` mirrors committed event-log rows into `bot_events` plus normalized order lifecycle rows into `order_events` and committed trade lifecycle rows into `trade_events`, but writes are still feature-gated/default-off and broader live-bot analytics are still missing.
 - [ ] PENDING — Phase 4: NATS JetStream command/event bus
 - [ ] PENDING — Phase 5: Valkey responsibility cleanup
 - [ ] PENDING — Phase 6: worker migration
@@ -27,7 +27,7 @@ Validated current-state issues:
 - Backtest execution still uses Celery and Redis-compatible locking/pub-sub in `bot/src/infrastructure/workers/backtest_tasks.py` and `bot/src/infrastructure/workers/celery_app.py`.
 - Backend live backtest push still depends on Redis pub/sub in `backend/internal/services/backtest_push_hub.go`.
 - Bot now has Phase 1 storage abstractions plus placeholder command-bus and cache/lock contracts, but no live JetStream or Valkey-backed implementation yet.
-- Feature flags in `docker-compose.stack.yml` and `deploy/k8s-next/platform-config.yaml` still keep NATS and ClickHouse write paths disabled by default. MinIO-backed backtest artifacts are now enabled by default with local fallback compatibility, and the checked-in ClickHouse defaults now also include conservative batch settings for backtest rows plus the new live `bot_events` and `trade_events` mirror paths.
+- Feature flags in `docker-compose.stack.yml` and `deploy/k8s-next/platform-config.yaml` still keep NATS and ClickHouse write paths disabled by default. MinIO-backed backtest artifacts are now enabled by default with local fallback compatibility, and the checked-in ClickHouse defaults now also include conservative batch settings for backtest rows plus the new live `bot_events`, `order_events`, and `trade_events` mirror paths.
 
 ## Status snapshot as of 2026-06-28
 
@@ -39,7 +39,7 @@ Phase 1 foundation work is now present in the repository:
 - bot PostgreSQL migration branch includes `artifact_references`
 - k3s guardrails and manifest skeleton are checked in and validated
 
-The remaining gap is implementation cutover, not planning/foundation. The active runtime is still Celery + Redis-compatible transport + local file / PostgreSQL-heavy persistence, but Phase 2 now has live artifact-reference writes for backtest sidecars plus a backend-owned signed download contract, and Phase 3 now includes summary-only PostgreSQL rows, five backtest ClickHouse table families, buffered/terminal-flushed analytical writes for the existing repository-owned backtest path, plus live `bot_events` and `trade_events` ClickHouse mirrors.
+The remaining gap is implementation cutover, not planning/foundation. The active runtime is still Celery + Redis-compatible transport + local file / PostgreSQL-heavy persistence, but Phase 2 now has live artifact-reference writes for backtest sidecars plus a backend-owned signed download contract, and Phase 3 now includes summary-only PostgreSQL rows, five backtest ClickHouse table families, buffered/terminal-flushed analytical writes for the existing repository-owned backtest path, plus live `bot_events`, `order_events`, and `trade_events` ClickHouse mirrors.
 
 ## Current architecture problems
 
@@ -48,7 +48,7 @@ The remaining gap is implementation cutover, not planning/foundation. The active
 3. Redis-compatible infrastructure is still acting as durable queue substrate.
 4. Async execution semantics are split across Celery and in-process fallback code.
 5. Infra manifests are ahead of application ownership boundaries.
-6. `artifact_references` now receives normalized sidecar metadata from the bot backtest repository, MinIO is the default checked-in artifact path, backend signed URL reads now exist, new backtest result arrays no longer persist in PostgreSQL rows, and the optional ClickHouse writer now covers five backtest analytical tables plus live `bot_events` and `trade_events` with buffered/terminal flush behavior; the remaining storage gap is default-on rollout, broader live-bot analytical tables, `request_json`, and fallback/local-path cleanup.
+6. `artifact_references` now receives normalized sidecar metadata from the bot backtest repository, MinIO is the default checked-in artifact path, backend signed URL reads now exist, new backtest result arrays no longer persist in PostgreSQL rows, and the optional ClickHouse writer now covers five backtest analytical tables plus live `bot_events`, `order_events`, and `trade_events` with buffered/terminal flush behavior; the remaining storage gap is default-on rollout, broader live-bot analytical tables, `request_json`, and fallback/local-path cleanup.
 7. Shared Phase 1 contracts exist for event bus and cache/lock behavior, but they remain fail-closed placeholders until later phases wire them into runtime paths.
 
 ## Target architecture

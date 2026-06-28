@@ -36,6 +36,26 @@ CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
 PARTITION BY toYYYYMM(event_date)
 ORDER BY (bot_id, bot_run_id, event_time, event_type)"""
 
+_ORDER_EVENTS_DDL = """\
+CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
+    event_date      Date,
+    event_time      DateTime64(3, 'UTC'),
+    order_id        String,
+    trade_id        String DEFAULT '',
+    bot_id          String,
+    bot_run_id      String,
+    market          String,
+    side            LowCardinality(String),
+    status          LowCardinality(String),
+    event_type      LowCardinality(String),
+    price           Nullable(Float64),
+    size            Nullable(Float64),
+    exchange_time   Nullable(DateTime64(3, 'UTC')),
+    correlation_id  String
+) ENGINE = MergeTree()
+PARTITION BY toYYYYMM(event_date)
+ORDER BY (bot_id, order_id, event_time)"""
+
 _TRADE_EVENTS_DDL = """\
 CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
     event_date        Date,
@@ -132,6 +152,8 @@ ORDER BY (run_id, metric_name, metric_time)"""
 _TABLE_DDL: dict[str, str] = {
     "bot_event_rows": _BOT_EVENTS_DDL,
     "bot_events": _BOT_EVENTS_DDL,
+    "order_event_rows": _ORDER_EVENTS_DDL,
+    "order_events": _ORDER_EVENTS_DDL,
     "trade_event_rows": _TRADE_EVENTS_DDL,
     "trade_events": _TRADE_EVENTS_DDL,
     "backtest_trade_rows": _BACKTEST_TRADES_DDL,

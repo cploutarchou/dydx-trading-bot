@@ -1,5 +1,120 @@
 # Implementation Progress
 
+## Latest Run — 2026-06-28T22:00:00+03:00
+
+### Documents read
+
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/postgresql-plan.md`
+- `docs/needed_improvements/nats-jetstream-plan.md`
+- `docs/needed_improvements/nats-command-event-contract.md`
+- `backend/internal/models/models.go` (existing model structure reference)
+- `backend/internal/repository/backtest_repo.go` (repository pattern reference)
+- NOT FOUND: none
+
+### Current completed phase/task detected
+
+- [x] DONE — Phase 1, Phase 2.
+- [~] PARTIAL — Phase 3 remains PARTIAL (three backend ClickHouse read models exist; remaining Phase 3 work is frontend wiring (Phase 8), default-on rollout (manual), and finer-grained write detail (risky bot execution path)) — automatable Phase 3 read-path work is saturated.
+- [~] PARTIAL — Phase 4 (NATS JetStream) had backend publisher but was blocked on normalized task tables for command idempotency; this run adds the task tables foundation.
+
+### Task selected
+
+- Introduce normalized PostgreSQL task tables (`task_commands`, `task_runs`, `task_attempts`, `worker_heartbeats`) for Phase 4 NATS JetStream command/event bus foundation — provides the idempotency and durable state foundation that the NATS publisher and future consumers will reference.
+
+### Reason selected
+
+- The previous latest run (2026-06-28T21:35:00+03:00) listed as option (c) in "Next recommended task": "introduce the normalized `task_commands`/`task_runs` PostgreSQL tables the publisher and consumers will key command idempotency against."
+- `master-implementation-plan.md` Phase 4 explicitly requires durable command/event bus with idempotency, and `nats-jetstream-plan.md` mandates PostgreSQL as the source of truth for command idempotency.
+- `postgresql-plan.md` lists `task_commands`, `task_runs`, `task_attempts`, and `worker_heartbeats` as required tables for the target architecture.
+- The existing NATS publisher (`backend/internal/nats/publisher.go`) needs authoritative PostgreSQL backing for command idempotency keys (`Msg-Id`) and durable state that both HTTP and NATS paths can reference.
+- This was the critical dependency blocking safe NATS wiring and consumer implementation.
+
+### Implementation completed
+
+- Added PostgreSQL migrations for normalized task management tables:
+  - `backend/migrations/postgres/000063_create_task_commands.up.sql` / `.down.sql` — immutable command intent with unique `idempotency_key` for NATS `Msg-Id` dedupe
+  - `backend/migrations/postgres/000064_create_task_runs.up.sql` / `.down.sql` — execution records linked to commands with status, progress, retry tracking, worker assignment
+  - `backend/migrations/postgres/000065_create_task_attempts.up.sql` / `.down.sql` — retry/redelivery audit trail with attempt outcomes
+  - `backend/migrations/postgres/000066_create_worker_heartbeats.up.sql` / `.down.sql` — worker/consumer liveness tracking with lease expiration
+- Added Go models in `backend/internal/models/models.go`:
+  - `TaskCommand` struct with bounded `payload_json` for input-sized commands only
+  - `TaskRun` struct with progress, retry, worker assignment, and small `summary_json`
+  - `TaskAttempt` struct for attempt-level audit with outcome tracking
+  - `WorkerHeartbeat` struct for worker liveness with bounded `metadata_json`
+- Added `backend/internal/repository/task_repository.go`:
+  - Complete CRUD operations for all four tables following existing repository patterns
+  - Status constants for command, run, attempt, and worker lifecycle states
+  - Nil-db fail-closed error handling (`errors.New("task repository: nil db")`)
+  - Context-aware operations for cancellation and timeouts
+  - JSON payload handling for bounded metadata fields
+- Added `backend/internal/repository/task_repository_test.go`:
+  - Nil-db error handling tests for all methods
+  - Constants validation tests
+  - Repository construction tests
+  - Error handling verification
+
+### Files changed
+
+- `backend/migrations/postgres/000063_create_task_commands.up.sql` (new)
+- `backend/migrations/postgres/000063_create_task_commands.down.sql` (new)
+- `backend/migrations/postgres/000064_create_task_runs.up.sql` (new)
+- `backend/migrations/postgres/000064_create_task_runs.down.sql` (new)
+- `backend/migrations/postgres/000065_create_task_attempts.up.sql` (new)
+- `backend/migrations/postgres/000065_create_task_attempts.down.sql` (new)
+- `backend/migrations/postgres/000066_create_worker_heartbeats.up.sql` (new)
+- `backend/migrations/postgres/000066_create_worker_heartbeats.down.sql` (new)
+- `backend/internal/models/models.go`
+- `backend/internal/repository/task_repository.go` (new)
+- `backend/internal/repository/task_repository_test.go` (new)
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/postgresql-plan.md`
+- `docs/needed_improvements/nats-jetstream-plan.md`
+- `docs/needed_improvements/nats-command-event-contract.md`
+
+### Tests and checks run
+
+- `cd backend && gofmt -l internal/models/models.go internal/repository/task_repository.go internal/repository/task_repository_test.go` → passed (no files listed after `gofmt -w`)
+- `cd backend && go build ./...` → passed (exit 0)
+- `cd backend && go vet ./...` → passed (exit 0)
+- `cd backend && go test ./internal/repository/... -run TestTaskRepository -v` → **13/13 PASS**
+- `cd backend && go test ./...` → passed (all packages `ok`)
+
+### Result
+
+- [x] DONE — Normalized PostgreSQL task tables now exist: `task_commands` (command intent with idempotency keys), `task_runs` (execution state and progress), `task_attempts` (retry audit), and `worker_heartbeats` (liveness tracking).
+- [~] PARTIAL — Phase 4 NATS JetStream is now unblocked: the publisher abstraction exists and now has PostgreSQL backing for command idempotency; wiring the publisher behind routes and adding durable consumers are the next NATS slices.
+
+### Risks
+
+- These are new tables with no existing data; they will be empty in production until backend routes start writing to them.
+- The migrations must be applied to all environments before NATS wiring is enabled, or command idempotency will fail for commands that reference non-existent task records.
+- The `payload_json` and `summary_json` fields are bounded by design but not enforced at the DB level; application code must ensure they remain small.
+- Foreign key constraints assume PostgreSQL; the repository uses PostgreSQL-specific syntax and features.
+
+### Known gaps
+
+- [ ] PENDING — No backend routes yet write to the task tables; they exist as foundation only.
+- [ ] PENDING — NATS publisher not yet wired to create task commands before publishing.
+- [ ] PENDING — No durable NATS consumers yet exist to read from task tables and process commands.
+- [ ] PENDING — Backtest and bot workers do not yet use the task tables for state tracking.
+- [~] PARTIAL — PostgreSQL now has the task foundation tables, but existing large JSON columns in `backtest_runs` and other tables still need cleanup per `postgresql-plan.md`.
+
+### Next recommended task
+
+- Phase 4: (a) wire the NATS publisher behind one delegated route as dual-write (create task command, then publish to NATS with command id as `Msg-Id` and idempotency key from task record), validating idempotency end-to-end, or (b) add the first durable consumer (e.g., backtest command consumer in `bot/`) with explicit ack after authoritative PostgreSQL state update, using the task tables for idempotency checking.
+
+### Manual steps required
+
+- Apply migrations `000063_create_task_commands`, `000064_create_task_runs`, `000065_create_task_attempts`, and `000066_create_worker_heartbeats` in all environments.
+- Decide whether to enable foreign key constraints in production PostgreSQL for these tables.
+
 ## Latest Run — 2026-06-28T21:35:00+03:00
 
 ### Documents read

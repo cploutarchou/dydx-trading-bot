@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — Normalized PostgreSQL task tables (`task_commands`, `task_runs`, `task_attempts`, `worker_heartbeats`) for NATS JetStream foundation
+  - Files: `backend/migrations/postgres/000063_create_task_commands.*`, `000064_create_task_runs.*`, `000065_create_task_attempts.*`, `000066_create_worker_heartbeats.*`, `backend/internal/models/models.go`, `backend/internal/repository/task_repository.go`, `backend/internal/repository/task_repository_test.go`
+  - Check: `cd backend && go build ./...` passed; `cd backend && go vet ./...` passed; `cd backend && go test ./internal/repository/... -run TestTaskRepository -v` → 13/13 PASS
+  - Evidence: four normalized task management tables with proper indexes, Go models, and complete repository layer. Provides PostgreSQL backing for NATS JetStream command idempotency and durable state per the target architecture.
 - [x] DONE — Backend NATS JetStream publisher abstraction (Phase 4 first slice)
   - Files: `backend/internal/nats/publisher.go`, `backend/internal/nats/publisher_test.go`, `backend/go.mod`, `backend/go.sum`
   - Check: `cd backend && go mod tidy` added `nats.go` v1.52.0 + `nats-server/v2` v2.14.2; `cd backend && go build ./...` passed; `cd backend && go vet ./...` passed; `cd backend && go test ./...` passed (all `ok`); `cd backend && go test ./internal/nats/... -v` → 8/8 PASS (stable at `-count=3`)
@@ -151,6 +155,15 @@
   - risk from `pairs_json`
   - defined in `bot/migrations/versions/e1f2a3b4c5d6_add_tracked_positions_and_cointegrated_pairs.py`
 
+### Backend PostgreSQL (Phase 4 task tables - bounded JSON only)
+- `task_commands`
+  - `payload_json JSONB` — bounded input-sized command payload, not result-sized
+- `task_runs`
+  - `summary_json JSONB NULL` — bounded summary-only payload
+- `worker_heartbeats`
+  - `metadata_json JSONB NULL` — bounded worker metadata
+- `task_attempts` — no JSON columns, audit trail only
+
 ## Redis / Valkey Usage Locations
 
 ### Backend
@@ -253,6 +266,20 @@
 - `backend/internal/app/analytics_routes.go`
   - admin-gated `GET /api/v1/analytics/position-history`, `GET /api/v1/analytics/trade-summary`, and `GET /api/v1/analytics/pair-breakdown` wired in `BuildRouter`; all return a degraded `enabled=false` envelope when ClickHouse is disabled (checked-in default), a `success=false` envelope with the error reason on query failure, and typed results otherwise; frontend/dashboard wiring still PENDING
 
+### Existing PostgreSQL task tables (backend)
+- `backend/migrations/postgres/000063_create_task_commands.*`
+  - `task_commands` table for immutable command intent with unique `idempotency_key`
+- `backend/migrations/postgres/000064_create_task_runs.*`
+  - `task_runs` table for execution records with status, progress, retry tracking, worker assignment
+- `backend/migrations/postgres/000065_create_task_attempts.*`
+  - `task_attempts` table for retry/redelivery audit trail
+- `backend/migrations/postgres/000066_create_worker_heartbeats.*`
+  - `worker_heartbeats` table for worker/consumer liveness tracking
+- `backend/internal/models/models.go`
+  - `TaskCommand`, `TaskRun`, `TaskAttempt`, `WorkerHeartbeat` Go models
+- `backend/internal/repository/task_repository.go`
+  - Complete CRUD operations for all four task tables with fail-closed nil-db handling
+
 ## Code That Should Write To MinIO
 
 - `bot/src/infrastructure/persistence/repository_backtest.py`
@@ -300,5 +327,6 @@
 
 - Frontend direct storage access beyond backend API: NOT FOUND.
 - Backend-issued MinIO signed URL implementation: FOUND in `backend/internal/services/minio_artifact_signer.go` and `backend/internal/routes/bot_api_delegate_routes.go`.
+- PostgreSQL normalized task tables for NATS JetStream foundation: FOUND in `backend/migrations/postgres/000063_create_task_commands.*`, `000064_create_task_runs.*`, `000065_create_task_attempts.*`, `000066_create_worker_heartbeats.*` with Go models in `backend/internal/models/models.go` and repository in `backend/internal/repository/task_repository.go`.
 - Helm charts: NOT FOUND.
 - `platform.yml` referenced by older docs: NOT FOUND in repository.

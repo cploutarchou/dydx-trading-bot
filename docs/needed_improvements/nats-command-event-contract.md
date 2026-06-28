@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — Normalized PostgreSQL task tables for command idempotency foundation
+  - Files: `backend/migrations/postgres/000063_create_task_commands.*`, `000064_create_task_runs.*`, `000065_create_task_attempts.*`, `000066_create_worker_heartbeats.*`, `backend/internal/models/models.go`, `backend/internal/repository/task_repository.go`, `backend/internal/repository/task_repository_test.go`
+  - Check: `cd backend && go test ./internal/repository/... -run TestTaskRepository -v` → 13/13 PASS
+  - Evidence: Four normalized task tables provide PostgreSQL backing for NATS command idempotency keys (`Msg-Id`) and durable state that both HTTP and NATS paths can reference. This unblocks safe NATS publisher wiring.
 - [x] DONE — Backend publisher abstraction implements this contract's subject namespace and minimal payload shape
   - Files: `backend/internal/nats/publisher.go`, `backend/internal/nats/publisher_test.go`
   - Check: `cd backend && go test ./internal/nats/... -v` → 8/8 PASS (embedded JetStream server)

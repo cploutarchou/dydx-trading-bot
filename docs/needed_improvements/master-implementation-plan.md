@@ -9,7 +9,7 @@
 - [~] PARTIAL — Phase 3: ClickHouse analytical storage
   - Evidence: new backtest writes no longer persist `trades_json`, `position_snapshots_json`, or `daily_pnl_json` in PostgreSQL rows because `bot/src/infrastructure/persistence/repository_backtest.py` now serves those payloads back from artifact sidecars; the ClickHouse path now provisions `backtest_equity_curve`, `strategy_metrics`, live `bot_events`, live `order_events`, live `trade_events`, and live `position_snapshots`, and `bot/src/infrastructure/storage/clickhouse_writer.py` now buffers rows by batch size / flush interval with forced terminal flushes while `bot/src/infrastructure/persistence/repository.py` mirrors committed event-log rows into `bot_events` plus normalized order lifecycle rows into `order_events` and committed trade lifecycle rows into `trade_events`, and `bot/src/infrastructure/persistence/repository_realtime.py` now mirrors repository-owned realtime position open/update/close rows into `position_snapshots`; those live order/trade/position tables now also carry stable string `instance_id` keys needed by backend read models, and three backend-owned ClickHouse read models now exist — a reusable fail-closed `ClickHouseReader` (`backend/internal/services/clickhouse_reader.go`) plus a typed `LivePositionReader` over `position_snapshots` exposed through admin-gated `GET /api/v1/analytics/position-history`, a typed `LiveTradeSummaryReader` aggregating `trade_events`/`order_events` exposed through admin-gated `GET /api/v1/analytics/trade-summary`, and a typed `LivePairBreakdownReader` aggregating `trade_events` per pair exposed through admin-gated `GET /api/v1/analytics/pair-breakdown`, all reusing the generic `DecodeRows` helper and the same fail-closed fallback — but writes are still feature-gated/default-off and frontend wiring is still pending, so only finer-grained fill detail remains on the write side.
 - [~] PARTIAL — Phase 4: NATS JetStream command/event bus
-  - Evidence: the first code-level JetStream producer now exists — a fail-closed, lazily-connected `nats.go`-backed `Publisher` under `backend/internal/nats/publisher.go` with the canonical command/event `Envelope`, the contract subject namespace, idempotent stream provisioning, and JetStream `Msg-Id` dedupe, validated end-to-end against an embedded JetStream server (8/8 tests); it is intentionally not wired into any route yet (the HTTP/Celery path stays authoritative until validated), and durable consumers, retry/ack/dead-letter handling, and dual-write wiring are still PENDING.
+  - Evidence: the first code-level JetStream producer now exists — a fail-closed, lazily-connected `nats.go`-backed `Publisher` under `backend/internal/nats/publisher.go` with the canonical command/event `Envelope`, the contract subject namespace, idempotent stream provisioning, and JetStream `Msg-Id` dedupe, validated end-to-end against an embedded JetStream server (8/8 tests); the PostgreSQL foundation for command idempotency now exists with normalized `task_commands`, `task_runs`, `task_attempts`, and `worker_heartbeats` tables (migrations `000063-000066`) plus Go models and repository layer (13/13 tests); it is intentionally not wired into any route yet (the HTTP/Celery path stays authoritative until validated), and durable consumers, retry/ack/dead-letter handling, and dual-write wiring are still PENDING.
 - [ ] PENDING — Phase 5: Valkey responsibility cleanup
 - [ ] PENDING — Phase 6: worker migration
 - [ ] PENDING — Phase 7: backend API orchestration cutover
@@ -184,6 +184,7 @@ Acceptance criteria:
 
 Scope:
 
+- add PostgreSQL normalized task tables (`task_commands`, `task_runs`, `task_attempts`, `worker_heartbeats`) for command idempotency foundation
 - add backend publisher abstraction
 - add worker durable consumer abstraction
 - implement command/event subjects per `nats-command-event-contract.md`
@@ -207,6 +208,7 @@ Rollback:
 
 Acceptance criteria:
 
+- PostgreSQL task tables provide command idempotency foundation
 - new async commands can be published to JetStream
 - retries and dead letters are visible
 - message payloads are small and reference-heavy

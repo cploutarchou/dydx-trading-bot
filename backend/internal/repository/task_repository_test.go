@@ -62,7 +62,7 @@ func TestTaskRepository_NilDB(t *testing.T) {
 		t.Errorf("expected nil db error, got: %v", err)
 	}
 
-	_, err = repo.GetStaleWorkerHeartbeats(ctx, nil)
+	_, err = repo.GetStaleWorkerHeartbeats(ctx, time.Now())
 	if err == nil || err.Error() != "task repository: nil db" {
 		t.Errorf("expected nil db error, got: %v", err)
 	}
@@ -157,8 +157,8 @@ func TestTaskRepository_ErrorHandling(t *testing.T) {
 		{"UpdateTaskRunStatus", func() error { return repo.UpdateTaskRunStatus(ctx, "", "") }},
 		{"UpdateTaskRunProgress", func() error { return repo.UpdateTaskRunProgress(ctx, "", 0) }},
 		{"UpdateTaskRunHeartbeat", func() error { return repo.UpdateTaskRunHeartbeat(ctx, "", "", "", "") }},
-		{"UpdateTaskRunWorkerAssignment", func() error { return repo.UpdateTaskRunWorkerAssignment(ctx, "", "", "", "", time.Now()) }},
-		{"UpdateTaskRunCompletion", func() error { return repo.UpdateTaskRunCompletion(ctx, "", time.Now(), nil, nil, nil) }},
+		{"UpdateTaskRunWorkerAssignment", func() error { return repo.UpdateTaskRunWorkerAssignment(ctx, "", "", "", "", time.Time{}) }},
+		{"UpdateTaskRunCompletion", func() error { return repo.UpdateTaskRunCompletion(ctx, "", time.Time{}, nil, nil, nil) }},
 		{"IncrementTaskRunRetry", func() error { return repo.IncrementTaskRunRetry(ctx, "", "", "") }},
 		{"UpdateTaskAttemptCompletion", func() error { return repo.UpdateTaskAttemptCompletion(ctx, "", nil, "", "", "") }},
 		{"UpdateWorkerHeartbeatStatus", func() error { return repo.UpdateWorkerHeartbeatStatus(ctx, "", "") }},

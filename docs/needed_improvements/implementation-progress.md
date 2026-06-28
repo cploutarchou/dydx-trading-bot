@@ -1,5 +1,104 @@
 # Implementation Progress
 
+## Latest Run — 2026-06-28T15:45:00+03:00
+
+### Documents read
+
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/current-state-assessment.md`
+- `docs/needed_improvements/target-architecture.md`
+- `docs/needed_improvements/data-storage-matrix.md`
+- `docs/needed_improvements/postgresql-plan.md`
+- `docs/needed_improvements/minio-artifact-plan.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/nats-jetstream-plan.md`
+- `docs/needed_improvements/nats-command-event-contract.md`
+- `docs/needed_improvements/valkey-plan.md`
+- `docs/needed_improvements/observability-plan.md`
+- `docs/needed_improvements/k3s-open-source-execution-plan.md`
+- `docs/needed_improvements/kubernetes-devops-plan.md`
+- `docs/needed_improvements/migration-plan.md`
+- `.github/copilot-instructions.md`
+- `.github/CUSTOMIZATION_INDEX.md`
+- `.github/agents/senior-defi-monorepo-platform.agent.md`
+- `bot/.github/copilot-instructions.md`
+- `bot/.github/CUSTOMIZATION_INDEX.md`
+- `bot/.github/agents/senior-python-defi-runtime.agent.md`
+- `bot/.github/instructions/runtime-safety.instructions.md`
+- `bot/.github/instructions/improvement-output.instructions.md`
+- `.github/skills/defi-python-algo-trading/SKILL.md`
+- NOT FOUND: none
+
+### Task selected
+
+- Add Phase 3 `order_events` ClickHouse mirroring for the existing live execution path.
+
+### Reason selected
+
+- The previous latest run in `implementation-progress.md` explicitly recommended `order_events` as the next highest-priority unfinished Phase 3 slice.
+- `master-implementation-plan.md`, `implementation-backlog.md`, `investigation-checklist.md`, and `clickhouse-plan.md` still showed Phase 3 as the active dependency chain with live `order_events` still missing.
+- The safest ownership point already existed in `bot/src/infrastructure/persistence/repository.py` and the live trade lifecycle emitters in `bot/src/trading/position_manager.py`, so this could be added without changing backend/frontend contracts or the authoritative PostgreSQL trade store.
+
+### Implementation completed
+
+- Added `order_events` DDL provisioning to `bot/src/infrastructure/storage/clickhouse_writer.py` alongside the existing buffered writer tables.
+- Extended `EventRepository.log_event()` in `bot/src/infrastructure/persistence/repository.py` so committed lifecycle events can now emit normalized `order_events` rows in addition to `bot_events` when those events carry order identifiers and order metadata.
+- Enriched the existing live entry/exit lifecycle events in `bot/src/trading/position_manager.py` so committed `trade_entry_opened`, `trade_exit_close_confirmed`, and `trade_exit_orphaned` events now include the side/size/price/timestamp fields needed to build useful `order_events` rows.
+- Added regression coverage for `order_events` DDL provisioning and event-log-driven order mirroring.
+
+### Files changed
+
+- `bot/src/infrastructure/storage/clickhouse_writer.py`
+- `bot/src/infrastructure/persistence/repository.py`
+- `bot/src/trading/position_manager.py`
+- `bot/tests/test_storage_adapters.py`
+- `bot/tests/test_event_repository.py`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `docs/needed_improvements/current-state-assessment.md`
+
+### Tests and checks run
+
+- `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_live_trade_persistence.py -q`
+  - result: passed (`29 passed, 1 warning`)
+- `./bot/.venv/bin/python -m py_compile bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/src/trading/position_manager.py bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py`
+  - result: passed
+- `./bot/.venv/bin/python -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/src/trading/position_manager.py bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py`
+  - result: passed
+
+### Result
+
+- [x] DONE — `order_events` is now provisioned and the existing committed live trade lifecycle event path can mirror normalized order rows into ClickHouse.
+- [~] PARTIAL — Phase 3 remains incomplete because writes are still feature-gated/default-off, live `position_snapshots` are still missing, and backend ClickHouse read models do not exist yet.
+
+### Risks
+
+- `order_events` currently covers the committed entry-opened and close-confirmed/orphaned lifecycle path, not every exchange-native submission/update/cancel/fill transition.
+- The mirroring still depends on the existing event-log producers populating structured details consistently.
+- Checked-in runtime config still keeps ClickHouse disabled by default, so this run did not validate a live stack with real ClickHouse ingestion.
+
+### Known gaps
+
+- [~] PARTIAL — `order_events` now covers the repository-owned live lifecycle path, but finer-grained exchange order/fill transitions remain incomplete.
+- [~] PARTIAL — `trade_events` still capture paired lifecycle analytics rather than full per-fill trade detail.
+- [ ] PENDING — Live `position_snapshots` analytical rows are still missing.
+- [ ] PENDING — Backend dashboards still do not read live analytical summaries from ClickHouse.
+
+### Next recommended task
+
+- Phase 3: add live `position_snapshots` ClickHouse mirroring from the owning realtime position repository so open-position state becomes queryable outside PostgreSQL.
+
+### Manual steps required
+
+- Run a real live entry/exit flow with `CLICKHOUSE_ENABLED=true` (or equivalent runtime flag) and verify `order_events` rows land in ClickHouse.
+- Decide whether deeper order lifecycle states should continue to piggyback on committed event logs or move to a more direct execution-producer path in a later slice.
+
 ## Latest Run — 2026-06-28T15:13:58+03:00
 
 ### Documents read

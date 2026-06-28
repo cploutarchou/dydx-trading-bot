@@ -391,6 +391,39 @@ def test_clickhouse_writer_provisions_bot_events_table():
     assert any("bot_events" in cmd for cmd in client.commands)
 
 
+def test_clickhouse_writer_provisions_order_events_table():
+    client = _FakeClickHouseClient()
+    writer = ClickHouseAnalyticsWriter(
+        enabled=True,
+        database="analytics",
+        extra_config={"client": client},
+    )
+
+    writer.write_rows(
+        "order_events",
+        [
+            {
+                "event_date": datetime(2026, 1, 1, tzinfo=timezone.utc).date(),
+                "event_time": datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc),
+                "order_id": "entry-1",
+                "trade_id": "live-abc123",
+                "bot_id": "77",
+                "bot_run_id": "run-1",
+                "market": "BTC-USD",
+                "side": "BUY",
+                "status": "filled",
+                "event_type": "trade_entry_opened",
+                "price": 100000.0,
+                "size": 0.1,
+                "exchange_time": datetime(2026, 1, 1, 0, 0, 1, tzinfo=timezone.utc),
+                "correlation_id": "corr-1",
+            }
+        ],
+    )
+
+    assert any("order_events" in cmd for cmd in client.commands)
+
+
 def test_clickhouse_writer_provisions_trade_events_table():
     client = _FakeClickHouseClient()
     writer = ClickHouseAnalyticsWriter(

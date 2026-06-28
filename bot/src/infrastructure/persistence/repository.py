@@ -565,30 +565,66 @@ class EventRepository:
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _coerce_optional_float(value: Any) -> float | None:
+        if value in (None, ""):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _normalize_optional_datetime(value: Any) -> datetime | None:
+        if value in (None, ""):
+            return None
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                return value.replace(tzinfo=timezone.utc)
+            return value.astimezone(timezone.utc)
+        if isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+        return None
+
     @classmethod
-    def _build_analytics_row(cls, event: Event) -> dict[str, Any]:
+    def _event_context(
+        cls, event: Event
+    ) -> tuple[dict[str, Any], datetime, str, str]:
         details = dict(event.details or {}) if isinstance(event.details, dict) else {}
         created_at = event.created_at or utc_now()
         if created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=timezone.utc)
+        else:
+            created_at = created_at.astimezone(timezone.utc)
 
-        correlation_id = (
+        correlation_id = str(
             details.get("correlation_id")
             or details.get("trace_id")
             or details.get("request_id")
             or event.related_job_id
             or ""
         )
-        worker_id = (
-            details.get("instance_id")
-            or details.get("worker_id")
-            or os.getenv("BOT_INSTANCE_ID", "")
-        )
-        bot_run_id = (
+        bot_run_id = str(
             details.get("bot_run_id")
             or details.get("run_id")
             or details.get("runtime_run_id")
             or ""
+        )
+        return details, created_at, correlation_id, bot_run_id
+
+    @classmethod
+    def _build_analytics_row(cls, event: Event) -> dict[str, Any]:
+        details, created_at, correlation_id, bot_run_id = cls._event_context(event)
+        worker_id = (
+            details.get("instance_id")
+            or details.get("worker_id")
+            or os.getenv("BOT_INSTANCE_ID", "")
         )
         status = details.get("status") or details.get("state") or event.severity or ""
         strategy_id = cls._coerce_optional_int(
@@ -617,6 +653,104 @@ class EventRepository:
             "payload_attrs": json.dumps(payload_attrs, sort_keys=True, default=str),
         }
 
+    @staticmethod
+    def _order_status_for_event(event_type: str) -> str:
+        event_type = str(event_type or "")
+        if event_type == "trade_entry_opened":
+            return "filled"
+        if event_type == "trade_exit_close_confirmed":
+            return "closed"
+        if event_type == "trade_exit_orphaned":
+            return "orphaned"
+        return ""
+
+    @classmethod
+    def _build_order_analytics_rows(cls, event: Event) -> list[dict[str, Any]]:
+        details, created_at, correlation_id, bot_run_id = cls._event_context(event)
+        event_type = str(event.event_type or "")
+        trade_id = str(
+            event.related_trade_id or details.get("trade_id") or details.get("related_trade_id") or ""
+        )
+
+        order_specs: list[dict[str, Any]] = []
+        if event_type == "trade_entry_opened":
+            order_specs = [
+                {
+                    "order_id_key": "order_id_m1",
+                    "market_key": "market_1",
+                    "side_key": "order_m1_side",
+                    "price_key": "order_m1_price",
+                    "size_key": "order_m1_size",
+                    "exchange_time_key": "order_time_m1",
+                },
+                {
+                    "order_id_key": "order_id_m2",
+                    "market_key": "market_2",
+                    "side_key": "order_m2_side",
+                    "price_key": "order_m2_price",
+                    "size_key": "order_m2_size",
+                    "exchange_time_key": "order_time_m2",
+                },
+            ]
+        elif event_type == "trade_exit_close_confirmed":
+            order_specs = [
+                {
+                    "order_id_key": "close_order_m1_id",
+                    "market_key": "market_1",
+                    "side_key": "close_order_m1_side",
+                    "price_key": "close_order_m1_price",
+                    "size_key": "close_order_m1_size",
+                    "exchange_time_key": "close_order_time_m1",
+                },
+                {
+                    "order_id_key": "close_order_m2_id",
+                    "market_key": "market_2",
+                    "side_key": "close_order_m2_side",
+                    "price_key": "close_order_m2_price",
+                    "size_key": "close_order_m2_size",
+                    "exchange_time_key": "close_order_time_m2",
+                },
+            ]
+        elif event_type == "trade_exit_orphaned":
+            order_specs = [
+                {
+                    "order_id_key": "close_order_m1_id",
+                    "market_key": "market_1",
+                    "side_key": "close_order_m1_side",
+                    "price_key": "close_order_m1_price",
+                    "size_key": "close_order_m1_size",
+                    "exchange_time_key": "close_order_time_m1",
+                }
+            ]
+
+        status = cls._order_status_for_event(event_type)
+        rows: list[dict[str, Any]] = []
+        for spec in order_specs:
+            order_id = details.get(spec["order_id_key"])
+            if not order_id:
+                continue
+            rows.append(
+                {
+                    "event_date": created_at.date(),
+                    "event_time": created_at,
+                    "order_id": str(order_id),
+                    "trade_id": trade_id,
+                    "bot_id": str(event.bot_instance_id),
+                    "bot_run_id": bot_run_id,
+                    "market": str(details.get(spec["market_key"]) or ""),
+                    "side": str(details.get(spec["side_key"]) or ""),
+                    "status": status,
+                    "event_type": event_type,
+                    "price": cls._coerce_optional_float(details.get(spec["price_key"])),
+                    "size": cls._coerce_optional_float(details.get(spec["size_key"])),
+                    "exchange_time": cls._normalize_optional_datetime(
+                        details.get(spec["exchange_time_key"])
+                    ),
+                    "correlation_id": correlation_id,
+                }
+            )
+        return rows
+
     def _write_analytics_event(self, event: Event) -> None:
         try:
             self.analytics_writer.write_rows(
@@ -625,6 +759,17 @@ class EventRepository:
         except Exception as exc:
             logger.warning(
                 "Failed to mirror bot event %s to ClickHouse: %s",
+                event.event_type,
+                exc,
+            )
+        order_rows = self._build_order_analytics_rows(event)
+        if not order_rows:
+            return
+        try:
+            self.analytics_writer.write_rows("order_events", order_rows)
+        except Exception as exc:
+            logger.warning(
+                "Failed to mirror order events for %s to ClickHouse: %s",
                 event.event_type,
                 exc,
             )

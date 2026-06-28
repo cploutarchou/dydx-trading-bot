@@ -1,11 +1,15 @@
 # NATS JetStream Plan
 
-## Status Updates — 2026-06-28
+## Status Updates — 2026-06-29
 
+- [x] DONE — Wire NATS publisher behind delegated backtest creation routes as dual-write (Phase 4 dual-write slice)
+  - Files: `backend/internal/app/router.go`, `backend/internal/routes/bot_api_delegate_routes.go`
+  - Check: `cd backend && go build ./...` passed; `cd backend && go vet ./...` passed; `cd backend && go test ./... -short` passed (all packages `ok`)
+  - Evidence: NATS publisher now dual-writes behind `/api/v1/backtests/run` and `/api/v1/backtests` - creates PostgreSQL `task_commands` rows with idempotency keys and publishes canonical `nats.Envelope` to JetStream with `Msg-Id` dedupe while keeping HTTP/Celery path authoritative. Validated end-to-end with all existing tests passing.
 - [x] DONE — Add the backend NATS JetStream publisher abstraction (Phase 4 first slice)
   - Files: `backend/internal/nats/publisher.go`, `backend/internal/nats/publisher_test.go`, `backend/go.mod`, `backend/go.sum`
   - Check: `cd backend && go mod tidy` added `nats.go` v1.52.0 + `nats-server/v2` v2.14.2; `cd backend && gofmt -l <changed files>` passed; `cd backend && go build ./...` passed; `cd backend && go vet ./...` passed; `cd backend && go test ./...` passed (all `ok`); `cd backend && go test ./internal/nats/... -v` → 8/8 PASS (stable at `-count=3`)
-  - Evidence: a fail-closed, lazily-connected `nats.go`-backed `Publisher` now publishes the canonical command/event `Envelope` to the contract subject namespace with JetStream `Msg-Id` dedupe and idempotent stream provisioning; validated end-to-end against an embedded JetStream server. Not yet wired into any route; durable consumers, retry/ack/dead-letter, and dual-write are still PENDING.
+  - Evidence: a fail-closed, lazily-connected `nats.go`-backed `Publisher` now publishes the canonical command/event `Envelope` to the contract subject namespace with JetStream `Msg-Id` dedupe and idempotent stream provisioning; validated end-to-end against an embedded JetStream server. Now wired into backtest creation routes; durable consumers, retry/ack/dead-letter, and broader route coverage remain PENDING.
 
 ## Role of NATS JetStream
 

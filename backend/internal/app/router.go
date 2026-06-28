@@ -13,6 +13,7 @@ import (
 	"github.com/dydx-trading-bot/backend-go/config"
 	"github.com/dydx-trading-bot/backend-go/internal/db"
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
+	"github.com/dydx-trading-bot/backend-go/internal/nats"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/dydx-trading-bot/backend-go/internal/routes"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
@@ -109,7 +110,11 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 	}
 
 	registerHealthRoutes(router, cfg, deps.Database, deps.BotAPIURL, deps.StartTime)
-	registerFeatureRoutes(router, deps.Database, deps.BotAPIClient, deps.CacheService, deps.BacktestPushHub)
+	// Phase 4: NATS JetStream publisher and task repository for dual-write wiring
+	taskRepo := repository.NewTaskRepository(deps.Database.DB)
+	natsPublisher := nats.NewPublisher(cfg.NATS)
+
+	registerFeatureRoutes(router, deps.Database, deps.BotAPIClient, deps.CacheService, deps.BacktestPushHub, taskRepo, natsPublisher)
 	registerDebugRoutes(router, deps.Database)
 
 	// Backend-owned ClickHouse read models. Each reader is nil when ClickHouse is
@@ -125,7 +130,7 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 	return router, nil
 }
 
-func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient *services.BotAPIClient, cacheService *services.CacheService, backtestPushHub *services.BacktestPushHub) {
+func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient *services.BotAPIClient, cacheService *services.CacheService, backtestPushHub *services.BacktestPushHub, taskRepo *repository.TaskRepository, natsPublisher *nats.Publisher) {
 	routes.RegisterAuthRoutes(router, database.DB)
 	routes.RegisterAdminUserRoutes(router, database.DB)
 	routes.RegisterBackofficeRoutes(router, database.DB)
@@ -143,8 +148,10 @@ func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient 
 	backtestSyncRepo := repository.NewBacktestSyncRepository(database.DB)
 	backtestSyncService := services.NewBacktestSyncService(backtestSyncRepo)
 
+
+
 	routes.RegisterBotInstanceRoutes(router, database, cacheService)
-	routes.RegisterBotAPIDelegateRoutesWithSyncCacheAndPush(router, apiClient, backtestSyncService, cacheService, backtestPushHub)
+	routes.RegisterBotAPIDelegateRoutesWithSyncCacheAndPush(router, apiClient, backtestSyncService, cacheService, backtestPushHub, taskRepo, natsPublisher)
 	routes.RegisterAIMarketRoutes(router, database, apiClient)
 	routes.RegisterKeyRoutes(router, database)
 	routes.RegisterPairStorageRoutes(router)

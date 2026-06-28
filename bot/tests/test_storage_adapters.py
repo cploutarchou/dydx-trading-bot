@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
@@ -359,6 +360,35 @@ def test_clickhouse_writer_provisions_equity_curve_and_strategy_metrics_tables()
 
     assert any("backtest_equity_curve" in cmd for cmd in client.commands)
     assert any("strategy_metrics" in cmd for cmd in client.commands)
+
+
+def test_clickhouse_writer_provisions_bot_events_table():
+    client = _FakeClickHouseClient()
+    writer = ClickHouseAnalyticsWriter(
+        enabled=True,
+        database="analytics",
+        extra_config={"client": client},
+    )
+
+    writer.write_rows(
+        "bot_events",
+        [
+            {
+                "event_date": datetime(2026, 1, 1, tzinfo=timezone.utc).date(),
+                "event_time": datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc),
+                "bot_run_id": "run-1",
+                "bot_id": "77",
+                "event_type": "bot_started",
+                "status": "running",
+                "strategy_id": 42,
+                "worker_id": "strategy-1-101",
+                "correlation_id": "corr-1",
+                "payload_attrs": "{\"message\":\"started\"}",
+            }
+        ],
+    )
+
+    assert any("bot_events" in cmd for cmd in client.commands)
 
 
 def test_clickhouse_writer_falls_back_on_insert_error():

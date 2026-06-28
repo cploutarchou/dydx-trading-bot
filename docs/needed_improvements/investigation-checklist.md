@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — Bot event logs now mirror into ClickHouse `bot_events`
+  - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_event_repository.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_live_trade_persistence.py -q` passed; `python3 -m py_compile bot/src/infrastructure/persistence/repository.py bot/src/infrastructure/storage/clickhouse_writer.py bot/tests/test_event_repository.py bot/tests/test_storage_adapters.py` passed
+  - Evidence: `EventRepository.log_event()` now keeps PostgreSQL as the authoritative event log while best-effort mirroring committed lifecycle/trade-activity events into buffered ClickHouse `bot_events` rows.
 - [x] DONE — ClickHouse writes now buffer and flush in process
   - Files: `bot/src/infrastructure/storage/analytics.py`, `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/config/config.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_backtest_repository.py`, `bot/tests/test_platform_runtime_config.py`, `config/profiles/example.config.json`, `deploy/k8s-next/platform-config.yaml`, `docker-compose.stack.yml`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py bot/tests/test_platform_runtime_config.py -q` passed; `docker compose -f docker-compose.stack.yml config` passed
@@ -177,6 +181,8 @@
 
 - `bot/src/infrastructure/workers/backtest_tasks.py`
   - backtest trade / position / PnL / equity curve / metrics rows
+- `bot/src/infrastructure/persistence/repository.py`
+  - existing bot lifecycle and trade-activity event logs now mirror into `bot_events`
 - `bot/src/infrastructure/persistence/repository_backtest.py`
   - current place where analytical sidecars are already extracted
 - `bot/src/main_instance.py`
@@ -189,7 +195,9 @@
 ### Existing ClickHouse write path
 
 - `bot/src/infrastructure/storage/clickhouse_writer.py`
-  - present, still feature-gated, now provisions five backtest tables (`backtest_trades`, `backtest_position_snapshots`, `backtest_daily_pnl`, `backtest_equity_curve`, `strategy_metrics`), buffers rows by batch size / flush interval, and force-flushes terminal repository saves
+  - present, still feature-gated, now provisions five backtest tables plus `bot_events`, buffers rows by batch size / flush interval, and force-flushes terminal repository saves
+- `bot/src/infrastructure/persistence/repository.py`
+  - existing committed bot event-log rows now mirror into ClickHouse `bot_events` through the shared buffered writer when ClickHouse is enabled
 
 ## Code That Should Write To MinIO
 

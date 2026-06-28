@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — Mirror committed bot event logs into ClickHouse `bot_events`
+  - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_event_repository.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_live_trade_persistence.py -q` passed; `python3 -m py_compile bot/src/infrastructure/persistence/repository.py bot/src/infrastructure/storage/clickhouse_writer.py bot/tests/test_event_repository.py bot/tests/test_storage_adapters.py` passed
+  - Evidence: `EventRepository.log_event()` now best-effort mirrors committed PostgreSQL bot lifecycle/trade-activity event rows into buffered ClickHouse `bot_events` rows when ClickHouse is enabled.
 - [x] DONE — Add batched ClickHouse writes for the repository-owned backtest path
   - Files: `bot/src/infrastructure/storage/analytics.py`, `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/config/config.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_backtest_repository.py`, `bot/tests/test_platform_runtime_config.py`, `config/profiles/example.config.json`, `deploy/k8s-next/platform-config.yaml`, `docker-compose.stack.yml`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py bot/tests/test_platform_runtime_config.py -q` passed; `python3 -m compileall bot/src/infrastructure/storage/analytics.py bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository_backtest.py bot/config/config.py bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py bot/tests/test_platform_runtime_config.py` passed; `docker compose -f docker-compose.stack.yml config` passed
@@ -15,8 +19,8 @@
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py -q` passed; `python3 -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository_backtest.py bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py` passed
   - Evidence: the writer now provisions `backtest_equity_curve` and `strategy_metrics`, and completed repository saves emit those row families when the payload carries `equity_curve` or `metrics`.
 - [~] PARTIAL — Expand ClickHouse schemas and batching beyond the current backtest subset
-  - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository_backtest.py`
-  - Acceptance result: `bot/src/infrastructure/storage/clickhouse_writer.py` now provisions five backtest analytical tables and buffers/flushes repository-owned analytical writes, but broader live-bot analytical tables and backend read paths remain pending.
+  - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/src/infrastructure/persistence/repository_backtest.py`
+  - Acceptance result: `bot/src/infrastructure/storage/clickhouse_writer.py` now provisions five backtest analytical tables plus live `bot_events`, and `bot/src/infrastructure/persistence/repository.py` mirrors committed bot event logs into the buffered writer, but `order_events`, `trade_events`, live position analytics, and backend read paths remain pending.
 
 ## Role of ClickHouse
 
@@ -43,13 +47,14 @@ ClickHouse must not be used for:
 
 ## Current Findings From Repository
 
-- Existing ClickHouse integration is limited to optional backtest sidecar writes in `bot/src/infrastructure/storage/clickhouse_writer.py`.
+- Existing ClickHouse integration now covers optional backtest sidecar writes plus optional bot event-log mirroring in `bot/src/infrastructure/storage/clickhouse_writer.py` and `bot/src/infrastructure/persistence/repository.py`.
 - Backtest repository writes no longer rely on PostgreSQL result arrays for detail reads, so ClickHouse is now the remaining missing durable analytical sink rather than a prerequisite for shrinking the runtime row.
 - Write path is feature-gated in `bot/src/infrastructure/persistence/repository_backtest.py`.
 - Runtime defaults disable it in:
   - `docker-compose.stack.yml`
   - `deploy/k8s-next/platform-config.yaml`
 - Existing writer is feature-gated, buffers rows by batch size / flush interval, force-flushes terminal repository saves, and now provisions:
+  - `bot_events`
   - `backtest_trades`
   - `backtest_daily_pnl`
   - `backtest_position_snapshots`
@@ -124,6 +129,11 @@ Query examples:
 Migration source:
 
 - process-local runtime events and Redis pub/sub paths currently spread across `bot/src/main_instance.py` and `bot/src/api/server.py`
+
+Current implementation status:
+
+- [x] DONE — first slice is live through `bot/src/infrastructure/persistence/repository.py`, which now mirrors existing committed bot event-log rows into ClickHouse `bot_events`
+- [~] PARTIAL — direct order/fill/position runtime producers still need their own normalized analytical rows
 
 ## `order_events`
 

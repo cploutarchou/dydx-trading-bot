@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — Add normalized task tables (`task_commands`, `task_runs`, `task_attempts`, `worker_heartbeats`) for NATS JetStream foundation
+  - Files: `backend/migrations/postgres/000063_create_task_commands.*`, `000064_create_task_runs.*`, `000065_create_task_attempts.*`, `000066_create_worker_heartbeats.*`, `backend/internal/models/models.go`, `backend/internal/repository/task_repository.go`, `backend/internal/repository/task_repository_test.go`
+  - Check: `cd backend && go build ./...` passed; `cd backend && go vet ./...` passed; `cd backend && go test ./internal/repository/... -run TestTaskRepository -v` → 13/13 PASS
+  - Evidence: four normalized task management tables with proper indexes, Go models, and complete repository layer. Provides PostgreSQL backing for NATS JetStream command idempotency and durable state as required by the target architecture.
 - [x] DONE — Stop persisting backtest result arrays in PostgreSQL runtime rows
   - Files: `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_backtest_repository.py`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_backtest_repository_payload_relation.py bot/tests/test_storage_adapters.py -q` passed; `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_service.py -q -k 'backtest_runs_async_and_completes_with_trades or comprehensive_analytics_includes_sub_objects_and_candle_fields'` passed
@@ -348,7 +352,7 @@ Rules:
 ### First move
 
 1. Introduce `artifact_references`.
-2. Introduce `task_commands`, `task_runs`, and updated `backtest_runs`.
+2. [x] DONE — Introduce `task_commands`, `task_runs`, `task_attempts`, and `worker_heartbeats` (migrations `000063-000066`).
 3. Add write-path support that persists summaries only in PostgreSQL.
 4. Upload full result artifacts to MinIO.
 5. Write extracted analytical rows to ClickHouse.

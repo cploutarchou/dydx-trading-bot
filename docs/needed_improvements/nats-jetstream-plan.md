@@ -34,6 +34,7 @@ Valkey is not the durable queue. PostgreSQL stores final state. Workers must be 
 - Active code-level JetStream producer: PARTIAL — a fail-closed, lazily-connected `nats.go`-backed `Publisher` exists in `backend/internal/nats/publisher.go` (envelope contract, subject namespace, idempotent stream provisioning, `Msg-Id` dedupe) but is not yet wired into any route.
 - Active code-level JetStream consumer: NOT FOUND.
 - Current durable path is Celery in `bot/src/infrastructure/workers/celery_app.py`.
+- PostgreSQL foundation for command idempotency: DONE — normalized task tables (`task_commands`, `task_runs`, `task_attempts`, `worker_heartbeats`) now exist with proper indexes, Go models, and repository layer, providing the idempotency and durable state foundation for NATS wiring.
 
 ## Proposed Streams
 

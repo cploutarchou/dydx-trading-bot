@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — Add normalized PostgreSQL task tables for NATS JetStream foundation (Phase 4 dependency)
+  - Files: `backend/migrations/postgres/000063_create_task_commands.*`, `000064_create_task_runs.*`, `000065_create_task_attempts.*`, `000066_create_worker_heartbeats.*`, `backend/internal/models/models.go`, `backend/internal/repository/task_repository.go`, `backend/internal/repository/task_repository_test.go`
+  - Check: `cd backend && go build ./...` passed; `cd backend && go vet ./...` passed; `cd backend && go test ./...` passed (all `ok`); `cd backend && go test ./internal/repository/... -run TestTaskRepository -v` → 13/13 PASS
+  - Evidence: four normalized task tables (`task_commands`, `task_runs`, `task_attempts`, `worker_heartbeats`) with proper indexes, Go models, and a complete repository layer with fail-closed nil-db handling. Provides the PostgreSQL foundation for NATS JetStream command idempotency and durable state.
 - [x] DONE — Add the backend NATS JetStream publisher abstraction (Phase 4 first slice)
   - Files: `backend/internal/nats/publisher.go`, `backend/internal/nats/publisher_test.go`, `backend/go.mod`, `backend/go.sum`
   - Check: `cd backend && go mod tidy` added `nats.go` v1.52.0 + `nats-server/v2` v2.14.2; `cd backend && gofmt -l <changed files>` passed; `cd backend && go build ./...` passed; `cd backend && go vet ./...` passed; `cd backend && go test ./...` passed (all packages `ok`); `cd backend && go test ./internal/nats/... -v` → 8/8 PASS (stable at `-count=3`)

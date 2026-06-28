@@ -245,7 +245,7 @@ Infrastructure manifests assume the modernization target exists; application beh
 4. In-process fallback execution path in `bot/src/infrastructure/use_cases/service_backtest.py`.
 5. In-process backend rate limiting in `backend/internal/middleware/rate_limit.go`.
 6. Backend DB pool hardcoded to low values in `backend/cmd/server/main.go`.
-7. ClickHouse writer now batches inside each process and covers repository-owned live `bot_events`, `order_events`, `trade_events`, and `position_snapshots`, but the buffered path is still optional/default-off and backend analytical read models are still missing.
+7. ClickHouse writer now batches inside each process and covers repository-owned live `bot_events`, `order_events`, `trade_events`, and `position_snapshots`; three backend analytical read models now exist (live position history, live trade/order summary aggregates, and per-pair performance breakdown, all admin-gated under `GET /api/v1/analytics/*` and fail-closed), but the buffered write path is still optional/default-off and the read models are not yet wired into the frontend/dashboard.
 
 ### Failure and retry risks
 

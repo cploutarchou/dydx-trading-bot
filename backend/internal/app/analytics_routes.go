@@ -22,7 +22,7 @@ const (
 // response reports enabled=false with empty data so dashboards can degrade
 // gracefully instead of erroring, and a query failure surfaces an error without
 // returning stale or partial rows.
-func registerAnalyticsRoutes(router *gin.Engine, positionReader *services.LivePositionReader, tradeSummaryReader *services.LiveTradeSummaryReader) {
+func registerAnalyticsRoutes(router *gin.Engine, positionReader *services.LivePositionReader, tradeSummaryReader *services.LiveTradeSummaryReader, pairBreakdownReader *services.LivePairBreakdownReader) {
 	group := router.Group("/api/v1/analytics")
 	group.Use(middleware.RequireAuth())
 
@@ -31,6 +31,9 @@ func registerAnalyticsRoutes(router *gin.Engine, positionReader *services.LivePo
 	})
 	group.GET("/trade-summary", func(c *gin.Context) {
 		serveLiveTradeSummary(c, tradeSummaryReader)
+	})
+	group.GET("/pair-breakdown", func(c *gin.Context) {
+		serveLivePairBreakdown(c, pairBreakdownReader)
 	})
 }
 
@@ -201,5 +204,82 @@ func emptyTradeSummaryEnvelope(instanceID string, hours int) gin.H {
 		"totals":           services.LiveTradeTotals{},
 		"daily":            []interface{}{},
 		"orders_by_status": []interface{}{},
+	}
+}
+
+// serveLivePairBreakdown is the testable core of the pair-breakdown route. It
+// mirrors the other analytics handlers: admin-gated, requires instance_id, fails
+// closed with an enabled=false envelope when ClickHouse is off, and surfaces a
+// success=false envelope on query failure instead of partial rows.
+func serveLivePairBreakdown(c *gin.Context, pairBreakdownReader *services.LivePairBreakdownReader) {
+	if !c.GetBool("is_admin") {
+		c.JSON(http.StatusForbidden, gin.H{
+			"success":  false,
+			"message":  "Admin access required",
+			"trace_id": middleware.GetTraceID(c),
+		})
+		return
+	}
+
+	instanceID := strings.TrimSpace(c.Query("instance_id"))
+	hours := parseHistoryHours(c.Query("hours"))
+
+	if instanceID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success":  false,
+			"message":  "instance_id query parameter is required",
+			"trace_id": middleware.GetTraceID(c),
+		})
+		return
+	}
+
+	// Fail closed when ClickHouse reads are not configured: return a stable,
+	// enabled=false envelope with empty data so dashboards degrade gracefully.
+	if pairBreakdownReader == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success":  true,
+			"enabled":  false,
+			"source":   "disabled",
+			"data":     emptyPairBreakdownEnvelope(instanceID, hours),
+			"trace_id": middleware.GetTraceID(c),
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), analyticsQueryTimeout)
+	defer cancel()
+
+	breakdown, err := pairBreakdownReader.GetBreakdown(ctx, instanceID, hours)
+	if err != nil {
+		// Query failed: do not return partial rows. Report enabled=true with the
+		// failure reason so operators can see ClickHouse is configured but unhealthy.
+		c.JSON(http.StatusOK, gin.H{
+			"success":  false,
+			"enabled":  true,
+			"source":   "clickhouse",
+			"message":  "ClickHouse pair breakdown query failed",
+			"error":    err.Error(),
+			"data":     emptyPairBreakdownEnvelope(instanceID, hours),
+			"trace_id": middleware.GetTraceID(c),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"enabled":  true,
+		"source":   "clickhouse",
+		"data":     breakdown,
+		"trace_id": middleware.GetTraceID(c),
+	})
+}
+
+// emptyPairBreakdownEnvelope is the stable degraded payload shared by the disabled
+// and query-failure paths so consumers always see the same shape.
+func emptyPairBreakdownEnvelope(instanceID string, hours int) gin.H {
+	return gin.H{
+		"instance_id": instanceID,
+		"hours":       hours,
+		"pairs":       []interface{}{},
 	}
 }

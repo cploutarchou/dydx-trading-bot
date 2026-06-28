@@ -1,7 +1,9 @@
-.PHONY: help dev prod setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run config edit-config dev-config prod-config config-keygen config-key-rotate install-config-key show-config-token encrypt-dev-config decrypt-dev-config encrypt-prod-config decrypt-prod-config install-security-tools env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down infra-up infra-down infra-logs infra-ps dev-infra dev-infra-down stack-env stack-env-check stack-up-dev stack-up-prod stack-up-integration stack-down stack-logs stack-ps docs-governance images-build images-build-latest images-push images-push-latest images-print
+.PHONY: help dev prod setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run config edit-config dev-config prod-config config-keygen config-key-rotate install-config-key show-config-token encrypt-dev-config decrypt-dev-config encrypt-prod-config decrypt-prod-config install-security-tools env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down infra-up infra-down infra-logs infra-ps dev-infra dev-infra-down stack-env stack-env-check stack-up-dev stack-up-prod stack-up-integration stack-down stack-logs stack-ps docs-governance images-build images-build-latest images-push images-push-latest images-print infra-up-arm64 infra-down-arm64 infra-logs-arm64 infra-ps-arm64 stack-up-dev-arm64 stack-up-prod-arm64 stack-up-integration-arm64 stack-down-arm64 stack-logs-arm64 stack-ps-arm64 images-build-arm64 images-build-latest-arm64 images-push-arm64 images-push-latest-arm64
 MODE ?= development
 STACK_COMPOSE_FILE ?= docker-compose.stack.yml
+STACK_COMPOSE_FILE_ARM64 ?= docker-compose.stack.arm64.yml
 INFRA_COMPOSE_FILE ?= docker-compose.infra.yml
+INFRA_COMPOSE_FILE_ARM64 ?= docker-compose.infra.arm64.yml
 IMAGE_REGISTRY ?= ghcr.io/cploutarchou/dydx-trading-bot
 IMAGE_TAG ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo latest)
 
@@ -490,6 +492,154 @@ infra-ps: ## Show status for shared infra services (PostgreSQL, Valkey, NATS, Cl
 		echo "⚠️  Docker daemon unavailable; cannot fetch infra status"; \
 		exit 0; \
 	fi
+
+# ============================================================================
+# APPLE SILICON (M1/M2/M3) SUPPORT
+# ============================================================================
+
+infra-up-arm64: ## Start ARM64 infrastructure (Apple Silicon) - PostgreSQL, Valkey, NATS, ClickHouse, MinIO
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		if [ ! -f "$(INFRA_COMPOSE_FILE_ARM64)" ]; then \
+			echo "❌ Missing $(INFRA_COMPOSE_FILE_ARM64)."; \
+			exit 1; \
+		fi; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE_ARM64) up -d --remove-orphans; \
+		echo ""; \
+		echo "✅ ARM64 Infrastructure started:"; \
+		echo "   PostgreSQL:       localhost:5432"; \
+		echo "   Valkey (Redis):   localhost:6379"; \
+		echo "   NATS JetStream:   localhost:4222 (monitoring: 8222)"; \
+		echo "   ClickHouse:       localhost:8123"; \
+		echo "   MinIO API:        localhost:9010"; \
+		echo "   MinIO Console:    http://localhost:9011"; \
+		echo ""; \
+		echo "Services will auto-discover these via environment variables."; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot start ARM64 infra"; \
+		exit 0; \
+	fi
+
+infra-down-arm64: ## Stop ARM64 infrastructure
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		if [ ! -f "$(INFRA_COMPOSE_FILE_ARM64)" ]; then \
+			echo "❌ Missing $(INFRA_COMPOSE_FILE_ARM64). Nothing to stop via ARM64 infra commands."; \
+			exit 1; \
+		fi; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE_ARM64) down --remove-orphans; \
+		echo "✅ ARM64 Infrastructure stopped"; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot stop ARM64 infra"; \
+		exit 0; \
+	fi
+
+infra-logs-arm64: ## Follow logs for ARM64 infrastructure services
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		if [ ! -f "$(INFRA_COMPOSE_FILE_ARM64)" ]; then \
+			echo "❌ Missing $(INFRA_COMPOSE_FILE_ARM64)."; \
+			echo "   Tip: use docker logs for containers (dydx-postgresql-arm64, dydx-valkey-arm64, etc.)"; \
+			exit 1; \
+		fi; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE_ARM64) logs -f --tail=100; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot fetch ARM64 infra logs"; \
+		exit 0; \
+	fi
+
+infra-ps-arm64: ## Show status for ARM64 infrastructure services
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		if [ ! -f "$(INFRA_COMPOSE_FILE_ARM64)" ]; then \
+			echo "❌ Missing $(INFRA_COMPOSE_FILE_ARM64)."; \
+			echo "   Tip: use docker ps | grep dydx-.-arm64"; \
+			exit 1; \
+		fi; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE_ARM64) ps; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot fetch ARM64 infra status"; \
+		exit 0; \
+	fi
+
+stack-up-dev-arm64: ## Start ARM64 full integration stack (frontend + backend + bot + infrastructure)
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		if [ ! -f "$(STACK_COMPOSE_FILE_ARM64)" ]; then \
+			echo "❌ Missing $(STACK_COMPOSE_FILE_ARM64)."; \
+			exit 1; \
+		fi; \
+		set -e; \
+		python3 scripts/validate_stack_env.py --environment development; \
+		APP_CONFIG_ENV=development docker compose -f $(STACK_COMPOSE_FILE_ARM64) --profile dev up -d --remove-orphans; \
+		echo "✅ ARM64 Dev stack started (frontend:5173, backend:8888, bot-api:8889, worker enabled)"; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot start ARM64 stack"; \
+		exit 0; \
+	fi
+
+stack-up-prod-arm64: ## Start ARM64 production-like stack
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		if [ ! -f "$(STACK_COMPOSE_FILE_ARM64)" ]; then \
+			echo "❌ Missing $(STACK_COMPOSE_FILE_ARM64)."; \
+			exit 1; \
+		fi; \
+		set -e; \
+		python3 scripts/validate_stack_env.py --environment production --strict-prod; \
+		APP_CONFIG_ENV=production docker compose -f $(STACK_COMPOSE_FILE_ARM64) --profile prod up -d --remove-orphans; \
+		echo "✅ ARM64 Prod-like stack started (proxy:8080, api internal, frontend internal)"; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot start ARM64 stack"; \
+		exit 0; \
+	fi
+
+stack-up-integration-arm64: stack-up-dev-arm64 ## Alias for ARM64 full integration stack
+
+stack-down-arm64: ## Stop ARM64 split app stack
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		if [ ! -f "$(STACK_COMPOSE_FILE_ARM64)" ]; then \
+			echo "❌ Missing $(STACK_COMPOSE_FILE_ARM64). Nothing to stop via ARM64 stack commands."; \
+			exit 1; \
+		fi; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f $(STACK_COMPOSE_FILE_ARM64) --profile dev --profile prod down --remove-orphans; \
+		echo "✅ ARM64 Stack stopped"; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot stop ARM64 stack"; \
+		exit 0; \
+	fi
+
+stack-logs-arm64: ## Follow logs for ARM64 split app stack
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		if [ ! -f "$(STACK_COMPOSE_FILE_ARM64)" ]; then \
+			echo "❌ Missing $(STACK_COMPOSE_FILE_ARM64)."; \
+			echo "   Tip: use docker logs for ARM64 containers"; \
+			exit 1; \
+		fi; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f $(STACK_COMPOSE_FILE_ARM64) logs -f --tail=100; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot fetch ARM64 logs"; \
+		exit 0; \
+	fi
+
+stack-ps-arm64: ## Show status for ARM64 split app stack services
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		if [ ! -f "$(STACK_COMPOSE_FILE_ARM64)" ]; then \
+			echo "❌ Missing $(STACK_COMPOSE_FILE_ARM64)."; \
+			echo "   Tip: use docker ps | grep dydx-.-arm64"; \
+			exit 1; \
+		fi; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f $(STACK_COMPOSE_FILE_ARM64) ps; \
+	else \
+		echo "⚠️  Docker daemon unavailable; cannot fetch ARM64 service status"; \
+		exit 0; \
+	fi
+
+images-build-arm64: ## Build all ARM64 service images locally
+	IMAGE_REGISTRY=$(IMAGE_REGISTRY) IMAGE_TAG=$(IMAGE_TAG) PUSH=false ALSO_LATEST=false PLATFORM=linux/arm64 bash scripts/build_all_service_images.sh
+
+images-build-latest-arm64: ## Build all ARM64 service images with :latest tag locally
+	IMAGE_REGISTRY=$(IMAGE_REGISTRY) IMAGE_TAG=$(IMAGE_TAG) PUSH=false ALSO_LATEST=true PLATFORM=linux/arm64 bash scripts/build_all_service_images.sh
+
+images-push-arm64: ## Build and push all ARM64 service images
+	IMAGE_REGISTRY=$(IMAGE_REGISTRY) IMAGE_TAG=$(IMAGE_TAG) PUSH=true ALSO_LATEST=false PLATFORM=linux/arm64 bash scripts/build_all_service_images.sh
+
+images-push-latest-arm64: ## Build and push all ARM64 service images with :latest tag
+	IMAGE_REGISTRY=$(IMAGE_REGISTRY) IMAGE_TAG=$(IMAGE_TAG) PUSH=true ALSO_LATEST=true PLATFORM=linux/arm64 bash scripts/build_all_service_images.sh
 
 check-no-legacy-db: ## Fail if active code/config contains legacy database patterns
 	python3 scripts/check_no_legacy_database.py

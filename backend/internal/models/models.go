@@ -615,38 +615,38 @@ type BotPosition struct {
 // TaskCommand represents an immutable command intent created by backend.
 // Used for NATS JetStream publishing and worker consumption.
 type TaskCommand struct {
-	ID               string    `db:"id" json:"id"`
-	CommandType      string    `db:"command_type" json:"command_type"`
-	OwnerType        string    `db:"owner_type" json:"owner_type"`
-	OwnerID          string    `db:"owner_id" json:"owner_id"`
-	IdempotencyKey   string    `db:"idempotency_key" json:"idempotency_key"`
+	ID                string    `db:"id" json:"id"`
+	CommandType       string    `db:"command_type" json:"command_type"`
+	OwnerType         string    `db:"owner_type" json:"owner_type"`
+	OwnerID           string    `db:"owner_id" json:"owner_id"`
+	IdempotencyKey    string    `db:"idempotency_key" json:"idempotency_key"`
 	RequestedByUserID *int      `db:"requested_by_user_id" json:"requested_by_user_id"`
-	PayloadJSON      []byte    `db:"payload_json" json:"payload_json"`
-	Status           string    `db:"status" json:"status"`
-	CreatedAt        time.Time `db:"created_at" json:"created_at"`
+	PayloadJSON       []byte    `db:"payload_json" json:"payload_json"`
+	Status            string    `db:"status" json:"status"`
+	CreatedAt         time.Time `db:"created_at" json:"created_at"`
 }
 
 // TaskRun represents a generic execution record for async tasks.
 // Links to TaskCommand for idempotency and tracks execution state.
 type TaskRun struct {
-	ID             string     `db:"id" json:"id"`
-	CommandID      string     `db:"command_id" json:"command_id"`
-	TaskType       string     `db:"task_type" json:"task_type"`
-	Status         string     `db:"status" json:"status"`
-	ProgressPct    float64    `db:"progress_pct" json:"progress_pct"`
-	RetryCount     int        `db:"retry_count" json:"retry_count"`
-	MaxRetries     int        `db:"max_retries" json:"max_retries"`
-	WorkerBackend  *string    `db:"worker_backend" json:"worker_backend"`
-	WorkerOwner    *string    `db:"worker_owner" json:"worker_owner"`
-	WorkerTaskID   *string    `db:"worker_task_id" json:"worker_task_id"`
-	StartedAt      *time.Time `db:"started_at" json:"started_at"`
-	FinishedAt     *time.Time `db:"finished_at" json:"finished_at"`
+	ID              string     `db:"id" json:"id"`
+	CommandID       string     `db:"command_id" json:"command_id"`
+	TaskType        string     `db:"task_type" json:"task_type"`
+	Status          string     `db:"status" json:"status"`
+	ProgressPct     float64    `db:"progress_pct" json:"progress_pct"`
+	RetryCount      int        `db:"retry_count" json:"retry_count"`
+	MaxRetries      int        `db:"max_retries" json:"max_retries"`
+	WorkerBackend   *string    `db:"worker_backend" json:"worker_backend"`
+	WorkerOwner     *string    `db:"worker_owner" json:"worker_owner"`
+	WorkerTaskID    *string    `db:"worker_task_id" json:"worker_task_id"`
+	StartedAt       *time.Time `db:"started_at" json:"started_at"`
+	FinishedAt      *time.Time `db:"finished_at" json:"finished_at"`
 	LastHeartbeatAt *time.Time `db:"last_heartbeat_at" json:"last_heartbeat_at"`
-	ErrorCode      *string    `db:"error_code" json:"error_code"`
-	ErrorMessage   *string    `db:"error_message" json:"error_message"`
-	SummaryJSON    []byte    `db:"summary_json" json:"summary_json"`
-	CreatedAt      time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt      time.Time  `db:"updated_at" json:"updated_at"`
+	ErrorCode       *string    `db:"error_code" json:"error_code"`
+	ErrorMessage    *string    `db:"error_message" json:"error_message"`
+	SummaryJSON     []byte     `db:"summary_json" json:"summary_json"`
+	CreatedAt       time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt       time.Time  `db:"updated_at" json:"updated_at"`
 }
 
 // TaskAttempt represents a retry and redelivery audit trail entry.
@@ -667,12 +667,12 @@ type TaskAttempt struct {
 // WorkerHeartbeat represents worker and consumer liveness tracking.
 // Enables monitoring of active workers and detecting stale leases.
 type WorkerHeartbeat struct {
-	ID           string     `db:"id" json:"id"`
-	WorkerID     string     `db:"worker_id" json:"worker_id"`
-	WorkerType   string     `db:"worker_type" json:"worker_type"`
-	Hostname     string     `db:"hostname" json:"hostname"`
+	ID             string    `db:"id" json:"id"`
+	WorkerID       string    `db:"worker_id" json:"worker_id"`
+	WorkerType     string    `db:"worker_type" json:"worker_type"`
+	Hostname       string    `db:"hostname" json:"hostname"`
 	LeaseExpiresAt time.Time `db:"lease_expires_at" json:"lease_expires_at"`
-	LastSeenAt   time.Time  `db:"last_seen_at" json:"last_seen_at"`
-	Status       string     `db:"status" json:"status"`
-	MetadataJSON []byte     `db:"metadata_json" json:"metadata_json"`
+	LastSeenAt     time.Time `db:"last_seen_at" json:"last_seen_at"`
+	Status         string    `db:"status" json:"status"`
+	MetadataJSON   []byte    `db:"metadata_json" json:"metadata_json"`
 }

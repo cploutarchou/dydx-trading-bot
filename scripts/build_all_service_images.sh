@@ -6,11 +6,13 @@ set -euo pipefail
 #   bash scripts/build_all_service_images.sh
 #   IMAGE_TAG=$(git rev-parse --short HEAD) PUSH=true bash scripts/build_all_service_images.sh
 #   IMAGE_REGISTRY=ghcr.io/<owner>/dydx-trading-bot IMAGE_TAG=latest PUSH=true bash scripts/build_all_service_images.sh
+#   PLATFORM=linux/arm64 bash scripts/build_all_service_images.sh  # For Apple Silicon
 
 IMAGE_REGISTRY="${IMAGE_REGISTRY:-ghcr.io/cploutarchou/dydx-trading-bot}"
 IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD)}"
 PUSH="${PUSH:-false}"
 ALSO_LATEST="${ALSO_LATEST:-false}"
+PLATFORM="${PLATFORM:-linux/amd64}"
 
 SERVICES=(api worker backend frontend)
 DOCKERFILES=(
@@ -25,11 +27,12 @@ for i in "${!SERVICES[@]}"; do
   dockerfile="${DOCKERFILES[$i]}"
 
   image="${IMAGE_REGISTRY}/${service}:${IMAGE_TAG}"
-  echo "==> Building ${image} from ${dockerfile}"
+  echo "==> Building ${image} from ${dockerfile} for platform ${PLATFORM}"
 
   docker build \
     -f "${dockerfile}" \
     -t "${image}" \
+    --platform "${PLATFORM}" \
     .
 
   if [[ "${ALSO_LATEST}" == "true" ]]; then

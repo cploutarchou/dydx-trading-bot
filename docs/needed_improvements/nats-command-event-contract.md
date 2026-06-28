@@ -1,7 +1,11 @@
 # NATS command/event contract
 
-## Status Updates — 2026-06-28
+## Status Updates — 2026-06-29
 
+- [x] DONE — Wire NATS publisher behind delegated backtest creation routes implementing this contract (Phase 4 dual-write slice)
+  - Files: `backend/internal/app/router.go`, `backend/internal/routes/bot_api_delegate_routes.go`
+  - Check: `cd backend && go build ./...` passed; `cd backend && go test ./... -short` passed (all packages `ok`)
+  - Evidence: The contract's subject namespace and minimal payload shape are now used end-to-end: creates PostgreSQL `task_commands` with unique idempotency keys, publishes canonical `nats.Envelope` to the contract subject `backtest.command.start` with `Msg-Id` set to the idempotency key for server-side dedupe. HTTP control path remains authoritative per contract.
 - [x] DONE — Normalized PostgreSQL task tables for command idempotency foundation
   - Files: `backend/migrations/postgres/000063_create_task_commands.*`, `000064_create_task_runs.*`, `000065_create_task_attempts.*`, `000066_create_worker_heartbeats.*`, `backend/internal/models/models.go`, `backend/internal/repository/task_repository.go`, `backend/internal/repository/task_repository_test.go`
   - Check: `cd backend && go test ./internal/repository/... -run TestTaskRepository -v` → 13/13 PASS
@@ -9,7 +13,7 @@
 - [x] DONE — Backend publisher abstraction implements this contract's subject namespace and minimal payload shape
   - Files: `backend/internal/nats/publisher.go`, `backend/internal/nats/publisher_test.go`
   - Check: `cd backend && go test ./internal/nats/... -v` → 8/8 PASS (embedded JetStream server)
-  - Evidence: `Subject(owner, kind, action)` produces the contract subjects (`bot.command.start`, `backtest.event.completed`, etc.); the `Envelope` carries the minimal payload fields (correlation id, actor/owner id, UTC `occurred_at`, schema version, reference-heavy payload); the publisher is fail-closed (`NATS_ENABLED=false` → nil) and connects lazily so HTTP control stays authoritative. Not yet wired behind a route.
+  - Evidence: `Subject(owner, kind, action)` produces the contract subjects (`bot.command.start`, `backtest.event.completed`, etc.); the `Envelope` carries the minimal payload fields (correlation id, actor/owner id, UTC `occurred_at`, schema version, reference-heavy payload); the publisher is fail-closed (`NATS_ENABLED=false` → nil) and connects lazily so HTTP control stays authoritative. Now wired behind backtest creation routes.
 
 ## Purpose
 

@@ -1,15 +1,19 @@
 # Investigation Checklist
 
-## Status Updates — 2026-06-28
+## Status Updates — 2026-06-29
 
 - [x] DONE — Normalized PostgreSQL task tables (`task_commands`, `task_runs`, `task_attempts`, `worker_heartbeats`) for NATS JetStream foundation
   - Files: `backend/migrations/postgres/000063_create_task_commands.*`, `000064_create_task_runs.*`, `000065_create_task_attempts.*`, `000066_create_worker_heartbeats.*`, `backend/internal/models/models.go`, `backend/internal/repository/task_repository.go`, `backend/internal/repository/task_repository_test.go`
   - Check: `cd backend && go build ./...` passed; `cd backend && go vet ./...` passed; `cd backend && go test ./internal/repository/... -run TestTaskRepository -v` → 13/13 PASS
   - Evidence: four normalized task management tables with proper indexes, Go models, and complete repository layer. Provides PostgreSQL backing for NATS JetStream command idempotency and durable state per the target architecture.
+- [x] DONE — Wire NATS publisher behind delegated backtest creation routes as dual-write (Phase 4 dual-write slice)
+  - Files: `backend/internal/app/router.go`, `backend/internal/routes/bot_api_delegate_routes.go`
+  - Check: `cd backend && go build ./...` passed; `cd backend && go vet ./...` passed; `cd backend && go test ./... -short` passed (all packages `ok`)
+  - Evidence: NATS publisher now dual-writes behind `/api/v1/backtests/run` and `/api/v1/backtests` - creates PostgreSQL `task_commands` rows with idempotency keys and publishes canonical `nats.Envelope` to JetStream with `Msg-Id` dedupe, while keeping HTTP/Celery path authoritative. Validated end-to-end with all existing tests passing.
 - [x] DONE — Backend NATS JetStream publisher abstraction (Phase 4 first slice)
   - Files: `backend/internal/nats/publisher.go`, `backend/internal/nats/publisher_test.go`, `backend/go.mod`, `backend/go.sum`
   - Check: `cd backend && go mod tidy` added `nats.go` v1.52.0 + `nats-server/v2` v2.14.2; `cd backend && go build ./...` passed; `cd backend && go vet ./...` passed; `cd backend && go test ./...` passed (all `ok`); `cd backend && go test ./internal/nats/... -v` → 8/8 PASS (stable at `-count=3`)
-  - Evidence: a fail-closed, lazily-connected `nats.go`-backed `Publisher` now exists under `backend/internal/nats/` with the canonical command/event `Envelope`, contract subject namespace, idempotent stream provisioning, and JetStream `Msg-Id` dedupe; validated end-to-end against an embedded JetStream server. Not yet wired into any route.
+  - Evidence: a fail-closed, lazily-connected `nats.go`-backed `Publisher` now exists under `backend/internal/nats/` with the canonical command/event `Envelope`, contract subject namespace, idempotent stream provisioning, and JetStream `Msg-Id` dedupe; validated end-to-end against an embedded JetStream server. Now wired into backtest creation routes.
 - [x] DONE — Third backend-owned ClickHouse read model (per-pair live performance breakdown)
   - Files: `backend/internal/services/live_pair_breakdown_reader.go`, `backend/internal/services/live_pair_breakdown_reader_test.go`, `backend/internal/app/analytics_routes.go`, `backend/internal/app/analytics_routes_test.go`, `backend/internal/app/router.go`
   - Check: `cd backend && go build ./...` passed; `cd backend && go vet ./internal/services/... ./internal/app/...` passed; `cd backend && go test ./internal/services/... ./internal/app/...` passed (`ok` both); `cd backend && go test ./internal/services/... -run 'LivePairBreakdownReader' -v` → 6/6 PASS; `cd backend && go test ./internal/app/... -run 'ServeLivePairBreakdown|BuildRouterRegistersAnalytics' -v` → 7/7 PASS

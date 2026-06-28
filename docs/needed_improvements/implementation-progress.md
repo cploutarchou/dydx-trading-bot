@@ -1,5 +1,103 @@
 # Implementation Progress
 
+## Latest Run — 2026-06-29T00:22:00+03:00
+
+### Documents read
+
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/nats-jetstream-plan.md`
+- `docs/needed_improvements/nats-command-event-contract.md`
+- `backend/internal/app/router.go` (route registration reference)
+- `backend/internal/routes/bot_api_delegate_routes.go` (delegated backtest creation handler)
+- `backend/internal/nats/publisher.go` (NATS publisher reference)
+- `backend/internal/repository/task_repository.go` (task repository reference)
+- NOT FOUND: none
+
+### Current completed phase/task detected
+
+- [x] DONE — Phase 1, Phase 2.
+- [~] PARTIAL — Phase 3 remains PARTIAL (three backend ClickHouse read models exist; remaining Phase 3 work is frontend wiring (Phase 8), default-on rollout (manual), and finer-grained write detail (risky bot execution path)) — automatable Phase 3 read-path work is saturated.
+- [~] PARTIAL → [~] PARTIAL — Phase 4 (NATS JetStream) had PostgreSQL task tables foundation and backend publisher; this run wires the publisher as dual-write behind the backtest creation route.
+
+### Task selected
+
+- Phase 4, dual-write slice: wire the NATS publisher behind the delegated backtest creation route (`/api/v1/backtests/run` and `/api/v1/backtests`) as dual-write — creates task commands in PostgreSQL and publishes to NATS JetStream with the same idempotency key while keeping the HTTP/Celery path authoritative.
+
+### Reason selected
+
+- The previous latest run (2026-06-28T22:00:00+03:00) listed as its next recommended task option (a): "wire the publisher behind one delegated route as a dual-write (create task command, then publish to NATS with command id as `Msg-Id` and idempotency key from task record), validating idempotency end-to-end".
+- `master-implementation-plan.md` Phase 4 explicitly requires durable command/event bus with idempotency, and this was the critical next step after the PostgreSQL task tables foundation and publisher abstraction were in place.
+- `implementation-backlog.md` still listed "Add backend JetStream publisher" as having no durable consumers and no route wiring — this addresses the wiring gap.
+- `nats-jetstream-plan.md` prescribes PostgreSQL as the source of truth for command idempotency keys (`Msg-Id`), which this slice implements.
+- This unblocks the next NATS slices: durable consumers (Phase 4), worker migration (Phase 6), and backend API orchestration cutover (Phase 7).
+
+### Implementation completed
+
+- Added dual-write wiring in `backend/internal/app/router.go`:
+  - Creates `TaskRepository` from `database.DB` and `nats.Publisher` from `cfg.NATS`
+  - Passes both to `registerFeatureRoutes` which forwards them to route registration
+- Modified route registration in `backend/internal/routes/bot_api_delegate_routes.go`:
+  - Updated `RegisterBotAPIDelegateRoutesWithSyncCacheAndPush`, `RegisterBotAPIDelegateRoutesWithSyncAndCache`, and `RegisterBotAPIDelegateRoutes` function signatures to accept `taskRepo *repository.TaskRepository` and `natsPublisher *nats.Publisher`
+  - Added `nats` and `uuid` imports
+- Modified backtest creation handler to create task commands and publish to NATS:
+  - Added dual-write logic in the `executeCreate` function within `createBacktestHandler`
+  - Creates `task_command` row with unique idempotency key, command type, owner info, and bounded payload JSON
+  - Publishes canonical `nats.Envelope` to JetStream with same idempotency key as `Msg-Id` for server-side dedupe
+  - Updates task command status to `published` on successful NATS publish
+  - Maintains fail-closed behavior: if task repo or NATS publisher is nil, HTTP path continues unchanged; if NATS publish fails, logs error but doesn't fail the HTTP request (per contract: HTTP path remains authoritative)
+
+### Files changed
+
+- `backend/internal/app/router.go` — added `nats` import, creates `TaskRepository` and `nats.Publisher`, passes to route registration
+- `backend/internal/routes/bot_api_delegate_routes.go` — updated function signatures, added imports, modified `executeCreate` to create task commands and publish to NATS
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/nats-jetstream-plan.md`
+- `docs/needed_improvements/nats-command-event-contract.md`
+
+### Tests and checks run
+
+- `cd backend && go build ./...` → passed (exit 0)
+- `cd backend && go vet ./...` → passed (exit 0)
+- `cd backend && go test ./internal/repository/... -v` → **27/27 PASS**
+- `cd backend && go test ./internal/nats/... -v` → **8/8 PASS**
+- `cd backend && go test ./internal/app/... -v` → **11/11 PASS**
+- `cd backend && go test ./... -short` → **all packages PASS**
+
+### Result
+
+- [x] DONE — NATS publisher is now wired behind delegated backtest creation routes as dual-write: creates task commands in PostgreSQL, publishes to JetStream with idempotency keys, and maintains HTTP/Celery path as authoritative.
+- [~] PARTIAL → [~] PARTIAL — Phase 4 NATS JetStream: publisher now has PostgreSQL-backed task commands and dual-write routing; durable consumers, retry/ack/dead-letter handling, and broader route coverage remain PENDING.
+
+### Risks
+
+- NATS publish failures are logged but do not fail the HTTP request (per contract); operators should monitor logs for NATS connectivity issues.
+- Task command creation uses bounded payload JSON derived from request config; large configs could still be problematic though the backtest config has historically been reasonably sized.
+- The idempotency key is generated per request; if the same client retries the same request, a new task command will be created (this preserves HTTP idempotency semantics at the client level while providing NATS-level dedupe).
+- Stream provisioning uses default configs from publisher; per-stream policies from `nats-jetstream-plan.md` (retention, ack timeout, max delivery, dead-letter) will be finalized when consumers are implemented.
+
+### Known gaps
+
+- [ ] PENDING — No durable NATS consumers yet exist to process the published commands
+- [ ] PENDING — No retry/ack/dead-letter handling implemented yet
+- [ ] PENDING — Only backtest creation routes are wired; other command routes (bot start/stop) still need NATS wiring
+- [~] PARTIAL — PostgreSQL task tables exist and are now used for backtest command idempotency, but broader task lifecycle management (runs, attempts, heartbeats) is not yet wired
+
+### Next recommended task
+
+- Phase 4: either (a) add the first durable consumer (e.g., backtest command consumer in `bot/`) with explicit ack after authoritative PostgreSQL state update using the task tables for idempotency checking, or (b) extend dual-write wiring to additional delegated routes (bot lifecycle commands), or (c) implement retry/ack/dead-letter handling in the publisher or a shared utility.
+
+### Manual steps required
+
+- Apply migrations `000063_create_task_commands`, `000064_create_task_runs`, `000065_create_task_attempts`, and `000066_create_worker_heartbeats` in all environments before enabling NATS.
+- Enable `NATS_ENABLED=true` in non-production environments to validate end-to-end NATS wiring.
+- Monitor backend logs for NATS publish success/failure messages during backtest creation.
+
 ## Latest Run — 2026-06-28T22:00:00+03:00
 
 ### Documents read

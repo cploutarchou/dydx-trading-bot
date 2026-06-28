@@ -541,13 +541,13 @@ class DatabaseManager:
 
                 connection.execute(text("""
                         UPDATE bot_instances
-                        SET status = CASE UPPER(status)
-                                         WHEN 'FAILED' THEN 'ERROR'
-                                         WHEN 'PAUSED' THEN 'STOPPED'
-                                         ELSE UPPER(status)
-                                    END
-                        WHERE UPPER(status) <> status
-                           OR LOWER(status) IN ('failed', 'paused')
+                        SET status = CASE LOWER(status::text)
+                                         WHEN 'failed' THEN 'error'
+                                         WHEN 'paused' THEN 'stopped'
+                                         ELSE status::text
+                                    END::botstatusenum
+                        WHERE LOWER(status::text) <> status::text
+                           OR LOWER(status::text) IN ('failed', 'paused')
                         """))
 
             if inspector.has_table("backtest_strategies"):

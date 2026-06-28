@@ -87,10 +87,40 @@ func resetBootstrapAdminLockState(conn *sql.DB, userID int) {
 	if conn == nil || userID <= 0 {
 		return
 	}
-	if _, err := conn.Exec(
-		`UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?`,
-		userID,
-	); err != nil {
+	// Check if the lock columns exist before trying to reset them
+	rows, err := conn.Query(`SELECT * FROM users LIMIT 0`)
+	if err != nil {
+		log.Printf("Bootstrap admin lock reset skipped for user_id=%d: %v", userID, err)
+		return
+	}
+	defer rows.Close()
+	
+	columns, _ := rows.Columns()
+	hasFailedLoginAttempts := false
+	hasLockedUntil := false
+	for _, col := range columns {
+		if col == "failed_login_attempts" {
+			hasFailedLoginAttempts = true
+		}
+		if col == "locked_until" {
+			hasLockedUntil = true
+		}
+	}
+	
+	if !hasFailedLoginAttempts && !hasLockedUntil {
+		return
+	}
+	
+	setClauses := []string{}
+	if hasFailedLoginAttempts {
+		setClauses = append(setClauses, "failed_login_attempts = 0")
+	}
+	if hasLockedUntil {
+		setClauses = append(setClauses, "locked_until = NULL")
+	}
+	
+	query := fmt.Sprintf(`UPDATE users SET %s WHERE id = ?`, strings.Join(setClauses, ", "))
+	if _, err := conn.Exec(query, userID); err != nil {
 		log.Printf("Bootstrap admin lock reset skipped for user_id=%d: %v", userID, err)
 	}
 }

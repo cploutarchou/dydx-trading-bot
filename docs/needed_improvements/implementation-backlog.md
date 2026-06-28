@@ -1,11 +1,15 @@
 # Implementation Backlog
 
-## Status Updates — 2026-06-28
+## Status Updates — 2026-06-29
 
 - [x] DONE — Add normalized PostgreSQL task tables for NATS JetStream foundation (Phase 4 dependency)
   - Files: `backend/migrations/postgres/000063_create_task_commands.*`, `000064_create_task_runs.*`, `000065_create_task_attempts.*`, `000066_create_worker_heartbeats.*`, `backend/internal/models/models.go`, `backend/internal/repository/task_repository.go`, `backend/internal/repository/task_repository_test.go`
   - Check: `cd backend && go build ./...` passed; `cd backend && go vet ./...` passed; `cd backend && go test ./...` passed (all `ok`); `cd backend && go test ./internal/repository/... -run TestTaskRepository -v` → 13/13 PASS
   - Evidence: four normalized task tables (`task_commands`, `task_runs`, `task_attempts`, `worker_heartbeats`) with proper indexes, Go models, and a complete repository layer with fail-closed nil-db handling. Provides the PostgreSQL foundation for NATS JetStream command idempotency and durable state.
+- [x] DONE — Wire NATS publisher behind delegated backtest creation routes as dual-write (Phase 4 dual-write slice)
+  - Files: `backend/internal/app/router.go`, `backend/internal/routes/bot_api_delegate_routes.go`
+  - Check: `cd backend && go build ./...` passed; `cd backend && go vet ./...` passed; `cd backend && go test ./... -short` passed (all packages `ok`)
+  - Evidence: NATS publisher now dual-writes behind `/api/v1/backtests/run` and `/api/v1/backtests` - creates PostgreSQL `task_commands` rows with idempotency keys and publishes canonical `nats.Envelope` to JetStream with `Msg-Id` dedupe, while keeping HTTP/Celery path authoritative. Validated end-to-end with all existing tests passing.
 - [x] DONE — Add the backend NATS JetStream publisher abstraction (Phase 4 first slice)
   - Files: `backend/internal/nats/publisher.go`, `backend/internal/nats/publisher_test.go`, `backend/go.mod`, `backend/go.sum`
   - Check: `cd backend && go mod tidy` added `nats.go` v1.52.0 + `nats-server/v2` v2.14.2; `cd backend && gofmt -l <changed files>` passed; `cd backend && go build ./...` passed; `cd backend && go vet ./...` passed; `cd backend && go test ./...` passed (all packages `ok`); `cd backend && go test ./internal/nats/... -v` → 8/8 PASS (stable at `-count=3`)
@@ -98,7 +102,7 @@
 
 | Title | Problem | Proposed Change | Affected Files | Target Service | Priority | Complexity | Risk | Dependencies | Acceptance Criteria |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Add backend JetStream publisher | the backend publisher abstraction now exists as a fail-closed `nats.go`-backed `Publisher` under `backend/internal/nats/` (envelope contract, subject namespace, idempotent stream provisioning, lazy connect), but it is not yet wired into any route, has no durable consumers, and lacks retry/ack/dead-letter handling | publish bot/backtest commands from backend via the existing publisher and add consumers + delivery policy | `backend/internal/nats/*`, backend routes/services/config | backend API | critical | high | high | task tables | backend creates command rows and publishes JetStream commands |
+| Add backend JetStream publisher | the backend publisher abstraction now exists as a fail-closed `nats.go`-backed `Publisher` under `backend/internal/nats/` (envelope contract, subject namespace, idempotent stream provisioning, lazy connect), and is now wired as dual-write behind backtest creation routes, but still has no durable consumers and lacks retry/ack/dead-letter handling | publish bot/backtest commands from backend via the existing publisher and add consumers + delivery policy | `backend/internal/nats/*`, `backend/internal/app/router.go`, `backend/internal/routes/bot_api_delegate_routes.go` | backend API | critical | high | high | task tables | backend creates command rows and publishes JetStream commands |
 | Build backtest JetStream consumer | current backtest worker is Celery-only | add durable JetStream consumer with ack/retry/dead-letter flow | new worker consumer modules, `deploy/k8s-next/applications.yaml` | backtest worker | critical | high | high | backend publisher, task tables | backtest commands run through JetStream durable consumer |
 | Build bot command JetStream consumer | bot worker is process-centric and not command-bus-driven | add durable bot command consumer | bot worker runtime files | bot worker | critical | high | high | backend publisher | bot lifecycle commands flow through JetStream |
 | Replace Redis pub/sub push with durable event projection | current progress updates are lossy | project JetStream events to backend websocket/SSE feeds | backend push service, bot/backtest event emitters | backend API | high | medium | medium | JetStream events | client live updates survive transient subscriber loss |

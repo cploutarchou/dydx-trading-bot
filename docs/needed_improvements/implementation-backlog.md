@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — Add the backend NATS JetStream publisher abstraction (Phase 4 first slice)
+  - Files: `backend/internal/nats/publisher.go`, `backend/internal/nats/publisher_test.go`, `backend/go.mod`, `backend/go.sum`
+  - Check: `cd backend && go mod tidy` added `nats.go` v1.52.0 + `nats-server/v2` v2.14.2; `cd backend && gofmt -l <changed files>` passed; `cd backend && go build ./...` passed; `cd backend && go vet ./...` passed; `cd backend && go test ./...` passed (all packages `ok`); `cd backend && go test ./internal/nats/... -v` → 8/8 PASS (stable at `-count=3`)
+  - Evidence: a real `nats.go`-backed `Publisher` is fail-closed nil when `NATS_ENABLED=false`, connects lazily (no startup coupling), publishes the canonical command/event `Envelope` to the contract subject namespace with JetStream `Msg-Id` dedupe, and idempotently provisions the covering streams; validated end-to-end against an embedded JetStream server. Not yet wired into any route (HTTP/Celery path remains authoritative by design).
 - [x] DONE — Add the third backend-owned ClickHouse read model (per-pair live performance breakdown)
   - Files: `backend/internal/services/live_pair_breakdown_reader.go`, `backend/internal/services/live_pair_breakdown_reader_test.go`, `backend/internal/app/analytics_routes.go`, `backend/internal/app/analytics_routes_test.go`, `backend/internal/app/router.go`
   - Check: `cd backend && gofmt -l <changed files>` passed; `cd backend && go build ./...` passed; `cd backend && go vet ./internal/services/... ./internal/app/...` passed; `cd backend && go test ./internal/services/... ./internal/app/...` passed (`ok` both packages); `cd backend && go test ./internal/services/... -run 'LivePairBreakdownReader' -v` → 6/6 PASS; `cd backend && go test ./internal/app/... -run 'ServeLivePairBreakdown|BuildRouterRegistersAnalytics' -v` → 7/7 PASS
@@ -90,7 +94,7 @@
 
 | Title | Problem | Proposed Change | Affected Files | Target Service | Priority | Complexity | Risk | Dependencies | Acceptance Criteria |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Add backend JetStream publisher | current async dispatch is not JetStream-based | publish bot/backtest commands from backend | backend routes/services/config | backend API | critical | high | high | task tables | backend creates command rows and publishes JetStream commands |
+| Add backend JetStream publisher | the backend publisher abstraction now exists as a fail-closed `nats.go`-backed `Publisher` under `backend/internal/nats/` (envelope contract, subject namespace, idempotent stream provisioning, lazy connect), but it is not yet wired into any route, has no durable consumers, and lacks retry/ack/dead-letter handling | publish bot/backtest commands from backend via the existing publisher and add consumers + delivery policy | `backend/internal/nats/*`, backend routes/services/config | backend API | critical | high | high | task tables | backend creates command rows and publishes JetStream commands |
 | Build backtest JetStream consumer | current backtest worker is Celery-only | add durable JetStream consumer with ack/retry/dead-letter flow | new worker consumer modules, `deploy/k8s-next/applications.yaml` | backtest worker | critical | high | high | backend publisher, task tables | backtest commands run through JetStream durable consumer |
 | Build bot command JetStream consumer | bot worker is process-centric and not command-bus-driven | add durable bot command consumer | bot worker runtime files | bot worker | critical | high | high | backend publisher | bot lifecycle commands flow through JetStream |
 | Replace Redis pub/sub push with durable event projection | current progress updates are lossy | project JetStream events to backend websocket/SSE feeds | backend push service, bot/backtest event emitters | backend API | high | medium | medium | JetStream events | client live updates survive transient subscriber loss |

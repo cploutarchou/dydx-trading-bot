@@ -83,6 +83,41 @@ CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
 PARTITION BY toYYYYMM(event_date)
 ORDER BY (bot_id, trade_id, event_time, event_kind)"""
 
+_POSITION_SNAPSHOTS_DDL = """\
+CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
+    snapshot_date       Date,
+    snapshot_time       DateTime64(3, 'UTC'),
+    position_id         String,
+    bot_id              String,
+    pair1               String,
+    pair2               String,
+    side1               LowCardinality(String),
+    side2               LowCardinality(String),
+    status              LowCardinality(String),
+    event_kind          LowCardinality(String),
+    entry_price1        Float64 DEFAULT 0,
+    entry_price2        Float64 DEFAULT 0,
+    current_price1      Nullable(Float64),
+    current_price2      Nullable(Float64),
+    entry_size1         Float64 DEFAULT 0,
+    entry_size2         Float64 DEFAULT 0,
+    current_size1       Nullable(Float64),
+    current_size2       Nullable(Float64),
+    unrealized_pnl      Float64 DEFAULT 0,
+    unrealized_pnl_pct  Float64 DEFAULT 0,
+    realized_pnl        Float64 DEFAULT 0,
+    realized_pnl_pct    Float64 DEFAULT 0,
+    z_score_entry       Nullable(Float64),
+    z_score_current     Nullable(Float64),
+    hedge_ratio         Nullable(Float64),
+    correlation         Nullable(Float64),
+    half_life           Nullable(Float64),
+    funding_rate        Nullable(Float64),
+    closed_at           Nullable(DateTime64(3, 'UTC'))
+) ENGINE = MergeTree()
+PARTITION BY toYYYYMM(snapshot_date)
+ORDER BY (bot_id, position_id, snapshot_time, event_kind)"""
+
 _BACKTEST_TRADES_DDL = """\
 CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
     run_id           String,
@@ -156,6 +191,8 @@ _TABLE_DDL: dict[str, str] = {
     "order_events": _ORDER_EVENTS_DDL,
     "trade_event_rows": _TRADE_EVENTS_DDL,
     "trade_events": _TRADE_EVENTS_DDL,
+    "position_snapshot_rows": _POSITION_SNAPSHOTS_DDL,
+    "position_snapshots": _POSITION_SNAPSHOTS_DDL,
     "backtest_trade_rows": _BACKTEST_TRADES_DDL,
     "backtest_trades": _BACKTEST_TRADES_DDL,
     "backtest_daily_pnl_rows": _BACKTEST_DAILY_PNL_DDL,

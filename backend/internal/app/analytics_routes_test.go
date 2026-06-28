@@ -132,10 +132,127 @@ func TestServeLivePositionHistoryClampsInvalidHours(t *testing.T) {
 	}
 }
 
+func TestServeLiveTradeSummaryRequiresAdmin(t *testing.T) {
+	ctx, recorder := newAnalyticsTestContext(t, "/?instance_id=inst-1")
+	// is_admin intentionally unset
+	serveLiveTradeSummary(ctx, nil)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for non-admin, got %d", recorder.Code)
+	}
+}
+
+func TestServeLiveTradeSummaryRequiresInstanceID(t *testing.T) {
+	ctx, recorder := newAnalyticsTestContext(t, "/")
+	ctx.Set("is_admin", true)
+	serveLiveTradeSummary(ctx, services.NewLiveTradeSummaryReader(services.NewClickHouseReader(config.ClickHouseSettings{Enabled: true, URL: "http://localhost:8123"})))
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing instance_id, got %d", recorder.Code)
+	}
+}
+
+func TestServeLiveTradeSummaryDisabledFailsClosed(t *testing.T) {
+	ctx, recorder := newAnalyticsTestContext(t, "/?instance_id=inst-1")
+	ctx.Set("is_admin", true)
+
+	// nil summary reader simulates ClickHouse disabled (the checked-in default).
+	serveLiveTradeSummary(ctx, nil)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 degraded response when disabled, got %d", recorder.Code)
+	}
+	body := decodeAnalyticsBody(t, recorder)
+	if body["enabled"] != false || body["source"] != "disabled" {
+		t.Fatalf("expected enabled=false/source=disabled, got %+v", body)
+	}
+	data, ok := body["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data object, got %T", body["data"])
+	}
+	if data["instance_id"] != "inst-1" {
+		t.Fatalf("expected degraded data to echo instance_id, got %v", data["instance_id"])
+	}
+	if totals, ok := data["totals"].(map[string]interface{}); !ok || totals["trade_events"] != float64(0) {
+		t.Fatalf("expected zeroed totals in degraded payload, got %v", data["totals"])
+	}
+	if daily, ok := data["daily"].([]interface{}); !ok || len(daily) != 0 {
+		t.Fatalf("expected empty daily slice in degraded payload, got %v", data["daily"])
+	}
+}
+
+func TestServeLiveTradeSummaryServesClickHouseAggregates(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := new(strings.Builder)
+		_, _ = io.Copy(buf, r.Body)
+		body := buf.String()
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(body, "FROM order_events"):
+			_, _ = io.WriteString(w, `{"status":"filled","count":10}`+"\n")
+		case strings.Contains(body, "GROUP BY day"):
+			_, _ = io.WriteString(w, `{"day":"2026-06-28","trade_events":4,"closed_trades":2,"total_realized_pnl":50.0}`+"\n")
+		default:
+			_, _ = io.WriteString(w, `{"trade_events":4,"trades_opened":2,"trades_closed":2,"total_realized_pnl":50.0,"total_realized_pnl_pct":0.05,"winning_trades":2,"losing_trades":0}`+"\n")
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	summaryReader := services.NewLiveTradeSummaryReader(services.NewClickHouseReader(config.ClickHouseSettings{
+		Enabled: true,
+		URL:     server.URL,
+	}))
+
+	ctx, recorder := newAnalyticsTestContext(t, "/?instance_id=inst-1&hours=12")
+	ctx.Set("is_admin", true)
+	serveLiveTradeSummary(ctx, summaryReader)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body=%s)", recorder.Code, recorder.Body.String())
+	}
+	body := decodeAnalyticsBody(t, recorder)
+	if body["enabled"] != true || body["source"] != "clickhouse" {
+		t.Fatalf("expected enabled=true/source=clickhouse, got %+v", body)
+	}
+	data := body["data"].(map[string]interface{})
+	if data["instance_id"] != "inst-1" || data["hours"] != float64(12) {
+		t.Fatalf("unexpected envelope context: %+v", data)
+	}
+	totals := data["totals"].(map[string]interface{})
+	if totals["trade_events"] != float64(4) || totals["trades_closed"] != float64(2) {
+		t.Fatalf("unexpected totals: %+v", totals)
+	}
+	if totals["total_realized_pnl"] != float64(50.0) {
+		t.Fatalf("unexpected total_realized_pnl: %v", totals["total_realized_pnl"])
+	}
+	orders := data["orders_by_status"].([]interface{})
+	if len(orders) != 1 {
+		t.Fatalf("expected 1 order-status row, got %d", len(orders))
+	}
+	if data["order_events"] != float64(10) {
+		t.Fatalf("expected order_events=10, got %v", data["order_events"])
+	}
+}
+
 // Ensure the analytics route is registered on a fully built router so the
 // manifest stays honest. Uses the same sqlite-backed BuildRouter pattern as the
 // existing manifest test.
 func TestBuildRouterRegistersAnalyticsPositionHistoryRoute(t *testing.T) {
+	if !analyticsRouteRegistered(t, "/api/v1/analytics/position-history") {
+		t.Fatalf("analytics position-history route was not registered")
+	}
+}
+
+func TestBuildRouterRegistersAnalyticsTradeSummaryRoute(t *testing.T) {
+	if !analyticsRouteRegistered(t, "/api/v1/analytics/trade-summary") {
+		t.Fatalf("analytics trade-summary route was not registered")
+	}
+}
+
+// analyticsRouteRegistered builds a fully wired router on an in-memory sqlite DB
+// and reports whether the given admin analytics route was registered.
+func analyticsRouteRegistered(t *testing.T, suffix string) bool {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{}
 	cfg.Auth.JWTSecretKey = "analytics-route-test-secret"
@@ -161,9 +278,9 @@ func TestBuildRouterRegistersAnalyticsPositionHistoryRoute(t *testing.T) {
 	}
 
 	for _, route := range router.Routes() {
-		if route.Method == http.MethodGet && strings.HasSuffix(route.Path, "/api/v1/analytics/position-history") {
-			return
+		if route.Method == http.MethodGet && strings.HasSuffix(route.Path, suffix) {
+			return true
 		}
 	}
-	t.Fatalf("analytics position-history route was not registered")
+	return false
 }

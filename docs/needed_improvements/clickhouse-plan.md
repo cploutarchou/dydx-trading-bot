@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — Add the second backend-owned ClickHouse read model (live trade/order summary aggregates)
+  - Files: `backend/internal/services/live_trade_summary_reader.go`, `backend/internal/services/live_trade_summary_reader_test.go`, `backend/internal/app/analytics_routes.go`, `backend/internal/app/analytics_routes_test.go`, `backend/internal/app/router.go`
+  - Check: `cd backend && go build ./...` passed; `cd backend && go vet ./internal/services/... ./internal/app/...` passed; `cd backend && go test ./internal/services/... ./internal/app/...` passed (`ok` both); reader tests 5/5 PASS and route tests 6/6 PASS across the two packages
+  - Evidence: a typed `LiveTradeSummaryReader.GetSummary` reuses the existing `ClickHouseReader` + generic `DecodeRows[T]` to aggregate `trade_events` (single-row trade totals plus per-day rollup) and `order_events` (per-status counts) keyed by the stable `instance_id`, exposed through admin-gated `GET /api/v1/analytics/trade-summary` with a degraded `enabled=false` envelope when ClickHouse is off and a `success=false` envelope on query failure.
 - [x] DONE — Add the first backend-owned ClickHouse read model (live position history)
   - Files: `backend/internal/services/clickhouse_reader.go`, `backend/internal/services/clickhouse_reader_test.go`, `backend/internal/services/live_position_reader.go`, `backend/internal/services/live_position_reader_test.go`, `backend/internal/app/analytics_routes.go`, `backend/internal/app/analytics_routes_test.go`, `backend/internal/app/router.go`
   - Check: `cd backend && go build ./...` passed; `cd backend && go vet ./internal/services/... ./internal/app/...` passed; `cd backend && go test ./internal/services/... ./internal/app/...` passed (`ok` both); reader/read-model route tests 13/13 PASS across the two packages
@@ -69,7 +73,7 @@ ClickHouse must not be used for:
 
 - Existing ClickHouse integration now covers optional backtest sidecar writes plus optional bot event-log, live order lifecycle, live trade lifecycle, and repository-owned realtime position mirroring in `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, and `bot/src/infrastructure/persistence/repository_realtime.py`.
 - Live `order_events`, `trade_events`, and `position_snapshots` rows now carry stable string `instance_id` keys alongside numeric `bot_id`, which removes the unsafe backend dependency on cross-DB numeric IDs for upcoming dashboard read models.
-- The first backend-owned read path now exists: `backend/internal/services/clickhouse_reader.go` provides a reusable stdlib HTTP `ClickHouseReader` (fail-closed, server-side parameter binding), and `backend/internal/services/live_position_reader.go` exposes a typed `LivePositionReader` over `position_snapshots` keyed by `instance_id`, served by admin-gated `GET /api/v1/analytics/position-history` in `backend/internal/app/analytics_routes.go`.
+- The backend-owned read path now covers two read models: `backend/internal/services/clickhouse_reader.go` provides a reusable stdlib HTTP `ClickHouseReader` (fail-closed, server-side parameter binding); `backend/internal/services/live_position_reader.go` exposes a typed `LivePositionReader` over `position_snapshots` keyed by `instance_id` served by admin-gated `GET /api/v1/analytics/position-history`; and `backend/internal/services/live_trade_summary_reader.go` exposes a typed `LiveTradeSummaryReader` that aggregates `trade_events` and `order_events` keyed by `instance_id` served by admin-gated `GET /api/v1/analytics/trade-summary`, both in `backend/internal/app/analytics_routes.go`.
 - Backtest repository writes no longer rely on PostgreSQL result arrays for detail reads, so ClickHouse is now the remaining missing durable analytical sink rather than a prerequisite for shrinking the runtime row.
 - Write path is feature-gated in `bot/src/infrastructure/persistence/repository_backtest.py`.
 - Runtime defaults disable it in:
@@ -216,6 +220,7 @@ Current implementation status:
 
 - [x] DONE — first slice is live through committed event-log rows in `bot/src/infrastructure/persistence/repository.py`, which now mirror normalized entry-opened and exit-confirmed/orphaned order lifecycle rows into ClickHouse `order_events`
 - [x] DONE — those mirrored `order_events` rows now also carry the stable runtime `instance_id` needed by backend read models
+- [x] DONE — second backend-owned read model consumes this table: `LiveTradeSummaryReader.GetSummary` in `backend/internal/services/live_trade_summary_reader.go` aggregates `order_events` into per-status counts keyed by `instance_id` and is served by admin-gated `GET /api/v1/analytics/trade-summary` (fail-closed when ClickHouse disabled)
 - [~] PARTIAL — exchange-native submit/update/cancel/fill transitions still need their own direct normalized producer path if deeper order analytics are required
 
 ## `trade_events`
@@ -272,6 +277,7 @@ Current implementation status:
 
 - [x] DONE — first slice is live through `bot/src/infrastructure/persistence/repository.py`, which now mirrors committed paired live trade open/close writes into ClickHouse `trade_events`
 - [x] DONE — those mirrored `trade_events` rows now also carry the stable runtime `instance_id` needed by backend read models
+- [x] DONE — second backend-owned read model consumes this table: `LiveTradeSummaryReader.GetSummary` in `backend/internal/services/live_trade_summary_reader.go` aggregates `trade_events` into single-row opened/closed/winning/losing totals plus a per-day rollup keyed by `instance_id`, served by admin-gated `GET /api/v1/analytics/trade-summary` (fail-closed when ClickHouse disabled)
 - [~] PARTIAL — current rows capture paired trade lifecycle analytics, but order ids, per-fill detail, fees, and runtime position joins are still pending
 
 ## `position_snapshots`
@@ -327,7 +333,7 @@ Current implementation status:
 - [x] DONE — first slice is live through `bot/src/infrastructure/persistence/repository_realtime.py`, which now mirrors repository-owned realtime position open/update/close rows into ClickHouse `position_snapshots`
 - [x] DONE — those mirrored `position_snapshots` rows now also carry the stable runtime `instance_id` needed by backend read models
 - [x] DONE — first backend-owned read model consumes this table: `LivePositionReader.GetHistory` in `backend/internal/services/live_position_reader.go` queries `position_snapshots` by `instance_id` and is served by admin-gated `GET /api/v1/analytics/position-history` (fail-closed when ClickHouse disabled)
-- [~] PARTIAL — current rows cover repository-owned position lifecycle and mark-to-market state, and the first backend read model covers position history, but trade/order summary read models, frontend dashboard wiring, and any direct exchange-native fill/update snapshot producers are still pending
+- [~] PARTIAL — current rows cover repository-owned position lifecycle and mark-to-market state, the first backend read model covers position history, and the second read model covers trade/order summary aggregates, but frontend dashboard wiring, remaining summary dimensions, and any direct exchange-native fill/update snapshot producers are still pending
 
 ## `backtest_trades`
 

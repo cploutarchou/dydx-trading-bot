@@ -1,5 +1,99 @@
 # Implementation Progress
 
+## Latest Run — 2026-06-28T20:40:00+03:00
+
+### Documents read
+
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+- `backend/internal/services/clickhouse_reader.go`, `backend/internal/services/live_position_reader.go`, `backend/internal/app/analytics_routes.go`, `backend/internal/app/router.go` (first read model reuse reference)
+- `bot/src/infrastructure/storage/clickhouse_writer.py` (`trade_events` / `order_events` / `position_snapshots` schema + `instance_id` keying reference)
+- `bot/src/infrastructure/persistence/repository.py` (trade/order row population semantics reference)
+- NOT FOUND: none
+
+### Current completed phase/task detected
+
+- [~] PARTIAL — Phase 3 remains the active implementation phase.
+- [x] DONE — The first backend-owned ClickHouse read model (live position history) existed from the prior run.
+- [ ] PENDING → [x] DONE — A second backend-owned ClickHouse read model for live trade/order summary aggregates did not exist; this run adds it.
+
+### Task selected
+
+- Add the second backend-owned ClickHouse read model: a typed `LiveTradeSummaryReader` that aggregates the bot-mirrored `trade_events` and `order_events` tables into a summary read model keyed by the stable `instance_id`, reusing the existing `ClickHouseReader` and `DecodeRows` helper, exposed behind a new admin-gated `GET /api/v1/analytics/trade-summary` route with the same fail-closed `enabled=false` fallback as the position-history route.
+
+### Reason selected
+
+- The previous latest run explicitly recommended "add the next backend ClickHouse read model for live trade/order summary surfaces reusing `ClickHouseReader`/`DecodeRows`" as option (a) of its next recommended task.
+- `implementation-backlog.md` still listed "Move dashboard-heavy reads to ClickHouse" as the highest-priority unfinished analytical item, and its remaining gap was exactly the trade/order summary surfaces (position history was already DONE).
+- The dependencies were already satisfied: `trade_events`, `order_events`, and `position_snapshots` already carry stable `instance_id` keys, and the reusable fail-closed `ClickHouseReader` + generic `DecodeRows[T]` helper already existed from the first read model, so this was the smallest safe slice that added the second read model without changing frontend contracts, bot runtime control flow, or the authoritative PostgreSQL store.
+
+### Implementation completed
+
+- Added `backend/internal/services/live_trade_summary_reader.go`: the second typed backend read model. `LiveTradeSummaryReader.GetSummary(ctx, instanceID, hours)` runs three independent aggregate queries — a single-row trade-event totals query (counts of opened/closed/winning/losing trade lifecycle rows and summed realized PnL), a per-day trade-event rollup grouped by event day, and an order-event status rollup — all keyed exclusively by the backend-owned `instance_id` and bound server-side via `{name:Type}` placeholders. It reuses the shared `ClickHouseReader` and the generic `DecodeRows[T]` helper, returns `nil` from `NewLiveTradeSummaryReader` when ClickHouse is disabled, and fails closed (returns an error) if any of the three queries fails so dashboards never see partial aggregates.
+- Extended `backend/internal/app/analytics_routes.go`: `registerAnalyticsRoutes` now also accepts a `*LiveTradeSummaryReader` and registers `GET /api/v1/analytics/trade-summary`; the new `serveLiveTradeSummary` handler mirrors `serveLivePositionHistory` (admin-gated, requires `instance_id`, fails closed to a stable `enabled=false` degraded envelope when the reader is nil, and surfaces a `success=false` envelope with the error reason on query failure). Both degraded paths share a single `emptyTradeSummaryEnvelope` so the payload shape is identical whether ClickHouse is off or unhealthy.
+- Updated `backend/internal/app/router.go`: `BuildRouter` now constructs both readers from `cfg.ClickHouse` and passes them to `registerAnalyticsRoutes`, so the new route is wired on a fully built router while still failing closed under the checked-in default-off ClickHouse config.
+- Added 11 regression tests: 5 in `live_trade_summary_reader_test.go` (nil fail-closed, instance_id required, three-query aggregate decode through an `httptest` shape-detecting server asserting server-side binding and no interpolation, hours clamping, upstream-error fail-closed) and 6 in `analytics_routes_test.go` (admin required, instance_id required, disabled fail-closed, serves ClickHouse aggregates, plus verification that the trade-summary route is registered on a fully built router; the position-history registration test was refactored to share the router-build helper).
+
+### Files changed
+
+- `backend/internal/services/live_trade_summary_reader.go` (new)
+- `backend/internal/services/live_trade_summary_reader_test.go` (new)
+- `backend/internal/app/analytics_routes.go`
+- `backend/internal/app/analytics_routes_test.go`
+- `backend/internal/app/router.go`
+- `docs/needed_improvements/implementation-progress.md`
+- `docs/needed_improvements/implementation-backlog.md`
+- `docs/needed_improvements/master-implementation-plan.md`
+- `docs/needed_improvements/investigation-checklist.md`
+- `docs/needed_improvements/clickhouse-plan.md`
+
+### Tests and checks run
+
+- `cd backend && gofmt -l internal/services/live_trade_summary_reader.go internal/services/live_trade_summary_reader_test.go internal/app/analytics_routes.go internal/app/analytics_routes_test.go internal/app/router.go`
+  - result: passed (no files listed after `gofmt -w` was applied to `analytics_routes.go`)
+- `cd backend && go build ./...`
+  - result: passed (exit 0)
+- `cd backend && go vet ./internal/services/... ./internal/app/...`
+  - result: passed (exit 0)
+- `cd backend && go test ./internal/services/... ./internal/app/...`
+  - result: passed (`ok github.com/dydx-trading-bot/backend-go/internal/services` and `ok .../internal/app`)
+- `cd backend && go test ./internal/services/... -run 'LiveTradeSummaryReader' -v` → 5/5 PASS
+- `cd backend && go test ./internal/app/... -run 'ServeLiveTradeSummary|BuildRouterRegistersAnalytics' -v` → 6/6 PASS
+
+### Result
+
+- [x] DONE — The backend now has its second ClickHouse read model: a typed `LiveTradeSummaryReader` aggregating `trade_events` and `order_events` keyed by stable `instance_id`, exposed through admin-gated `GET /api/v1/analytics/trade-summary` that fails closed to a degraded `enabled=false` payload when ClickHouse is off and to a `success=false` payload on query failure.
+- [~] PARTIAL — "Move dashboard-heavy reads to ClickHouse" is still PARTIAL overall: position history and trade/order summary read models now exist, but frontend wiring, remaining summary surfaces (per-market/per-strategy), and default-on ClickHouse writes are still pending, so the read models serve real data only when ClickHouse is enabled.
+
+### Risks
+
+- The read model was validated only against an `httptest` shape-detecting stand-in for ClickHouse, not a live ClickHouse instance, because checked-in config keeps ClickHouse disabled by default. The fail-closed design means production with ClickHouse off returns an empty disabled payload, not stale aggregates.
+- Trade totals assume the bot's paired `trade_events` lifecycle convention (an `opened` row with `realized_pnl=0` plus a `closed` row carrying realized PnL); if a future producer emits a different lifecycle shape, the `event_kind`-guarded counts would need revisiting.
+- The route is admin-gated under `/api/v1/analytics` as an operational read surface; production dashboard wiring (user-scoped access, frontend consumption, replacing delegated bot-API reads) is intentionally deferred to a later slice.
+- The queries rely on ClickHouse server-side `{name:Type}` parameter binding; if a future ClickHouse version changes HTTP param handling, the reader would surface `ErrClickHouseUnavailable` rather than misbehave silently.
+- `day` in the daily breakdown is returned as a string projected from `toString(toDate(event_time))` and is not a parsed `time.Time`.
+
+### Known gaps
+
+- [~] PARTIAL — Frontend/dashboard does not yet consume the position-history or trade-summary read models; wiring is still pending.
+- [~] PARTIAL — Additional summary dimensions (per-market, per-strategy, per-side) are still pending beyond the per-day and per-status rollups added here.
+- [~] PARTIAL — Older ClickHouse live rows are not backfilled with `instance_id`, so historical aggregates may miss pre-`instance_id` rows until naturally superseded.
+- [~] PARTIAL — The bot API `position-history` placeholder still does not read historical snapshots back from ClickHouse; the backend read models are separate from that bot-side endpoint.
+- [~] PARTIAL — Finer-grained `order_events`/`trade_events` per-fill detail remains incomplete on the write side.
+- [ ] PENDING — ClickHouse writes remain feature-gated/default-off in checked-in config.
+
+### Next recommended task
+
+- Phase 3: either (a) wire the position-history and trade-summary read models into the frontend/dashboard with a polling fallback, or (b) enable ClickHouse writes by default in a non-production overlay so both read models can be validated end-to-end against live mirrored rows, or (c) add a third read model (e.g., per-market/per-strategy breakdowns) reusing the same `ClickHouseReader`/`DecodeRows` pattern.
+
+### Manual steps required
+
+- Run the backend with `CLICKHOUSE_ENABLED=true` against a ClickHouse instance that has mirrored `trade_events` and `order_events` rows and exercise `GET /api/v1/analytics/trade-summary?instance_id=<stable bot instance id>&hours=24` as an admin.
+- Decide whether the read models should stay admin-gated under `/api/v1/analytics` or move to user-scoped dashboard routes before frontend wiring.
+
 ## Latest Run — 2026-06-28T20:15:00+03:00
 
 ### Documents read

@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — Live trade persistence now mirrors paired lifecycle rows into ClickHouse `trade_events`
+  - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_trade_repository.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_live_trade_persistence.py -q` passed; `python3 -m py_compile bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/tests/test_storage_adapters.py bot/tests/test_trade_repository.py` passed
+  - Evidence: `TradeRepository.create_trade()`, `close_trade()`, and `update_trade_exit()` now keep PostgreSQL authoritative while best-effort mirroring committed live trade open/close lifecycle rows into buffered ClickHouse `trade_events`.
 - [x] DONE — Bot event logs now mirror into ClickHouse `bot_events`
   - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_event_repository.py`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_live_trade_persistence.py -q` passed; `python3 -m py_compile bot/src/infrastructure/persistence/repository.py bot/src/infrastructure/storage/clickhouse_writer.py bot/tests/test_event_repository.py bot/tests/test_storage_adapters.py` passed
@@ -183,6 +187,7 @@
   - backtest trade / position / PnL / equity curve / metrics rows
 - `bot/src/infrastructure/persistence/repository.py`
   - existing bot lifecycle and trade-activity event logs now mirror into `bot_events`
+  - existing live trade open/close persistence now mirrors paired lifecycle rows into `trade_events`
 - `bot/src/infrastructure/persistence/repository_backtest.py`
   - current place where analytical sidecars are already extracted
 - `bot/src/main_instance.py`
@@ -195,9 +200,10 @@
 ### Existing ClickHouse write path
 
 - `bot/src/infrastructure/storage/clickhouse_writer.py`
-  - present, still feature-gated, now provisions five backtest tables plus `bot_events`, buffers rows by batch size / flush interval, and force-flushes terminal repository saves
+  - present, still feature-gated, now provisions five backtest tables plus `bot_events` and `trade_events`, buffers rows by batch size / flush interval, and force-flushes terminal repository saves
 - `bot/src/infrastructure/persistence/repository.py`
   - existing committed bot event-log rows now mirror into ClickHouse `bot_events` through the shared buffered writer when ClickHouse is enabled
+  - existing committed live trade open/close writes now mirror into ClickHouse `trade_events` through the same buffered writer when ClickHouse is enabled
 
 ## Code That Should Write To MinIO
 

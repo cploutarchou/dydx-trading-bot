@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import threading
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, List, Optional
 
 from sqlalchemy.orm import Session
@@ -30,6 +30,39 @@ from src.infrastructure.storage import (
 from src.shared.time_utils import utc_now
 
 logger = logging.getLogger(__name__)
+
+
+def _build_clickhouse_analytics_writer(purpose: str) -> AnalyticsWriter:
+    try:
+        from config.config import config as load_runtime_config
+
+        runtime_config = load_runtime_config()
+        clickhouse = getattr(runtime_config, "clickhouse", None)
+        if clickhouse is None or not getattr(clickhouse, "enabled", False):
+            return NoopAnalyticsWriter()
+
+        return ClickHouseAnalyticsWriter(
+            enabled=True,
+            database=str(getattr(clickhouse, "database", "default") or "default"),
+            host=str(getattr(clickhouse, "host", "localhost") or "localhost"),
+            port=int(getattr(clickhouse, "port", 8123) or 8123),
+            username=str(getattr(clickhouse, "user", "default") or "default"),
+            password=str(getattr(clickhouse, "password", "") or ""),
+            secure=bool(getattr(clickhouse, "secure", False)),
+            extra_config={
+                "batch_size": int(getattr(clickhouse, "batch_size", 1000) or 1000),
+                "flush_interval_seconds": float(
+                    getattr(clickhouse, "flush_interval_seconds", 5.0) or 5.0
+                ),
+            },
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to initialize %s ClickHouse writer; using noop fallback: %s",
+            purpose,
+            exc,
+        )
+        return NoopAnalyticsWriter()
 
 
 class BotRepository:
@@ -268,8 +301,101 @@ class JobRepository:
 class TradeRepository:
     """Repository for trade operations"""
 
-    def __init__(self, session: Session):
+    _default_analytics_writer: AnalyticsWriter | None = None
+    _analytics_writer_lock = threading.Lock()
+
+    def __init__(
+        self, session: Session, analytics_writer: AnalyticsWriter | None = None
+    ):
         self.session = session
+        self.analytics_writer = analytics_writer or self._resolve_analytics_writer()
+
+    @classmethod
+    def _resolve_analytics_writer(cls) -> AnalyticsWriter:
+        if cls._default_analytics_writer is not None:
+            return cls._default_analytics_writer
+
+        with cls._analytics_writer_lock:
+            if cls._default_analytics_writer is None:
+                cls._default_analytics_writer = cls._build_analytics_writer()
+        return cls._default_analytics_writer
+
+    @staticmethod
+    def _build_analytics_writer() -> AnalyticsWriter:
+        return _build_clickhouse_analytics_writer("trade analytics")
+
+    @staticmethod
+    def _normalize_event_time(value: datetime | None) -> datetime:
+        timestamp = value or utc_now()
+        if timestamp.tzinfo is None:
+            return timestamp.replace(tzinfo=timezone.utc)
+        return timestamp.astimezone(timezone.utc)
+
+    @classmethod
+    def _build_analytics_row(
+        cls, trade: Trade, *, event_kind: str
+    ) -> dict[str, Any]:
+        event_time = cls._normalize_event_time(
+            trade.closed_at if event_kind == "closed" and trade.closed_at else trade.updated_at or trade.created_at
+        )
+        closed_at = (
+            cls._normalize_event_time(trade.closed_at) if trade.closed_at else None
+        )
+        status = trade.status
+        if isinstance(status, TradeStatusEnum):
+            status_value = status.value
+        else:
+            status_value = str(status or "")
+
+        return {
+            "event_date": event_time.date(),
+            "event_time": event_time,
+            "trade_id": str(trade.trade_id or ""),
+            "bot_id": str(trade.bot_id),
+            "pair1": str(trade.pair1 or ""),
+            "pair2": str(trade.pair2 or ""),
+            "side1": str(trade.side1 or ""),
+            "side2": str(trade.side2 or ""),
+            "status": status_value,
+            "event_kind": str(event_kind or ""),
+            "entry_price1": float(trade.entry_price1 or 0.0),
+            "entry_price2": float(trade.entry_price2 or 0.0),
+            "exit_price1": (
+                float(trade.exit_price1) if trade.exit_price1 is not None else None
+            ),
+            "exit_price2": (
+                float(trade.exit_price2) if trade.exit_price2 is not None else None
+            ),
+            "entry_size1": float(trade.entry_size1 or 0.0),
+            "entry_size2": float(trade.entry_size2 or 0.0),
+            "exit_size1": (
+                float(trade.exit_size1) if trade.exit_size1 is not None else None
+            ),
+            "exit_size2": (
+                float(trade.exit_size2) if trade.exit_size2 is not None else None
+            ),
+            "realized_pnl": float(
+                trade.realized_pnl or trade.profit_loss or 0.0
+            ),
+            "realized_pnl_pct": float(
+                trade.realized_pnl_pct or trade.profit_loss_percentage or 0.0
+            ),
+            "closed_at": closed_at,
+        }
+
+    def _write_analytics_trade(self, trade: Trade, *, event_kind: str) -> None:
+        try:
+            self.analytics_writer.write_rows(
+                "trade_events",
+                [self._build_analytics_row(trade, event_kind=event_kind)],
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to mirror trade %s (%s) to ClickHouse: %s",
+                trade.trade_id,
+                event_kind,
+                exc,
+            )
 
     def create_trade(
             self,
@@ -296,9 +422,11 @@ class TradeRepository:
             entry_price2=entry_price2,
             entry_size1=entry_size1,
             entry_size2=entry_size2,
+            status=TradeStatusEnum.OPEN,
         )
         self.session.add(trade)
         self.session.commit()
+        self._write_analytics_trade(trade, event_kind="opened")
         return trade
 
     def get_by_position_id(self, position_id: str) -> type[Trade] | None:
@@ -348,6 +476,7 @@ class TradeRepository:
             trade.status = TradeStatusEnum.CLOSED
             trade.closed_at = utc_now()
             self.session.commit()
+            self._write_analytics_trade(trade, event_kind="closed")
 
     def get_trade_statistics(self, bot_id: int) -> dict:
         """Get trade statistics for a bot"""
@@ -398,6 +527,7 @@ class TradeRepository:
             trade.status = TradeStatusEnum.CLOSED
             trade.closed_at = utc_now()
             self.session.commit()
+            self._write_analytics_trade(trade, event_kind="closed")
 
 
 class EventRepository:
@@ -424,35 +554,7 @@ class EventRepository:
 
     @staticmethod
     def _build_analytics_writer() -> AnalyticsWriter:
-        try:
-            from config.config import config as load_runtime_config
-
-            runtime_config = load_runtime_config()
-            clickhouse = getattr(runtime_config, "clickhouse", None)
-            if clickhouse is None or not getattr(clickhouse, "enabled", False):
-                return NoopAnalyticsWriter()
-
-            return ClickHouseAnalyticsWriter(
-                enabled=True,
-                database=str(getattr(clickhouse, "database", "default") or "default"),
-                host=str(getattr(clickhouse, "host", "localhost") or "localhost"),
-                port=int(getattr(clickhouse, "port", 8123) or 8123),
-                username=str(getattr(clickhouse, "user", "default") or "default"),
-                password=str(getattr(clickhouse, "password", "") or ""),
-                secure=bool(getattr(clickhouse, "secure", False)),
-                extra_config={
-                    "batch_size": int(getattr(clickhouse, "batch_size", 1000) or 1000),
-                    "flush_interval_seconds": float(
-                        getattr(clickhouse, "flush_interval_seconds", 5.0) or 5.0
-                    ),
-                },
-            )
-        except Exception as exc:
-            logger.warning(
-                "Failed to initialize bot event ClickHouse writer; using noop fallback: %s",
-                exc,
-            )
-            return NoopAnalyticsWriter()
+        return _build_clickhouse_analytics_writer("bot event")
 
     @staticmethod
     def _coerce_optional_int(value: Any) -> int | None:

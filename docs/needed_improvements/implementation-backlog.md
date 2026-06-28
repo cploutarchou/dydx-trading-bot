@@ -2,6 +2,10 @@
 
 ## Status Updates — 2026-06-28
 
+- [x] DONE — Add `trade_events` ClickHouse mirroring for live trade persistence
+  - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_trade_repository.py`
+  - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_trade_repository.py bot/tests/test_live_trade_persistence.py -q` passed; `python3 -m py_compile bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/tests/test_storage_adapters.py bot/tests/test_trade_repository.py` passed; `python3 -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository.py bot/tests/test_storage_adapters.py bot/tests/test_trade_repository.py` passed
+  - Evidence: committed live trade open/close writes in `TradeRepository` now best-effort mirror paired lifecycle analytics into buffered ClickHouse `trade_events` rows while PostgreSQL remains the authoritative trade store.
 - [x] DONE — Add `bot_events` ClickHouse mirroring for existing bot event logs
   - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_event_repository.py`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_event_repository.py bot/tests/test_live_trade_persistence.py -q` passed; `python3 -m py_compile bot/src/infrastructure/persistence/repository.py bot/src/infrastructure/storage/clickhouse_writer.py bot/tests/test_event_repository.py bot/tests/test_storage_adapters.py` passed
@@ -54,7 +58,7 @@
 
 | Title | Problem | Proposed Change | Affected Files | Target Service | Priority | Complexity | Risk | Dependencies | Acceptance Criteria |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Expand ClickHouse schemas beyond current backtest subset | current writer now supports five backtest tables plus `bot_events`, but `order_events`, `trade_events`, live `position_snapshots`, and backend read models are still missing | continue extending typed analytical tables and DDL management beyond the initial backtest coverage | `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/src/infrastructure/persistence/repository_backtest.py` | shared analytics layer | high | high | medium | schema design | first live-bot event family is in place and remaining analytical families are explicitly tracked for follow-up |
+| Expand ClickHouse schemas beyond current backtest subset | current writer now supports five backtest tables plus live `bot_events` and `trade_events`, but `order_events`, live `position_snapshots`, and backend read models are still missing | continue extending typed analytical tables and DDL management beyond the initial backtest coverage | `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/src/infrastructure/persistence/repository_backtest.py` | shared analytics layer | high | high | medium | schema design | live bot event logs and paired trade lifecycle analytics are in place and remaining analytical families are explicitly tracked for follow-up |
 | Add batched ClickHouse writes | writer now buffers and terminal-flushes repository-owned backtest rows, but default-on rollout and richer telemetry are still pending | operationalize the buffered path and carry it forward to additional analytical producers | `bot/src/infrastructure/storage/clickhouse_writer.py`, worker writers | workers | high | high | medium | analytics adapter redesign | analytical write throughput scales without immediate per-save inserts |
 | Move dashboard-heavy reads to ClickHouse | backend still relies on PostgreSQL and delegated payloads | add summary/read models backed by ClickHouse aggregates | backend query layer | backend API | high | medium | medium | ClickHouse schemas | heavy dashboards no longer depend on oversized PostgreSQL rows |
 
@@ -94,7 +98,7 @@
 
 | Title | Problem | Proposed Change | Affected Files | Target Service | Priority | Complexity | Risk | Dependencies | Acceptance Criteria |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Add live trading event writes to ClickHouse | lifecycle/trade-activity bot events can now mirror to `bot_events`, but live order/fill/position analytics are incomplete | emit normalized rows for trade/order/fill/position events | `bot/src/main_instance.py`, trading persistence modules, `bot/src/infrastructure/persistence/repository.py` | bot worker | high | high | medium | ClickHouse schemas | live execution analytics are queryable outside PostgreSQL |
+| Add live trading event writes to ClickHouse | lifecycle/trade-activity bot events now mirror to `bot_events` and paired live trade lifecycle writes now mirror to `trade_events`, but live order/fill/position analytics are incomplete | emit normalized rows for order/fill/position events and deepen trade detail where needed | `bot/src/main_instance.py`, `bot/src/trading/trade_persistence.py`, `bot/src/infrastructure/persistence/repository.py` | bot worker | high | high | medium | ClickHouse schemas | live execution analytics are queryable outside PostgreSQL |
 | Move raw exchange payloads to MinIO | raw payload storage boundary is undefined | upload raw request/response/debug bundles to MinIO | trading/exchange integration modules | bot worker | high | medium | medium | MinIO adapter | raw payloads no longer live in PostgreSQL or local disk |
 
 ## Backtest Worker Changes

@@ -16,7 +16,7 @@
 | bot active lock | bot workers/runtime | bot workers/runtime | Valkey | minutes | point lookup by bot id | short-lived coordination | replace file/process-local ownership assumptions |
 | API rate limit counter | backend API, bot API | backend API, bot API | Valkey | seconds to minutes | counter increment | distributed rate limiting | replace `backend/internal/middleware/rate_limit.go` in-process limiter |
 | cache entry | backend API, bot API | backend API, bot API | Valkey | seconds to minutes | key lookup | fast cache, not source of truth | keep TTL-bound |
-| trade event | bot workers | backend API, analytics | ClickHouse | 180 to 365 days | time-series, aggregates | high-volume analytical row | current target path largely NOT FOUND outside backtests |
+| trade event | bot workers | backend API, analytics | ClickHouse | 180 to 365 days | time-series, aggregates | high-volume analytical row | first paired live trade lifecycle mirror now exists in `TradeRepository`; finer-grained order/fill detail remains pending |
 | order event | bot workers | backend API, analytics | ClickHouse | 180 to 365 days | time-series, aggregates | high-volume analytical row | implement alongside trade events |
 | fill event | bot workers | backend API, analytics | ClickHouse | 180 to 365 days | time-series, aggregates | high-volume analytical row | implement alongside trade events |
 | position snapshot | bot workers | backend API, analytics | ClickHouse | 90 to 180 days | latest + trend queries | append-friendly state history | migrate away from JSON/file snapshot paths |

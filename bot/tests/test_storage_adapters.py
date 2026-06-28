@@ -391,6 +391,46 @@ def test_clickhouse_writer_provisions_bot_events_table():
     assert any("bot_events" in cmd for cmd in client.commands)
 
 
+def test_clickhouse_writer_provisions_trade_events_table():
+    client = _FakeClickHouseClient()
+    writer = ClickHouseAnalyticsWriter(
+        enabled=True,
+        database="analytics",
+        extra_config={"client": client},
+    )
+
+    writer.write_rows(
+        "trade_events",
+        [
+            {
+                "event_date": datetime(2026, 1, 1, tzinfo=timezone.utc).date(),
+                "event_time": datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc),
+                "trade_id": "live-abc123",
+                "bot_id": "77",
+                "pair1": "BTC-USD",
+                "pair2": "ETH-USD",
+                "side1": "BUY",
+                "side2": "SELL",
+                "status": "open",
+                "event_kind": "opened",
+                "entry_price1": 100000.0,
+                "entry_price2": 3000.0,
+                "exit_price1": None,
+                "exit_price2": None,
+                "entry_size1": 0.1,
+                "entry_size2": 2.0,
+                "exit_size1": None,
+                "exit_size2": None,
+                "realized_pnl": 0.0,
+                "realized_pnl_pct": 0.0,
+                "closed_at": None,
+            }
+        ],
+    )
+
+    assert any("trade_events" in cmd for cmd in client.commands)
+
+
 def test_clickhouse_writer_falls_back_on_insert_error():
     client = _FailingClickHouseClient()
     fallback = NoopAnalyticsWriter()

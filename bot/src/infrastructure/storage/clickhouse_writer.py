@@ -36,6 +36,33 @@ CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
 PARTITION BY toYYYYMM(event_date)
 ORDER BY (bot_id, bot_run_id, event_time, event_type)"""
 
+_TRADE_EVENTS_DDL = """\
+CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
+    event_date        Date,
+    event_time        DateTime64(3, 'UTC'),
+    trade_id          String,
+    bot_id            String,
+    pair1             String,
+    pair2             String,
+    side1             LowCardinality(String),
+    side2             LowCardinality(String),
+    status            LowCardinality(String),
+    event_kind        LowCardinality(String),
+    entry_price1      Float64 DEFAULT 0,
+    entry_price2      Float64 DEFAULT 0,
+    exit_price1       Nullable(Float64),
+    exit_price2       Nullable(Float64),
+    entry_size1       Float64 DEFAULT 0,
+    entry_size2       Float64 DEFAULT 0,
+    exit_size1        Nullable(Float64),
+    exit_size2        Nullable(Float64),
+    realized_pnl      Float64 DEFAULT 0,
+    realized_pnl_pct  Float64 DEFAULT 0,
+    closed_at         Nullable(DateTime64(3, 'UTC'))
+) ENGINE = MergeTree()
+PARTITION BY toYYYYMM(event_date)
+ORDER BY (bot_id, trade_id, event_time, event_kind)"""
+
 _BACKTEST_TRADES_DDL = """\
 CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
     run_id           String,
@@ -105,6 +132,8 @@ ORDER BY (run_id, metric_name, metric_time)"""
 _TABLE_DDL: dict[str, str] = {
     "bot_event_rows": _BOT_EVENTS_DDL,
     "bot_events": _BOT_EVENTS_DDL,
+    "trade_event_rows": _TRADE_EVENTS_DDL,
+    "trade_events": _TRADE_EVENTS_DDL,
     "backtest_trade_rows": _BACKTEST_TRADES_DDL,
     "backtest_trades": _BACKTEST_TRADES_DDL,
     "backtest_daily_pnl_rows": _BACKTEST_DAILY_PNL_DDL,

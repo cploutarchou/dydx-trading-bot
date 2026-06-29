@@ -1,6 +1,7 @@
 # Implementation Progress
 
 ## Latest Run — 2026-06-29T19:00:00+03:00
+
 ### Documents read
 
 - `docs/needed_improvements/master-implementation-plan.md`
@@ -79,7 +80,7 @@
 ### Tests and checks run
 
 - `cd backend && go build ./...` → passed (exit 0)
-<<<<<<< HEAD
+  <<<<<<< HEAD
 - `cd backend && go vet ./...` → passed (exit 0)
 - `cd backend && go test ./internal/repository/... -v` → **27/27 PASS**
 - `cd backend && go test ./internal/nats/... -v` → **8/8 PASS**
@@ -113,8 +114,7 @@
 
 - Apply migrations `000063_create_task_commands`, `000064_create_task_runs`, `000065_create_task_attempts`, and `000066_create_worker_heartbeats` in all environments before enabling NATS.
 - Enable `NATS_ENABLED=true` in non-production environments to validate end-to-end NATS wiring.
-- Monitor backend logs for NATS publish success/failure messages during backtest creation.
-=======
+- # Monitor backend logs for NATS publish success/failure messages during backtest creation.
 - `cd backend && go test ./internal/services/... -run TestNATSCommandService -v` → **25/25 PASS**
 - `cd backend && go test ./internal/services/... -run "NATS|Repository|Imports" -v` → **25/25 PASS**
 - Verification of all Phase 1-3 components against live codebase
@@ -147,7 +147,7 @@
 
 - Apply migrations `000063_create_task_commands`, `000064_create_task_runs`, `000065_create_task_attempts`, and `000066_create_worker_heartbeats` in all environments before NATS wiring is enabled.
 - Decide on integration strategy: whether to add NATSCommandService to router dependencies or create it on-demand in the createBacktestHandler.
->>>>>>> fcbb7fa (feat: add NATS command service for Phase 4 dual-write foundation)
+  > > > > > > > fcbb7fa (feat: add NATS command service for Phase 4 dual-write foundation)
 
 ## Latest Run — 2026-06-28T22:00:00+03:00
 

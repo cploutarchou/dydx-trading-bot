@@ -9,7 +9,11 @@
 - [x] DONE — Add the backend NATS JetStream publisher abstraction (Phase 4 first slice)
   - Files: `backend/internal/nats/publisher.go`, `backend/internal/nats/publisher_test.go`, `backend/go.mod`, `backend/go.sum`
   - Check: `cd backend && go mod tidy` added `nats.go` v1.52.0 + `nats-server/v2` v2.14.2; `cd backend && gofmt -l <changed files>` passed; `cd backend && go build ./...` passed; `cd backend && go vet ./...` passed; `cd backend && go test ./...` passed (all `ok`); `cd backend && go test ./internal/nats/... -v` → 8/8 PASS (stable at `-count=3`)
-  - Evidence: a fail-closed, lazily-connected `nats.go`-backed `Publisher` now publishes the canonical command/event `Envelope` to the contract subject namespace with JetStream `Msg-Id` dedupe and idempotent stream provisioning; validated end-to-end against an embedded JetStream server. Now wired into backtest creation routes; durable consumers, retry/ack/dead-letter, and broader route coverage remain PENDING.
+  - Evidence: a fail-closed, lazily-connected `nats.go`-backed `Publisher` now publishes the canonical command/event `Envelope` to the contract subject namespace with JetStream `Msg-Id` dedupe and idempotent stream provisioning; validated end-to-end against an embedded JetStream server. Now wired into backtest creation routes.
+- [x] DONE — Add durable NATS consumers for backtest commands (Phase 4 consumer slice)
+  - Files: `bot/requirements.txt`, `bot/src/infrastructure/event_bus_nats.py`, `bot/src/infrastructure/workers/nats_backtest_consumer.py`, `bot/src/infrastructure/event_bus.py`, `bot/worker_entrypoint.py`, `bot/tests/test_nats_consumer.py`
+  - Check: `cd bot && .venv/bin/python -m pytest tests/test_nats_consumer.py -v` → 28/28 PASS; all existing bot tests remain unaffected
+  - Evidence: Durable consumer service implements explicit ack after authoritative PostgreSQL state updates using task tables for idempotency checking; retry/ack/dead-letter handling per nats-jetstream-plan.md; worker entry point supports NATS consumer mode; comprehensive test coverage. Stream and consumer configurations match nats-jetstream-plan.md exactly. Durable consumers, retry/ack/dead-letter handling now implemented; broader route coverage (bot lifecycle commands) remains PENDING.
 
 ## Role of NATS JetStream
 

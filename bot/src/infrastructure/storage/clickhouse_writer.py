@@ -187,6 +187,34 @@ CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
 ) ENGINE = MergeTree()
 ORDER BY (run_id, metric_name, metric_time)"""
 
+_WORKER_METRICS_DDL = """\
+CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
+    metric_time     DateTime64(3, 'UTC'),
+    worker_id       String,
+    worker_type     LowCardinality(String),
+    queue_name      LowCardinality(String),
+    metric_name     LowCardinality(String),
+    metric_value    Float64
+) ENGINE = MergeTree()
+PARTITION BY toYYYYMM(metric_time)
+ORDER BY (worker_type, worker_id, metric_time, metric_name)"""
+
+_API_REQUEST_EVENTS_DDL = """\
+CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
+    event_date      Date,
+    event_time      DateTime64(3, 'UTC'),
+    service         LowCardinality(String),
+    route           String,
+    method          LowCardinality(String),
+    status_code     UInt16,
+    latency_ms      UInt32,
+    user_id         Nullable(String),
+    correlation_id  String,
+    rate_limited    UInt8 DEFAULT 0
+) ENGINE = MergeTree()
+PARTITION BY toYYYYMM(event_date)
+ORDER BY (service, route, event_time, status_code)"""
+
 _TABLE_DDL: dict[str, str] = {
     "bot_event_rows": _BOT_EVENTS_DDL,
     "bot_events": _BOT_EVENTS_DDL,
@@ -206,6 +234,10 @@ _TABLE_DDL: dict[str, str] = {
     "backtest_equity_curve": _BACKTEST_EQUITY_CURVE_DDL,
     "strategy_metric_rows": _STRATEGY_METRICS_DDL,
     "strategy_metrics": _STRATEGY_METRICS_DDL,
+    "worker_metrics": _WORKER_METRICS_DDL,
+    "worker_metric_rows": _WORKER_METRICS_DDL,
+    "api_request_events": _API_REQUEST_EVENTS_DDL,
+    "api_request_event_rows": _API_REQUEST_EVENTS_DDL,
 }
 
 _TABLE_ALTERS: dict[str, tuple[str, ...]] = {

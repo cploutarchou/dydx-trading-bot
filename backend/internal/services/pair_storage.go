@@ -1,5 +1,13 @@
 package services
 
+// Deprecated: legacy local-disk CSV/JSON pair-history storage.
+//
+// This is part of the legacy local-file storage surface the Final Target
+// Architecture retires (see docs/FINAL_APPLICATION_IMPROVEMENT_PLAN.md). It is
+// retained for backward compatibility but is not the intended storage path for
+// new data. Do not extend it; it is slated for Phase 3 cleanup once the
+// authoritative artifact/analytics storage paths fully replace it.
+
 import (
 	"encoding/csv"
 	"encoding/json"

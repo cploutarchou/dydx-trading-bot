@@ -3,7 +3,6 @@ package routes
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -1092,13 +1091,13 @@ func ensureBacktestRunAccess(c *gin.Context, runID string, backtestRepo *reposit
 // RegisterBotAPIDelegateRoutes registers all delegated bot API endpoints
 // These routes proxy to the Python bot API (default 127.0.0.1:8889) and sync with the Go database
 func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPIClient) {
-	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, nil, nil, nil, nil)
+	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, nil, nil, nil, nil, nil)
 }
 
 // RegisterBotAPIDelegateRoutesWithSync registers delegated bot API endpoints and
 // optionally persists backtest run status snapshots into local DB tables.
 func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *services.BotAPIClient, backtestSync *services.BacktestSyncService) {
-	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, backtestSync, nil, nil, nil)
+	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, backtestSync, nil, nil, nil, nil)
 }
 
 // RegisterBotAPIDelegateRoutesWithSyncCacheAndPush registers delegated bot API endpoints
@@ -1112,8 +1111,9 @@ func RegisterBotAPIDelegateRoutesWithSyncCacheAndPush(
 	pushHub *services.BacktestPushHub,
 	taskRepo *repository.TaskRepository,
 	natsPublisher *nats.Publisher,
+	natsCommandService *services.NATSCommandService,
 ) {
-	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, backtestSync, cache, taskRepo, natsPublisher)
+	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, backtestSync, cache, taskRepo, natsPublisher, natsCommandService)
 
 	var backtestRepo *repository.BacktestRepository
 	if backtestSync != nil && backtestSync.DB() != nil {
@@ -1157,7 +1157,7 @@ func RegisterBotAPIDelegateRoutesWithSyncCacheAndPush(
 
 // RegisterBotAPIDelegateRoutesWithSyncAndCache registers delegated bot API endpoints with
 // optional backtest sync and optional Redis-backed response cache for hot polling paths.
-func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient *services.BotAPIClient, backtestSync *services.BacktestSyncService, cache *services.CacheService, taskRepo *repository.TaskRepository, natsPublisher *nats.Publisher) {
+func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient *services.BotAPIClient, backtestSync *services.BacktestSyncService, cache *services.CacheService, taskRepo *repository.TaskRepository, natsPublisher *nats.Publisher, natsCommandService *services.NATSCommandService) {
 	backtestRepo := (*repository.BacktestRepository)(nil)
 	userRepo := (*repository.UserRepository)(nil)
 	strategyRepo := (*repository.StrategyRepository)(nil)
@@ -1501,69 +1501,22 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		)
 
 		executeCreate := func() error {
-			// Phase 4: Dual-write - create task command for NATS JetStream idempotency
-			var taskCommand *models.TaskCommand
-			var natsResult *nats.PublishResult
-			
-			if taskRepo != nil && natsPublisher != nil {
+			// Phase 4: Dual-write - use NATSCommandService for task command/run creation and NATS publishing
+			if natsCommandService != nil {
 				userIDValue, _ := c.Get("user_id")
 				userID, _ := userIDValue.(int)
 				
 				// Generate a unique idempotency key for this backtest request
 				idempotencyKey := "backtest-" + uuid.New().String()
-				commandType := "backtest.start"
-				ownerType := "backtest"
-				ownerID := idempotencyKey // Use idempotency key as owner ID for now
 				
-				// Create payload JSON from the config (bounded to command-sized payload)
-				payloadJSON, err := json.Marshal(config)
+				// Use NATSCommandService for dual-write: creates task command+run in PostgreSQL and publishes to NATS
+				ctx := c.Request.Context()
+				_, err := natsCommandService.PublishBacktestCommand(ctx, idempotencyKey, config, &userID, idempotencyKey)
 				if err != nil {
-					log.Printf("Failed to marshal backtest config for task command: %v", err)
+					// Log the error but don't fail the request - HTTP path remains authoritative
+					log.Printf("NATS Command Service: failed to publish backtest command: %v", err)
 					// Continue with bot API call even if task command creation fails
-				} else {
-					// Create task command in PostgreSQL for idempotency
-					ctx := c.Request.Context()
-					taskCommand, err = taskRepo.CreateTaskCommand(ctx, commandType, ownerType, ownerID, idempotencyKey, &userID, payloadJSON)
-					if err != nil {
-						log.Printf("Failed to create task command for backtest: %v", err)
-						// Continue with bot API call even if task command creation fails
-					} else if natsPublisher != nil {
-						// Create and publish NATS envelope with the same idempotency key
-						correlationID := uuid.New().String()
-						env := nats.Envelope{
-							MessageID:       uuid.New().String(),
-							IdempotencyKey:  idempotencyKey,
-							CorrelationID:   correlationID,
-							OwnerType:       ownerType,
-							OwnerID:         ownerID,
-							OccurredAt:      time.Now().UTC(),
-							ProducerService: "backend-api",
-							SchemaVersion:   nats.DefaultSchemaVersion,
-							Subject:         nats.Subject(ownerType, "command", "start"),
-							Payload:         payloadJSON,
-						}
-						
-						if err := env.Validate(); err != nil {
-							log.Printf("Invalid NATS envelope for backtest command: %v", err)
-						} else {
-							natsResult, err = natsPublisher.Publish(ctx, env)
-							if err != nil {
-								// Log the NATS publish error but don't fail the request
-								// The HTTP path remains authoritative per contract
-								log.Printf("NATS publish failed for backtest command (idempotency_key=%s): %v", idempotencyKey, err)
-							} else {
-								// Update task command status to published
-								if taskCommand != nil {
-									updateErr := taskRepo.UpdateTaskCommandStatus(ctx, taskCommand.ID, repository.TaskCommandStatusPublished)
-									if updateErr != nil {
-										log.Printf("Failed to update task command status for backtest: %v", updateErr)
-									}
-								}
-								log.Printf("NATS publish successful for backtest command (stream=%s, sequence=%d, idempotency_key=%s)", 
-									natsResult.Stream, natsResult.Sequence, idempotencyKey)
-							}
-						}
-					}
+					return err
 				}
 			}
 			

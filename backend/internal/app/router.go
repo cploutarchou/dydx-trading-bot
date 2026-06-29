@@ -113,8 +113,9 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 	// Phase 4: NATS JetStream publisher and task repository for dual-write wiring
 	taskRepo := repository.NewTaskRepository(deps.Database.DB)
 	natsPublisher := nats.NewPublisher(cfg.NATS)
+	natsCommandService := services.NewNATSCommandService(taskRepo, natsPublisher, cfg.NATS)
 
-	registerFeatureRoutes(router, deps.Database, deps.BotAPIClient, deps.CacheService, deps.BacktestPushHub, taskRepo, natsPublisher)
+	registerFeatureRoutes(router, deps.Database, deps.BotAPIClient, deps.CacheService, deps.BacktestPushHub, taskRepo, natsPublisher, natsCommandService)
 	registerDebugRoutes(router, deps.Database)
 
 	// Backend-owned ClickHouse read models. Each reader is nil when ClickHouse is
@@ -130,7 +131,7 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 	return router, nil
 }
 
-func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient *services.BotAPIClient, cacheService *services.CacheService, backtestPushHub *services.BacktestPushHub, taskRepo *repository.TaskRepository, natsPublisher *nats.Publisher) {
+func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient *services.BotAPIClient, cacheService *services.CacheService, backtestPushHub *services.BacktestPushHub, taskRepo *repository.TaskRepository, natsPublisher *nats.Publisher, natsCommandService *services.NATSCommandService) {
 	routes.RegisterAuthRoutes(router, database.DB)
 	routes.RegisterAdminUserRoutes(router, database.DB)
 	routes.RegisterBackofficeRoutes(router, database.DB)
@@ -151,7 +152,7 @@ func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient 
 
 
 	routes.RegisterBotInstanceRoutes(router, database, cacheService)
-	routes.RegisterBotAPIDelegateRoutesWithSyncCacheAndPush(router, apiClient, backtestSyncService, cacheService, backtestPushHub, taskRepo, natsPublisher)
+	routes.RegisterBotAPIDelegateRoutesWithSyncCacheAndPush(router, apiClient, backtestSyncService, cacheService, backtestPushHub, taskRepo, natsPublisher, natsCommandService)
 	routes.RegisterAIMarketRoutes(router, database, apiClient)
 	routes.RegisterKeyRoutes(router, database)
 	routes.RegisterPairStorageRoutes(router)

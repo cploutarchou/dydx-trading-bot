@@ -58,11 +58,14 @@ func (s *NATSCommandService) PublishBacktestCommand(
 	runID string,
 	config map[string]interface{},
 	requestedByUserID *int,
+	idempotencyKey string,
 ) (*models.TaskCommand, error) {
-	// Generate idempotency key - use run ID if available, otherwise generate UUID
-	idempotencyKey := runID
+	// Use provided idempotency key, or generate one if empty
 	if idempotencyKey == "" {
-		idempotencyKey = uuid.New().String()
+		idempotencyKey = runID
+		if idempotencyKey == "" {
+			idempotencyKey = uuid.New().String()
+		}
 	}
 
 	// Serialize config to bounded JSON payload
@@ -108,7 +111,7 @@ func (s *NATSCommandService) PublishBacktestCommand(
 	}
 
 	// Publish to NATS JetStream (best-effort, non-blocking for HTTP flow)
-	go s.publishToNATSAsync(ctx, taskCmd, config)
+	go s.publishToNATSAsync(ctx, taskCmd, config, idempotencyKey)
 
 	return taskCmd, nil
 }
@@ -120,6 +123,7 @@ func (s *NATSCommandService) publishToNATSAsync(
 	ctx context.Context,
 	taskCmd *models.TaskCommand,
 	config map[string]interface{},
+	idempotencyKey string,
 ) {
 	// Defer recovery from panics
 	defer func() {
@@ -165,7 +169,7 @@ func (s *NATSCommandService) publishToNATSAsync(
 	// Build envelope per contract
 	envelope := nats.Envelope{
 		MessageID:       taskCmd.ID,
-		IdempotencyKey:  taskCmd.IdempotencyKey,
+		IdempotencyKey:  idempotencyKey,
 		CorrelationID:   uuid.New().String(),
 		OwnerType:       taskCmd.OwnerType,
 		OwnerID:         taskCmd.OwnerID,

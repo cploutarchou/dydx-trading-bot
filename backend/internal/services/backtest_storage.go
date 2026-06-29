@@ -1,5 +1,18 @@
 package services
 
+// Deprecated: legacy local-disk JSON backtest result storage.
+//
+// This package-level manager is part of the legacy local-file storage path that
+// the Final Target Architecture retires in favor of MinIO-backed artifact
+// references plus backend-signed artifact downloads (see minio_artifact_signer.go
+// and bot minio_artifact_store.py). It remains wired into backtest_routes.go /
+// backtest_handler.go for backward compatibility and is NOT in the intended
+// storage flow for new runs.
+//
+// Do NOT extend this path or route new features through it. It is slated for
+// removal in Phase 3 of docs/FINAL_APPLICATION_IMPROVEMENT_PLAN.md once the
+// MinIO artifact path is authoritative and no surviving route depends on it.
+
 import (
 	"encoding/json"
 	"fmt"

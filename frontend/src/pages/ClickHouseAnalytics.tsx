@@ -1,6 +1,8 @@
 /**
  * ClickHouse Analytics Dashboard
- * Displays live analytics from ClickHouse read models
+ * Displays live analytics from ClickHouse read models served by
+ * backend/internal/app/analytics_routes.go. Response parsing is centralized in
+ * ./clickHouseAnalyticsModel so the page matches the backend envelopes exactly.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
@@ -15,81 +17,20 @@ import {
 } from 'lucide-react';
 import api from '../api';
 import { useToastStore } from '../components/ErrorBoundary';
-
-interface PositionSnapshot {
-  position_id: string;
-  bot_id: string;
-  instance_id: string;
-  snapshot_time: string;
-  pair1: string;
-  pair2: string;
-  market: string;
-  side1: string;
-  side2: string;
-  status: string;
-  event_kind: string;
-  entry_price1: number;
-  entry_price2: number;
-  current_price1: number | null;
-  current_price2: number | null;
-  entry_size1: number;
-  entry_size2: number;
-  current_size1: number | null;
-  current_size2: number | null;
-  unrealized_pnl: number;
-  unrealized_pnl_pct: number;
-  realized_pnl: number;
-  realized_pnl_pct: number;
-  strategy_id: number | null;
-  strategy_name: string;
-  exchange_position_id: string;
-  fee_accrued: number;
-  leverage: number | null;
-  margin_used: number | null;
-}
-
-interface TradeSummary {
-  instance_id: string;
-  bot_id: string;
-  total_trades: number;
-  open_trades: number;
-  closed_trades: number;
-  winning_trades: number;
-  losing_trades: number;
-  total_pnl: number;
-  avg_pnl: number;
-  win_rate: number;
-  total_fees: number;
-  total_volume: number;
-}
-
-interface PairBreakdown {
-  instance_id: string;
-  pair1: string;
-  pair2: string;
-  trade_count: number;
-  total_pnl: number;
-  win_rate: number;
-  avg_pnl: number;
-}
-
-interface WorkerMetrics {
-  worker_id: string;
-  worker_type: string;
-  queue_name: string;
-  metric_time: string;
-  metric_name: string;
-  metric_value: number;
-}
-
-interface APIRequestSummary {
-  total_requests: number;
-  success_count: number;
-  error_count: number;
-  avg_latency_ms: number;
-  p95_latency_ms: number;
-  p99_latency_ms: number;
-}
+import {
+  APIRequestSummaryRow,
+  AnalyticsEnvelope,
+  PairBreakdown,
+  PositionSnapshot,
+  TradeSummary,
+  WorkerMetric,
+  extractAPIRequestSummary,
+  extractError,
+  extractPairBreakdown,
+  extractPositionSnapshots,
+  extractTradeSummary,
+  extractWorkerMetrics,
+} from './clickHouseAnalyticsModel';
 
 const ClickHouseAnalytics: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'positions' | 'trades' | 'pairs' | 'workers' | 'api'>('positions');
@@ -102,8 +43,8 @@ const ClickHouseAnalytics: React.FC = () => {
   const [positionHistory, setPositionHistory] = useState<PositionSnapshot[]>([]);
   const [tradeSummary, setTradeSummary] = useState<TradeSummary | null>(null);
   const [pairBreakdown, setPairBreakdown] = useState<PairBreakdown[]>([]);
-  const [workerMetrics, setWorkerMetrics] = useState<WorkerMetrics[]>([]);
-  const [apiSummary, setApiSummary] = useState<APIRequestSummary | null>(null);
+  const [workerMetrics, setWorkerMetrics] = useState<WorkerMetric[]>([]);
+  const [apiSummary, setApiSummary] = useState<APIRequestSummaryRow[]>([]);
 
   // Error states
   const [positionError, setPositionError] = useState<string | null>(null);
@@ -113,6 +54,24 @@ const ClickHouseAnalytics: React.FC = () => {
   const [apiError, setApiError] = useState<string | null>(null);
 
   const { addToast } = useToastStore();
+
+  const applyEnvelope = <T,>(
+    env: AnalyticsEnvelope,
+    setter: (value: T) => void,
+    fallback: T,
+    errorSetter: (msg: string | null) => void,
+    extract: (env: AnalyticsEnvelope) => T,
+  ): boolean => {
+    const err = extractError(env);
+    if (err) {
+      errorSetter(err);
+      setter(fallback);
+      return false;
+    }
+    errorSetter(null);
+    setter(extract(env));
+    return true;
+  };
 
   const fetchData = useCallback(async () => {
     if (!instanceId && activeTab !== 'workers' && activeTab !== 'api') {
@@ -125,45 +84,20 @@ const ClickHouseAnalytics: React.FC = () => {
 
     try {
       if (activeTab === 'positions') {
-        setPositionError(null);
-        const response = await api.getClickHousePositionHistory(instanceId, hours);
-        if (response.success && response.data) {
-          setPositionHistory((response.data as { positions?: PositionSnapshot[] }).positions || []);
-        } else {
-          setPositionError(response.message || 'Failed to fetch position history');
-        }
+        const env = (await api.getClickHousePositionHistory(instanceId, hours)) as unknown as AnalyticsEnvelope;
+        applyEnvelope<PositionSnapshot[]>(env, setPositionHistory, [], setPositionError, extractPositionSnapshots);
       } else if (activeTab === 'trades') {
-        setTradeError(null);
-        const response = await api.getClickHouseTradeSummary(instanceId);
-        if (response.success && response.data) {
-          setTradeSummary((response.data as { summary?: TradeSummary }).summary || null);
-        } else {
-          setTradeError(response.message || 'Failed to fetch trade summary');
-        }
+        const env = (await api.getClickHouseTradeSummary(instanceId)) as unknown as AnalyticsEnvelope;
+        applyEnvelope<TradeSummary | null>(env, setTradeSummary, null, setTradeError, extractTradeSummary);
       } else if (activeTab === 'pairs') {
-        setPairError(null);
-        const response = await api.getClickHousePairBreakdown(instanceId);
-        if (response.success && response.data) {
-          setPairBreakdown((response.data as { breakdown?: PairBreakdown[] }).breakdown || []);
-        } else {
-          setPairError(response.message || 'Failed to fetch pair breakdown');
-        }
+        const env = (await api.getClickHousePairBreakdown(instanceId)) as unknown as AnalyticsEnvelope;
+        applyEnvelope<PairBreakdown[]>(env, setPairBreakdown, [], setPairError, extractPairBreakdown);
       } else if (activeTab === 'workers') {
-        setWorkerError(null);
-        const response = await api.getClickHouseWorkerMetricsSummary();
-        if (response.success && response.data) {
-          setWorkerMetrics((response.data as { metrics?: WorkerMetrics[] }).metrics || []);
-        } else {
-          setWorkerError(response.message || 'Failed to fetch worker metrics');
-        }
+        const env = (await api.getClickHouseWorkerMetrics(undefined, undefined, hours)) as unknown as AnalyticsEnvelope;
+        applyEnvelope<WorkerMetric[]>(env, setWorkerMetrics, [], setWorkerError, extractWorkerMetrics);
       } else if (activeTab === 'api') {
-        setApiError(null);
-        const response = await api.getClickHouseAPIRequestSummary();
-        if (response.success && response.data) {
-          setApiSummary((response.data as { summary?: APIRequestSummary }).summary || null);
-        } else {
-          setApiError(response.message || 'Failed to fetch API request summary');
-        }
+        const env = (await api.getClickHouseAPIRequestSummary()) as unknown as AnalyticsEnvelope;
+        applyEnvelope<APIRequestSummaryRow[]>(env, setApiSummary, [], setApiError, extractAPIRequestSummary);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -183,6 +117,11 @@ const ClickHouseAnalytics: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
+  const winRate = (winning: number, losing: number): number => {
+    const decided = winning + losing;
+    return decided > 0 ? (winning / decided) * 100 : 0;
+  };
+
   const renderPositionHistory = () => {
     if (loading && !positionHistory.length) {
       return (
@@ -191,7 +130,6 @@ const ClickHouseAnalytics: React.FC = () => {
         </div>
       );
     }
-
     if (positionError) {
       return (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400">
@@ -200,7 +138,6 @@ const ClickHouseAnalytics: React.FC = () => {
         </div>
       );
     }
-
     if (!positionHistory.length) {
       return (
         <div className="text-center py-12 text-slate-400">
@@ -209,7 +146,6 @@ const ClickHouseAnalytics: React.FC = () => {
         </div>
       );
     }
-
     return (
       <div className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -225,11 +161,11 @@ const ClickHouseAnalytics: React.FC = () => {
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <p className="text-slate-400">Entry Price 1</p>
-                  <p className="text-white">${position.entry_price1.toFixed(4)}</p>
+                  <p className="text-white">{position.entry_price1.toFixed(4)}</p>
                 </div>
                 <div>
                   <p className="text-slate-400">Entry Price 2</p>
-                  <p className="text-white">${position.entry_price2.toFixed(4)}</p>
+                  <p className="text-white">{position.entry_price2.toFixed(4)}</p>
                 </div>
                 <div>
                   <p className="text-slate-400">Size 1</p>
@@ -240,9 +176,9 @@ const ClickHouseAnalytics: React.FC = () => {
                   <p className="text-white">{position.entry_size2}</p>
                 </div>
                 <div className="col-span-2">
-                  <p className="text-slate-400">Unrealized P&L</p>
+                  <p className="text-slate-400">Unrealized P&amp;L</p>
                   <p className={`text-lg ${position.unrealized_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    ${position.unrealized_pnl.toFixed(2)} ({position.unrealized_pnl_pct.toFixed(2)}%)
+                    {position.unrealized_pnl.toFixed(2)} ({position.unrealized_pnl_pct.toFixed(2)}%)
                   </p>
                 </div>
                 <div className="col-span-2">
@@ -265,7 +201,6 @@ const ClickHouseAnalytics: React.FC = () => {
         </div>
       );
     }
-
     if (tradeError) {
       return (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400">
@@ -274,7 +209,6 @@ const ClickHouseAnalytics: React.FC = () => {
         </div>
       );
     }
-
     if (!tradeSummary) {
       return (
         <div className="text-center py-12 text-slate-400">
@@ -283,48 +217,28 @@ const ClickHouseAnalytics: React.FC = () => {
         </div>
       );
     }
-
+    const totals = tradeSummary.totals;
     return (
       <div className="space-y-6">
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          <div className="bg-slate-800/50 rounded-lg p-4 text-center border border-slate-700/50">
-            <p className="text-slate-400 text-sm">Total Trades</p>
-            <p className="text-2xl font-bold text-white">{tradeSummary.total_trades}</p>
-          </div>
-          <div className="bg-slate-800/50 rounded-lg p-4 text-center border border-slate-700/50">
-            <p className="text-slate-400 text-sm">Open Trades</p>
-            <p className="text-2xl font-bold text-blue-400">{tradeSummary.open_trades}</p>
-          </div>
-          <div className="bg-slate-800/50 rounded-lg p-4 text-center border border-slate-700/50">
-            <p className="text-slate-400 text-sm">Closed Trades</p>
-            <p className="text-2xl font-bold text-slate-300">{tradeSummary.closed_trades}</p>
-          </div>
-          <div className="bg-slate-800/50 rounded-lg p-4 text-center border border-slate-700/50">
-            <p className="text-slate-400 text-sm">Winning Trades</p>
-            <p className="text-2xl font-bold text-green-400">{tradeSummary.winning_trades}</p>
-          </div>
-          <div className="bg-slate-800/50 rounded-lg p-4 text-center border border-slate-700/50">
-            <p className="text-slate-400 text-sm">Losing Trades</p>
-            <p className="text-2xl font-bold text-red-400">{tradeSummary.losing_trades}</p>
-          </div>
-          <div className="bg-slate-800/50 rounded-lg p-4 text-center border border-slate-700/50">
-            <p className="text-slate-400 text-sm">Win Rate</p>
-            <p className="text-2xl font-bold text-green-400">{tradeSummary.win_rate.toFixed(1)}%</p>
-          </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          <MetricCard label="Trade Events" value={String(totals.trade_events)} />
+          <MetricCard label="Opened" value={String(totals.trades_opened)} valueClass="text-blue-400" />
+          <MetricCard label="Closed" value={String(totals.trades_closed)} />
+          <MetricCard label="Winning" value={String(totals.winning_trades)} valueClass="text-green-400" />
+          <MetricCard label="Losing" value={String(totals.losing_trades)} valueClass="text-red-400" />
+          <MetricCard label="Win Rate" value={`${winRate(totals.winning_trades, totals.losing_trades).toFixed(1)}%`} valueClass="text-green-400" />
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
-            <p className="text-slate-400 text-sm mb-2">Total P&L</p>
-            <p className={`text-3xl font-bold ${tradeSummary.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              ${tradeSummary.total_pnl.toFixed(2)}
+            <p className="text-slate-400 text-sm mb-2">Total Realized P&amp;L</p>
+            <p className={`text-3xl font-bold ${totals.total_realized_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {totals.total_realized_pnl.toFixed(2)}
             </p>
-            <p className="text-slate-500 text-sm mt-2">Avg P&L: ${tradeSummary.avg_pnl.toFixed(2)}</p>
+            <p className="text-slate-500 text-sm mt-2">Realized P&amp;L %: {totals.total_realized_pnl_pct.toFixed(2)}%</p>
           </div>
           <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
-            <p className="text-slate-400 text-sm mb-2">Total Fees</p>
-            <p className="text-3xl font-bold text-yellow-400">${tradeSummary.total_fees.toFixed(2)}</p>
-            <p className="text-slate-500 text-sm mt-2">Total Volume: ${tradeSummary.total_volume.toFixed(2)}</p>
+            <p className="text-slate-400 text-sm mb-2">Order Events</p>
+            <p className="text-3xl font-bold text-yellow-400">{tradeSummary.order_events}</p>
           </div>
         </div>
       </div>
@@ -339,7 +253,6 @@ const ClickHouseAnalytics: React.FC = () => {
         </div>
       );
     }
-
     if (pairError) {
       return (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400">
@@ -348,7 +261,6 @@ const ClickHouseAnalytics: React.FC = () => {
         </div>
       );
     }
-
     if (!pairBreakdown.length) {
       return (
         <div className="text-center py-12 text-slate-400">
@@ -357,7 +269,6 @@ const ClickHouseAnalytics: React.FC = () => {
         </div>
       );
     }
-
     return (
       <div className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -365,22 +276,22 @@ const ClickHouseAnalytics: React.FC = () => {
             <div key={`${pair.pair1}-${pair.pair2}-${index}`} className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
               <div className="flex justify-between items-center mb-4">
                 <p className="text-lg font-semibold text-white">{pair.pair1}/{pair.pair2}</p>
-                <p className={`text-sm ${pair.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  ${pair.total_pnl.toFixed(2)}
+                <p className={`text-sm ${pair.total_realized_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {pair.total_realized_pnl.toFixed(2)}
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <p className="text-slate-400">Trades</p>
-                  <p className="text-white">{pair.trade_count}</p>
+                  <p className="text-slate-400">Closed Trades</p>
+                  <p className="text-white">{pair.trades_closed}</p>
                 </div>
                 <div>
-                  <p className="text-slate-400">Avg P&L</p>
-                  <p className="text-white">${pair.avg_pnl.toFixed(2)}</p>
+                  <p className="text-slate-400">Avg P&amp;L %</p>
+                  <p className="text-white">{pair.avg_realized_pnl_pct.toFixed(2)}%</p>
                 </div>
                 <div>
                   <p className="text-slate-400">Win Rate</p>
-                  <p className="text-white">{pair.win_rate.toFixed(1)}%</p>
+                  <p className="text-white">{winRate(pair.winning_trades, pair.losing_trades).toFixed(1)}%</p>
                 </div>
               </div>
             </div>
@@ -398,16 +309,14 @@ const ClickHouseAnalytics: React.FC = () => {
         </div>
       );
     }
-
     if (workerError) {
       return (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400">
           <p>{workerError}</p>
-          <p className="text-sm mt-2">ClickHouse may be disabled.</p>
+          <p className="text-sm mt-2">ClickHouse may be disabled or no worker metrics producer is configured.</p>
         </div>
       );
     }
-
     if (!workerMetrics.length) {
       return (
         <div className="text-center py-12 text-slate-400">
@@ -416,7 +325,6 @@ const ClickHouseAnalytics: React.FC = () => {
         </div>
       );
     }
-
     return (
       <div className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -448,24 +356,22 @@ const ClickHouseAnalytics: React.FC = () => {
   };
 
   const renderAPIRequestSummary = () => {
-    if (loading && !apiSummary) {
+    if (loading && !apiSummary.length) {
       return (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
         </div>
       );
     }
-
     if (apiError) {
       return (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400">
           <p>{apiError}</p>
-          <p className="text-sm mt-2">ClickHouse may be disabled.</p>
+          <p className="text-sm mt-2">ClickHouse may be disabled or API request analytics is not configured.</p>
         </div>
       );
     }
-
-    if (!apiSummary) {
+    if (!apiSummary.length) {
       return (
         <div className="text-center py-12 text-slate-400">
           <BarChart3 className="h-12 w-12 mx-auto mb-4 opacity-50" />
@@ -473,62 +379,74 @@ const ClickHouseAnalytics: React.FC = () => {
         </div>
       );
     }
-
+    const totals = apiSummary.reduce(
+      (acc, row) => {
+        acc.requests += row.request_count;
+        acc.errors += row.error_count;
+        return acc;
+      },
+      { requests: 0, errors: 0 },
+    );
     return (
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-slate-800/50 rounded-lg p-4 text-center border border-slate-700/50">
-            <p className="text-slate-400 text-sm">Total Requests</p>
-            <p className="text-2xl font-bold text-white">{apiSummary.total_requests.toLocaleString()}</p>
-          </div>
-          <div className="bg-slate-800/50 rounded-lg p-4 text-center border border-slate-700/50">
-            <p className="text-slate-400 text-sm">Success Rate</p>
-            <p className="text-2xl font-bold text-green-400">
-              {((apiSummary.success_count / apiSummary.total_requests) * 100).toFixed(1)}%
-            </p>
-          </div>
-          <div className="bg-slate-800/50 rounded-lg p-4 text-center border border-slate-700/50">
-            <p className="text-slate-400 text-sm">Avg Latency</p>
-            <p className="text-2xl font-bold text-blue-400">{apiSummary.avg_latency_ms.toFixed(0)}ms</p>
-          </div>
-          <div className="bg-slate-800/50 rounded-lg p-4 text-center border border-slate-700/50">
-            <p className="text-slate-400 text-sm">P95 Latency</p>
-            <p className="text-2xl font-bold text-purple-400">{apiSummary.p95_latency_ms.toFixed(0)}ms</p>
-          </div>
+          <MetricCard label="Total Requests" value={totals.requests.toLocaleString()} />
+          <MetricCard label="Total Errors" value={totals.errors.toLocaleString()} valueClass="text-red-400" />
+          <MetricCard label="Routes" value={String(apiSummary.length)} />
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
-            <p className="text-slate-400 text-sm mb-2">Errors</p>
-            <p className="text-3xl font-bold text-red-400">{apiSummary.error_count.toLocaleString()}</p>
-          </div>
-          <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
-            <p className="text-slate-400 text-sm mb-2">P99 Latency</p>
-            <p className="text-3xl font-bold text-orange-400">{apiSummary.p99_latency_ms.toFixed(0)}ms</p>
-          </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left text-slate-400 border-b border-slate-700/50">
+                <th className="py-2 pr-4">Method</th>
+                <th className="py-2 pr-4">Route</th>
+                <th className="py-2 pr-4 text-right">Requests</th>
+                <th className="py-2 pr-4 text-right">Avg Latency (ms)</th>
+                <th className="py-2 pr-4 text-right">Errors</th>
+                <th className="py-2 pr-4 text-right">Rate Limited</th>
+              </tr>
+            </thead>
+            <tbody>
+              {apiSummary.map((row, index) => (
+                <tr key={`${row.method}-${row.route}-${index}`} className="border-b border-slate-800/50">
+                  <td className="py-2 pr-4 text-slate-300">{row.method}</td>
+                  <td className="py-2 pr-4 text-white">{row.route}</td>
+                  <td className="py-2 pr-4 text-right text-white">{row.request_count.toLocaleString()}</td>
+                  <td className="py-2 pr-4 text-right text-white">{row.avg_latency_ms.toFixed(0)}</td>
+                  <td className="py-2 pr-4 text-right text-red-400">{row.error_count.toLocaleString()}</td>
+                  <td className="py-2 pr-4 text-right text-slate-400">{row.rate_limited}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     );
   };
 
   const StatusBadge = ({ status }: { status: string }) => {
-    const statusClasses = {
+    const statusClasses: Record<string, string> = {
       OPEN: 'bg-green-500/20 text-green-400 border border-green-500/30',
       CLOSED: 'bg-slate-500/20 text-slate-400 border border-slate-500/30',
       LIVE: 'bg-blue-500/20 text-blue-400 border border-blue-500/30',
       FAILED: 'bg-red-500/20 text-red-400 border border-red-500/30',
       ERROR: 'bg-red-500/20 text-red-400 border border-red-500/30',
     };
-
-    const className = statusClasses[status.toUpperCase() as keyof typeof statusClasses] ||
-      'bg-slate-500/20 text-slate-400 border border-slate-500/30';
-
+    const key = (status || '').toUpperCase();
+    const className = statusClasses[key] || 'bg-slate-500/20 text-slate-400 border border-slate-500/30';
     return (
       <span className={`px-2 py-1 text-xs font-medium rounded-md ${className}`}>
         {status}
       </span>
     );
   };
+
+  const MetricCard = ({ label, value, valueClass = 'text-white' }: { label: string; value: string; valueClass?: string }) => (
+    <div className="bg-slate-800/50 rounded-lg p-4 text-center border border-slate-700/50">
+      <p className="text-slate-400 text-sm">{label}</p>
+      <p className={`text-2xl font-bold ${valueClass}`}>{value}</p>
+    </div>
+  );
 
   const renderContent = () => {
     switch (activeTab) {

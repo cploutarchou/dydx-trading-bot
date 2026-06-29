@@ -6,7 +6,11 @@ This module implements the durable consumer for backtest commands that:
 3. Updates task_runs with execution state
 4. Creates task_attempts for each retry
 5. Implements explicit ack after authoritative PostgreSQL state update
-6. Handles retry/ack/dead-letter according to nats-jetstream-plan.md
+6. Handles retry/ack/dead-letter
+
+Note: the subject ``backtest.command.start`` is the singular canonical form and
+must match the backend publisher (backend/internal/nats/publisher.go Subject()).
+See docs/FINAL_APPLICATION_IMPROVEMENT_PLAN.md (Phase 0 / Phase 2).
 
 Contract:
 - PostgreSQL remains authoritative for all state
@@ -22,7 +26,6 @@ import json
 import logging
 import os
 import socket
-import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -374,87 +377,95 @@ class BacktestCommandHandler:
             return False
     
     async def _ensure_task_run(self, payload: BacktestCommandPayload) -> str:
-        """Create or update task run for this command."""
+        """Create or return the task run for this command.
+
+        SQL is aligned with migration 000064_create_task_runs.up.sql:
+        task_runs has no requested_by_user_id column, and id is a server-generated
+        UUID (gen_random_uuid()), so we omit id from the INSERT and read back the
+        generated value via RETURNING.
+        """
         try:
             session = db.get_session()
-            
-            # Check if task run already exists for this command
+
+            # Check if a task run already exists for this command (idempotent).
             query = text("""
-                SELECT id FROM task_runs 
-                WHERE command_id = :command_id 
-                ORDER BY created_at DESC 
+                SELECT id FROM task_runs
+                WHERE command_id = :command_id
+                ORDER BY created_at DESC
                 LIMIT 1
             """)
-            
+
             result = session.execute(query, {"command_id": payload.command_id})
             row = result.fetchone()
-            
+
             if row:
-                return row[0]  # Return existing task run ID
-            
-            # Create new task run
-            task_run_id = f"run_{payload.command_id}_{int(time.time())}"
-            
-            # Extract user_id from payload or context
-            user_id = payload.requested_by_user_id or self._get_user_id_from_context()
-            
+                return str(row[0])  # Return existing task run ID
+
+            # Create new task run. id/created_at/updated_at are defaulted by the DB.
             insert_query = text("""
-                INSERT INTO task_runs 
-                (id, command_id, task_type, max_retries, requested_by_user_id, status, progress_pct, created_at)
-                VALUES (:task_run_id, :command_id, :task_type, :max_retries, :user_id, :status, :progress, :created_at)
+                INSERT INTO task_runs
+                    (command_id, task_type, max_retries, status, progress_pct)
+                VALUES
+                    (:command_id, :task_type, :max_retries, :status, :progress_pct)
                 RETURNING id
             """)
-            
+
             result = session.execute(insert_query, {
-                "task_run_id": task_run_id,
                 "command_id": payload.command_id,
                 "task_type": "backtest_execution",
                 "max_retries": 3,  # Default max retries
-                "user_id": user_id,
                 "status": TaskRunStatus.PENDING,
-                "progress": 0.0,
-                "created_at": datetime.now(timezone.utc).isoformat()
+                "progress_pct": 0.0,
             })
-            
+
+            row = result.fetchone()
             session.commit()
-            return task_run_id
-            
+
+            if row is None:
+                raise RuntimeError("task_runs INSERT did not return an id")
+            return str(row[0])
+
         except Exception as e:
             logger.error(f"Failed to create task run for command {payload.command_id}: {e}")
             session.rollback()
             raise
     
     async def _create_task_attempt(self, task_run_id: str, payload: BacktestCommandPayload) -> str:
-        """Create a task attempt record for this processing."""
+        """Create a task attempt record for this processing.
+
+        SQL is aligned with migration 000065_create_task_attempts.up.sql:
+        task_attempts has no status column, and id is a server-generated UUID.
+        started_at defaults to NOW() in the schema, and outcome is NOT NULL.
+        """
         try:
             session = db.get_session()
-            
-            attempt_id = f"attempt_{task_run_id}_{int(time.time())}"
-            
+
             # Get current retry count for this run
             retry_count = await self._get_task_run_retry_count(task_run_id)
-            
+
             insert_query = text("""
-                INSERT INTO task_attempts 
-                (id, task_run_id, attempt_number, worker_id, consumer_name, started_at, outcome, status)
-                VALUES (:attempt_id, :task_run_id, :attempt_number, :worker_id, :consumer_name, :started_at, :outcome, :status)
+                INSERT INTO task_attempts
+                    (task_run_id, attempt_number, worker_id, consumer_name, outcome)
+                VALUES
+                    (:task_run_id, :attempt_number, :worker_id, :consumer_name, :outcome)
                 RETURNING id
             """)
-            
+
             result = session.execute(insert_query, {
-                "attempt_id": attempt_id,
                 "task_run_id": task_run_id,
                 "attempt_number": retry_count + 1,
                 "worker_id": self._worker_id,
                 "consumer_name": "backtest-worker",
-                "started_at": datetime.now(timezone.utc).isoformat(),
                 "outcome": TaskAttemptOutcome.STARTED,
-                "status": "started"
             })
-            
+
+            row = result.fetchone()
             session.commit()
-            return attempt_id
-            
+
+            if row is None:
+                raise RuntimeError("task_attempts INSERT did not return an id")
+            return str(row[0])
+
         except Exception as e:
             logger.error(f"Failed to create task attempt for run {task_run_id}: {e}")
             session.rollback()
@@ -480,23 +491,26 @@ class BacktestCommandHandler:
             return 0
     
     async def _update_task_command_status(self, command_id: str, status: str) -> None:
-        """Update task command status."""
+        """Update task command status.
+
+        updated_at is provided by migration 000067 (DEFAULT NOW() + BEFORE UPDATE
+        trigger), matching repository.UpdateTaskCommandStatus on the Go side.
+        """
         try:
             session = db.get_session()
-            
+
             update_query = text("""
-                UPDATE task_commands 
-                SET status = :status, updated_at = :updated_at 
+                UPDATE task_commands
+                SET status = :status, updated_at = NOW()
                 WHERE id = :command_id
             """)
-            
+
             session.execute(update_query, {
                 "status": status,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-                "command_id": command_id
+                "command_id": command_id,
             })
             session.commit()
-            
+
         except Exception as e:
             logger.error(f"Failed to update task command {command_id} status to {status}: {e}")
             session.rollback()
@@ -585,12 +599,6 @@ class BacktestCommandHandler:
         except Exception as e:
             logger.error(f"Failed to update task attempt {attempt_id} outcome: {e}")
             session.rollback()
-    
-    def _get_user_id_from_context(self) -> Optional[int]:
-        """Extract user ID from execution context if available."""
-        # This would be enhanced based on how user context is passed
-        # For now, return None which will be handled appropriately
-        return None
 
 
 # Global handler instance

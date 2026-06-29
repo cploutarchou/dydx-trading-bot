@@ -2,8 +2,12 @@
 
 This module provides the durable consumer side of the NATS JetStream command/event bus.
 It implements explicit ack after authoritative PostgreSQL state updates using task
-tables for idempotency checking, with retry/ack/dead-letter handling as specified
-in docs/needed_improvements/nats-jetstream-plan.md.
+tables for idempotency checking, with retry/ack/dead-letter handling.
+
+Subject namespace: the singular owner.kind.action form (e.g. ``backtest.command.start``)
+is the canonical contract and MUST match the backend publisher
+(``backend/internal/nats/publisher.go`` Subject()), which is the single source of
+truth. See docs/FINAL_APPLICATION_IMPROVEMENT_PLAN.md (Phase 0).
 
 Contract:
 - PostgreSQL stores final state (authoritative)
@@ -126,11 +130,16 @@ class NATSConsumerService:
     with retry/ack/dead-letter handling per the NATS JetStream plan.
     """
     
-    # Stream configurations from nats-jetstream-plan.md
+    # Stream configurations. The subject namespace MUST stay in sync with the
+    # backend publisher (backend/internal/nats/publisher.go Subject()), which is
+    # the single source of truth. Subjects use the singular owner.kind.action
+    # form, e.g. "backtest.command.start" / "backtest.event.completed". Stream
+    # names (e.g. BACKTEST_COMMANDS) are collection names and are intentionally
+    # plural; only the subject strings must match the publisher exactly.
     STREAM_CONFIGS = {
         "BOT_COMMANDS": StreamConfig(
             name="BOT_COMMANDS",
-            subjects=["bot.commands.>"],
+            subjects=["bot.command.>"],
             retention="workqueue",
             max_bytes=10 * 1024 * 1024 * 1024,  # 10GB
             storage="file",
@@ -139,7 +148,7 @@ class NATSConsumerService:
         ),
         "BOT_EVENTS": StreamConfig(
             name="BOT_EVENTS",
-            subjects=["bot.events.>"],
+            subjects=["bot.event.>"],
             retention="limits",
             max_bytes=5 * 1024 * 1024 * 1024,  # 5GB
             storage="file",
@@ -148,7 +157,7 @@ class NATSConsumerService:
         ),
         "BACKTEST_COMMANDS": StreamConfig(
             name="BACKTEST_COMMANDS",
-            subjects=["backtest.commands.>"],
+            subjects=["backtest.command.>"],
             retention="workqueue",
             max_bytes=10 * 1024 * 1024 * 1024,  # 10GB
             storage="file",
@@ -157,7 +166,7 @@ class NATSConsumerService:
         ),
         "BACKTEST_EVENTS": StreamConfig(
             name="BACKTEST_EVENTS",
-            subjects=["backtest.events.>"],
+            subjects=["backtest.event.>"],
             retention="limits",
             max_bytes=5 * 1024 * 1024 * 1024,  # 5GB
             storage="file",
@@ -166,7 +175,7 @@ class NATSConsumerService:
         ),
         "WORKER_EVENTS": StreamConfig(
             name="WORKER_EVENTS",
-            subjects=["worker.events.>"],
+            subjects=["worker.event.>"],
             retention="limits",
             max_bytes=2 * 1024 * 1024 * 1024,  # 2GB
             storage="file",
@@ -200,7 +209,7 @@ class NATSConsumerService:
         "backtest-worker": ConsumerConfig(
             name="backtest-worker",
             stream="BACKTEST_COMMANDS",
-            subject_filter="backtest.commands.start",
+            subject_filter="backtest.command.start",
             queue_group="backtest-workers",
             durable_name="backtest-worker",
             ack_wait_seconds=600,  # 10 minutes for long-running backtests
@@ -210,7 +219,7 @@ class NATSConsumerService:
         "bot-worker": ConsumerConfig(
             name="bot-worker",
             stream="BOT_COMMANDS",
-            subject_filter="bot.commands.>",
+            subject_filter="bot.command.>",
             queue_group="bot-workers",
             durable_name="bot-worker",
             ack_wait_seconds=300,  # 5 minutes
@@ -761,8 +770,10 @@ class NATSConsumerService:
                 # Wildcard match (stream_subject ends with '>')
                 if stream_subject.endswith('>'):
                     prefix = stream_subject[:-1]  # Remove the '>'
-                    # In NATS, '>' is a wildcard that matches any suffix
-                    # So 'backtest.commands.>' matches 'backtest.commands.start', 'backtest.commands.cancel', etc.
+                    # In NATS, '>' is a wildcard that matches any suffix.
+                    # 'backtest.command.>' matches 'backtest.command.start',
+                    # 'backtest.command.cancel', etc. (singular form, matching
+                    # the backend publisher Subject()).
                     if subject.startswith(prefix):
                         return stream_name
                 

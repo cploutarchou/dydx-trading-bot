@@ -21,6 +21,27 @@ data:
   DATABASE_SERVICE_PORT: "6432"
   DATABASE_NAME: dydx_platform
   BOT_DATABASE_NAME: dydx_bot
+  # ---------------------------------------------------------------------------
+  # Task-table DB ownership (Phase 0 decision).
+  #
+  # The normalized command/run tables (task_commands, task_runs, task_attempts,
+  # worker_heartbeats) are BACKEND-OWNED. They are created by backend migrations
+  # 000063..000067 and live in the platform database (dydx_platform), which is
+  # the authoritative store for command/run truth per the Final Target
+  # Architecture. The bot-side NATS consumer MUST reach those tables to claim
+  # runs and record attempts/heartbeats; it therefore needs access to the
+  # platform database, NOT the bot-only dydx_bot database.
+  #
+  # TASK_DB_* below makes that ownership explicit. Today the bot consumer is not
+  # wired to a second (platform) connection and NATS_ENABLED is "false", so this
+  # split has no runtime effect. Wiring the consumer's platform-DB access and
+  # flipping NATS_ENABLED is a Phase 2 prerequisite (see
+  # docs/FINAL_APPLICATION_IMPROVEMENT_PLAN.md). Do not point the consumer at
+  # dydx_bot for task tables — that would split command truth across databases.
+  # ---------------------------------------------------------------------------
+  TASK_DB_HOST: pgbouncer
+  TASK_DB_PORT: "6432"
+  TASK_DB_NAME: dydx_platform
   POSTGRES_HOST: postgresql
   POSTGRES_PORT: "5432"
   POSTGRES_DB: dydx_platform

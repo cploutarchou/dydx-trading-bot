@@ -20,7 +20,6 @@ import (
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -762,6 +761,50 @@ func getStringField(payload map[string]interface{}, keys ...string) string {
 	return ""
 }
 
+// correlateBacktestCommand performs the Phase 4 dual-write of a backtest command
+// using the real run_id returned by the bot API as both the command owner_id and
+// idempotency_key. It is best-effort: any failure is logged and swallowed so the
+// authoritative HTTP/Celery path is unaffected. If the bot response carries no
+// run_id, the dual-write is skipped (with a log) rather than fabricating one, so
+// command state never references a non-existent run.
+// extractBacktestRunID reads the authoritative run_id from a bot API response,
+// checking the top level and then the wrapped "data" envelope. Returns "" when
+// no run_id is present so callers can skip the dual-write instead of fabricating.
+func extractBacktestRunID(result map[string]interface{}) string {
+	if runID := getStringField(result, "run_id"); runID != "" {
+		return runID
+	}
+	if dataMap := asMap(result["data"]); dataMap != nil {
+		return getStringField(dataMap, "run_id")
+	}
+	return ""
+}
+
+// correlateBacktestCommand performs the Phase 4 dual-write of a backtest command
+// using the real run_id returned by the bot API as both the command owner_id and
+// idempotency_key. It is best-effort: any failure is logged and swallowed so the
+// authoritative HTTP/Celery path is unaffected. If the bot response carries no
+// run_id, the dual-write is skipped (with a log) rather than fabricating one, so
+// command state never references a non-existent run.
+func correlateBacktestCommand(
+	c *gin.Context,
+	natsCommandService *services.NATSCommandService,
+	result map[string]interface{},
+	config map[string]interface{},
+) {
+	runID := extractBacktestRunID(result)
+	if runID == "" {
+		log.Printf("NATS Command Service: skipping dual-write, no run_id in bot response (trace_id=%s)", middleware.GetTraceID(c))
+		return
+	}
+
+	userIDValue, _ := c.Get("user_id")
+	userID, _ := userIDValue.(int)
+	if _, err := natsCommandService.PublishBacktestCommand(c.Request.Context(), runID, config, &userID, runID); err != nil {
+		log.Printf("NATS Command Service: failed to publish backtest command for run %s: %v", runID, err)
+	}
+}
+
 func extractBacktestTrades(payload map[string]interface{}) []interface{} {
 	data := unwrapEnvelopePayload(payload)
 	for _, key := range []string{"trades", "all_trades"} {
@@ -1501,25 +1544,6 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		)
 
 		executeCreate := func() error {
-			// Phase 4: Dual-write - use NATSCommandService for task command/run creation and NATS publishing
-			if natsCommandService != nil {
-				userIDValue, _ := c.Get("user_id")
-				userID, _ := userIDValue.(int)
-
-				// Generate a unique idempotency key for this backtest request
-				idempotencyKey := "backtest-" + uuid.New().String()
-
-				// Use NATSCommandService for dual-write: creates task command+run in PostgreSQL and publishes to NATS
-				ctx := c.Request.Context()
-				_, err := natsCommandService.PublishBacktestCommand(ctx, idempotencyKey, config, &userID, idempotencyKey)
-				if err != nil {
-					// Log the error but don't fail the request - HTTP path remains authoritative
-					log.Printf("NATS Command Service: failed to publish backtest command: %v", err)
-					// Continue with bot API call even if task command creation fails
-					return err
-				}
-			}
-
 			if c.FullPath() == "/api/v1/backtests/run" {
 				result, err = requestClient.CreateBacktestRun(config)
 			} else {
@@ -1559,6 +1583,16 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			}
 
 			syncRun(c, result)
+
+			// Phase 4 dual-write: record the command AFTER the bot API returns the
+			// real run_id, so the task command's owner_id and idempotency_key
+			// correlate to the authoritative backtest run instead of a fabricated
+			// key. This is best-effort: failures are logged and never block the
+			// authoritative HTTP/Celery path. The run_id is also the idempotency
+			// key, giving one stable command per backtest run.
+			if natsCommandService != nil {
+				correlateBacktestCommand(c, natsCommandService, result, config)
+			}
 			return nil
 		}
 

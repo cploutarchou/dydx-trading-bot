@@ -240,6 +240,7 @@ CREATE TABLE IF NOT EXISTS `{db}`.`{table}` (
     latency_ms      UInt32,
     user_id         Nullable(String),
     correlation_id  String,
+    client_ip       String DEFAULT '',
     rate_limited    UInt8 DEFAULT 0
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(event_date)
@@ -348,6 +349,12 @@ _TABLE_ALTERS: dict[str, tuple[str, ...]] = {
         "ALTER TABLE `{db}`.`{table}` ADD COLUMN IF NOT EXISTS fee_accrued Float64 DEFAULT 0 AFTER exchange_position_id",
         "ALTER TABLE `{db}`.`{table}` ADD COLUMN IF NOT EXISTS leverage Nullable(Float64) AFTER fee_accrued",
         "ALTER TABLE `{db}`.`{table}` ADD COLUMN IF NOT EXISTS margin_used Nullable(Float64) AFTER leverage",
+    ),
+    "api_request_events": (
+        "ALTER TABLE `{db}`.`{table}` ADD COLUMN IF NOT EXISTS client_ip String DEFAULT '' AFTER correlation_id",
+    ),
+    "api_request_event_rows": (
+        "ALTER TABLE `{db}`.`{table}` ADD COLUMN IF NOT EXISTS client_ip String DEFAULT '' AFTER correlation_id",
     ),
 }
 

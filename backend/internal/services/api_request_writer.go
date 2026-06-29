@@ -73,38 +73,16 @@ func NewAPIRequestWriter(reader *ClickHouseReader) *APIRequestWriter {
 
 // WriteEvent writes a single API request event to ClickHouse.
 // This is a best-effort write that fails closed (returns error but doesn't block callers).
+//
+// It delegates to WriteEvents so the single-event path uses the SAME real insert
+// path as the batch path (writeRows -> ClickHouse HTTP JSONEachRow insert). It
+// must never return success without attempting the write: callers (the API
+// request events middleware) rely on this being truthful when ClickHouse is enabled.
 func (w *APIRequestWriter) WriteEvent(ctx context.Context, event APIRequestEvent) error {
 	if w == nil {
 		return ErrClickHouseDisabled
 	}
-
-	// Convert the typed event to a map for ClickHouse insert
-	row := map[string]interface{}{
-		"event_date":     event.EventDate,
-		"event_time":     event.EventTime,
-		"service":        event.Service,
-		"route":         event.Route,
-		"method":        event.Method,
-		"status_code":   int(event.StatusCode),
-		"latency_ms":     int(event.LatencyMs),
-		"correlation_id": event.CorrelationID,
-		"client_ip":     event.ClientIP,
-		"rate_limited":   int(event.RateLimited),
-	}
-
-	// Add nullable fields only if they have values
-	if event.UserID != nil {
-		row["user_id"] = *event.UserID
-	} else {
-		// Explicitly set to nil for ClickHouse Nullable types
-		row["user_id"] = nil
-	}
-
-	// For now, we'll skip the write as the current ClickHouse writer infrastructure
-	// is designed for the bot side. API request events will be captured when the
-	// full ClickHouse cutover is complete.
-	// This is a placeholder that completes successfully to avoid blocking requests.
-	return nil
+	return w.WriteEvents(ctx, []APIRequestEvent{event})
 }
 
 // WriteEvents writes multiple API request events in a batch.
@@ -146,36 +124,15 @@ func (w *APIRequestWriter) writeRows(ctx context.Context, rows []map[string]inte
 		return ErrClickHouseDisabled
 	}
 
-	// Use the base ClickHouse reader to insert rows
-	// This is a simplified approach - in production you'd want to use
-	// the buffered writer from the bot side, but for backend analytics
-	// we'll use direct HTTP inserts
-	
-	// Build INSERT statement
+	// Use the base ClickHouse reader to insert rows over the HTTP interface
+	// using the JSONEachRow format (the same interface ClickHouseReader.Query
+	// POSTs for reads). Values are passed in the request body, never interpolated.
 	if len(rows) == 0 {
 		return nil
 	}
 
-	// Extract column names from first row
-	columnNames := make([]string, 0, len(rows[0]))
-	for name := range rows[0] {
-		columnNames = append(columnNames, name)
-	}
-
-	// Build values
-	values := make([][]interface{}, len(rows))
-	for i, row := range rows {
-		values[i] = make([]interface{}, len(columnNames))
-		for j, col := range columnNames {
-			values[i][j] = row[col]
-		}
-	}
-
-	// For now, we'll use a simple insert approach
-	// In the future, this should use the same buffered approach as the bot
-	// but for simplicity we'll just ensure the table exists and do direct writes
-	
-	// Ensure table exists (idempotent)
+	// Ensure table exists (idempotent). Provisioning is otherwise handled
+	// externally by the bot-side ClickHouse writer DDL.
 	_ = w.ensureTable(ctx)
 
 	// Use ClickHouse HTTP insert with JSONEachRow format

@@ -44,7 +44,8 @@ This means the application is not production-ready for the intended PostgreSQL +
 - Delegated bot/backtest routes in `backend/internal/routes/bot_api_delegate_routes.go` still call the bot API over HTTP.
 - The backend owns the MinIO artifact signing contract in `backend/internal/services/minio_artifact_signer.go`.
 - The backend still uses Redis pub/sub for backtest status fan-out in `backend/internal/services/backtest_push_hub.go`.
-- Legacy local JSON/file storage code still exists in `backend/internal/services/backtest_storage.go` and `backend/internal/services/pair_storage.go`.
+- Legacy local JSON/file storage code still
+- exists in `backend/internal/services/backtest_storage.go` and `backend/internal/services/pair_storage.go`.
 
 ### Bot runtime and workers
 

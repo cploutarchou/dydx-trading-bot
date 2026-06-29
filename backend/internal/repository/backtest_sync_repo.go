@@ -761,7 +761,7 @@ func (r *BacktestSyncRepository) countRowsForRunByRunID(tableName string, runID 
 			WHERE r.run_id = ? AND r.user_id = ?
 		`, tableName, fkColumn)
 		var count int
-			err := r.db.QueryRow(r.bindQuery(query), runID, userID).Scan(&count)
+		err := r.db.QueryRow(r.bindQuery(query), runID, userID).Scan(&count)
 		if err == nil {
 			return count, nil
 		}

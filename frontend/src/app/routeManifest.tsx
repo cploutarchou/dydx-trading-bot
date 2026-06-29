@@ -34,6 +34,9 @@ const BacktestsPage = lazy(() =>
 const ClientAreaPage = lazy(() =>
   import('../pages/ClientArea').then((module) => ({ default: module.ClientAreaPage }))
 );
+const ClickHouseAnalyticsPage = lazy(() =>
+  import('../pages/ClickHouseAnalytics').then((module) => ({ default: module.default }))
+);
 const CodexPage = lazy(() =>
   import('../pages/Codex').then((module) => ({ default: module.CodexPage }))
 );
@@ -118,6 +121,7 @@ const backofficeRoutes: PortalRouteDefinition[] = [
     allowedRoles: ['admin', 'super_admin', 'backoffice_admin'],
     element: <AdminCeleryPage />,
   },
+  { path: '/admin/analytics', allowedRoles: BACKOFFICE_ROLES, element: <ClickHouseAnalyticsPage /> },
   { path: '/crm/*', allowedRoles: BACKOFFICE_ROLES, element: <CRMRouter /> },
   { path: '/ib-portal/*', allowedRoles: BACKOFFICE_ROLES, element: <IBRouter /> },
 ];

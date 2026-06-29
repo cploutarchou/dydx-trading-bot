@@ -128,6 +128,21 @@ class PositionRepository:
         else:
             status_value = str(status or "")
 
+        # Extract additional fields for strategy dimensions and exchange-native data
+        bot_run_id = getattr(position, "bot_run_id", "") or ""
+        market = getattr(position, "market", "") or ""
+        side = getattr(position, "side", "") or ""
+        strategy_id = getattr(position, "strategy_id", None)
+        strategy_name = getattr(position, "strategy_name", "") or ""
+        
+        # Exchange-native fields
+        exchange_position_id = getattr(position, "dydx_position_id", "") or ""
+        leverage = getattr(position, "leverage", None)
+        margin_used = getattr(position, "margin_used", None)
+        
+        # Fee accumulation
+        fee_accrued = getattr(position, "fee_accrued", 0.0) or 0.0
+        
         return {
             "snapshot_date": snapshot_time.date(),
             "snapshot_time": snapshot_time,
@@ -136,12 +151,17 @@ class PositionRepository:
             "instance_id": str(
                 getattr(position, "_analytics_instance_id", "") or ""
             ),
+            "bot_run_id": str(bot_run_id),
             "pair1": str(getattr(position, "pair1", "") or ""),
             "pair2": str(getattr(position, "pair2", "") or ""),
+            "market": str(market),
             "side1": str(getattr(position, "side1", "") or ""),
             "side2": str(getattr(position, "side2", "") or ""),
+            "side": str(side),
             "status": status_value,
             "event_kind": str(event_kind or ""),
+            "strategy_id": strategy_id,
+            "strategy_name": str(strategy_name),
             "entry_price1": float(getattr(position, "entry_price1", 0.0) or 0.0),
             "entry_price2": float(getattr(position, "entry_price2", 0.0) or 0.0),
             "current_price1": (
@@ -174,6 +194,10 @@ class PositionRepository:
             "realized_pnl_pct": float(
                 getattr(position, "realized_pnl_pct", 0.0) or 0.0
             ),
+            "fee_accrued": float(fee_accrued),
+            "exchange_position_id": str(exchange_position_id),
+            "leverage": float(leverage) if leverage is not None else None,
+            "margin_used": float(margin_used) if margin_used is not None else None,
             "z_score_entry": (
                 float(getattr(position, "z_score_entry"))
                 if getattr(position, "z_score_entry", None) is not None

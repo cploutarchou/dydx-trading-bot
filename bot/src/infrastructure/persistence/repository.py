@@ -361,16 +361,42 @@ class TradeRepository:
         else:
             status_value = str(status or "")
 
+        # Extract additional fields from trade object and related data
+        bot_run_id = getattr(trade, "bot_run_id", "") or ""
+        order_id = getattr(trade, "order_id", "") or ""
+        market = getattr(trade, "market", "") or ""
+        side = getattr(trade, "side", "") or ""
+        
+        # Try to get fee information if available
+        transaction_fee = getattr(trade, "transaction_fee", 0.0) or 0.0
+        fee = float(transaction_fee) if transaction_fee else 0.0
+        fee_pct = fee * 100 if fee else 0.0  # Approximate fee percentage
+        
+        # Try to get fill details if available
+        fill_id = getattr(trade, "fill_id", "") or ""
+        fill_index = getattr(trade, "fill_index", 0) or 0
+        
+        # Try to get correlation ID
+        correlation_id = getattr(trade, "correlation_id", "") or ""
+        
+        # Try to get individual leg prices/sizes for per-fill detail
+        price = getattr(trade, "price", 0.0) or 0.0
+        size = getattr(trade, "size", 0.0) or 0.0
+        
         return {
             "event_date": event_time.date(),
             "event_time": event_time,
             "trade_id": str(trade.trade_id or ""),
+            "order_id": str(order_id),
             "bot_id": str(trade.bot_id),
             "instance_id": str(getattr(trade, "_analytics_instance_id", "") or ""),
+            "bot_run_id": str(bot_run_id),
             "pair1": str(trade.pair1 or ""),
             "pair2": str(trade.pair2 or ""),
+            "market": str(market),
             "side1": str(trade.side1 or ""),
             "side2": str(trade.side2 or ""),
+            "side": str(side),
             "status": status_value,
             "event_kind": str(event_kind or ""),
             "entry_price1": float(trade.entry_price1 or 0.0),
@@ -389,12 +415,19 @@ class TradeRepository:
             "exit_size2": (
                 float(trade.exit_size2) if trade.exit_size2 is not None else None
             ),
+            "price": float(price),
+            "size": float(size),
+            "fee": float(fee),
+            "fee_pct": float(fee_pct),
             "realized_pnl": float(
                 trade.realized_pnl or trade.profit_loss or 0.0
             ),
             "realized_pnl_pct": float(
                 trade.realized_pnl_pct or trade.profit_loss_percentage or 0.0
             ),
+            "fill_id": str(fill_id),
+            "fill_index": int(fill_index),
+            "correlation_id": str(correlation_id),
             "closed_at": closed_at,
         }
 
@@ -754,6 +787,18 @@ class EventRepository:
             order_id = details.get(spec["order_id_key"])
             if not order_id:
                 continue
+            # Extract additional exchange-native fields
+            filled_size = cls._coerce_optional_float(details.get("filled_size"))
+            remaining_size = cls._coerce_optional_float(details.get("remaining_size"))
+            fee = cls._coerce_optional_float(details.get("fee"))
+            exchange_order_id = str(details.get("exchange_order_id") or "")
+            client_order_id = str(details.get("client_order_id") or "")
+            order_type = str(details.get("type") or "")
+            time_in_force = str(details.get("time_in_force") or "")
+            post_only = int(details.get("post_only", 0) or 0)
+            reduce_only = int(details.get("reduce_only", 0) or 0)
+            ioc = int(details.get("ioc", 0) or 0)
+            
             rows.append(
                 {
                     "event_date": created_at.date(),
@@ -769,10 +814,20 @@ class EventRepository:
                     "event_type": event_type,
                     "price": cls._coerce_optional_float(details.get(spec["price_key"])),
                     "size": cls._coerce_optional_float(details.get(spec["size_key"])),
+                    "filled_size": filled_size,
+                    "remaining_size": remaining_size,
+                    "fee": fee,
                     "exchange_time": cls._normalize_optional_datetime(
                         details.get(spec["exchange_time_key"])
                     ),
                     "correlation_id": correlation_id,
+                    "exchange_order_id": exchange_order_id,
+                    "client_order_id": client_order_id,
+                    "type": order_type,
+                    "time_in_force": time_in_force,
+                    "post_only": post_only,
+                    "reduce_only": reduce_only,
+                    "ioc": ioc,
                 }
             )
         return rows

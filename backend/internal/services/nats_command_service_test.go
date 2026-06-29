@@ -38,9 +38,9 @@ func TestNATSCommandService_HealthCheck(t *testing.T) {
 
 func TestNATSCommandService_IsNATSEnabled(t *testing.T) {
 	tests := []struct {
-		name     string
-		enabled  bool
-		want     bool
+		name    string
+		enabled bool
+		want    bool
 	}{
 		{"enabled", true, true},
 		{"disabled", false, false},
@@ -74,11 +74,11 @@ func TestNATSCommandService_serializeConfigForPayload(t *testing.T) {
 
 	t.Run("includes essential fields", func(t *testing.T) {
 		config := map[string]interface{}{
-			"name":            "test backtest",
-			"strategy_id":     float64(42),
-			"source":          "api",
-			"start_date":      "2024-01-01T00:00:00Z",
-			"end_date":        "2024-01-02T00:00:00Z",
+			"name":                 "test backtest",
+			"strategy_id":          float64(42),
+			"source":               "api",
+			"start_date":           "2024-01-01T00:00:00Z",
+			"end_date":             "2024-01-02T00:00:00Z",
 			"requested_by_user_id": float64(123),
 		}
 
@@ -282,7 +282,7 @@ func TestRepositoryConstants(t *testing.T) {
 func TestErrorHandling(t *testing.T) {
 	t.Run("handles nil config in serialization", func(t *testing.T) {
 		service := NewNATSCommandService(nil, nil, config.NATSSettings{})
-		
+
 		// This should not panic
 		payload, err := service.serializeConfigForPayload(nil)
 		assert.NoError(t, err)
@@ -291,7 +291,7 @@ func TestErrorHandling(t *testing.T) {
 
 	t.Run("handles malformed config gracefully", func(t *testing.T) {
 		service := NewNATSCommandService(nil, nil, config.NATSSettings{})
-		
+
 		// Config with various types that might cause issues
 		config := map[string]interface{}{
 			"string": "value",
@@ -302,11 +302,11 @@ func TestErrorHandling(t *testing.T) {
 			"array":  []string{"a", "b"},
 			"object": map[string]string{"key": "value"},
 		}
-		
+
 		payload, err := service.serializeConfigForPayload(config)
 		assert.NoError(t, err)
 		assert.NotNil(t, payload)
-		
+
 		// Should be valid JSON
 		var result map[string]interface{}
 		err = json.Unmarshal(payload, &result)
@@ -324,7 +324,7 @@ func TestFailClosedBehavior(t *testing.T) {
 
 	t.Run("health check fails gracefully with nil repo", func(t *testing.T) {
 		service := NewNATSCommandService(nil, nil, config.NATSSettings{})
-		
+
 		// This should return an error, not panic
 		err := service.HealthCheck()
 		assert.Error(t, err)
@@ -332,7 +332,7 @@ func TestFailClosedBehavior(t *testing.T) {
 
 	t.Run("NATS enabled check returns false when dependencies are missing", func(t *testing.T) {
 		service := NewNATSCommandService(nil, nil, config.NATSSettings{Enabled: true})
-		
+
 		// Should be false because publisher is nil
 		assert.False(t, service.IsNATSEnabled())
 	})
@@ -353,22 +353,22 @@ func TestImportsAvailable(t *testing.T) {
 func TestIdempotencyKeyHandling(t *testing.T) {
 	t.Run("service created successfully with valid dependencies", func(t *testing.T) {
 		service := NewNATSCommandService(nil, nil, config.NATSSettings{})
-		
+
 		// The service should be created successfully
 		// We can't test the full flow without a database, but we can test the service creation
 		assert.NotNil(t, service)
 	})
-	
+
 	t.Run("service handles empty configuration gracefully", func(t *testing.T) {
 		service := NewNATSCommandService(nil, nil, config.NATSSettings{})
-		
+
 		// Empty config should not cause issues
 		assert.NotNil(t, service)
 	})
-	
+
 	t.Run("service creation is resilient to various inputs", func(t *testing.T) {
 		service := NewNATSCommandService(nil, nil, config.NATSSettings{})
-		
+
 		// Service should be created regardless of input
 		assert.NotNil(t, service)
 	})
@@ -379,22 +379,22 @@ func TestFailClosedWithDisabledNATS(t *testing.T) {
 	t.Run("service handles disabled NATS gracefully", func(t *testing.T) {
 		// Create service with NATS disabled
 		service := NewNATSCommandService(nil, nil, config.NATSSettings{Enabled: false})
-		
+
 		assert.NotNil(t, service)
 		assert.False(t, service.IsNATSEnabled())
 	})
-	
+
 	t.Run("service handles nil publisher gracefully", func(t *testing.T) {
 		// Create service with nil publisher (NATS disabled)
 		service := NewNATSCommandService(nil, nil, config.NATSSettings{Enabled: false})
-		
+
 		assert.NotNil(t, service)
 		assert.False(t, service.IsNATSEnabled())
 	})
-	
+
 	t.Run("service handles nil task repository in health check", func(t *testing.T) {
 		service := NewNATSCommandService(nil, nil, config.NATSSettings{})
-		
+
 		err := service.HealthCheck()
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "task repository is nil")
@@ -406,7 +406,7 @@ func TestDuplicateProtection(t *testing.T) {
 	t.Run("envelope uses correct idempotency key", func(t *testing.T) {
 		// Test that the envelope created uses the provided idempotency key
 		idempotencyKey := "test-idempotency-key"
-		
+
 		// We can't test the full NATS publishing without a server,
 		// but we can verify the envelope structure
 		envelope := nats.Envelope{
@@ -421,15 +421,15 @@ func TestDuplicateProtection(t *testing.T) {
 			Subject:         nats.Subject("backtest", "command", "start"),
 			Payload:         json.RawMessage(`{"test": "payload"}`),
 		}
-		
+
 		// Validate the envelope
 		err := envelope.Validate()
 		assert.NoError(t, err)
-		
+
 		// Verify idempotency key is preserved
 		assert.Equal(t, idempotencyKey, envelope.IdempotencyKey)
 	})
-	
+
 	t.Run("envelope validation fails with empty idempotency key", func(t *testing.T) {
 		envelope := nats.Envelope{
 			MessageID:       "test-message-id",
@@ -443,7 +443,7 @@ func TestDuplicateProtection(t *testing.T) {
 			Subject:         nats.Subject("backtest", "command", "start"),
 			Payload:         json.RawMessage(`{"test": "payload"}`),
 		}
-		
+
 		err := envelope.Validate()
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "idempotency_key is required")
@@ -454,7 +454,7 @@ func TestDuplicateProtection(t *testing.T) {
 func TestBoundedPayloadSerialization(t *testing.T) {
 	t.Run("excludes large arrays to prevent bloat", func(t *testing.T) {
 		service := NewNATSCommandService(nil, nil, config.NATSSettings{})
-		
+
 		// Create config with large array
 		largePairs := make([]interface{}, 15)
 		for i := range largePairs {
@@ -463,43 +463,43 @@ func TestBoundedPayloadSerialization(t *testing.T) {
 		config := map[string]interface{}{
 			"pairs": largePairs,
 		}
-		
+
 		payload, err := service.serializeConfigForPayload(config)
 		assert.NoError(t, err)
-		
+
 		var result map[string]interface{}
 		err = json.Unmarshal(payload, &result)
 		assert.NoError(t, err)
-		
+
 		// Should have pair_count but not the actual pairs array
 		assert.Equal(t, float64(15), result["pair_count"])
 		_, hasPairs := result["pairs"]
 		assert.False(t, hasPairs)
 	})
-	
+
 	t.Run("includes small arrays", func(t *testing.T) {
 		service := NewNATSCommandService(nil, nil, config.NATSSettings{})
-		
+
 		config := map[string]interface{}{
 			"pairs": []interface{}{"BTC-USD", "ETH-USD"},
 		}
-		
+
 		payload, err := service.serializeConfigForPayload(config)
 		assert.NoError(t, err)
-		
+
 		var result map[string]interface{}
 		err = json.Unmarshal(payload, &result)
 		assert.NoError(t, err)
-		
+
 		// Small array should be included
 		pairs, ok := result["pairs"].([]interface{})
 		assert.True(t, ok)
 		assert.Equal(t, 2, len(pairs))
 	})
-	
+
 	t.Run("excludes full trading parameters", func(t *testing.T) {
 		service := NewNATSCommandService(nil, nil, config.NATSSettings{})
-		
+
 		config := map[string]interface{}{
 			"trading_parameters": map[string]interface{}{
 				"zscore_threshold": 2.0,
@@ -507,14 +507,14 @@ func TestBoundedPayloadSerialization(t *testing.T) {
 				"other_setting":    "value",
 			},
 		}
-		
+
 		payload, err := service.serializeConfigForPayload(config)
 		assert.NoError(t, err)
-		
+
 		var result map[string]interface{}
 		err = json.Unmarshal(payload, &result)
 		assert.NoError(t, err)
-		
+
 		// Should indicate parameters are present but not include them
 		assert.Equal(t, true, result["has_trading_parameters"])
 		assert.Equal(t, true, result["trading_parameters_present"])

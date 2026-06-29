@@ -83,6 +83,11 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 	router.Use(middleware.HeaderLoggingMiddleware())
 	router.Use(middleware.RequestLoggingMiddleware())
 	router.Use(middleware.RateLimitMiddleware(100, 200))
+	
+	// API request events middleware - captures telemetry for ClickHouse (best effort)
+	if cfg.ClickHouse.Enabled {
+		router.Use(middleware.APIRequestEventsMiddleware(cfg))
+	}
 	router.Use(gzip.Gzip(
 		gzip.DefaultCompression,
 		gzip.WithExcludedPaths([]string{"/health", "/ready", "/api/v1/health", "/api/v1/ready"}),
@@ -126,6 +131,8 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 		services.NewLivePositionReader(clickHouseReader),
 		services.NewLiveTradeSummaryReader(clickHouseReader),
 		services.NewLivePairBreakdownReader(clickHouseReader),
+		services.NewLiveWorkerMetricsReader(clickHouseReader),
+		services.NewAPIRequestWriter(clickHouseReader),
 	)
 
 	return router, nil
@@ -148,8 +155,6 @@ func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient 
 	log.Printf("Initialized bot API client pointing to: %s", apiClient.BaseURL())
 	backtestSyncRepo := repository.NewBacktestSyncRepository(database.DB)
 	backtestSyncService := services.NewBacktestSyncService(backtestSyncRepo)
-
-
 
 	routes.RegisterBotInstanceRoutes(router, database, cacheService)
 	routes.RegisterBotAPIDelegateRoutesWithSyncCacheAndPush(router, apiClient, backtestSyncService, cacheService, backtestPushHub, taskRepo, natsPublisher, natsCommandService)

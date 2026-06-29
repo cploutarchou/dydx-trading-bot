@@ -156,17 +156,17 @@ type AuthSettings struct {
 }
 
 type Config struct {
-	Database DatabaseSettings
-	Indexer  IndexerEndpoint
-	Telegram TelegramSettings
-	DYDX     DYDX
-	Loki     LokiSettings
-	Redis    RedisSettings
-	Valkey   ValkeySettings
-	NATS     NATSSettings
+	Database   DatabaseSettings
+	Indexer    IndexerEndpoint
+	Telegram   TelegramSettings
+	DYDX       DYDX
+	Loki       LokiSettings
+	Redis      RedisSettings
+	Valkey     ValkeySettings
+	NATS       NATSSettings
 	ClickHouse ClickHouseSettings
-	MinIO    MinIOSettings
-	Auth     AuthSettings
+	MinIO      MinIOSettings
+	Auth       AuthSettings
 }
 
 func LoadConfig() error {
@@ -297,17 +297,17 @@ func LoadConfig() error {
 	}
 
 	ConfigInstance = &Config{
-		Database: database,
-		Indexer:  indexer,
-		Telegram: telegram,
-		DYDX:     dydx,
-		Loki:     loki,
-		Redis:    redis,
-		Valkey:   valkey,
-		NATS:     nats,
+		Database:   database,
+		Indexer:    indexer,
+		Telegram:   telegram,
+		DYDX:       dydx,
+		Loki:       loki,
+		Redis:      redis,
+		Valkey:     valkey,
+		NATS:       nats,
 		ClickHouse: clickHouse,
-		MinIO:    minIO,
-		Auth:     auth,
+		MinIO:      minIO,
+		Auth:       auth,
 	}
 
 	return nil

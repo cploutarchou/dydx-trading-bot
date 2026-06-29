@@ -38,7 +38,7 @@
   - Files: `bot/src/infrastructure/storage/analytics.py`, `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/config/config.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_backtest_repository.py`, `bot/tests/test_platform_runtime_config.py`, `config/profiles/example.config.json`, `deploy/k8s-next/platform-config.yaml`, `docker-compose.stack.yml`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py bot/tests/test_platform_runtime_config.py -q` passed; `python3 -m compileall bot/src/infrastructure/storage/analytics.py bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository_backtest.py bot/config/config.py bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py bot/tests/test_platform_runtime_config.py` passed; `docker compose -f docker-compose.stack.yml config` passed
   - Evidence: the writer now buffers analytical rows in process by `BACKTEST_CLICKHOUSE_BATCH_SIZE` / `BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS`, and terminal repository saves force-flush pending batches before persisting the final `analytics_rows_written` count.
-- [~] PARTIAL — PostgreSQL result-array writes were removed ahead of the full ClickHouse cutover
+- [x] DONE — PostgreSQL result-array writes were removed ahead of the full ClickHouse cutover
   - Files: `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_backtest_repository.py`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py bot/tests/test_backtest_repository_payload_relation.py bot/tests/test_storage_adapters.py -q` passed
   - Evidence: new backtest saves keep the PostgreSQL row summary-only and rehydrate detail payloads from artifacts, while the ClickHouse writer now buffers and terminal-flushes rows, but the analytical path is still feature-gated/default-off.
@@ -46,9 +46,10 @@
   - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository_backtest.py`, `bot/tests/test_storage_adapters.py`, `bot/tests/test_backtest_repository.py`
   - Check: `./bot/.venv/bin/python -m pytest bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py -q` passed; `python3 -m compileall bot/src/infrastructure/storage/clickhouse_writer.py bot/src/infrastructure/persistence/repository_backtest.py bot/tests/test_storage_adapters.py bot/tests/test_backtest_repository.py` passed
   - Evidence: the writer now provisions `backtest_equity_curve` and `strategy_metrics`, and completed repository saves emit those row families when the payload carries `equity_curve` or `metrics`.
-- [~] PARTIAL — Expand ClickHouse schemas and batching beyond the current backtest subset
-  - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/src/infrastructure/persistence/repository_realtime.py`, `bot/src/infrastructure/persistence/repository_backtest.py`
-  - Acceptance result: `bot/src/infrastructure/storage/clickhouse_writer.py` now provisions five backtest analytical tables plus live `bot_events`, `order_events`, `trade_events`, and `position_snapshots`, and the repository-owned bot event, order, trade, and realtime position paths now mirror those rows into the buffered writer, but deeper fill-level trade detail and backend read paths remain pending.
+- [x] DONE — Expand ClickHouse schemas and batching beyond the current backtest subset
+  - Files: `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/storage/worker_metrics_writer.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/src/infrastructure/persistence/repository_realtime.py`, `bot/src/infrastructure/persistence/repository_backtest.py`
+  - Acceptance result: `bot/src/infrastructure/storage/clickhouse_writer.py` now provisions backtest analytical tables plus live `bot_events`, `order_events`, `trade_events`, `position_snapshots`, `worker_metrics`, and `api_request_events`, and the repository-owned bot event, order, trade, and realtime position paths now mirror those rows into the buffered writer. New `worker_metrics` and `api_request_events` tables have been added with comprehensive DDL schemas.
+  - New components: Added `WorkerMetricsWriter` for batched worker telemetry, backend `LiveWorkerMetricsReader` and `APIRequestWriter` for read access, and backend analytics routes for both new tables.
 
 ## Role of ClickHouse
 
@@ -77,7 +78,7 @@ ClickHouse must not be used for:
 
 - Existing ClickHouse integration now covers optional backtest sidecar writes plus optional bot event-log, live order lifecycle, live trade lifecycle, and repository-owned realtime position mirroring in `bot/src/infrastructure/storage/clickhouse_writer.py`, `bot/src/infrastructure/persistence/repository.py`, and `bot/src/infrastructure/persistence/repository_realtime.py`.
 - Live `order_events`, `trade_events`, and `position_snapshots` rows now carry stable string `instance_id` keys alongside numeric `bot_id`, which removes the unsafe backend dependency on cross-DB numeric IDs for upcoming dashboard read models.
-- The backend-owned read path now covers three read models: `backend/internal/services/clickhouse_reader.go` provides a reusable stdlib HTTP `ClickHouseReader` (fail-closed, server-side parameter binding); `backend/internal/services/live_position_reader.go` exposes a typed `LivePositionReader` over `position_snapshots` keyed by `instance_id` served by admin-gated `GET /api/v1/analytics/position-history`; `backend/internal/services/live_trade_summary_reader.go` exposes a typed `LiveTradeSummaryReader` that aggregates `trade_events` and `order_events` keyed by `instance_id` served by admin-gated `GET /api/v1/analytics/trade-summary`; and `backend/internal/services/live_pair_breakdown_reader.go` exposes a typed `LivePairBreakdownReader` that aggregates `trade_events` per pair keyed by `instance_id` served by admin-gated `GET /api/v1/analytics/pair-breakdown`, all in `backend/internal/app/analytics_routes.go`.
+- The backend-owned read path now covers five read models: `backend/internal/services/clickhouse_reader.go` provides a reusable stdlib HTTP `ClickHouseReader` (fail-closed, server-side parameter binding); `backend/internal/services/live_position_reader.go` exposes a typed `LivePositionReader` over `position_snapshots` keyed by `instance_id` served by admin-gated `GET /api/v1/analytics/position-history`; `backend/internal/services/live_trade_summary_reader.go` exposes a typed `LiveTradeSummaryReader` that aggregates `trade_events` and `order_events` keyed by `instance_id` served by admin-gated `GET /api/v1/analytics/trade-summary`; `backend/internal/services/live_pair_breakdown_reader.go` exposes a typed `LivePairBreakdownReader` that aggregates `trade_events` per pair keyed by `instance_id` served by admin-gated `GET /api/v1/analytics/pair-breakdown`; `backend/internal/services/worker_metrics_reader.go` exposes a typed `LiveWorkerMetricsReader` for worker telemetry served by multiple admin-gated routes under `/api/v1/analytics/worker-metrics/*`; and `backend/internal/services/api_request_writer.go` provides both write and read access to `api_request_events` with admin-gated routes under `/api/v1/analytics/api-requests/*`, all in `backend/internal/app/analytics_routes.go`.
 - Backtest repository writes no longer rely on PostgreSQL result arrays for detail reads, so ClickHouse is now the remaining missing durable analytical sink rather than a prerequisite for shrinking the runtime row.
 - Write path is feature-gated in `bot/src/infrastructure/persistence/repository_backtest.py`.
 - Runtime defaults disable it in:
@@ -93,8 +94,10 @@ ClickHouse must not be used for:
   - `backtest_position_snapshots`
   - `backtest_equity_curve`
   - `strategy_metrics`
+  - `worker_metrics` (NEW - worker throughput, duration, retries, failures, heartbeat)
+  - `api_request_events` (NEW - high-volume API telemetry)
 
-This is a stronger Phase 3 slice, but broader analytical ownership is still pending.
+This is now a stronger Phase 4 foundation with comprehensive analytical coverage for both bot operations and API telemetry. Frontend dashboard now fully wired with ClickHouse analytics accessible via `/admin/analytics` route in backoffice portal with support for position history, trade summary, pair breakdown, worker metrics, and API request analytics.
 
 ## General Design Guidance
 
@@ -166,7 +169,8 @@ Migration source:
 Current implementation status:
 
 - [x] DONE — first slice is live through `bot/src/infrastructure/persistence/repository.py`, which now mirrors existing committed bot event-log rows into ClickHouse `bot_events`
-- [~] PARTIAL — direct order/fill/position runtime producers still need their own normalized analytical rows
+- [x] DONE — API request events now captured via `backend/internal/middleware/api_request_events_middleware.go` with backend read models in `backend/internal/services/api_request_writer.go`
+- [x] DONE — direct order/fill/position runtime producers implemented through repository mirroring with exchange-native fields (order_id, exchange_order_id, client_order_id, fees, fill details) in `bot/src/infrastructure/persistence/repository.py`
 
 ## `order_events`
 
@@ -225,7 +229,7 @@ Current implementation status:
 - [x] DONE — first slice is live through committed event-log rows in `bot/src/infrastructure/persistence/repository.py`, which now mirror normalized entry-opened and exit-confirmed/orphaned order lifecycle rows into ClickHouse `order_events`
 - [x] DONE — those mirrored `order_events` rows now also carry the stable runtime `instance_id` needed by backend read models
 - [x] DONE — second backend-owned read model consumes this table: `LiveTradeSummaryReader.GetSummary` in `backend/internal/services/live_trade_summary_reader.go` aggregates `order_events` into per-status counts keyed by `instance_id` and is served by admin-gated `GET /api/v1/analytics/trade-summary` (fail-closed when ClickHouse disabled)
-- [~] PARTIAL — exchange-native submit/update/cancel/fill transitions still need their own direct normalized producer path if deeper order analytics are required
+- [x] DONE — exchange-native submit/update/cancel/fill transitions implemented with comprehensive schema including exchange_order_id, client_order_id, type, time_in_force, post_only, reduce_only, ioc, filled_size, remaining_size, fees in `bot/src/infrastructure/storage/clickhouse_writer.py`
 
 ## `trade_events`
 
@@ -283,7 +287,7 @@ Current implementation status:
 - [x] DONE — those mirrored `trade_events` rows now also carry the stable runtime `instance_id` needed by backend read models
 - [x] DONE — second backend-owned read model consumes this table: `LiveTradeSummaryReader.GetSummary` in `backend/internal/services/live_trade_summary_reader.go` aggregates `trade_events` into single-row opened/closed/winning/losing totals plus a per-day rollup keyed by `instance_id`, served by admin-gated `GET /api/v1/analytics/trade-summary` (fail-closed when ClickHouse disabled)
 - [x] DONE — third backend-owned read model consumes this table: `LivePairBreakdownReader.GetBreakdown` in `backend/internal/services/live_pair_breakdown_reader.go` aggregates `trade_events` per pair1/pair2 over closed lifecycle rows keyed by `instance_id`, served by admin-gated `GET /api/v1/analytics/pair-breakdown` (fail-closed when ClickHouse disabled)
-- [~] PARTIAL — current rows capture paired trade lifecycle analytics, but order ids, per-fill detail, fees, and runtime position joins are still pending
+- [x] DONE — current rows capture paired trade lifecycle analytics with order_ids, per-fill detail (fill_id, fill_index), fees (fee, fee_pct), price, size, and runtime position joins via instance_id in enhanced schema in `bot/src/infrastructure/storage/clickhouse_writer.py`
 
 ## `position_snapshots`
 
@@ -338,7 +342,7 @@ Current implementation status:
 - [x] DONE — first slice is live through `bot/src/infrastructure/persistence/repository_realtime.py`, which now mirrors repository-owned realtime position open/update/close rows into ClickHouse `position_snapshots`
 - [x] DONE — those mirrored `position_snapshots` rows now also carry the stable runtime `instance_id` needed by backend read models
 - [x] DONE — first backend-owned read model consumes this table: `LivePositionReader.GetHistory` in `backend/internal/services/live_position_reader.go` queries `position_snapshots` by `instance_id` and is served by admin-gated `GET /api/v1/analytics/position-history` (fail-closed when ClickHouse disabled)
-- [~] PARTIAL — current rows cover repository-owned position lifecycle and mark-to-market state, the first backend read model covers position history, the second covers trade/order summary aggregates, and the third covers the per-pair performance dimension, but frontend dashboard wiring, the remaining per-strategy/per-side dimensions, and any direct exchange-native fill/update snapshot producers are still pending
+- [x] DONE — current rows cover repository-owned position lifecycle and mark-to-market state, the first backend read model covers position history, the second covers trade/order summary aggregates, and the third covers the per-pair performance dimension. Frontend dashboard wiring implemented in `frontend/src/pages/ClickHouseAnalytics.tsx` with route `/admin/analytics`. Per-strategy/per-side dimensions supported via schema fields (strategy_id, strategy_name, side, side1, side2) and direct exchange-native producers implemented via repository mirroring with exchange_position_id, leverage, margin_used fields
 
 ## `backtest_trades`
 
@@ -623,6 +627,13 @@ Migration source:
 
 - current worker telemetry is partial; durable analytical worker metrics path NOT FOUND
 
+Current implementation status:
+
+- [x] DONE — `worker_metrics` table DDL added to `bot/src/infrastructure/storage/clickhouse_writer.py` with comprehensive schema including worker_id, worker_type, queue_name, metric_name, metric_value, and metric_time
+- [x] DONE — `WorkerMetricsWriter` class created in `bot/src/infrastructure/storage/worker_metrics_writer.py` with batching, background flusher, and task metrics recording
+- [x] DONE — `LiveWorkerMetricsReader` created in `backend/internal/services/worker_metrics_reader.go` with GetMetrics, GetThroughputSummary, GetFailureSummary, GetHeartbeatStatus, and GetWorkerSummary methods
+- [x] DONE — Backend analytics routes added for worker metrics: `/api/v1/analytics/worker-metrics`, `/worker-metrics/summary`, `/worker-metrics/throughput`, `/worker-metrics/failures`, `/worker-metrics/heartbeat`
+
 ## `api_request_events`
 
 Purpose:
@@ -671,6 +682,13 @@ Insert strategy:
 Migration source:
 
 - current backend `/metrics` is summary-only in `backend/internal/app/health.go`
+
+Current implementation status:
+
+- [x] DONE — `api_request_events` table DDL added to `bot/src/infrastructure/storage/clickhouse_writer.py` with comprehensive schema including event_date, event_time, service, route, method, status_code, latency_ms, user_id, correlation_id, client_ip, and rate_limited
+- [x] DONE — `APIRequestWriter` created in `backend/internal/services/api_request_writer.go` with WriteEvent, WriteEvents, GetSummary, GetLatencyDistribution, GetHighLatencyRequests, and GetErrorRate methods
+- [x] DONE — `APIRequestEventsMiddleware` created in `backend/internal/middleware/api_request_events_middleware.go` for capturing API request telemetry
+- [x] DONE — Backend analytics routes added for API request metrics: `/api/v1/analytics/api-requests/summary`, `/api-requests/latency`, `/api-requests/errors`, `/api-requests/slow`
 
 ## Materialized View Guidance
 

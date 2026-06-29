@@ -1505,10 +1505,10 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			if natsCommandService != nil {
 				userIDValue, _ := c.Get("user_id")
 				userID, _ := userIDValue.(int)
-				
+
 				// Generate a unique idempotency key for this backtest request
 				idempotencyKey := "backtest-" + uuid.New().String()
-				
+
 				// Use NATSCommandService for dual-write: creates task command+run in PostgreSQL and publishes to NATS
 				ctx := c.Request.Context()
 				_, err := natsCommandService.PublishBacktestCommand(ctx, idempotencyKey, config, &userID, idempotencyKey)
@@ -1519,7 +1519,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 					return err
 				}
 			}
-			
+
 			if c.FullPath() == "/api/v1/backtests/run" {
 				result, err = requestClient.CreateBacktestRun(config)
 			} else {

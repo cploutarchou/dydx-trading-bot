@@ -23,10 +23,10 @@ import (
 // and NATS JetStream. It implements fail-closed behavior: if NATS is disabled or
 // unavailable, it still creates the task command but skips NATS publishing.
 type NATSCommandService struct {
-	taskRepo     *repository.TaskRepository
-	publisher    *nats.Publisher
-	settings     config.NATSSettings
-	clock        func() time.Time
+	taskRepo  *repository.TaskRepository
+	publisher *nats.Publisher
+	settings  config.NATSSettings
+	clock     func() time.Time
 }
 
 // NewNATSCommandService creates a new NATS command service.
@@ -38,10 +38,10 @@ func NewNATSCommandService(
 	settings config.NATSSettings,
 ) *NATSCommandService {
 	return &NATSCommandService{
-		taskRepo:     taskRepo,
-		publisher:    publisher,
-		settings:     settings,
-		clock:        time.Now,
+		taskRepo:  taskRepo,
+		publisher: publisher,
+		settings:  settings,
+		clock:     time.Now,
 	}
 }
 
@@ -79,12 +79,12 @@ func (s *NATSCommandService) PublishBacktestCommand(
 	// Create task command in PostgreSQL (authoritative)
 	taskCmd, err := s.taskRepo.CreateTaskCommand(
 		ctx,
-		"backtest",              // commandType
-		"backtest",              // ownerType
-		runID,                   // ownerID
-		idempotencyKey,          // idempotencyKey
-		requestedByUserID,       // requestedByUserID
-		payloadJSON,             // payloadJSON
+		"backtest",        // commandType
+		"backtest",        // ownerType
+		runID,             // ownerID
+		idempotencyKey,    // idempotencyKey
+		requestedByUserID, // requestedByUserID
+		payloadJSON,       // payloadJSON
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task command: %w", err)
@@ -99,9 +99,9 @@ func (s *NATSCommandService) PublishBacktestCommand(
 	// Create task run linked to command
 	taskRun, err := s.taskRepo.CreateTaskRun(
 		ctx,
-		taskCmd.ID,              // commandID
-		"backtest_execution",    // taskType
-		3,                      // maxRetries
+		taskCmd.ID,           // commandID
+		"backtest_execution", // taskType
+		3,                    // maxRetries
 	)
 	if err != nil {
 		log.Printf("NATS Command Service: failed to create task run: %v", err)
@@ -147,7 +147,7 @@ func (s *NATSCommandService) publishToNATSAsync(
 		"owner_id":        taskCmd.OwnerID,
 		"idempotency_key": taskCmd.IdempotencyKey,
 		"created_at":      taskCmd.CreatedAt.Format(time.RFC3339),
-		"status":         taskCmd.Status,
+		"status":          taskCmd.Status,
 	}
 
 	// Add minimal config references (not full config to keep payload small)
@@ -206,7 +206,7 @@ func (s *NATSCommandService) publishToNATSAsync(
 	if publishResult != nil {
 		log.Printf("NATS Command Service: successfully published command %s to stream %s, sequence %d, duplicate=%t",
 			taskCmd.ID, publishResult.Stream, publishResult.Sequence, publishResult.Duplicate)
-		
+
 		// If it was a duplicate, update task command status accordingly
 		if publishResult.Duplicate {
 			log.Printf("NATS Command Service: detected duplicate publish for command %s", taskCmd.ID)
@@ -224,7 +224,7 @@ func (s *NATSCommandService) serializeConfigForPayload(config map[string]interfa
 
 	// Create a bounded config that only includes essential fields
 	boundedConfig := make(map[string]interface{})
-	
+
 	// Include essential identification fields
 	if val, ok := config["name"].(string); ok && val != "" {
 		boundedConfig["name"] = val
@@ -235,7 +235,7 @@ func (s *NATSCommandService) serializeConfigForPayload(config map[string]interfa
 	if val, ok := config["source"].(string); ok && val != "" {
 		boundedConfig["source"] = val
 	}
-	
+
 	// Include timing fields if present
 	if val, ok := config["start_date"].(string); ok && val != "" {
 		boundedConfig["start_date"] = val
@@ -243,7 +243,7 @@ func (s *NATSCommandService) serializeConfigForPayload(config map[string]interfa
 	if val, ok := config["end_date"].(string); ok && val != "" {
 		boundedConfig["end_date"] = val
 	}
-	
+
 	// Include trading parameters reference (not full parameters)
 	if params, ok := config["trading_parameters"].(map[string]interface{}); ok {
 		boundedConfig["has_trading_parameters"] = true
@@ -252,7 +252,7 @@ func (s *NATSCommandService) serializeConfigForPayload(config map[string]interfa
 			boundedConfig["trading_parameters_present"] = true
 		}
 	}
-	
+
 	// Include pair information
 	if pairs, ok := config["pairs"].([]interface{}); ok && len(pairs) > 0 {
 		boundedConfig["pair_count"] = len(pairs)
@@ -260,12 +260,12 @@ func (s *NATSCommandService) serializeConfigForPayload(config map[string]interfa
 			boundedConfig["pairs"] = pairs
 		}
 	}
-	
+
 	// Include user information
 	if val, ok := config["requested_by_user_id"].(float64); ok && val > 0 {
 		boundedConfig["requested_by_user_id"] = int(val)
 	}
-	
+
 	return json.Marshal(boundedConfig)
 }
 

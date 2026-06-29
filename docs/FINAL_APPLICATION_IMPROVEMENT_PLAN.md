@@ -735,3 +735,205 @@ The application improvement program should not be considered complete until all 
 - Observability covers publish failures, lag, retries, heartbeats, dead letters, and storage failures.
 - Rollback and backup/restore procedures are documented and validated.
 
+---
+
+## Verified Implementation Progress (Phase 0 & Phase 1)
+
+This section records work actually implemented and tested against the code, not
+doc optimism. It supersedes the relevant rows of the Verification Matrix above
+for the items marked ✅. Everything here was verified by building and running
+tests in the backend (Go), bot (Python), and frontend (TypeScript).
+
+### Phase 0 — Completed ✅
+
+- **NATS subject namespace unified (singular form).** The backend publisher
+  (`backend/internal/nats/publisher.go` `Subject()`) emits singular subjects
+  (`backtest.command.start`, `bot.command.start`, `*.event.*`) and is the single
+  source of truth. The Python consumer
+  (`bot/src/infrastructure/event_bus_nats.py`) stream/consumer subjects were
+  changed from the legacy plural form (`backtest.commands.>`,
+  `backtest.commands.start`) to the singular form so JetStream delivery can
+  actually match end-to-end. Stream names (`BACKTEST_COMMANDS`, plural) are
+  collection names and intentionally unchanged.
+  - Tests: `bot/tests/test_nats_consumer.py` (29) incl. a contract test
+    asserting the backtest consumer filters on exactly `backtest.command.start`
+    and resolves to `BACKTEST_COMMANDS`.
+
+- **`task_commands.updated_at` schema/repository mismatch fixed.** Migration
+  `000063` created `task_commands` without `updated_at`, while
+  `repository.UpdateTaskCommandStatus` (Go) and the Python consumer set it,
+  which failed at runtime. New migration
+  `backend/migrations/postgres/000067_add_task_commands_updated_at.{up,down}.sql`
+  adds `updated_at TIMESTAMPTZ DEFAULT NOW()` + a `BEFORE UPDATE` trigger
+  (mirroring `task_runs`). Both the Go and Python status updates now run against
+  the real schema.
+  - Tests: Go contract test `task_repository_schema_contract_test.go` plus a
+    build-tagged integration test `task_repository_integration_test.go`
+    (`-tags=integration`) run against a real PostgreSQL (throwaway DB with
+    migrations 000063..000067 applied) proving `UpdateTaskCommandStatus`
+    succeeds and the trigger advances `updated_at`.
+
+- **Python NATS consumer SQL aligned with the authoritative task-table schema.**
+  `nats_backtest_consumer.py` previously targeted nonexistent columns
+  (`task_runs.requested_by_user_id`, `task_attempts.status`) and inserted string
+  ids into UUID columns. Fixed `_ensure_task_run` and `_create_task_attempt` to
+  omit invalid columns, let the DB generate UUIDs via `RETURNING id`, and fixed
+  `_update_task_command_status`. Removed dead code (unused `import time`,
+  `_get_user_id_from_context`). The placeholder `_execute_backtest()` is
+  intentionally NOT replaced — that is Phase 2 (gated, highest risk).
+  - Tests: `bot/tests/test_nats_consumer.py` mock tests updated;
+    `bot/tests/test_nats_consumer_sql_integration.py` exercises the real handler
+    methods against the throwaway PostgreSQL schema (passes).
+
+- **Task-table DB ownership decided and documented.** Task tables are
+  backend-owned and live in the platform database (`dydx_platform`). The
+  bot-side NATS consumer requires platform-DB access to claim runs and write
+  attempts/heartbeats. `deploy/k8s-next/platform-config.yaml` now documents this
+  explicitly with a `TASK_DB_*` block; NATS remains disabled (`NATS_ENABLED:
+  "false"`) so the split has no runtime effect until Phase 2 wires consumer
+  platform-DB access.
+
+- **Legacy backend local storage marked deprecated.**
+  `backend/internal/services/backtest_storage.go` and `pair_storage.go` are
+  still wired into active routes, so they are not dead code; they are now marked
+  `Deprecated` with a note that they are slated for Phase 3 removal once the
+  MinIO artifact path is authoritative. Not ripped out to avoid a broad,
+  behavior-changing refactor the plan does not require in Phase 0.
+
+- **Legacy `docs/needed_improvements/*` documents.** These were already removed
+  from the working tree before this change (they remain only in git history), so
+  the "Documentation Gaps" table's per-file fixes are moot; only README /
+  LOCAL_SETUP_GUIDE MinIO drift remains (Low priority, not required by Phase 0).
+
+### Phase 1 — Completed ✅
+
+- **NATS dual-write command status is now truthful.**
+  `backend/internal/services/nats_command_service.go` no longer marks the
+  command `published` before transport success. The status stays `pending`;
+  `published` is set only inside the async publish path after a successful
+  JetStream ack (the publish now uses a detached `context.Background()` timeout
+  so it is not cancelled when the HTTP response returns). On failure or when
+  NATS is disabled, status remains `pending` (fail-closed). Narrow interfaces
+  (`TaskCommandStore`, `NATSPublisherClient`) were introduced with a nil-safe
+  constructor so this is unit-testable.
+  - Tests: `nats_command_service_status_test.go` (success→published,
+    failure→pending, disabled→pending, runID correlation).
+
+- **Command/run correlation fixed.**
+  `bot_api_delegate_routes.go` no longer fabricates `"backtest-"+uuid` as both
+  `run_id` and `idempotency_key` before the real run exists. The dual-write now
+  runs AFTER the bot API returns the real `run_id` (via `extractBacktestRunID`
+  + `correlateBacktestCommand`), and the real `run_id` is used as both the
+  command `owner_id` and `idempotency_key`. The dual-write is now truly
+  best-effort (errors logged, never block the authoritative HTTP path).
+  - Tests: routes `TestExtractBacktestRunID`; services
+    `TestPublishBacktestCommand_CorrelatesRunID`.
+
+- **Frontend ClickHouse analytics contract fixed + tested.** The admin page now
+  matches the backend envelopes from `analytics_routes.go`: positions read
+  `data.snapshots` (not `.positions`); trades read the nested `data.totals`
+  (not a flat `data.summary`); pairs read `data.pairs` (not `.breakdown`);
+  workers use the raw `/worker-metrics` endpoint's `data.metrics` (not the
+  summary endpoint); API requests render `data.summary` as a per-route array
+  (not a single object). Field names mirror the backend read-model JSON tags.
+  Parsing is centralized in `frontend/src/pages/clickHouseAnalyticsModel.ts`
+  (pure, typed mappers).
+  - Tests: `clickHouseAnalyticsModel.test.ts` (15) via vitest; `tsc --noEmit`
+    passes with 0 errors.
+
+- **Worker metrics producer is real.** The `worker_metrics` table previously
+  had a writer/reader but no producer. Added
+  `bot/src/infrastructure/workers/celery_metrics.py`, wired into Celery task
+  lifecycle signals (`task_prerun`/`task_postrun`) from `celery_app.py`, so the
+  authoritative Celery worker emits task duration, success/failure, retry, and
+  throughput metrics. It is dormant unless `BACKTEST_CLICKHOUSE_WRITES_ENABLED`
+  is true (`record_task_metrics` no-ops when the writer is disabled), so wiring
+  it never changes task runtime behavior.
+  - Tests: `bot/tests/test_celery_metrics.py` (8).
+
+- **API request analytics `WriteEvent` is real.**
+  `backend/internal/services/api_request_writer.go` `WriteEvent` previously
+  returned `nil` without writing. It now delegates to the real
+  `WriteEvents`/`writeRows` path (ClickHouse HTTP JSONEachRow insert via
+  `ClickHouseReader.Query`) and is truthful on failure. Also fixed the
+  `client_ip` DDL/row drift: `bot/.../clickhouse_writer.py`
+  `_API_REQUEST_EVENTS_DDL` now includes `client_ip` (plus a `_TABLE_ALTERS`
+  entry for existing tables), so inserts no longer fail on an unknown column.
+  Dead code in `writeRows` (an unused column-extraction block) was removed.
+  - Tests: `api_request_writer_write_test.go` (real insert via httptest,
+    fail-closed on non-2xx, nil/disabled).
+
+### Test status (this change)
+
+- Backend Go: `go test ./...` — all packages pass.
+- Bot Python: `pytest tests/test_nats_consumer.py
+  tests/test_nats_consumer_sql_integration.py tests/test_celery_metrics.py
+  tests/test_backtest_tasks_failure_persistence.py` — 40 passed (the SQL
+  integration tests require a throwaway PostgreSQL with migrations
+  000063..000067; they skip when `NATS_CONSUMER_TEST_DSN` is unset).
+- Frontend: `tsc --noEmit` (0 errors) and `vitest run
+  src/pages/clickHouseAnalyticsModel.test.ts` (15 passed).
+- Real-schema validation was done against a throwaway PostgreSQL database
+  (`dydx_task_test`) created from migrations 000063..000067; the shared dev
+  database was not mutated.
+
+### Pending — Phases 2 through 6 (explicitly not done, with reasons)
+
+These phases are intentionally not executed here. The plan itself gates them
+behind Phase 0/1 completion plus real-infrastructure validation and, for the
+Celery→JetStream cutover, an explicit "do not do yet until proven in staging"
+guardrail. They cannot be safely executed or verified in this environment.
+
+- **Phase 2 — Task execution / async finalization (pending, high risk).**
+  Replace the placeholder `_execute_backtest()` in the NATS consumer with the
+  real backtest runtime; define the authoritative command lifecycle/state
+  machine; add durable progress/completion event emission and backend
+  projectors; remove the split `asyncio`/Celery fallback in
+  `service_backtest.py` only after JetStream execution is authoritative.
+  Reason: this changes authoritative execution semantics and requires real
+  NATS + PostgreSQL end-to-end validation (duplicate/redelivery, retry,
+  dead-letter, disabled/unavailable NATS). Prerequisite: Phase 0/1 (done).
+
+- **Phase 3 — Data/storage finalization (pending).** Make ClickHouse
+  authoritative for the intended read models; complete producer coverage
+  validation; migrate/remove remaining local artifact and JSON-file paths;
+  plan and execute PostgreSQL cleanup for `request_json`, legacy JSON columns,
+  and old data (including dropping legacy columns only after backfill +
+  rollback planning). Includes physically removing the deprecated
+  `backtest_storage.go` / `pair_storage.go` legacy paths. Reason: requires
+  backfill/rollback validation against realistic data volume; the plan
+  forbids dropping legacy columns before that.
+
+- **Phase 4 — Reliability/observability hardening (pending).** Metrics/alerts
+  for publish failures, consumer lag, heartbeat age, retry counts, dead
+  letters, ClickHouse write failures, MinIO upload failures; correlation IDs
+  across backend/bot/workers/events; distributed rate limiting; verify
+  fail-closed behavior for every optional side channel. Reason: depends on
+  Phase 2/3 final ownership.
+
+- **Phase 5 — k3s readiness (pending).** Update `applications.yaml` for the
+  final primary worker entrypoints; validate PgBouncer/NATS/ClickHouse/MinIO/
+  Valkey wiring with the final ownership model; remove config drift; add
+  rollout/rollback/backup-restore runbooks. Reason: manifests must describe the
+  final runtime, which is not finalized until Phase 2/3/4.
+
+- **Phase 6 — Final testing/release readiness (pending).** Full end-to-end
+  release validation with JetStream primary, MinIO primary, ClickHouse enabled
+  where required, Celery removed/dormant; migration/backfill verification at
+  realistic volume; freeze frontend/backend/worker contracts. Reason: depends
+  on Phases 0–5.
+
+### Known risks / follow-up
+
+- The NATS consumer's platform-DB access (Phase 2) is the key unblock for a real
+  JetStream cutover; until then NATS stays disabled and the consumer path is
+  not exercised in production.
+- API request analytics is now real but only emits when ClickHouse is enabled
+  (disabled by default); the `api_request_events` table is provisioned by the
+  bot-side ClickHouse writer DDL, so bot and backend must share the same
+  ClickHouse (as configured).
+- The Python consumer SQL integration test depends on a throwaway DB; in CI
+  without PostgreSQL it is skipped (the mock-based and Go contract/integration
+  tests still run).
+
+

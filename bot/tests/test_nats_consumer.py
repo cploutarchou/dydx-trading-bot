@@ -104,16 +104,16 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
         # Check BACKTEST_COMMANDS stream configuration
         backtest_config = service.STREAM_CONFIGS["BACKTEST_COMMANDS"]
         self.assertEqual(backtest_config.name, "BACKTEST_COMMANDS")
-        self.assertEqual(backtest_config.subjects, ["backtest.commands.>"])
+        self.assertEqual(backtest_config.subjects, ["backtest.command.>"])
         self.assertEqual(backtest_config.retention, "workqueue")
         self.assertEqual(backtest_config.storage, "file")
         self.assertEqual(backtest_config.replicas, 1)
         self.assertEqual(backtest_config.duplicates_window, 2 * 60 * 60)  # 2 hours
-        
+
         # Check BOT_COMMANDS stream configuration
         bot_config = service.STREAM_CONFIGS["BOT_COMMANDS"]
         self.assertEqual(bot_config.name, "BOT_COMMANDS")
-        self.assertEqual(bot_config.subjects, ["bot.commands.>"])
+        self.assertEqual(bot_config.subjects, ["bot.command.>"])
         
         # Check DEAD_LETTER stream configuration
         dead_letter_config = service.STREAM_CONFIGS["DEAD_LETTER"]
@@ -131,7 +131,7 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
         backtest_consumer = service.CONSUMER_CONFIGS["backtest-worker"]
         self.assertEqual(backtest_consumer.name, "backtest-worker")
         self.assertEqual(backtest_consumer.stream, "BACKTEST_COMMANDS")
-        self.assertEqual(backtest_consumer.subject_filter, "backtest.commands.start")
+        self.assertEqual(backtest_consumer.subject_filter, "backtest.command.start")
         self.assertEqual(backtest_consumer.queue_group, "backtest-workers")
         self.assertEqual(backtest_consumer.durable_name, "backtest-worker")
         self.assertEqual(backtest_consumer.ack_wait_seconds, 600)  # 10 minutes
@@ -141,7 +141,7 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
         bot_consumer = service.CONSUMER_CONFIGS["bot-worker"]
         self.assertEqual(bot_consumer.name, "bot-worker")
         self.assertEqual(bot_consumer.stream, "BOT_COMMANDS")
-        self.assertEqual(bot_consumer.subject_filter, "bot.commands.>")
+        self.assertEqual(bot_consumer.subject_filter, "bot.command.>")
         self.assertEqual(bot_consumer.queue_group, "bot-workers")
         self.assertEqual(bot_consumer.ack_wait_seconds, 300)  # 5 minutes
 
@@ -194,14 +194,14 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
         service = NATSConsumerService(enabled=False)
         
         # Test BACKTEST_COMMANDS stream
-        stream_name = service._get_stream_name("backtest.commands.start")
+        stream_name = service._get_stream_name("backtest.command.start")
         self.assertEqual(stream_name, "BACKTEST_COMMANDS")
-        
-        stream_name = service._get_stream_name("backtest.commands.cancel")
+
+        stream_name = service._get_stream_name("backtest.command.cancel")
         self.assertEqual(stream_name, "BACKTEST_COMMANDS")
-        
+
         # Test BOT_COMMANDS stream
-        stream_name = service._get_stream_name("bot.commands.start")
+        stream_name = service._get_stream_name("bot.command.start")
         self.assertEqual(stream_name, "BOT_COMMANDS")
         
         # Test unknown subject
@@ -504,18 +504,19 @@ class TestMessageProcessing(unittest.IsolatedAsyncioTestCase):
 
     @patch('src.infrastructure.workers.nats_backtest_consumer.db.get_session')
     async def test_task_run_creation(self, mock_get_session):
-        """Test task run creation."""
+        """Test task run creation returns the DB-generated UUID via RETURNING."""
         from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler
-        
-        # Configure mock to return no existing task run
+
+        # Two executes happen in _ensure_task_run: SELECT (no existing run) then
+        # INSERT ... RETURNING id (returns the generated id).
         mock_session = MagicMock()
         mock_result = MagicMock()
-        mock_result.fetchone.return_value = None  # No existing run
+        mock_result.fetchone.side_effect = [None, ["gen-run-uuid"]]
         mock_session.execute.return_value = mock_result
         mock_get_session.return_value = mock_session
-        
+
         handler = BacktestCommandHandler()
-        
+
         payload = BacktestCommandHandler._parse_payload(
             handler,
             {
@@ -525,13 +526,15 @@ class TestMessageProcessing(unittest.IsolatedAsyncioTestCase):
             },
             {"message_id": "cmd-123", "idempotency_key": "test-key"}
         )
-        
-        # Mock time.time for consistent run ID
-        with patch('src.infrastructure.workers.nats_backtest_consumer.time.time', return_value=1234567890):
-            task_run_id = await handler._ensure_task_run(payload)
-        
-        self.assertIsNotNone(task_run_id)
-        self.assertIn("run_cmd-123_1234567890", task_run_id)
+
+        task_run_id = await handler._ensure_task_run(payload)
+
+        # The id is now server-generated; the handler must surface that value.
+        self.assertEqual("gen-run-uuid", task_run_id)
+        # The INSERT must not reference the legacy requested_by_user_id column
+        # (removed because task_runs has no such column per migration 000064).
+        insert_call = mock_session.execute.call_args_list[1]
+        self.assertNotIn("requested_by_user_id", str(insert_call))
 
 
 class TestConfigurationConsistency(unittest.TestCase):
@@ -568,45 +571,77 @@ class TestConfigurationConsistency(unittest.TestCase):
         self.assertEqual(dead_letter.max_age, 90 * 24 * 60 * 60)  # 90 days
 
     def test_subject_namespace_matches_plan(self):
-        """Test that subjects match the plan document."""
+        """Subjects use the singular owner.kind.action form (Phase 0 unification).
+
+        The consumer subject namespace MUST match the backend publisher
+        (backend/internal/nats/publisher.go Subject()), which is the single
+        source of truth. Singular form: backtest.command.start, bot.event.started.
+        """
         from src.infrastructure.event_bus_nats import NATSConsumerService
-        
+
         service = NATSConsumerService(enabled=False)
-        
-        # From nats-jetstream-plan.md Required Subjects:
+
+        # Canonical singular subjects that the backend publisher emits.
         expected_subjects = [
-            "bot.commands.create",
-            "bot.commands.start", 
-            "bot.commands.stop",
-            "bot.commands.pause",
-            "bot.commands.resume",
-            "bot.events.started",
-            "bot.events.stopped",
-            "bot.events.failed",
-            "bot.events.trade.created",
-            "bot.events.order.updated",
-            "backtest.commands.create",
-            "backtest.commands.cancel",
-            "backtest.events.started",
-            "backtest.events.progress",
-            "backtest.events.completed",
-            "backtest.events.failed",
-            "worker.events.heartbeat",
-            "worker.events.failed",
+            "bot.command.create",
+            "bot.command.start",
+            "bot.command.stop",
+            "bot.command.pause",
+            "bot.command.resume",
+            "bot.event.started",
+            "bot.event.stopped",
+            "bot.event.failed",
+            "bot.event.trade.created",
+            "bot.event.order.updated",
+            "backtest.command.create",
+            "backtest.command.cancel",
+            "backtest.event.started",
+            "backtest.event.progress",
+            "backtest.event.completed",
+            "backtest.event.failed",
+            "worker.event.heartbeat",
+            "worker.event.failed",
             "system.audit.created",
         ]
-        
-        # Check BOT_COMMANDS stream covers bot.commands.*
+
+        # No canonical subject may use the legacy plural form.
+        for subject in expected_subjects:
+            self.assertNotIn(".commands.", subject)
+            self.assertNotIn(".events.", subject)
+
+        # Check BOT_COMMANDS stream covers bot.command.*
         bot_commands = service.STREAM_CONFIGS["BOT_COMMANDS"]
-        self.assertIn("bot.commands.>", bot_commands.subjects)
-        
-        # Check BACKTEST_COMMANDS stream covers backtest.commands.*
+        self.assertIn("bot.command.>", bot_commands.subjects)
+
+        # Check BACKTEST_COMMANDS stream covers backtest.command.*
         backtest_commands = service.STREAM_CONFIGS["BACKTEST_COMMANDS"]
-        self.assertIn("backtest.commands.>", backtest_commands.subjects)
-        
-        # Check BOT_EVENTS stream covers bot.events.*
+        self.assertIn("backtest.command.>", backtest_commands.subjects)
+
+        # Check BOT_EVENTS stream covers bot.event.*
         bot_events = service.STREAM_CONFIGS["BOT_EVENTS"]
-        self.assertIn("bot.events.>", bot_events.subjects)
+        self.assertIn("bot.event.>", bot_events.subjects)
+
+    def test_consumer_subjects_match_backend_publisher(self):
+        """Phase 0: consumer subject_filter must equal the backend publisher subject.
+
+        backend/internal/nats/publisher.go builds subjects as
+        Subject(owner, kind, action) -> "owner.kind.action" (singular). The
+        durable backtest consumer must filter on exactly that subject or
+        JetStream delivery silently never matches.
+        """
+        from src.infrastructure.event_bus_nats import NATSConsumerService
+
+        service = NATSConsumerService(enabled=False)
+        backtest_consumer = service.CONSUMER_CONFIGS["backtest-worker"]
+
+        # Exact contract value emitted by nats.Subject("backtest", "command", "start").
+        self.assertEqual(backtest_consumer.subject_filter, "backtest.command.start")
+
+        # The filtered subject must resolve to the BACKTEST_COMMANDS stream and
+        # be covered by that stream's wildcard subject.
+        self.assertEqual(service._get_stream_name("backtest.command.start"), "BACKTEST_COMMANDS")
+        backtest_stream = service.STREAM_CONFIGS["BACKTEST_COMMANDS"]
+        self.assertIn("backtest.command.>", backtest_stream.subjects)
 
 
 class TestFailClosedBehavior(unittest.IsolatedAsyncioTestCase):

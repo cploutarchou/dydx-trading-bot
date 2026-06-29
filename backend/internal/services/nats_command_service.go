@@ -19,12 +19,27 @@ import (
 	"github.com/google/uuid"
 )
 
+// TaskCommandStore is the subset of task-table operations the command service
+// depends on. *repository.TaskRepository satisfies it; tests may substitute a
+// fake to assert state transitions without a database.
+type TaskCommandStore interface {
+	CreateTaskCommand(ctx context.Context, commandType, ownerType, ownerID, idempotencyKey string, requestedByUserID *int, payloadJSON []byte) (*models.TaskCommand, error)
+	UpdateTaskCommandStatus(ctx context.Context, id, status string) error
+	CreateTaskRun(ctx context.Context, commandID, taskType string, maxRetries int) (*models.TaskRun, error)
+}
+
+// NATSPublisherClient is the subset of the NATS publisher used for command
+// transport. *nats.Publisher satisfies it; a nil publisher means NATS disabled.
+type NATSPublisherClient interface {
+	Publish(ctx context.Context, env nats.Envelope) (*nats.PublishResult, error)
+}
+
 // NATSCommandService handles dual-write command publishing to PostgreSQL task tables
 // and NATS JetStream. It implements fail-closed behavior: if NATS is disabled or
 // unavailable, it still creates the task command but skips NATS publishing.
 type NATSCommandService struct {
-	taskRepo  *repository.TaskRepository
-	publisher *nats.Publisher
+	taskRepo  TaskCommandStore
+	publisher NATSPublisherClient
 	settings  config.NATSSettings
 	clock     func() time.Time
 }
@@ -32,14 +47,26 @@ type NATSCommandService struct {
 // NewNATSCommandService creates a new NATS command service.
 // If taskRepo is nil or settings indicate NATS is disabled, NATS publishing will be skipped
 // but task command creation will still work.
+//
+// The concrete *repository.TaskRepository / *nats.Publisher arguments are
+// converted to nil interface values when nil so the service's nil checks (used
+// for fail-closed decisions and health) behave correctly.
 func NewNATSCommandService(
 	taskRepo *repository.TaskRepository,
 	publisher *nats.Publisher,
 	settings config.NATSSettings,
 ) *NATSCommandService {
+	var store TaskCommandStore
+	if taskRepo != nil {
+		store = taskRepo
+	}
+	var pub NATSPublisherClient
+	if publisher != nil {
+		pub = publisher
+	}
 	return &NATSCommandService{
-		taskRepo:  taskRepo,
-		publisher: publisher,
+		taskRepo:  store,
+		publisher: pub,
 		settings:  settings,
 		clock:     time.Now,
 	}
@@ -90,12 +117,10 @@ func (s *NATSCommandService) PublishBacktestCommand(
 		return nil, fmt.Errorf("failed to create task command: %w", err)
 	}
 
-	// Update command status to published
-	if err := s.taskRepo.UpdateTaskCommandStatus(ctx, taskCmd.ID, repository.TaskCommandStatusPublished); err != nil {
-		log.Printf("NATS Command Service: failed to update task command status: %v", err)
-		// Continue - command is still created, just not marked as published
-	}
-
+	// Status stays "pending" here. It is only advanced to "published" after the
+	// JetStream publish is acknowledged (see publishToNATSAsync). Marking it
+	// published before transport success would report a false command state when
+	// NATS is disabled or unreachable.
 	// Create task run linked to command
 	taskRun, err := s.taskRepo.CreateTaskRun(
 		ctx,
@@ -110,17 +135,20 @@ func (s *NATSCommandService) PublishBacktestCommand(
 		log.Printf("NATS Command Service: created task run %s for command %s", taskRun.ID, taskCmd.ID)
 	}
 
-	// Publish to NATS JetStream (best-effort, non-blocking for HTTP flow)
-	go s.publishToNATSAsync(ctx, taskCmd, config, idempotencyKey)
+	// Publish to NATS JetStream (best-effort, non-blocking for HTTP flow). Uses a
+	// detached context so the publish attempt is not cancelled when the HTTP
+	// response returns; the command status transition happens inside.
+	go s.publishToNATSAsync(taskCmd, config, idempotencyKey)
 
 	return taskCmd, nil
 }
 
 // publishToNATSAsync publishes the command to NATS JetStream asynchronously.
 // Errors are logged but do not affect the HTTP response, ensuring fail-closed behavior
-// where the HTTP/Celery path remains authoritative.
+// where the HTTP/Celery path remains authoritative. The command status is advanced
+// to "published" ONLY after JetStream acknowledges the publish; on any failure or
+// when NATS is disabled the status remains "pending" so command state is truthful.
 func (s *NATSCommandService) publishToNATSAsync(
-	ctx context.Context,
 	taskCmd *models.TaskCommand,
 	config map[string]interface{},
 	idempotencyKey string,
@@ -186,8 +214,9 @@ func (s *NATSCommandService) publishToNATSAsync(
 		return
 	}
 
-	// Publish with context timeout
-	publishCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// Publish with a detached timeout context so the attempt is not cancelled
+	// when the originating HTTP request returns.
+	publishCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Attempt to publish
@@ -198,7 +227,9 @@ func (s *NATSCommandService) publishToNATSAsync(
 			log.Printf("NATS Command Service: publisher disabled, skipping NATS publish for command %s", taskCmd.ID)
 			return
 		}
-		log.Printf("NATS Command Service: failed to publish command %s to NATS: %v", taskCmd.ID, err)
+		// Transport failed: leave command status as "pending" (fail-closed). Do
+		// not mark it published — the command was not durably delivered.
+		log.Printf("NATS Command Service: failed to publish command %s to NATS (left pending): %v", taskCmd.ID, err)
 		return
 	}
 
@@ -207,11 +238,19 @@ func (s *NATSCommandService) publishToNATSAsync(
 		log.Printf("NATS Command Service: successfully published command %s to stream %s, sequence %d, duplicate=%t",
 			taskCmd.ID, publishResult.Stream, publishResult.Sequence, publishResult.Duplicate)
 
-		// If it was a duplicate, update task command status accordingly
 		if publishResult.Duplicate {
 			log.Printf("NATS Command Service: detected duplicate publish for command %s", taskCmd.ID)
 			// This is expected behavior for idempotency
 		}
+	}
+
+	// Transport succeeded: NOW advance command status to "published". A failure
+	// here only means the status lags the (successful) transport; it is logged
+	// but cannot make the system less correct than before.
+	markCtx, markCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer markCancel()
+	if err := s.taskRepo.UpdateTaskCommandStatus(markCtx, taskCmd.ID, repository.TaskCommandStatusPublished); err != nil {
+		log.Printf("NATS Command Service: published command %s but failed to mark status published: %v", taskCmd.ID, err)
 	}
 }
 

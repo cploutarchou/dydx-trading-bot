@@ -100,3 +100,12 @@ celery_app.conf.update(
     enable_utc=True,
     beat_schedule=_beat_schedule(),
 )
+
+# Wire the Celery worker metrics producer (ClickHouse worker_metrics). The
+# producer is dormant unless BACKTEST_CLICKHOUSE_WRITES_ENABLED=true; see
+# src/infrastructure/workers/celery_metrics.py.
+from src.infrastructure.workers.celery_metrics import (  # noqa: E402
+    register_celery_metrics_signals,
+)
+
+register_celery_metrics_signals()

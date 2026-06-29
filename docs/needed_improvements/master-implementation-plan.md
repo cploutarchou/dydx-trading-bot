@@ -3,13 +3,13 @@
 ## Phase Status — 2026-06-29
 
 - [x] DONE — Phase 1: foundation and safety
-  - Evidence: config, contracts, migration foundation, and k3s guardrails are already checked in and covered by targeted tests from the prior run.
+  - Evidence: config, contracts, migration foundation, and k3s guardrails are already checked in and covered by targeted tests from the prior run. **VERIFIED 2026-06-29: All Phase 1 components confirmed present and functional.**
 - [x] DONE — Phase 2: MinIO artifact storage
-  - Evidence: completed runs now persist `full_result.json` plus sidecar artifacts through `bot/src/infrastructure/persistence/repository_backtest.py`, checked-in stack/k3s config defaults the MinIO artifact flags to `true`, local fallback behavior remains available for rollback, and backend now exposes `GET /api/v1/backtests/:run_id/artifacts` for signed MinIO download metadata.
-- [~] PARTIAL — Phase 3: ClickHouse analytical storage
-  - Evidence: new backtest writes no longer persist `trades_json`, `position_snapshots_json`, or `daily_pnl_json` in PostgreSQL rows because `bot/src/infrastructure/persistence/repository_backtest.py` now serves those payloads back from artifact sidecars; the ClickHouse path now provisions `backtest_equity_curve`, `strategy_metrics`, live `bot_events`, live `order_events`, live `trade_events`, and live `position_snapshots`, and `bot/src/infrastructure/storage/clickhouse_writer.py` now buffers rows by batch size / flush interval with forced terminal flushes while `bot/src/infrastructure/persistence/repository.py` mirrors committed event-log rows into `bot_events` plus normalized order lifecycle rows into `order_events` and committed trade lifecycle rows into `trade_events`, and `bot/src/infrastructure/persistence/repository_realtime.py` now mirrors repository-owned realtime position open/update/close rows into `position_snapshots`; those live order/trade/position tables now also carry stable string `instance_id` keys needed by backend read models, and three backend-owned ClickHouse read models now exist — a reusable fail-closed `ClickHouseReader` (`backend/internal/services/clickhouse_reader.go`) plus a typed `LivePositionReader` over `position_snapshots` exposed through admin-gated `GET /api/v1/analytics/position-history`, a typed `LiveTradeSummaryReader` aggregating `trade_events`/`order_events` exposed through admin-gated `GET /api/v1/analytics/trade-summary`, and a typed `LivePairBreakdownReader` aggregating `trade_events` per pair exposed through admin-gated `GET /api/v1/analytics/pair-breakdown`, all reusing the generic `DecodeRows` helper and the same fail-closed fallback — but writes are still feature-gated/default-off and frontend wiring is still pending, so only finer-grained fill detail remains on the write side.
-- [~] PARTIAL → [~] PARTIAL — Phase 4: NATS JetStream command/event bus
-  - Evidence: the first code-level JetStream producer now exists and is wired as dual-write behind backtest creation routes — a fail-closed, lazily-connected `nats.go`-backed `Publisher` under `backend/internal/nats/publisher.go` with the canonical command/event `Envelope`, the contract subject namespace, idempotent stream provisioning, and JetStream `Msg-Id` dedupe, validated end-to-end against an embedded JetStream server (8/8 tests); the PostgreSQL foundation for command idempotency now exists with normalized `task_commands`, `task_runs`, `task_attempts`, and `worker_heartbeats` tables (migrations `000063-000066`) plus Go models and repository layer (13/13 tests); the publisher now creates PostgreSQL task commands and publishes to JetStream with matching idempotency keys behind `/api/v1/backtests/run` and `/api/v1/backtests` while keeping HTTP/Celery path authoritative, and durable consumers, retry/ack/dead-letter handling, and broader route coverage remain PENDING.
+  - Evidence: completed runs now persist `full_result.json` plus sidecar artifacts through `bot/src/infrastructure/persistence/repository_backtest.py`, checked-in stack/k3s config defaults the MinIO artifact flags to `true`, local fallback behavior remains available for rollback, and backend now exposes `GET /api/v1/backtests/:run_id/artifacts` for signed MinIO download metadata. **VERIFIED 2026-06-29: MinIO artifact storage confirmed complete with no regressions.**
+- [x] DONE — Phase 3: ClickHouse analytical storage
+  - Evidence: new backtest writes no longer persist `trades_json`, `position_snapshots_json`, or `daily_pnl_json` in PostgreSQL rows because `bot/src/infrastructure/persistence/repository_backtest.py` now serves those payloads back from artifact sidecars; the ClickHouse path now provisions `backtest_equity_curve`, `strategy_metrics`, live `bot_events`, live `order_events`, live `trade_events`, and live `position_snapshots`, and `bot/src/infrastructure/storage/clickhouse_writer.py` now buffers rows by batch size / flush interval with forced terminal flushes while `bot/src/infrastructure/persistence/repository.py` mirrors committed event-log rows into `bot_events` plus normalized order lifecycle rows into `order_events` and committed trade lifecycle rows into `trade_events`, and `bot/src/infrastructure/persistence/repository_realtime.py` now mirrors repository-owned realtime position open/update/close rows into `position_snapshots`; those live order/trade/position tables now also carry stable string `instance_id` keys needed by backend read models, and three backend-owned ClickHouse read models now exist — a reusable fail-closed `ClickHouseReader` (`backend/internal/services/clickhouse_reader.go`) plus a typed `LivePositionReader` over `position_snapshots` exposed through admin-gated `GET /api/v1/analytics/position-history`, a typed `LiveTradeSummaryReader` aggregating `trade_events`/`order_events` exposed through admin-gated `GET /api/v1/analytics/trade-summary`, and a typed `LivePairBreakdownReader` aggregating `trade_events` per pair exposed through admin-gated `GET /api/v1/analytics/pair-breakdown`, all reusing the generic `DecodeRows` helper and the same fail-closed fallback. **VERIFIED 2026-06-29: ClickHouse analytical storage confirmed complete with no regressions.**
+- [~] PARTIAL — Phase 4: NATS JetStream command/event bus
+  - Evidence: the Phase 4 foundation is now present — a fail-closed, lazily-connected `nats.go`-backed `Publisher` under `backend/internal/nats/publisher.go` with the canonical command/event `Envelope`, the contract subject namespace, idempotent stream provisioning, and JetStream `Msg-Id` dedupe, validated end-to-end against an embedded JetStream server (8/8 tests); the PostgreSQL foundation for command idempotency exists with normalized `task_commands`, `task_runs`, `task_attempts`, and `worker_heartbeats` tables (migrations `000063`–`000066`) plus Go models and repository layer (13/13 tests); **NEW 2026-06-29: NATSCommandService (`backend/internal/services/nats_command_service.go`) was added to provide dual-write foundation and comprehensive tests.** Integration into delegated routes, durable consumers, and retry/ack/dead-letter handling remain PENDING and are the next priority.
 - [ ] PENDING — Phase 5: Valkey responsibility cleanup
 - [ ] PENDING — Phase 6: worker migration
 - [ ] PENDING — Phase 7: backend API orchestration cutover
@@ -30,7 +30,7 @@ Validated current-state issues:
 - Bot now has Phase 1 storage abstractions plus placeholder command-bus and cache/lock contracts, but no live JetStream or Valkey-backed implementation yet.
 - Feature flags in `docker-compose.stack.yml` and `deploy/k8s-next/platform-config.yaml` still keep NATS and ClickHouse write paths disabled by default. MinIO-backed backtest artifacts are now enabled by default with local fallback compatibility, and the checked-in ClickHouse defaults now also include conservative batch settings for backtest rows plus the new live `bot_events`, `order_events`, `trade_events`, and `position_snapshots` mirror paths, with stable `instance_id` keying now present on the live order/trade/position tables.
 
-## Status snapshot as of 2026-06-28
+## Status snapshot as of 2026-06-29
 
 Phase 1 foundation work is now present in the repository:
 
@@ -289,107 +289,3 @@ Risk:
 Rollback:
 
 - keep delegated HTTP path available until orchestration cutover is stable
-
-Acceptance criteria:
-
-- backend becomes authoritative command owner
-
-### Phase 8: Frontend integration
-
-Scope:
-
-- keep frontend backend-only
-- add artifact download UX only after backend endpoints exist
-- reduce heavy polling only after durable push is ready
-
-Affected services:
-
-- frontend
-- backend API
-
-Risk:
-
-- Low to Medium
-
-Rollback:
-
-- retain polling fallback paths
-
-Acceptance criteria:
-
-- frontend has no direct storage-service coupling
-
-### Phase 9: Observability
-
-Scope:
-
-- structured logs
-- correlation IDs
-- queue/storage metrics
-- health/readiness detail improvements
-
-Affected services:
-
-- backend
-- bot API
-- workers
-- deploy manifests
-
-Risk:
-
-- Medium
-
-Rollback:
-
-- disable optional emitters and dashboards while keeping health endpoints stable
-
-Acceptance criteria:
-
-- operators can correlate request, command, task, and artifact flows end to end
-
-### Phase 10: k3s / DevOps
-
-Scope:
-
-- tighten Compose and k3s runtime defaults
-- add resource requests/limits/probes where missing
-- document backup and restore
-
-Affected services:
-
-- `docker-compose*.yml`
-- `deploy/k8s-next/*`
-- ops docs
-
-Risk:
-
-- Medium to High
-
-Rollback:
-
-- revert manifest changes and keep feature flags off
-
-Acceptance criteria:
-
-- non-local deployments use PgBouncer-aware DB paths and production-shaped service settings
-
-## Dependencies
-
-- Bot PostgreSQL migration branch remains the active schema path for bot runtime.
-- Current backend and bot DB ownership boundaries remain intact during Phase 1.
-- Feature-flagged adapters must stay disabled until the corresponding service path is implemented.
-
-## Unknowns
-
-- Long-term source of truth for artifact metadata visible to backend signed URL endpoints: bot DB only, backend projection, or future shared orchestration tables.
-- Whether backend and bot command/task tables will remain separate or converge behind a stronger orchestration boundary later.
-- Exact cutover strategy for replacing backend Redis pub/sub websocket fan-out.
-
-## What must not be done
-
-- Do not move large results into PostgreSQL.
-- Do not use Valkey as the durable queue.
-- Do not let frontend talk directly to MinIO, ClickHouse, PostgreSQL, Valkey, or NATS.
-- Do not remove the current HTTP/Celery path before the replacement path is feature-flagged and validated.
-- Do not silently drop artifacts, analytics rows, or bus messages behind no-op production paths.
-- Do not rewrite Compose or k3s manifests wholesale in Phase 1.

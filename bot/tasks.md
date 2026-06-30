@@ -11,6 +11,14 @@
   - Added `docs/bot-risk-control-matrix.md` and `docs/sprint-1-bot-python-safety-implementation.md`.
   - Synced `README.md` and `openapi.json` with the Sprint 1 safety behavior.
 
+## 2026-06-30
+
+- Hardened backtest storage/runtime integration:
+  - `BacktestRepository` now resolves storage enablement from canonical `CLICKHOUSE_ENABLED` / `MINIO_ENABLED` aliases in addition to backtest-specific flags.
+  - Relative `BACKTEST_ARTIFACTS_DIR` paths now resolve from the repo root instead of the process working directory.
+  - Development stack/profile/env defaults were aligned so MinIO-backed artifacts and ClickHouse writes are enabled consistently across Docker and direct local startup.
+  - Detailed backtest trades remain artifact-backed on the bot side and are rehydrated from sidecars for reads instead of being kept in `backtest_runtime_runs.trades_json`.
+
 ## 2026-05-16
 
 - Migrated bot runtime config handling to DB-only startup:

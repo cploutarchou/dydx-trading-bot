@@ -1,20 +1,20 @@
 ﻿# Backend Tasks
 
 ## Status Summary
-- Completed: `55`
-- Pending: `0`
-- Last updated: `2026-04-10`
+- Completed: `56`
+- Pending: `2`
+- Last updated: `2026-06-30`
 - Note: update these totals whenever any [x] or [ ] task changes.
 
 ## Cross-Repo Status Snapshot
 
 | Repo | Completed | Pending | Focus |
 | --- | --- | --- | --- |
-| backend | 54 | 0 | Delegated contract parity and contract-lock coverage shipped |
+| backend | 56 | 2 | Artifact-backed trade flow shipped; sync-health/resync semantics need follow-up |
 | bot | 26 | 0 | Canonical API contract and runtime envelope/documentation stability |
-| frontend | 56 | 5 | Remaining responsive evidence + medium-priority backend integration asks |
+| frontend | 61 | 4 | Remaining responsive evidence + artifact-backed trade/sync-health follow-up |
 
-Snapshot date: `2026-04-04`.
+Snapshot date: `2026-06-30`.
 
 ## Ongoing Update Protocol
 - [x] Mirror backend API/auth contract changes into `../bot/tasks.md` and `../frontend/tasks.md`.
@@ -32,7 +32,6 @@ Snapshot date: `2026-04-04`.
 - [x] Sync `backtest_runs` from delegated endpoints in near real-time.
 - [x] Sync child artifacts into `backtest_positions` and `backtest_candles`; delegated trade reads stay on the bot/artifact path instead of mirroring `backtest_trades`.
 - [x] Preserve dedupe semantics:
-  - trades by `trade_id`
   - positions by `position_id`
   - candles by `(run_id, market, timestamp, resolution)`
 - [x] Add protected sync-health endpoint with per-run counts (`runs/trades/positions/candles`).
@@ -41,6 +40,8 @@ Snapshot date: `2026-04-04`.
 - [x] Add metrics endpoint for sync lag/age per run.
 - [x] Add optional force-resync endpoint for a run (`run_id`) from bot upstream.
 - [x] Add data quality checks for incomplete child artifacts (missing IDs, invalid timestamps).
+- [ ] Reconcile `GET /api/v1/backtests/sync-health` trade counters with the MinIO-backed trade path so new runs do not imply backend DB trade mirroring.
+- [ ] Reconcile `POST /api/v1/backtests/:run_id/resync` response semantics (`trades_synced`) with the artifact-backed trade flow to avoid misleading operator state.
 
 ## Frontend-Driven Backend Backlog
 
@@ -94,6 +95,7 @@ Snapshot date: `2026-04-04`.
 - [x] 2026-04-04: Added force-resync endpoint and sync health metrics (`run_age_seconds`, `sync_lag_seconds`, `quality_issues`).
 - [x] 2026-04-04: Added strict contract-lock response-shape test for `POST /api/v1/backtests/:run_id/resync`.
 - [x] 2026-04-04: Added frontend-driven backend backlog section for backtest details contracts, progress guarantees, and empty-state response normalization.
+- [x] 2026-06-30: Stopped mirroring delegated backtest trade payloads into backend `backtest_trades`; delegated trade reads stay on the bot/artifact path while positions/candles continue syncing locally.
 - 2026-04-05: Added real strategy runtime control endpoints (`GET /api/v1/strategies/:id/runtime`, `POST /api/v1/strategies/:id/start`, `POST /api/v1/strategies/:id/stop`) backed by deterministic bot-instance orchestration and verified route coverage.
 
 ## Change Log Template

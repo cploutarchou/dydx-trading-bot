@@ -83,7 +83,7 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 	router.Use(middleware.HeaderLoggingMiddleware())
 	router.Use(middleware.RequestLoggingMiddleware())
 	router.Use(middleware.RateLimitMiddleware(100, 200))
-	
+
 	// API request events middleware - captures telemetry for ClickHouse (best effort)
 	if cfg.ClickHouse.Enabled {
 		router.Use(middleware.APIRequestEventsMiddleware(cfg))

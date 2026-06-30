@@ -42,7 +42,7 @@ func registerAnalyticsRoutes(
 	group.GET("/pair-breakdown", func(c *gin.Context) {
 		serveLivePairBreakdown(c, pairBreakdownReader)
 	})
-	
+
 	// Worker metrics routes
 	group.GET("/worker-metrics", func(c *gin.Context) {
 		serveWorkerMetrics(c, workerMetricsReader)
@@ -59,7 +59,7 @@ func registerAnalyticsRoutes(
 	group.GET("/worker-metrics/heartbeat", func(c *gin.Context) {
 		serveWorkerHeartbeat(c, workerMetricsReader)
 	})
-	
+
 	// API request metrics routes
 	group.GET("/api-requests/summary", func(c *gin.Context) {
 		serveAPIRequestSummary(c, apiRequestWriter)
@@ -369,11 +369,11 @@ func serveWorkerMetrics(c *gin.Context, reader *services.LiveWorkerMetricsReader
 	metrics, err := reader.GetMetrics(ctx, workerID, workerType, queueName, hours, limit)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
-			"success":  false,
-			"enabled":  true,
-			"source":   "clickhouse",
-			"message":  "ClickHouse worker metrics query failed",
-			"error":    err.Error(),
+			"success": false,
+			"enabled": true,
+			"source":  "clickhouse",
+			"message": "ClickHouse worker metrics query failed",
+			"error":   err.Error(),
 			"data": gin.H{
 				"metrics": []interface{}{},
 				"count":   0,
@@ -384,9 +384,9 @@ func serveWorkerMetrics(c *gin.Context, reader *services.LiveWorkerMetricsReader
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":  true,
-		"enabled":  true,
-		"source":   "clickhouse",
+		"success": true,
+		"enabled": true,
+		"source":  "clickhouse",
 		"data": gin.H{
 			"worker_id":   workerID,
 			"worker_type": workerType,
@@ -418,9 +418,9 @@ func serveWorkerMetricsSummary(c *gin.Context, reader *services.LiveWorkerMetric
 	// Fail closed when ClickHouse reads are not configured
 	if reader == nil {
 		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"enabled": false,
-			"source":  "disabled",
+			"success":  true,
+			"enabled":  false,
+			"source":   "disabled",
 			"data":     emptyWorkerMetricsSummaryEnvelope(),
 			"trace_id": middleware.GetTraceID(c),
 		})
@@ -471,9 +471,9 @@ func serveWorkerThroughput(c *gin.Context, reader *services.LiveWorkerMetricsRea
 	// Fail closed when ClickHouse reads are not configured
 	if reader == nil {
 		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"enabled": false,
-			"source":  "disabled",
+			"success":  true,
+			"enabled":  false,
+			"source":   "disabled",
 			"data":     []interface{}{},
 			"trace_id": middleware.GetTraceID(c),
 		})
@@ -498,9 +498,9 @@ func serveWorkerThroughput(c *gin.Context, reader *services.LiveWorkerMetricsRea
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":  true,
-		"enabled":  true,
-		"source":   "clickhouse",
+		"success": true,
+		"enabled": true,
+		"source":  "clickhouse",
 		"data": gin.H{
 			"worker_type": workerType,
 			"queue_name":  queueName,
@@ -530,9 +530,9 @@ func serveWorkerFailures(c *gin.Context, reader *services.LiveWorkerMetricsReade
 	// Fail closed when ClickHouse reads are not configured
 	if reader == nil {
 		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"enabled": false,
-			"source":  "disabled",
+			"success":  true,
+			"enabled":  false,
+			"source":   "disabled",
 			"data":     []interface{}{},
 			"trace_id": middleware.GetTraceID(c),
 		})
@@ -557,9 +557,9 @@ func serveWorkerFailures(c *gin.Context, reader *services.LiveWorkerMetricsReade
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":  true,
-		"enabled":  true,
-		"source":   "clickhouse",
+		"success": true,
+		"enabled": true,
+		"source":  "clickhouse",
 		"data": gin.H{
 			"worker_type": workerType,
 			"queue_name":  queueName,
@@ -587,9 +587,9 @@ func serveWorkerHeartbeat(c *gin.Context, reader *services.LiveWorkerMetricsRead
 	// Fail closed when ClickHouse reads are not configured
 	if reader == nil {
 		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"enabled": false,
-			"source":  "disabled",
+			"success":  true,
+			"enabled":  false,
+			"source":   "disabled",
 			"data":     []interface{}{},
 			"trace_id": middleware.GetTraceID(c),
 		})
@@ -614,9 +614,9 @@ func serveWorkerHeartbeat(c *gin.Context, reader *services.LiveWorkerMetricsRead
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":  true,
-		"enabled":  true,
-		"source":   "clickhouse",
+		"success": true,
+		"enabled": true,
+		"source":  "clickhouse",
 		"data": gin.H{
 			"worker_type": workerType,
 			"heartbeats":  heartbeats,
@@ -648,9 +648,9 @@ func serveAPIRequestSummary(c *gin.Context, writer *services.APIRequestWriter) {
 	// Fail closed when ClickHouse reads are not configured
 	if writer == nil {
 		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"enabled": false,
-			"source":  "disabled",
+			"success":  true,
+			"enabled":  false,
+			"source":   "disabled",
 			"data":     emptyAPIRequestSummaryEnvelope(service, hours),
 			"trace_id": middleware.GetTraceID(c),
 		})
@@ -675,9 +675,9 @@ func serveAPIRequestSummary(c *gin.Context, writer *services.APIRequestWriter) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":  true,
-		"enabled":  true,
-		"source":   "clickhouse",
+		"success": true,
+		"enabled": true,
+		"source":  "clickhouse",
 		"data": gin.H{
 			"service": service,
 			"hours":   hours,
@@ -708,9 +708,9 @@ func serveAPIRequestLatency(c *gin.Context, writer *services.APIRequestWriter) {
 	// Fail closed when ClickHouse reads are not configured
 	if writer == nil {
 		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"enabled": false,
-			"source":  "disabled",
+			"success":  true,
+			"enabled":  false,
+			"source":   "disabled",
 			"data":     []interface{}{},
 			"trace_id": middleware.GetTraceID(c),
 		})
@@ -735,14 +735,14 @@ func serveAPIRequestLatency(c *gin.Context, writer *services.APIRequestWriter) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":  true,
-		"enabled":  true,
-		"source":   "clickhouse",
+		"success": true,
+		"enabled": true,
+		"source":  "clickhouse",
 		"data": gin.H{
-			"service":   service,
-			"hours":     hours,
-			"latency":   latency,
-			"count":     len(latency),
+			"service": service,
+			"hours":   hours,
+			"latency": latency,
+			"count":   len(latency),
 		},
 		"trace_id": middleware.GetTraceID(c),
 	})
@@ -768,9 +768,9 @@ func serveAPIRequestErrors(c *gin.Context, writer *services.APIRequestWriter) {
 	// Fail closed when ClickHouse reads are not configured
 	if writer == nil {
 		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"enabled": false,
-			"source":  "disabled",
+			"success":  true,
+			"enabled":  false,
+			"source":   "disabled",
 			"data":     []interface{}{},
 			"trace_id": middleware.GetTraceID(c),
 		})
@@ -795,14 +795,14 @@ func serveAPIRequestErrors(c *gin.Context, writer *services.APIRequestWriter) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":  true,
-		"enabled":  true,
-		"source":   "clickhouse",
+		"success": true,
+		"enabled": true,
+		"source":  "clickhouse",
 		"data": gin.H{
-			"service":    service,
-			"hours":      hours,
+			"service":     service,
+			"hours":       hours,
 			"error_rates": errorRates,
-			"count":      len(errorRates),
+			"count":       len(errorRates),
 		},
 		"trace_id": middleware.GetTraceID(c),
 	})
@@ -823,14 +823,14 @@ func serveAPIRequestSlow(c *gin.Context, writer *services.APIRequestWriter) {
 	if service == "" {
 		service = "backend"
 	}
-	
+
 	thresholdMs := 1000 // Default 1 second
 	if thresholdStr := strings.TrimSpace(c.Query("threshold_ms")); thresholdStr != "" {
 		if threshold, err := strconv.Atoi(thresholdStr); err == nil && threshold > 0 {
 			thresholdMs = threshold
 		}
 	}
-	
+
 	limit := 50
 	if limitStr := strings.TrimSpace(c.Query("limit")); limitStr != "" {
 		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
@@ -841,9 +841,9 @@ func serveAPIRequestSlow(c *gin.Context, writer *services.APIRequestWriter) {
 	// Fail closed when ClickHouse reads are not configured
 	if writer == nil {
 		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"enabled": false,
-			"source":  "disabled",
+			"success":  true,
+			"enabled":  false,
+			"source":   "disabled",
 			"data":     []interface{}{},
 			"trace_id": middleware.GetTraceID(c),
 		})
@@ -868,15 +868,15 @@ func serveAPIRequestSlow(c *gin.Context, writer *services.APIRequestWriter) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":  true,
-		"enabled":  true,
-		"source":   "clickhouse",
+		"success": true,
+		"enabled": true,
+		"source":  "clickhouse",
 		"data": gin.H{
-			"service":     service,
-			"threshold_ms": thresholdMs,
-			"limit":        limit,
+			"service":       service,
+			"threshold_ms":  thresholdMs,
+			"limit":         limit,
 			"slow_requests": slowRequests,
-			"count":        len(slowRequests),
+			"count":         len(slowRequests),
 		},
 		"trace_id": middleware.GetTraceID(c),
 	})
@@ -886,13 +886,13 @@ func serveAPIRequestSlow(c *gin.Context, writer *services.APIRequestWriter) {
 
 func emptyWorkerMetricsSummaryEnvelope() gin.H {
 	return gin.H{
-		"worker_id":    "",
-		"worker_type":  "",
-		"queue_name":   "",
-		"hours":       defaultHistoryHours,
-		"throughput":   services.WorkerThroughputSummary{},
-		"failures":    services.WorkerFailureSummary{},
-		"heartbeat":    nil,
+		"worker_id":     "",
+		"worker_type":   "",
+		"queue_name":    "",
+		"hours":         defaultHistoryHours,
+		"throughput":    services.WorkerThroughputSummary{},
+		"failures":      services.WorkerFailureSummary{},
+		"heartbeat":     nil,
 		"total_metrics": 0,
 	}
 }

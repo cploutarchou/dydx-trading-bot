@@ -20,7 +20,7 @@ func TestNewLiveWorkerMetricsReaderNilWhenReaderNil(t *testing.T) {
 	if clickHouseReader != nil {
 		t.Fatal("expected nil ClickHouseReader when disabled")
 	}
-	
+
 	workerReader := NewLiveWorkerMetricsReader(clickHouseReader)
 	if workerReader != nil {
 		t.Fatalf("expected nil LiveWorkerMetricsReader, got %+v", workerReader)
@@ -88,19 +88,19 @@ func TestLiveWorkerMetricsReaderWithEnabledReader(t *testing.T) {
 		Enabled: true,
 		URL:     "http://localhost:8123",
 	})
-	
+
 	if clickHouseReader == nil {
 		t.Fatal("expected non-nil ClickHouseReader")
 	}
-	
+
 	reader := NewLiveWorkerMetricsReader(clickHouseReader)
 	if reader == nil {
 		t.Fatal("expected non-nil LiveWorkerMetricsReader")
 	}
-	
+
 	// Test that the reader methods don't panic (they'll return errors due to no server)
 	// This is just to ensure the structure is correct
-	
+
 	// Test GetMetrics
 	_, err := reader.GetMetrics(context.Background(), "", "", "", 24, 100)
 	if err == nil {
@@ -108,7 +108,7 @@ func TestLiveWorkerMetricsReaderWithEnabledReader(t *testing.T) {
 	} else {
 		t.Logf("GetMetrics returned error (expected): %v", err)
 	}
-	
+
 	// Test GetThroughputSummary
 	_, err = reader.GetThroughputSummary(context.Background(), "", "", 24)
 	if err == nil {
@@ -116,7 +116,7 @@ func TestLiveWorkerMetricsReaderWithEnabledReader(t *testing.T) {
 	} else {
 		t.Logf("GetThroughputSummary returned error (expected): %v", err)
 	}
-	
+
 	// Test GetFailureSummary
 	_, err = reader.GetFailureSummary(context.Background(), "", "", 24)
 	if err == nil {
@@ -124,7 +124,7 @@ func TestLiveWorkerMetricsReaderWithEnabledReader(t *testing.T) {
 	} else {
 		t.Logf("GetFailureSummary returned error (expected): %v", err)
 	}
-	
+
 	// Test GetHeartbeatStatus
 	_, err = reader.GetHeartbeatStatus(context.Background(), "")
 	if err == nil {
@@ -132,7 +132,7 @@ func TestLiveWorkerMetricsReaderWithEnabledReader(t *testing.T) {
 	} else {
 		t.Logf("GetHeartbeatStatus returned error (expected): %v", err)
 	}
-	
+
 	// Test GetWorkerSummary
 	_, err = reader.GetWorkerSummary(context.Background(), "", "", "", 24)
 	if err == nil {
@@ -152,7 +152,7 @@ func TestWorkerMetricStruct(t *testing.T) {
 		MetricName:  "tasks_completed",
 		MetricValue: 100.0,
 	}
-	
+
 	if metric.WorkerID != "worker-1" {
 		t.Fatalf("expected WorkerID 'worker-1', got '%s'", metric.WorkerID)
 	}
@@ -173,16 +173,16 @@ func TestWorkerMetricStruct(t *testing.T) {
 func TestWorkerThroughputSummaryStruct(t *testing.T) {
 	// Test that WorkerThroughputSummary struct can be properly instantiated
 	throughput := WorkerThroughputSummary{
-		WorkerID:      "worker-1",
-		WorkerType:    "celery",
-		QueueName:     "backtests",
+		WorkerID:       "worker-1",
+		WorkerType:     "celery",
+		QueueName:      "backtests",
 		TasksCompleted: 100,
 		TasksSucceeded: 95,
 		TasksFailed:    5,
 		AvgDurationMs:  150.5,
 		TotalRetries:   3,
 	}
-	
+
 	if throughput.WorkerID != "worker-1" {
 		t.Fatalf("expected WorkerID 'worker-1', got '%s'", throughput.WorkerID)
 	}
@@ -203,7 +203,7 @@ func TestWorkerMetricsSummaryStruct(t *testing.T) {
 		Hours:        24,
 		TotalMetrics: 1000,
 	}
-	
+
 	if summary.WorkerID != "worker-1" {
 		t.Fatalf("expected WorkerID 'worker-1', got '%s'", summary.WorkerID)
 	}

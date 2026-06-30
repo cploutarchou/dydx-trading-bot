@@ -32,7 +32,7 @@ func TestAPIRequestWriterWriteEventNilWriterForNilReader(t *testing.T) {
 	if writer != nil {
 		t.Fatal("expected nil writer for nil reader")
 	}
-	
+
 	// Test that nil writer fails closed
 	var nilWriter *APIRequestWriter
 	if err := nilWriter.WriteEvent(context.Background(), APIRequestEvent{}); !errors.Is(err, ErrClickHouseDisabled) {
@@ -44,38 +44,38 @@ func TestAPIRequestWriterWriteEventWithEnabledReader(t *testing.T) {
 	// This test would require a real ClickHouse instance or mock HTTP server
 	// For now, we'll just test the nil/disabled cases
 	// The actual ClickHouse write functionality is tested via integration tests
-	
+
 	// Create a writer with a valid reader (but no actual ClickHouse server)
 	reader := NewClickHouseReader(config.ClickHouseSettings{
 		Enabled: true,
 		URL:     "http://localhost:8123",
 	})
-	
+
 	if reader == nil {
 		t.Fatal("expected non-nil reader")
 	}
-	
+
 	writer := NewAPIRequestWriter(reader)
 	if writer == nil {
 		t.Fatal("expected non-nil writer")
 	}
-	
+
 	// Test that WriteEvent doesn't panic with a valid writer
 	// It should return an error since there's no real ClickHouse server
 	// but it shouldn't crash
 	err := writer.WriteEvent(context.Background(), APIRequestEvent{
-		EventDate:    "2026-01-01",
-		EventTime:    "2026-01-01T00:00:00Z",
-		Service:      "backend",
-		Route:        "/api/v1/test",
-		Method:       "GET",
-		StatusCode:   200,
-		LatencyMs:    100,
+		EventDate:     "2026-01-01",
+		EventTime:     "2026-01-01T00:00:00Z",
+		Service:       "backend",
+		Route:         "/api/v1/test",
+		Method:        "GET",
+		StatusCode:    200,
+		LatencyMs:     100,
 		CorrelationID: "test-123",
-		ClientIP:     "127.0.0.1",
-		RateLimited:  0,
+		ClientIP:      "127.0.0.1",
+		RateLimited:   0,
 	})
-	
+
 	// For now, WriteEvent returns nil (placeholder implementation)
 	// This is acceptable for the current phase
 	if err != nil {
@@ -133,44 +133,44 @@ func TestAPIRequestWriterWriteEventsBatch(t *testing.T) {
 		Enabled: true,
 		URL:     "http://localhost:8123",
 	})
-	
+
 	if reader == nil {
 		t.Fatal("expected non-nil reader")
 	}
-	
+
 	writer := NewAPIRequestWriter(reader)
 	if writer == nil {
 		t.Fatal("expected non-nil writer")
 	}
-	
+
 	// Test batch write with multiple events
 	events := []APIRequestEvent{
 		{
-			EventDate:    "2026-01-01",
-			EventTime:    "2026-01-01T00:00:00Z",
-			Service:      "backend",
-			Route:        "/api/v1/test1",
-			Method:       "GET",
-			StatusCode:   200,
-			LatencyMs:    100,
+			EventDate:     "2026-01-01",
+			EventTime:     "2026-01-01T00:00:00Z",
+			Service:       "backend",
+			Route:         "/api/v1/test1",
+			Method:        "GET",
+			StatusCode:    200,
+			LatencyMs:     100,
 			CorrelationID: "test-1",
-			ClientIP:     "127.0.0.1",
-			RateLimited:  0,
+			ClientIP:      "127.0.0.1",
+			RateLimited:   0,
 		},
 		{
-			EventDate:    "2026-01-01",
-			EventTime:    "2026-01-01T00:00:01Z",
-			Service:      "backend",
-			Route:        "/api/v1/test2",
-			Method:       "POST",
-			StatusCode:   201,
-			LatencyMs:    200,
+			EventDate:     "2026-01-01",
+			EventTime:     "2026-01-01T00:00:01Z",
+			Service:       "backend",
+			Route:         "/api/v1/test2",
+			Method:        "POST",
+			StatusCode:    201,
+			LatencyMs:     200,
 			CorrelationID: "test-2",
-			ClientIP:     "127.0.0.1",
-			RateLimited:  1,
+			ClientIP:      "127.0.0.1",
+			RateLimited:   1,
 		},
 	}
-	
+
 	// This should not panic
 	err := writer.WriteEvents(context.Background(), events)
 	if err != nil {
@@ -181,19 +181,19 @@ func TestAPIRequestWriterWriteEventsBatch(t *testing.T) {
 func TestAPIRequestEventWithUserID(t *testing.T) {
 	userID := "user-123"
 	event := APIRequestEvent{
-		EventDate:    "2026-01-01",
-		EventTime:    "2026-01-01T00:00:00Z",
-		Service:      "backend",
-		Route:        "/api/v1/test",
-		Method:       "GET",
-		StatusCode:   200,
-		LatencyMs:    100,
-		UserID:       &userID,
+		EventDate:     "2026-01-01",
+		EventTime:     "2026-01-01T00:00:00Z",
+		Service:       "backend",
+		Route:         "/api/v1/test",
+		Method:        "GET",
+		StatusCode:    200,
+		LatencyMs:     100,
+		UserID:        &userID,
 		CorrelationID: "test-123",
-		ClientIP:     "127.0.0.1",
-		RateLimited:  0,
+		ClientIP:      "127.0.0.1",
+		RateLimited:   0,
 	}
-	
+
 	// Test that user ID is properly set
 	if event.UserID == nil {
 		t.Fatal("expected non-nil UserID")
@@ -205,19 +205,19 @@ func TestAPIRequestEventWithUserID(t *testing.T) {
 
 func TestAPIRequestEventWithoutUserID(t *testing.T) {
 	event := APIRequestEvent{
-		EventDate:    "2026-01-01",
-		EventTime:    "2026-01-01T00:00:00Z",
-		Service:      "backend",
-		Route:        "/api/v1/test",
-		Method:       "GET",
-		StatusCode:   200,
-		LatencyMs:    100,
-		UserID:       nil, // No user ID
+		EventDate:     "2026-01-01",
+		EventTime:     "2026-01-01T00:00:00Z",
+		Service:       "backend",
+		Route:         "/api/v1/test",
+		Method:        "GET",
+		StatusCode:    200,
+		LatencyMs:     100,
+		UserID:        nil, // No user ID
 		CorrelationID: "test-123",
-		ClientIP:     "127.0.0.1",
-		RateLimited:  0,
+		ClientIP:      "127.0.0.1",
+		RateLimited:   0,
 	}
-	
+
 	// Test that user ID is nil
 	if event.UserID != nil {
 		t.Fatal("expected nil UserID")

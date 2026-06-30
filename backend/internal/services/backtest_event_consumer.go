@@ -166,8 +166,8 @@ func ensureEventStream(js natsclient.JetStreamContext) error {
 		return nil
 	}
 	_, err = js.AddStream(&natsclient.StreamConfig{
-		Name:     backtestEventStreamName,
-		Subjects: []string{backtestEventStreamSubject},
+		Name:      backtestEventStreamName,
+		Subjects:  []string{backtestEventStreamSubject},
 		Retention: natsclient.LimitsPolicy,
 		Storage:   natsclient.FileStorage,
 		MaxAge:    7 * 24 * time.Hour,

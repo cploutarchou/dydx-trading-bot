@@ -21,6 +21,10 @@ from src.infrastructure.persistence.repository_backtest import BacktestRepositor
 from src.infrastructure.use_cases.service_backtest import BacktestService
 from src.infrastructure.workers.celery_app import celery_app
 from src.infrastructure.workers.celery_monitor import build_progress_meta, failure_meta
+from src.infrastructure.workers.backtest_event_emitter import (
+    emit_backtest_event_sync,
+    publish_backtest_event,
+)
 from src.shared.redis_env import (
     redis_db,
     redis_host,
@@ -501,6 +505,7 @@ def run_backtest_task(
             )
             repository.save_run(data)
             _publish_backtest_status(run_id, "started")
+            emit_backtest_event_sync(run_id=run_id, status="started")
 
             async def _progress_callback(
                 callback_run_id: str, progress: float, current_pair: str, eta: float
@@ -537,6 +542,12 @@ def run_backtest_task(
                 _publish_backtest_status(
                     callback_run_id, "progress", progress, current_pair, eta
                 )
+                await publish_backtest_event(
+                    run_id=callback_run_id,
+                    status="progress",
+                    progress=progress,
+                    current_pair=current_pair,
+                )
 
             asyncio.run(
                 service.execute_existing_backtest(
@@ -546,6 +557,7 @@ def run_backtest_task(
                 )
             )
             _publish_backtest_status(run_id, "completed", 100.0, "complete")
+            emit_backtest_event_sync(run_id=run_id, status="completed", progress=100.0)
             loguru_logger.info(
                 "celery_backtest_task_completed task_id={} run_id={}",
                 task_id,
@@ -577,6 +589,9 @@ def run_backtest_task(
             retry_count=int(getattr(self.request, "retries", 0) or 0),
         )
         _publish_backtest_status(run_id, "failed")
+        emit_backtest_event_sync(
+            run_id=run_id, status="failed", error_code="BACKTEST_TIMEOUT", error_message=message
+        )
         raise
     except asyncio.CancelledError:
         message = "Backtest Celery task cancelled"
@@ -601,6 +616,9 @@ def run_backtest_task(
             ),
         )
         _publish_backtest_status(run_id, "cancelled")
+        emit_backtest_event_sync(
+            run_id=run_id, status="cancelled", error_code="BACKTEST_CANCELLED", error_message=message
+        )
         raise
     except Exception as exc:
         retries = int(getattr(self.request, "retries", 0) or 0)
@@ -666,6 +684,14 @@ def run_backtest_task(
             retry_count=int(getattr(self.request, "retries", 0) or 0),
         )
         _publish_backtest_status(run_id, "failed")
+        emit_backtest_event_sync(
+            run_id=run_id,
+            status="failed",
+            error_code=BacktestService._error_code_from_message(
+                str(exc), "BACKTEST_EXECUTION_FAILED"
+            ),
+            error_message=str(exc) or "Backtest Celery task failed",
+        )
         raise
     finally:
         _release_backtest_lock(run_id, task_id, lock_client)

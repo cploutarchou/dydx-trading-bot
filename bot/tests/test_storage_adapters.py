@@ -10,6 +10,7 @@ from src.infrastructure.storage import (
     MinIOArtifactStore,
     NoopAnalyticsWriter,
 )
+from src.shared.env_loader import find_repo_root
 
 
 class _FakeObjectResponse:
@@ -209,6 +210,53 @@ def test_backtest_repository_prefers_new_clickhouse_flag_over_legacy_alias(monke
     writer = BacktestRepository._build_analytics_writer()
 
     assert isinstance(writer, NoopAnalyticsWriter)
+
+
+def test_backtest_repository_accepts_canonical_clickhouse_enabled_alias(monkeypatch):
+    monkeypatch.delenv("BACKTEST_CLICKHOUSE_WRITES_ENABLED", raising=False)
+    monkeypatch.delenv("BACKTEST_CLICKHOUSE_ENABLED", raising=False)
+    monkeypatch.setenv("CLICKHOUSE_ENABLED", "true")
+    monkeypatch.setenv("CLICKHOUSE_URL", "http://analytics:8123/dydx_analytics")
+
+    writer = BacktestRepository._build_analytics_writer()
+
+    assert isinstance(writer, ClickHouseAnalyticsWriter)
+    assert writer.enabled is True
+    assert writer.host == "analytics"
+    assert writer.port == 8123
+    assert writer.database == "dydx_analytics"
+
+
+def test_backtest_repository_accepts_canonical_minio_enabled_alias(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("BACKTEST_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
+    monkeypatch.delenv("BACKTEST_ARTIFACT_STORAGE_ENABLED", raising=False)
+    monkeypatch.delenv("BACKTEST_MINIO_ARTIFACTS_ENABLED", raising=False)
+    monkeypatch.delenv("BACKTEST_MINIO_ENABLED", raising=False)
+    monkeypatch.setenv("MINIO_ENABLED", "true")
+    monkeypatch.setenv("MINIO_ENDPOINT", "localhost:9010")
+    monkeypatch.setenv("MINIO_BUCKET", "backtests")
+
+    store = BacktestRepository._build_artifact_store()
+
+    assert isinstance(store, MinIOArtifactStore)
+    assert store.enabled is True
+
+
+def test_backtest_repository_resolves_relative_artifact_root_from_repo_root(
+    monkeypatch,
+):
+    monkeypatch.setenv("BACKTEST_ARTIFACT_STORAGE_ENABLED", "false")
+    monkeypatch.setenv("BACKTEST_ARTIFACTS_DIR", "tmp/backtest-artifacts-test")
+
+    store = BacktestRepository._build_artifact_store()
+
+    assert isinstance(store, LocalArtifactStore)
+    expected_root = (
+        find_repo_root(__file__) / "tmp" / "backtest-artifacts-test"
+    ).resolve()
+    assert store.root_dir == expected_root
 
 
 def test_backtest_repository_resolves_clickhouse_batch_settings(monkeypatch):

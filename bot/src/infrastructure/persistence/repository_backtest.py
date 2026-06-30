@@ -8,11 +8,13 @@ import logging
 import os
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 from urllib.parse import urlsplit
 
 from internal.domain.models import ArtifactReference, BacktestRun, BacktestRunRequestPayload
 from sqlalchemy.exc import OperationalError, PendingRollbackError
+from src.shared.env_loader import find_repo_root
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +179,7 @@ class BacktestRepository:
         return cls._env_bool_prefer(
             "BACKTEST_ARTIFACT_STORAGE_ENABLED",
             "BACKTEST_MINIO_ENABLED",
+            "MINIO_ENABLED",
             default=False,
         )
 
@@ -187,6 +190,7 @@ class BacktestRepository:
         return cls._env_bool_prefer(
             "BACKTEST_MINIO_ARTIFACTS_ENABLED",
             "BACKTEST_MINIO_ENABLED",
+            "MINIO_ENABLED",
             default=False,
         )
 
@@ -195,12 +199,27 @@ class BacktestRepository:
         return cls._env_bool_prefer(
             "BACKTEST_CLICKHOUSE_WRITES_ENABLED",
             "BACKTEST_CLICKHOUSE_ENABLED",
+            "CLICKHOUSE_ENABLED",
             default=False,
         )
 
     @classmethod
+    def _resolve_artifact_root(cls) -> str:
+        configured_root = cls._env_str(
+            "BACKTEST_ARTIFACTS_DIR", "bot_states/backtest_artifacts"
+        ).strip()
+        path = Path(configured_root).expanduser()
+        if path.is_absolute():
+            return str(path)
+        try:
+            repo_root = find_repo_root(__file__)
+            return str((repo_root / path).resolve())
+        except Exception:  # noqa: BLE001
+            return str(path.resolve())
+
+    @classmethod
     def _build_artifact_store(cls) -> ArtifactStore:
-        root = cls._env_str("BACKTEST_ARTIFACTS_DIR", "bot_states/backtest_artifacts")
+        root = cls._resolve_artifact_root()
         if cls._minio_artifacts_enabled():
             extra_config: Dict[str, Any] = {
                 "access_key": cls._env_first(

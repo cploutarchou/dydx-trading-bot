@@ -17,6 +17,13 @@ from sqlalchemy.orm import sessionmaker
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
+@pytest.fixture(autouse=True)
+def _default_backtest_backend_asyncio(monkeypatch):
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND", "asyncio")
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND_AUTO_REPROBE", "false")
+    yield
+
+
 def _load_modules():
     models_module = importlib.import_module("src.infrastructure.domain.models_backtest")
     service_module = importlib.import_module(
@@ -1376,6 +1383,83 @@ def test_service_init_does_not_auto_reconcile_running_runs():
     assert persisted is not None
     assert persisted["status"] == "running"
     assert persisted.get("error") in {None, ""}
+
+
+def test_db_backed_status_refreshes_persisted_state_across_processes(tmp_path):
+    _, service_module = _load_modules()
+    BacktestService = service_module.BacktestService
+
+    from internal.domain import Base
+    from src.infrastructure.persistence.repository_backtest import BacktestRepository
+
+    db_path = tmp_path / "backtest_status_refresh.sqlite"
+    engine = create_engine(f"sqlite:///{db_path}", future=True)
+    Base.metadata.create_all(bind=engine)
+    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+
+    BacktestService._runs.clear()
+    BacktestService._tasks.clear()
+
+    api_service = BacktestService(BacktestRepository(SessionLocal()))
+    worker_service = BacktestService(BacktestRepository(SessionLocal()))
+
+    created_at = datetime.now(timezone.utc).isoformat()
+    seeded = api_service.repository.save_run(
+        {
+            "run_id": "run-db-cache-refresh",
+            "name": "cache-refresh",
+            "status": "pending",
+            "progress_pct": 0.0,
+            "created_at": created_at,
+            "updated_at": created_at,
+            "request": _request().model_dump(),
+        }
+    )
+    assert seeded["status"] == "pending"
+
+    initial = api_service.get_backtest_status("run-db-cache-refresh")
+    assert initial is not None
+    assert initial.status == "pending"
+
+    finished_at = datetime.now(timezone.utc).isoformat()
+    worker_service.repository.save_run(
+        {
+            "run_id": "run-db-cache-refresh",
+            "name": "cache-refresh",
+            "status": "completed",
+            "progress_pct": 100.0,
+            "total_trades": 4,
+            "created_at": created_at,
+            "updated_at": finished_at,
+            "started_at": created_at,
+            "completed_at": finished_at,
+            "finished_at": finished_at,
+            "request": {
+                **_request().model_dump(),
+                "_runtime_control": {
+                    "status": "completed",
+                    "action": "complete",
+                    "pause_requested": False,
+                    "resume_requested": False,
+                    "cancel_requested": False,
+                    "worker_backend": "celery",
+                    "worker_task_id": "run-db-cache-refresh",
+                    "started_at": created_at,
+                },
+            },
+            "trades": [{"trade_id": "t-1"}],
+            "position_snapshots": [{"timestamp": finished_at}],
+            "daily_pnl": [{"date": "2026-02-06", "pnl": 1.25}],
+        }
+    )
+
+    refreshed = api_service.get_backtest_status("run-db-cache-refresh")
+    assert refreshed is not None
+    assert refreshed.status == "completed"
+    assert refreshed.progress_pct == 100.0
+    assert refreshed.completed_at == finished_at
+    assert refreshed.worker_backend == "celery"
+    assert refreshed.control_status == "completed"
 
 
 def test_explicit_interrupted_reconcile_flow_updates_orphaned_persisted_runs():

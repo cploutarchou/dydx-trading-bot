@@ -96,6 +96,7 @@ Snapshot date: `2026-06-30`.
 - [x] 2026-04-04: Added strict contract-lock response-shape test for `POST /api/v1/backtests/:run_id/resync`.
 - [x] 2026-04-04: Added frontend-driven backend backlog section for backtest details contracts, progress guarantees, and empty-state response normalization.
 - [x] 2026-06-30: Stopped mirroring delegated backtest trade payloads into backend `backtest_trades`; delegated trade reads stay on the bot/artifact path while positions/candles continue syncing locally.
+- [x] 2026-06-30: Bot-side backtest status persistence now refreshes DB-backed runs after cross-process worker completion, so delegated backend status reads receive truthful terminal states from the upstream bot API without contract changes.
 - 2026-04-05: Added real strategy runtime control endpoints (`GET /api/v1/strategies/:id/runtime`, `POST /api/v1/strategies/:id/start`, `POST /api/v1/strategies/:id/stop`) backed by deterministic bot-instance orchestration and verified route coverage.
 
 ## Change Log Template

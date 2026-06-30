@@ -99,15 +99,18 @@ NATS_MONITORING_URL=http://localhost:8222
 CLICKHOUSE_URL=http://localhost:8123
 CLICKHOUSE_HOST=localhost
 CLICKHOUSE_PORT=8123
+CLICKHOUSE_ENABLED=true
+CLICKHOUSE_SECURE=false
 MINIO_ENDPOINT=localhost:9010
 MINIO_CONSOLE_URL=http://localhost:9011
 MINIO_BUCKET=backtests
+MINIO_ENABLED=true
 S3_ENDPOINT=http://localhost:9010
 S3_REGION=us-east-1
 S3_FORCE_PATH_STYLE=true
-BACKTEST_ARTIFACT_STORAGE_ENABLED=false
-BACKTEST_CLICKHOUSE_WRITES_ENABLED=false
-BACKTEST_MINIO_ARTIFACTS_ENABLED=false
+BACKTEST_ARTIFACT_STORAGE_ENABLED=true
+BACKTEST_CLICKHOUSE_WRITES_ENABLED=true
+BACKTEST_MINIO_ARTIFACTS_ENABLED=true
 ```
 
 ### Stop Infrastructure
@@ -356,7 +359,7 @@ curl http://localhost:9010/minio/health/live
 
 ```bash
 # MinIO console: http://localhost:9011
-# Default local credentials: minioadmin / change-me-minio
+# Default local credentials: change-me-minio-access-key / change-me-minio-secret-key
 ```
 
 ---

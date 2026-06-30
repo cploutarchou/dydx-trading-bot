@@ -28,11 +28,11 @@ All local services should discover infrastructure through environment variables.
 
 PostgreSQL remains the active transactional database/persistence path today, and backtests still keep their current
 PostgreSQL-backed metadata and legacy JSON fields for compatibility and rollback. ClickHouse and MinIO are live
-locally and auto-discovered through environment variables. The checked-in stack now enables the MinIO-backed backtest
-artifact path by default while leaving ClickHouse disabled:
+locally and auto-discovered through environment variables. The checked-in stack now enables both the MinIO-backed
+backtest artifact path and ClickHouse analytical writes by default:
 
 - `BACKTEST_ARTIFACT_STORAGE_ENABLED=true`
-- `BACKTEST_CLICKHOUSE_WRITES_ENABLED=false`
+- `BACKTEST_CLICKHOUSE_WRITES_ENABLED=true`
 - `BACKTEST_MINIO_ARTIFACTS_ENABLED=true`
 - `BACKTEST_CLICKHOUSE_BATCH_SIZE=1000`
 - `BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS=5`

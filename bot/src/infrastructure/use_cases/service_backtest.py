@@ -406,27 +406,29 @@ class BacktestService:
 
     def _load_run_data(self, run_id: str) -> Optional[Dict[str, Any]]:
         cached = self._runs.get(run_id)
-        if cached is not None and "request" in cached:
+        if self.session is None and cached is not None and "request" in cached:
             return dict(cached)
 
         persisted = self.repository.get_run(run_id)
-        if persisted is None:
-            return None
+        if persisted is not None:
+            hydrated = self._hydrate_loaded_run(dict(persisted))
+            self._runs[run_id] = dict(hydrated)
+            return dict(hydrated)
 
-        self._runs[run_id] = dict(persisted)
-        return dict(persisted)
+        return dict(cached) if cached is not None else None
 
     def _load_run_overview(self, run_id: str) -> Optional[Dict[str, Any]]:
         cached = self._runs.get(run_id)
-        if cached is not None and "request" in cached:
+        if self.session is None and cached is not None and "request" in cached:
             return dict(cached)
 
         persisted = self.repository.get_run_overview(run_id)
-        if persisted is None:
-            return None
+        if persisted is not None:
+            hydrated = self._hydrate_loaded_run(dict(persisted))
+            self._runs[run_id] = dict(hydrated)
+            return dict(hydrated)
 
-        self._runs[run_id] = dict(persisted)
-        return dict(persisted)
+        return dict(cached) if cached is not None else None
 
     def _persist_run_data(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
         existing = None
@@ -484,6 +486,19 @@ class BacktestService:
         cached.update(run_data)
         self._runs[run_id] = cached
         return dict(run_data)
+
+    @classmethod
+    def _hydrate_loaded_run(cls, run_data: Dict[str, Any]) -> Dict[str, Any]:
+        payload = dict(run_data)
+        payload = cls._apply_task_observability(payload)
+        control = cls._get_runtime_control(payload)
+        payload["control_status"] = control.get("status")
+        payload["control_action"] = control.get("action")
+        payload["worker_backend"] = control.get("worker_backend")
+        payload["worker_task_id"] = control.get("worker_task_id")
+        payload["last_heartbeat_at"] = payload.get("updated_at")
+        payload["heartbeat_age_seconds"] = cls._heartbeat_age_seconds(payload)
+        return payload
 
     def _update_run_data(self, run_id: str, **updates: Any) -> Optional[Dict[str, Any]]:
         run_data = self._load_run_data(run_id)

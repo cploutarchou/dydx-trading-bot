@@ -522,6 +522,127 @@ class BacktestRepository:
             return []
         return [dict(row) for row in rows if isinstance(row, dict)]
 
+    def _build_backtest_trade_analytics_rows(
+        self, *, run_id: str, rows: Sequence[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        normalized: list[dict[str, Any]] = []
+        for index, row in enumerate(rows):
+            created_at = (
+                self._serialize_dt(row.get("exit_timestamp"))
+                or self._serialize_dt(row.get("entry_timestamp"))
+                or self._now().isoformat()
+            )
+            normalized.append(
+                {
+                    "run_id": run_id,
+                    "trade_id": str(row.get("trade_id") or f"{run_id}-trade-{index:04d}"),
+                    "pair1": str(row.get("market_1") or row.get("pair1") or ""),
+                    "pair2": str(row.get("market_2") or row.get("pair2") or ""),
+                    "side1": str(row.get("side_1") or row.get("side1") or ""),
+                    "side2": str(row.get("side_2") or row.get("side2") or ""),
+                    "entry_price1": self._safe_float(
+                        row.get("entry_price_m1", row.get("entry_price1"))
+                    ),
+                    "entry_price2": self._safe_float(
+                        row.get("entry_price_m2", row.get("entry_price2"))
+                    ),
+                    "exit_price1": row.get("exit_price_m1", row.get("exit_price1")),
+                    "exit_price2": row.get("exit_price_m2", row.get("exit_price2")),
+                    "entry_size1": self._safe_float(
+                        row.get("entry_size_m1", row.get("entry_size1"))
+                    ),
+                    "entry_size2": self._safe_float(
+                        row.get("entry_size_m2", row.get("entry_size2"))
+                    ),
+                    "realized_pnl": self._safe_float(
+                        row.get("pnl_usd", row.get("realized_pnl"))
+                    ),
+                    "realized_pnl_pct": self._safe_float(
+                        row.get("pnl_pct", row.get("realized_pnl_pct"))
+                    ),
+                    "status": str(row.get("status") or "CLOSED"),
+                    "created_at": created_at,
+                }
+            )
+        return normalized
+
+    def _build_backtest_position_snapshot_analytics_rows(
+        self, *, run_id: str, rows: Sequence[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        normalized: list[dict[str, Any]] = []
+        for snapshot in rows:
+            snapshot_time = (
+                self._serialize_dt(snapshot.get("timestamp"))
+                or self._serialize_dt(snapshot.get("snapshot_time"))
+                or self._now().isoformat()
+            )
+            positions = snapshot.get("positions")
+            if isinstance(positions, list) and positions:
+                source_rows = [p for p in positions if isinstance(p, dict)]
+            else:
+                source_rows = [snapshot]
+
+            for index, position in enumerate(source_rows):
+                normalized.append(
+                    {
+                        "run_id": run_id,
+                        "snapshot_time": snapshot_time,
+                        "pair1": str(
+                            position.get("market_1") or position.get("pair1") or ""
+                        ),
+                        "pair2": str(
+                            position.get("market_2") or position.get("pair2") or ""
+                        ),
+                        "unrealized_pnl": self._safe_float(
+                            position.get(
+                                "unrealized_pnl",
+                                position.get("total_pnl_usd", position.get("pnl_usd")),
+                            )
+                        ),
+                        "z_score": position.get(
+                            "z_score", position.get("entry_zscore")
+                        ),
+                        "created_at": snapshot_time,
+                        "_index": index,
+                    }
+                )
+        for row in normalized:
+            row.pop("_index", None)
+        return normalized
+
+    def _build_backtest_daily_pnl_analytics_rows(
+        self, *, run_id: str, rows: Sequence[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        ordered = sorted(
+            rows,
+            key=lambda row: (
+                str(row.get("date") or ""),
+                str(row.get("timestamp") or ""),
+                str(row.get("candle_id") or ""),
+            ),
+        )
+        normalized: list[dict[str, Any]] = []
+        cumulative_pnl = 0.0
+        peak_pnl = 0.0
+        for row in ordered:
+            pnl = self._safe_float(row.get("pnl"))
+            cumulative_pnl += pnl
+            peak_pnl = max(peak_pnl, cumulative_pnl)
+            normalized.append(
+                {
+                    "run_id": run_id,
+                    "date": str(row.get("date") or ""),
+                    "pnl": pnl,
+                    "cumulative_pnl": cumulative_pnl,
+                    "drawdown": max(0.0, peak_pnl - cumulative_pnl),
+                    "created_at": (
+                        self._serialize_dt(row.get("timestamp"))
+                        or self._now().isoformat()
+                    ),
+                }
+            )
+        return normalized
+
     @staticmethod
     def _is_terminal_status(status: Any) -> bool:
         normalized = str(status or "").strip().lower()
@@ -665,13 +786,18 @@ class BacktestRepository:
                 }
             )
 
-        trade_rows = [dict(row, run_id=run_id) for row in artifact_payloads["trades"]]
-        position_rows = [
-            dict(row, run_id=run_id) for row in artifact_payloads["position_snapshots"]
-        ]
-        daily_pnl_rows = [
-            dict(row, run_id=run_id) for row in artifact_payloads["daily_pnl"]
-        ]
+        trade_rows = self._build_backtest_trade_analytics_rows(
+            run_id=run_id,
+            rows=artifact_payloads["trades"],
+        )
+        position_rows = self._build_backtest_position_snapshot_analytics_rows(
+            run_id=run_id,
+            rows=artifact_payloads["position_snapshots"],
+        )
+        daily_pnl_rows = self._build_backtest_daily_pnl_analytics_rows(
+            run_id=run_id,
+            rows=artifact_payloads["daily_pnl"],
+        )
         equity_curve_rows = [
             dict(row, run_id=run_id)
             for row in self._materialize_rows(payload.get("equity_curve"))

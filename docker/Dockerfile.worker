@@ -11,11 +11,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY bot/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy bot source
-COPY bot/ .
-
 # Create an unprivileged runtime user for Celery and bot processes
-RUN addgroup --system app && adduser --system --ingroup app app && chown -R app:app /app
+RUN addgroup --system app \
+	&& adduser --system --ingroup app app \
+	&& mkdir -p /app/bot_states \
+	&& chown app:app /app /app/bot_states
+
+# Copy bot source
+COPY --chown=app:app bot/ .
 
 # Stub so env_loader.find_repo_root() succeeds.
 # Runtime configuration is injected through environment variables.

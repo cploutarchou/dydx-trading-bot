@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -568,6 +569,8 @@ func (h *BacktestHandler) GetBacktestTrades(c *gin.Context) {
 // DEPRECATED: This uses legacy local-file storage. New runs should use delegated bot API
 // with MinIO artifact-backed storage via BacktestSyncService.
 func (h *BacktestHandler) SaveBacktestResultJSON(c *gin.Context) {
+	log.Printf("⚠️  DEPRECATED: Legacy local-file storage endpoint accessed: %s %s", c.Request.Method, c.Request.URL.Path)
+	// TODO: Add metrics tracking for deprecated endpoint usage
 	runID := c.Param("run_id")
 	testName := c.Query("test_name")
 	if testName == "" {
@@ -726,6 +729,7 @@ func (h *BacktestHandler) SaveBacktestResultJSON(c *gin.Context) {
 // ExportBacktestResults exports list of all stored backtest results
 // DEPRECATED: This uses legacy local-file storage. Use delegated bot API for new runs.
 func (h *BacktestHandler) ExportBacktestResults(c *gin.Context) {
+	log.Printf("⚠️  DEPRECATED: Legacy local-file storage endpoint accessed: %s %s", c.Request.Method, c.Request.URL.Path)
 	summaries, err := h.storage.ListBacktestResults()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
@@ -749,6 +753,7 @@ func (h *BacktestHandler) ExportBacktestResults(c *gin.Context) {
 // GetBestResults returns top performing backtests from JSON storage
 // DEPRECATED: This uses legacy local-file storage. Use delegated bot API for new runs.
 func (h *BacktestHandler) GetBestResults(c *gin.Context) {
+	log.Printf("⚠️  DEPRECATED: Legacy local-file storage endpoint accessed: %s %s", c.Request.Method, c.Request.URL.Path)
 	limitStr := c.DefaultQuery("limit", "10")
 	sortBy := c.DefaultQuery("sort_by", "total_pnl")
 
@@ -783,6 +788,7 @@ func (h *BacktestHandler) GetBestResults(c *gin.Context) {
 // GetStorageStats returns backtest storage statistics
 // DEPRECATED: This uses legacy local-file storage. Use delegated bot API for new runs.
 func (h *BacktestHandler) GetStorageStats(c *gin.Context) {
+	log.Printf("⚠️  DEPRECATED: Legacy local-file storage endpoint accessed: %s %s", c.Request.Method, c.Request.URL.Path)
 	info, err := h.storage.GetStorageInfo()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
@@ -803,6 +809,7 @@ func (h *BacktestHandler) GetStorageStats(c *gin.Context) {
 // CleanupOldResults removes old backtest result files keeping only recent ones
 // DEPRECATED: This uses legacy local-file storage. Use delegated bot API for new runs.
 func (h *BacktestHandler) CleanupOldResults(c *gin.Context) {
+	log.Printf("⚠️  DEPRECATED: Legacy local-file storage endpoint accessed: %s %s", c.Request.Method, c.Request.URL.Path)
 	keepStr := c.DefaultQuery("keep_count", "100")
 	keep, _ := strconv.Atoi(keepStr)
 	if keep < 5 {

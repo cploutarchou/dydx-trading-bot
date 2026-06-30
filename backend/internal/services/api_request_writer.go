@@ -8,41 +8,41 @@ import (
 )
 
 const (
-	apiRequestEventsTable = "api_request_events"
+	apiRequestEventsTable  = "api_request_events"
 	maxAPIRequestRows      = 1000
-	defaultAPIRequestHours  = 24
+	defaultAPIRequestHours = 24
 )
 
 // APIRequestEvent represents a single API request event for ClickHouse storage.
 // All fields map directly to the ClickHouse api_request_events table schema.
 type APIRequestEvent struct {
 	// Core event fields
-	EventDate    string  `json:"event_date"`
-	EventTime    string  `json:"event_time"`
-	Service      string  `json:"service"`
-	Route        string  `json:"route"`
-	Method       string  `json:"method"`
-	StatusCode  uint16  `json:"status_code"`
-	LatencyMs   uint32  `json:"latency_ms"`
-	
+	EventDate  string `json:"event_date"`
+	EventTime  string `json:"event_time"`
+	Service    string `json:"service"`
+	Route      string `json:"route"`
+	Method     string `json:"method"`
+	StatusCode uint16 `json:"status_code"`
+	LatencyMs  uint32 `json:"latency_ms"`
+
 	// Context fields
-	UserID       *string `json:"user_id,omitempty"`
+	UserID        *string `json:"user_id,omitempty"`
 	CorrelationID string  `json:"correlation_id"`
-	ClientIP     string  `json:"client_ip"`
-	
+	ClientIP      string  `json:"client_ip"`
+
 	// Telemetry fields
 	RateLimited uint8 `json:"rate_limited"`
 }
 
 // APIRequestSummary provides aggregated API request metrics for a given time range.
 type APIRequestSummary struct {
-	Service      string `json:"service"`
-	Route        string `json:"route"`
-	Method       string `json:"method"`
-	RequestCount uint64 `json:"request_count"`
+	Service      string  `json:"service"`
+	Route        string  `json:"route"`
+	Method       string  `json:"method"`
+	RequestCount uint64  `json:"request_count"`
 	AvgLatencyMs float64 `json:"avg_latency_ms"`
-	ErrorCount   uint64 `json:"error_count"`
-	RateLimited  uint64 `json:"rate_limited"`
+	ErrorCount   uint64  `json:"error_count"`
+	RateLimited  uint64  `json:"rate_limited"`
 }
 
 // APIRequestLatencyDistribution provides latency percentile distribution.
@@ -100,12 +100,12 @@ func (w *APIRequestWriter) WriteEvents(ctx context.Context, events []APIRequestE
 			"event_date":     event.EventDate,
 			"event_time":     event.EventTime,
 			"service":        event.Service,
-			"route":         event.Route,
-			"method":        event.Method,
-			"status_code":   int(event.StatusCode),
+			"route":          event.Route,
+			"method":         event.Method,
+			"status_code":    int(event.StatusCode),
 			"latency_ms":     int(event.LatencyMs),
 			"correlation_id": event.CorrelationID,
-			"client_ip":     event.ClientIP,
+			"client_ip":      event.ClientIP,
 			"rate_limited":   int(event.RateLimited),
 		}
 
@@ -137,7 +137,7 @@ func (w *APIRequestWriter) writeRows(ctx context.Context, rows []map[string]inte
 
 	// Use ClickHouse HTTP insert with JSONEachRow format
 	insertSQL := fmt.Sprintf("INSERT INTO %s FORMAT JSONEachRow", apiRequestEventsTable)
-	
+
 	// Convert rows to JSONEachRow format
 	var jsonRows [][]byte
 	for _, row := range rows {
@@ -154,7 +154,7 @@ func (w *APIRequestWriter) writeRows(ctx context.Context, rows []map[string]inte
 
 	// Join all JSON rows with newlines for JSONEachRow format
 	body := strings.Join(stringBytes(jsonRows), "\n")
-	
+
 	// Execute the insert
 	_, err := w.reader.Query(ctx, insertSQL+"\n"+body, nil)
 	return err

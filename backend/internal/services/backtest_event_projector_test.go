@@ -111,8 +111,8 @@ func TestBacktestEventProjector_InvalidEventsAreRejected(t *testing.T) {
 	p := NewBacktestEventProjector(hub)
 
 	cases := []BacktestEvent{
-		{Event: BacktestEventActionStarted, OccurredAt: time.Now()}, // missing run_id
-		{RunID: "run-1", Event: "unknown", OccurredAt: time.Now()},  // bad event
+		{Event: BacktestEventActionStarted, OccurredAt: time.Now()},                                 // missing run_id
+		{RunID: "run-1", Event: "unknown", OccurredAt: time.Now()},                                  // bad event
 		{RunID: "run-1", Event: BacktestEventActionProgress, Progress: 150, OccurredAt: time.Now()}, // progress > 100
 		{RunID: "run-1", Event: BacktestEventActionProgress, Progress: -1, OccurredAt: time.Now()},  // progress < 0
 		{RunID: "run-1", Event: BacktestEventActionStarted},                                         // zero occurred_at

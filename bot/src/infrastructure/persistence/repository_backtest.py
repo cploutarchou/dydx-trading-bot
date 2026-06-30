@@ -195,6 +195,16 @@ class BacktestRepository:
         )
 
     @classmethod
+    def _artifact_storage_strict_mode(cls) -> bool:
+        """Check if artifact storage should be strict/fail-closed when MinIO is configured."""
+        return cls._env_bool_prefer(
+            "BACKTEST_ARTIFACT_STORAGE_STRICT",
+            "BACKTEST_MINIO_STRICT",
+            "MINIO_STRICT_MODE",
+            default=False,
+        )
+
+    @classmethod
     def _clickhouse_writes_enabled(cls) -> bool:
         return cls._env_bool_prefer(
             "BACKTEST_CLICKHOUSE_WRITES_ENABLED",
@@ -250,6 +260,7 @@ class BacktestRepository:
             }
             endpoint_url = cls._resolve_minio_endpoint()
             secure = cls._env_bool("BACKTEST_MINIO_SECURE", endpoint_url.startswith("https://"))
+            strict_mode = cls._artifact_storage_strict_mode()
             return MinIOArtifactStore(
                 bucket=cls._env_first(
                     "BACKTEST_MINIO_BUCKET",
@@ -257,10 +268,13 @@ class BacktestRepository:
                     default="backtests",
                 ),
                 enabled=True,
-                fallback=LocalArtifactStore(root),
+                fallback=LocalArtifactStore(root) if not strict_mode else None,
                 endpoint_url=endpoint_url,
                 secure=secure,
-                extra_config=extra_config,
+                extra_config={
+                    **extra_config,
+                    "strict_mode": strict_mode,
+                },
             )
         return LocalArtifactStore(root)
 

@@ -127,15 +127,16 @@ type BacktestCandleSyncPayload struct {
 }
 
 type BacktestSyncHealth struct {
-	RunID         string     `json:"run_id"`
-	Status        string     `json:"status"`
-	CreatedAt     *time.Time `json:"created_at,omitempty"`
-	Trades        int        `json:"trades"`
-	Positions     int        `json:"positions"`
-	Candles       int        `json:"candles"`
-	RunAgeSec     int64      `json:"run_age_seconds"`
-	SyncLagSec    int64      `json:"sync_lag_seconds"`
-	QualityIssues int        `json:"quality_issues"`
+	RunID                 string     `json:"run_id"`
+	Status                string     `json:"status"`
+	CreatedAt             *time.Time `json:"created_at,omitempty"`
+	Trades                int        `json:"trades"`                  // Delegated artifact-backed trade availability (primary)
+	BackendMirroredTrades int        `json:"backend_mirrored_trades"` // Legacy backend DB mirror count (debug only)
+	Positions             int        `json:"positions"`
+	Candles               int        `json:"candles"`
+	RunAgeSec             int64      `json:"run_age_seconds"`
+	SyncLagSec            int64      `json:"sync_lag_seconds"`
+	QualityIssues         int        `json:"quality_issues"`
 }
 
 type BacktestSyncRepository struct {
@@ -694,9 +695,9 @@ func (r *BacktestSyncRepository) GetSyncHealthByRun(userID int, runID string, li
 		}
 
 		_ = runPK
-		trades, err := r.countRowsForRunByRunID("backtest_trades", runIDVal, userID)
+		backendMirroredTrades, err := r.countRowsForRunByRunID("backtest_trades", runIDVal, userID)
 		if err != nil {
-			trades = 0
+			backendMirroredTrades = 0
 		}
 		positions, err := r.countRowsForRunByRunID("backtest_positions", runIDVal, userID)
 		if err != nil {
@@ -715,13 +716,21 @@ func (r *BacktestSyncRepository) GetSyncHealthByRun(userID int, runID string, li
 			lastSyncedAt = nil
 		}
 
+		// Get delegated trades count from backtest_runs table which contains the total_trades from bot
+		// This represents artifact-backed trade availability
+		delegatedTrades, err := r.getDelegatedTradesCountByRunID(runIDVal, userID)
+		if err != nil {
+			delegatedTrades = 0
+		}
+
 		item := BacktestSyncHealth{
-			RunID:         runIDVal,
-			Status:        status,
-			Trades:        trades,
-			Positions:     positions,
-			Candles:       candles,
-			QualityIssues: qualityIssues,
+			RunID:                 runIDVal,
+			Status:                status,
+			Trades:                delegatedTrades,       // Primary: delegated artifact-backed
+			BackendMirroredTrades: backendMirroredTrades, // Debug: legacy backend DB mirror
+			Positions:             positions,
+			Candles:               candles,
+			QualityIssues:         qualityIssues,
 		}
 		if createdAt.Valid {
 			created := createdAt.Time.UTC()
@@ -830,4 +839,18 @@ func (r *BacktestSyncRepository) getLastSyncedAtByRunID(runID string, userID int
 		return nil, nil
 	}
 	return &latest, nil
+}
+
+func (r *BacktestSyncRepository) getDelegatedTradesCountByRunID(runID string, userID int) (int, error) {
+	// Get total_trades from backtest_runs table which stores the delegated bot API response
+	query := `SELECT COALESCE(total_trades, 0) FROM backtest_runs WHERE run_id = ? AND user_id = ? LIMIT 1`
+	var count int
+	err := r.db.QueryRow(r.bindQuery(query), runID, userID).Scan(&count)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("failed to get delegated trades count: %w", err)
+	}
+	return count, nil
 }

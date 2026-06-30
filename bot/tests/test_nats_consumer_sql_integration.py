@@ -166,3 +166,85 @@ class TestBacktestConsumerSQLIntegration(unittest.TestCase):
                 text("SELECT count(*) FROM task_runs WHERE command_id = :i"), {"i": self.command_id}
             ).scalar()
             self.assertEqual(int(count), 1)
+
+    # ------------------------------------------------------------------
+    # Duplicate / redelivery barrier (Phase 2 idempotency evidence)
+    # ------------------------------------------------------------------
+
+    def _seed_command(self, idem_key: str, status: str) -> str:
+        """Insert a task_commands row in a given status and return its id."""
+        cmd_id = str(uuid.uuid4())
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO task_commands "
+                    "(id, command_type, owner_type, owner_id, idempotency_key, payload_json, status) "
+                    "VALUES (:id, 'backtest', 'backtest', :owner, :idem, '{}'::jsonb, :status)"
+                ),
+                {"id": cmd_id, "owner": "run-" + cmd_id[:8], "idem": idem_key, "status": status},
+            )
+        return cmd_id
+
+    def test_duplicate_barrier_terminal_command_is_duplicate(self):
+        """A terminal (completed/failed) command with the same key blocks redelivery."""
+        from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler
+
+        handler = BacktestCommandHandler()
+        completed_id = self._seed_command("idem-terminal", "completed")
+
+        # Same command id -> duplicate. Different command id but same key and
+        # terminal status -> also duplicate (idempotency key wins).
+        self.assertTrue(asyncio.run(handler._is_duplicate("idem-terminal", completed_id)))
+        self.assertTrue(asyncio.run(handler._is_duplicate("idem-terminal", "00000000-0000-0000-0000-000000000000")))
+
+        failed_id = self._seed_command("idem-failed", "failed")
+        self.assertTrue(asyncio.run(handler._is_duplicate("idem-failed", failed_id)))
+
+    def test_duplicate_barrier_nonterminal_command_is_not_duplicate(self):
+        """A pending/published command does not block (re)processing."""
+        from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler
+
+        handler = BacktestCommandHandler()
+        pending_id = self._seed_command("idem-pending", "pending")
+        self.assertFalse(asyncio.run(handler._is_duplicate("idem-pending", pending_id)))
+
+        published_id = self._seed_command("idem-published", "published")
+        self.assertFalse(asyncio.run(handler._is_duplicate("idem-published", published_id)))
+
+    def test_duplicate_barrier_unknown_key_is_not_duplicate(self):
+        """An idempotency key with no command record is never a duplicate."""
+        from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler
+
+        handler = BacktestCommandHandler()
+        self.assertFalse(asyncio.run(handler._is_duplicate("idem-absent", str(uuid.uuid4()))))
+
+    def test_handle_acks_duplicate_redelivery_without_reprocessing(self):
+        """Redelivery of a terminal command ACKs and never re-runs the backtest.
+
+        This is the authoritative duplicate barrier: the consumer must not create
+        a second task_run/attempt or re-execute side effects for a command that
+        already reached terminal state. handle() returns ACK for the duplicate.
+        """
+        from src.infrastructure.workers.nats_backtest_consumer import (
+            BacktestCommandHandler,
+            MessageAction,
+        )
+
+        handler = BacktestCommandHandler()
+        completed_id = self._seed_command("idem-redeliver", "completed")
+
+        result = asyncio.run(
+            handler.handle(
+                {"command_id": completed_id, "idempotency_key": "idem-redeliver", "run_id": "run-x"},
+                {"message_id": completed_id, "idempotency_key": "idem-redeliver", "consumer_name": "backtest-worker"},
+            )
+        )
+
+        self.assertEqual(result.action, MessageAction.ACK)
+        # No task_run should have been created for a redelivered terminal command.
+        with self.session_factory() as session:
+            runs = session.execute(
+                text("SELECT count(*) FROM task_runs WHERE command_id = :i"), {"i": completed_id}
+            ).scalar()
+            self.assertEqual(int(runs), 0)
+

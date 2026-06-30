@@ -197,7 +197,7 @@ services:
       VALKEY_PORT: 6379
       VALKEY_URL: redis://valkey:6379/0
       # NATS
-      NATS_ENABLED: "false"
+      NATS_ENABLED: "true"
       NATS_URL: nats://nats:4222
       NATS_MONITORING_URL: http://nats:8222
       NATS_STREAM_PREFIX: bot
@@ -263,7 +263,7 @@ services:
       VALKEY_PORT: 6379
       VALKEY_URL: redis://valkey:6379/0
       # NATS
-      NATS_ENABLED: "false"
+      NATS_ENABLED: "true"
       NATS_URL: nats://nats:4222
       NATS_MONITORING_URL: http://nats:8222
       NATS_STREAM_PREFIX: bot
@@ -348,7 +348,7 @@ services:
       VALKEY_PORT: 6379
       VALKEY_URL: redis://valkey:6379/0
       # NATS
-      NATS_ENABLED: "false"
+      NATS_ENABLED: "true"
       NATS_URL: nats://nats:4222
       NATS_MONITORING_URL: http://nats:8222
       NATS_STREAM_PREFIX: bot

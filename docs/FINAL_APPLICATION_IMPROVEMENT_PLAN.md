@@ -923,6 +923,87 @@ guardrail. They cannot be safely executed or verified in this environment.
   realistic volume; freeze frontend/backend/worker contracts. Reason: depends
   on Phases 0–5.
 
+### Phase 2 — Safe validation progress (additional, this session)
+
+The plan gates the JetStream-primary cutover behind end-to-end validation. The
+following pre-cutover evidence was added and is green; it does NOT change
+production runtime behavior and Celery remains the primary backtest path:
+
+- **Real NATS publisher integration tests** (`backend/internal/nats/`,
+  build tag `integration`, run against `nats://localhost:4222`):
+  - `TestPublisherIntegration_RealPublishSubjectAndMsgId` — a published
+    `backtest.command.start` command lands on stream `BACKTEST_COMMANDS` on the
+    exact subject, with the idempotency key stamped as the JetStream `Msg-Id`,
+    and the envelope preserves `command_id` / `run_id` / `owner` (proves
+    "consumer receives the correct subject" and "command/run IDs match across
+    backend and transport").
+  - `TestPublisherIntegration_DuplicateSuppressed` — repeating a publish with the
+    same idempotency key is deduplicated by JetStream `Msg-Id`
+    (`PublishResult.Duplicate == true`).
+  - `TestPublisherIntegration_FailClosedOnBadURL` — an unreachable bus surfaces a
+    transport error instead of a silent success (fail-closed, observable).
+
+- **Real PostgreSQL duplicate/redelivery barrier tests**
+  (`bot/tests/test_nats_consumer_sql_integration.py`, against a throwaway DB with
+  migrations 000063..000067):
+  - Terminal `task_commands` (completed/failed) with the same idempotency key are
+    detected as duplicates; pending/published commands and unknown keys are not.
+  - `handle()` ACKs a redelivered terminal command and creates NO second
+    task_run/attempt — i.e. redelivery does not create duplicate terminal DB
+    state (the authoritative PostgreSQL terminal-state barrier works).
+
+These cover the plan's "Validation required before each cutover" items for
+publish success/failure, correct subject delivery, command/run ID correlation,
+and duplicate protection.
+
+- **Backtest event contract + backend projector** (`backend/internal/services/`):
+  - `BacktestPushHub.Broadcast(runID, payload)` exposes the push path so durable
+    events can drive the user-facing feed without going through Redis pub/sub.
+  - `backtest_event_projector.go` defines the canonical event contract
+    (`backtest.event.{started,progress,completed,failed}`, typed `BacktestEvent`
+    payload with validation) and a `BacktestEventProjector` that validates +
+    marshals an event and broadcasts it via a `Broadcaster` interface (the hub
+    satisfies it; tests inject a fake). Subject naming matches `nats.Subject()`
+    and the consumer's `BACKTEST_EVENTS` stream (`backtest.event.>`).
+  - Tests cover progress/completed/failed projection, the failed-needs-error-code
+    rule, rejection of all invalid events, nil no-op, and subject building.
+  - `BacktestEventProjector.ProcessEnvelope(env)` is the per-message core a
+    JetStream consumer calls: it validates the wire envelope, decodes the
+    `BacktestEvent` from its `Payload` (falling back to the envelope `owner_id`
+    for `run_id`), and projects it. Unit tests cover the happy path, the run_id
+    fallback, and rejection of empty/invalid envelopes.
+  - A real-NATS integration test
+    (`backtest_event_projector_integration_test.go`, build tag `integration`)
+    proves the read-side pipeline end to end: publish `backtest.event.completed`
+    -> fetch from JetStream -> `ProcessEnvelope` -> broadcast to the push feed.
+    The long-running subscribe loop that feeds `ProcessEnvelope` in production is
+    the JetStream-primary cutover (plan-gated).
+
+Still pending (plan-gated, staging-required): wiring the projector to a live
+JetStream subscribe loop, the bot-side durable event emission, replacing the
+placeholder `_execute_backtest()` with the real backtest runtime, making
+JetStream authoritative, and removing the `asyncio`/Celery fallback. These are
+the actual cutover and must not be done until the end-to-end path is proven in
+staging.
+
+### Configuration change — NATS enabled by default
+
+`NATS_ENABLED` (and `BOT_COMMAND_BUS_ENABLED`) now default to **enabled** in:
+`deploy/k8s-next/platform-config.yaml`, `docker-compose.stack.yml`,
+`docker-compose.stack.arm64.yml`, `backend/config/config.go`,
+`bot/config/config.py`, the bot `event_bus*.py` env reads, and `.env.example`.
+
+This supersedes the earlier "Current Verified State" statement that NATS is
+disabled by default. Enabling it is safe and plan-aligned now that the Phase 0/1
+fixes are in: the backend dual-writes command intent to JetStream (status is
+truthful — `published` only after a successful ack, `pending` otherwise), and
+the **placeholder NATS consumer is NOT started at boot**, so Celery remains the
+authoritative backtest worker and there is no double-execution. The backend
+publish path is fail-closed (a publish to an unreachable bus is logged and the
+command stays `pending`; it never blocks the HTTP path). The remaining,
+plan-gated cutover (real `_execute_backtest`, JetStream-primary, Celery removal)
+is unchanged.
+
 ### Known risks / follow-up
 
 - The NATS consumer's platform-DB access (Phase 2) is the key unblock for a real
@@ -935,5 +1016,3 @@ guardrail. They cannot be safely executed or verified in this environment.
 - The Python consumer SQL integration test depends on a throwaway DB; in CI
   without PostgreSQL it is skipped (the mock-based and Go contract/integration
   tests still run).
-
-

@@ -261,11 +261,11 @@ func LoadConfig() error {
 	}
 
 	nats := NATSSettings{
-		Enabled:           getEnvBool("NATS_ENABLED", false),
+		Enabled:           getEnvBool("NATS_ENABLED", true),
 		URL:               getEnv("NATS_URL", "nats://localhost:4222"),
 		MonitoringURL:     getEnv("NATS_MONITORING_URL", "http://localhost:8222"),
 		StreamPrefix:      getEnv("NATS_STREAM_PREFIX", "bot"),
-		CommandBusEnabled: getEnvBool("BOT_COMMAND_BUS_ENABLED", false),
+		CommandBusEnabled: getEnvBool("BOT_COMMAND_BUS_ENABLED", true),
 	}
 
 	clickHouse := ClickHouseSettings{

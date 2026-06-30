@@ -32,11 +32,12 @@ data:
   # runs and record attempts/heartbeats; it therefore needs access to the
   # platform database, NOT the bot-only dydx_bot database.
   #
-  # TASK_DB_* below makes that ownership explicit. Today the bot consumer is not
-  # wired to a second (platform) connection and NATS_ENABLED is "false", so this
-  # split has no runtime effect. Wiring the consumer's platform-DB access and
-  # flipping NATS_ENABLED is a Phase 2 prerequisite (see
-  # docs/FINAL_APPLICATION_IMPROVEMENT_PLAN.md). Do not point the consumer at
+  # TASK_DB_* below makes that ownership explicit. NATS_ENABLED defaults to "true"
+  # so the backend dual-writes command intent to JetStream (Celery remains the
+  # authoritative backtest worker; the placeholder NATS consumer is NOT started at
+  # boot, so there is no double-execution). Wiring the consumer's platform-DB
+  # access and making JetStream authoritative is the remaining Phase 2 cutover
+  # (see docs/FINAL_APPLICATION_IMPROVEMENT_PLAN.md). Do not point the consumer at
   # dydx_bot for task tables — that would split command truth across databases.
   # ---------------------------------------------------------------------------
   TASK_DB_HOST: pgbouncer
@@ -91,8 +92,8 @@ data:
   BACKTEST_CLICKHOUSE_USER: default
   BACKTEST_CLICKHOUSE_SECURE: "false"
   # BACKTEST_CLICKHOUSE_PASSWORD must come from a Secret (secretKeyRef).
-  NATS_ENABLED: "false"
-  BOT_COMMAND_BUS_ENABLED: "false"
+  NATS_ENABLED: "true"
+  BOT_COMMAND_BUS_ENABLED: "true"
   FRONTEND_PORT: "8080"
   BACKEND_PORT: "8888"
   BOT_API_PORT: "8889"

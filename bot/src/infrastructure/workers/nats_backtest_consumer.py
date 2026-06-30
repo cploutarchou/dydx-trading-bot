@@ -322,58 +322,51 @@ class BacktestCommandHandler:
             self._running_backtests.pop(payload.run_id, None)
     
     async def _execute_backtest(self, payload: BacktestCommandPayload, task_run_id: str, attempt_id: str) -> bool:
-        """
-        Execute the actual backtest.
-        
-        This is where we would integrate with the existing backtest execution logic.
-        For now, this is a placeholder that demonstrates the pattern.
-        
-        In production, this would call the existing backtest execution code
-        from service_backtest.py or similar.
+        """Execute the real backtest via BacktestService (same path Celery uses).
+
+        Imports are local so the consumer module stays import-safe and so a real
+        backtest only runs when a command is actually consumed. Emits the same
+        durable lifecycle/progress events the Celery task emits, so the backend
+        projector works identically regardless of which executor ran the backtest.
         """
         try:
+            from src.infrastructure.use_cases.service_backtest import BacktestService
+            from src.infrastructure.workers.backtest_event_emitter import publish_backtest_event
+
             logger.info(f"Starting backtest execution for run_id: {payload.run_id}")
-            
-            # Update task run progress
-            await self._update_task_run_progress(task_run_id, 10.0)
-            
-            # Simulate backtest execution steps
-            # In real implementation, this would call the backtest service
-            
-            # Step 1: Initialize
-            logger.info(f"Backtest {payload.run_id}: Initializing...")
-            await asyncio.sleep(0.1)  # Simulate work
-            await self._update_task_run_progress(task_run_id, 20.0)
-            
-            # Step 2: Load strategy (if provided)
-            if payload.strategy_id:
-                logger.info(f"Backtest {payload.run_id}: Loading strategy {payload.strategy_id}")
-                await asyncio.sleep(0.1)
-                await self._update_task_run_progress(task_run_id, 30.0)
-            
-            # Step 3: Prepare market data
-            if payload.pairs:
-                logger.info(f"Backtest {payload.run_id}: Preparing data for pairs: {payload.pairs}")
-                await asyncio.sleep(0.1)
-                await self._update_task_run_progress(task_run_id, 50.0)
-            
-            # Step 4: Execute backtest
-            logger.info(f"Backtest {payload.run_id}: Executing...")
-            await asyncio.sleep(0.2)
-            await self._update_task_run_progress(task_run_id, 80.0)
-            
-            # Step 5: Finalize
-            logger.info(f"Backtest {payload.run_id}: Finalizing...")
-            await asyncio.sleep(0.1)
-            await self._update_task_run_progress(task_run_id, 95.0)
-            
-            # For demo purposes, always succeed
-            # In real implementation, this would return the actual result
-            logger.info(f"Backtest {payload.run_id}: Completed successfully")
+
+            session = db.get_session()
+            repository = BacktestRepository(session)
+            service = BacktestService(repository)
+
+            async def _progress(callback_run_id: str, progress: float, current_pair: str, eta: float) -> None:
+                await self._update_task_run_progress(task_run_id, float(progress))
+                await publish_backtest_event(
+                    run_id=callback_run_id, status="progress",
+                    progress=float(progress), current_pair=current_pair,
+                )
+
+            await self._update_task_run_status(task_run_id, TaskRunStatus.RUNNING, 0.0)
+            await publish_backtest_event(run_id=payload.run_id, status="started")
+
+            # propagate_exceptions=True so failures surface here for the consumer
+            # to mark the run/command failed and emit a failed event.
+            await service.execute_existing_backtest(
+                payload.run_id, _progress, propagate_exceptions=True
+            )
+
+            await self._update_task_run_progress(task_run_id, 100.0)
+            await publish_backtest_event(run_id=payload.run_id, status="completed", progress=100.0)
+            logger.info(f"Backtest {payload.run_id}: Completed successfully via NATS consumer")
             return True
-            
+
         except Exception as e:
             logger.error(f"Backtest execution failed for {payload.run_id}: {e}")
+            from src.infrastructure.workers.backtest_event_emitter import publish_backtest_event
+            await publish_backtest_event(
+                run_id=payload.run_id, status="failed",
+                error_code="BACKTEST_EXECUTION_FAILED", error_message=str(e),
+            )
             return False
     
     async def _ensure_task_run(self, payload: BacktestCommandPayload) -> str:

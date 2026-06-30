@@ -536,6 +536,75 @@ class TestMessageProcessing(unittest.IsolatedAsyncioTestCase):
         insert_call = mock_session.execute.call_args_list[1]
         self.assertNotIn("requested_by_user_id", str(insert_call))
 
+    @patch('src.infrastructure.workers.backtest_event_emitter.publish_backtest_event', new_callable=AsyncMock)
+    @patch('src.infrastructure.use_cases.service_backtest.BacktestService')
+    @patch('src.infrastructure.workers.nats_backtest_consumer.db.get_session')
+    async def test_execute_backtest_invokes_real_service_and_emits_events(
+        self, mock_get_session, mock_service_cls, mock_emit,
+    ):
+        """_execute_backtest delegates to BacktestService.execute_existing_backtest
+        (the real runtime, same path Celery uses) and emits started/completed events."""
+        from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler
+
+        mock_service = MagicMock()
+        mock_service.execute_existing_backtest = AsyncMock()
+        mock_service_cls.return_value = mock_service
+        mock_get_session.return_value = MagicMock()
+
+        handler = BacktestCommandHandler()
+        # Avoid real DB writes for task-run status/progress updates.
+        handler._update_task_run_status = AsyncMock()
+        handler._update_task_run_progress = AsyncMock()
+
+        payload = BacktestCommandHandler._parse_payload(
+            handler,
+            {"command_id": "cmd-1", "idempotency_key": "k-1", "run_id": "run-real-1"},
+            {"message_id": "cmd-1", "idempotency_key": "k-1"},
+        )
+
+        ok = await handler._execute_backtest(payload, "task-run-1", "attempt-1")
+        self.assertTrue(ok)
+
+        # Real service invoked with the command's run_id.
+        mock_service.execute_existing_backtest.assert_awaited_once()
+        called_run_id = mock_service.execute_existing_backtest.await_args.args[0]
+        self.assertEqual(called_run_id, "run-real-1")
+
+        # Lifecycle events emitted (started + completed).
+        emitted_statuses = [c.kwargs.get("status") for c in mock_emit.await_args_list]
+        self.assertIn("started", emitted_statuses)
+        self.assertIn("completed", emitted_statuses)
+
+    @patch('src.infrastructure.workers.backtest_event_emitter.publish_backtest_event', new_callable=AsyncMock)
+    @patch('src.infrastructure.use_cases.service_backtest.BacktestService')
+    @patch('src.infrastructure.workers.nats_backtest_consumer.db.get_session')
+    async def test_execute_backtest_failure_emits_failed_event(
+        self, mock_get_session, mock_service_cls, mock_emit,
+    ):
+        """A raised backtest exception is caught and emits a failed event."""
+        from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler
+
+        mock_service = MagicMock()
+        mock_service.execute_existing_backtest = AsyncMock(side_effect=RuntimeError("boom"))
+        mock_service_cls.return_value = mock_service
+        mock_get_session.return_value = MagicMock()
+
+        handler = BacktestCommandHandler()
+        handler._update_task_run_status = AsyncMock()
+        handler._update_task_run_progress = AsyncMock()
+
+        payload = BacktestCommandHandler._parse_payload(
+            handler,
+            {"command_id": "cmd-2", "idempotency_key": "k-2", "run_id": "run-real-2"},
+            {"message_id": "cmd-2", "idempotency_key": "k-2"},
+        )
+
+        ok = await handler._execute_backtest(payload, "task-run-2", "attempt-2")
+        self.assertFalse(ok)
+
+        emitted_statuses = [c.kwargs.get("status") for c in mock_emit.await_args_list]
+        self.assertIn("failed", emitted_statuses)
+
 
 class TestConfigurationConsistency(unittest.TestCase):
     """Test configuration consistency with nats-jetstream-plan.md."""

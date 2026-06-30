@@ -534,14 +534,14 @@ class ConfigurationManager:
 
     def _build_nats_settings_from_env(self) -> NATSSettings:
         return NATSSettings(
-            enabled=_get_env_bool("NATS_ENABLED", default=True),
+            enabled=_get_env_bool("NATS_ENABLED", default=False),
             url=_get_env("NATS_URL", default="nats://localhost:4222"),
             monitoring_url=_get_env(
                 "NATS_MONITORING_URL", default="http://localhost:8222"
             ),
             stream_prefix=_get_env("NATS_STREAM_PREFIX", default="bot"),
             command_bus_enabled=_get_env_bool(
-                "BOT_COMMAND_BUS_ENABLED", default=True
+                "BOT_COMMAND_BUS_ENABLED", default=False
             ),
         )
 

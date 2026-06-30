@@ -50,8 +50,8 @@ class NatsJetStreamEventBus(EventBus):
     def _is_nats_enabled(self) -> bool:
         """Check if NATS is enabled via environment."""
         import os
-        nats_enabled = os.getenv("NATS_ENABLED", "true").lower() == "true"
-        command_bus_enabled = os.getenv("BOT_COMMAND_BUS_ENABLED", "true").lower() == "true"
+        nats_enabled = os.getenv("NATS_ENABLED", "false").lower() == "true"
+        command_bus_enabled = os.getenv("BOT_COMMAND_BUS_ENABLED", "false").lower() == "true"
         return nats_enabled or command_bus_enabled or self.enabled
 
     def publish(

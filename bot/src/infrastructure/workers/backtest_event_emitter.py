@@ -21,7 +21,7 @@ import logging
 import os
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Mapping, Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,42 @@ STATUS_TO_EVENT: dict[str, str] = {
 
 _SCHEMA_VERSION = "1"
 _PRODUCER_SERVICE = "bot-worker"
+
+# JetStream stream covering backtest lifecycle/progress events. Subjects use the
+# ">" wildcard (matches nested actions too) to stay consistent with the
+# bot-side consumer's BACKTEST_EVENTS config; only the bot emits events, so this
+# is the single owner of the stream definition.
+_EVENT_STREAM_NAME = "BACKTEST_EVENTS"
+_EVENT_STREAM_SUBJECTS = ["backtest.event.>"]
+_EVENT_STREAM_MAX_AGE_SECONDS = 7 * 24 * 60 * 60  # 7 days
+
+
+async def _ensure_event_stream(js: Any) -> None:
+    """Idempotently ensure the BACKTEST_EVENTS stream exists (limits retention)."""
+    try:
+        await js.stream_info(_EVENT_STREAM_NAME)
+        return
+    except Exception:
+        pass  # Not found; create below.
+    try:
+        import nats.api as nats_api  # type: ignore[import-untyped]
+    except Exception:
+        nats_api = None
+    try:
+        kwargs: dict[str, Any] = {
+            "name": _EVENT_STREAM_NAME,
+            "subjects": _EVENT_STREAM_SUBJECTS,
+            "retention": "limits",
+            "storage": "file",
+            "max_age": _EVENT_STREAM_MAX_AGE_SECONDS,
+        }
+        if nats_api is not None:
+            kwargs["retention"] = nats_api.RetentionPolicy.LIMITS
+            kwargs["storage"] = nats_api.StorageType.FILE
+        await js.add_stream(**kwargs)
+        logger.info("backtest_event_stream_created name=%s", _EVENT_STREAM_NAME)
+    except Exception as exc:
+        logger.debug("backtest_event_stream_ensure_failed error=%r", exc)
 
 
 def _is_enabled() -> bool:
@@ -144,6 +180,7 @@ async def publish_backtest_event(
     try:
         nc = await nats.connect(servers=_servers(), connect_timeout=5, max_reconnect_attempts=-1)
         js = nc.jetstream()
+        await _ensure_event_stream(js)
         await js.publish(subject, data, headers={"Msg-Id": msg_id})
         logger.info(
             "backtest_event_emitted run_id=%s event=%s subject=%s msg_id=%s",

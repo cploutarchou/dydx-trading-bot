@@ -120,6 +120,22 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 	natsPublisher := nats.NewPublisher(cfg.NATS)
 	natsCommandService := services.NewNATSCommandService(taskRepo, natsPublisher, cfg.NATS)
 
+	// Phase 2: backend projector for durable backtest events. When NATS is
+	// enabled, consume backtest.event.* from JetStream and push to the websocket
+	// feed (dual-push alongside Redis pub/sub). The consumer is fail-closed and
+	// runs for the process lifetime; it never blocks startup or returns from Run.
+	if cfg.NATS.Enabled && deps.BacktestPushHub != nil {
+		if eventConsumer := services.NewBacktestEventConsumer(
+			cfg.NATS.URL, services.NewBacktestEventProjector(deps.BacktestPushHub),
+		); eventConsumer != nil {
+			go func() {
+				if err := eventConsumer.Run(context.Background()); err != nil {
+					log.Printf("backtest event consumer stopped: %v", err)
+				}
+			}()
+		}
+	}
+
 	registerFeatureRoutes(router, deps.Database, deps.BotAPIClient, deps.CacheService, deps.BacktestPushHub, taskRepo, natsPublisher, natsCommandService)
 	registerDebugRoutes(router, deps.Database)
 

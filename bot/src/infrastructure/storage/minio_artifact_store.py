@@ -134,6 +134,15 @@ class MinIOArtifactStore(ArtifactStore):
                 )
                 return self.reference_for(safe_key)
             except Exception as exc:  # noqa: BLE001
+                if self.strict_mode:
+                    logger.error(
+                        "MinIO write failed in strict mode; rejecting persistence key=%s error=%s",
+                        safe_key,
+                        exc,
+                    )
+                    raise RuntimeError(
+                        f"MinIO artifact persistence failed (strict mode): {exc}"
+                    ) from exc
                 logger.warning(
                     "MinIO write failed; using local fallback key=%s error=%s",
                     safe_key,
@@ -161,6 +170,15 @@ class MinIOArtifactStore(ArtifactStore):
                 return response.read()
             except Exception as exc:  # noqa: BLE001
                 if not self._is_not_found_error(exc):
+                    if self.strict_mode:
+                        logger.error(
+                            "MinIO read failed in strict mode; rejecting read key=%s error=%s",
+                            safe_key,
+                            exc,
+                        )
+                        raise RuntimeError(
+                            f"MinIO artifact read failed (strict mode): {exc}"
+                        ) from exc
                     logger.warning(
                         "MinIO read failed; trying fallback key=%s error=%s",
                         safe_key,
@@ -188,6 +206,15 @@ class MinIOArtifactStore(ArtifactStore):
                 return True
             except Exception as exc:  # noqa: BLE001
                 if not self._is_not_found_error(exc):
+                    if self.strict_mode:
+                        logger.error(
+                            "MinIO exists check failed in strict mode; rejecting check key=%s error=%s",
+                            safe_key,
+                            exc,
+                        )
+                        raise RuntimeError(
+                            f"MinIO artifact exists check failed (strict mode): {exc}"
+                        ) from exc
                     logger.warning(
                         "MinIO exists check failed; trying fallback key=%s error=%s",
                         safe_key,

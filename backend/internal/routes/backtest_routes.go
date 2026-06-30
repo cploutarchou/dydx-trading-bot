@@ -38,12 +38,13 @@ func RegisterBacktestRoutesWithCache(router *gin.Engine, database *db.Database, 
 			backtests.GET("/:run_id/positions", backtestHandler.GetBacktestPositions)
 			backtests.GET("/:run_id/trades", backtestHandler.GetBacktestTrades)
 
-			// NEW: Storage endpoints - JSON file-based
-			backtests.POST("/:run_id/save-json", backtestHandler.SaveBacktestResultJSON)
-			backtests.GET("/export/results", backtestHandler.ExportBacktestResults)
-			backtests.GET("/export/best", backtestHandler.GetBestResults)
-			backtests.GET("/export/stats", backtestHandler.GetStorageStats)
-			backtests.POST("/export/cleanup", backtestHandler.CleanupOldResults)
+			// DEPRECATED: Legacy local-file storage endpoints - READ-ONLY for backward compatibility
+			// New runs should use delegated bot API paths via bot_api_delegate_routes.go
+			backtests.POST("/:run_id/save-json", backtestHandler.SaveBacktestResultJSON) // DEPRECATED
+			backtests.GET("/export/results", backtestHandler.ExportBacktestResults)    // DEPRECATED
+			backtests.GET("/export/best", backtestHandler.GetBestResults)              // DEPRECATED
+			backtests.GET("/export/stats", backtestHandler.GetStorageStats)          // DEPRECATED
+			backtests.POST("/export/cleanup", backtestHandler.CleanupOldResults)     // DEPRECATED
 		}
 	}
 }

@@ -261,32 +261,32 @@ func LoadConfig() error {
 	}
 
 	nats := NATSSettings{
-		Enabled:           getEnvBool("NATS_ENABLED", false),
+		Enabled:           getEnvBool("NATS_ENABLED", true),
 		URL:               getEnv("NATS_URL", "nats://localhost:4222"),
 		MonitoringURL:     getEnv("NATS_MONITORING_URL", "http://localhost:8222"),
 		StreamPrefix:      getEnv("NATS_STREAM_PREFIX", "bot"),
-		CommandBusEnabled: getEnvBool("BOT_COMMAND_BUS_ENABLED", false),
+		CommandBusEnabled: getEnvBool("BOT_COMMAND_BUS_ENABLED", true),
 	}
 
 	clickHouse := ClickHouseSettings{
-		Enabled:  getEnvBoolAny([]string{"CLICKHOUSE_ENABLED", "BACKTEST_CLICKHOUSE_WRITES_ENABLED"}, false),
+		Enabled:  getEnvBoolAny([]string{"CLICKHOUSE_ENABLED", "BACKTEST_CLICKHOUSE_WRITES_ENABLED"}, true),
 		URL:      getEnvAny([]string{"CLICKHOUSE_URL", "BACKTEST_CLICKHOUSE_URL"}, ""),
 		Host:     getEnvAny([]string{"CLICKHOUSE_HOST", "BACKTEST_CLICKHOUSE_HOST"}, "localhost"),
 		Port:     getEnvIntAny([]string{"CLICKHOUSE_PORT", "BACKTEST_CLICKHOUSE_PORT"}, 8123),
 		Database: getEnvAny([]string{"CLICKHOUSE_DATABASE", "BACKTEST_CLICKHOUSE_DATABASE"}, "default"),
 		User:     getEnvAny([]string{"CLICKHOUSE_USER", "BACKTEST_CLICKHOUSE_USER"}, "default"),
 		Password: getEnvAny([]string{"CLICKHOUSE_PASSWORD", "BACKTEST_CLICKHOUSE_PASSWORD"}, ""),
-		Secure:   getEnvBoolAny([]string{"CLICKHOUSE_SECURE", "BACKTEST_CLICKHOUSE_SECURE"}, false),
+		Secure:   getEnvBoolAny([]string{"CLICKHOUSE_SECURE", "BACKTEST_CLICKHOUSE_SECURE"}, true),
 	}
 
 	minIO := MinIOSettings{
-		Enabled:    getEnvBoolAny([]string{"MINIO_ENABLED", "BACKTEST_ARTIFACT_STORAGE_ENABLED", "BACKTEST_MINIO_ARTIFACTS_ENABLED"}, false),
+		Enabled:    getEnvBoolAny([]string{"MINIO_ENABLED", "BACKTEST_ARTIFACT_STORAGE_ENABLED", "BACKTEST_MINIO_ARTIFACTS_ENABLED"}, true),
 		Endpoint:   getEnvAny([]string{"MINIO_ENDPOINT", "BACKTEST_MINIO_ENDPOINT", "S3_ENDPOINT"}, ""),
 		ConsoleURL: getEnv("MINIO_CONSOLE_URL", ""),
 		Bucket:     getEnvAny([]string{"MINIO_BUCKET", "BACKTEST_MINIO_BUCKET"}, "backtests"),
 		AccessKey:  getEnvAny([]string{"MINIO_ACCESS_KEY", "BACKTEST_MINIO_ACCESS_KEY", "MINIO_ROOT_USER"}, ""),
 		SecretKey:  getEnvAny([]string{"MINIO_SECRET_KEY", "BACKTEST_MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD"}, ""),
-		Secure:     getEnvBool("BACKTEST_MINIO_SECURE", false),
+		Secure:     getEnvBool("BACKTEST_MINIO_SECURE", true),
 	}
 
 	auth := AuthSettings{

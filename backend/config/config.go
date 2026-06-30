@@ -275,7 +275,7 @@ func LoadConfig() error {
 		Port:     getEnvIntAny([]string{"CLICKHOUSE_PORT", "BACKTEST_CLICKHOUSE_PORT"}, 8123),
 		Database: getEnvAny([]string{"CLICKHOUSE_DATABASE", "BACKTEST_CLICKHOUSE_DATABASE"}, "default"),
 		User:     getEnvAny([]string{"CLICKHOUSE_USER", "BACKTEST_CLICKHOUSE_USER"}, "default"),
-		Password: getEnvAny([]string{"CLICKHOUSE_PASSWORD", "BACKTEST_CLICKHOUSE_PASSWORD"}, ""),
+		Password: getEnvAny([]string{"CLICKHOUSE_PASSWORD", "BACKTEST_CLICKHOUSE_PASSWORD"}, "change-me-clickhouse"),
 		Secure:   getEnvBoolAny([]string{"CLICKHOUSE_SECURE", "BACKTEST_CLICKHOUSE_SECURE"}, true),
 	}
 
@@ -284,8 +284,8 @@ func LoadConfig() error {
 		Endpoint:   getEnvAny([]string{"MINIO_ENDPOINT", "BACKTEST_MINIO_ENDPOINT", "S3_ENDPOINT"}, ""),
 		ConsoleURL: getEnv("MINIO_CONSOLE_URL", ""),
 		Bucket:     getEnvAny([]string{"MINIO_BUCKET", "BACKTEST_MINIO_BUCKET"}, "backtests"),
-		AccessKey:  getEnvAny([]string{"MINIO_ACCESS_KEY", "BACKTEST_MINIO_ACCESS_KEY", "MINIO_ROOT_USER"}, ""),
-		SecretKey:  getEnvAny([]string{"MINIO_SECRET_KEY", "BACKTEST_MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD"}, ""),
+		AccessKey:  getEnvAny([]string{"MINIO_ACCESS_KEY", "BACKTEST_MINIO_ACCESS_KEY", "MINIO_ROOT_USER"}, "minioadmin"),
+		SecretKey:  getEnvAny([]string{"MINIO_SECRET_KEY", "BACKTEST_MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD"}, "change-me-minio"),
 		Secure:     getEnvBool("BACKTEST_MINIO_SECURE", true),
 	}
 

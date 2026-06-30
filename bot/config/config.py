@@ -277,7 +277,7 @@ class ClickHouseSettings:
     port: int = 8123
     database: str = "default"
     user: str = "default"
-    password: str = ""
+    password: str = "change-me-clickhouse"
     secure: bool = False
     batch_size: int = 1000
     flush_interval_seconds: float = 5.0
@@ -627,13 +627,13 @@ class ConfigurationManager:
                 "BACKTEST_MINIO_ACCESS_KEY",
                 "MINIO_ACCESS_KEY",
                 "MINIO_ROOT_USER",
-                default="",
+                default="minioadmin",
             ),
             secret_key=_get_env(
                 "BACKTEST_MINIO_SECRET_KEY",
                 "MINIO_SECRET_KEY",
                 "MINIO_ROOT_PASSWORD",
-                default="",
+                default="change-me-minio",
             ),
             secure=_get_env_bool(
                 "BACKTEST_MINIO_SECURE", default=(scheme == "https")

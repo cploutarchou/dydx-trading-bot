@@ -1000,9 +1000,47 @@ truthful — `published` only after a successful ack, `pending` otherwise), and
 the **placeholder NATS consumer is NOT started at boot**, so Celery remains the
 authoritative backtest worker and there is no double-execution. The backend
 publish path is fail-closed (a publish to an unreachable bus is logged and the
-command stays `pending`; it never blocks the HTTP path). The remaining,
-plan-gated cutover (real `_execute_backtest`, JetStream-primary, Celery removal)
-is unchanged.
+command stays `pending`; it never blocks the HTTP path).
+
+Note on default sites: deployment configs (`platform-config.yaml`,
+`docker-compose*.yml`, `.env.example`) and `backend/config/config.go` default
+NATS to **enabled**. The bot-side code fallbacks (`bot/config/config.py`,
+`event_bus*.py`) remain **disabled** so the bot test suite and local dev stay
+stable; deployments set the env, which overrides the code default.
+
+### Phase 2 cutover — implementation (this session)
+
+The JetStream cutover pieces are now implemented and tested. Celery remains the
+default backtest worker; the JetStream path is activated by setting
+`BACKTEST_WORKER_BACKEND=nats` and deploying a `WORKER_MODE=nats` worker.
+
+- **Bot durable event emission** (`bot/src/infrastructure/workers/backtest_event_emitter.py`):
+  emits canonical `backtest.event.{started,progress,completed,failed}` envelopes
+  to JetStream (`Msg-Id` stable for terminal events) and is dual-wired into
+  `run_backtest_task` alongside the Redis pub/sub status path (fail-closed).
+  Ensures the `BACKTEST_EVENTS` stream. Real-NATS tests pass.
+- **Backend event consume loop** (`backend/internal/services/backtest_event_consumer.go`):
+  a JetStream pull consumer on `backtest.event.>` that decodes each envelope and
+  projects it via `BacktestEventProjector.ProcessEnvelope` to the push hub
+  (dual-push alongside Redis). Wired into `router.go` startup, gated by NATS
+  enabled. Real-NATS integration test passes (publish → fetch → project).
+- **Real consumer execution** (`nats_backtest_consumer.py`): the placeholder
+  `_execute_backtest()` is replaced with `BacktestService.execute_existing_backtest`
+  (the same runtime Celery uses), emitting lifecycle events. Unit-tested (service
+  invoked + events emitted; failure emits failed event).
+- **Authoritative mode + double-execution guard** (`service_backtest.py`):
+  `BACKTEST_WORKER_BACKEND` now accepts `nats`. In `nats` mode the creation flow
+  persists the run and does NOT enqueue Celery or run asyncio — execution is
+  driven by the backend-published `backtest.command.start` consumed by the
+  `WORKER_MODE=nats` worker. Default remains `asyncio`/`celery`, so there is no
+  regression and no double-execution unless both a nats-worker and celery-worker
+  are deployed simultaneously.
+
+Still pending (the final, staging-gated flips): fully removing the asyncio
+execution fallback (currently kept as the non-nats default) and switching the
+k3s `applications.yaml` backtest worker from `WORKER_MODE=celery` to
+`WORKER_MODE=nats`. These should land only after the nats path is validated
+end-to-end in staging.
 
 ### Known risks / follow-up
 

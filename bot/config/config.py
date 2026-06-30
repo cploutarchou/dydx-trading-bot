@@ -534,14 +534,14 @@ class ConfigurationManager:
 
     def _build_nats_settings_from_env(self) -> NATSSettings:
         return NATSSettings(
-            enabled=_get_env_bool("NATS_ENABLED", default=False),
+            enabled=_get_env_bool("NATS_ENABLED", default=True),
             url=_get_env("NATS_URL", default="nats://localhost:4222"),
             monitoring_url=_get_env(
                 "NATS_MONITORING_URL", default="http://localhost:8222"
             ),
             stream_prefix=_get_env("NATS_STREAM_PREFIX", default="bot"),
             command_bus_enabled=_get_env_bool(
-                "BOT_COMMAND_BUS_ENABLED", default=False
+                "BOT_COMMAND_BUS_ENABLED", default=True
             ),
         )
 
@@ -555,7 +555,7 @@ class ConfigurationManager:
                 "CLICKHOUSE_ENABLED",
                 "BACKTEST_CLICKHOUSE_WRITES_ENABLED",
                 "BACKTEST_CLICKHOUSE_ENABLED",
-                default=False,
+                default=True,
             ),
             url=raw_url,
             host=_get_env(
@@ -616,7 +616,7 @@ class ConfigurationManager:
                 "MINIO_ENABLED",
                 "BACKTEST_ARTIFACT_STORAGE_ENABLED",
                 "BACKTEST_MINIO_ARTIFACTS_ENABLED",
-                default=False,
+                default=True,
             ),
             endpoint=endpoint,
             console_url=_get_env("MINIO_CONSOLE_URL", default=""),

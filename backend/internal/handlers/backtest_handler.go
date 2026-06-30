@@ -565,6 +565,8 @@ func (h *BacktestHandler) GetBacktestTrades(c *gin.Context) {
 // ==================== BACKTEST STORAGE ENDPOINTS ====================
 
 // SaveBacktestResultJSON saves completed backtest results to JSON storage
+// DEPRECATED: This uses legacy local-file storage. New runs should use delegated bot API
+// with MinIO artifact-backed storage via BacktestSyncService.
 func (h *BacktestHandler) SaveBacktestResultJSON(c *gin.Context) {
 	runID := c.Param("run_id")
 	testName := c.Query("test_name")
@@ -722,6 +724,7 @@ func (h *BacktestHandler) SaveBacktestResultJSON(c *gin.Context) {
 }
 
 // ExportBacktestResults exports list of all stored backtest results
+// DEPRECATED: This uses legacy local-file storage. Use delegated bot API for new runs.
 func (h *BacktestHandler) ExportBacktestResults(c *gin.Context) {
 	summaries, err := h.storage.ListBacktestResults()
 	if err != nil {
@@ -744,6 +747,7 @@ func (h *BacktestHandler) ExportBacktestResults(c *gin.Context) {
 }
 
 // GetBestResults returns top performing backtests from JSON storage
+// DEPRECATED: This uses legacy local-file storage. Use delegated bot API for new runs.
 func (h *BacktestHandler) GetBestResults(c *gin.Context) {
 	limitStr := c.DefaultQuery("limit", "10")
 	sortBy := c.DefaultQuery("sort_by", "total_pnl")
@@ -777,6 +781,7 @@ func (h *BacktestHandler) GetBestResults(c *gin.Context) {
 }
 
 // GetStorageStats returns backtest storage statistics
+// DEPRECATED: This uses legacy local-file storage. Use delegated bot API for new runs.
 func (h *BacktestHandler) GetStorageStats(c *gin.Context) {
 	info, err := h.storage.GetStorageInfo()
 	if err != nil {
@@ -796,6 +801,7 @@ func (h *BacktestHandler) GetStorageStats(c *gin.Context) {
 }
 
 // CleanupOldResults removes old backtest result files keeping only recent ones
+// DEPRECATED: This uses legacy local-file storage. Use delegated bot API for new runs.
 func (h *BacktestHandler) CleanupOldResults(c *gin.Context) {
 	keepStr := c.DefaultQuery("keep_count", "100")
 	keep, _ := strconv.Atoi(keepStr)

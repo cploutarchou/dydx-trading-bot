@@ -1,8 +1,8 @@
 ﻿# Backend Tasks
 
 ## Status Summary
-- Completed: `56`
-- Pending: `2`
+- Completed: `58`
+- Pending: `0`
 - Last updated: `2026-06-30`
 - Note: update these totals whenever any [x] or [ ] task changes.
 
@@ -10,7 +10,7 @@
 
 | Repo | Completed | Pending | Focus |
 | --- | --- | --- | --- |
-| backend | 56 | 2 | Artifact-backed trade flow shipped; sync-health/resync semantics need follow-up |
+| backend | 58 | 0 | Artifact-backed trade flow shipped; sync-health/resync semantics completed |
 | bot | 26 | 0 | Canonical API contract and runtime envelope/documentation stability |
 | frontend | 61 | 4 | Remaining responsive evidence + artifact-backed trade/sync-health follow-up |
 
@@ -40,8 +40,8 @@ Snapshot date: `2026-06-30`.
 - [x] Add metrics endpoint for sync lag/age per run.
 - [x] Add optional force-resync endpoint for a run (`run_id`) from bot upstream.
 - [x] Add data quality checks for incomplete child artifacts (missing IDs, invalid timestamps).
-- [ ] Reconcile `GET /api/v1/backtests/sync-health` trade counters with the MinIO-backed trade path so new runs do not imply backend DB trade mirroring.
-- [ ] Reconcile `POST /api/v1/backtests/:run_id/resync` response semantics (`trades_synced`) with the artifact-backed trade flow to avoid misleading operator state.
+- [x] Reconcile `GET /api/v1/backtests/sync-health` trade counters with the MinIO-backed trade path so new runs do not imply backend DB trade mirroring.
+- [x] Reconcile `POST /api/v1/backtests/:run_id/resync` response semantics (`trades_synced`) with the artifact-backed trade flow to avoid misleading operator state.
 
 ## Frontend-Driven Backend Backlog
 

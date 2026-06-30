@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.storage import (
     ClickHouseAnalyticsWriter,
@@ -145,8 +147,102 @@ def test_minio_artifact_store_falls_back_when_enabled_client_fails(tmp_path):
     assert fallback.read_bytes("run-2/out.bin") == b"payload"
 
 
+def test_minio_artifact_store_strict_mode_fails_on_client_error(tmp_path):
+    """Test that strict mode fails visibly instead of falling back to local storage."""
+    store = MinIOArtifactStore(
+        bucket="backtests",
+        enabled=True,
+        fallback=LocalArtifactStore(tmp_path / "local"),  # Fallback is provided but should not be used
+        endpoint_url="http://minio:9000",
+        extra_config={
+            "client": _FailingMinioClient(),
+            "strict_mode": True,
+        },
+    )
+
+    # In strict mode, write should fail instead of falling back
+    with pytest.raises(RuntimeError, match="MinIO artifact persistence failed.*strict mode"):
+        store.put_bytes("run-3/strict.bin", b"payload")
+
+
+def test_minio_artifact_store_strict_mode_fails_on_read_error(tmp_path):
+    """Test that strict mode fails visibly on read operations too."""
+    store = MinIOArtifactStore(
+        bucket="backtests",
+        enabled=True,
+        fallback=LocalArtifactStore(tmp_path / "local"),
+        endpoint_url="http://minio:9000",
+        extra_config={
+            "client": _FailingMinioClient(),
+            "strict_mode": True,
+        },
+    )
+
+    # Test exists() method in strict mode
+    with pytest.raises(RuntimeError, match="MinIO artifact exists check failed.*strict mode"):
+        store.exists("run-3/missing.bin")
+
+
+def test_minio_artifact_store_non_strict_allows_fallback(tmp_path):
+    """Test that non-strict mode (default) allows fallback to local storage."""
+    fallback = LocalArtifactStore(tmp_path / "local")
+    store = MinIOArtifactStore(
+        bucket="backtests",
+        enabled=True,
+        fallback=fallback,
+        endpoint_url="http://minio:9000",
+        extra_config={
+            "client": _FailingMinioClient(),
+            "strict_mode": False,  # Explicitly non-strict
+        },
+    )
+
+    # Should succeed with fallback
+    ref = store.put_bytes("run-4/fallback.bin", b"payload")
+    assert ref.startswith("file:")
+    assert fallback.read_bytes("run-4/fallback.bin") == b"payload"
+
+
 def test_backtest_repository_resolves_minio_endpoint_aliases(monkeypatch):
     monkeypatch.setenv("MINIO_ENDPOINT", "localhost:9010")
+
+
+def test_backtest_repository_strict_mode_disabled_by_default(monkeypatch):
+    """Test that strict mode is disabled by default."""
+    monkeypatch.setenv("BACKTEST_MINIO_ENABLED", "true")
+    monkeypatch.setenv("MINIO_ENDPOINT", "localhost:9010")
+    monkeypatch.setenv("MINIO_ACCESS_KEY", "test-key")
+    monkeypatch.setenv("MINIO_SECRET_KEY", "test-secret")
+    
+    # Clear any strict mode env vars to test default
+    monkeypatch.delenv("BACKTEST_ARTIFACT_STORAGE_STRICT", raising=False)
+    monkeypatch.delenv("BACKTEST_MINIO_STRICT", raising=False)
+    monkeypatch.delenv("MINIO_STRICT_MODE", raising=False)
+    
+    # Force reload of environment
+    import importlib
+    import src.infrastructure.persistence.repository_backtest
+    importlib.reload(src.infrastructure.persistence.repository_backtest)
+    
+    from src.infrastructure.persistence.repository_backtest import BacktestRepository
+    
+    # Should return False by default
+    assert BacktestRepository._artifact_storage_strict_mode() is False
+
+
+def test_backtest_repository_strict_mode_enabled_via_env(monkeypatch):
+    """Test that strict mode can be enabled via environment variable."""
+    monkeypatch.setenv("BACKTEST_ARTIFACT_STORAGE_STRICT", "true")
+    
+    # Force reload of environment
+    import importlib
+    import src.infrastructure.persistence.repository_backtest
+    importlib.reload(src.infrastructure.persistence.repository_backtest)
+    
+    from src.infrastructure.persistence.repository_backtest import BacktestRepository
+    
+    # Should return True when enabled
+    assert BacktestRepository._artifact_storage_strict_mode() is True
     monkeypatch.setenv("S3_ENDPOINT", "http://localhost:9010")
 
     assert BacktestRepository._resolve_minio_endpoint() == "http://localhost:9010"

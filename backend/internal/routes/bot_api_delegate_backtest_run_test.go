@@ -1555,7 +1555,7 @@ func TestDelegatedBacktestSyncHealth_ReturnsCountsByRun(t *testing.T) {
 	upstreamMux := http.NewServeMux()
 	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"run_id":"health-run","status":"queued","start_date":"2025-05-01","end_date":"2025-05-31","num_pairs":2,"total_markets":6}`))
+		_, _ = w.Write([]byte(`{"run_id":"health-run","status":"completed","start_date":"2025-05-01","end_date":"2025-05-31","num_pairs":2,"total_markets":6,"total_trades":42}`))
 	})
 	upstreamMux.HandleFunc("/api/v1/backtests/health-run/trades", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1624,13 +1624,14 @@ func TestDelegatedBacktestSyncHealth_ReturnsCountsByRun(t *testing.T) {
 		Success bool `json:"success"`
 		Data    struct {
 			Runs []struct {
-				RunID         string `json:"run_id"`
-				Trades        int    `json:"trades"`
-				Positions     int    `json:"positions"`
-				Candles       int    `json:"candles"`
-				RunAgeSec     int64  `json:"run_age_seconds"`
-				SyncLagSec    int64  `json:"sync_lag_seconds"`
-				QualityIssues int    `json:"quality_issues"`
+				RunID              string `json:"run_id"`
+				Trades             int    `json:"trades"`             // Now represents delegated trades count
+				BackendMirroredTrades int  `json:"backend_mirrored_trades"` // Legacy backend DB mirror count
+				Positions          int    `json:"positions"`
+				Candles            int    `json:"candles"`
+				RunAgeSec          int64  `json:"run_age_seconds"`
+				SyncLagSec         int64  `json:"sync_lag_seconds"`
+				QualityIssues      int    `json:"quality_issues"`
 			} `json:"runs"`
 			Count int `json:"count"`
 		} `json:"data"`
@@ -1730,6 +1731,13 @@ func TestDelegatedBacktestResync_RefreshesRunAndChildren(t *testing.T) {
 	}
 	if _, ok := data["current_pair"]; !ok {
 		t.Fatalf("expected current_pair key in resync response data")
+	}
+	// Check new field names - trades_fetched_from_bot should be true, backend_trades_synced should be false
+	if data["trades_fetched_from_bot"] != true {
+		t.Fatalf("expected trades_fetched_from_bot=true in resync response, got %v", data["trades_fetched_from_bot"])
+	}
+	if data["backend_trades_synced"] != false {
+		t.Fatalf("expected backend_trades_synced=false in resync response (delegated trades not synced to backend DB), got %v", data["backend_trades_synced"])
 	}
 
 	var runCount int

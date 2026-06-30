@@ -64,8 +64,9 @@ make dev
 The structured profile flow populates the standard local aliases above. `.env.example` remains a compatibility example, but the encrypted profile under `config/profiles/` is the canonical startup source.
 
 Optional backtest adapter flags belong in the structured profile too. Checked-in local/dev defaults keep PostgreSQL as
-the transactional source of truth, enable MinIO-backed backtest artifacts with local fallback safety, and still leave
-ClickHouse disabled until explicitly validated.
+the transactional source of truth, enable MinIO-backed backtest artifacts with local fallback safety, and enable
+ClickHouse analytical writes for the development stack. Detailed backtest trades are served from the bot/artifact path
+rather than being mirrored into backend PostgreSQL.
 
 ### 2. Choose your local workflow
 

@@ -30,7 +30,7 @@ Snapshot date: `2026-04-04`.
 
 ## Delegated Backtest DB Sync
 - [x] Sync `backtest_runs` from delegated endpoints in near real-time.
-- [x] Sync child artifacts into `backtest_trades`, `backtest_positions`, `backtest_candles`.
+- [x] Sync child artifacts into `backtest_positions` and `backtest_candles`; delegated trade reads stay on the bot/artifact path instead of mirroring `backtest_trades`.
 - [x] Preserve dedupe semantics:
   - trades by `trade_id`
   - positions by `position_id`

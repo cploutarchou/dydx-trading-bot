@@ -1244,18 +1244,18 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		}
 	}
 
-	syncChildren := func(c *gin.Context, runID string, payload map[string]interface{}) {
-		if backtestSync == nil || strings.TrimSpace(runID) == "" {
-			return
-		}
-		if err := backtestSync.SyncBacktestTrades(runID, payload); err != nil {
-			log.Printf("Backtest sync warning: failed syncing trades for run %s: %v", runID, err)
-		}
-		if err := backtestSync.SyncBacktestPositions(runID, payload); err != nil {
-			log.Printf("Backtest sync warning: failed syncing positions for run %s: %v", runID, err)
-		}
-		if err := backtestSync.SyncBacktestCandles(runID, payload); err != nil {
-			log.Printf("Backtest sync warning: failed syncing candles for run %s: %v", runID, err)
+		syncChildren := func(c *gin.Context, runID string, payload map[string]interface{}) {
+			if backtestSync == nil || strings.TrimSpace(runID) == "" {
+				return
+			}
+			// Trades stay on the bot-side artifact path (MinIO/local fallback) and
+			// are fetched via delegated bot API routes. We intentionally avoid
+			// mirroring the full trade payload into backend PostgreSQL.
+			if err := backtestSync.SyncBacktestPositions(runID, payload); err != nil {
+				log.Printf("Backtest sync warning: failed syncing positions for run %s: %v", runID, err)
+			}
+			if err := backtestSync.SyncBacktestCandles(runID, payload); err != nil {
+				log.Printf("Backtest sync warning: failed syncing candles for run %s: %v", runID, err)
 		}
 		// After candles are synced, prefetch into Redis in the background so the
 		// first chart render is served from cache rather than the DB.

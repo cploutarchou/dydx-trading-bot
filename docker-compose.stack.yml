@@ -190,7 +190,7 @@ services:
       VALKEY_PORT: 6379
       VALKEY_URL: redis://valkey:6379/0
       # NATS
-      NATS_ENABLED: "false"
+      NATS_ENABLED: "true"
       NATS_URL: nats://nats:4222
       NATS_MONITORING_URL: http://nats:8222
       NATS_STREAM_PREFIX: bot
@@ -255,13 +255,13 @@ services:
       VALKEY_PORT: 6379
       VALKEY_URL: redis://valkey:6379/0
       # NATS
-      NATS_ENABLED: "false"
+      NATS_ENABLED: "true"
       NATS_URL: nats://nats:4222
       NATS_MONITORING_URL: http://nats:8222
       NATS_STREAM_PREFIX: bot
       # ClickHouse
       BACKTEST_ARTIFACT_STORAGE_ENABLED: "true"
-      BACKTEST_CLICKHOUSE_WRITES_ENABLED: "false"
+      BACKTEST_CLICKHOUSE_WRITES_ENABLED: "true"
       BACKTEST_CLICKHOUSE_BATCH_SIZE: "1000"
       BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS: "5"
       CLICKHOUSE_URL: http://clickhouse:8123
@@ -341,7 +341,7 @@ services:
       VALKEY_PORT: 6379
       VALKEY_URL: redis://valkey:6379/0
       # NATS
-      NATS_ENABLED: "false"
+      NATS_ENABLED: "true"
       NATS_URL: nats://nats:4222
       NATS_MONITORING_URL: http://nats:8222
       NATS_STREAM_PREFIX: bot

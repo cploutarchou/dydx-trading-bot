@@ -284,7 +284,7 @@ class NATSConsumerService:
         servers = []
         
         # Try NATS_ENABLED first
-        nats_enabled = os.getenv("NATS_ENABLED", "false").lower() == "true"
+        nats_enabled = os.getenv("NATS_ENABLED", "true").lower() == "true"
         
         # Try individual server configs
         nats_url = os.getenv("NATS_URL", os.getenv("NATS_SERVER_URL", ""))
@@ -304,8 +304,8 @@ class NATSConsumerService:
     
     def _is_nats_enabled(self) -> bool:
         """Check if NATS is enabled via environment variables."""
-        nats_enabled = os.getenv("NATS_ENABLED", "false").lower() == "true"
-        command_bus_enabled = os.getenv("BOT_COMMAND_BUS_ENABLED", "false").lower() == "true"
+        nats_enabled = os.getenv("NATS_ENABLED", "true").lower() == "true"
+        command_bus_enabled = os.getenv("BOT_COMMAND_BUS_ENABLED", "true").lower() == "true"
         return nats_enabled or command_bus_enabled
     
     def set_task_repository(self, repo: Any) -> None:
@@ -913,8 +913,8 @@ def init_nats_consumer_service(
     if _consumer_service is None:
         # If enabled is not specified, check environment variables
         if enabled is None:
-            enabled = os.getenv("NATS_ENABLED", "false").lower() == "true" or \
-                     os.getenv("BOT_COMMAND_BUS_ENABLED", "false").lower() == "true"
+            enabled = os.getenv("NATS_ENABLED", "true").lower() == "true" or \
+                     os.getenv("BOT_COMMAND_BUS_ENABLED", "true").lower() == "true"
         
         _consumer_service = NATSConsumerService(
             servers=servers,

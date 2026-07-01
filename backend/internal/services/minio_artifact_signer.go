@@ -26,6 +26,7 @@ type MinIOArtifactSigner struct {
 	secretKey     string
 	region        string
 	clock         func() time.Time
+	metrics       *AsyncMetrics
 }
 
 // NewMinIOArtifactSigner returns nil when MinIO signing is not configured.
@@ -51,6 +52,7 @@ func NewMinIOArtifactSigner(settings config.MinIOSettings) (*MinIOArtifactSigner
 		secretKey:     strings.TrimSpace(settings.SecretKey),
 		region:        defaultMinIOArtifactRegion,
 		clock:         time.Now,
+		metrics:       GetAsyncMetrics(),
 	}, nil
 }
 
@@ -65,12 +67,16 @@ func (s *MinIOArtifactSigner) DefaultBucket() string {
 // PresignGet returns a short-lived GET URL for the provided bucket/object key.
 func (s *MinIOArtifactSigner) PresignGet(bucket, objectKey string, expires time.Duration) (string, time.Time, error) {
 	if s == nil {
+		// Cannot record metrics if signer is nil (no metrics field to access)
 		return "", time.Time{}, fmt.Errorf("artifact signer is not configured")
 	}
 
 	bucket = strings.TrimSpace(bucket)
 	objectKey = strings.Trim(strings.TrimSpace(objectKey), "/")
 	if bucket == "" || objectKey == "" {
+		if s.metrics != nil {
+			s.metrics.RecordMinIOUploadFailure()
+		}
 		return "", time.Time{}, fmt.Errorf("bucket and object key are required")
 	}
 
@@ -121,6 +127,9 @@ func (s *MinIOArtifactSigner) PresignGet(bucket, objectKey string, expires time.
 	signedURL.Path = joinURLPath(s.endpoint.Path, escapedPath)
 	signedURL.RawQuery = signedQuery
 
+	if s.metrics != nil {
+		s.metrics.RecordMinIOUploadSuccess()
+	}
 	return signedURL.String(), now.Add(expires), nil
 }
 

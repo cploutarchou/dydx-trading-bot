@@ -59,7 +59,8 @@ type APIRequestLatencyDistribution struct {
 // APIRequestWriter writes API request events to ClickHouse.
 // It provides typed access to the api_request_events table for analytics.
 type APIRequestWriter struct {
-	reader *ClickHouseReader
+	reader  *ClickHouseReader
+	metrics *AsyncMetrics
 }
 
 // NewAPIRequestWriter creates a new APIRequestWriter.
@@ -68,7 +69,10 @@ func NewAPIRequestWriter(reader *ClickHouseReader) *APIRequestWriter {
 	if reader == nil {
 		return nil
 	}
-	return &APIRequestWriter{reader: reader}
+	return &APIRequestWriter{
+		reader:  reader,
+		metrics: GetAsyncMetrics(),
+	}
 }
 
 // WriteEvent writes a single API request event to ClickHouse.
@@ -80,14 +84,22 @@ func NewAPIRequestWriter(reader *ClickHouseReader) *APIRequestWriter {
 // request events middleware) rely on this being truthful when ClickHouse is enabled.
 func (w *APIRequestWriter) WriteEvent(ctx context.Context, event APIRequestEvent) error {
 	if w == nil {
+		// Cannot record metrics if writer is nil (no metrics field to access)
 		return ErrClickHouseDisabled
 	}
-	return w.WriteEvents(ctx, []APIRequestEvent{event})
+	err := w.WriteEvents(ctx, []APIRequestEvent{event})
+	if err != nil && w.metrics != nil {
+		w.metrics.RecordClickHouseWriteFailure()
+	} else if w.metrics != nil {
+		w.metrics.RecordClickHouseWriteSuccess()
+	}
+	return err
 }
 
 // WriteEvents writes multiple API request events in a batch.
 func (w *APIRequestWriter) WriteEvents(ctx context.Context, events []APIRequestEvent) error {
 	if w == nil {
+		// Cannot record metrics if writer is nil (no metrics field to access)
 		return ErrClickHouseDisabled
 	}
 	if len(events) == 0 {
@@ -116,7 +128,13 @@ func (w *APIRequestWriter) WriteEvents(ctx context.Context, events []APIRequestE
 		rows[i] = row
 	}
 
-	return w.writeRows(ctx, rows)
+	err := w.writeRows(ctx, rows)
+	if err != nil && w.metrics != nil {
+		w.metrics.RecordClickHouseWriteFailure()
+	} else if w.metrics != nil && len(events) > 0 {
+		w.metrics.RecordClickHouseWriteSuccess()
+	}
+	return err
 }
 
 func (w *APIRequestWriter) writeRows(ctx context.Context, rows []map[string]interface{}) error {

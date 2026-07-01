@@ -81,14 +81,18 @@ Repository-level guidance for coding agents working on this project.
 
 **Testing and validation:**
 - `make test` — Run full pytest suite
+- `make test-auth` — Test authentication system (runs `test_api_database_integration.py` in Docker)
 - `make preflight-testnet` — Run testnet preflight checks with production-like simulation
 - `make preflight-testnet-strict` — Run strict preflight (warnings fail; required for release)
 - `make test-execution-safety` — Run regression tests for order execution, emergency cleanup, and position reconciliation
+- `make simulate-production-profile` — Run baseline vs production-profile simulation via backtest API (`scripts/simulate_production_profile.py --skip-auth`)
 
 **Docker orchestration:**
 - `make setup` — Initialize development environment
 - `make dev` — Start development environment with Docker (hot reload enabled)
 - `make dev-detached` — Start development environment in background
+- `make health` — Check health of all running services
+- `make info` — Show project information and current status
 
 ## Celery and Backtest Patterns
 
@@ -109,6 +113,12 @@ Repository-level guidance for coding agents working on this project.
 - Celery broker/backend configured via `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` environment variables
 - Valkey is the standard local Redis-compatible backend (local defaults: `redis://localhost:6379/1` for Celery broker and `redis://localhost:6379/2` for results when `CELERY_*` is unset)
 - Flower connects to the same broker/backend and displays worker status only after worker is online
+- Additional scheduled workers: `src/infrastructure/workers/market_sync_tasks.py` (market data sync), `src/infrastructure/workers/candle_aggregate_tasks.py` (OHLCV aggregation), `src/infrastructure/workers/celery_monitor.py` (Celery health monitoring)
+
+**Optional storage adapters:**
+- Analytics writes to ClickHouse: `BACKTEST_CLICKHOUSE_WRITES_ENABLED=false` (off by default); configure via `CLICKHOUSE_URL` or `CLICKHOUSE_HOST`/`CLICKHOUSE_PORT`; implementation in `src/infrastructure/storage/clickhouse_writer.py`
+- Artifact storage via MinIO/S3: `BACKTEST_MINIO_ARTIFACTS_ENABLED=false` (off by default); configure via `MINIO_ENDPOINT`, `MINIO_BUCKET`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `S3_ENDPOINT`; implementation in `src/infrastructure/storage/minio_artifact_store.py`
+- Storage abstraction layers: `src/infrastructure/storage/analytics.py` and `src/infrastructure/storage/artifacts.py`
 
 ## Required checks for bot-runtime changes
 
@@ -126,6 +136,12 @@ Repository-level guidance for coding agents working on this project.
 - Run `tests/test_backtest_api_contract.py` when touching backtest routes/payloads to preserve backend-facing
   status/progress and alias contracts.
 - Run `tests/test_async_job_manager.py` when touching background task orchestration (`async_job_manager`) behavior.
+- Run `tests/test_market_sync_tasks.py` and `tests/test_market_data_cache.py` when touching market data sync, caching, or candle aggregation.
+- Run `tests/test_position_manager_exit_safety.py` and `tests/test_position_manager_entry_backoff.py` when touching position entry/exit logic or backoff behavior.
+- Run `tests/test_storage_adapters.py` when touching ClickHouse or MinIO storage integration.
+- Run `tests/test_arbitrage_observability.py` and `tests/test_arbitrage_cycle_cache.py` when touching arbitrage decision logic or pair caching.
+- Run `tests/test_live_risk_controls.py` and `tests/test_live_trade_persistence.py` when touching live trading risk controls or trade persistence.
+- Run `tests/test_auth_api_contract.py` and `tests/test_auth_bypass_environment_guard.py` when touching auth routes or bypass behavior.
 - Run `make test-execution-safety` when touching order execution, emergency cleanup, or position-reconciliation safety paths.
 - Run `make preflight-testnet` (and `make preflight-testnet-strict` for release-oriented changes) for
   runtime/safety-impacting edits.
@@ -152,3 +168,8 @@ Repository-level guidance for coding agents working on this project.
 - **Backtest logging**: Long-running backtests capture per-job logs to `bot_states/backtest_<run_id>.log`; retrieve via `GET /api/v1/backtests/{run_id}/logs` endpoint; progress reporting is throttled to reduce DB IO pressure.
 - **Runtime config**: Bot instances load config from `bot_instances.config` only (DB-first approach); deprecated `bot_states/config_*.yaml` files are no longer read; use `scripts/migrate_yaml_configs_to_db.py` for one-time migration if needed.
 - **Startup recovery**: Stale backtests and orphaned live bots are reconciled to failed state by default; use `BACKTEST_AUTO_RECOVERY_MODE=restart` and `BOT_AUTO_RECOVER_LIVE_*` flags to enable auto-recovery.
+- **New infrastructure components**: `src/infrastructure/event_bus.py` (event publishing/subscription), `src/infrastructure/cache_lock.py` (distributed locking); use these for coordination rather than ad-hoc locking.
+- **New trading components**: `src/trading/arbitrage_observability.py` (decision audit trail), `src/trading/pair_priority.py` (pair ranking engine), `src/trading/realtime_data_service.py` (real-time feed integration), `src/trading/trade_persistence.py` (live trade records).
+- **2FA auth routes**: `src/api/v1/auth/password_2fa.py` exposes `POST /auth/setup` and `POST /auth/verify`; follow existing `api_response(...)` envelope and auth-bypass guard patterns.
+- **Strategy resolution metrics**: Operator-facing endpoints for resolution drift monitoring — `GET /api/v1/runtime/strategy-resolution-metrics`, `GET /api/v1/runtime/strategy-resolution-metrics/prom` (Prometheus), `POST /api/v1/admin/runtime/strategy-resolution-metrics/reset`. Tune with `STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE`, `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_THRESHOLD`, `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_MIN_RUNS`.
+- **Backtest sync-health and repair**: `GET /api/v1/backtests/sync-health` monitors strategy-resolution drift; `POST /api/v1/admin/backtests/{run_id}/repair-request` (with `?dry_run=true` to preview) allows admin repair of misaligned backtest requests.

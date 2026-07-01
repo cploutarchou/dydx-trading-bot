@@ -58,6 +58,17 @@ func (h *BacktestPushHub) Unsubscribe(runID string, conn *websocket.Conn) {
 	}
 }
 
+// Broadcast sends a raw JSON payload to all WebSocket connections subscribed
+// for run_id. It is the durable-event entry point: a backend projector that
+// consumes backtest.event.* from JetStream calls this to push updates to
+// clients without going through the Redis pub/sub path.
+func (h *BacktestPushHub) Broadcast(runID string, payload []byte) {
+	if h == nil || runID == "" {
+		return
+	}
+	h.push(runID, payload)
+}
+
 // push sends a raw JSON payload to all connections subscribed for run_id.
 func (h *BacktestPushHub) push(runID string, payload []byte) {
 	h.mu.RLock()

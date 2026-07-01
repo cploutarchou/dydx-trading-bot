@@ -424,7 +424,8 @@ func registerHealthRoutes(router *gin.Engine, cfg *config.Config, database *db.D
 			"backtest_sync": gin.H{
 				"run_upsert_outcomes": repository.BacktestRunSyncOutcomeCounters(),
 			},
-			"service":        buildServiceMetadata(startTime),
+			"async_metrics": services.GetAsyncMetrics().Snapshot(),
+			"service":       buildServiceMetadata(startTime),
 		})
 	})
 }

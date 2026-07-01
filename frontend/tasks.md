@@ -1,20 +1,20 @@
 ﻿# Frontend Integration Tasks
 
 ## Status Summary
-- Completed: `60`
-- Pending: `3`
-- Last updated: `2026-04-10`
+- Completed: `61`
+- Pending: `4`
+- Last updated: `2026-06-30`
 - Note: update these totals whenever any [x] or [ ] task changes.
 
 ## Cross-Repo Status Snapshot
 
 | Repo     | Completed | Pending | Focus                                                                    |
 | -------- | --------- | ------- | ------------------------------------------------------------------------ |
-| backend  | 54        | 0       | Delegated contract parity and contract-lock coverage shipped             |
+| backend  | 56        | 2       | Artifact-backed trade flow shipped; sync-health/resync semantics need follow-up |
 | bot      | 26        | 0       | Canonical API contract and runtime envelope/documentation stability      |
-| frontend | 58        | 3       | Remaining responsive evidence + medium-priority backend integration asks |
+| frontend | 61        | 4       | Remaining responsive evidence + artifact-backed trade/sync-health follow-up |
 
-Snapshot date: `2026-04-05`.
+Snapshot date: `2026-06-30`.
 
 ## Responsive QA
 - [x] Deliver route-by-route responsive QA matrix (375/768/1024/1440) in `docs/RESPONSIVE_QA_STATUS.md`.
@@ -133,6 +133,10 @@ Snapshot date: `2026-04-05`.
   - UI impact: UI can surface delayed-sync warnings with confidence.
   - Fallback behavior: expose run freshness and last-sync timestamps.
   - Owner: Backend
+- [ ] Date: 2026-06-30 | Endpoint: `GET /api/v1/backtests/sync-health`
+  - UI impact: the current `trades` counter can mislead operators now that detailed trades stay on the bot/artifact path instead of backend DB mirroring.
+  - Fallback behavior: expose an explicit artifact-backed trade availability signal or rename/retire the misleading trade-sync field.
+  - Owner: Backend
 
 ## Change Log
 - [x] 2026-04-04: Bot API now sanitizes all 5xx envelope messages globally via `api_response`, preventing raw internal exception/SQL leakage into frontend error surfaces while preserving generic failure UX.
@@ -161,6 +165,7 @@ Snapshot date: `2026-04-05`.
 - [x] 2026-04-04: Added `npm run qa:screenshots:sync` to auto-refresh screenshot checklist checkboxes from files present in `docs/screenshots/responsive/`.
 - [x] Added first frontend implementation entries for sync-health panel and polling backoff updates.
 - [x] 2026-04-05: Strategy runtime controls are now live in `StrategyManager`; the UI consumes backend start/stop/runtime endpoints and safely handles bot websocket snapshots/lifecycle updates.
+- [x] 2026-06-30: Delegated backtest trade reads now stay on the bot/artifact path instead of relying on backend trade mirroring; frontend follow-up remains on sync-health trade-count semantics only.
 
 ## Change Log Template
 - Date:

@@ -44,6 +44,27 @@ class _StubService:
             }
         )
 
+    def get_backtest_details(self, run_id):
+        return _ModelDumpObject(
+            {
+                "run_id": run_id,
+                "name": "artifact-run",
+                "status": "completed",
+                "total_pnl": 12.5,
+                "win_rate": 66.7,
+                "sharpe_ratio": 1.1,
+                "max_drawdown_pct": 3.2,
+                "total_trades": 3,
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "updated_at": "2026-01-01T00:05:00+00:00",
+                "artifact_refs": {
+                    "request": "s3://backtests/backtests/run-1/request.json",
+                    "full_result": "s3://backtests/backtests/run-1/full_result.json",
+                },
+                "analytics_rows_written": 3,
+            }
+        )
+
     def get_backtest_trades(self, **_kwargs):
         return [
             _ModelDumpObject(
@@ -226,6 +247,22 @@ def test_backtest_status_exposes_progress_alias(monkeypatch):
     assert payload["data"]["progress"] == payload["data"]["progress_pct"]
     assert payload["data"]["count"] == 1
     assert payload["data"]["websocket_send_metrics"]["run_id"] == "run-abc"
+
+
+def test_backtest_details_expose_artifact_refs(monkeypatch):
+    server = _load_server_module()
+    monkeypatch.setattr(server, "get_backtest_service", lambda: _StubService())
+
+    response = asyncio.run(
+        _call(server.get_backtest_details("run-1", current_user=object()))
+    )
+    payload = json.loads(response.body)
+
+    assert payload["success"] is True
+    assert payload["data"]["artifact_refs"]["full_result"].endswith(
+        "/backtests/run-1/full_result.json"
+    )
+    assert payload["data"]["analytics_rows_written"] == 3
 
 
 def test_backtest_websocket_metrics_endpoint_exposes_run_scoped_payload(monkeypatch):

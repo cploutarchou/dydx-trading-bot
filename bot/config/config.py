@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
+from urllib.parse import urlsplit
 
 from src.shared.env_loader import load_repo_env
 
@@ -29,6 +30,38 @@ def _get_env_int(*names: str, default: int) -> int:
         except ValueError:
             continue
     return default
+
+
+def _get_env_float(*names: str, default: float) -> float:
+    for name in names:
+        value = _get_env(name)
+        if value == "":
+            continue
+        try:
+            return float(value)
+        except ValueError:
+            continue
+    return default
+
+
+def _get_env_bool(*names: str, default: bool) -> bool:
+    raw = _get_env(*names, default="")
+    if raw == "":
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _split_endpoint_url(raw: str, default_scheme: str) -> tuple[str, str, str]:
+    value = str(raw or "").strip()
+    if value == "":
+        return "", "", ""
+    if "://" not in value:
+        value = f"{default_scheme}://{value}"
+    parsed = urlsplit(value)
+    host = parsed.hostname or ""
+    port = str(parsed.port or "")
+    scheme = parsed.scheme or default_scheme
+    return host, port, scheme
 
 
 @dataclass
@@ -215,6 +248,53 @@ class RedisSettings:
 
 
 @dataclass
+class ValkeySettings:
+    enabled: bool = True
+    host: str = "localhost"
+    port: int = 6379
+    db: int = 0
+    password: Optional[str] = None
+    ssl: bool = False
+    timeout: int = 5
+    cache_ttl_seconds: int = 86400
+    max_connections: int = 10
+
+
+@dataclass
+class NATSSettings:
+    enabled: bool = False
+    url: str = "nats://localhost:4222"
+    monitoring_url: str = "http://localhost:8222"
+    stream_prefix: str = "bot"
+    command_bus_enabled: bool = False
+
+
+@dataclass
+class ClickHouseSettings:
+    enabled: bool = False
+    url: str = ""
+    host: str = "localhost"
+    port: int = 8123
+    database: str = "default"
+    user: str = "default"
+    password: str = "change-me-clickhouse"
+    secure: bool = False
+    batch_size: int = 1000
+    flush_interval_seconds: float = 5.0
+
+
+@dataclass
+class MinIOSettings:
+    enabled: bool = False
+    endpoint: str = ""
+    console_url: str = ""
+    bucket: str = "backtests"
+    access_key: str = ""
+    secret_key: str = ""
+    secure: bool = False
+
+
+@dataclass
 class DydxConfig:
     is_testnet: bool = False
     environment: str = "development"
@@ -226,6 +306,10 @@ class DydxConfig:
     backtesting: BacktestSettings = field(default_factory=BacktestSettings)
     database: DatabaseSettings = field(default_factory=DatabaseSettings)
     redis: RedisSettings = field(default_factory=RedisSettings)
+    valkey: ValkeySettings = field(default_factory=ValkeySettings)
+    nats: NATSSettings = field(default_factory=NATSSettings)
+    clickhouse: ClickHouseSettings = field(default_factory=ClickHouseSettings)
+    minio: MinIOSettings = field(default_factory=MinIOSettings)
 
 
 class ConfigurationManager:
@@ -285,6 +369,10 @@ class ConfigurationManager:
             logging_settings = self._build_logging_settings_from_env()
             database_settings = self._build_database_settings_from_env()
             redis_settings = self._build_redis_settings_from_env()
+            valkey_settings = self._build_valkey_settings_from_env()
+            nats_settings = self._build_nats_settings_from_env()
+            clickhouse_settings = self._build_clickhouse_settings_from_env()
+            minio_settings = self._build_minio_settings_from_env()
 
             # Create DydxConfig instance
             self._config = DydxConfig(
@@ -298,6 +386,10 @@ class ConfigurationManager:
                 backtesting=backtest_settings,
                 database=database_settings,
                 redis=redis_settings,
+                valkey=valkey_settings,
+                nats=nats_settings,
+                clickhouse=clickhouse_settings,
+                minio=minio_settings,
             )
         except Exception as e:
             raise ValueError(
@@ -392,19 +484,160 @@ class ConfigurationManager:
     def _build_redis_settings_from_env(self) -> RedisSettings:
         """Build Redis settings from environment variables."""
         return RedisSettings(
-            enabled=_get_env("REDIS_ENABLED", default="false").lower() == "true",
+            enabled=_get_env_bool("REDIS_ENABLED", "VALKEY_ENABLED", default=False),
             host=_get_env("REDIS_HOST", "VALKEY_HOST", default="localhost"),
             port=_get_env_int("REDIS_PORT", "VALKEY_PORT", default=6379),
-            db=_get_env_int("REDIS_DB", default=0),
-            password=_get_env("REDIS_PASSWORD", default=""),
-            ssl=_get_env("REDIS_SSL", default="false").lower() == "true",
-            timeout=_get_env_int("REDIS_TIMEOUT", default=5),
+            db=_get_env_int("REDIS_DB", "VALKEY_DB", default=0),
+            password=_get_env("REDIS_PASSWORD", "VALKEY_PASSWORD", default=""),
+            ssl=_get_env_bool("REDIS_SSL", "VALKEY_SSL", default=False),
+            timeout=_get_env_int("REDIS_TIMEOUT", "VALKEY_TIMEOUT", default=5),
             cache_ttl_seconds=_get_env_int(
                 "REDIS_CACHE_TTL_SECONDS",
                 "REDIS_CACHE_TTL",
+                "VALKEY_CACHE_TTL_SECONDS",
+                "VALKEY_CACHE_TTL",
                 default=86400,
             ),
-            max_connections=_get_env_int("REDIS_MAX_CONNECTIONS", default=10),
+            max_connections=_get_env_int(
+                "REDIS_MAX_CONNECTIONS", "VALKEY_MAX_CONNECTIONS", default=10
+            ),
+        )
+
+    def _build_valkey_settings_from_env(self) -> ValkeySettings:
+        """Build canonical Valkey settings from environment variables."""
+        redis_settings = self._build_redis_settings_from_env()
+        return ValkeySettings(
+            enabled=_get_env_bool("VALKEY_ENABLED", "REDIS_ENABLED", default=redis_settings.enabled),
+            host=_get_env("VALKEY_HOST", "REDIS_HOST", default=redis_settings.host),
+            port=_get_env_int("VALKEY_PORT", "REDIS_PORT", default=redis_settings.port),
+            db=_get_env_int("VALKEY_DB", "REDIS_DB", default=redis_settings.db),
+            password=_get_env(
+                "VALKEY_PASSWORD", "REDIS_PASSWORD", default=redis_settings.password or ""
+            ),
+            ssl=_get_env_bool("VALKEY_SSL", "REDIS_SSL", default=redis_settings.ssl),
+            timeout=_get_env_int(
+                "VALKEY_TIMEOUT", "REDIS_TIMEOUT", default=redis_settings.timeout
+            ),
+            cache_ttl_seconds=_get_env_int(
+                "VALKEY_CACHE_TTL_SECONDS",
+                "VALKEY_CACHE_TTL",
+                "REDIS_CACHE_TTL_SECONDS",
+                "REDIS_CACHE_TTL",
+                default=redis_settings.cache_ttl_seconds,
+            ),
+            max_connections=_get_env_int(
+                "VALKEY_MAX_CONNECTIONS",
+                "REDIS_MAX_CONNECTIONS",
+                default=redis_settings.max_connections,
+            ),
+        )
+
+    def _build_nats_settings_from_env(self) -> NATSSettings:
+        return NATSSettings(
+            enabled=_get_env_bool("NATS_ENABLED", default=True),
+            url=_get_env("NATS_URL", default="nats://localhost:4222"),
+            monitoring_url=_get_env(
+                "NATS_MONITORING_URL", default="http://localhost:8222"
+            ),
+            stream_prefix=_get_env("NATS_STREAM_PREFIX", default="bot"),
+            command_bus_enabled=_get_env_bool(
+                "BOT_COMMAND_BUS_ENABLED", default=True
+            ),
+        )
+
+    def _build_clickhouse_settings_from_env(self) -> ClickHouseSettings:
+        raw_url = _get_env("BACKTEST_CLICKHOUSE_URL", "CLICKHOUSE_URL", default="")
+        host, parsed_port, scheme = _split_endpoint_url(raw_url, "http")
+        default_secure = scheme == "https"
+
+        return ClickHouseSettings(
+            enabled=_get_env_bool(
+                "CLICKHOUSE_ENABLED",
+                "BACKTEST_CLICKHOUSE_WRITES_ENABLED",
+                "BACKTEST_CLICKHOUSE_ENABLED",
+                default=True,
+            ),
+            url=raw_url,
+            host=_get_env(
+                "BACKTEST_CLICKHOUSE_HOST",
+                "CLICKHOUSE_HOST",
+                default=host or "localhost",
+            ),
+            port=_get_env_int(
+                "BACKTEST_CLICKHOUSE_PORT",
+                "CLICKHOUSE_PORT",
+                default=int(parsed_port or "8123"),
+            ),
+            database=_get_env(
+                "BACKTEST_CLICKHOUSE_DATABASE",
+                "CLICKHOUSE_DATABASE",
+                default=(urlsplit(raw_url if "://" in raw_url else f"http://{raw_url}").path.lstrip("/") if raw_url else "")
+                or "default",
+            ),
+            user=_get_env(
+                "BACKTEST_CLICKHOUSE_USER",
+                "CLICKHOUSE_USER",
+                default=(urlsplit(raw_url if "://" in raw_url else f"http://{raw_url}").username if raw_url else "")
+                or "default",
+            ),
+            password=_get_env(
+                "BACKTEST_CLICKHOUSE_PASSWORD",
+                "CLICKHOUSE_PASSWORD",
+                default=(urlsplit(raw_url if "://" in raw_url else f"http://{raw_url}").password if raw_url else "")
+                or "",
+            ),
+            secure=_get_env_bool(
+                "BACKTEST_CLICKHOUSE_SECURE",
+                "CLICKHOUSE_SECURE",
+                default=default_secure,
+            ),
+            batch_size=_get_env_int(
+                "BACKTEST_CLICKHOUSE_BATCH_SIZE",
+                "CLICKHOUSE_BATCH_SIZE",
+                default=1000,
+            ),
+            flush_interval_seconds=_get_env_float(
+                "BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS",
+                "CLICKHOUSE_FLUSH_INTERVAL_SECONDS",
+                default=5.0,
+            ),
+        )
+
+    def _build_minio_settings_from_env(self) -> MinIOSettings:
+        endpoint = _get_env(
+            "BACKTEST_MINIO_ENDPOINT",
+            "S3_ENDPOINT",
+            "MINIO_ENDPOINT",
+            default="",
+        )
+        _, _, scheme = _split_endpoint_url(endpoint, "http")
+        return MinIOSettings(
+            enabled=_get_env_bool(
+                "MINIO_ENABLED",
+                "BACKTEST_ARTIFACT_STORAGE_ENABLED",
+                "BACKTEST_MINIO_ARTIFACTS_ENABLED",
+                default=True,
+            ),
+            endpoint=endpoint,
+            console_url=_get_env("MINIO_CONSOLE_URL", default=""),
+            bucket=_get_env(
+                "BACKTEST_MINIO_BUCKET", "MINIO_BUCKET", default="backtests"
+            ),
+            access_key=_get_env(
+                "BACKTEST_MINIO_ACCESS_KEY",
+                "MINIO_ACCESS_KEY",
+                "MINIO_ROOT_USER",
+                default="minioadmin",
+            ),
+            secret_key=_get_env(
+                "BACKTEST_MINIO_SECRET_KEY",
+                "MINIO_SECRET_KEY",
+                "MINIO_ROOT_PASSWORD",
+                default="change-me-minio",
+            ),
+            secure=_get_env_bool(
+                "BACKTEST_MINIO_SECURE", default=(scheme == "https")
+            ),
         )
 
     def _build_logging_settings(self, data: dict) -> LoggingSettings:

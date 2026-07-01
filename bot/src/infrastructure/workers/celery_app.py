@@ -3,12 +3,28 @@
 from __future__ import annotations
 
 import os
+import sys
 
 from celery import Celery
 from kombu import Queue
 
 from src.shared import env_loader
 from src.shared.redis_env import redis_url
+
+# =============================================================================
+# macOS multiprocessing workaround
+# =============================================================================
+# On macOS, the default fork() multiprocessing start method is incompatible with
+# the Objective-C runtime. Set spawn as the default for Celery worker processes.
+# This must be set BEFORE any imports that might trigger Objective-C initialization.
+# =============================================================================
+if sys.platform == "darwin":
+    import multiprocessing
+    try:
+        multiprocessing.set_start_method("spawn", force=True)
+    except RuntimeError:
+        # Already set, that's fine
+        pass
 
 env_loader.load_repo_env(__file__)
 
@@ -84,3 +100,12 @@ celery_app.conf.update(
     enable_utc=True,
     beat_schedule=_beat_schedule(),
 )
+
+# Wire the Celery worker metrics producer (ClickHouse worker_metrics). The
+# producer is dormant unless BACKTEST_CLICKHOUSE_WRITES_ENABLED=true; see
+# src/infrastructure/workers/celery_metrics.py.
+from src.infrastructure.workers.celery_metrics import (  # noqa: E402
+    register_celery_metrics_signals,
+)
+
+register_celery_metrics_signals()

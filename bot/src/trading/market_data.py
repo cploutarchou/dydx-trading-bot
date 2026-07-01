@@ -34,24 +34,53 @@ _candles_recent_cache: dict = {}
 # Falls back to legacy asyncio.sleep throttle if aiolimiter is not installed.
 _DYDX_RATE_LIMIT_RPS = float(os.getenv("DYDX_RATE_LIMIT_RPS", "5"))
 _DYDX_RATE_LIMIT_WINDOW = float(os.getenv("DYDX_RATE_LIMIT_WINDOW", "1.0"))
+
+# Module-level storage for per-event-loop limiters to avoid reuse across loops
 _rate_limiter = None  # type: ignore[assignment]
+_rate_limiter_key = None  # type: ignore[assignment]
 
 if importlib.util.find_spec("aiolimiter") is not None:
     try:
         from aiolimiter import AsyncLimiter  # type: ignore[import]
-
-        _rate_limiter = AsyncLimiter(
-            max_rate=_DYDX_RATE_LIMIT_RPS,
-            time_period=_DYDX_RATE_LIMIT_WINDOW,
-        )
+        _rate_limiter_key = "_dydx_rate_limiter"
     except Exception:
-        _rate_limiter = None
+        _rate_limiter_key = None
+
+
+def _get_event_loop_limiter():
+    """Get or create a rate limiter specific to the current event loop."""
+    if _rate_limiter_key is None:
+        return None
+    
+    try:
+        import asyncio
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # No running event loop (e.g., sync context)
+        return None
+    
+    # Store limiter in loop's context to avoid reuse across loops
+    if not hasattr(current_loop, _rate_limiter_key):
+        try:
+            from aiolimiter import AsyncLimiter  # type: ignore[import]
+            setattr(current_loop, _rate_limiter_key, AsyncLimiter(
+                max_rate=_DYDX_RATE_LIMIT_RPS,
+                time_period=_DYDX_RATE_LIMIT_WINDOW,
+            ))
+        except Exception:
+            return None
+    
+    return getattr(current_loop, _rate_limiter_key, None)
 
 
 async def _throttle_api_call() -> None:
-    """Acquire one slot from the token-bucket rate limiter, or fall back to sleep."""
-    if _rate_limiter is not None:
-        async with _rate_limiter:
+    """Acquire one slot from the token-bucket rate limiter, or fall back to sleep.
+    
+    Uses per-event-loop limiters to avoid RuntimeWarning about AsyncLimiter reuse.
+    """
+    limiter = _get_event_loop_limiter()
+    if limiter is not None:
+        async with limiter:
             return
     if DYDX_API_THROTTLE_SECONDS > 0:
         await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)

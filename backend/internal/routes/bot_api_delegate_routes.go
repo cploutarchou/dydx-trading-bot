@@ -7,13 +7,16 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/dydx-trading-bot/backend-go/config"
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
 	"github.com/dydx-trading-bot/backend-go/internal/models"
+	"github.com/dydx-trading-bot/backend-go/internal/nats"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
@@ -380,6 +383,118 @@ func normalizeBacktestDetailsPayload(payload map[string]interface{}) map[string]
 	return normalizeBacktestDetailsFields(payload)
 }
 
+var orderedBacktestArtifactNames = []string{
+	"request",
+	"trades",
+	"position_snapshots",
+	"daily_pnl",
+	"full_result",
+	"run_root",
+}
+
+func buildBacktestArtifactPayload(runID string, payload map[string]interface{}, signer *services.MinIOArtifactSigner) (map[string]interface{}, error) {
+	artifactRefs, source := resolveBacktestArtifactRefs(runID, payload, signer.DefaultBucket())
+	artifacts := make([]interface{}, 0, len(artifactRefs))
+	for _, name := range orderedBacktestArtifactNames {
+		reference, ok := artifactRefs[name]
+		if !ok {
+			continue
+		}
+		entry, err := buildBacktestArtifactEntry(name, reference, signer)
+		if err != nil {
+			return nil, err
+		}
+		artifacts = append(artifacts, entry)
+	}
+	return map[string]interface{}{
+		"artifacts":       artifacts,
+		"count":           len(artifacts),
+		"artifact_source": source,
+	}, nil
+}
+
+func resolveBacktestArtifactRefs(runID string, payload map[string]interface{}, defaultBucket string) (map[string]string, string) {
+	resolved := map[string]string{}
+	if artifactRefMap := asMap(payload["artifact_refs"]); artifactRefMap != nil {
+		for _, name := range orderedBacktestArtifactNames {
+			if value, ok := artifactRefMap[name]; ok {
+				ref := strings.TrimSpace(fmt.Sprintf("%v", value))
+				if ref != "" {
+					resolved[name] = ref
+				}
+			}
+		}
+	}
+	if len(resolved) > 0 {
+		return resolved, "upstream"
+	}
+
+	defaultBucket = strings.TrimSpace(defaultBucket)
+	runID = strings.TrimSpace(runID)
+	if defaultBucket == "" || runID == "" {
+		return resolved, "missing"
+	}
+
+	basePrefix := fmt.Sprintf("s3://%s/backtests/%s", defaultBucket, runID)
+	resolved["request"] = basePrefix + "/request.json"
+	resolved["trades"] = basePrefix + "/trades.json"
+	resolved["position_snapshots"] = basePrefix + "/position_snapshots.json"
+	resolved["daily_pnl"] = basePrefix + "/daily_pnl.json"
+	resolved["run_root"] = basePrefix
+	progress := 0.0
+	if value, ok := getNumberField(payload, "progress_pct", "progress_percent", "progress"); ok {
+		progress = value
+	}
+	if strings.EqualFold(normalizeBacktestRunStatus(payload, progress), "completed") {
+		resolved["full_result"] = basePrefix + "/full_result.json"
+	}
+	return resolved, "derived"
+}
+
+func buildBacktestArtifactEntry(name, reference string, signer *services.MinIOArtifactSigner) (map[string]interface{}, error) {
+	entry := map[string]interface{}{
+		"artifact_name":      name,
+		"download_available": false,
+	}
+	parsed, err := url.Parse(reference)
+	if err != nil {
+		entry["storage_backend"] = "invalid_reference"
+		entry["reference_scheme"] = "invalid"
+		return entry, nil
+	}
+
+	scheme := strings.TrimSpace(parsed.Scheme)
+	if scheme == "" {
+		scheme = "path"
+	}
+	entry["reference_scheme"] = scheme
+
+	switch parsed.Scheme {
+	case "s3":
+		bucket := strings.TrimSpace(parsed.Host)
+		objectKey := strings.Trim(strings.TrimSpace(parsed.Path), "/")
+		entry["storage_backend"] = "minio"
+		entry["bucket"] = bucket
+		entry["object_key"] = objectKey
+		if name == "run_root" || bucket == "" || objectKey == "" {
+			return entry, nil
+		}
+		downloadURL, expiresAt, err := signer.PresignGet(bucket, objectKey, 15*time.Minute)
+		if err != nil {
+			return nil, fmt.Errorf("presign artifact %s: %w", name, err)
+		}
+		entry["download_available"] = true
+		entry["download_url"] = downloadURL
+		entry["download_url_expires_at"] = expiresAt.UTC().Format(time.RFC3339)
+	case "file":
+		entry["storage_backend"] = "local_fallback"
+	default:
+		entry["storage_backend"] = "unsupported"
+	}
+
+	return entry, nil
+}
+
 func normalizeBacktestStatusFields(payload map[string]interface{}) map[string]interface{} {
 	if payload == nil {
 		payload = map[string]interface{}{}
@@ -644,6 +759,51 @@ func getStringField(payload map[string]interface{}, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+// correlateBacktestCommand performs the Phase 4 dual-write of a backtest command
+// using the real run_id returned by the bot API as both the command owner_id and
+// idempotency_key. It is best-effort: any failure is logged and swallowed so the
+// authoritative HTTP/Celery path is unaffected. If the bot response carries no
+// run_id, the dual-write is skipped (with a log) rather than fabricating one, so
+// command state never references a non-existent run.
+// extractBacktestRunID reads the authoritative run_id from a bot API response,
+// checking the top level and then the wrapped "data" envelope. Returns "" when
+// no run_id is present so callers can skip the dual-write instead of fabricating.
+func extractBacktestRunID(result map[string]interface{}) string {
+	if runID := getStringField(result, "run_id"); runID != "" {
+		return runID
+	}
+	if dataMap := asMap(result["data"]); dataMap != nil {
+		return getStringField(dataMap, "run_id")
+	}
+	return ""
+}
+
+// correlateBacktestCommand performs the Phase 4 dual-write of a backtest command
+// using the real run_id returned by the bot API as both the command owner_id and
+// idempotency_key. It is best-effort: any failure is logged and swallowed so the
+// authoritative HTTP/Celery path is unaffected. If the bot response carries no
+// run_id, the dual-write is skipped (with a log) rather than fabricating one, so
+// command state never references a non-existent run.
+func correlateBacktestCommand(
+	c *gin.Context,
+	natsCommandService *services.NATSCommandService,
+	result map[string]interface{},
+	config map[string]interface{},
+) {
+	runID := extractBacktestRunID(result)
+	if runID == "" {
+		log.Printf("NATS Command Service: skipping dual-write, no run_id in bot response (trace_id=%s)", middleware.GetTraceID(c))
+		return
+	}
+
+	userIDValue, _ := c.Get("user_id")
+	userID, _ := userIDValue.(int)
+	traceID := middleware.GetTraceID(c)
+	if _, err := natsCommandService.PublishBacktestCommand(c.Request.Context(), runID, config, &userID, runID, traceID); err != nil {
+		log.Printf("NATS Command Service: failed to publish backtest command for run %s (trace_id=%s): %v", runID, traceID, err)
+	}
 }
 
 func extractBacktestTrades(payload map[string]interface{}) []interface{} {
@@ -975,13 +1135,13 @@ func ensureBacktestRunAccess(c *gin.Context, runID string, backtestRepo *reposit
 // RegisterBotAPIDelegateRoutes registers all delegated bot API endpoints
 // These routes proxy to the Python bot API (default 127.0.0.1:8889) and sync with the Go database
 func RegisterBotAPIDelegateRoutes(router *gin.Engine, apiClient *services.BotAPIClient) {
-	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, nil, nil)
+	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, nil, nil, nil, nil, nil)
 }
 
 // RegisterBotAPIDelegateRoutesWithSync registers delegated bot API endpoints and
 // optionally persists backtest run status snapshots into local DB tables.
 func RegisterBotAPIDelegateRoutesWithSync(router *gin.Engine, apiClient *services.BotAPIClient, backtestSync *services.BacktestSyncService) {
-	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, backtestSync, nil)
+	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, backtestSync, nil, nil, nil, nil)
 }
 
 // RegisterBotAPIDelegateRoutesWithSyncCacheAndPush registers delegated bot API endpoints
@@ -993,8 +1153,11 @@ func RegisterBotAPIDelegateRoutesWithSyncCacheAndPush(
 	backtestSync *services.BacktestSyncService,
 	cache *services.CacheService,
 	pushHub *services.BacktestPushHub,
+	taskRepo *repository.TaskRepository,
+	natsPublisher *nats.Publisher,
+	natsCommandService *services.NATSCommandService,
 ) {
-	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, backtestSync, cache)
+	RegisterBotAPIDelegateRoutesWithSyncAndCache(router, apiClient, backtestSync, cache, taskRepo, natsPublisher, natsCommandService)
 
 	var backtestRepo *repository.BacktestRepository
 	if backtestSync != nil && backtestSync.DB() != nil {
@@ -1038,7 +1201,7 @@ func RegisterBotAPIDelegateRoutesWithSyncCacheAndPush(
 
 // RegisterBotAPIDelegateRoutesWithSyncAndCache registers delegated bot API endpoints with
 // optional backtest sync and optional Redis-backed response cache for hot polling paths.
-func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient *services.BotAPIClient, backtestSync *services.BacktestSyncService, cache *services.CacheService) {
+func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient *services.BotAPIClient, backtestSync *services.BacktestSyncService, cache *services.CacheService, taskRepo *repository.TaskRepository, natsPublisher *nats.Publisher, natsCommandService *services.NATSCommandService) {
 	backtestRepo := (*repository.BacktestRepository)(nil)
 	userRepo := (*repository.UserRepository)(nil)
 	strategyRepo := (*repository.StrategyRepository)(nil)
@@ -1053,6 +1216,16 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 	var candleCache *services.CandleCacheService
 	if cache != nil && backtestRepo != nil {
 		candleCache = services.NewCandleCacheServiceWithRepo(cache, backtestRepo)
+	}
+
+	minioSettings := config.MinIOSettings{}
+	if config.ConfigInstance != nil {
+		minioSettings = config.ConfigInstance.MinIO
+	}
+	artifactSigner, err := services.NewMinIOArtifactSigner(minioSettings)
+	if err != nil {
+		log.Printf("Backtest artifact signer disabled: %v", err)
+		artifactSigner = nil
 	}
 
 	syncRun := func(c *gin.Context, payload map[string]interface{}) {
@@ -1076,9 +1249,9 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		if backtestSync == nil || strings.TrimSpace(runID) == "" {
 			return
 		}
-		if err := backtestSync.SyncBacktestTrades(runID, payload); err != nil {
-			log.Printf("Backtest sync warning: failed syncing trades for run %s: %v", runID, err)
-		}
+		// Trades stay on the bot-side artifact path (MinIO/local fallback) and
+		// are fetched via delegated bot API routes. We intentionally avoid
+		// mirroring the full trade payload into backend PostgreSQL.
 		if err := backtestSync.SyncBacktestPositions(runID, payload); err != nil {
 			log.Printf("Backtest sync warning: failed syncing positions for run %s: %v", runID, err)
 		}
@@ -1411,6 +1584,16 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			}
 
 			syncRun(c, result)
+
+			// Phase 4 dual-write: record the command AFTER the bot API returns the
+			// real run_id, so the task command's owner_id and idempotency_key
+			// correlate to the authoritative backtest run instead of a fabricated
+			// key. This is best-effort: failures are logged and never block the
+			// authoritative HTTP/Celery path. The run_id is also the idempotency
+			// key, giving one stable command per backtest run.
+			if natsCommandService != nil {
+				correlateBacktestCommand(c, natsCommandService, result, config)
+			}
 			return nil
 		}
 
@@ -2052,6 +2235,48 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			syncRun(c, result)
 			syncChildren(c, runID, result)
 			respondBacktestEnvelope(c, http.StatusOK, "Backtest fetched successfully", result)
+		})
+
+		backtestGroup.GET("/:run_id/artifacts", func(c *gin.Context) {
+			runID := strings.TrimSpace(c.Param("run_id"))
+			if runID == "" {
+				respondBacktestEnvelope(c, http.StatusBadRequest, "run_id required", map[string]interface{}{
+					"error": "run_id required",
+				})
+				return
+			}
+			if !requireBacktestRunAccess(c, runID) {
+				return
+			}
+			if artifactSigner == nil {
+				respondBacktestEnvelope(c, http.StatusServiceUnavailable, "Backtest artifact signing unavailable", map[string]interface{}{
+					"error": "backtest artifact signing unavailable",
+				})
+				return
+			}
+
+			requestClient := getRequestBotAPIClient(c, apiClient)
+			detailsPayload, err := requestClient.GetBacktestDetails(runID)
+			if err != nil {
+				respondBotAPIError(c, err)
+				return
+			}
+			detailsPayload = normalizeBacktestDetailsPayload(detailsPayload)
+			syncRun(c, detailsPayload)
+
+			artifactPayload, err := buildBacktestArtifactPayload(runID, unwrapEnvelopePayload(detailsPayload), artifactSigner)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success":   false,
+					"message":   "Failed to build backtest artifact metadata",
+					"error":     err.Error(),
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+
+			respondBacktestEnvelope(c, http.StatusOK, "Backtest artifacts fetched successfully", artifactPayload)
 		})
 
 		backtestGroup.GET("/:run_id/summary", func(c *gin.Context) {

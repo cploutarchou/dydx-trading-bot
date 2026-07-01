@@ -31,15 +31,15 @@ func TestValidateDatabaseOwnershipAllowsDedicatedSeparatedTarget_Postgres(t *tes
 	cfg.Database.Port = 5432
 	cfg.Database.Dbname = "backend_db"
 
-		if err := validateDatabaseOwnership(cfg); err != nil {
-			t.Fatalf("expected dedicated separated target to pass validation (Postgres): %v", err)
+	if err := validateDatabaseOwnership(cfg); err != nil {
+		t.Fatalf("expected dedicated separated target to pass validation (Postgres): %v", err)
 	}
 
 	diagnostics := buildDatabaseOwnershipDiagnostics(cfg)
-		if diagnostics.BlockingViolation {
-			t.Fatalf("expected no blocking violation in diagnostics (Postgres): %+v", diagnostics)
+	if diagnostics.BlockingViolation {
+		t.Fatalf("expected no blocking violation in diagnostics (Postgres): %+v", diagnostics)
 	}
 	if !diagnostics.Separated {
-			t.Fatalf("expected separated=true in diagnostics (Postgres): %+v", diagnostics)
+		t.Fatalf("expected separated=true in diagnostics (Postgres): %+v", diagnostics)
 	}
 }

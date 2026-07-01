@@ -42,6 +42,7 @@ type NATSCommandService struct {
 	publisher NATSPublisherClient
 	settings  config.NATSSettings
 	clock     func() time.Time
+	metrics   *AsyncMetrics
 }
 
 // NewNATSCommandService creates a new NATS command service.
@@ -69,6 +70,7 @@ func NewNATSCommandService(
 		publisher: pub,
 		settings:  settings,
 		clock:     time.Now,
+		metrics:   GetAsyncMetrics(),
 	}
 }
 
@@ -80,12 +82,16 @@ func NewNATSCommandService(
 // Returns the created task command and any error from the PostgreSQL write.
 // NATS publishing errors are logged but do not cause this function to return an error,
 // ensuring the HTTP/Celery path remains authoritative.
+//
+// The correlationID should be the request trace ID for end-to-end correlation across
+// frontend, backend, and bot services.
 func (s *NATSCommandService) PublishBacktestCommand(
 	ctx context.Context,
 	runID string,
 	config map[string]interface{},
 	requestedByUserID *int,
 	idempotencyKey string,
+	correlationID string,
 ) (*models.TaskCommand, error) {
 	// Use provided idempotency key, or generate one if empty
 	if idempotencyKey == "" {
@@ -93,6 +99,11 @@ func (s *NATSCommandService) PublishBacktestCommand(
 		if idempotencyKey == "" {
 			idempotencyKey = uuid.New().String()
 		}
+	}
+	
+	// Use provided correlation ID, or generate one if empty
+	if correlationID == "" {
+		correlationID = uuid.New().String()
 	}
 
 	// Serialize config to bounded JSON payload
@@ -138,7 +149,7 @@ func (s *NATSCommandService) PublishBacktestCommand(
 	// Publish to NATS JetStream (best-effort, non-blocking for HTTP flow). Uses a
 	// detached context so the publish attempt is not cancelled when the HTTP
 	// response returns; the command status transition happens inside.
-	go s.publishToNATSAsync(taskCmd, config, idempotencyKey)
+	go s.publishToNATSAsync(taskCmd, config, idempotencyKey, correlationID)
 
 	return taskCmd, nil
 }
@@ -152,6 +163,7 @@ func (s *NATSCommandService) publishToNATSAsync(
 	taskCmd *models.TaskCommand,
 	config map[string]interface{},
 	idempotencyKey string,
+	correlationID string,
 ) {
 	// Defer recovery from panics
 	defer func() {
@@ -198,7 +210,7 @@ func (s *NATSCommandService) publishToNATSAsync(
 	envelope := nats.Envelope{
 		MessageID:       taskCmd.ID,
 		IdempotencyKey:  idempotencyKey,
-		CorrelationID:   uuid.New().String(),
+		CorrelationID:   correlationID,
 		OwnerType:       taskCmd.OwnerType,
 		OwnerID:         taskCmd.OwnerID,
 		OccurredAt:      s.clock().UTC(),
@@ -230,6 +242,9 @@ func (s *NATSCommandService) publishToNATSAsync(
 		// Transport failed: leave command status as "pending" (fail-closed). Do
 		// not mark it published — the command was not durably delivered.
 		log.Printf("NATS Command Service: failed to publish command %s to NATS (left pending): %v", taskCmd.ID, err)
+		if s.metrics != nil {
+			s.metrics.RecordNATSPublishFailure()
+		}
 		return
 	}
 
@@ -237,6 +252,9 @@ func (s *NATSCommandService) publishToNATSAsync(
 	if publishResult != nil {
 		log.Printf("NATS Command Service: successfully published command %s to stream %s, sequence %d, duplicate=%t",
 			taskCmd.ID, publishResult.Stream, publishResult.Sequence, publishResult.Duplicate)
+		if s.metrics != nil {
+			s.metrics.RecordNATSPublishSuccess()
+		}
 
 		if publishResult.Duplicate {
 			log.Printf("NATS Command Service: detected duplicate publish for command %s", taskCmd.ID)

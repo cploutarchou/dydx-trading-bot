@@ -176,7 +176,6 @@ func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient 
 	routes.RegisterBotAPIDelegateRoutesWithSyncCacheAndPush(router, apiClient, backtestSyncService, cacheService, backtestPushHub, taskRepo, natsPublisher, natsCommandService)
 	routes.RegisterAIMarketRoutes(router, database, apiClient)
 	routes.RegisterKeyRoutes(router, database)
-	routes.RegisterPairStorageRoutes(router)
 	routes.RegisterArbitrageSettingsRoutes(router, database, apiClient)
 	routes.RegisterMailgunRoutes(router, database)
 	routes.RegisterTelegramRoutes(router, database)

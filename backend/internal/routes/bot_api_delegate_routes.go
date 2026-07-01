@@ -800,8 +800,9 @@ func correlateBacktestCommand(
 
 	userIDValue, _ := c.Get("user_id")
 	userID, _ := userIDValue.(int)
-	if _, err := natsCommandService.PublishBacktestCommand(c.Request.Context(), runID, config, &userID, runID); err != nil {
-		log.Printf("NATS Command Service: failed to publish backtest command for run %s: %v", runID, err)
+	traceID := middleware.GetTraceID(c)
+	if _, err := natsCommandService.PublishBacktestCommand(c.Request.Context(), runID, config, &userID, runID, traceID); err != nil {
+		log.Printf("NATS Command Service: failed to publish backtest command for run %s (trace_id=%s): %v", runID, traceID, err)
 	}
 }
 

@@ -114,7 +114,7 @@ func TestPublishBacktestCommand_StatusPublishedOnlyOnTransportSuccess(t *testing
 		clock:     time.Now,
 	}
 
-	cmd, err := svc.PublishBacktestCommand(context.Background(), "run-1", map[string]interface{}{"name": "t"}, nil, "idem-1")
+	cmd, err := svc.PublishBacktestCommand(context.Background(), "run-1", map[string]interface{}{"name": "t"}, nil, "idem-1", "trace-1")
 	if err != nil {
 		t.Fatalf("PublishBacktestCommand: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestPublishBacktestCommand_StatusStaysPendingOnTransportFailure(t *testing.
 		clock:     time.Now,
 	}
 
-	if _, err := svc.PublishBacktestCommand(context.Background(), "run-2", map[string]interface{}{"name": "t"}, nil, "idem-2"); err != nil {
+	if _, err := svc.PublishBacktestCommand(context.Background(), "run-2", map[string]interface{}{"name": "t"}, nil, "idem-2", "trace-2"); err != nil {
 		t.Fatalf("PublishBacktestCommand: %v", err)
 	}
 
@@ -165,7 +165,7 @@ func TestPublishBacktestCommand_StatusStaysPendingWhenDisabled(t *testing.T) {
 		clock:     time.Now,
 	}
 
-	if _, err := svc.PublishBacktestCommand(context.Background(), "run-3", map[string]interface{}{"name": "t"}, nil, "idem-3"); err != nil {
+	if _, err := svc.PublishBacktestCommand(context.Background(), "run-3", map[string]interface{}{"name": "t"}, nil, "idem-3", "trace-3"); err != nil {
 		t.Fatalf("PublishBacktestCommand: %v", err)
 	}
 
@@ -211,7 +211,7 @@ func TestPublishBacktestCommand_CorrelatesRunID(t *testing.T) {
 	}
 
 	const runID = "run-real-123"
-	if _, err := svc.PublishBacktestCommand(context.Background(), runID, map[string]interface{}{"name": "t"}, nil, runID); err != nil {
+	if _, err := svc.PublishBacktestCommand(context.Background(), runID, map[string]interface{}{"name": "t"}, nil, runID, "trace-correlate"); err != nil {
 		t.Fatalf("PublishBacktestCommand: %v", err)
 	}
 

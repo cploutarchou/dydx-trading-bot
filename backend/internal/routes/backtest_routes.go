@@ -16,8 +16,7 @@ func RegisterBacktestRoutes(router *gin.Engine, database *db.Database) {
 
 func RegisterBacktestRoutesWithCache(router *gin.Engine, database *db.Database, cacheService *services.CacheService) {
 	backtestRepo := repository.NewBacktestRepository(database.DB)
-	storageManager := services.GetBacktestStorage()
-	backtestHandler := handlers.NewBacktestHandler(backtestRepo, storageManager)
+	backtestHandler := handlers.NewBacktestHandler(backtestRepo)
 	if cacheService != nil {
 		candleCache := services.NewCandleCacheServiceWithRepo(cacheService, backtestRepo)
 		backtestHandler = backtestHandler.WithCandleCache(candleCache)
@@ -37,14 +36,6 @@ func RegisterBacktestRoutesWithCache(router *gin.Engine, database *db.Database, 
 			backtests.GET("/:run_id/candles", backtestHandler.GetBacktestCandles)
 			backtests.GET("/:run_id/positions", backtestHandler.GetBacktestPositions)
 			backtests.GET("/:run_id/trades", backtestHandler.GetBacktestTrades)
-
-			// DEPRECATED: Legacy local-file storage endpoints - READ-ONLY for backward compatibility
-			// New runs should use delegated bot API paths via bot_api_delegate_routes.go
-			backtests.POST("/:run_id/save-json", backtestHandler.SaveBacktestResultJSON) // DEPRECATED
-			backtests.GET("/export/results", backtestHandler.ExportBacktestResults)    // DEPRECATED
-			backtests.GET("/export/best", backtestHandler.GetBestResults)              // DEPRECATED
-			backtests.GET("/export/stats", backtestHandler.GetStorageStats)          // DEPRECATED
-			backtests.POST("/export/cleanup", backtestHandler.CleanupOldResults)     // DEPRECATED
 		}
 	}
 }

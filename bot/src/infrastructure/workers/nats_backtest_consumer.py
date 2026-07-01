@@ -41,6 +41,11 @@ from src.infrastructure.event_bus_nats import (
     get_nats_consumer_service,
 )
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
+from src.infrastructure.workers.nats_worker_metrics import (
+    complete_nats_command,
+    fail_nats_command,
+    start_nats_command,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -275,6 +280,9 @@ class BacktestCommandHandler:
                 f"command_id={payload.command_id} | run_id={payload.run_id}"
             )
             
+            # Record metrics start time
+            start_nats_command(correlation_id)
+            
             # Update task command status to running
             await self._update_task_command_status(payload.command_id, "running")
             
@@ -301,12 +309,25 @@ class BacktestCommandHandler:
             # Process the backtest (this would call the actual backtest execution)
             success = await self._execute_backtest(payload, task_run_id, attempt_id)
             
+            # Track retry count from task run
+            retry_count = 0
+            
             if success:
                 # Update task run to completed
                 await self._update_task_run_status(
                     task_run_id, TaskRunStatus.COMPLETED, 100.0
                 )
                 await self._update_task_attempt_outcome(attempt_id, TaskAttemptOutcome.SUCCESS)
+                
+                # Record successful completion metrics
+                complete_nats_command(
+                    correlation_id=correlation_id,
+                    command_id=payload.command_id,
+                    run_id=payload.run_id,
+                    state="completed",
+                    retry_count=retry_count,
+                )
+                
                 logger.info(
                     f"Backtest completed successfully | correlation_id={correlation_id} | "
                     f"run_id={payload.run_id} | task_run_id={task_run_id}"
@@ -323,6 +344,16 @@ class BacktestCommandHandler:
                 await self._update_task_attempt_outcome(
                     attempt_id, TaskAttemptOutcome.FAILED, error_message="Backtest execution failed"
                 )
+                
+                # Record failure metrics
+                fail_nats_command(
+                    correlation_id=correlation_id,
+                    command_id=payload.command_id,
+                    run_id=payload.run_id,
+                    error="Backtest execution failed",
+                    retry_count=retry_count,
+                )
+                
                 logger.error(
                     f"Backtest execution failed | correlation_id={correlation_id} | "
                     f"run_id={payload.run_id} | task_run_id={task_run_id}"

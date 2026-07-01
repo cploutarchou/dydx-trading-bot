@@ -1624,14 +1624,14 @@ func TestDelegatedBacktestSyncHealth_ReturnsCountsByRun(t *testing.T) {
 		Success bool `json:"success"`
 		Data    struct {
 			Runs []struct {
-				RunID              string `json:"run_id"`
-				Trades             int    `json:"trades"`             // Now represents delegated trades count
-				BackendMirroredTrades int  `json:"backend_mirrored_trades"` // Legacy backend DB mirror count
-				Positions          int    `json:"positions"`
-				Candles            int    `json:"candles"`
-				RunAgeSec          int64  `json:"run_age_seconds"`
-				SyncLagSec         int64  `json:"sync_lag_seconds"`
-				QualityIssues      int    `json:"quality_issues"`
+				RunID                 string `json:"run_id"`
+				Trades                int    `json:"trades"`                  // Now represents delegated trades count
+				BackendMirroredTrades int    `json:"backend_mirrored_trades"` // Legacy backend DB mirror count
+				Positions             int    `json:"positions"`
+				Candles               int    `json:"candles"`
+				RunAgeSec             int64  `json:"run_age_seconds"`
+				SyncLagSec            int64  `json:"sync_lag_seconds"`
+				QualityIssues         int    `json:"quality_issues"`
 			} `json:"runs"`
 			Count int `json:"count"`
 		} `json:"data"`

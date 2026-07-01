@@ -35,12 +35,12 @@ const (
 
 // BacktestEventConsumer consumes durable backtest events and projects them.
 type BacktestEventConsumer struct {
-	natsURL        string
-	projector      *BacktestEventProjector
-	consumerName   string
-	metrics        *AsyncMetrics
-	lastMessageAt  time.Time
-	startedAt      time.Time
+	natsURL       string
+	projector     *BacktestEventProjector
+	consumerName  string
+	metrics       *AsyncMetrics
+	lastMessageAt time.Time
+	startedAt     time.Time
 }
 
 // NewBacktestEventConsumer returns nil when the projector is nil (disabled).
@@ -54,11 +54,11 @@ func newBacktestEventConsumer(natsURL string, projector *BacktestEventProjector,
 		return nil
 	}
 	return &BacktestEventConsumer{
-		natsURL:       url,
-		projector:     projector,
-		consumerName:  consumerName,
-		metrics:       GetAsyncMetrics(),
-		startedAt:     time.Now().UTC(),
+		natsURL:      url,
+		projector:    projector,
+		consumerName: consumerName,
+		metrics:      GetAsyncMetrics(),
+		startedAt:    time.Now().UTC(),
 	}
 }
 
@@ -142,7 +142,7 @@ func (c *BacktestEventConsumer) handleMessage(msg *natsclient.Msg) {
 	if c.metrics != nil {
 		c.metrics.RecordHeartbeat()
 	}
-	
+
 	// Calculate and record consumer lag
 	now := time.Now().UTC()
 	if !c.lastMessageAt.IsZero() {
@@ -153,7 +153,7 @@ func (c *BacktestEventConsumer) handleMessage(msg *natsclient.Msg) {
 		}
 	}
 	c.lastMessageAt = now
-	
+
 	if err := c.ProcessRaw(msg.Data); err != nil {
 		slog.Warn("backtest_event_consumer project failed; NAK", "error", err, "subject", msg.Subject)
 		_ = msg.Nak()

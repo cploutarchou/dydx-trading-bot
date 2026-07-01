@@ -132,6 +132,7 @@ func TestLoadConfig_ParsesRedisAndValkeyAliases(t *testing.T) {
 	t.Setenv("APP_ENV", "test")
 	t.Setenv("VALKEY_HOST", "valkey.local")
 	t.Setenv("VALKEY_PORT", "6381")
+	t.Setenv("VALKEY_PASSWORD", "alias-pass")
 	t.Setenv("REDIS_URL", "rediss://:cachepass@cache.example:6382/4")
 
 	defer func() {
@@ -160,6 +161,67 @@ func TestLoadConfig_ParsesRedisAndValkeyAliases(t *testing.T) {
 	}
 	if got := ConfigInstance.Redis.SSL; !got {
 		t.Fatalf("expected rediss URL to enable SSL")
+	}
+	if got := ConfigInstance.Valkey.Host; got != "cache.example" {
+		t.Fatalf("expected Valkey host to mirror resolved redis-compatible host, got %q", got)
+	}
+	if got := ConfigInstance.Valkey.Password; got != "cachepass" {
+		t.Fatalf("expected Valkey password to mirror resolved redis-compatible password, got %q", got)
+	}
+}
+
+func TestLoadConfig_ParsesPlatformServiceSettings(t *testing.T) {
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("NATS_ENABLED", "true")
+	t.Setenv("NATS_URL", "nats://nats.internal:4222")
+	t.Setenv("NATS_MONITORING_URL", "http://nats.internal:8222")
+	t.Setenv("NATS_STREAM_PREFIX", "platform")
+	t.Setenv("BOT_COMMAND_BUS_ENABLED", "true")
+	t.Setenv("CLICKHOUSE_ENABLED", "true")
+	t.Setenv("CLICKHOUSE_URL", "http://analytics.internal:8123")
+	t.Setenv("CLICKHOUSE_HOST", "analytics.internal")
+	t.Setenv("CLICKHOUSE_PORT", "8123")
+	t.Setenv("CLICKHOUSE_DATABASE", "dydx_analytics")
+	t.Setenv("CLICKHOUSE_USER", "analytics")
+	t.Setenv("CLICKHOUSE_PASSWORD", "analytics-pass")
+	t.Setenv("MINIO_ENABLED", "true")
+	t.Setenv("MINIO_ENDPOINT", "minio.internal:9000")
+	t.Setenv("MINIO_CONSOLE_URL", "http://minio.internal:9001")
+	t.Setenv("MINIO_BUCKET", "backtest-artifacts")
+	t.Setenv("MINIO_ACCESS_KEY", "access-key")
+	t.Setenv("MINIO_SECRET_KEY", "secret-key")
+
+	defer func() {
+		ConfigInstance = nil
+	}()
+
+	if err := LoadConfig(); err != nil {
+		t.Fatalf("LoadConfig returned error: %v", err)
+	}
+
+	if ConfigInstance == nil {
+		t.Fatal("expected ConfigInstance to be initialized")
+	}
+	if got := ConfigInstance.NATS.URL; got != "nats://nats.internal:4222" {
+		t.Fatalf("expected NATS URL, got %q", got)
+	}
+	if got := ConfigInstance.NATS.StreamPrefix; got != "platform" {
+		t.Fatalf("expected NATS stream prefix, got %q", got)
+	}
+	if got := ConfigInstance.NATS.CommandBusEnabled; !got {
+		t.Fatalf("expected command bus flag to be enabled")
+	}
+	if got := ConfigInstance.ClickHouse.Database; got != "dydx_analytics" {
+		t.Fatalf("expected ClickHouse database, got %q", got)
+	}
+	if got := ConfigInstance.ClickHouse.Password; got != "analytics-pass" {
+		t.Fatalf("expected ClickHouse password, got %q", got)
+	}
+	if got := ConfigInstance.MinIO.Bucket; got != "backtest-artifacts" {
+		t.Fatalf("expected MinIO bucket, got %q", got)
+	}
+	if got := ConfigInstance.MinIO.AccessKey; got != "access-key" {
+		t.Fatalf("expected MinIO access key, got %q", got)
 	}
 }
 

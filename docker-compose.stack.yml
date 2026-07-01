@@ -20,7 +20,7 @@ services:
   # ============================================================================
 
   postgresql:
-    image: postgres:16-alpine
+    image: postgres:15.18-bookworm
     container_name: dydx-postgresql
     restart: unless-stopped
     environment:
@@ -113,8 +113,8 @@ services:
     container_name: dydx-minio
     restart: unless-stopped
     environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-change-me-minio}
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-change-me-minio-access-key}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-change-me-minio-secret-key}
     command:
       - server
       - /data
@@ -190,7 +190,7 @@ services:
       VALKEY_PORT: 6379
       VALKEY_URL: redis://valkey:6379/0
       # NATS
-      NATS_ENABLED: "false"
+      NATS_ENABLED: "true"
       NATS_URL: nats://nats:4222
       NATS_MONITORING_URL: http://nats:8222
       NATS_STREAM_PREFIX: bot
@@ -255,21 +255,26 @@ services:
       VALKEY_PORT: 6379
       VALKEY_URL: redis://valkey:6379/0
       # NATS
-      NATS_ENABLED: "false"
+      NATS_ENABLED: "true"
       NATS_URL: nats://nats:4222
       NATS_MONITORING_URL: http://nats:8222
       NATS_STREAM_PREFIX: bot
       # ClickHouse
-      BACKTEST_ARTIFACT_STORAGE_ENABLED: "false"
-      BACKTEST_CLICKHOUSE_WRITES_ENABLED: "false"
+      BACKTEST_ARTIFACT_STORAGE_ENABLED: "true"
+      BACKTEST_CLICKHOUSE_WRITES_ENABLED: "true"
+      CLICKHOUSE_ENABLED: "true"
+      BACKTEST_CLICKHOUSE_BATCH_SIZE: "1000"
+      BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS: "5"
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: 8123
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-dydx_analytics}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-clickhouse}
+      CLICKHOUSE_SECURE: "false"
       # MinIO
-      BACKTEST_MINIO_ARTIFACTS_ENABLED: "false"
+      MINIO_ENABLED: "true"
+      BACKTEST_MINIO_ARTIFACTS_ENABLED: "true"
       MINIO_ENDPOINT: minio:9000
       MINIO_CONSOLE_URL: http://minio:9001
       MINIO_BUCKET: backtests
@@ -339,21 +344,26 @@ services:
       VALKEY_PORT: 6379
       VALKEY_URL: redis://valkey:6379/0
       # NATS
-      NATS_ENABLED: "false"
+      NATS_ENABLED: "true"
       NATS_URL: nats://nats:4222
       NATS_MONITORING_URL: http://nats:8222
       NATS_STREAM_PREFIX: bot
       # ClickHouse
-      BACKTEST_ARTIFACT_STORAGE_ENABLED: "false"
-      BACKTEST_CLICKHOUSE_WRITES_ENABLED: "false"
+      BACKTEST_ARTIFACT_STORAGE_ENABLED: "true"
+      BACKTEST_CLICKHOUSE_WRITES_ENABLED: "true"
+      CLICKHOUSE_ENABLED: "true"
+      BACKTEST_CLICKHOUSE_BATCH_SIZE: "1000"
+      BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS: "5"
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: 8123
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-dydx_analytics}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-clickhouse}
+      CLICKHOUSE_SECURE: "false"
       # MinIO
-      BACKTEST_MINIO_ARTIFACTS_ENABLED: "false"
+      MINIO_ENABLED: "true"
+      BACKTEST_MINIO_ARTIFACTS_ENABLED: "true"
       MINIO_ENDPOINT: minio:9000
       MINIO_CONSOLE_URL: http://minio:9001
       MINIO_BUCKET: backtests
@@ -369,6 +379,7 @@ services:
       CELERY_RESULT_BACKEND: redis://valkey:6379/2
       # Worker
       APP_CONFIG_ENV: development
+      WORKER_MODE: celery
     depends_on:
       postgresql:
         condition: service_healthy

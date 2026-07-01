@@ -21,6 +21,28 @@ data:
   DATABASE_SERVICE_PORT: "6432"
   DATABASE_NAME: dydx_platform
   BOT_DATABASE_NAME: dydx_bot
+  # ---------------------------------------------------------------------------
+  # Task-table DB ownership (Phase 0 decision).
+  #
+  # The normalized command/run tables (task_commands, task_runs, task_attempts,
+  # worker_heartbeats) are BACKEND-OWNED. They are created by backend migrations
+  # 000063..000067 and live in the platform database (dydx_platform), which is
+  # the authoritative store for command/run truth per the Final Target
+  # Architecture. The bot-side NATS consumer MUST reach those tables to claim
+  # runs and record attempts/heartbeats; it therefore needs access to the
+  # platform database, NOT the bot-only dydx_bot database.
+  #
+  # TASK_DB_* below makes that ownership explicit. NATS_ENABLED defaults to "true"
+  # so the backend dual-writes command intent to JetStream (Celery remains the
+  # authoritative backtest worker; the placeholder NATS consumer is NOT started at
+  # boot, so there is no double-execution). Wiring the consumer's platform-DB
+  # access and making JetStream authoritative is the remaining Phase 2 cutover
+  # (see docs/FINAL_APPLICATION_IMPROVEMENT_PLAN.md). Do not point the consumer at
+  # dydx_bot for task tables — that would split command truth across databases.
+  # ---------------------------------------------------------------------------
+  TASK_DB_HOST: pgbouncer
+  TASK_DB_PORT: "6432"
+  TASK_DB_NAME: dydx_platform
   POSTGRES_HOST: postgresql
   POSTGRES_PORT: "5432"
   POSTGRES_DB: dydx_platform
@@ -49,9 +71,10 @@ data:
   S3_FORCE_PATH_STYLE: "true"
   BACKTEST_ARTIFACTS_DIR: /var/lib/dydx/backtest-artifacts
   BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS: "30"
-  BACKTEST_ARTIFACT_STORAGE_ENABLED: "false"
-  # MinIO artifact store — flip both artifact flags to "true" after validation
-  BACKTEST_MINIO_ARTIFACTS_ENABLED: "false"
+  BACKTEST_ARTIFACT_STORAGE_ENABLED: "true"
+  # MinIO artifact store is enabled by default; local fallback remains available
+  # if the client or object store is unavailable during rollout validation.
+  BACKTEST_MINIO_ARTIFACTS_ENABLED: "true"
   BACKTEST_MINIO_ENDPOINT: http://minio:9000
   BACKTEST_MINIO_BUCKET: backtests
   BACKTEST_MINIO_SECURE: "false"
@@ -60,6 +83,8 @@ data:
   # via secretKeyRef (BACKTEST_MINIO_ACCESS_KEY / BACKTEST_MINIO_SECRET_KEY).
   # ClickHouse analytics writer — flip to "true" after validation
   BACKTEST_CLICKHOUSE_WRITES_ENABLED: "false"
+  BACKTEST_CLICKHOUSE_BATCH_SIZE: "1000"
+  BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS: "5"
   BACKTEST_CLICKHOUSE_URL: http://clickhouse:8123
   BACKTEST_CLICKHOUSE_HOST: clickhouse
   BACKTEST_CLICKHOUSE_PORT: "8123"
@@ -67,8 +92,8 @@ data:
   BACKTEST_CLICKHOUSE_USER: default
   BACKTEST_CLICKHOUSE_SECURE: "false"
   # BACKTEST_CLICKHOUSE_PASSWORD must come from a Secret (secretKeyRef).
-  NATS_ENABLED: "false"
-  BOT_COMMAND_BUS_ENABLED: "false"
+  NATS_ENABLED: "true"
+  BOT_COMMAND_BUS_ENABLED: "true"
   FRONTEND_PORT: "8080"
   BACKEND_PORT: "8888"
   BOT_API_PORT: "8889"

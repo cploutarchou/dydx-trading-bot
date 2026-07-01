@@ -27,18 +27,19 @@ func (s *BacktestDelegationService) ResyncBacktestRun(
 	syncChildren syncChildrenFunc,
 ) (gin.H, error) {
 	result := gin.H{
-		"run_synced":       false,
-		"trades_synced":    false,
-		"positions_synced": false,
-		"candles_synced":   false,
-		"run_id":           runID,
-		"status":           "unknown",
-		"progress_percent": 0.0,
-		"progress_pct":     0.0,
-		"progress":         0.0,
-		"current_task":     nil,
-		"current_pair":     nil,
-		"sync_state":       "partial",
+		"run_synced":              false,
+		"trades_fetched_from_bot": false,
+		"backend_trades_synced":   false,
+		"positions_synced":        false,
+		"candles_synced":          false,
+		"run_id":                  runID,
+		"status":                  "unknown",
+		"progress_percent":        0.0,
+		"progress_pct":            0.0,
+		"progress":                0.0,
+		"current_task":            nil,
+		"current_pair":            nil,
+		"sync_state":              "partial",
 	}
 
 	details, err := requestClient.GetBacktestDetails(runID)
@@ -65,7 +66,9 @@ func (s *BacktestDelegationService) ResyncBacktestRun(
 	tradesPayload, err := requestClient.GetBacktestTradesWithFilters(runID, 500, 0, false)
 	if err == nil {
 		syncChildren(c, runID, tradesPayload)
-		result["trades_synced"] = true
+		result["trades_fetched_from_bot"] = true
+		// Note: trades are fetched from bot but NOT synced to backend DB for delegated runs
+		// backend_trades_synced remains false to reflect actual behavior
 	}
 
 	positionsPayload, err := requestClient.GetPositionSnapshots(runID, 500, 0, nil)
@@ -81,7 +84,7 @@ func (s *BacktestDelegationService) ResyncBacktestRun(
 	}
 
 	if result["run_synced"] == true &&
-		result["trades_synced"] == true &&
+		result["trades_fetched_from_bot"] == true &&
 		result["positions_synced"] == true &&
 		result["candles_synced"] == true {
 		result["sync_state"] = "completed"

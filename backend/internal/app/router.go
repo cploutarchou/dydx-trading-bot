@@ -13,6 +13,7 @@ import (
 	"github.com/dydx-trading-bot/backend-go/config"
 	"github.com/dydx-trading-bot/backend-go/internal/db"
 	"github.com/dydx-trading-bot/backend-go/internal/middleware"
+	"github.com/dydx-trading-bot/backend-go/internal/nats"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/dydx-trading-bot/backend-go/internal/routes"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
@@ -82,6 +83,11 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 	router.Use(middleware.HeaderLoggingMiddleware())
 	router.Use(middleware.RequestLoggingMiddleware())
 	router.Use(middleware.RateLimitMiddleware(100, 200))
+
+	// API request events middleware - captures telemetry for ClickHouse (best effort)
+	if cfg.ClickHouse.Enabled {
+		router.Use(middleware.APIRequestEventsMiddleware(cfg))
+	}
 	router.Use(gzip.Gzip(
 		gzip.DefaultCompression,
 		gzip.WithExcludedPaths([]string{"/health", "/ready", "/api/v1/health", "/api/v1/ready"}),
@@ -109,13 +115,46 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 	}
 
 	registerHealthRoutes(router, cfg, deps.Database, deps.BotAPIURL, deps.StartTime)
-	registerFeatureRoutes(router, deps.Database, deps.BotAPIClient, deps.CacheService, deps.BacktestPushHub)
+	// Phase 4: NATS JetStream publisher and task repository for dual-write wiring
+	taskRepo := repository.NewTaskRepository(deps.Database.DB)
+	natsPublisher := nats.NewPublisher(cfg.NATS)
+	natsCommandService := services.NewNATSCommandService(taskRepo, natsPublisher, cfg.NATS)
+
+	// Phase 2: backend projector for durable backtest events. When NATS is
+	// enabled, consume backtest.event.* from JetStream and push to the websocket
+	// feed (dual-push alongside Redis pub/sub). The consumer is fail-closed and
+	// runs for the process lifetime; it never blocks startup or returns from Run.
+	if cfg.NATS.Enabled && deps.BacktestPushHub != nil {
+		if eventConsumer := services.NewBacktestEventConsumer(
+			cfg.NATS.URL, services.NewBacktestEventProjector(deps.BacktestPushHub),
+		); eventConsumer != nil {
+			go func() {
+				if err := eventConsumer.Run(context.Background()); err != nil {
+					log.Printf("backtest event consumer stopped: %v", err)
+				}
+			}()
+		}
+	}
+
+	registerFeatureRoutes(router, deps.Database, deps.BotAPIClient, deps.CacheService, deps.BacktestPushHub, taskRepo, natsPublisher, natsCommandService)
 	registerDebugRoutes(router, deps.Database)
+
+	// Backend-owned ClickHouse read models. Each reader is nil when ClickHouse is
+	// disabled (the checked-in default), in which case analytics routes fail
+	// closed with enabled=false instead of erroring.
+	clickHouseReader := services.NewClickHouseReader(cfg.ClickHouse)
+	registerAnalyticsRoutes(router,
+		services.NewLivePositionReader(clickHouseReader),
+		services.NewLiveTradeSummaryReader(clickHouseReader),
+		services.NewLivePairBreakdownReader(clickHouseReader),
+		services.NewLiveWorkerMetricsReader(clickHouseReader),
+		services.NewAPIRequestWriter(clickHouseReader),
+	)
 
 	return router, nil
 }
 
-func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient *services.BotAPIClient, cacheService *services.CacheService, backtestPushHub *services.BacktestPushHub) {
+func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient *services.BotAPIClient, cacheService *services.CacheService, backtestPushHub *services.BacktestPushHub, taskRepo *repository.TaskRepository, natsPublisher *nats.Publisher, natsCommandService *services.NATSCommandService) {
 	routes.RegisterAuthRoutes(router, database.DB)
 	routes.RegisterAdminUserRoutes(router, database.DB)
 	routes.RegisterBackofficeRoutes(router, database.DB)
@@ -134,10 +173,9 @@ func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient 
 	backtestSyncService := services.NewBacktestSyncService(backtestSyncRepo)
 
 	routes.RegisterBotInstanceRoutes(router, database, cacheService)
-	routes.RegisterBotAPIDelegateRoutesWithSyncCacheAndPush(router, apiClient, backtestSyncService, cacheService, backtestPushHub)
+	routes.RegisterBotAPIDelegateRoutesWithSyncCacheAndPush(router, apiClient, backtestSyncService, cacheService, backtestPushHub, taskRepo, natsPublisher, natsCommandService)
 	routes.RegisterAIMarketRoutes(router, database, apiClient)
 	routes.RegisterKeyRoutes(router, database)
-	routes.RegisterPairStorageRoutes(router)
 	routes.RegisterArbitrageSettingsRoutes(router, database, apiClient)
 	routes.RegisterMailgunRoutes(router, database)
 	routes.RegisterTelegramRoutes(router, database)

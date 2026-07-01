@@ -78,6 +78,7 @@ class BacktestCommandPayload:
     status: Optional[str] = None
     name: Optional[str] = None
     strategy_id: Optional[int] = None
+    correlation_id: Optional[str] = None
     # Additional fields from payload
     pairs: Optional[List[str]] = None
     source: Optional[str] = None
@@ -125,10 +126,17 @@ class BacktestCommandHandler:
         Returns:
             ProcessedResult with action (ACK, NAK, REQUEUE, DEAD_LETTER)
         """
+        # Extract correlation_id from context for traceability
+        correlation_id = context.get("correlation_id", "unknown")
+        
         try:
             # Parse the message payload
             payload = self._parse_payload(message, context)
             if not payload:
+                logger.warning(
+                    f"Invalid or empty payload | correlation_id={correlation_id} | "
+                    f"message_id={context.get('message_id', 'unknown')}"
+                )
                 return ProcessedResult(
                     action=MessageAction.NAK,
                     message_id=context.get("message_id", "unknown"),
@@ -137,9 +145,15 @@ class BacktestCommandHandler:
                     consumer_name=context.get("consumer_name")
                 )
             
+            # Add correlation_id to payload for downstream use
+            payload.correlation_id = correlation_id
+            
             # Check for duplicate using task_commands table
             if await self._is_duplicate(payload.idempotency_key, payload.command_id):
-                logger.info(f"Duplicate backtest command detected: {payload.idempotency_key}")
+                logger.info(
+                    f"Duplicate backtest command detected | correlation_id={correlation_id} | "
+                    f"command_id={payload.command_id} | idempotency_key={payload.idempotency_key}"
+                )
                 return ProcessedResult(
                     action=MessageAction.ACK,  # Ack duplicates to remove from stream
                     message_id=payload.command_id,
@@ -161,7 +175,13 @@ class BacktestCommandHandler:
             return result
             
         except Exception as e:
-            logger.error(f"Error in backtest command handler: {e}")
+            # Extract correlation_id for error logging
+            correlation_id = context.get("correlation_id", "unknown")
+            logger.error(
+                f"Error in backtest command handler | correlation_id={correlation_id} | "
+                f"command_id={payload.command_id if payload else 'unknown'} | "
+                f"error={e}"
+            )
             return ProcessedResult(
                 action=MessageAction.NAK,
                 message_id=context.get("message_id", "unknown"),
@@ -246,15 +266,31 @@ class BacktestCommandHandler:
     
     async def _process_backtest_command(self, payload: BacktestCommandPayload, context: Dict[str, Any]) -> ProcessedResult:
         """Process the backtest command and return appropriate result."""
+        # Extract correlation_id for traceability
+        correlation_id = payload.correlation_id or context.get("correlation_id", "unknown")
+        
         try:
+            logger.info(
+                f"Starting backtest processing | correlation_id={correlation_id} | "
+                f"command_id={payload.command_id} | run_id={payload.run_id}"
+            )
+            
             # Update task command status to running
             await self._update_task_command_status(payload.command_id, "running")
             
             # Create or update task run
             task_run_id = await self._ensure_task_run(payload)
+            logger.debug(
+                f"Task run created/updated | correlation_id={correlation_id} | "
+                f"task_run_id={task_run_id}"
+            )
             
             # Create task attempt for this processing
             attempt_id = await self._create_task_attempt(task_run_id, payload)
+            logger.debug(
+                f"Task attempt created | correlation_id={correlation_id} | "
+                f"attempt_id={attempt_id}"
+            )
             
             # Update task run status to starting
             await self._update_task_run_status(task_run_id, TaskRunStatus.STARTING, 0.0)
@@ -271,6 +307,10 @@ class BacktestCommandHandler:
                     task_run_id, TaskRunStatus.COMPLETED, 100.0
                 )
                 await self._update_task_attempt_outcome(attempt_id, TaskAttemptOutcome.SUCCESS)
+                logger.info(
+                    f"Backtest completed successfully | correlation_id={correlation_id} | "
+                    f"run_id={payload.run_id} | task_run_id={task_run_id}"
+                )
                 return ProcessedResult(
                     action=MessageAction.ACK,
                     message_id=payload.command_id,
@@ -282,6 +322,10 @@ class BacktestCommandHandler:
                 await self._update_task_run_status(task_run_id, TaskRunStatus.FAILED, 0.0)
                 await self._update_task_attempt_outcome(
                     attempt_id, TaskAttemptOutcome.FAILED, error_message="Backtest execution failed"
+                )
+                logger.error(
+                    f"Backtest execution failed | correlation_id={correlation_id} | "
+                    f"run_id={payload.run_id} | task_run_id={task_run_id}"
                 )
                 return ProcessedResult(
                     action=MessageAction.NAK,

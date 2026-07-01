@@ -19,18 +19,18 @@ type AsyncMetrics struct {
 
 	// NATS metrics
 	natsPublishSuccesses uint64
-	natsPublishFailures uint64
-	natsConsumerLagMs   uint64
-	natsLastHeartbeat  time.Time
-	
+	natsPublishFailures  uint64
+	natsConsumerLagMs    uint64
+	natsLastHeartbeat    time.Time
+
 	// ClickHouse metrics
 	clickhouseWriteSuccesses uint64
-	clickhouseWriteFailures uint64
-	
+	clickhouseWriteFailures  uint64
+
 	// MinIO metrics
 	minioUploadSuccesses uint64
-	minioUploadFailures uint64
-	
+	minioUploadFailures  uint64
+
 	// General task metrics
 	taskRetryCounts uint64
 	deadLetterCount uint64
@@ -39,7 +39,7 @@ type AsyncMetrics struct {
 // Global singleton instance for simplicity (can be replaced with DI if needed)
 var (
 	asyncMetricsInstance *AsyncMetrics
-	asyncMetricsOnce    sync.Once
+	asyncMetricsOnce     sync.Once
 )
 
 // GetAsyncMetrics returns the singleton AsyncMetrics instance.
@@ -124,21 +124,21 @@ func (m *AsyncMetrics) RecordDeadLetter() {
 type AsyncMetricsSnapshot struct {
 	NATS struct {
 		PublishSuccesses uint64    `json:"publish_successes"`
-		PublishFailures uint64    `json:"publish_failures"`
-		ConsumerLagMs   uint64    `json:"consumer_lag_ms"`
-		LastHeartbeat   time.Time `json:"last_heartbeat,omitempty"`
+		PublishFailures  uint64    `json:"publish_failures"`
+		ConsumerLagMs    uint64    `json:"consumer_lag_ms"`
+		LastHeartbeat    time.Time `json:"last_heartbeat,omitempty"`
 	} `json:"nats"`
 	ClickHouse struct {
 		WriteSuccesses uint64 `json:"write_successes"`
-		WriteFailures uint64 `json:"write_failures"`
+		WriteFailures  uint64 `json:"write_failures"`
 	} `json:"clickhouse"`
 	MinIO struct {
 		UploadSuccesses uint64 `json:"upload_successes"`
-		UploadFailures uint64 `json:"upload_failures"`
+		UploadFailures  uint64 `json:"upload_failures"`
 	} `json:"minio"`
 	Tasks struct {
-		RetryCounts  uint64 `json:"retry_counts"`
-		DeadLetters  uint64 `json:"dead_letters"`
+		RetryCounts uint64 `json:"retry_counts"`
+		DeadLetters uint64 `json:"dead_letters"`
 	} `json:"tasks"`
 }
 
@@ -150,35 +150,35 @@ func (m *AsyncMetrics) Snapshot() AsyncMetricsSnapshot {
 	return AsyncMetricsSnapshot{
 		NATS: struct {
 			PublishSuccesses uint64    `json:"publish_successes"`
-			PublishFailures uint64    `json:"publish_failures"`
-			ConsumerLagMs   uint64    `json:"consumer_lag_ms"`
-			LastHeartbeat   time.Time `json:"last_heartbeat,omitempty"`
+			PublishFailures  uint64    `json:"publish_failures"`
+			ConsumerLagMs    uint64    `json:"consumer_lag_ms"`
+			LastHeartbeat    time.Time `json:"last_heartbeat,omitempty"`
 		}{
 			PublishSuccesses: m.natsPublishSuccesses,
-			PublishFailures: m.natsPublishFailures,
-			ConsumerLagMs:   m.natsConsumerLagMs,
-			LastHeartbeat:   m.natsLastHeartbeat,
+			PublishFailures:  m.natsPublishFailures,
+			ConsumerLagMs:    m.natsConsumerLagMs,
+			LastHeartbeat:    m.natsLastHeartbeat,
 		},
 		ClickHouse: struct {
 			WriteSuccesses uint64 `json:"write_successes"`
-			WriteFailures uint64 `json:"write_failures"`
+			WriteFailures  uint64 `json:"write_failures"`
 		}{
 			WriteSuccesses: m.clickhouseWriteSuccesses,
-			WriteFailures: m.clickhouseWriteFailures,
+			WriteFailures:  m.clickhouseWriteFailures,
 		},
 		MinIO: struct {
 			UploadSuccesses uint64 `json:"upload_successes"`
-			UploadFailures uint64 `json:"upload_failures"`
+			UploadFailures  uint64 `json:"upload_failures"`
 		}{
 			UploadSuccesses: m.minioUploadSuccesses,
-			UploadFailures: m.minioUploadFailures,
+			UploadFailures:  m.minioUploadFailures,
 		},
 		Tasks: struct {
 			RetryCounts uint64 `json:"retry_counts"`
 			DeadLetters uint64 `json:"dead_letters"`
 		}{
-			RetryCounts:  m.taskRetryCounts,
-			DeadLetters:  m.deadLetterCount,
+			RetryCounts: m.taskRetryCounts,
+			DeadLetters: m.deadLetterCount,
 		},
 	}
 }

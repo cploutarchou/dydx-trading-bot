@@ -100,7 +100,7 @@ func (s *NATSCommandService) PublishBacktestCommand(
 			idempotencyKey = uuid.New().String()
 		}
 	}
-	
+
 	// Use provided correlation ID, or generate one if empty
 	if correlationID == "" {
 		correlationID = uuid.New().String()

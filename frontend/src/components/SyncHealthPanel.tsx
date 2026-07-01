@@ -6,7 +6,8 @@ import { enhancedApiClient } from '../api/enhancedClient';
 interface SyncHealthRun {
   run_id: string;
   status: string;
-  trades: number;
+  trades: number;                    // Primary: delegated artifact-backed trade availability
+  backend_mirrored_trades?: number;  // Debug: legacy backend DB mirror count (if available)
   positions: number;
   candles: number;
   sync_lag_seconds?: number;
@@ -65,6 +66,7 @@ const normalizeRuns = (raw: unknown): SyncHealthRun[] => {
       run_id: toStringValue(item.run_id),
       status: toStringValue(item.status, 'unknown').toUpperCase(),
       trades: toNumber(item.trades),
+      backend_mirrored_trades: toNumber(item.backend_mirrored_trades, undefined),
       positions: toNumber(item.positions),
       candles: toNumber(item.candles),
       sync_lag_seconds: toNumber(item.sync_lag_seconds, 0),
@@ -168,7 +170,7 @@ export const SyncHealthPanel: React.FC = () => {
             Run Sync Health
           </h3>
           <p className="mt-0.5 text-xs text-slate-400">
-            Trades, positions, and candle sync consistency
+            Delegated artifact-backed trades (primary) + legacy DB mirror counts (debug)
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -242,6 +244,11 @@ export const SyncHealthPanel: React.FC = () => {
                     </span>
                   </span>
                 </div>
+                {run.backend_mirrored_trades !== undefined && run.backend_mirrored_trades !== null && (
+                  <div className="mt-1 text-xs text-slate-500">
+                    <span className="text-slate-600">DB Mirror:</span> {run.backend_mirrored_trades}
+                  </div>
+                )}
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
                   <span>Lag: {formatAge(run.sync_lag_seconds)}</span>
                   <span>Age: {formatAge(run.run_age_seconds)}</span>

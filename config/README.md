@@ -36,7 +36,8 @@ make prod
 - backend and bot can use different database targets from the same structured profile
 - the bot supports dedicated database fields via `BOT_DB_*` and `BOT_DB_CUTOVER_MODE`
 - local profiles should carry the shared infrastructure aliases: `DATABASE_URL`, `POSTGRES_*`, `REDIS_URL`, `VALKEY_*`, `NATS_URL`, `NATS_MONITORING_URL`, `CLICKHOUSE_URL`, `MINIO_ENDPOINT`, `S3_ENDPOINT`
-- local/dev profiles should also carry the backtest storage flags with safe defaults: `BACKTEST_ARTIFACT_STORAGE_ENABLED=false`, `BACKTEST_CLICKHOUSE_WRITES_ENABLED=false`, `BACKTEST_MINIO_ARTIFACTS_ENABLED=false`
+- local/dev profiles should also carry the backtest storage flags explicitly; this repo's checked-in development flow enables the full storage path with `BACKTEST_ARTIFACT_STORAGE_ENABLED=true`, `BACKTEST_CLICKHOUSE_WRITES_ENABLED=true`, and `BACKTEST_MINIO_ARTIFACTS_ENABLED=true`
+- if ClickHouse writes are enabled, also define conservative batching defaults such as `BACKTEST_CLICKHOUSE_BATCH_SIZE=1000` and `BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS=5`
 
 ## Security Rules
 

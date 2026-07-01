@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
+
+import pytest
 
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.storage import (
@@ -9,6 +12,7 @@ from src.infrastructure.storage import (
     MinIOArtifactStore,
     NoopAnalyticsWriter,
 )
+from src.shared.env_loader import find_repo_root
 
 
 class _FakeObjectResponse:
@@ -143,14 +147,116 @@ def test_minio_artifact_store_falls_back_when_enabled_client_fails(tmp_path):
     assert fallback.read_bytes("run-2/out.bin") == b"payload"
 
 
+def test_minio_artifact_store_strict_mode_fails_on_client_error(tmp_path):
+    """Test that strict mode fails visibly instead of falling back to local storage."""
+    store = MinIOArtifactStore(
+        bucket="backtests",
+        enabled=True,
+        fallback=LocalArtifactStore(tmp_path / "local"),  # Fallback is provided but should not be used
+        endpoint_url="http://minio:9000",
+        extra_config={
+            "client": _FailingMinioClient(),
+            "strict_mode": True,
+        },
+    )
+
+    # In strict mode, write should fail instead of falling back
+    with pytest.raises(RuntimeError, match="MinIO artifact persistence failed.*strict mode"):
+        store.put_bytes("run-3/strict.bin", b"payload")
+
+
+def test_minio_artifact_store_strict_mode_fails_on_read_error(tmp_path):
+    """Test that strict mode fails visibly on read operations too."""
+    store = MinIOArtifactStore(
+        bucket="backtests",
+        enabled=True,
+        fallback=LocalArtifactStore(tmp_path / "local"),
+        endpoint_url="http://minio:9000",
+        extra_config={
+            "client": _FailingMinioClient(),
+            "strict_mode": True,
+        },
+    )
+
+    # Test exists() method in strict mode
+    with pytest.raises(RuntimeError, match="MinIO artifact exists check failed.*strict mode"):
+        store.exists("run-3/missing.bin")
+
+
+def test_minio_artifact_store_non_strict_allows_fallback(tmp_path):
+    """Test that non-strict mode (default) allows fallback to local storage."""
+    fallback = LocalArtifactStore(tmp_path / "local")
+    store = MinIOArtifactStore(
+        bucket="backtests",
+        enabled=True,
+        fallback=fallback,
+        endpoint_url="http://minio:9000",
+        extra_config={
+            "client": _FailingMinioClient(),
+            "strict_mode": False,  # Explicitly non-strict
+        },
+    )
+
+    # Should succeed with fallback
+    ref = store.put_bytes("run-4/fallback.bin", b"payload")
+    assert ref.startswith("file:")
+    assert fallback.read_bytes("run-4/fallback.bin") == b"payload"
+
+
 def test_backtest_repository_resolves_minio_endpoint_aliases(monkeypatch):
     monkeypatch.setenv("MINIO_ENDPOINT", "localhost:9010")
+
+
+def test_backtest_repository_strict_mode_disabled_by_default(monkeypatch):
+    """Test that strict mode is disabled by default."""
+    monkeypatch.setenv("BACKTEST_MINIO_ENABLED", "true")
+    monkeypatch.setenv("MINIO_ENDPOINT", "localhost:9010")
+    monkeypatch.setenv("MINIO_ACCESS_KEY", "test-key")
+    monkeypatch.setenv("MINIO_SECRET_KEY", "test-secret")
+    
+    # Clear any strict mode env vars to test default
+    monkeypatch.delenv("BACKTEST_ARTIFACT_STORAGE_STRICT", raising=False)
+    monkeypatch.delenv("BACKTEST_MINIO_STRICT", raising=False)
+    monkeypatch.delenv("MINIO_STRICT_MODE", raising=False)
+    
+    # Force reload of environment
+    import importlib
+    import src.infrastructure.persistence.repository_backtest
+    importlib.reload(src.infrastructure.persistence.repository_backtest)
+    
+    from src.infrastructure.persistence.repository_backtest import BacktestRepository
+    
+    # Should return False by default
+    assert BacktestRepository._artifact_storage_strict_mode() is False
+
+
+def test_backtest_repository_strict_mode_enabled_via_env(monkeypatch):
+    """Test that strict mode can be enabled via environment variable."""
+    monkeypatch.setenv("BACKTEST_ARTIFACT_STORAGE_STRICT", "true")
+    
+    # Force reload of environment
+    import importlib
+    import src.infrastructure.persistence.repository_backtest
+    importlib.reload(src.infrastructure.persistence.repository_backtest)
+    
+    from src.infrastructure.persistence.repository_backtest import BacktestRepository
+    
+    # Should return True when enabled
+    assert BacktestRepository._artifact_storage_strict_mode() is True
     monkeypatch.setenv("S3_ENDPOINT", "http://localhost:9010")
 
     assert BacktestRepository._resolve_minio_endpoint() == "http://localhost:9010"
 
 
 def test_backtest_repository_resolves_clickhouse_url_alias(monkeypatch):
+    monkeypatch.delenv("BACKTEST_CLICKHOUSE_HOST", raising=False)
+    monkeypatch.delenv("CLICKHOUSE_HOST", raising=False)
+    monkeypatch.delenv("BACKTEST_CLICKHOUSE_PASSWORD", raising=False)
+    monkeypatch.delenv("CLICKHOUSE_PASSWORD", raising=False)
+    monkeypatch.delenv("BACKTEST_CLICKHOUSE_USER", raising=False)
+    monkeypatch.delenv("CLICKHOUSE_USER", raising=False)
+    monkeypatch.delenv("BACKTEST_CLICKHOUSE_DATABASE", raising=False)
+    monkeypatch.delenv("CLICKHOUSE_DATABASE", raising=False)
     monkeypatch.setenv("CLICKHOUSE_URL", "http://analytics:8123/dydx_analytics")
 
     host, port, secure, database, username, password = (
@@ -202,6 +308,65 @@ def test_backtest_repository_prefers_new_clickhouse_flag_over_legacy_alias(monke
     assert isinstance(writer, NoopAnalyticsWriter)
 
 
+def test_backtest_repository_accepts_canonical_clickhouse_enabled_alias(monkeypatch):
+    monkeypatch.delenv("BACKTEST_CLICKHOUSE_WRITES_ENABLED", raising=False)
+    monkeypatch.delenv("BACKTEST_CLICKHOUSE_ENABLED", raising=False)
+    monkeypatch.setenv("CLICKHOUSE_ENABLED", "true")
+    monkeypatch.setenv("CLICKHOUSE_URL", "http://analytics:8123/dydx_analytics")
+
+    writer = BacktestRepository._build_analytics_writer()
+
+    assert isinstance(writer, ClickHouseAnalyticsWriter)
+    assert writer.enabled is True
+    assert writer.host == "analytics"
+    assert writer.port == 8123
+    assert writer.database == "dydx_analytics"
+
+
+def test_backtest_repository_accepts_canonical_minio_enabled_alias(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("BACKTEST_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
+    monkeypatch.delenv("BACKTEST_ARTIFACT_STORAGE_ENABLED", raising=False)
+    monkeypatch.delenv("BACKTEST_MINIO_ARTIFACTS_ENABLED", raising=False)
+    monkeypatch.delenv("BACKTEST_MINIO_ENABLED", raising=False)
+    monkeypatch.setenv("MINIO_ENABLED", "true")
+    monkeypatch.setenv("MINIO_ENDPOINT", "localhost:9010")
+    monkeypatch.setenv("MINIO_BUCKET", "backtests")
+
+    store = BacktestRepository._build_artifact_store()
+
+    assert isinstance(store, MinIOArtifactStore)
+    assert store.enabled is True
+
+
+def test_backtest_repository_resolves_relative_artifact_root_from_repo_root(
+    monkeypatch,
+):
+    monkeypatch.setenv("BACKTEST_ARTIFACT_STORAGE_ENABLED", "false")
+    monkeypatch.setenv("BACKTEST_ARTIFACTS_DIR", "tmp/backtest-artifacts-test")
+
+    store = BacktestRepository._build_artifact_store()
+
+    assert isinstance(store, LocalArtifactStore)
+    expected_root = (
+        find_repo_root(__file__) / "tmp" / "backtest-artifacts-test"
+    ).resolve()
+    assert store.root_dir == expected_root
+
+
+def test_backtest_repository_resolves_clickhouse_batch_settings(monkeypatch):
+    monkeypatch.setenv("BACKTEST_CLICKHOUSE_BATCH_SIZE", "250")
+    monkeypatch.setenv("BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS", "2.5")
+
+    batch_size, flush_interval_seconds = (
+        BacktestRepository._resolve_clickhouse_batch_settings()
+    )
+
+    assert batch_size == 250
+    assert flush_interval_seconds == 2.5
+
+
 # ---------------------------------------------------------------------------
 # ClickHouse analytics writer — real implementation tests
 # ---------------------------------------------------------------------------
@@ -246,6 +411,57 @@ def test_clickhouse_writer_inserts_rows_with_real_client():
     assert client.inserts[1]["trade_id"] == "t2"
 
 
+def test_clickhouse_writer_buffers_rows_until_batch_threshold():
+    client = _FakeClickHouseClient()
+    writer = ClickHouseAnalyticsWriter(
+        enabled=True,
+        database="analytics",
+        extra_config={
+            "client": client,
+            "batch_size": 3,
+            "flush_interval_seconds": 60,
+        },
+    )
+
+    first_count = writer.write_rows(
+        "backtest_trade_rows",
+        [{"run_id": "r1", "trade_id": "t1"}, {"run_id": "r1", "trade_id": "t2"}],
+    )
+    second_count = writer.write_rows(
+        "backtest_trade_rows",
+        [{"run_id": "r1", "trade_id": "t3"}],
+    )
+
+    assert first_count == 0
+    assert second_count == 3
+    assert writer.get_buffer("backtest_trade_rows") == []
+    assert len(client.inserts) == 3
+
+
+def test_clickhouse_writer_flushes_pending_rows_when_forced():
+    client = _FakeClickHouseClient()
+    writer = ClickHouseAnalyticsWriter(
+        enabled=True,
+        database="analytics",
+        extra_config={
+            "client": client,
+            "batch_size": 10,
+            "flush_interval_seconds": 60,
+        },
+    )
+
+    count = writer.write_rows(
+        "backtest_trade_rows",
+        [{"run_id": "r1", "trade_id": "t1"}, {"run_id": "r1", "trade_id": "t2"}],
+    )
+    flushed = writer.flush(force=True)
+
+    assert count == 0
+    assert flushed == {"backtest_trade_rows": 2}
+    assert writer.get_buffer("backtest_trade_rows") == []
+    assert len(client.inserts) == 2
+
+
 def test_clickhouse_writer_provisions_known_table_on_first_write():
     client = _FakeClickHouseClient()
     writer = ClickHouseAnalyticsWriter(
@@ -277,6 +493,183 @@ def test_clickhouse_writer_does_not_reprovision_on_subsequent_writes():
     assert ddl_count == 1
 
 
+def test_clickhouse_writer_provisions_equity_curve_and_strategy_metrics_tables():
+    client = _FakeClickHouseClient()
+    writer = ClickHouseAnalyticsWriter(
+        enabled=True,
+        database="analytics",
+        extra_config={"client": client},
+    )
+
+    writer.write_rows(
+        "backtest_equity_curve",
+        [{"run_id": "r1", "point_time": "2026-01-01T00:00:00+00:00"}],
+    )
+    writer.write_rows(
+        "strategy_metrics",
+        [{"run_id": "r1", "metric_name": "sharpe_ratio", "metric_value": 1.2}],
+    )
+
+    assert any("backtest_equity_curve" in cmd for cmd in client.commands)
+    assert any("strategy_metrics" in cmd for cmd in client.commands)
+
+
+def test_clickhouse_writer_provisions_bot_events_table():
+    client = _FakeClickHouseClient()
+    writer = ClickHouseAnalyticsWriter(
+        enabled=True,
+        database="analytics",
+        extra_config={"client": client},
+    )
+
+    writer.write_rows(
+        "bot_events",
+        [
+            {
+                "event_date": datetime(2026, 1, 1, tzinfo=timezone.utc).date(),
+                "event_time": datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc),
+                "bot_run_id": "run-1",
+                "bot_id": "77",
+                "event_type": "bot_started",
+                "status": "running",
+                "strategy_id": 42,
+                "worker_id": "strategy-1-101",
+                "correlation_id": "corr-1",
+                "payload_attrs": "{\"message\":\"started\"}",
+            }
+        ],
+    )
+
+    assert any("bot_events" in cmd for cmd in client.commands)
+
+
+def test_clickhouse_writer_provisions_order_events_table():
+    client = _FakeClickHouseClient()
+    writer = ClickHouseAnalyticsWriter(
+        enabled=True,
+        database="analytics",
+        extra_config={"client": client},
+    )
+
+    writer.write_rows(
+        "order_events",
+        [
+            {
+                "event_date": datetime(2026, 1, 1, tzinfo=timezone.utc).date(),
+                "event_time": datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc),
+                "order_id": "entry-1",
+                "trade_id": "live-abc123",
+                "bot_id": "77",
+                "instance_id": "strategy-1-101",
+                "bot_run_id": "run-1",
+                "market": "BTC-USD",
+                "side": "BUY",
+                "status": "filled",
+                "event_type": "trade_entry_opened",
+                "price": 100000.0,
+                "size": 0.1,
+                "exchange_time": datetime(2026, 1, 1, 0, 0, 1, tzinfo=timezone.utc),
+                "correlation_id": "corr-1",
+            }
+        ],
+    )
+
+    assert any("order_events" in cmd for cmd in client.commands)
+    assert any("instance_id" in cmd for cmd in client.commands)
+
+
+def test_clickhouse_writer_provisions_trade_events_table():
+    client = _FakeClickHouseClient()
+    writer = ClickHouseAnalyticsWriter(
+        enabled=True,
+        database="analytics",
+        extra_config={"client": client},
+    )
+
+    writer.write_rows(
+        "trade_events",
+        [
+            {
+                "event_date": datetime(2026, 1, 1, tzinfo=timezone.utc).date(),
+                "event_time": datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc),
+                "trade_id": "live-abc123",
+                "bot_id": "77",
+                "instance_id": "strategy-1-101",
+                "pair1": "BTC-USD",
+                "pair2": "ETH-USD",
+                "side1": "BUY",
+                "side2": "SELL",
+                "status": "open",
+                "event_kind": "opened",
+                "entry_price1": 100000.0,
+                "entry_price2": 3000.0,
+                "exit_price1": None,
+                "exit_price2": None,
+                "entry_size1": 0.1,
+                "entry_size2": 2.0,
+                "exit_size1": None,
+                "exit_size2": None,
+                "realized_pnl": 0.0,
+                "realized_pnl_pct": 0.0,
+                "closed_at": None,
+            }
+        ],
+    )
+
+    assert any("trade_events" in cmd for cmd in client.commands)
+    assert any("instance_id" in cmd for cmd in client.commands)
+
+
+def test_clickhouse_writer_provisions_position_snapshots_table():
+    client = _FakeClickHouseClient()
+    writer = ClickHouseAnalyticsWriter(
+        enabled=True,
+        database="analytics",
+        extra_config={"client": client},
+    )
+
+    writer.write_rows(
+        "position_snapshots",
+        [
+            {
+                "snapshot_date": datetime(2026, 1, 1, tzinfo=timezone.utc).date(),
+                "snapshot_time": datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc),
+                "position_id": "live-pos-1",
+                "bot_id": "77",
+                "instance_id": "strategy-1-101",
+                "pair1": "BTC-USD",
+                "pair2": "ETH-USD",
+                "side1": "BUY",
+                "side2": "SELL",
+                "status": "open",
+                "event_kind": "mark_to_market",
+                "entry_price1": 100000.0,
+                "entry_price2": 3000.0,
+                "current_price1": 101000.0,
+                "current_price2": 2900.0,
+                "entry_size1": 0.1,
+                "entry_size2": 2.0,
+                "current_size1": 0.1,
+                "current_size2": 2.0,
+                "unrealized_pnl": 300.0,
+                "unrealized_pnl_pct": 1.5,
+                "realized_pnl": 0.0,
+                "realized_pnl_pct": 0.0,
+                "z_score_entry": 2.1,
+                "z_score_current": 0.8,
+                "hedge_ratio": 0.6,
+                "correlation": 0.9,
+                "half_life": 12.0,
+                "funding_rate": 0.001,
+                "closed_at": None,
+            }
+        ],
+    )
+
+    assert any("position_snapshots" in cmd for cmd in client.commands)
+    assert any("instance_id" in cmd for cmd in client.commands)
+
+
 def test_clickhouse_writer_falls_back_on_insert_error():
     client = _FailingClickHouseClient()
     fallback = NoopAnalyticsWriter()
@@ -304,7 +697,7 @@ def test_clickhouse_writer_uses_noop_fallback_when_disabled():
 
 
 def test_clickhouse_writer_get_buffer_returns_empty_list():
-    """get_buffer is a compatibility shim; always returns []."""
+    """get_buffer remains empty when no rows are buffered."""
     writer = ClickHouseAnalyticsWriter(
         enabled=True, extra_config={"client": _FakeClickHouseClient()}
     )

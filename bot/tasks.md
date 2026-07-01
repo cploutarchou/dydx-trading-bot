@@ -11,6 +11,28 @@
   - Added `docs/bot-risk-control-matrix.md` and `docs/sprint-1-bot-python-safety-implementation.md`.
   - Synced `README.md` and `openapi.json` with the Sprint 1 safety behavior.
 
+## 2026-06-30
+
+- Hardened backtest storage/runtime integration:
+  - `BacktestRepository` now resolves storage enablement from canonical `CLICKHOUSE_ENABLED` / `MINIO_ENABLED` aliases in addition to backtest-specific flags.
+  - Relative `BACKTEST_ARTIFACTS_DIR` paths now resolve from the repo root instead of the process working directory.
+  - Development stack/profile/env defaults were aligned so MinIO-backed artifacts and ClickHouse writes are enabled consistently across Docker and direct local startup.
+  - Detailed backtest trades remain artifact-backed on the bot side and are rehydrated from sidecars for reads instead of being kept in `backtest_runtime_runs.trades_json`.
+  - ClickHouse backtest sidecar writes are now normalized to the existing analytics schemas (`backtest_trades`, `backtest_position_snapshots`, `backtest_daily_pnl`) instead of failing on raw sidecar field names.
+  - Worker/container runtime issues were fixed so Celery runs can persist successfully in Docker:
+    - Postgres compose image pinned back to the live PG15 data-directory version.
+    - `WORKER_MODE=celery` is now set for worker stack services.
+    - Worker image permissions/build context were tightened via `docker/Dockerfile.worker` and root `.dockerignore`.
+  - Bot API status/details now refresh DB-backed runs instead of trusting stale in-process cache after worker completion.
+  - Persisted `_runtime_control` metadata is now rehydrated before execution/status reads so Celery runs keep truthful `worker_backend` / `worker_task_id` values across processes.
+  - Added a DB-backed regression test for cross-process status refresh and pinned `bot/tests/test_backtest_service.py` to deterministic asyncio mode by default; validation result:
+    - `bot/.venv/bin/python -m pytest bot/tests/test_backtest_service.py -q` -> `39 passed`
+    - `bot/.venv/bin/python -m pytest bot/tests/test_backtest_repository.py -q` -> `8 passed`
+  - Live storage verification succeeded for Celery runs:
+    - MinIO objects confirmed for `run-09489307a47c`, `run-33a6d67cfdf7`, and `run-0f3983733424`
+    - ClickHouse rows confirmed for `run-0f3983733424`
+    - Bot API status/details return terminal `completed` state for finished worker runs
+
 ## 2026-05-16
 
 - Migrated bot runtime config handling to DB-only startup:

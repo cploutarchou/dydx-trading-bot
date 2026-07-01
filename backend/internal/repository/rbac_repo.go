@@ -185,9 +185,39 @@ func (r *RBACRepository) DeleteCustomRole(role string) error {
 		return fmt.Errorf("system roles cannot be deleted")
 	}
 
+	// Check if users table has a role column
+	hasRoleColumn := false
+	rows, err := r.db.Query(`SELECT * FROM users LIMIT 0`)
+	if err == nil {
+		columns, _ := rows.Columns()
+		for _, col := range columns {
+			if strings.EqualFold(col, "role") {
+				hasRoleColumn = true
+				break
+			}
+		}
+		rows.Close()
+	}
+
 	var assignedUsers int
-	if err := r.db.QueryRow(`SELECT COUNT(*) FROM users WHERE LOWER(COALESCE(role, '')) = $1`, role).Scan(&assignedUsers); err != nil {
-		return fmt.Errorf("failed to inspect role assignments: %w", err)
+	query := "SELECT COUNT(*) FROM users WHERE is_admin = FALSE"
+	if hasRoleColumn {
+		query = `SELECT COUNT(*) FROM users WHERE LOWER(COALESCE(role, '')) = $1`
+		if err := r.db.QueryRow(query, role).Scan(&assignedUsers); err != nil {
+			return fmt.Errorf("failed to inspect role assignments: %w", err)
+		}
+	} else {
+		// When role column doesn't exist, we can't determine custom role assignments
+		// from the users table. Only 'admin' role is represented by is_admin flag.
+		// For non-admin roles, we assume no users have that role.
+		if role != "admin" {
+			assignedUsers = 0
+		} else {
+			// For admin role, check is_admin column
+			if err := r.db.QueryRow(`SELECT COUNT(*) FROM users WHERE is_admin = TRUE`).Scan(&assignedUsers); err != nil {
+				return fmt.Errorf("failed to inspect admin role assignments: %w", err)
+			}
+		}
 	}
 	if assignedUsers > 0 {
 		return fmt.Errorf("role is assigned to %d user(s)", assignedUsers)

@@ -264,7 +264,7 @@ func singleRowRows(column string, values []driver.Value) driver.Rows {
 }
 
 func (r *singleRowFakeRows) Columns() []string { return r.cols }
-func (r *singleRowFakeRows) Close() error       { return nil }
+func (r *singleRowFakeRows) Close() error      { return nil }
 func (r *singleRowFakeRows) Next(dest []driver.Value) error {
 	if r.done {
 		return fmt.Errorf("EOF")

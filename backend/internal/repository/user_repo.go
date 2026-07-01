@@ -71,6 +71,18 @@ func (r *UserRepository) hasMaxBotInstancesColumn() bool {
 	return r.hasUserColumn("max_bot_instances")
 }
 
+func (r *UserRepository) hasRoleColumn() bool {
+	return r.hasUserColumn("role")
+}
+
+func (r *UserRepository) hasAvatarColumn() bool {
+	return r.hasUserColumn("avatar")
+}
+
+func (r *UserRepository) hasLastLoginColumn() bool {
+	return r.hasUserColumn("last_login")
+}
+
 func (r *UserRepository) hasUserColumn(columnName string) bool {
 	rows, err := r.db.Query(`SELECT * FROM users LIMIT 0`)
 	if err != nil {
@@ -121,13 +133,31 @@ func (r *UserRepository) selectUserColumns() string {
 		maxBotInstancesExpr = "COALESCE(max_bot_instances, 10)"
 	}
 
+	roleExpr := "CASE WHEN is_admin THEN 'admin' ELSE 'client' END"
+	if r.hasRoleColumn() {
+		roleExpr = "COALESCE(role, CASE WHEN is_admin THEN 'admin' ELSE 'client' END)"
+	}
+
+	avatarExpr := "''"
+	if r.hasAvatarColumn() {
+		avatarExpr = "avatar"
+	}
+
+	lastLoginExpr := "NULL"
+	if r.hasLastLoginColumn() {
+		lastLoginExpr = "last_login"
+	}
+
 	return fmt.Sprintf(
-		`id, username, email, COALESCE(role, CASE WHEN is_admin THEN 'admin' ELSE 'client' END), %s, %s, %s, full_name, avatar, hashed_password, is_active, is_admin, %s, %s, last_login, created_at, updated_at`,
+		`id, username, email, %s, %s, %s, %s, full_name, %s, hashed_password, is_active, is_admin, %s, %s, %s, created_at, updated_at`,
+		roleExpr,
 		maxActiveBacktestsExpr,
 		maxStrategiesExpr,
 		maxBotInstancesExpr,
+		avatarExpr,
 		mfaEnabledExpr,
 		passwordChangeExpr,
+		lastLoginExpr,
 	)
 }
 
@@ -139,9 +169,7 @@ func (r *UserRepository) Create(user *models.User) error {
 	columns := []string{
 		"username",
 		"email",
-		"role",
 		"full_name",
-		"avatar",
 		"hashed_password",
 		"is_active",
 		"is_admin",
@@ -149,12 +177,20 @@ func (r *UserRepository) Create(user *models.User) error {
 	args := []interface{}{
 		user.Username,
 		user.Email,
-		user.Role,
 		user.FullName,
-		user.Avatar,
 		user.Password,
 		user.IsActive,
 		user.IsAdmin,
+	}
+
+	if r.hasAvatarColumn() {
+		columns = append(columns, "avatar")
+		args = append(args, user.Avatar)
+	}
+
+	if r.hasRoleColumn() {
+		columns = append(columns, "role")
+		args = append(args, user.Role)
 	}
 
 	if r.hasPasswordChangeRequiredColumn() {
@@ -181,6 +217,11 @@ func (r *UserRepository) Create(user *models.User) error {
 		}
 		columns = append(columns, "max_bot_instances")
 		args = append(args, user.MaxBotInstances)
+	}
+
+	if r.hasLastLoginColumn() {
+		columns = append(columns, "last_login")
+		args = append(args, user.LastLogin)
 	}
 
 	columns = append(columns, "created_at", "updated_at")
@@ -409,7 +450,17 @@ func (r *UserRepository) ListFiltered(filters UserListFilters) ([]*models.User, 
 		))
 	}
 	if role := strings.TrimSpace(strings.ToLower(filters.Role)); role != "" && role != "all" {
-		where = append(where, fmt.Sprintf(`LOWER(COALESCE(role, 'client')) = %s`, nextArg(models.NormalizeUserRole(role, false))))
+		if r.hasRoleColumn() {
+			where = append(where, fmt.Sprintf(`LOWER(COALESCE(role, 'client')) = %s`, nextArg(models.NormalizeUserRole(role, false))))
+		} else {
+			// Filter by is_admin when role column doesn't exist
+			normalizedRole := models.NormalizeUserRole(role, false)
+			if normalizedRole == "admin" {
+				where = append(where, fmt.Sprintf(`is_admin = TRUE`))
+			} else {
+				where = append(where, fmt.Sprintf(`is_admin = FALSE`))
+			}
+		}
 	}
 	if filters.Active != nil {
 		where = append(where, fmt.Sprintf(`is_active = %s`, nextArg(*filters.Active)))
@@ -474,12 +525,17 @@ func (r *UserRepository) ListFiltered(filters UserListFilters) ([]*models.User, 
 
 // CountActiveAdmins returns the number of active admin users.
 func (r *UserRepository) CountActiveAdmins() (int, error) {
-	query := `
+	roleCondition := "is_admin = TRUE"
+	if r.hasRoleColumn() {
+		roleCondition = "(is_admin = TRUE OR COALESCE(role, '') = 'admin')"
+	}
+
+	query := fmt.Sprintf(`
 		SELECT COUNT(*)
 		FROM users
 		WHERE is_active = TRUE
-		  AND (is_admin = TRUE OR COALESCE(role, '') = 'admin')
-	`
+		  AND %s
+	`, roleCondition)
 
 	var count int
 	if err := r.db.QueryRow(r.bindQuery(query)).Scan(&count); err != nil {
@@ -497,9 +553,7 @@ func (r *UserRepository) Update(user *models.User) error {
 	args := []interface{}{
 		user.Username,
 		user.Email,
-		user.Role,
 		user.FullName,
-		user.Avatar,
 		user.Password,
 		user.IsActive,
 		user.IsAdmin,
@@ -507,12 +561,20 @@ func (r *UserRepository) Update(user *models.User) error {
 	setClauses := []string{
 		"username = ?",
 		"email = ?",
-		"role = ?",
 		"full_name = ?",
-		"avatar = ?",
 		"hashed_password = ?",
 		"is_active = ?",
 		"is_admin = ?",
+	}
+
+	if r.hasAvatarColumn() {
+		args = append(args, user.Avatar)
+		setClauses = append(setClauses, "avatar = ?")
+	}
+
+	if r.hasRoleColumn() {
+		args = append(args, user.Role)
+		setClauses = append(setClauses, "role = ?")
 	}
 
 	if r.hasPasswordChangeRequiredColumn() {
@@ -541,8 +603,11 @@ func (r *UserRepository) Update(user *models.User) error {
 		setClauses = append(setClauses, "max_bot_instances = ?")
 	}
 
-	args = append(args, user.LastLogin)
-	setClauses = append(setClauses, "last_login = ?")
+	if r.hasLastLoginColumn() {
+		args = append(args, user.LastLogin)
+		setClauses = append(setClauses, "last_login = ?")
+	}
+
 	args = append(args, now)
 	setClauses = append(setClauses, "updated_at = ?")
 	args = append(args, user.ID)
@@ -595,6 +660,9 @@ func (r *UserRepository) Delete(id int) error {
 
 // UpdateLastLogin updates the last login time
 func (r *UserRepository) UpdateLastLogin(id int) error {
+	if !r.hasLastLoginColumn() {
+		return nil
+	}
 	query := "UPDATE users SET last_login = ? WHERE id = ?"
 
 	now := time.Now()

@@ -23,17 +23,19 @@ All local services should discover infrastructure through environment variables.
 | NATS JetStream | `localhost` | `4222` | available command/event transport, not a required runtime dependency in the current checked-in app path | `NATS_URL` |
 | NATS monitoring | `localhost` | `8222` | readiness and operator monitoring | `NATS_MONITORING_URL` |
 | ClickHouse HTTP | `localhost` | `8123` | optional analytical backtest writer target, disabled by default | `CLICKHOUSE_URL`, `CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD` |
-| MinIO API | `localhost` | `9010` | optional S3-compatible backtest artifact target, disabled by default | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE` |
+| MinIO API | `localhost` | `9010` | default S3-compatible backtest artifact target with local fallback safety | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE` |
 | MinIO Console | `localhost` | `9011` | object-storage admin UI | `MINIO_CONSOLE_URL` |
 
-PostgreSQL remains the only active application database/persistence path today, including the default backtest
-persistence path. Backtests still keep their current PostgreSQL-backed metadata and legacy JSON fields for
-compatibility and rollback. ClickHouse and MinIO are live locally and auto-discovered through environment variables,
-but the checked-in backtest adapter paths stay disabled by default behind:
+PostgreSQL remains the active transactional database/persistence path today, and backtests still keep their current
+PostgreSQL-backed metadata and legacy JSON fields for compatibility and rollback. ClickHouse and MinIO are live
+locally and auto-discovered through environment variables. The checked-in stack now enables both the MinIO-backed
+backtest artifact path and ClickHouse analytical writes by default:
 
-- `BACKTEST_ARTIFACT_STORAGE_ENABLED=false`
-- `BACKTEST_CLICKHOUSE_WRITES_ENABLED=false`
-- `BACKTEST_MINIO_ARTIFACTS_ENABLED=false`
+- `BACKTEST_ARTIFACT_STORAGE_ENABLED=true`
+- `BACKTEST_CLICKHOUSE_WRITES_ENABLED=true`
+- `BACKTEST_MINIO_ARTIFACTS_ENABLED=true`
+- `BACKTEST_CLICKHOUSE_BATCH_SIZE=1000`
+- `BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS=5`
 
 ## Repository Structure
 
@@ -62,7 +64,9 @@ make dev
 The structured profile flow populates the standard local aliases above. `.env.example` remains a compatibility example, but the encrypted profile under `config/profiles/` is the canonical startup source.
 
 Optional backtest adapter flags belong in the structured profile too. Checked-in local/dev defaults keep PostgreSQL as
-the active persistence path and leave the alternative storage paths disabled until explicitly validated.
+the transactional source of truth, enable MinIO-backed backtest artifacts with local fallback safety, and enable
+ClickHouse analytical writes for the development stack. Detailed backtest trades are served from the bot/artifact path
+rather than being mirrored into backend PostgreSQL.
 
 ### 2. Choose your local workflow
 

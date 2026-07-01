@@ -167,6 +167,8 @@ class _BacktestRunDetails(BaseModel):
     metadata: Dict[str, Any] = {}
     worker_hostname: Optional[str] = None
     retry_count: Optional[int] = None
+    artifact_refs: Dict[str, str] = {}
+    analytics_rows_written: int = 0
 
 
 class _BacktestRunList(BaseModel):
@@ -404,27 +406,29 @@ class BacktestService:
 
     def _load_run_data(self, run_id: str) -> Optional[Dict[str, Any]]:
         cached = self._runs.get(run_id)
-        if cached is not None and "request" in cached:
+        if self.session is None and cached is not None and "request" in cached:
             return dict(cached)
 
         persisted = self.repository.get_run(run_id)
-        if persisted is None:
-            return None
+        if persisted is not None:
+            hydrated = self._hydrate_loaded_run(dict(persisted))
+            self._runs[run_id] = dict(hydrated)
+            return dict(hydrated)
 
-        self._runs[run_id] = dict(persisted)
-        return dict(persisted)
+        return dict(cached) if cached is not None else None
 
     def _load_run_overview(self, run_id: str) -> Optional[Dict[str, Any]]:
         cached = self._runs.get(run_id)
-        if cached is not None and "request" in cached:
+        if self.session is None and cached is not None and "request" in cached:
             return dict(cached)
 
         persisted = self.repository.get_run_overview(run_id)
-        if persisted is None:
-            return None
+        if persisted is not None:
+            hydrated = self._hydrate_loaded_run(dict(persisted))
+            self._runs[run_id] = dict(hydrated)
+            return dict(hydrated)
 
-        self._runs[run_id] = dict(persisted)
-        return dict(persisted)
+        return dict(cached) if cached is not None else None
 
     def _persist_run_data(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
         existing = None
@@ -450,8 +454,26 @@ class BacktestService:
         ):
             if key in run_data and key not in persisted:
                 persisted[key] = run_data[key]
+        persisted["analytics_rows_written"] = self._normalize_analytics_rows_written(
+            persisted.get("analytics_rows_written")
+        )
         self._runs[str(persisted["run_id"])] = dict(persisted)
         return dict(persisted)
+
+    @staticmethod
+    def _normalize_analytics_rows_written(value: Any) -> int:
+        if isinstance(value, dict):
+            total = 0
+            for item in value.values():
+                try:
+                    total += max(0, int(item or 0))
+                except (TypeError, ValueError):
+                    continue
+            return total
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
 
     def _persist_progress_data(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
         """Persist scalar progress without rewriting accumulated result JSON blobs."""
@@ -464,6 +486,19 @@ class BacktestService:
         cached.update(run_data)
         self._runs[run_id] = cached
         return dict(run_data)
+
+    @classmethod
+    def _hydrate_loaded_run(cls, run_data: Dict[str, Any]) -> Dict[str, Any]:
+        payload = dict(run_data)
+        payload = cls._apply_task_observability(payload)
+        control = cls._get_runtime_control(payload)
+        payload["control_status"] = control.get("status")
+        payload["control_action"] = control.get("action")
+        payload["worker_backend"] = control.get("worker_backend")
+        payload["worker_task_id"] = control.get("worker_task_id")
+        payload["last_heartbeat_at"] = payload.get("updated_at")
+        payload["heartbeat_age_seconds"] = cls._heartbeat_age_seconds(payload)
+        return payload
 
     def _update_run_data(self, run_id: str, **updates: Any) -> Optional[Dict[str, Any]]:
         run_data = self._load_run_data(run_id)
@@ -966,7 +1001,7 @@ class BacktestService:
     @staticmethod
     def _configured_worker_backend() -> str:
         backend = os.getenv("BACKTEST_WORKER_BACKEND", "asyncio").strip().lower()
-        if backend in {"celery", "asyncio"}:
+        if backend in {"celery", "asyncio", "nats"}:
             return backend
         return "asyncio"
 
@@ -993,8 +1028,12 @@ class BacktestService:
     @classmethod
     async def _resolve_worker_backend(cls) -> str:
         backend = cls._configured_worker_backend()
-        if backend == "celery":
-            return "celery"
+        # celery and nats are explicit backend choices returned as-is. "nats" is
+        # the JetStream-authoritative mode: execution is driven by a
+        # backtest.command.start consumed by the NATS worker (WORKER_MODE=nats),
+        # so the creation flow must neither enqueue Celery nor run asyncio.
+        if backend in {"celery", "nats"}:
+            return backend
 
         auto_reprobe = cls._coerce_bool(
             os.getenv("BACKTEST_WORKER_BACKEND_AUTO_REPROBE", "true"),
@@ -1845,6 +1884,15 @@ class BacktestService:
                     exc,
                     action="auto_recover_enqueue_failed",
                 )
+
+        if worker_backend == "nats":
+            # JetStream-authoritative recovery: the NATS consumer will (re)process
+            # this run via JetStream redelivery; do not asyncio-execute it here.
+            logger.info(
+                "Skipping asyncio recovery for run %s in NATS mode; NATS consumer will redeliver",
+                run_id,
+            )
+            return None
 
         task = async_job_manager.create_supervised_task(
             self.execute_existing_backtest(run_id, progress_callback),
@@ -3530,6 +3578,35 @@ class BacktestService:
                 raise BacktestEnqueueError(
                     f"Failed to enqueue backtest '{run_id}' on Celery: {exc}"
                 ) from exc
+
+        if worker_backend == "nats":
+            # JetStream-authoritative mode: the run is persisted; execution is
+            # driven by the backend-published backtest.command.start consumed by
+            # the NATS worker (WORKER_MODE=nats). Do NOT enqueue Celery or run
+            # asyncio here — that would double-execute. The run stays "pending"
+            # until the NATS consumer claims it.
+            run_data = self._set_runtime_control(
+                run_data,
+                status="pending",
+                action="enqueue",
+                pause_requested=False,
+                resume_requested=False,
+                cancel_requested=False,
+                worker_backend="nats",
+                worker_task_id=run_id,
+            )
+            run_data["status"] = "pending"
+            run_data["current_task"] = "queued"
+            run_data["worker_backend"] = "nats"
+            run_data["worker_task_id"] = run_id
+            run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+            run_data = self._persist_run_data(run_data)
+            logger.info(
+                "Backtest %s persisted for NATS (JetStream) execution; "
+                "waiting for backtest.command.start consumer",
+                run_id,
+            )
+            return _BacktestRunDetails(**self._resolve_stale_run_data(run_data))
 
         task = async_job_manager.create_supervised_task(
             self._execute_backtest(

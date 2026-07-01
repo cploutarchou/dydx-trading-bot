@@ -35,9 +35,12 @@ const (
 
 // BacktestEventConsumer consumes durable backtest events and projects them.
 type BacktestEventConsumer struct {
-	natsURL      string
-	projector    *BacktestEventProjector
-	consumerName string
+	natsURL        string
+	projector      *BacktestEventProjector
+	consumerName   string
+	metrics        *AsyncMetrics
+	lastMessageAt  time.Time
+	startedAt      time.Time
 }
 
 // NewBacktestEventConsumer returns nil when the projector is nil (disabled).
@@ -50,7 +53,13 @@ func newBacktestEventConsumer(natsURL string, projector *BacktestEventProjector,
 	if url == "" || projector == nil {
 		return nil
 	}
-	return &BacktestEventConsumer{natsURL: url, projector: projector, consumerName: consumerName}
+	return &BacktestEventConsumer{
+		natsURL:       url,
+		projector:     projector,
+		consumerName:  consumerName,
+		metrics:       GetAsyncMetrics(),
+		startedAt:     time.Now().UTC(),
+	}
 }
 
 // ProcessRaw decodes a wire envelope fetched from JetStream and projects the
@@ -129,9 +138,29 @@ func (c *BacktestEventConsumer) runOnce(ctx context.Context) error {
 }
 
 func (c *BacktestEventConsumer) handleMessage(msg *natsclient.Msg) {
+	// Record heartbeat on each message
+	if c.metrics != nil {
+		c.metrics.RecordHeartbeat()
+	}
+	
+	// Calculate and record consumer lag
+	now := time.Now().UTC()
+	if !c.lastMessageAt.IsZero() {
+		lagMs := uint64(now.Sub(c.lastMessageAt).Milliseconds())
+		if c.metrics != nil && lagMs > 0 {
+			// Update consumer lag (simple approach: time since last message)
+			c.metrics.SetNATSConsumerLag(lagMs)
+		}
+	}
+	c.lastMessageAt = now
+	
 	if err := c.ProcessRaw(msg.Data); err != nil {
 		slog.Warn("backtest_event_consumer project failed; NAK", "error", err, "subject", msg.Subject)
 		_ = msg.Nak()
+		// Record dead letter for failed projections
+		if c.metrics != nil {
+			c.metrics.RecordDeadLetter()
+		}
 		return
 	}
 	_ = msg.Ack()

@@ -131,3 +131,11 @@ class BacktestDetailResponse(BaseModel):
     metrics: Optional[BacktestResultMetrics]
     trades: List[BacktestTrade]
     equity_curve: List[Dict[str, Any]]  # Time series of equity values
+    artifact_refs: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Backtest artifact references keyed by artifact kind",
+    )
+    analytics_rows_written: int = Field(
+        0,
+        description="Total analytical rows written during artifact sidecar sync",
+    )

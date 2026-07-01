@@ -187,7 +187,8 @@ local-bot: ensure-venv ## Start trading bot runtime locally
 .PHONY: local-worker
 local-worker: ensure-venv ## Start Celery worker locally for backtests/runtime jobs
 	@echo "$(CYAN)👷 Starting local Celery worker for strategy backtests$(RESET)"
-	CELERY_BROKER_URL=$${CELERY_BROKER_URL:-$${REDIS_URL:-$${VALKEY_URL:-redis://localhost:6379/1}}} CELERY_RESULT_BACKEND=$${CELERY_RESULT_BACKEND:-$${REDIS_RESULT_BACKEND_URL:-$${VALKEY_RESULT_BACKEND_URL:-redis://localhost:6379/2}}} CELERY_QUEUES=$${CELERY_QUEUES:-backtests,default,high_priority,scheduled} $(VENV_PYTHON) -m celery -A src.infrastructure.workers.celery_app:celery_app worker -l info -Q $${CELERY_QUEUES:-backtests,default,high_priority,scheduled} -E
+	# On macOS, use spawn instead of fork to avoid Objective-C runtime crashes
+	MP_START_METHOD=$${MP_START_METHOD:-spawn} CELERY_BROKER_URL=$${CELERY_BROKER_URL:-$${REDIS_URL:-$${VALKEY_URL:-redis://localhost:6379/1}}} CELERY_RESULT_BACKEND=$${CELERY_RESULT_BACKEND:-$${REDIS_RESULT_BACKEND_URL:-$${VALKEY_RESULT_BACKEND_URL:-redis://localhost:6379/2}}} CELERY_QUEUES=$${CELERY_QUEUES:-backtests,default,high_priority,scheduled} PYTHON_MULTIPROCESSING_START_METHOD=$${MP_START_METHOD:-spawn} $(VENV_PYTHON) -m celery -A src.infrastructure.workers.celery_app:celery_app worker -l info -Q $${CELERY_QUEUES:-backtests,default,high_priority,scheduled} -E
 
 .PHONY: dev-detached
 dev-detached: ## Start development environment in background
@@ -407,4 +408,5 @@ $(ENV_FILE):
 .PHONY: local-flower
 local-flower: ensure-venv ## Start Celery Flower locally only (port 5555)
 	@echo "$(CYAN)🌸 Starting Celery Flower on http://0.0.0.0:5555$(RESET)"
-	FLOWER_UNAUTHENTICATED_API=false CELERY_BROKER_URL=$${CELERY_BROKER_URL:-$${REDIS_URL:-$${VALKEY_URL:-redis://localhost:6379/1}}} CELERY_RESULT_BACKEND=$${CELERY_RESULT_BACKEND:-$${REDIS_RESULT_BACKEND_URL:-$${VALKEY_RESULT_BACKEND_URL:-redis://localhost:6379/2}}} $(VENV_PYTHON) -m celery -A src.infrastructure.workers.celery_app:celery_app flower --address=0.0.0.0 --port=5555
+	# On macOS, use spawn instead of fork to avoid Objective-C runtime crashes
+	MP_START_METHOD=$${MP_START_METHOD:-spawn} FLOWER_UNAUTHENTICATED_API=false CELERY_BROKER_URL=$${CELERY_BROKER_URL:-$${REDIS_URL:-$${VALKEY_URL:-redis://localhost:6379/1}}} CELERY_RESULT_BACKEND=$${CELERY_RESULT_BACKEND:-$${REDIS_RESULT_BACKEND_URL:-$${VALKEY_RESULT_BACKEND_URL:-redis://localhost:6379/2}}} PYTHON_MULTIPROCESSING_START_METHOD=$${MP_START_METHOD:-spawn} $(VENV_PYTHON) -m celery -A src.infrastructure.workers.celery_app:celery_app flower --address=0.0.0.0 --port=5555

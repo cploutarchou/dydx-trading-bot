@@ -4706,6 +4706,92 @@ class ApiClient {
     );
     return response.data;
   }
+
+  // ClickHouse Analytics Endpoints
+
+  async getClickHousePositionHistory(
+    instanceId: string,
+    hours: number = 24
+  ): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    try {
+      const response = await this.client.get<ApiResponse>(
+        `/api/v1/analytics/position-history?instance_id=${instanceId}&hours=${hours}`
+      );
+      return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
+  }
+
+  async getClickHouseTradeSummary(
+    instanceId: string
+  ): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    try {
+      const response = await this.client.get<ApiResponse>(
+        `/api/v1/analytics/trade-summary?instance_id=${instanceId}`
+      );
+      return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
+  }
+
+  async getClickHousePairBreakdown(
+    instanceId: string
+  ): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    try {
+      const response = await this.client.get<ApiResponse>(
+        `/api/v1/analytics/pair-breakdown?instance_id=${instanceId}`
+      );
+      return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
+  }
+
+  async getClickHouseWorkerMetrics(
+    workerId?: string,
+    workerType?: string,
+    hours: number = 24
+  ): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    try {
+      let url = `/api/v1/analytics/worker-metrics?hours=${hours}`;
+      if (workerId) url += `&worker_id=${workerId}`;
+      if (workerType) url += `&worker_type=${workerType}`;
+      const response = await this.client.get<ApiResponse>(url);
+      return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
+  }
+
+  async getClickHouseWorkerMetricsSummary(): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    try {
+      const response = await this.client.get<ApiResponse>(
+        '/api/v1/analytics/worker-metrics/summary'
+      );
+      return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
+  }
+
+  async getClickHouseAPIRequestSummary(): Promise<ApiResponse> {
+    this.ensureTokenLoaded();
+    try {
+      const response = await this.client.get<ApiResponse>(
+        '/api/v1/analytics/api-requests/summary'
+      );
+      return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
+  }
 }
 
 export default new ApiClient();

@@ -1,0 +1,17 @@
+.git
+.gitignore
+.venv
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/node_modules
+**/dist
+bot/bot_states
+bot_states
+pair_history
+frontend/coverage
+backend/bin
+*.log

@@ -158,7 +158,8 @@ worker-run: ## Deprecated alias (kept for compatibility)
 	@$(MAKE) api-run
 
 celery-worker: ## Start Celery worker for durable backtests
-	cd bot && .venv/bin/celery -A src.infrastructure.workers.celery_app:celery_app worker --loglevel=$${CELERY_LOG_LEVEL:-INFO} --queues=$${CELERY_QUEUES:-backtests,default,high_priority,scheduled} --concurrency=$${CELERY_CONCURRENCY:-1}
+	# On macOS, use spawn instead of fork to avoid Objective-C runtime crashes
+	cd bot && MP_START_METHOD=$${MP_START_METHOD:-spawn} PYTHON_MULTIPROCESSING_START_METHOD=$${MP_START_METHOD:-spawn} .venv/bin/celery -A src.infrastructure.workers.celery_app:celery_app worker --loglevel=$${CELERY_LOG_LEVEL:-INFO} --queues=$${CELERY_QUEUES:-backtests,default,high_priority,scheduled} --concurrency=$${CELERY_CONCURRENCY:-1}
 
 celery-flower: ## Start internal/admin-only Flower UI on port 5555
 	scripts/celery-flower.sh

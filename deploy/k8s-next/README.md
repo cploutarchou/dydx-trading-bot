@@ -27,13 +27,13 @@ The resources here are a skeleton. Replace the placeholder image tags, hosts, an
 - Valkey via `REDIS_URL`, `VALKEY_URL`, `REDIS_*`, `VALKEY_*`
 - NATS via `NATS_URL` and `NATS_MONITORING_URL` for the optional command bus contract
 - ClickHouse via `CLICKHOUSE_URL` and `CLICKHOUSE_*` for the optional analytical writer path
-- MinIO via `MINIO_ENDPOINT`, `MINIO_CONSOLE_URL`, `MINIO_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE` for the optional artifact path
+- MinIO via `MINIO_ENDPOINT`, `MINIO_CONSOLE_URL`, `MINIO_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE` for the default backtest artifact path
 
-Checked-in k3s defaults keep PostgreSQL as the active application persistence path and leave the alternative backtest
-storage adapters disabled:
+Checked-in k3s defaults keep PostgreSQL as the active transactional persistence path, enable the MinIO-backed
+backtest artifact path, and still leave ClickHouse disabled:
 
-- `BACKTEST_ARTIFACT_STORAGE_ENABLED=false`
+- `BACKTEST_ARTIFACT_STORAGE_ENABLED=true`
 - `BACKTEST_CLICKHOUSE_WRITES_ENABLED=false`
-- `BACKTEST_MINIO_ARTIFACTS_ENABLED=false`
+- `BACKTEST_MINIO_ARTIFACTS_ENABLED=true`
 
 `applications.yaml` injects only non-secret infrastructure config from the ConfigMap and keeps credentials in Secrets.

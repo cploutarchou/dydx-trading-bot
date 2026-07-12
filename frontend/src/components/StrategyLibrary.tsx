@@ -65,7 +65,6 @@ interface Strategy {
   resolution?: string;
   candle_resolution?: string;
   max_history_days?: number;
-  benchmark_symbol?: string;
   risk_free_rate?: number;
   initial_amount?: number;
   is_public: boolean;
@@ -227,11 +226,6 @@ export default function StrategyLibrary() {
     if (!selectedStrategy || !backtestStartDate || !backtestEndDate) return null;
     const pairSelectionMode = selectedStrategy.pair_selection_mode || 'liquidity';
     const resolution = selectedStrategy.resolution || selectedStrategy.candle_resolution || '1HOUR';
-    const strategyBenchmark = selectedStrategy.benchmark_symbol?.trim();
-    // benchmark_symbol is a performance-comparison reference, not a trading market.
-    // Never derive it from selected_markets — only use strategy config or default to BTC-USD.
-    const benchmarkSymbol =
-      strategyBenchmark && strategyBenchmark.length > 0 ? strategyBenchmark : 'BTC-USD';
     const tradingParameters: Record<string, unknown> = {
       zscore_threshold: selectedStrategy.zscore_threshold,
       stats_window: selectedStrategy.stats_window,
@@ -253,7 +247,6 @@ export default function StrategyLibrary() {
       transaction_fee: selectedStrategy.transaction_fee ?? 0.0005,
       slippage: selectedStrategy.slippage ?? 0.001,
       risk_free_rate: selectedStrategy.risk_free_rate ?? 0.02,
-      benchmark_symbol: benchmarkSymbol,
       max_history_days: selectedStrategy.max_history_days ?? 90,
       resolution,
       candle_resolution: resolution,

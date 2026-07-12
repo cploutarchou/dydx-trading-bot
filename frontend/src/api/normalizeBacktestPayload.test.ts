@@ -22,7 +22,24 @@ describe('normalizeBacktestPayload', () => {
     expect(payload.max_pairs).toBe(7);
     expect(payload.pair_selection_mode).toBe('cointegration');
     expect(payload.trading_parameters?.pair_selection_mode).toBe('cointegration');
+    expect(payload.benchmark_symbol).toBeUndefined();
+    expect(payload.trading_parameters?.benchmark_symbol).toBeUndefined();
     expect(payload.source).toBe('ui');
+  });
+
+  it('preserves an explicit benchmark without synthesizing a default', () => {
+    const payload = normalizeBacktestPayload({
+      start_date: '2026-03-01',
+      end_date: '2026-03-31',
+      pairs: ['ETH-USD', 'SOL-USD'],
+      benchmark_symbol: 'ETH-USD',
+      trading_parameters: {
+        benchmark_symbol: 'SOL-USD',
+      },
+    });
+
+    expect(payload.benchmark_symbol).toBe('ETH-USD');
+    expect(payload.trading_parameters?.benchmark_symbol).toBe('SOL-USD');
   });
 
   it('infers max_pairs from deduped pairs only when explicit value is missing/invalid', () => {

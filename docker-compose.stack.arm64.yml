@@ -427,6 +427,8 @@ services:
       # Celery
       CELERY_BROKER_URL: redis://valkey:6379/1
       CELERY_RESULT_BACKEND: redis://valkey:6379/2
+      CELERY_AUTOSCALE: ${CELERY_AUTOSCALE:-10,2}
+      CELERY_WORKER_MAX_TASKS_PER_CHILD: ${CELERY_WORKER_MAX_TASKS_PER_CHILD:-100}
       # Worker
       APP_CONFIG_ENV: development
       WORKER_MODE: celery

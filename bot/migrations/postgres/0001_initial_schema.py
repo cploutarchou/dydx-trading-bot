@@ -45,7 +45,7 @@ TRADE_STATUS_ENUM = "tradestatusenum"
 POSITION_STATUS_ENUM = "positionstatusenum"
 ALERT_SEVERITY_ENUM = "alertseverityenum"
 
-_bot_status = sa.Enum(
+_bot_status = postgresql.ENUM(
     "created",
     "starting",
     "running",
@@ -57,7 +57,7 @@ _bot_status = sa.Enum(
     "safeguarded",
     name=BOT_STATUS_ENUM,
 )
-_job_status = sa.Enum(
+_job_status = postgresql.ENUM(
     "pending",
     "running",
     "completed",
@@ -65,19 +65,19 @@ _job_status = sa.Enum(
     "cancelled",
     name=JOB_STATUS_ENUM,
 )
-_trade_status = sa.Enum(
+_trade_status = postgresql.ENUM(
     "open",
     "closed",
     "cancelled",
     name=TRADE_STATUS_ENUM,
 )
-_position_status = sa.Enum(
+_position_status = postgresql.ENUM(
     "open",
     "closed",
     "liquidated",
     name=POSITION_STATUS_ENUM,
 )
-_alert_severity = sa.Enum(
+_alert_severity = postgresql.ENUM(
     "info",
     "warning",
     "critical",
@@ -96,7 +96,9 @@ def _jsonb() -> sa.types.TypeDecorator:
 
 
 def _now_utc() -> sa.text:
-    return sa.text("NOW() AT TIME ZONE 'UTC'")
+    # TIMESTAMPTZ stores an absolute instant; connections are configured with
+    # timezone=UTC, so CURRENT_TIMESTAMP round-trips in UTC without invalid SQL.
+    return sa.text("CURRENT_TIMESTAMP")
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +130,7 @@ def upgrade() -> None:
             sa.Column("config", _jsonb(), nullable=False, server_default="{}"),
             sa.Column(
                 "status",
-                sa.Enum(
+                postgresql.ENUM(
                     "created",
                     "starting",
                     "running",
@@ -180,7 +182,7 @@ def upgrade() -> None:
             sa.Column("job_type", sa.String(50), nullable=False),
             sa.Column(
                 "status",
-                sa.Enum(
+                postgresql.ENUM(
                     "pending",
                     "running",
                     "completed",
@@ -253,7 +255,7 @@ def upgrade() -> None:
             sa.Column("exit_size2", sa.Float(), nullable=True),
             sa.Column(
                 "status",
-                sa.Enum(
+                postgresql.ENUM(
                     "open",
                     "closed",
                     "cancelled",
@@ -617,7 +619,7 @@ def upgrade() -> None:
             sa.Column("current_size2", sa.Float(), nullable=True),
             sa.Column(
                 "status",
-                sa.Enum(
+                postgresql.ENUM(
                     "open",
                     "closed",
                     "liquidated",
@@ -772,7 +774,7 @@ def upgrade() -> None:
             sa.Column("alert_type", sa.String(50), nullable=False),
             sa.Column(
                 "severity",
-                sa.Enum(
+                postgresql.ENUM(
                     "info",
                     "warning",
                     "critical",

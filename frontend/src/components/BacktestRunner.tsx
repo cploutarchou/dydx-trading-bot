@@ -37,7 +37,6 @@ interface TradingParameters {
   transaction_fee?: number;
   slippage?: number;
   risk_free_rate?: number;
-  benchmark_symbol?: string;
   max_history_days?: number;
   pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
 }
@@ -52,7 +51,6 @@ interface BacktestRunRequest {
   max_pairs?: number;
   pairs?: string[];
   strategy_id?: number;
-  benchmark_symbol?: string;
   pair_selection_mode?: 'liquidity' | 'volatility' | 'cointegration' | 'input';
   trading_parameters: TradingParameters;
 }
@@ -113,7 +111,6 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
     end_date: '2024-03-31',
     name: 'ui-backtest',
     initial_balance: 1000,
-    benchmark_symbol: 'BTC-USD',
     max_pairs: 0,
     pair_selection_mode: 'liquidity',
     trading_parameters: {
@@ -125,7 +122,6 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       slippage: 0.001,
       risk_free_rate: 0.02,
       max_history_days: 90,
-      benchmark_symbol: 'BTC-USD',
       pair_selection_mode: 'liquidity',
     },
   });
@@ -237,7 +233,6 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
     'transaction_fee',
     'slippage',
     'risk_free_rate',
-    'benchmark_symbol',
     'max_history_days',
     'pair_selection_mode',
   ]);
@@ -295,7 +290,6 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             strategy_id: id,
             initial_balance:
               strategy.starting_balance || strategy.initial_amount || prev.initial_balance,
-            benchmark_symbol: strategy.benchmark_symbol || prev.benchmark_symbol,
             trading_parameters: {
               ...prev.trading_parameters,
               resolution: strategy.candle_resolution || strategy.resolution,
@@ -320,7 +314,6 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               transaction_fee: strategy.transaction_fee,
               slippage: strategy.slippage,
               risk_free_rate: strategy.risk_free_rate,
-              benchmark_symbol: strategy.benchmark_symbol,
               max_history_days: strategy.max_history_days,
               pair_selection_mode: strategy.pair_selection_mode,
             },
@@ -373,12 +366,6 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       }
 
       const tp = formData.trading_parameters;
-      const explicitBenchmarkSymbol = String(
-        tp.benchmark_symbol ?? formData.benchmark_symbol ?? ''
-      ).trim();
-      // benchmark_symbol is a performance-comparison reference, not a trading market.
-      // Never derive it from selectedMarkets — only use explicit config or default to BTC-USD.
-      const effectiveBenchmarkSymbol = explicitBenchmarkSymbol || 'BTC-USD';
       const activeMode = tp.pair_selection_mode || formData.pair_selection_mode || 'liquidity';
 
       if (activeMode === 'input' && selectedMarkets.length < 2) {
@@ -437,7 +424,6 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         name: formData.name || 'ui-backtest',
         initial_balance: Number(formData.initial_balance),
         max_pairs: selectedMarkets.length > 0 ? selectedMarkets.length : Number(formData.max_pairs),
-        benchmark_symbol: effectiveBenchmarkSymbol,
         pair_selection_mode: activeMode,
         ...(selectedMarkets.length > 0 && { pairs: selectedMarkets }),
         trading_parameters: {
@@ -484,7 +470,6 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
             risk_free_rate: Number(tp.risk_free_rate),
           }),
           ...(tp.resolution !== undefined && { resolution: tp.resolution }),
-          benchmark_symbol: effectiveBenchmarkSymbol,
           ...(tp.max_history_days !== undefined && {
             max_history_days: effectiveMaxHistoryDays,
           }),
@@ -1005,29 +990,6 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               onChange={handleChange}
               step="0.0001"
               min="0"
-              className={inputClass}
-            />
-          </div>
-          <div>
-            <label className={labelClass}>Benchmark Symbol</label>
-            <input
-              type="text"
-              name="benchmark_symbol"
-              value={
-                formData.benchmark_symbol ||
-                formData.trading_parameters.benchmark_symbol ||
-                'BTC-USD'
-              }
-              onChange={(e) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  benchmark_symbol: e.target.value,
-                  trading_parameters: {
-                    ...prev.trading_parameters,
-                    benchmark_symbol: e.target.value,
-                  },
-                }))
-              }
               className={inputClass}
             />
           </div>

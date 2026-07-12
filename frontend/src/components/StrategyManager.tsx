@@ -1046,7 +1046,6 @@ export default function StrategyManager() {
     slippage: strategyConfig.slippage,
     starting_balance: strategyConfig.starting_balance,
     max_history_days: strategyConfig.max_history_days,
-    benchmark_symbol: strategyConfig.benchmark_symbol,
     risk_free_rate: strategyConfig.risk_free_rate,
     initial_amount: strategyConfig.initial_amount,
   });
@@ -1209,7 +1208,6 @@ export default function StrategyManager() {
           transaction_fee: strategy.transaction_fee,
           slippage: strategy.slippage,
           risk_free_rate: strategy.risk_free_rate,
-          benchmark_symbol: strategy.benchmark_symbol || 'BTC-USD',
           max_history_days: strategy.max_history_days,
           pair_selection_mode: pairSelectionMode,
         },
@@ -2927,15 +2925,6 @@ export default function StrategyManager() {
                         onChange={(e) =>
                           updateEditingConfig({ max_history_days: parseInt(e.target.value, 10) })
                         }
-                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-2 block text-white font-medium">Benchmark symbol</label>
-                      <input
-                        type="text"
-                        value={editingConfig.benchmark_symbol ?? 'BTC-USD'}
-                        onChange={(e) => updateEditingConfig({ benchmark_symbol: e.target.value })}
                         className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
                       />
                     </div>

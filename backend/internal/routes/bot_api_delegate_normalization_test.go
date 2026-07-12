@@ -1,6 +1,70 @@
 package routes
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
+
+func TestResolveBacktestBenchmarkUsesFirstPayloadMarket(t *testing.T) {
+	payload := map[string]interface{}{
+		"data": map[string]interface{}{
+			"request": map[string]interface{}{
+				"pairs": []interface{}{"ETH-USD", "SOL-USD"},
+				"trading_parameters": map[string]interface{}{
+					"benchmark_symbol": "BTC-USD",
+				},
+			},
+		},
+	}
+
+	if got := resolveBacktestBenchmark(payload, ""); got != "ETH-USD" {
+		t.Fatalf("expected first payload market ETH-USD, got %q", got)
+	}
+}
+
+func TestResolveBacktestBenchmarksUsesAllPayloadMarkets(t *testing.T) {
+	pairs := make([]interface{}, 0, 300)
+	for i := 0; i < 300; i++ {
+		pairs = append(pairs, fmt.Sprintf("MARKET-%03d-USD", i))
+	}
+	payload := map[string]interface{}{
+		"request": map[string]interface{}{
+			"pairs": pairs,
+		},
+	}
+
+	benchmarks := resolveBacktestBenchmarks(payload)
+	if len(benchmarks) != 300 {
+		t.Fatalf("expected all 300 payload markets, got %d", len(benchmarks))
+	}
+	if benchmarks[0] != "MARKET-000-USD" || benchmarks[299] != "MARKET-299-USD" {
+		t.Fatalf("unexpected benchmark ordering: first=%q last=%q", benchmarks[0], benchmarks[299])
+	}
+}
+
+func TestResolveBacktestBenchmarkPreservesExplicitOverride(t *testing.T) {
+	payload := map[string]interface{}{
+		"request": map[string]interface{}{
+			"pairs": []string{"ETH-USD", "SOL-USD"},
+		},
+	}
+
+	if got := resolveBacktestBenchmark(payload, " link-usd "); got != "LINK-USD" {
+		t.Fatalf("expected explicit benchmark override LINK-USD, got %q", got)
+	}
+}
+
+func TestResolveBacktestBenchmarkUsesSelectedPairWhenMarketsMissing(t *testing.T) {
+	payload := map[string]interface{}{
+		"request": map[string]interface{}{
+			"selected_pairs": []interface{}{"AVAX-USD/DOGE-USD"},
+		},
+	}
+
+	if got := resolveBacktestBenchmark(payload, ""); got != "AVAX-USD" {
+		t.Fatalf("expected first selected-pair market AVAX-USD, got %q", got)
+	}
+}
 
 func TestNormalizeBotJobsPayload_AcceptsDBBackedFieldsAndCanonicalStatuses(t *testing.T) {
 	payload := map[string]interface{}{

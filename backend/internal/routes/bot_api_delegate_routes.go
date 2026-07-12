@@ -254,6 +254,43 @@ func pairLabelsToMarkets(pairLabels []string) []string {
 	return markets
 }
 
+func resolveBacktestBenchmarks(payload map[string]interface{}) []string {
+	details := unwrapEnvelopePayload(payload)
+	requestPayload := asMap(details["request"])
+	if requestPayload == nil {
+		requestPayload = details
+	}
+
+	// Follow the market universe submitted for this run. Legacy clients may
+	// inject a default benchmark_symbol that is unrelated to selected markets.
+	if markets := stringSliceField(requestPayload, "pairs"); len(markets) > 0 {
+		return markets
+	}
+	if pairLabels := stringSliceField(requestPayload, "selected_pairs"); len(pairLabels) > 0 {
+		if markets := pairLabelsToMarkets(pairLabels); len(markets) > 0 {
+			return markets
+		}
+	}
+
+	if params := asMap(requestPayload["trading_parameters"]); params != nil {
+		if benchmark := strings.ToUpper(getStringField(params, "benchmark_symbol")); benchmark != "" {
+			return []string{benchmark}
+		}
+	}
+	if benchmark := strings.ToUpper(getStringField(requestPayload, "benchmark_symbol")); benchmark != "" {
+		return []string{benchmark}
+	}
+
+	return []string{"BTC-USD"}
+}
+
+func resolveBacktestBenchmark(payload map[string]interface{}, override string) string {
+	if benchmark := strings.ToUpper(strings.TrimSpace(override)); benchmark != "" {
+		return benchmark
+	}
+	return resolveBacktestBenchmarks(payload)[0]
+}
+
 func buildPairLabelsFromMarkets(markets []string) []string {
 	labels := make([]string, 0)
 	for i := 0; i < len(markets)-1; i++ {
@@ -2785,7 +2822,15 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		backtestGroup.GET("/:run_id/performance-metrics", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)
 			runID := c.Param("run_id")
-			benchmark := c.DefaultQuery("benchmark", "BTC-USD")
+			benchmark := strings.TrimSpace(c.Query("benchmark"))
+			if benchmark == "" {
+				details, detailsErr := requestClient.GetBacktestDetails(runID)
+				if detailsErr != nil {
+					respondBotAPIError(c, detailsErr)
+					return
+				}
+				benchmark = resolveBacktestBenchmark(details, "")
+			}
 			result, err := requestClient.GetAdvancedPerformanceMetrics(runID, benchmark)
 			if err != nil {
 				respondBotAPIError(c, err)
@@ -2798,7 +2843,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		backtestGroup.GET("/:run_id/performance", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)
 			runID := c.Param("run_id")
-			benchmark := c.DefaultQuery("benchmark", "BTC-USD")
+			benchmarkOverride := strings.TrimSpace(c.Query("benchmark"))
 
 			details, err := requestClient.GetBacktestDetails(runID)
 			if err != nil {
@@ -2807,6 +2852,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			}
 			details = normalizeBacktestDetailsPayload(details)
 			detailData := unwrapEnvelopePayload(details)
+			benchmark := resolveBacktestBenchmark(details, benchmarkOverride)
 			syncRun(c, details)
 			syncChildren(c, runID, details)
 

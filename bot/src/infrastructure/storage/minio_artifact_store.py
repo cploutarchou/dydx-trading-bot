@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import logging
 from collections.abc import Mapping
+from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 class MinIOArtifactStore(ArtifactStore):
     """Feature-flagged MinIO artifact adapter with safe local fallback.
-    
+
     In strict mode (strict_mode=True), if MinIO is configured but unavailable or write fails,
     the store will raise an exception instead of falling back to local storage.
     This ensures production environments fail visibly when object storage is unavailable.
@@ -97,6 +98,24 @@ class MinIOArtifactStore(ArtifactStore):
             region=self.extra_config.get("region"),
         )
 
+    @staticmethod
+    def _safe_key(key: str) -> str:
+        safe_key = str(key).strip().lstrip("/")
+        path = PurePosixPath(safe_key)
+        if (
+            not safe_key
+            or "\\" in safe_key
+            or any(part in {"", ".", ".."} for part in path.parts)
+        ):
+            raise ValueError("artifact key must be a normalized relative object key")
+        return safe_key
+
+    def _require_strict_client(self, operation: str) -> None:
+        if self.enabled and self.strict_mode and self._client is None:
+            raise RuntimeError(
+                f"MinIO artifact {operation} failed (strict mode): client is unavailable"
+            )
+
     def _ensure_bucket(self) -> None:
         if self._client is None or self._bucket_ready:
             return
@@ -109,18 +128,43 @@ class MinIOArtifactStore(ArtifactStore):
         self._client.make_bucket(self.bucket)
         self._bucket_ready = True
 
+    def health_check(self) -> dict[str, Any]:
+        """Return sanitized connectivity/bucket readiness diagnostics."""
+        if not self.enabled:
+            return {"enabled": False, "healthy": True, "strict": self.strict_mode}
+        if self._client is None:
+            return {
+                "enabled": True,
+                "healthy": False,
+                "strict": self.strict_mode,
+                "error": "MinIO client is unavailable",
+            }
+        try:
+            self._ensure_bucket()
+            return {
+                "enabled": True,
+                "healthy": True,
+                "strict": self.strict_mode,
+                "bucket": self.bucket,
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "enabled": True,
+                "healthy": False,
+                "strict": self.strict_mode,
+                "bucket": self.bucket,
+                "error": str(exc),
+            }
+
     def reference_for(self, key: str) -> str:
-        safe_key = str(key).strip().lstrip("/")
-        if not safe_key:
-            raise ValueError("artifact key is required")
+        safe_key = self._safe_key(key)
         return f"s3://{self.bucket}/{safe_key}"
 
     def put_bytes(
         self, key: str, data: bytes, *, content_type: str | None = None
     ) -> str:
-        safe_key = str(key).strip().lstrip("/")
-        if not safe_key:
-            raise ValueError("artifact key is required")
+        safe_key = self._safe_key(key)
+        self._require_strict_client("persistence")
 
         if self.enabled and self._client is not None:
             try:
@@ -159,9 +203,8 @@ class MinIOArtifactStore(ArtifactStore):
         )
 
     def read_bytes(self, key: str) -> bytes:
-        safe_key = str(key).strip().lstrip("/")
-        if not safe_key:
-            raise ValueError("artifact key is required")
+        safe_key = self._safe_key(key)
+        self._require_strict_client("read")
 
         if self.enabled and self._client is not None:
             response = None
@@ -169,16 +212,16 @@ class MinIOArtifactStore(ArtifactStore):
                 response = self._client.get_object(self.bucket, safe_key)
                 return response.read()
             except Exception as exc:  # noqa: BLE001
+                if self.strict_mode:
+                    logger.error(
+                        "MinIO read failed in strict mode; rejecting read key=%s error=%s",
+                        safe_key,
+                        exc,
+                    )
+                    raise RuntimeError(
+                        f"MinIO artifact read failed (strict mode): {exc}"
+                    ) from exc
                 if not self._is_not_found_error(exc):
-                    if self.strict_mode:
-                        logger.error(
-                            "MinIO read failed in strict mode; rejecting read key=%s error=%s",
-                            safe_key,
-                            exc,
-                        )
-                        raise RuntimeError(
-                            f"MinIO artifact read failed (strict mode): {exc}"
-                        ) from exc
                     logger.warning(
                         "MinIO read failed; trying fallback key=%s error=%s",
                         safe_key,
@@ -196,15 +239,19 @@ class MinIOArtifactStore(ArtifactStore):
         return self.fallback.read_bytes(safe_key)
 
     def exists(self, key: str) -> bool:
-        safe_key = str(key).strip().lstrip("/")
-        if not safe_key:
+        try:
+            safe_key = self._safe_key(key)
+        except ValueError:
             return False
+        self._require_strict_client("exists check")
 
         if self.enabled and self._client is not None:
             try:
                 self._client.stat_object(self.bucket, safe_key)
                 return True
             except Exception as exc:  # noqa: BLE001
+                if self.strict_mode and self._is_not_found_error(exc):
+                    return False
                 if not self._is_not_found_error(exc):
                     if self.strict_mode:
                         logger.error(

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -70,7 +72,26 @@ class LocalArtifactStore(ArtifactStore):
         del content_type
         path = self._resolve_path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
+        # Write in the destination directory and publish with os.replace so readers
+        # never observe a truncated artifact after a crash or concurrent update.
+        temp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temp_path = Path(handle.name)
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_path, path)
+            temp_path = None
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
         return path.as_uri()
 
     def read_bytes(self, key: str) -> bytes:

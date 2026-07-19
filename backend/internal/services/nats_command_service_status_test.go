@@ -110,7 +110,7 @@ func TestPublishBacktestCommand_StatusPublishedOnlyOnTransportSuccess(t *testing
 	svc := &NATSCommandService{
 		taskRepo:  store,
 		publisher: pub,
-		settings:  config.NATSSettings{Enabled: true},
+		settings:  config.NATSSettings{Enabled: true, CommandBusEnabled: true},
 		clock:     time.Now,
 	}
 
@@ -135,7 +135,7 @@ func TestPublishBacktestCommand_StatusStaysPendingOnTransportFailure(t *testing.
 	svc := &NATSCommandService{
 		taskRepo:  store,
 		publisher: pub,
-		settings:  config.NATSSettings{Enabled: true},
+		settings:  config.NATSSettings{Enabled: true, CommandBusEnabled: true},
 		clock:     time.Now,
 	}
 
@@ -161,7 +161,7 @@ func TestPublishBacktestCommand_StatusStaysPendingWhenDisabled(t *testing.T) {
 	svc := &NATSCommandService{
 		taskRepo:  store,
 		publisher: pub, // present but NATS disabled
-		settings:  config.NATSSettings{Enabled: false},
+		settings:  config.NATSSettings{Enabled: false, CommandBusEnabled: true},
 		clock:     time.Now,
 	}
 
@@ -178,6 +178,37 @@ func TestPublishBacktestCommand_StatusStaysPendingWhenDisabled(t *testing.T) {
 	pub.mu.Unlock()
 	if attempts != 0 {
 		t.Fatalf("disabled service must not attempt publish, got %d attempts", attempts)
+	}
+}
+
+func TestPublishBacktestCommand_CommandBusDisabledCreatesNoExecutableMirror(t *testing.T) {
+	store := &fakeTaskStore{}
+	pub := newFakePublisher(&nats.PublishResult{Stream: "BACKTEST_COMMANDS", Sequence: 1}, nil)
+	svc := &NATSCommandService{
+		taskRepo:  store,
+		publisher: pub,
+		settings:  config.NATSSettings{Enabled: true, CommandBusEnabled: false},
+		clock:     time.Now,
+	}
+
+	cmd, err := svc.PublishBacktestCommand(context.Background(), "run-celery", nil, nil, "run-celery", "trace")
+	if err != nil {
+		t.Fatalf("PublishBacktestCommand: %v", err)
+	}
+	if cmd != nil {
+		t.Fatalf("command bus disabled must not create a command mirror, got %+v", cmd)
+	}
+	store.mu.Lock()
+	created := store.command
+	store.mu.Unlock()
+	if created != nil {
+		t.Fatalf("command bus disabled wrote task command %+v", created)
+	}
+	pub.mu.Lock()
+	attempts := pub.attempted
+	pub.mu.Unlock()
+	if attempts != 0 {
+		t.Fatalf("command bus disabled attempted %d publishes", attempts)
 	}
 }
 
@@ -206,7 +237,7 @@ func TestPublishBacktestCommand_CorrelatesRunID(t *testing.T) {
 	svc := &NATSCommandService{
 		taskRepo:  store,
 		publisher: pub,
-		settings:  config.NATSSettings{Enabled: true},
+		settings:  config.NATSSettings{Enabled: true, CommandBusEnabled: true},
 		clock:     time.Now,
 	}
 

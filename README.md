@@ -18,12 +18,12 @@ All local services should discover infrastructure through environment variables.
 
 | Service | Host | Port | Purpose | Environment variables |
 | --- | --- | --- | --- | --- |
-| PostgreSQL | `localhost` | `5432` | active transactional database and persistence path for backend and bot | `DATABASE_URL`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `DB_*` |
+| PostgreSQL | `localhost` | `5432` | separate backend (`dydx_bot`) and bot (`dydx_bot_runtime`) databases on one local server | `DATABASE_URL`, `POSTGRES_*`, `DB_*`, `BOT_DATABASE_URL`, `BOT_DB_*` |
 | Valkey | `localhost` | `6379` | Redis-compatible cache/broker surface for existing Celery, lock, rate-limit, and cache flows | `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `VALKEY_HOST`, `VALKEY_PORT`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND` |
-| NATS JetStream | `localhost` | `4222` | available command/event transport, not a required runtime dependency in the current checked-in app path | `NATS_URL` |
+| NATS JetStream | `localhost` | `4222` | durable events; command execution remains explicitly cutover-gated while Celery is authoritative | `NATS_URL`, `BOT_COMMAND_BUS_ENABLED` |
 | NATS monitoring | `localhost` | `8222` | readiness and operator monitoring | `NATS_MONITORING_URL` |
 | ClickHouse HTTP | `localhost` | `8123` | optional analytical backtest writer target, disabled by default | `CLICKHOUSE_URL`, `CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD` |
-| MinIO API | `localhost` | `9010` | default S3-compatible backtest artifact target with local fallback safety | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE` |
+| MinIO API | `localhost` | `9010` | profile-enabled S3-compatible artifacts; strict production mode has no local fallback | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE` |
 | MinIO Console | `localhost` | `9011` | object-storage admin UI | `MINIO_CONSOLE_URL` |
 
 PostgreSQL remains the active transactional database/persistence path today, and backtests still keep their current
@@ -36,6 +36,9 @@ backtest artifact path and ClickHouse analytical writes by default:
 - `BACKTEST_MINIO_ARTIFACTS_ENABLED=true`
 - `BACKTEST_CLICKHOUSE_BATCH_SIZE=1000`
 - `BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS=5`
+- `BACKTEST_MINIO_STRICT=true` (the full stack fails closed instead of writing artifacts locally)
+- `CELERY_BROKER_URL=redis://valkey:6379/1` and `CELERY_RESULT_BACKEND=redis://valkey:6379/2`
+- `BOT_COMMAND_BUS_ENABLED=false` (prevents a Celery-owned run from being replayed by a NATS command worker)
 
 ## Repository Structure
 
@@ -64,7 +67,7 @@ make dev
 The structured profile flow populates the standard local aliases above. `.env.example` remains a compatibility example, but the encrypted profile under `config/profiles/` is the canonical startup source.
 
 Optional backtest adapter flags belong in the structured profile too. Checked-in local/dev defaults keep PostgreSQL as
-the transactional source of truth, enable MinIO-backed backtest artifacts with local fallback safety, and enable
+the transactional source of truth, enable strict MinIO-backed backtest artifacts, and enable
 ClickHouse analytical writes for the development stack. Detailed backtest trades are served from the bot/artifact path
 rather than being mirrored into backend PostgreSQL.
 

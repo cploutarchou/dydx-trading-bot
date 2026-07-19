@@ -29,7 +29,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgresql_data:/var/lib/postgresql/data
     healthcheck:
@@ -37,6 +37,27 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - dydx-stack
+
+  postgresql-bot-db-init:
+    image: postgres:15.18-bookworm
+    restart: "no"
+    environment:
+      PGHOST: postgresql
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-dydx_bot}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
+      BOT_POSTGRES_DB: ${BOT_POSTGRES_DB:-dydx_bot_runtime}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        if ! psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$${BOT_POSTGRES_DB}'" | grep -q 1; then
+          createdb "$${BOT_POSTGRES_DB}"
+        fi
+    depends_on:
+      postgresql:
+        condition: service_healthy
     networks:
       - dydx-stack
 
@@ -52,7 +73,7 @@ services:
       - "60"
       - "1"
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - valkey_data:/data
     healthcheck:
@@ -79,7 +100,7 @@ services:
     volumes:
       - nats_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8222/healthz"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -101,7 +122,7 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8123/ping"]
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8123/ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -109,7 +130,7 @@ services:
       - dydx-stack
 
   minio:
-    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: dydx-minio
     restart: unless-stopped
     environment:
@@ -119,7 +140,7 @@ services:
       - server
       - /data
       - --console-address
-      - :9011
+      - :9001
     ports:
       - "9010:9000"
       - "9011:9001"
@@ -180,6 +201,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-dydx_bot}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
       DATABASE_URL: postgres://${POSTGRES_USER:-dydx_bot}:${POSTGRES_PASSWORD:-change-me-db-password}@postgresql:5432/${POSTGRES_DB:-dydx_bot}?sslmode=disable
+      DB_AUTO_MIGRATE: "true"
       # Cache
       REDIS_ENABLED: "true"
       REDIS_HOST: valkey
@@ -191,6 +213,7 @@ services:
       VALKEY_URL: redis://valkey:6379/0
       # NATS
       NATS_ENABLED: "true"
+      BOT_COMMAND_BUS_ENABLED: "false"
       NATS_URL: nats://nats:4222
       NATS_MONITORING_URL: http://nats:8222
       NATS_STREAM_PREFIX: bot
@@ -208,8 +231,14 @@ services:
         condition: service_healthy
       valkey:
         condition: service_healthy
+      nats:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8888/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8888/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -225,7 +254,7 @@ services:
     restart: unless-stopped
     environment:
       # Database
-      BOT_DB_CUTOVER_MODE: dedicated_with_shared_fallback
+      BOT_DB_CUTOVER_MODE: dedicated
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-dydx_bot}:${POSTGRES_PASSWORD:-change-me-db-password}@postgresql:5432/${POSTGRES_DB:-dydx_bot}?sslmode=disable
       POSTGRES_HOST: postgresql
       POSTGRES_PORT: 5432
@@ -241,10 +270,10 @@ services:
       BOT_DB_TYPE: postgres
       BOT_DB_HOST: postgresql
       BOT_DB_PORT: 5432
-      BOT_DB_NAME: ${POSTGRES_DB:-dydx_bot}
+      BOT_DB_NAME: ${BOT_POSTGRES_DB:-dydx_bot_runtime}
       BOT_DB_USER: ${POSTGRES_USER:-dydx_bot}
       BOT_DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
-      BOT_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-dydx_bot}:${POSTGRES_PASSWORD:-change-me-db-password}@postgresql:5432/${POSTGRES_DB:-dydx_bot}?sslmode=disable
+      BOT_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-dydx_bot}:${POSTGRES_PASSWORD:-change-me-db-password}@postgresql:5432/${BOT_POSTGRES_DB:-dydx_bot_runtime}?sslmode=disable
       # Cache
       REDIS_ENABLED: "true"
       REDIS_HOST: valkey
@@ -254,8 +283,11 @@ services:
       VALKEY_HOST: valkey
       VALKEY_PORT: 6379
       VALKEY_URL: redis://valkey:6379/0
+      CELERY_BROKER_URL: redis://valkey:6379/1
+      CELERY_RESULT_BACKEND: redis://valkey:6379/2
       # NATS
       NATS_ENABLED: "true"
+      BOT_COMMAND_BUS_ENABLED: "false"
       NATS_URL: nats://nats:4222
       NATS_MONITORING_URL: http://nats:8222
       NATS_STREAM_PREFIX: bot
@@ -275,6 +307,7 @@ services:
       # MinIO
       MINIO_ENABLED: "true"
       BACKTEST_MINIO_ARTIFACTS_ENABLED: "true"
+      BACKTEST_MINIO_STRICT: "true"
       MINIO_ENDPOINT: minio:9000
       MINIO_CONSOLE_URL: http://minio:9001
       MINIO_BUCKET: backtests
@@ -289,16 +322,25 @@ services:
       BOT_API_HOST: 0.0.0.0
       BOT_API_PORT: 8889
       BOT_API_RELOAD: "false"
+      BOT_API_TOKEN: ${BOT_API_TOKEN:-local-dev-token}
       APP_CONFIG_ENV: development
     ports:
       - "8889:8889"
     depends_on:
       postgresql:
         condition: service_healthy
+      postgresql-bot-db-init:
+        condition: service_completed_successfully
       valkey:
         condition: service_healthy
+      nats:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8889/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8889/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -314,7 +356,7 @@ services:
     restart: unless-stopped
     environment:
       # Database
-      BOT_DB_CUTOVER_MODE: dedicated_with_shared_fallback
+      BOT_DB_CUTOVER_MODE: dedicated
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-dydx_bot}:${POSTGRES_PASSWORD:-change-me-db-password}@postgresql:5432/${POSTGRES_DB:-dydx_bot}?sslmode=disable
       POSTGRES_HOST: postgresql
       POSTGRES_PORT: 5432
@@ -330,10 +372,10 @@ services:
       BOT_DB_TYPE: postgres
       BOT_DB_HOST: postgresql
       BOT_DB_PORT: 5432
-      BOT_DB_NAME: ${POSTGRES_DB:-dydx_bot}
+      BOT_DB_NAME: ${BOT_POSTGRES_DB:-dydx_bot_runtime}
       BOT_DB_USER: ${POSTGRES_USER:-dydx_bot}
       BOT_DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
-      BOT_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-dydx_bot}:${POSTGRES_PASSWORD:-change-me-db-password}@postgresql:5432/${POSTGRES_DB:-dydx_bot}?sslmode=disable
+      BOT_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-dydx_bot}:${POSTGRES_PASSWORD:-change-me-db-password}@postgresql:5432/${BOT_POSTGRES_DB:-dydx_bot_runtime}?sslmode=disable
       # Cache
       REDIS_ENABLED: "true"
       REDIS_HOST: valkey
@@ -345,6 +387,7 @@ services:
       VALKEY_URL: redis://valkey:6379/0
       # NATS
       NATS_ENABLED: "true"
+      BOT_COMMAND_BUS_ENABLED: "false"
       NATS_URL: nats://nats:4222
       NATS_MONITORING_URL: http://nats:8222
       NATS_STREAM_PREFIX: bot
@@ -361,9 +404,11 @@ services:
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-clickhouse}
       CLICKHOUSE_SECURE: "false"
+      BOT_API_TOKEN: ${BOT_API_TOKEN:-local-dev-token}
       # MinIO
       MINIO_ENABLED: "true"
       BACKTEST_MINIO_ARTIFACTS_ENABLED: "true"
+      BACKTEST_MINIO_STRICT: "true"
       MINIO_ENDPOINT: minio:9000
       MINIO_CONSOLE_URL: http://minio:9001
       MINIO_BUCKET: backtests
@@ -377,13 +422,23 @@ services:
       # Celery
       CELERY_BROKER_URL: redis://valkey:6379/1
       CELERY_RESULT_BACKEND: redis://valkey:6379/2
+      CELERY_AUTOSCALE: ${CELERY_AUTOSCALE:-10,2}
+      CELERY_WORKER_MAX_TASKS_PER_CHILD: ${CELERY_WORKER_MAX_TASKS_PER_CHILD:-100}
       # Worker
       APP_CONFIG_ENV: development
       WORKER_MODE: celery
     depends_on:
       postgresql:
         condition: service_healthy
+      postgresql-bot-db-init:
+        condition: service_completed_successfully
       valkey:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      minio:
         condition: service_healthy
       bot-api:
         condition: service_healthy

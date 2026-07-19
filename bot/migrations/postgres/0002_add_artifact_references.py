@@ -36,13 +36,15 @@ def upgrade() -> None:
             sa.Column("bucket", sa.String(length=128), nullable=False),
             sa.Column("object_key", sa.String(length=512), nullable=False),
             sa.Column("content_type", sa.String(length=255), nullable=False),
-            sa.Column("size_bytes", sa.BigInteger(), nullable=False, server_default="0"),
+            sa.Column(
+                "size_bytes", sa.BigInteger(), nullable=False, server_default="0"
+            ),
             sa.Column("checksum", sa.String(length=128), nullable=False),
             sa.Column(
                 "created_at",
                 sa.DateTime(timezone=True),
                 nullable=False,
-                server_default=sa.text("NOW() AT TIME ZONE 'UTC'"),
+                server_default=sa.text("CURRENT_TIMESTAMP"),
             ),
             sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("metadata_json", _jsonb(), nullable=True),
@@ -78,7 +80,9 @@ def downgrade() -> None:
 
     indexes = {idx["name"] for idx in inspector.get_indexes("artifact_references")}
     if "ix_artifact_references_owner_id" in indexes:
-        op.drop_index("ix_artifact_references_owner_id", table_name="artifact_references")
+        op.drop_index(
+            "ix_artifact_references_owner_id", table_name="artifact_references"
+        )
     if "ix_artifact_references_owner_type" in indexes:
         op.drop_index(
             "ix_artifact_references_owner_type", table_name="artifact_references"

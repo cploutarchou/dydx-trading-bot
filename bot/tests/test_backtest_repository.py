@@ -281,9 +281,10 @@ def test_save_run_writes_backtest_sidecars_and_analytics(tmp_path):
     assert persisted["artifact_refs"]["full_result"] == (
         "artifact://backtests/run-sidecars/full_result.json"
     )
-    assert artifact_store.read_json("backtests/run-sidecars/full_result.json")[
-        "status"
-    ] == "completed"
+    assert (
+        artifact_store.read_json("backtests/run-sidecars/full_result.json")["status"]
+        == "completed"
+    )
     assert artifact_store.read_json("backtests/run-sidecars/trades.json") == [
         {"trade_id": "trade-1", "pnl": 12.5}
     ]
@@ -339,8 +340,56 @@ def test_save_run_writes_backtest_sidecars_and_analytics(tmp_path):
     session.close()
 
 
+def test_repeated_completed_save_does_not_duplicate_analytics_projection(tmp_path):
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'idempotent-sidecars.sqlite'}", future=True
+    )
+    Base.metadata.create_all(bind=engine)
+    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+    session = SessionLocal()
+    analytics_writer = _RecordingAnalyticsWriter()
+    repository = BacktestRepository(
+        session,
+        artifact_store=_RecordingArtifactStore(),
+        analytics_writer=analytics_writer,
+    )
+    payload = {
+        "run_id": "run-idempotent-sidecars",
+        "name": "idempotent",
+        "status": "completed",
+        "request": {"pairs": ["BTC-USD/ETH-USD"]},
+        "trades": [{"trade_id": "trade-1", "pnl": 2.5}],
+        "position_snapshots": [{"snapshot_id": "snapshot-1"}],
+        "daily_pnl": [{"date": "2026-07-01", "pnl": 2.5}],
+    }
+
+    first = repository.save_run(payload)
+    call_count = len(analytics_writer.calls)
+    second = repository.save_run(payload)
+
+    assert first["analytics_rows_written"] == 3
+    assert second["analytics_rows_written"] == 3
+    assert len(analytics_writer.calls) == call_count
+    full_result_ref = next(
+        (
+            row
+            for row in session.query(ArtifactReference)
+            .filter(ArtifactReference.owner_id == payload["run_id"])
+            .all()
+            if (row.metadata_json or {}).get("artifact_kind") == "full_result_json"
+        ),
+        None,
+    )
+    assert full_result_ref is not None
+    assert full_result_ref.metadata_json["analytics_projection_complete"] is True
+    assert full_result_ref.metadata_json["analytics_projection_checksum"]
+    session.close()
+
+
 def test_save_run_updates_existing_artifact_reference_rows(tmp_path):
-    engine = create_engine(f"sqlite:///{tmp_path / 'artifact-upsert.sqlite'}", future=True)
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'artifact-upsert.sqlite'}", future=True
+    )
     Base.metadata.create_all(bind=engine)
     SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
     session = SessionLocal()
@@ -459,6 +508,7 @@ def test_save_run_writes_equity_curve_and_strategy_metrics_when_present(tmp_path
             "equity": 1012.5,
         },
     ]
+    persisted_created_at = persisted["created_at"]
     assert analytics_writer.calls[4][1] == [
         {
             "run_id": "run-analytics",
@@ -466,7 +516,7 @@ def test_save_run_writes_equity_curve_and_strategy_metrics_when_present(tmp_path
             "metric_value": -4.5,
             "strategy_id": 42,
             "scope": "backtest",
-            "metric_time": "2026-04-03T00:00:00+00:00",
+            "metric_time": persisted_created_at,
         },
         {
             "run_id": "run-analytics",
@@ -474,7 +524,7 @@ def test_save_run_writes_equity_curve_and_strategy_metrics_when_present(tmp_path
             "metric_value": 1.25,
             "strategy_id": 42,
             "scope": "backtest",
-            "metric_time": "2026-04-03T00:00:00+00:00",
+            "metric_time": persisted_created_at,
         },
     ]
 
@@ -487,8 +537,35 @@ def test_save_run_writes_equity_curve_and_strategy_metrics_when_present(tmp_path
     session.close()
 
 
+def test_nonterminal_run_does_not_project_mutable_analytics_rows(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'progress.sqlite'}", future=True)
+    Base.metadata.create_all(bind=engine)
+    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+    analytics_writer = _RecordingAnalyticsWriter()
+    repository = BacktestRepository(
+        SessionLocal(),
+        artifact_store=_RecordingArtifactStore(),
+        analytics_writer=analytics_writer,
+    )
+
+    repository.save_run(
+        {
+            "run_id": "run-progress",
+            "name": "progress",
+            "status": "running",
+            "trades": [{"trade_id": "mutable-trade", "pnl": 1.0}],
+            "position_snapshots": [{"snapshot_id": "mutable-position"}],
+            "daily_pnl": [{"date": "2026-07-12", "pnl": 1.0}],
+        }
+    )
+
+    assert analytics_writer.calls == []
+
+
 def test_save_run_forces_clickhouse_flush_for_terminal_completed_run(tmp_path):
-    engine = create_engine(f"sqlite:///{tmp_path / 'analytics-flush.sqlite'}", future=True)
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'analytics-flush.sqlite'}", future=True
+    )
     Base.metadata.create_all(bind=engine)
     SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
     session = SessionLocal()

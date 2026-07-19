@@ -3,6 +3,20 @@ from conftest import assert_db_type_supported
 from src.infrastructure.database import DatabaseConfig
 
 
+def test_alembic_config_resolves_from_bot_root(monkeypatch):
+    monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "shared")
+    from src.infrastructure.database import DatabaseManager
+
+    manager = object.__new__(DatabaseManager)
+    config = manager._build_alembic_config()
+
+    assert config is not None
+    assert config.config_file_name.endswith("/bot/alembic.ini")
+    assert config.get_main_option("version_locations").endswith(
+        "/bot/migrations/postgres"
+    )
+
+
 def test_database_config_prefers_bot_database_url(monkeypatch):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "dedicated")
     monkeypatch.setenv(
@@ -128,6 +142,7 @@ def test_database_config_rejects_non_postgres_database_url_scheme(monkeypatch):
 
 def test_database_config_shared_uses_db_field_fallbacks(monkeypatch):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "shared")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("DB_HOST", raising=False)
     monkeypatch.delenv("DB_PORT", raising=False)
     monkeypatch.delenv("DB_NAME", raising=False)
@@ -150,6 +165,7 @@ def test_database_config_shared_uses_db_field_fallbacks(monkeypatch):
 
 def test_database_config_shared_uses_postgres_aliases(monkeypatch):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "shared")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("DB_HOST", raising=False)
     monkeypatch.delenv("DB_PORT", raising=False)
     monkeypatch.delenv("DB_NAME", raising=False)

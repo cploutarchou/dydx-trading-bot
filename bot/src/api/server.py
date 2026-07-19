@@ -117,7 +117,9 @@ from src.infrastructure.workers.celery_monitor import (  # noqa: E402
     revoke_celery_task,
 )
 from src.shared.logging_setup import setup_logging  # noqa: E402
-from src.shared.live_risk_controls import assert_supported_live_risk_controls  # noqa: E402
+from src.shared.live_risk_controls import (
+    assert_supported_live_risk_controls,
+)  # noqa: E402
 from src.shared.notifications import TelegramMessenger  # noqa: E402
 from src.shared.time_utils import utc_now_iso  # noqa: E402
 from src.trading.arbitrage_observability import snapshot_metrics  # noqa: E402
@@ -1800,9 +1802,11 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
         logger.warning("Runtime DB pool config warning: {}", warning)
     if not db.health_check():
         raise RuntimeError("Bot database health check failed during API startup")
+    db.run_pending_migrations()
+    # Metadata creation remains a compatibility safety net for ORM-only tables;
+    # migrations run first so an empty database cannot be mistaken for legacy.
     db.create_all_tables()
     db.ensure_schema_compatibility()
-    db.run_pending_migrations()
     db.verify_required_tables()
     try:
         with backtest_service_scope() as service:
@@ -3231,11 +3235,24 @@ async def quick_deploy_bot(
 # ============================================================================
 
 
+def _backtest_storage_health(service: Any) -> Dict[str, Any]:
+    repository = getattr(service, "repository", None)
+    probe = getattr(repository, "storage_health", None)
+    if callable(probe):
+        return probe()
+    return {
+        "ready": True,
+        "artifacts": {"enabled": False, "healthy": True},
+        "analytics": {"enabled": False, "healthy": True},
+    }
+
+
 @app.get("/health")
 async def health_check():
     """API health check"""
     with backtest_service_scope() as service:
         runtime_health = service.get_runtime_health()
+        storage_health = _backtest_storage_health(service)
         backtest_limits = _backtest_capacity_snapshot(runtime_health)
         strategy_resolution_metrics = _strategy_resolution_metrics_snapshot()
         strategy_resolution_alerts = dict(strategy_resolution_metrics.get("alerts", {}))
@@ -3246,6 +3263,7 @@ async def health_check():
                 "api_version": "1.0.0",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "backtest_runtime": runtime_health,
+                "storage": storage_health,
                 "backtest_limits": backtest_limits,
                 "strategy_resolution_metrics": strategy_resolution_metrics,
                 "strategy_resolution_alerts": strategy_resolution_alerts,
@@ -3267,19 +3285,21 @@ async def readiness_check():
     """Strict readiness probe for orchestrators and deployment gates."""
     with backtest_service_scope() as service:
         runtime_health = service.get_runtime_health()
+        storage_health = _backtest_storage_health(service)
         backtest_limits = _backtest_capacity_snapshot(runtime_health)
         strategy_resolution_metrics = _strategy_resolution_metrics_snapshot()
         strategy_resolution_alerts = dict(strategy_resolution_metrics.get("alerts", {}))
-        ready = bot_manager is not None
+        ready = bot_manager is not None and bool(storage_health.get("ready", False))
         status_code = 200 if ready else 503
 
         return api_response(
             success=ready,
             data={
                 "status": "ready" if ready else "not_ready",
-                "bot_manager_ready": ready,
+                "bot_manager_ready": bot_manager is not None,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "backtest_runtime": runtime_health,
+                "storage": storage_health,
                 "backtest_limits": backtest_limits,
                 "strategy_resolution_metrics": strategy_resolution_metrics,
                 "strategy_resolution_alerts": strategy_resolution_alerts,
@@ -3295,7 +3315,7 @@ async def readiness_check():
             message=(
                 "Bot API is ready"
                 if ready
-                else "Bot API is not ready: bot manager unavailable"
+                else "Bot API is not ready: bot manager or required storage unavailable"
             ),
             status_code=status_code,
         )

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/config"
@@ -12,6 +14,18 @@ import (
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/dydx-trading-bot/backend-go/internal/startup"
 )
+
+func autoMigrateEnabled() (bool, error) {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv("DB_AUTO_MIGRATE")))
+	switch raw {
+	case "1", "true", "yes", "on":
+		return true, nil
+	case "", "0", "false", "no", "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("DB_AUTO_MIGRATE must be a boolean, got %q", raw)
+	}
+}
 
 func loadStructuredConfigEnv() {
 	profilePath, err := config.AutoLoadStructuredConfigEnv(true)
@@ -47,13 +61,17 @@ func main() {
 		log.Fatalf("Invalid encryption configuration: %v", err)
 	}
 
+	autoMigrate, err := autoMigrateEnabled()
+	if err != nil {
+		log.Fatalf("Invalid migration configuration: %v", err)
+	}
 	database, err := db.New(db.Config{
 		Driver:         config.ConfigInstance.Database.Type,
 		DSN:            config.ConfigInstance.Database.DSN(),
-		AutoMigrate:    true,
+		AutoMigrate:    autoMigrate,
 		MigrationsPath: config.ConfigInstance.Database.MigrationsPath(),
-		MaxOpenConns:   25,
-		MaxIdleConns:   5,
+		MaxOpenConns:   config.ConfigInstance.Database.MaxConnections,
+		MaxIdleConns:   config.ConfigInstance.Database.PoolSize,
 	})
 	if err != nil || database == nil {
 		log.Fatalf("Failed to initialize database: %v", err)

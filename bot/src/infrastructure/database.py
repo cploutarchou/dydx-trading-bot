@@ -15,7 +15,7 @@ from urllib.parse import urlencode, urlparse
 # has initialized the Objective-C runtime in the parent process, child processes
 # created via fork() will crash with:
 #   "objc_initializeAfterForkError: Objective-C runtime was already initialized..."
-# 
+#
 # Solution: Use 'spawn' as the multiprocessing start method on macOS.
 # This must be set BEFORE any imports that might trigger Objective-C initialization.
 # =============================================================================
@@ -23,6 +23,7 @@ if sys.platform == "darwin":
     # On macOS, set multiprocessing start method to 'spawn'
     # This must happen before any other imports that might load Objective-C
     import multiprocessing
+
     try:
         multiprocessing.set_start_method("spawn", force=True)
         os.environ["PYTHON_MULTIPROCESSING_START_METHOD"] = "spawn"
@@ -469,7 +470,7 @@ class DatabaseManager:
 
     def _after_fork_child_reset(self):
         """Ensure child processes never reuse inherited pooled DB sockets.
-        
+
         Note: With 'spawn' start method (used on macOS), child processes start
         fresh with no inherited connections, so this cleanup is primarily for
         'fork' start method compatibility on Linux/Unix systems.
@@ -714,6 +715,8 @@ class DatabaseManager:
             "event_logs",
             "trades",
             "backtest_runtime_runs",
+            "tracked_positions",
+            "cointegrated_pairs",
         }
         engine = self.get_engine()
         inspector = inspect(engine)
@@ -727,7 +730,7 @@ class DatabaseManager:
 
     def _build_alembic_config(self) -> Optional[Config]:
         config = DatabaseConfig()
-        alembic_path = Path(__file__).resolve().parents[1] / "alembic.ini"
+        alembic_path = Path(__file__).resolve().parents[2] / "alembic.ini"
         if not alembic_path.exists():
             logger.warning(
                 "Alembic config not found at {}; skipping migrations", alembic_path
@@ -735,10 +738,16 @@ class DatabaseManager:
             return None
 
         alembic_config = Config(str(alembic_path))
-        alembic_config.set_main_option("sqlalchemy.url", config.get_connection_string())
+        # Alembic's ConfigParser treats percent signs as interpolation markers.
+        # SQLAlchemy URLs can legitimately contain percent-encoded query values.
+        alembic_config.set_main_option(
+            "sqlalchemy.url", config.get_connection_string().replace("%", "%%")
+        )
         return alembic_config
 
-    def ensure_alembic_baseline(self, baseline_revision: str = "8c1f34af2f10") -> str:
+    def ensure_alembic_baseline(
+        self, baseline_revision: str = "0003_backtest_storage_cols"
+    ) -> str:
         """Stamp legacy schemas that were created outside Alembic.
 
         This keeps startup safe for long-lived deployments where tables were
@@ -776,7 +785,7 @@ class DatabaseManager:
         if alembic_config is None:
             return
 
-        baseline_revision = "8c1f34af2f10"
+        baseline_revision = "0003_backtest_storage_cols"
         baseline_status = self.ensure_alembic_baseline(
             baseline_revision=baseline_revision
         )
@@ -787,6 +796,11 @@ class DatabaseManager:
         with self.get_engine().begin() as connection:
             inspector = inspect(connection)
             if not inspector.has_table("alembic_version"):
+                if baseline_status == "skipped-core-schema-not-detected":
+                    logger.info("Empty schema detected; applying Alembic from base")
+                    command.upgrade(alembic_config, "head")
+                    logger.info("Alembic bootstrap migrations applied successfully")
+                    return
                 logger.warning(
                     "Alembic version table not found; skipping automatic migrations for legacy schema"
                 )

@@ -12,7 +12,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 from urllib.parse import urlsplit
 
-from internal.domain.models import ArtifactReference, BacktestRun, BacktestRunRequestPayload
+from internal.domain.models import (
+    ArtifactReference,
+    BacktestRun,
+    BacktestRunRequestPayload,
+)
 from sqlalchemy.exc import OperationalError, PendingRollbackError
 from src.shared.env_loader import find_repo_root
 
@@ -118,7 +122,7 @@ class BacktestRepository:
         secure = cls._env_bool("BACKTEST_CLICKHOUSE_SECURE", False)
 
         if parsed is not None:
-            host = host or parsed.hostname or "localhost"
+            host = parsed.hostname or host or "localhost"
             if not port_raw and parsed.port is not None:
                 port_raw = str(parsed.port)
             if parsed.username:
@@ -259,7 +263,9 @@ class BacktestRepository:
                 "force_path_style": cls._env_bool("S3_FORCE_PATH_STYLE", True),
             }
             endpoint_url = cls._resolve_minio_endpoint()
-            secure = cls._env_bool("BACKTEST_MINIO_SECURE", endpoint_url.startswith("https://"))
+            secure = cls._env_bool(
+                "BACKTEST_MINIO_SECURE", endpoint_url.startswith("https://")
+            )
             strict_mode = cls._artifact_storage_strict_mode()
             return MinIOArtifactStore(
                 bucket=cls._env_first(
@@ -395,6 +401,38 @@ class BacktestRepository:
         payload["deadline_at"] = cls._serialize_dt(payload.get("deadline_at"))
         payload["updated_at"] = cls._serialize_dt(payload.get("updated_at")) or now
         return payload
+
+    def storage_health(self) -> Dict[str, Any]:
+        artifact_probe = getattr(self.artifact_store, "health_check", None)
+        analytics_probe = getattr(self.analytics_writer, "health_check", None)
+        artifacts = (
+            artifact_probe()
+            if callable(artifact_probe)
+            else {
+                "enabled": False,
+                "healthy": True,
+                "adapter": type(self.artifact_store).__name__,
+            }
+        )
+        analytics = (
+            analytics_probe()
+            if callable(analytics_probe)
+            else {
+                "enabled": False,
+                "healthy": True,
+                "adapter": type(self.analytics_writer).__name__,
+            }
+        )
+        strict_artifacts_ready = not (
+            artifacts.get("enabled")
+            and artifacts.get("strict")
+            and not artifacts.get("healthy")
+        )
+        return {
+            "ready": strict_artifacts_ready,
+            "artifacts": artifacts,
+            "analytics": analytics,
+        }
 
     @staticmethod
     def _sanitize_request_payload(payload: Any) -> Dict[str, Any]:
@@ -537,19 +575,25 @@ class BacktestRepository:
         return [dict(row) for row in rows if isinstance(row, dict)]
 
     def _build_backtest_trade_analytics_rows(
-        self, *, run_id: str, rows: Sequence[dict[str, Any]]
+        self,
+        *,
+        run_id: str,
+        rows: Sequence[dict[str, Any]],
+        fallback_timestamp: str,
     ) -> list[dict[str, Any]]:
         normalized: list[dict[str, Any]] = []
         for index, row in enumerate(rows):
             created_at = (
                 self._serialize_dt(row.get("exit_timestamp"))
                 or self._serialize_dt(row.get("entry_timestamp"))
-                or self._now().isoformat()
+                or fallback_timestamp
             )
             normalized.append(
                 {
                     "run_id": run_id,
-                    "trade_id": str(row.get("trade_id") or f"{run_id}-trade-{index:04d}"),
+                    "trade_id": str(
+                        row.get("trade_id") or f"{run_id}-trade-{index:04d}"
+                    ),
                     "pair1": str(row.get("market_1") or row.get("pair1") or ""),
                     "pair2": str(row.get("market_2") or row.get("pair2") or ""),
                     "side1": str(row.get("side_1") or row.get("side1") or ""),
@@ -581,14 +625,18 @@ class BacktestRepository:
         return normalized
 
     def _build_backtest_position_snapshot_analytics_rows(
-        self, *, run_id: str, rows: Sequence[dict[str, Any]]
+        self,
+        *,
+        run_id: str,
+        rows: Sequence[dict[str, Any]],
+        fallback_timestamp: str,
     ) -> list[dict[str, Any]]:
         normalized: list[dict[str, Any]] = []
         for snapshot in rows:
             snapshot_time = (
                 self._serialize_dt(snapshot.get("timestamp"))
                 or self._serialize_dt(snapshot.get("snapshot_time"))
-                or self._now().isoformat()
+                or fallback_timestamp
             )
             positions = snapshot.get("positions")
             if isinstance(positions, list) and positions:
@@ -625,7 +673,11 @@ class BacktestRepository:
         return normalized
 
     def _build_backtest_daily_pnl_analytics_rows(
-        self, *, run_id: str, rows: Sequence[dict[str, Any]]
+        self,
+        *,
+        run_id: str,
+        rows: Sequence[dict[str, Any]],
+        fallback_timestamp: str,
     ) -> list[dict[str, Any]]:
         ordered = sorted(
             rows,
@@ -650,8 +702,7 @@ class BacktestRepository:
                     "cumulative_pnl": cumulative_pnl,
                     "drawdown": max(0.0, peak_pnl - cumulative_pnl),
                     "created_at": (
-                        self._serialize_dt(row.get("timestamp"))
-                        or self._now().isoformat()
+                        self._serialize_dt(row.get("timestamp")) or fallback_timestamp
                     ),
                 }
             )
@@ -664,9 +715,9 @@ class BacktestRepository:
 
     @staticmethod
     def _serialize_json_bytes(payload: Any) -> bytes:
-        return json.dumps(
-            payload, ensure_ascii=False, separators=(",", ":")
-        ).encode("utf-8")
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8"
+        )
 
     def _read_backtest_artifact_json(
         self,
@@ -730,7 +781,9 @@ class BacktestRepository:
                     .first()
                 )
                 if artifact_record is None:
-                    artifact_record = ArtifactReference(bucket=bucket, object_key=object_key)
+                    artifact_record = ArtifactReference(
+                        bucket=bucket, object_key=object_key
+                    )
                     self.session.add(artifact_record)
 
                 artifact_record.owner_type = "backtest_run"
@@ -790,9 +843,7 @@ class BacktestRepository:
                     "checksum": hashlib.sha256(encoded).hexdigest(),
                     "metadata_json": {
                         "artifact_kind": (
-                            "full_result_json"
-                            if name == "full_result"
-                            else name
+                            "full_result_json" if name == "full_result" else name
                         ),
                         "producer_service": "backtest-repository",
                         "run_id": run_id,
@@ -803,14 +854,23 @@ class BacktestRepository:
         trade_rows = self._build_backtest_trade_analytics_rows(
             run_id=run_id,
             rows=artifact_payloads["trades"],
+            fallback_timestamp=str(
+                payload.get("created_at") or "1970-01-01T00:00:00+00:00"
+            ),
         )
         position_rows = self._build_backtest_position_snapshot_analytics_rows(
             run_id=run_id,
             rows=artifact_payloads["position_snapshots"],
+            fallback_timestamp=str(
+                payload.get("created_at") or "1970-01-01T00:00:00+00:00"
+            ),
         )
         daily_pnl_rows = self._build_backtest_daily_pnl_analytics_rows(
             run_id=run_id,
             rows=artifact_payloads["daily_pnl"],
+            fallback_timestamp=str(
+                payload.get("created_at") or "1970-01-01T00:00:00+00:00"
+            ),
         )
         equity_curve_rows = [
             dict(row, run_id=run_id)
@@ -821,30 +881,55 @@ class BacktestRepository:
             payload=payload,
         )
 
-        analytics_rows_written = {
-            "backtest_trades": self._write_analytics_rows(
-                "backtest_trades", trade_rows
-            ),
-            "backtest_position_snapshots": self._write_analytics_rows(
-                "backtest_position_snapshots", position_rows
-            ),
-            "backtest_daily_pnl": self._write_analytics_rows(
-                "backtest_daily_pnl", daily_pnl_rows
-            ),
-            "backtest_equity_curve": self._write_analytics_rows(
-                "backtest_equity_curve", equity_curve_rows
-            ),
-            "strategy_metrics": self._write_analytics_rows(
-                "strategy_metrics", strategy_metric_rows
-            ),
+        rows_by_table = {
+            "backtest_trades": trade_rows,
+            "backtest_position_snapshots": position_rows,
+            "backtest_daily_pnl": daily_pnl_rows,
+            "backtest_equity_curve": equity_curve_rows,
+            "strategy_metrics": strategy_metric_rows,
         }
-        flushed_analytics_rows = self.analytics_writer.flush(
-            force=self._is_terminal_status(payload.get("status"))
+        terminal_projection = self._is_terminal_status(payload.get("status"))
+        projection_checksum = self._analytics_projection_checksum(rows_by_table)
+        projection_already_complete = (
+            terminal_projection
+            and self._analytics_projection_is_complete(run_id, projection_checksum)
         )
-        for table_name, count in flushed_analytics_rows.items():
-            analytics_rows_written[table_name] = (
-                analytics_rows_written.get(table_name, 0) + int(count or 0)
-            )
+        if not terminal_projection:
+            # Progress snapshots are mutable. Projecting them would append the
+            # same logical rows on every heartbeat because MergeTree is not an
+            # upsert engine. Only immutable terminal results are analytical.
+            analytics_rows_written = {}
+        elif projection_already_complete:
+            analytics_rows_written = {
+                "existing_projection": int(
+                    getattr(record, "analytics_rows_written", 0) or 0
+                )
+            }
+        else:
+            analytics_rows_written = {
+                table_name: self._write_analytics_rows(table_name, rows)
+                for table_name, rows in rows_by_table.items()
+            }
+            flushed_analytics_rows = self.analytics_writer.flush(force=True)
+            for table_name, count in flushed_analytics_rows.items():
+                analytics_rows_written[table_name] = analytics_rows_written.get(
+                    table_name, 0
+                ) + int(count or 0)
+
+        projection_complete = projection_already_complete or all(
+            int(analytics_rows_written.get(table_name, 0) or 0) >= len(rows)
+            for table_name, rows in rows_by_table.items()
+        )
+        if terminal_projection and projection_complete:
+            for entry in artifact_entries:
+                if entry["name"] == "full_result":
+                    entry["metadata_json"].update(
+                        {
+                            "analytics_projection_checksum": projection_checksum,
+                            "analytics_projection_complete": True,
+                        }
+                    )
+                    break
 
         artifact_refs["run_root"] = self.artifact_store.reference_for(
             self._safe_artifact_key(["backtests", run_id])
@@ -876,12 +961,15 @@ class BacktestRepository:
         if strategy_id is None and isinstance(request_payload, dict):
             strategy_id = self._safe_int(request_payload.get("strategy_id"))
 
-        metric_time = self._serialize_dt(
-            payload.get("completed_at")
-            or payload.get("finished_at")
-            or payload.get("updated_at")
-            or payload.get("created_at")
-        ) or self._now().isoformat()
+        metric_time = (
+            self._serialize_dt(
+                payload.get("completed_at")
+                or payload.get("finished_at")
+                or payload.get("created_at")
+                or payload.get("updated_at")
+            )
+            or self._now().isoformat()
+        )
 
         rows: list[dict[str, Any]] = []
         for metric_name, raw_value in sorted(metrics.items()):
@@ -906,6 +994,39 @@ class BacktestRepository:
         if not rows:
             return 0
         return self.analytics_writer.write_rows(table_name, rows)
+
+    @staticmethod
+    def _analytics_projection_checksum(
+        rows_by_table: Dict[str, Sequence[Dict[str, Any]]],
+    ) -> str:
+        encoded = json.dumps(
+            rows_by_table,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+            default=str,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def _analytics_projection_is_complete(self, run_id: str, checksum: str) -> bool:
+        if self.session is None:
+            return False
+        reference = (
+            self.session.query(ArtifactReference)
+            .filter(
+                ArtifactReference.owner_type == "backtest_run",
+                ArtifactReference.owner_id == run_id,
+            )
+            .all()
+        )
+        for artifact in reference:
+            metadata = dict(artifact.metadata_json or {})
+            if metadata.get("artifact_kind") != "full_result_json":
+                continue
+            return bool(metadata.get("analytics_projection_complete")) and (
+                metadata.get("analytics_projection_checksum") == checksum
+            )
+        return False
 
     def _record_to_dict(self, record: BacktestRun) -> Dict[str, Any]:
         request_payload = dict(record.request_json or {})
@@ -1031,6 +1152,7 @@ class BacktestRepository:
             payload=payload,
             run_id=run_id,
             incoming_request_payload=incoming_request_payload,
+            created_at_provided=bool(run_data.get("created_at")),
             max_attempts=5,
         )
 
@@ -1040,6 +1162,7 @@ class BacktestRepository:
         payload: Dict[str, Any],
         run_id: str,
         incoming_request_payload: Any,
+        created_at_provided: bool,
     ) -> Dict[str, Any]:
         record = (
             self.session.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
@@ -1071,7 +1194,8 @@ class BacktestRepository:
         parsed_created_at = self._parse_dt(
             payload.get("created_at"), default=self._now()
         )
-        record.created_at = parsed_created_at or self._now()
+        if record.created_at is None or created_at_provided:
+            record.created_at = parsed_created_at or self._now()
         record.started_at = self._parse_dt(payload.get("started_at"))
         record.completed_at = self._parse_dt(
             payload.get("completed_at") or payload.get("finished_at")
@@ -1091,7 +1215,9 @@ class BacktestRepository:
         self.session.commit()
         self.session.refresh(record)
 
-        self._sync_backtest_sidecars(dict(payload), record=record)
+        sidecar_payload = dict(payload)
+        sidecar_payload["created_at"] = self._serialize_dt(record.created_at)
+        self._sync_backtest_sidecars(sidecar_payload, record=record)
         persisted = self._record_to_dict(record)
         BacktestRepository._memory_runs[run_id] = dict(persisted)
         return persisted

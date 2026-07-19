@@ -25,18 +25,18 @@ Infrastructure services are based on the **k3s-next production architecture**, r
 
 | Service | Host | Port | Purpose | Environment variables |
 | --- | --- | --- | --- | --- |
-| PostgreSQL | `localhost` | `5432` | active transactional database and persistence path | `DATABASE_URL`, `POSTGRES_*`, `DB_*` |
+| PostgreSQL | `localhost` | `5432` | server hosting separate `dydx_bot` (backend) and `dydx_bot_runtime` (bot) databases | `DATABASE_URL`, `POSTGRES_*`, `DB_*`, `BOT_DATABASE_URL`, `BOT_DB_*` |
 | Valkey | `localhost` | `6379` | Redis-compatible cache/broker surface for existing Celery, lock, and cache flows | `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `VALKEY_HOST`, `VALKEY_PORT`, `CELERY_*` |
-| NATS JetStream | `localhost` | `4222` | available command/event transport, not required by the current checked-in runtime path | `NATS_URL` |
+| NATS JetStream | `localhost` | `4222` | durable backtest events; command execution is cutover-gated and off while Celery owns execution | `NATS_URL`, `NATS_ENABLED`, `BOT_COMMAND_BUS_ENABLED` |
 | NATS monitoring | `localhost` | `8222` | health and operator visibility | `NATS_MONITORING_URL` |
-| ClickHouse HTTP | `localhost` | `8123` | optional analytical backtest writer target, disabled by default | `CLICKHOUSE_URL`, `CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD` |
-| MinIO API | `localhost` | `9010` | optional S3-compatible backtest artifact target, disabled by default | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE` |
+| ClickHouse HTTP | `localhost` | `8123` | derived analytics target; application defaults are off unless the profile/stack enables it | `CLICKHOUSE_URL`, `CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD` |
+| MinIO API | `localhost` | `9010` | object artifacts; application defaults are off unless the profile/stack enables it | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE` |
 | MinIO Console | `localhost` | `9011` | bucket/object admin UI | `MINIO_CONSOLE_URL` |
 
-PostgreSQL remains the active/default application persistence path and the active/default backtest persistence path.
-Valkey is used only by services that already rely on Redis-compatible caching/broker behavior. NATS JetStream,
-ClickHouse, and MinIO are live locally and discoverable through environment variables, but the checked-in app defaults
-do not require them for normal startup or for PostgreSQL-backed backtests.
+PostgreSQL is authoritative for application and backtest state. Valkey is temporary cache/Celery transport. The
+development structured profile and full Compose stack enable MinIO artifacts and ClickHouse projections; application
+code defaults those adapters off when no explicit profile/env flag is present. NATS events may be enabled independently,
+but keep `BOT_COMMAND_BUS_ENABLED=false` until Celery-to-NATS execution cutover is intentionally performed.
 
 ### Start Infrastructure
 
@@ -84,18 +84,29 @@ POSTGRES_PORT=5432
 POSTGRES_DB=dydx_bot
 POSTGRES_USER=dydx_bot
 POSTGRES_PASSWORD=change-me-db-password
+BOT_POSTGRES_DB=dydx_bot_runtime
 DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=dydx_bot
 DB_USER=dydx_bot
 DB_PASSWORD=change-me-db-password
+BOT_DB_CUTOVER_MODE=dedicated
+BOT_DATABASE_URL=postgresql+psycopg2://dydx_bot:change-me-db-password@localhost:5432/dydx_bot_runtime?sslmode=disable
+BOT_DB_HOST=localhost
+BOT_DB_PORT=5432
+BOT_DB_NAME=dydx_bot_runtime
+BOT_DB_USER=dydx_bot
+BOT_DB_PASSWORD=change-me-db-password
 REDIS_URL=redis://localhost:6379/0
 REDIS_HOST=localhost
 REDIS_PORT=6379
 VALKEY_HOST=localhost
 VALKEY_PORT=6379
+CELERY_BROKER_URL=redis://localhost:6379/1
+CELERY_RESULT_BACKEND=redis://localhost:6379/2
 NATS_URL=nats://localhost:4222
 NATS_MONITORING_URL=http://localhost:8222
+BOT_COMMAND_BUS_ENABLED=false
 CLICKHOUSE_URL=http://localhost:8123
 CLICKHOUSE_HOST=localhost
 CLICKHOUSE_PORT=8123
@@ -130,11 +141,12 @@ make infra-down
 
 ---
 
-## 🚀 Option 2: Full Stack (Production-like Replication)
+## 🚀 Option 2: Full Integration Stack
 
 **Use this if you need to test the entire platform end-to-end or work on integration issues.**
 
-All services run in Docker containers, fully replicating your production k3s environment:
+All services run in Docker containers with local-only credentials and ports. This validates service integration but is
+not a security-equivalent production deployment.
 
 ### Start Full Stack
 
@@ -159,8 +171,8 @@ This starts **all services in isolated containers**:
 - **ClickHouse HTTP**: `localhost:8123`
 - **MinIO**: `localhost:9010` (API), `localhost:9011` (console)
 
-Checked-in stack defaults still keep PostgreSQL as the active persistence path and leave the optional backtest adapter
-flags off. Flip those flags only when you are intentionally validating the ClickHouse and MinIO paths.
+Checked-in stack defaults keep PostgreSQL authoritative and explicitly enable the MinIO artifact and ClickHouse derived
+analytics paths. The bot `/ready` endpoint reports both adapters; strict MinIO failures block readiness.
 
 ### Check Status
 
@@ -251,6 +263,9 @@ export POSTGRES_PORT=5432
 export POSTGRES_DB=dydx_bot
 export POSTGRES_USER=dydx_bot
 export POSTGRES_PASSWORD=change-me-db-password
+export BOT_POSTGRES_DB=dydx_bot_runtime
+export BOT_DB_CUTOVER_MODE=dedicated
+export BOT_DATABASE_URL=postgresql+psycopg2://dydx_bot:change-me-db-password@localhost:5432/dydx_bot_runtime?sslmode=disable
 export REDIS_HOST=localhost
 export REDIS_PORT=6379
 export REDIS_URL=redis://localhost:6379/0
@@ -405,13 +420,7 @@ cd bot && python worker_entrypoint.py
 # Make sure infrastructure is running
 make infra-up
 
-# From bot directory
-cd bot && python -m src.infrastructure.backtest.run_backtest \
-  --start 2024-01-01 \
-  --end 2024-03-31 \
-  --pairs 5
-
-# Or use the Makefile target from root
+# From the repository root
 make backtest START=2024-01-01 END=2024-03-31 PAIRS=5
 ```
 
@@ -426,7 +435,8 @@ make stack-ps
 make stack-logs
 
 # Terminal 3: Test API endpoints
-curl http://localhost:8888/api/health
+curl http://localhost:8888/health
+curl http://localhost:8888/ready
 curl http://localhost:8889/health
 ```
 
@@ -442,26 +452,36 @@ curl http://localhost:8889/health
 
 ### Database Migrations
 
-- Migrations run automatically on service startup
-- Both PostgreSQL and Valkey data persist between restarts
-- State is stored in Docker volumes for Option 2
+- The full local stack sets `DB_AUTO_MIGRATE=true` for the Go backend. Standalone backend startup defaults migration
+  execution off; run `cd backend && make migrate-up` first or explicitly set `DB_AUTO_MIGRATE=true` for local use.
+- The bot applies Alembic before ORM compatibility creation, verifies runtime-critical tables (including durable
+  tracked-position and cointegration state), and currently reports `0004_runtime_state_tables` at the PostgreSQL head.
+- Celery uses Valkey DB 1 for its broker and DB 2 for results in both API and worker processes; DB 0 remains the
+  application cache/session namespace.
+- PostgreSQL and Valkey data persist between restarts; all five infrastructure systems use named Compose volumes.
 
 ### Data Persistence
 
 - Option 1: Data persists in system databases
 - Option 2: Data persists in Docker volumes named `<name>_data`
 
-### Clean Slate
+### Clean Slate (destructive, explicit opt-in)
 
 ```bash
-# Option 1: Stop and clean
-make infra-down
-docker volume rm dydx-infra_postgresql_data dydx-infra_valkey_data
+# Inventory data and volumes first; these commands do not delete anything.
+docker compose -f docker-compose.infra.yml ps
+docker volume ls | grep dydx-trading-bot
+docker exec dydx-postgresql pg_dump -U dydx_bot -d dydx_bot -Fc > dydx_bot.backup
 
-# Option 2: Stop and clean
-make stack-down
-docker volume rm dydx-stack_postgresql_data dydx-stack_valkey_data
+# Only after confirming/exporting required data, stop services.
+make infra-down   # or: make stack-down
+
+# Destructive reset is intentionally not automated by this guide. If a clean reset is truly
+# required, an operator must explicitly remove the five reviewed named volumes.
 ```
+
+Never remove PostgreSQL, Valkey, NATS, ClickHouse, or MinIO volumes merely to fix startup. Restart/recreate containers
+first; named volumes survive `make infra-down` and `make stack-down`.
 
 ---
 

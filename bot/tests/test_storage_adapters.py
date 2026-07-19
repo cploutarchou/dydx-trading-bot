@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -70,6 +71,21 @@ def test_local_artifact_store_round_trip(tmp_path):
     assert Path(ref.replace("file://", "")).read_text() == "hello world"
 
 
+def test_local_artifact_store_concurrent_writes_publish_complete_payloads(tmp_path):
+    store = LocalArtifactStore(tmp_path / "artifacts")
+    payloads = [bytes([index]) * (128 * 1024) for index in range(1, 9)]
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(
+            executor.map(
+                lambda payload: store.put_bytes("runs/shared.bin", payload), payloads
+            )
+        )
+
+    assert store.read_bytes("runs/shared.bin") in payloads
+    assert not list((tmp_path / "artifacts" / "runs").glob("*.tmp"))
+
+
 def test_minio_artifact_store_uses_local_fallback_when_disabled(tmp_path):
     fallback = LocalArtifactStore(tmp_path / "local")
     store = MinIOArtifactStore(
@@ -129,6 +145,12 @@ def test_minio_artifact_store_writes_and_reads_with_enabled_client(tmp_path):
     assert store.exists("backtests/run-1/result.json") is True
     assert store.read_bytes("backtests/run-1/result.json") == b'{"ok":true}'
     assert fallback.exists("backtests/run-1/result.json") is False
+    assert store.health_check() == {
+        "enabled": True,
+        "healthy": True,
+        "strict": False,
+        "bucket": "backtests",
+    }
 
 
 def test_minio_artifact_store_falls_back_when_enabled_client_fails(tmp_path):
@@ -152,7 +174,9 @@ def test_minio_artifact_store_strict_mode_fails_on_client_error(tmp_path):
     store = MinIOArtifactStore(
         bucket="backtests",
         enabled=True,
-        fallback=LocalArtifactStore(tmp_path / "local"),  # Fallback is provided but should not be used
+        fallback=LocalArtifactStore(
+            tmp_path / "local"
+        ),  # Fallback is provided but should not be used
         endpoint_url="http://minio:9000",
         extra_config={
             "client": _FailingMinioClient(),
@@ -161,7 +185,9 @@ def test_minio_artifact_store_strict_mode_fails_on_client_error(tmp_path):
     )
 
     # In strict mode, write should fail instead of falling back
-    with pytest.raises(RuntimeError, match="MinIO artifact persistence failed.*strict mode"):
+    with pytest.raises(
+        RuntimeError, match="MinIO artifact persistence failed.*strict mode"
+    ):
         store.put_bytes("run-3/strict.bin", b"payload")
 
 
@@ -179,8 +205,46 @@ def test_minio_artifact_store_strict_mode_fails_on_read_error(tmp_path):
     )
 
     # Test exists() method in strict mode
-    with pytest.raises(RuntimeError, match="MinIO artifact exists check failed.*strict mode"):
+    with pytest.raises(
+        RuntimeError, match="MinIO artifact exists check failed.*strict mode"
+    ):
         store.exists("run-3/missing.bin")
+
+
+def test_minio_strict_mode_rejects_unavailable_client(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "src.infrastructure.storage.minio_artifact_store.MinIOArtifactStore._build_client",
+        lambda self: None,
+    )
+    fallback = LocalArtifactStore(tmp_path / "local")
+    store = MinIOArtifactStore(
+        bucket="backtests",
+        enabled=True,
+        fallback=fallback,
+        endpoint_url="http://minio:9000",
+        extra_config={"strict_mode": True},
+    )
+
+    with pytest.raises(RuntimeError, match="persistence failed.*client is unavailable"):
+        store.put_bytes("run-5/out.bin", b"payload")
+    with pytest.raises(RuntimeError, match="read failed.*client is unavailable"):
+        store.read_bytes("run-5/out.bin")
+    with pytest.raises(
+        RuntimeError, match="exists check failed.*client is unavailable"
+    ):
+        store.exists("run-5/out.bin")
+    assert fallback.exists("run-5/out.bin") is False
+
+
+@pytest.mark.parametrize("key", ["../escape", "run/../escape", r"run\\escape"])
+def test_minio_rejects_non_normalized_object_keys(tmp_path, key):
+    store = MinIOArtifactStore(
+        bucket="backtests",
+        enabled=False,
+        fallback=LocalArtifactStore(tmp_path / "local"),
+    )
+    with pytest.raises(ValueError, match="normalized relative object key"):
+        store.put_bytes(key, b"payload")
 
 
 def test_minio_artifact_store_non_strict_allows_fallback(tmp_path):
@@ -213,19 +277,20 @@ def test_backtest_repository_strict_mode_disabled_by_default(monkeypatch):
     monkeypatch.setenv("MINIO_ENDPOINT", "localhost:9010")
     monkeypatch.setenv("MINIO_ACCESS_KEY", "test-key")
     monkeypatch.setenv("MINIO_SECRET_KEY", "test-secret")
-    
+
     # Clear any strict mode env vars to test default
     monkeypatch.delenv("BACKTEST_ARTIFACT_STORAGE_STRICT", raising=False)
     monkeypatch.delenv("BACKTEST_MINIO_STRICT", raising=False)
     monkeypatch.delenv("MINIO_STRICT_MODE", raising=False)
-    
+
     # Force reload of environment
     import importlib
     import src.infrastructure.persistence.repository_backtest
+
     importlib.reload(src.infrastructure.persistence.repository_backtest)
-    
+
     from src.infrastructure.persistence.repository_backtest import BacktestRepository
-    
+
     # Should return False by default
     assert BacktestRepository._artifact_storage_strict_mode() is False
 
@@ -233,14 +298,15 @@ def test_backtest_repository_strict_mode_disabled_by_default(monkeypatch):
 def test_backtest_repository_strict_mode_enabled_via_env(monkeypatch):
     """Test that strict mode can be enabled via environment variable."""
     monkeypatch.setenv("BACKTEST_ARTIFACT_STORAGE_STRICT", "true")
-    
+
     # Force reload of environment
     import importlib
     import src.infrastructure.persistence.repository_backtest
+
     importlib.reload(src.infrastructure.persistence.repository_backtest)
-    
+
     from src.infrastructure.persistence.repository_backtest import BacktestRepository
-    
+
     # Should return True when enabled
     assert BacktestRepository._artifact_storage_strict_mode() is True
     monkeypatch.setenv("S3_ENDPOINT", "http://localhost:9010")
@@ -409,6 +475,11 @@ def test_clickhouse_writer_inserts_rows_with_real_client():
     assert len(client.inserts) == 2
     assert client.inserts[0]["run_id"] == "r1"
     assert client.inserts[1]["trade_id"] == "t2"
+    assert writer.health_check() == {
+        "enabled": True,
+        "healthy": True,
+        "database": "analytics",
+    }
 
 
 def test_clickhouse_writer_buffers_rows_until_batch_threshold():
@@ -535,7 +606,7 @@ def test_clickhouse_writer_provisions_bot_events_table():
                 "strategy_id": 42,
                 "worker_id": "strategy-1-101",
                 "correlation_id": "corr-1",
-                "payload_attrs": "{\"message\":\"started\"}",
+                "payload_attrs": '{"message":"started"}',
             }
         ],
     )

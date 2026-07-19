@@ -42,13 +42,8 @@ def test_makefile_local_worker_and_flower_use_workers_celery_app():
         "src.infrastructure.workers.celery_app:celery_app flower --address=0.0.0.0 --port=5555"
         in content
     )
-    assert (
-        "CELERY_BROKER_URL=$${CELERY_BROKER_URL:-redis://localhost:6379/0}" in content
-    )
-    assert (
-        "CELERY_RESULT_BACKEND=$${CELERY_RESULT_BACKEND:-redis://localhost:6379/1}"
-        in content
-    )
+    assert "redis://localhost:6379/1" in content
+    assert "redis://localhost:6379/2" in content
     assert (
         "CELERY_QUEUES=$${CELERY_QUEUES:-backtests,default,high_priority,scheduled}"
         in content

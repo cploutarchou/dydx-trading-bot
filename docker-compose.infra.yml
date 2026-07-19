@@ -25,7 +25,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "0.0.0.0:5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgresql_data:/var/lib/postgresql/data
     healthcheck:
@@ -33,6 +33,27 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - dydx-infra
+
+  postgresql-bot-db-init:
+    image: postgres:15.18-bookworm
+    restart: "no"
+    environment:
+      PGHOST: postgresql
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-dydx_bot}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
+      BOT_POSTGRES_DB: ${BOT_POSTGRES_DB:-dydx_bot_runtime}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        if ! psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$${BOT_POSTGRES_DB}'" | grep -q 1; then
+          createdb "$${BOT_POSTGRES_DB}"
+        fi
+    depends_on:
+      postgresql:
+        condition: service_healthy
     networks:
       - dydx-infra
 
@@ -48,7 +69,7 @@ services:
       - "60"
       - "1"
     ports:
-      - "0.0.0.0:6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - valkey_data:/data
     healthcheck:
@@ -75,7 +96,7 @@ services:
     volumes:
       - nats_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8222/healthz"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -97,7 +118,7 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8123/ping"]
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8123/ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -105,7 +126,7 @@ services:
       - dydx-infra
 
   minio:
-    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: dydx-minio
     restart: unless-stopped
     environment:
@@ -115,7 +136,7 @@ services:
       - server
       - /data
       - --console-address
-      - :9011
+      - :9001
     ports:
       - "9010:9000"
       - "9011:9001"

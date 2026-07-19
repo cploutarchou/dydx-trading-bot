@@ -261,15 +261,17 @@ func LoadConfig() error {
 	}
 
 	nats := NATSSettings{
-		Enabled:           getEnvBool("NATS_ENABLED", true),
-		URL:               getEnv("NATS_URL", "nats://localhost:4222"),
-		MonitoringURL:     getEnv("NATS_MONITORING_URL", "http://localhost:8222"),
-		StreamPrefix:      getEnv("NATS_STREAM_PREFIX", "bot"),
-		CommandBusEnabled: getEnvBool("BOT_COMMAND_BUS_ENABLED", true),
+		Enabled:       getEnvBool("NATS_ENABLED", true),
+		URL:           getEnv("NATS_URL", "nats://localhost:4222"),
+		MonitoringURL: getEnv("NATS_MONITORING_URL", "http://localhost:8222"),
+		StreamPrefix:  getEnv("NATS_STREAM_PREFIX", "bot"),
+		// Celery owns backtest execution until an explicit NATS command cutover.
+		// NATS events remain independently available through NATS_ENABLED.
+		CommandBusEnabled: getEnvBool("BOT_COMMAND_BUS_ENABLED", false),
 	}
 
 	clickHouse := ClickHouseSettings{
-		Enabled:  getEnvBoolAny([]string{"CLICKHOUSE_ENABLED", "BACKTEST_CLICKHOUSE_WRITES_ENABLED"}, true),
+		Enabled:  getEnvBoolAny([]string{"CLICKHOUSE_ENABLED", "BACKTEST_CLICKHOUSE_WRITES_ENABLED"}, false),
 		URL:      getEnvAny([]string{"CLICKHOUSE_URL", "BACKTEST_CLICKHOUSE_URL"}, ""),
 		Host:     getEnvAny([]string{"CLICKHOUSE_HOST", "BACKTEST_CLICKHOUSE_HOST"}, "localhost"),
 		Port:     getEnvIntAny([]string{"CLICKHOUSE_PORT", "BACKTEST_CLICKHOUSE_PORT"}, 8123),
@@ -280,7 +282,7 @@ func LoadConfig() error {
 	}
 
 	minIO := MinIOSettings{
-		Enabled:    getEnvBoolAny([]string{"MINIO_ENABLED", "BACKTEST_ARTIFACT_STORAGE_ENABLED", "BACKTEST_MINIO_ARTIFACTS_ENABLED"}, true),
+		Enabled:    getEnvBoolAny([]string{"MINIO_ENABLED", "BACKTEST_ARTIFACT_STORAGE_ENABLED", "BACKTEST_MINIO_ARTIFACTS_ENABLED"}, false),
 		Endpoint:   getEnvAny([]string{"MINIO_ENDPOINT", "BACKTEST_MINIO_ENDPOINT", "S3_ENDPOINT"}, ""),
 		ConsoleURL: getEnv("MINIO_CONSOLE_URL", ""),
 		Bucket:     getEnvAny([]string{"MINIO_BUCKET", "BACKTEST_MINIO_BUCKET"}, "backtests"),

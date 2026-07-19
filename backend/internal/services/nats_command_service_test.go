@@ -15,7 +15,7 @@ import (
 
 func TestNATSCommandService_ServiceCreation(t *testing.T) {
 	t.Run("creates service with valid dependencies", func(t *testing.T) {
-		service := NewNATSCommandService(nil, nil, config.NATSSettings{Enabled: true})
+		service := NewNATSCommandService(nil, nil, config.NATSSettings{Enabled: true, CommandBusEnabled: true})
 		assert.NotNil(t, service)
 	})
 
@@ -48,7 +48,7 @@ func TestNATSCommandService_IsNATSEnabled(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := NewNATSCommandService(nil, nil, config.NATSSettings{Enabled: tt.enabled})
+			service := NewNATSCommandService(nil, nil, config.NATSSettings{Enabled: tt.enabled, CommandBusEnabled: true})
 			// IsNATSEnabled also checks if publisher is not nil, so this will be false
 			// since we're passing nil publisher
 			assert.False(t, service.IsNATSEnabled())
@@ -331,7 +331,7 @@ func TestFailClosedBehavior(t *testing.T) {
 	})
 
 	t.Run("NATS enabled check returns false when dependencies are missing", func(t *testing.T) {
-		service := NewNATSCommandService(nil, nil, config.NATSSettings{Enabled: true})
+		service := NewNATSCommandService(nil, nil, config.NATSSettings{Enabled: true, CommandBusEnabled: true})
 
 		// Should be false because publisher is nil
 		assert.False(t, service.IsNATSEnabled())

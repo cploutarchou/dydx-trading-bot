@@ -114,6 +114,8 @@ Repository-level guidance for coding agents working on this project.
 - Valkey is the standard local Redis-compatible backend (local defaults: `redis://localhost:6379/1` for Celery broker and `redis://localhost:6379/2` for results when `CELERY_*` is unset)
 - Flower connects to the same broker/backend and displays worker status only after worker is online
 - Additional scheduled workers: `src/infrastructure/workers/market_sync_tasks.py` (market data sync), `src/infrastructure/workers/candle_aggregate_tasks.py` (OHLCV aggregation), `src/infrastructure/workers/celery_monitor.py` (Celery health monitoring)
+ - Worker metrics recording: `src/infrastructure/workers/celery_metrics.py` (Celery task metrics), `src/infrastructure/workers/nats_worker_metrics.py` (NATS worker metrics); both record task duration, success/failure, retry count, and throughput to ClickHouse (`worker_metrics` table) when `BACKTEST_CLICKHOUSE_WRITES_ENABLED=true`
+- NATS consumer infrastructure: `src/infrastructure/event_bus_nats.py` (dual-write JetStream consumer foundation for Phase 4), `src/infrastructure/workers/nats_backtest_consumer.py` (idempotent backtest command consumer); implements explicit ack after authoritative PostgreSQL state updates, retry/ack/dead-letter handling, and idempotency checking via task tables
 
 **Optional storage adapters:**
 - Analytics writes to ClickHouse: `BACKTEST_CLICKHOUSE_WRITES_ENABLED=false` (off by default); configure via `CLICKHOUSE_URL` or `CLICKHOUSE_HOST`/`CLICKHOUSE_PORT`; implementation in `src/infrastructure/storage/clickhouse_writer.py`
@@ -133,8 +135,7 @@ Repository-level guidance for coding agents working on this project.
   lifecycle updates after runtime state changes.
 - Verify per-instance subprocess logs still write to `bot_states/bot_<instance_id>.log` and dead-process cleanup remains
   active when touching `src/bot_instance_manager.py`.
-- Run `tests/test_backtest_api_contract.py` when touching backtest routes/payloads to preserve backend-facing
-  status/progress and alias contracts.
+- Run `tests/test_backtest_api_contract.py` when touching backtest routes/payloads to preserve backend-facing status/progress and alias contracts.
 - Run `tests/test_async_job_manager.py` when touching background task orchestration (`async_job_manager`) behavior.
 - Run `tests/test_market_sync_tasks.py` and `tests/test_market_data_cache.py` when touching market data sync, caching, or candle aggregation.
 - Run `tests/test_position_manager_exit_safety.py` and `tests/test_position_manager_entry_backoff.py` when touching position entry/exit logic or backoff behavior.
@@ -142,6 +143,10 @@ Repository-level guidance for coding agents working on this project.
 - Run `tests/test_arbitrage_observability.py` and `tests/test_arbitrage_cycle_cache.py` when touching arbitrage decision logic or pair caching.
 - Run `tests/test_live_risk_controls.py` and `tests/test_live_trade_persistence.py` when touching live trading risk controls or trade persistence.
 - Run `tests/test_auth_api_contract.py` and `tests/test_auth_bypass_environment_guard.py` when touching auth routes or bypass behavior.
+- Run `tests/test_celery_monitor.py` when touching Celery inspection, task monitoring, or Flower integration.
+- Run `tests/test_backtest_event_emitter.py` when touching NATS JetStream backtest event publishing (requires `NATS_TEST_URL` env var pointing at live NATS server).
+- Run `tests/test_celery_metrics.py` and `tests/test_nats_worker_metrics.py` when touching worker metrics recording to ClickHouse.
+- Run `tests/test_nats_consumer*.py` when touching NATS JetStream consumer infrastructure, idempotency checking, or message handling.
 - Run `make test-execution-safety` when touching order execution, emergency cleanup, or position-reconciliation safety paths.
 - Run `make preflight-testnet` (and `make preflight-testnet-strict` for release-oriented changes) for
   runtime/safety-impacting edits.
@@ -173,3 +178,5 @@ Repository-level guidance for coding agents working on this project.
 - **2FA auth routes**: `src/api/v1/auth/password_2fa.py` exposes `POST /auth/setup` and `POST /auth/verify`; follow existing `api_response(...)` envelope and auth-bypass guard patterns.
 - **Strategy resolution metrics**: Operator-facing endpoints for resolution drift monitoring — `GET /api/v1/runtime/strategy-resolution-metrics`, `GET /api/v1/runtime/strategy-resolution-metrics/prom` (Prometheus), `POST /api/v1/admin/runtime/strategy-resolution-metrics/reset`. Tune with `STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE`, `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_THRESHOLD`, `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_MIN_RUNS`.
 - **Backtest sync-health and repair**: `GET /api/v1/backtests/sync-health` monitors strategy-resolution drift; `POST /api/v1/admin/backtests/{run_id}/repair-request` (with `?dry_run=true` to preview) allows admin repair of misaligned backtest requests.
+- **Worker metrics infrastructure**: `src/infrastructure/storage/worker_metrics_writer.py` persists worker task duration, success/failure, retry count, and throughput to ClickHouse `worker_metrics` table (when `BACKTEST_CLICKHOUSE_WRITES_ENABLED=true`); Celery metrics wired via `celery_metrics.py`, NATS worker metrics via `nats_worker_metrics.py`; both record all task lifecycle signals and no-op when ClickHouse is disabled.
+- **NATS consumer (Phase 4)**: `src/infrastructure/event_bus_nats.py` and `src/infrastructure/workers/nats_backtest_consumer.py` implement dual-write JetStream consumer foundation with idempotency checking via PostgreSQL task tables, explicit ack after state update, and retry/ack/dead-letter handling; backend and bot use singular canonical subject form (e.g., `backtest.command.start`).

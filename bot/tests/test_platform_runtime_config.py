@@ -49,6 +49,8 @@ def test_configuration_manager_builds_nats_clickhouse_and_minio_settings(
     monkeypatch.setenv("BACKTEST_CLICKHOUSE_BATCH_SIZE", "250")
     monkeypatch.setenv("BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS", "2.5")
     monkeypatch.setenv("BACKTEST_ARTIFACT_STORAGE_ENABLED", "true")
+    monkeypatch.delenv("BACKTEST_MINIO_ENDPOINT", raising=False)
+    monkeypatch.delenv("S3_ENDPOINT", raising=False)
     monkeypatch.setenv("MINIO_ENDPOINT", "https://minio.internal:9000")
     monkeypatch.setenv("MINIO_BUCKET", "backtest-artifacts")
     monkeypatch.setenv("MINIO_ACCESS_KEY", "minio-access")

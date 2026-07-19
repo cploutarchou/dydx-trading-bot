@@ -404,9 +404,7 @@ class ClickHouseAnalyticsWriter(AnalyticsWriter):
             self.extra_config.get("flush_interval_seconds"),
             default=0.0,
         )
-        self._buffering_enabled = (
-            self.batch_size > 1 or self.flush_interval_seconds > 0
-        )
+        self._buffering_enabled = self.batch_size > 1 or self.flush_interval_seconds > 0
         self._provisioned: set[str] = set()
         self._buffers: dict[str, list[dict[str, Any]]] = {}
         self._buffer_started_at: dict[str, float] = {}
@@ -464,6 +462,31 @@ class ClickHouseAnalyticsWriter(AnalyticsWriter):
                 "ClickHouse connection failed; writes will use fallback: %s", exc
             )
             return None
+
+    def health_check(self) -> dict[str, Any]:
+        """Return sanitized adapter connectivity diagnostics."""
+        if not self.enabled:
+            return {"enabled": False, "healthy": True}
+        if self._client is None:
+            return {
+                "enabled": True,
+                "healthy": False,
+                "error": "ClickHouse client is unavailable",
+            }
+        try:
+            self._client.command("SELECT 1")
+            return {
+                "enabled": True,
+                "healthy": True,
+                "database": self.database,
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "enabled": True,
+                "healthy": False,
+                "database": self.database,
+                "error": str(exc),
+            }
 
     def _ensure_table(self, table_name: str) -> None:
         """Run DDL for *table_name* on the first write if a template is known."""

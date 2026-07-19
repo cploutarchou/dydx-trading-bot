@@ -106,87 +106,28 @@ This note captures the current backtest storage/runtime state after the MinIO an
 - `BACKTEST_MINIO_STRICT` - Alias for above
 - `MINIO_STRICT_MODE` - Alias for above
 
-## Findings
+## 2026-07 storage validation addendum
 
-### 1. Sync-health trade counters are now semantically wrong
+The duplicated “pending” findings previously below this point were stale copies of already addressed items and have
+been removed. The following additional requirements were implemented and validated during the final storage audit:
 
-- Severity: High
-- Files:
-  - `backend/internal/repository/backtest_sync_repo.go`
-  - `backend/internal/routes/bot_api_delegate_routes.go`
-- Problem:
-  - `GET /api/v1/backtests/sync-health` still reports `trades` by counting rows in backend `backtest_trades`.
-  - New delegated runs no longer sync trades into that table.
-- Impact:
-  - Operators can see `trades: 0` even when the bot/artifact path has valid trade data.
-  - The dashboard now mixes two different definitions of “trade availability”.
-- Recommended fix:
-  - Either derive trade availability from bot/artifact metadata, or rename/remove the `trades` sync counter so it no longer implies backend DB mirroring.
+- [x] Strict MinIO now fails when client construction/configuration fails; it cannot silently reach local fallback.
+- [x] Local artifact replacement is atomic and safe for concurrent writers.
+- [x] Repeating an identical terminal backtest save does not append duplicate ClickHouse projection rows.
+- [x] Mutable progress saves no longer project append-only ClickHouse facts; the live validation run produced exactly
+  one trade, one position snapshot, and one daily-PnL row.
+- [x] Bot Alembic now bootstraps a truly empty PostgreSQL database, upgrades existing bot databases to
+  `0004_runtime_state_tables`, and verifies durable tracked-position/cointegration tables.
+- [x] Bot API and worker use the same Celery broker (Valkey DB 1) and result backend (DB 2); a real queued backtest was
+  consumed and completed after this correction.
+- [x] NATS command execution is gated by `BOT_COMMAND_BUS_ENABLED=false` while Celery owns backtest execution; NATS
+  durable events remain independently available.
+- [x] NATS and ClickHouse Compose health probes use binaries present in their images.
+- [x] Backend startup honors and validates `DB_AUTO_MIGRATE`; the full local stack sets it explicitly.
+- [x] Bot health/readiness exposes sanitized MinIO and ClickHouse adapter state; strict artifact failure blocks readiness.
+- [x] Setup documentation no longer instructs operators to delete persistence volumes as routine troubleshooting.
 
-### 2. Resync response still overstates trade sync
+Detailed evidence, residual risks, and exact commands are maintained in:
 
-- Severity: Medium
-- File:
-  - `backend/internal/routes/backtest_delegation_service.go`
-- Problem:
-  - `POST /api/v1/backtests/:run_id/resync` still returns `trades_synced`.
-  - After the recent change, the code refetches trades from the bot but does not sync them into backend DB storage.
-- Impact:
-  - The response implies a storage sync that no longer happens.
-- Recommended fix:
-  - Rename the field to reflect artifact/backtest fetch success, or set a separate explicit field such as `trades_fetched_from_bot`.
-
-### 3. MinIO path is still not fail-closed
-
-- Severity: Medium
-- Files:
-  - `bot/src/infrastructure/storage/minio_artifact_store.py`
-  - `bot/src/infrastructure/persistence/repository_backtest.py`
-- Problem:
-  - If MinIO is unavailable, the system still falls back to local artifact storage.
-- Impact:
-  - This weakens the guarantee that backtest trades live in MinIO/object storage only.
-  - Storage behavior can differ silently across environments.
-- Recommended fix:
-  - Add a strict/fail-closed mode for artifact persistence so production can reject a run or mark it failed when object storage is unavailable.
-
-### 4. Legacy backend backtest storage paths still exist
-
-- Severity: Medium
-- Files:
-  - `backend/internal/handlers/backtest_handler.go`
-  - `backend/internal/services/backtest_storage.go`
-  - `backend/internal/routes/backtest_routes.go`
-- Problem:
-  - Legacy DB/local-file backtest flows remain in the codebase beside the delegated artifact-backed path.
-- Impact:
-  - Architecture ownership stays muddy.
-  - Future changes can accidentally reintroduce DB-backed trade assumptions.
-- Recommended fix:
-  - Mark the legacy path explicitly read-only/deprecated in routing/docs, then remove it once no active consumer depends on it.
-
-### 5. Market-data rate limiter is reused across event loops
-
-- Severity: Medium
-- File:
-  - `bot/src/trading/market_data.py`
-- Problem:
-  - Live Celery worker runs emit `RuntimeWarning: This AsyncLimiter instance is being re-used across loops`.
-- Impact:
-  - The worker still completes, but the limiter is not event-loop safe and can become undefined under concurrency.
-- Recommended fix:
-  - Construct one limiter per event loop / worker execution context instead of reusing a module-level async limiter across loops.
-
-## Pending work that should stay visible in task files
-
-- Reconcile `sync-health` trade counters with the artifact-backed trade path.
-- Reconcile `resync` response semantics with the artifact-backed trade path.
-- Decide whether production should keep local artifact fallback or move to strict MinIO-only/fail-closed behavior.
-- Retire or isolate legacy backend backtest storage routes that still assume DB/local-file trade storage.
-- Remove the shared `AsyncLimiter` reuse warning in worker-side market-data fetches.
-
-## Suggested order
-
-1. Fix `sync-health` and `resync` semantics first so operator-facing status is truthful.
-2. Decide on fail-closed MinIO behavior for production.
-3. Remove or quarantine legacy backend storage paths.
+- `docs/FINAL_STORAGE_AND_DATABASE_IMPROVEMENT_PLAN.md`
+- `docs/FINAL_STORAGE_AND_DATABASE_VALIDATION_REPORT.md`

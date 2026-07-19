@@ -56,10 +56,10 @@
   },
   "bot_database": {
     "BOT_DB_CUTOVER_MODE": "dedicated",
-    "BOT_DATABASE_URL": "postgresql+psycopg2://dydx_bot:change-me-db-password@localhost:5432/dydx_bot?sslmode=disable",
+    "BOT_DATABASE_URL": "postgresql+psycopg2://dydx_bot:change-me-db-password@localhost:5432/dydx_bot_runtime?sslmode=disable",
     "BOT_DB_HOST": "localhost",
     "BOT_DB_PORT": 5432,
-    "BOT_DB_NAME": "dydx_bot",
+    "BOT_DB_NAME": "dydx_bot_runtime",
     "BOT_DB_USER": "dydx_bot",
     "BOT_DB_PASSWORD": "change-me-db-password"
   },
@@ -107,6 +107,7 @@
   "infrastructure": {
     "NATS_URL": "nats://localhost:4222",
     "NATS_MONITORING_URL": "http://localhost:8222",
+    "BOT_COMMAND_BUS_ENABLED": false,
     "CLICKHOUSE_HOST": "localhost",
     "CLICKHOUSE_PORT": 8123,
     "CLICKHOUSE_DATABASE": "dydx_analytics",

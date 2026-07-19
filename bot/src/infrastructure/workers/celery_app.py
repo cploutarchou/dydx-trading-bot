@@ -84,6 +84,7 @@ celery_app.conf.update(
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=int(os.getenv("CELERY_WORKER_PREFETCH_MULTIPLIER", "1")),
+    worker_max_tasks_per_child=int(os.getenv("CELERY_WORKER_MAX_TASKS_PER_CHILD", "100")),
     task_track_started=True,
     task_send_sent_event=True,
     worker_send_task_events=True,
@@ -95,6 +96,16 @@ celery_app.conf.update(
         os.getenv("BACKTEST_CELERY_TASK_SOFT_TIME_LIMIT", str(7 * 24 * 60 * 60 - 60))
     ),
     broker_connection_retry_on_startup=True,
+    # Visibility timeout must be greater than task_time_limit to prevent re-delivery
+    # Default: 10% higher than the hard time limit
+    broker_visibility_timeout=int(
+        float(
+            os.getenv(
+                "CELERY_BROKER_VISIBILITY_TIMEOUT",
+                str(int(os.getenv("BACKTEST_CELERY_TASK_TIME_LIMIT", str(7 * 24 * 60 * 60))) * 1.1),
+            )
+        )
+    ),
     result_expires=int(os.getenv("CELERY_RESULT_EXPIRES", str(24 * 60 * 60))),
     timezone="UTC",
     enable_utc=True,

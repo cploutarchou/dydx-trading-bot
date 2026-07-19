@@ -69,6 +69,21 @@ def _celery_pool_args() -> List[str]:
     return ["--concurrency", os.getenv("CELERY_CONCURRENCY", "10")]
 
 
+def _celery_max_tasks_per_child_arg() -> List[str]:
+    max_tasks = os.getenv("CELERY_WORKER_MAX_TASKS_PER_CHILD", "")
+    if max_tasks.strip():
+        try:
+            value = int(max_tasks)
+            if value > 0:
+                return ["--max-tasks-per-child", str(value)]
+        except ValueError:
+            sys.stderr.write(
+                "[worker_entrypoint] Ignoring invalid CELERY_WORKER_MAX_TASKS_PER_CHILD; expected positive integer.\n"
+            )
+            sys.stderr.flush()
+    return []
+
+
 class _FilteredStderr:
     """Filter noisy upstream warnings that are safe to ignore in worker logs."""
 
@@ -206,6 +221,7 @@ def main() -> int:
             "-E",
         ]
         argv.extend(_celery_pool_args())
+        argv.extend(_celery_max_tasks_per_child_arg())
 
         # Run celery in-process so our stderr filter can suppress known noisy lines.
         original_stderr = sys.stderr

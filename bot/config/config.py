@@ -507,12 +507,16 @@ class ConfigurationManager:
         """Build canonical Valkey settings from environment variables."""
         redis_settings = self._build_redis_settings_from_env()
         return ValkeySettings(
-            enabled=_get_env_bool("VALKEY_ENABLED", "REDIS_ENABLED", default=redis_settings.enabled),
+            enabled=_get_env_bool(
+                "VALKEY_ENABLED", "REDIS_ENABLED", default=redis_settings.enabled
+            ),
             host=_get_env("VALKEY_HOST", "REDIS_HOST", default=redis_settings.host),
             port=_get_env_int("VALKEY_PORT", "REDIS_PORT", default=redis_settings.port),
             db=_get_env_int("VALKEY_DB", "REDIS_DB", default=redis_settings.db),
             password=_get_env(
-                "VALKEY_PASSWORD", "REDIS_PASSWORD", default=redis_settings.password or ""
+                "VALKEY_PASSWORD",
+                "REDIS_PASSWORD",
+                default=redis_settings.password or "",
             ),
             ssl=_get_env_bool("VALKEY_SSL", "REDIS_SSL", default=redis_settings.ssl),
             timeout=_get_env_int(
@@ -534,15 +538,13 @@ class ConfigurationManager:
 
     def _build_nats_settings_from_env(self) -> NATSSettings:
         return NATSSettings(
-            enabled=_get_env_bool("NATS_ENABLED", default=True),
+            enabled=_get_env_bool("NATS_ENABLED", default=False),
             url=_get_env("NATS_URL", default="nats://localhost:4222"),
             monitoring_url=_get_env(
                 "NATS_MONITORING_URL", default="http://localhost:8222"
             ),
             stream_prefix=_get_env("NATS_STREAM_PREFIX", default="bot"),
-            command_bus_enabled=_get_env_bool(
-                "BOT_COMMAND_BUS_ENABLED", default=True
-            ),
+            command_bus_enabled=_get_env_bool("BOT_COMMAND_BUS_ENABLED", default=False),
         )
 
     def _build_clickhouse_settings_from_env(self) -> ClickHouseSettings:
@@ -558,38 +560,56 @@ class ConfigurationManager:
                 default=True,
             ),
             url=raw_url,
-            host=_get_env(
-                "BACKTEST_CLICKHOUSE_HOST",
-                "CLICKHOUSE_HOST",
-                default=host or "localhost",
+            host=host
+            or _get_env(
+                "BACKTEST_CLICKHOUSE_HOST", "CLICKHOUSE_HOST", default="localhost"
             ),
-            port=_get_env_int(
-                "BACKTEST_CLICKHOUSE_PORT",
-                "CLICKHOUSE_PORT",
-                default=int(parsed_port or "8123"),
+            port=(
+                int(parsed_port)
+                if parsed_port
+                else _get_env_int(
+                    "BACKTEST_CLICKHOUSE_PORT", "CLICKHOUSE_PORT", default=8123
+                )
             ),
             database=_get_env(
                 "BACKTEST_CLICKHOUSE_DATABASE",
                 "CLICKHOUSE_DATABASE",
-                default=(urlsplit(raw_url if "://" in raw_url else f"http://{raw_url}").path.lstrip("/") if raw_url else "")
+                default=(
+                    urlsplit(
+                        raw_url if "://" in raw_url else f"http://{raw_url}"
+                    ).path.lstrip("/")
+                    if raw_url
+                    else ""
+                )
                 or "default",
             ),
             user=_get_env(
                 "BACKTEST_CLICKHOUSE_USER",
                 "CLICKHOUSE_USER",
-                default=(urlsplit(raw_url if "://" in raw_url else f"http://{raw_url}").username if raw_url else "")
+                default=(
+                    urlsplit(
+                        raw_url if "://" in raw_url else f"http://{raw_url}"
+                    ).username
+                    if raw_url
+                    else ""
+                )
                 or "default",
             ),
             password=_get_env(
                 "BACKTEST_CLICKHOUSE_PASSWORD",
                 "CLICKHOUSE_PASSWORD",
-                default=(urlsplit(raw_url if "://" in raw_url else f"http://{raw_url}").password if raw_url else "")
+                default=(
+                    urlsplit(
+                        raw_url if "://" in raw_url else f"http://{raw_url}"
+                    ).password
+                    if raw_url
+                    else ""
+                )
                 or "",
             ),
-            secure=_get_env_bool(
-                "BACKTEST_CLICKHOUSE_SECURE",
-                "CLICKHOUSE_SECURE",
-                default=default_secure,
+            secure=default_secure
+            or _get_env_bool(
+                "BACKTEST_CLICKHOUSE_SECURE", "CLICKHOUSE_SECURE", default=False
             ),
             batch_size=_get_env_int(
                 "BACKTEST_CLICKHOUSE_BATCH_SIZE",
@@ -635,9 +655,7 @@ class ConfigurationManager:
                 "MINIO_ROOT_PASSWORD",
                 default="change-me-minio",
             ),
-            secure=_get_env_bool(
-                "BACKTEST_MINIO_SECURE", default=(scheme == "https")
-            ),
+            secure=_get_env_bool("BACKTEST_MINIO_SECURE", default=(scheme == "https")),
         )
 
     def _build_logging_settings(self, data: dict) -> LoggingSettings:

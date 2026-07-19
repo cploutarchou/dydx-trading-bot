@@ -93,6 +93,15 @@ func (s *NATSCommandService) PublishBacktestCommand(
 	idempotencyKey string,
 	correlationID string,
 ) (*models.TaskCommand, error) {
+	// The checked-in runtime executes backtests through Celery. Merely enabling
+	// NATS for durable events must not create an executable command mirror: a NATS
+	// worker started later could otherwise replay the same authoritative run.
+	if !s.settings.CommandBusEnabled {
+		return nil, nil
+	}
+	if s.taskRepo == nil {
+		return nil, fmt.Errorf("task repository is nil")
+	}
 	// Use provided idempotency key, or generate one if empty
 	if idempotencyKey == "" {
 		idempotencyKey = runID
@@ -173,7 +182,7 @@ func (s *NATSCommandService) publishToNATSAsync(
 	}()
 
 	// Skip if NATS is not enabled or publisher is nil
-	if !s.settings.Enabled || s.publisher == nil {
+	if !s.settings.Enabled || !s.settings.CommandBusEnabled || s.publisher == nil {
 		log.Printf("NATS Command Service: NATS disabled, skipping publish for command %s", taskCmd.ID)
 		return
 	}
@@ -328,7 +337,7 @@ func (s *NATSCommandService) serializeConfigForPayload(config map[string]interfa
 
 // IsNATSEnabled returns whether NATS publishing is enabled.
 func (s *NATSCommandService) IsNATSEnabled() bool {
-	return s.settings.Enabled && s.publisher != nil
+	return s.settings.Enabled && s.settings.CommandBusEnabled && s.publisher != nil
 }
 
 // HealthCheck returns an error if the service is not healthy.

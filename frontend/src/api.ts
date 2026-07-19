@@ -1000,16 +1000,6 @@ export const normalizeBacktestPayload = (data: BacktestRequest): BacktestRequest
 
   const normalizedPairSelectionMode = incomingTradingParams.pair_selection_mode || topLevelMode;
 
-  const existingBenchmark =
-    typeof incomingTradingParams.benchmark_symbol === 'string'
-      ? incomingTradingParams.benchmark_symbol.trim()
-      : typeof data.benchmark_symbol === 'string'
-        ? data.benchmark_symbol.trim()
-        : '';
-  // benchmark_symbol is a performance-comparison reference (e.g. 'BTC-USD'), not a
-  // trading market. It must never be derived from the selected pairs list.
-  const normalizedBenchmarkSymbol = existingBenchmark || 'BTC-USD';
-
   const existingResolution =
     typeof incomingTradingParams.resolution === 'string' &&
     incomingTradingParams.resolution.length > 0
@@ -1024,7 +1014,6 @@ export const normalizeBacktestPayload = (data: BacktestRequest): BacktestRequest
 
   const normalizedTradingParameters: Record<string, unknown> = {
     ...incomingTradingParams,
-    benchmark_symbol: normalizedBenchmarkSymbol,
     ...(normalizedResolution
       ? {
           resolution: normalizedResolution,

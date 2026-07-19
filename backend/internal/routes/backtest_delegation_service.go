@@ -2,9 +2,18 @@
 package routes
 
 import (
+	"sync"
+
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
 )
+
+const backtestMetricSyncWorkers = 8
+
+type benchmarkMetricsResult struct {
+	payload map[string]interface{}
+	err     error
+}
 
 type BacktestDelegationService struct {
 	backtestSync *services.BacktestSyncService
@@ -77,11 +86,42 @@ func (s *BacktestDelegationService) ResyncBacktestRun(
 		result["positions_synced"] = true
 	}
 
-	metricsPayload, err := requestClient.GetAdvancedPerformanceMetrics(runID, "BTC-USD")
-	if err == nil {
-		syncChildren(c, runID, metricsPayload)
-		result["candles_synced"] = true
+	benchmarks := resolveBacktestBenchmarks(details)
+	result["benchmarks_requested"] = len(benchmarks)
+	result["benchmarks_synced"] = 0
+
+	jobs := make(chan string, len(benchmarks))
+	metricsResults := make(chan benchmarkMetricsResult, len(benchmarks))
+	for _, benchmark := range benchmarks {
+		jobs <- benchmark
 	}
+	close(jobs)
+
+	workerCount := min(backtestMetricSyncWorkers, len(benchmarks))
+	var workers sync.WaitGroup
+	workers.Add(workerCount)
+	for range workerCount {
+		go func() {
+			defer workers.Done()
+			for benchmark := range jobs {
+				payload, metricsErr := requestClient.GetAdvancedPerformanceMetrics(runID, benchmark)
+				metricsResults <- benchmarkMetricsResult{payload: payload, err: metricsErr}
+			}
+		}()
+	}
+	workers.Wait()
+	close(metricsResults)
+
+	benchmarksSynced := 0
+	for metricsResult := range metricsResults {
+		if metricsResult.err != nil {
+			continue
+		}
+		syncChildren(c, runID, metricsResult.payload)
+		benchmarksSynced++
+	}
+	result["benchmarks_synced"] = benchmarksSynced
+	result["candles_synced"] = benchmarksSynced == len(benchmarks)
 
 	if result["run_synced"] == true &&
 		result["trades_fetched_from_bot"] == true &&

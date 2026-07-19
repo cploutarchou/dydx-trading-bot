@@ -99,9 +99,11 @@ celery_app.conf.update(
     # Visibility timeout must be greater than task_time_limit to prevent re-delivery
     # Default: 10% higher than the hard time limit
     broker_visibility_timeout=int(
-        os.getenv(
-            "CELERY_BROKER_VISIBILITY_TIMEOUT",
-            str(int(os.getenv("BACKTEST_CELERY_TASK_TIME_LIMIT", str(7 * 24 * 60 * 60))) * 1.1),
+        float(
+            os.getenv(
+                "CELERY_BROKER_VISIBILITY_TIMEOUT",
+                str(int(os.getenv("BACKTEST_CELERY_TASK_TIME_LIMIT", str(7 * 24 * 60 * 60))) * 1.1),
+            )
         )
     ),
     result_expires=int(os.getenv("CELERY_RESULT_EXPIRES", str(24 * 60 * 60))),

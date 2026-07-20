@@ -241,7 +241,7 @@ The dYdX Trading Bot is a sophisticated **Python-based cryptocurrency trading sy
 ### **Phase 1: Quick Wins (Low Effort, High Impact)**
 
 #### **Critical Security Fixes**
-- [ ] **Fix authentication bypass vulnerabilities** - Add auth dependencies to all backtest routes
+- [x] **Fix authentication bypass vulnerabilities** - Add auth dependencies to all backtest routes
   - **Files**: `src/api/v1/backtests*.py`, `src/middleware/auth_middleware.py`
   - **Impact**: Prevent unauthorized access to expensive operations
   - **Effort**: 2-3 days
@@ -475,11 +475,11 @@ The dYdX Trading Bot is a sophisticated **Python-based cryptocurrency trading sy
 ## 📊 Implementation Priority Matrix
 
 ### **CRITICAL / Start Immediately** (Security & Financial Risk)
-- **Fix authentication bypass vulnerabilities** - Add auth dependencies to all backtest routes
+- ✅ **Fix authentication bypass vulnerabilities** - Add auth dependencies to all backtest routes (COMPLETED)
 - **Implement credential encryption** for `bot_instances.config`
 - **Fix position confirmation logic** - Add fill confirmation before position closure
 - **Add security tests** for authentication bypass scenarios
-- **Secure WebSocket authentication** - Remove JWT from query strings
+- **Secure WebSocket authentication** - Remove JWT from query strings (COMPLETED - part of auth bypass fix)
 
 ### **High Priority / High Impact** (Week 1-2)
 - **Break up monolithic files** - API server (5,920 lines) and backtest service (4,440 lines)

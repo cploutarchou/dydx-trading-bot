@@ -4349,7 +4349,7 @@ async def websocket_backtest_progress_alias(websocket: WebSocket, run_id: str):
 
 
 async def _authorize_websocket_connection(websocket: WebSocket) -> bool:
-    """Validate websocket bearer token via service-token or JWT path."""
+    """Validate websocket bearer token via Authorization header only."""
     if is_auth_bypass_enabled():
         return True
 
@@ -4358,8 +4358,8 @@ async def _authorize_websocket_connection(websocket: WebSocket) -> bool:
     if auth_header.lower().startswith("bearer "):
         token = auth_header[7:].strip()
 
-    if not token:
-        token = (websocket.query_params.get("access_token") or "").strip()
+    # SECURITY: Removed query parameter token acceptance to prevent token logging
+    # Tokens must only be provided via Authorization header
 
     if not token:
         await websocket.close(code=4401, reason="Missing websocket auth token")

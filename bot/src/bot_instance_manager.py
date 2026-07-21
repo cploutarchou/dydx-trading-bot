@@ -31,6 +31,11 @@ from src.infrastructure.domain.bot_api_models import (
     BotOperationResult,
     BotStatus,
 )
+from src.shared.credentials_cipher import (
+    CredentialDecryptionError,
+    open_config_secrets,
+    seal_config_secrets,
+)
 from src.shared.live_risk_controls import assert_supported_live_risk_controls
 from src.infrastructure.persistence.repository import UnitOfWork
 from src.infrastructure.use_cases.async_job_manager import async_job_manager
@@ -39,7 +44,7 @@ from src.infrastructure.use_cases.async_job_manager import async_job_manager
 class BotInstanceManager:
     """Manages multiple bot instances with isolated state and configuration"""
 
-    CONFIG_SCHEMA_VERSION = 1
+    CONFIG_SCHEMA_VERSION = 2
 
     ACTIVE_RUNTIME_STATUSES = {
         BotStatus.RUNNING,
@@ -448,10 +453,17 @@ class BotInstanceManager:
 
     @staticmethod
     def _coerce_record_config_payload(raw_config: Any) -> dict[str, Any]:
-        """Normalize persisted bot config payloads from dict or JSON-string forms."""
+        """Normalize persisted bot config payloads from dict or JSON-string forms.
+
+        Sealed credential/telegram envelopes are decrypted so downstream callers
+        always observe plaintext secrets. Decryption failures degrade gracefully
+        (the raw payload is returned with envelopes intact) so a single unopenable
+        row cannot abort recovery or DB sync; such rows are then skipped by the
+        credential-completeness checks downstream.
+        """
         if isinstance(raw_config, dict):
-            return dict(raw_config)
-        if isinstance(raw_config, str):
+            normalized: dict[str, Any] = dict(raw_config)
+        elif isinstance(raw_config, str):
             raw = raw_config.strip()
             if not raw:
                 return {}
@@ -459,8 +471,21 @@ class BotInstanceManager:
                 parsed = json.loads(raw)
             except (TypeError, ValueError):
                 return {}
-            return dict(parsed) if isinstance(parsed, dict) else {}
-        return {}
+            if not isinstance(parsed, dict):
+                return {}
+            normalized = dict(parsed)
+        else:
+            return {}
+
+        try:
+            return open_config_secrets(normalized)
+        except CredentialDecryptionError as exc:
+            logger.warning(
+                "Could not decrypt sealed bot config payload; returning raw "
+                "payload (credentials will be treated as incomplete): {}",
+                exc,
+            )
+            return normalized
 
     def _build_instance_config_from_record(self, record) -> Optional[BotInstanceConfig]:
         """Reconstruct the runtime config shape from the persisted DB payload."""
@@ -568,6 +593,17 @@ class BotInstanceManager:
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
+    @staticmethod
+    def _seal_payload_for_storage(payload: dict[str, Any]) -> dict[str, Any]:
+        """Encrypt secret-bearing blocks of a runtime config before persistence.
+
+        Thin wrapper over :func:`seal_config_secrets` so the persistence boundary
+        is named explicitly at each write site. With no encryption key
+        provisioned (and encryption not required), the payload is returned
+        unchanged for backward-compatible plaintext storage.
+        """
+        return seal_config_secrets(payload)
+
     def _ensure_instance_record(self, instance: BotInstanceState):
         """Create the DB row for an instance if API orchestration has not done it yet."""
         if not self._db_persistence_enabled():
@@ -587,10 +623,12 @@ class BotInstanceManager:
                     else "mainnet"
                 ),
                 strategy=instance.config.trading_params.strategy,
-                config={
-                    **runtime_payload,
-                    "config_meta": self._build_config_meta(runtime_payload),
-                },
+                config=self._seal_payload_for_storage(
+                    {
+                        **runtime_payload,
+                        "config_meta": self._build_config_meta(runtime_payload),
+                    }
+                ),
             )
         except Exception as exc:
             logger.warning(
@@ -708,7 +746,7 @@ class BotInstanceManager:
                         },
                     }
                 )
-                record.config = persisted_config
+                record.config = self._seal_payload_for_storage(persisted_config)
 
             session.commit()
             if self._db_sync_backoff_until_monotonic > 0.0:

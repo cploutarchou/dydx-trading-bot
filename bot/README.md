@@ -246,6 +246,53 @@ For live runtime launches, the platform now supports readiness checks that valid
 - configured trade size versus collateral constraints
 - ready or not-ready launch state
 
+## Credential Encryption
+
+Wallet mnemonics and Telegram tokens stored in `bot_instances.config` are
+encrypted at rest with AES-256-GCM (see `src/shared/credentials_cipher.py`).
+Only the `credentials` and `telegram` sub-objects are sealed; non-secret fields
+(`instance_name`, `trading_params`, `config_meta`) stay readable for operators.
+
+**Key provisioning (required before enabling).** Generate a 32-byte key:
+
+```bash
+make credentials-keygen   # prints a base64 key
+```
+
+Provide it via exactly one of:
+
+- `BOT_CREDENTIALS_ENCRYPTION_KEY` — base64-encoded 32 bytes, **or**
+- `BOT_CREDENTIALS_ENCRYPTION_KEY_FILE` — path to a file containing the base64-encoded 32 bytes (container/Docker secret friendly).
+
+Store the key securely (e.g. in your secrets manager). **Losing it makes sealed
+credentials unrecoverable.**
+
+**Behavior.**
+
+- With a key set, new and updated rows are sealed automatically at every write
+  boundary (`BotInstanceManager` persistence and `POST /api/v1/bots`). The
+  `config_meta.schema_version` is `2`; sealed rows carry `credentials_sealed` /
+  `telegram_sealed` envelopes instead of plaintext blocks.
+- Without a key, storage falls back to plaintext and the bot logs a one-time
+  warning (non-breaking upgrade path). Set `BOT_CREDENTIALS_ENCRYPTION_REQUIRED=true`
+  to make writes **fail** instead of storing plaintext — use this in production
+  once the key is deployed.
+- All read paths (instance recovery, runtime worker startup, lifecycle
+  notifications) decrypt transparently. Legacy plaintext rows (schema version 1)
+  keep working and are re-sealed lazily on the next write.
+
+**Backfill existing rows.** After deploying the encryption-aware code with a key,
+seal existing plaintext rows (idempotent; safe to re-run):
+
+```bash
+make encrypt-bot-credentials ARGS=--dry-run   # preview
+make encrypt-bot-credentials                   # seal all unsealed rows
+make encrypt-bot-credentials ARGS=--decrypt    # rollback to plaintext (needs same key)
+```
+
+The implementation lives in `src/shared/credentials_cipher.py`; the backfill
+script in `scripts/encrypt_bot_credentials.py`.
+
 ## Contracts
 
 - generated API schema: [openapi.json](/home/chris/workspace/dydx-trading-bot/bot/openapi.json)

@@ -120,6 +120,10 @@ from src.shared.logging_setup import setup_logging  # noqa: E402
 from src.shared.live_risk_controls import (
     assert_supported_live_risk_controls,
 )  # noqa: E402
+from src.shared.credentials_cipher import (  # noqa: E402
+    open_config_secrets,
+    seal_config_secrets,
+)
 from src.shared.notifications import TelegramMessenger  # noqa: E402
 from src.shared.time_utils import utc_now_iso  # noqa: E402
 from src.trading.arbitrage_observability import snapshot_metrics  # noqa: E402
@@ -2210,7 +2214,11 @@ def _persist_bot_status_and_event(
                 details=details,
             )
 
-        return dict(bot.config) if bot.config is not None else {}  # type: ignore[arg-type]
+        # The stored config is encrypted at rest; decrypt before returning so the
+        # notification/context helpers (which read telegram.token/credentials)
+        # observe plaintext secrets.
+        raw_config = dict(bot.config) if bot.config is not None else {}  # type: ignore[arg-type]
+        return open_config_secrets(raw_config)
     except Exception as db_error:
         logger.warning(
             "Failed to persist bot lifecycle state for {}: {}",
@@ -2350,6 +2358,12 @@ async def create_bot_instance(
                 # Create database record if the manager has not already done so.
                 bot_db = uow.bots.get_by_instance_id(config.instance_id)
                 config_meta = bot_manager._build_config_meta(persisted_config)
+                # Seal credential/telegram blocks at the persistence boundary so
+                # secrets are encrypted at rest. persisted_config itself stays
+                # plaintext for the lifecycle notification below.
+                stored_config = seal_config_secrets(
+                    {**persisted_config, "config_meta": config_meta}
+                )
                 if bot_db is None:
                     bot_db = uow.bots.create_bot(
                         instance_id=config.instance_id,
@@ -2366,10 +2380,10 @@ async def create_bot_instance(
                             if config.trading_params
                             else "default"
                         ),
-                        config={**persisted_config, "config_meta": config_meta},
+                        config=stored_config,
                     )
                 else:
-                    bot_db.config = {**persisted_config, "config_meta": config_meta}
+                    bot_db.config = stored_config
                     session.commit()
 
                 try:
@@ -4349,7 +4363,7 @@ async def websocket_backtest_progress_alias(websocket: WebSocket, run_id: str):
 
 
 async def _authorize_websocket_connection(websocket: WebSocket) -> bool:
-    """Validate websocket bearer token via service-token or JWT path."""
+    """Validate websocket bearer token via Authorization header only."""
     if is_auth_bypass_enabled():
         return True
 
@@ -4358,8 +4372,8 @@ async def _authorize_websocket_connection(websocket: WebSocket) -> bool:
     if auth_header.lower().startswith("bearer "):
         token = auth_header[7:].strip()
 
-    if not token:
-        token = (websocket.query_params.get("access_token") or "").strip()
+    # SECURITY: Removed query parameter token acceptance to prevent token logging
+    # Tokens must only be provided via Authorization header
 
     if not token:
         await websocket.close(code=4401, reason="Missing websocket auth token")

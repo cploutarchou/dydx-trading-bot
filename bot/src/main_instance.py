@@ -21,6 +21,7 @@ from loguru import logger
 from config.config import config
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
+from src.shared.credentials_cipher import open_config_secrets
 from src.shared.logging_setup import setup_logging
 from src.shared.notifications import TelegramMessenger
 from src.shared.live_risk_controls import assert_supported_live_risk_controls
@@ -179,7 +180,11 @@ class BotInstance:
             config_meta = getattr(bot, "config_meta", None)
             if isinstance(config_meta, dict) and config_meta:
                 payload["_config_meta"] = dict(config_meta)
-            return payload
+            # Decrypt sealed credential/telegram envelopes so the runtime worker
+            # receives plaintext secrets. If this raises (e.g. missing/mismatched
+            # key), the surrounding handler logs and returns None so the worker
+            # fails loudly instead of signing with empty credentials.
+            return open_config_secrets(payload)
         except Exception as exc:
             if self.logger is not None:
                 self.logger.warning(

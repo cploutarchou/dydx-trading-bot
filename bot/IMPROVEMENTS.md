@@ -253,7 +253,7 @@ The dYdX Trading Bot is a sophisticated **Python-based cryptocurrency trading sy
   - **Effort**: 3-4 days
   - **Priority**: CRITICAL
 
-- [ ] **Secure WebSocket authentication** - Remove JWT from query strings
+- [x] **Secure WebSocket authentication** - Remove JWT from query strings
   - **Files**: `src/api/server.py`, `src/api/websocket_server.py`
   - **Impact**: Prevent token exposure in logs
   - **Effort**: 1 day

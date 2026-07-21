@@ -121,6 +121,33 @@ init-auth: ## Initialize authentication database
 	@echo "$(CYAN)🔑 Initializing authentication database...$(RESET)"
 	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec bot-api python init_auth_db.py
 
+.PHONY: credentials-keygen
+credentials-keygen: ## Generate a 32-byte key for encrypting bot_instances credentials
+	@echo "$(CYAN)🔑 Generating credential encryption key (32 bytes)...$(RESET)"
+	@KEY=$$(openssl rand -base64 32) ; \
+	echo "$(GREEN)Base64 key (set as BOT_CREDENTIALS_ENCRYPTION_KEY):$(RESET)" ; \
+	echo "$$KEY" ; \
+	echo "$(YELLOW)Or write the raw 32 bytes to a file and point BOT_CREDENTIALS_ENCRYPTION_KEY_FILE at it.$(RESET)" ; \
+	echo "$(YELLOW)Store this key securely; losing it makes sealed credentials unrecoverable.$(RESET)"
+
+.PHONY: config-keygen
+config-keygen: ## Generate a 32-byte key for structured config-file encryption (.configkey.bin)
+	@echo "$(CYAN)🔑 Generating structured-config encryption key (.configkey.bin)...$(RESET)"
+	@KEYFILE=$$(pwd)/.configkey.bin ; \
+	if [ -f "$$KEYFILE" ]; then \
+		echo "$(YELLOW)⚠️  $$KEYFILE already exists; leaving it untouched.$(RESET)" ; \
+	else \
+		dd if=/dev/urandom of="$$KEYFILE" bs=32 count=1 status=none ; \
+		chmod 600 "$$KEYFILE" ; \
+		echo "$(GREEN)✅ Wrote 32-byte key to $$KEYFILE (chmod 600)$(RESET)" ; \
+		echo "$(YELLOW)Set APP_CONFIG_KEY_FILE to override this path.$(RESET)" ; \
+	fi
+
+.PHONY: encrypt-bot-credentials
+encrypt-bot-credentials: ## Backfill-encrypt existing bot_instances credentials (use --dry-run first)
+	@echo "$(CYAN)🔒 Running credential encryption backfill...$(RESET)"
+	@$(call run-venv-python,scripts/encrypt_bot_credentials.py $(ARGS))
+
 .PHONY: ensure-venv
 ensure-venv: ## Ensure local virtual environment exists
 	@if [ -x "$(VENV_PYTHON)" ]; then \

@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import os
 from datetime import datetime, timedelta, timezone
@@ -10,6 +11,7 @@ import pytest
 
 import src.bot_instance_manager as bot_instance_manager_module
 from src.bot_instance_manager import BotInstanceManager
+from src.shared import credentials_cipher as cc
 from src.infrastructure.domain.bot_api_models import (
     BacktestingParameters,
     BotCredentials,
@@ -572,7 +574,7 @@ def test_save_instances_state_syncs_runtime_state_to_database(monkeypatch, tmp_p
     assert persisted_record.strategy == "cointegration"
     assert persisted_record.config["telegram"] == {}
     assert persisted_record.config["trading_params"]["strategy"] == "cointegration"
-    assert persisted_record.config["config_meta"]["schema_version"] == 1
+    assert persisted_record.config["config_meta"]["schema_version"] == 2
     assert persisted_record.config["config_meta"]["hash_algorithm"] == "sha256"
     assert len(persisted_record.config["config_meta"]["payload_hash"]) == 64
     assert persisted_record.config["runtime_state"]["status"] == "stopped"
@@ -661,7 +663,7 @@ def test_save_instances_state_coerces_string_config_payload(monkeypatch, tmp_pat
 
     assert session.commits >= 1
     assert isinstance(persisted_record.config, dict)
-    assert persisted_record.config["config_meta"]["schema_version"] == 1
+    assert persisted_record.config["config_meta"]["schema_version"] == 2
     assert persisted_record.config["config_meta"]["hash_algorithm"] == "sha256"
     assert persisted_record.config["runtime_state"]["status"] == "stopped"
 
@@ -1044,3 +1046,140 @@ def test_dev_recovery_deletes_invalid_mainnet_test_fixture_rows(monkeypatch, tmp
     assert manager.instances == {}
     assert session.deleted == ["lifecycle-test-bot-855356f2"]
     assert manager.recovery_diagnostics["skipped"] == 1
+
+
+# ============================================================================
+# Credential encryption integration (bot_instances.config at-rest encryption)
+# ============================================================================
+
+_CIPHER_KEY_A = base64.b64encode(bytes(range(32))).decode()
+
+
+@pytest.fixture
+def cipher_key(monkeypatch):
+    """Provision a credential encryption key and reset the cipher cache."""
+    monkeypatch.setenv(cc.ENV_KEY, _CIPHER_KEY_A)
+    cc._key_cache = None
+    cc._no_key_warned_for.clear()
+    yield
+    monkeypatch.delenv(cc.ENV_KEY, raising=False)
+    cc._key_cache = None
+    cc._no_key_warned_for.clear()
+
+
+def _sealed_strategy_record(now, *, sealed: bool):
+    """Return a persisted-record SimpleNamespace with sealed or plaintext creds."""
+    plain_credentials = {
+        "chain_id": "dydx-testnet-4",
+        "address": "dydx1recoveredaddress",
+        "mnemonic": "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu",
+    }
+    base_payload = {
+        "instance_name": "Recovered Strategy",
+        "credentials": plain_credentials,
+        "telegram": {"token": "persisted-token", "chat_id": "persisted-chat"},
+        "trading_params": _strategy_config().trading_params.model_dump(),
+        "backtesting_params": _strategy_config().backtesting_params.model_dump() if _strategy_config().backtesting_params else {},
+    }
+    config = cc.seal_config_secrets(base_payload) if sealed else dict(base_payload)
+    return SimpleNamespace(
+        instance_id="strategy-1-101",
+        network="testnet",
+        strategy="cointegration",
+        config=config,
+        status=SimpleNamespace(value="running"),
+        process_id=4321,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _wire_fake_db(monkeypatch, record):
+    class FakeBotsRepo:
+        def get_all(self):
+            return [record]
+
+    class FakeUOW:
+        def __init__(self, session):
+            self.bots = FakeBotsRepo()
+
+    class FakeSession:
+        def execute(self, _query):
+            return SimpleNamespace(mappings=lambda: [record.__dict__])
+
+        def commit(self):
+            return None
+
+        def rollback(self):
+            return None
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(bot_instance_manager_module.db, "get_session", lambda: FakeSession())
+    monkeypatch.setattr(bot_instance_manager_module, "UnitOfWork", FakeUOW)
+
+
+def test_persist_instances_to_db_seals_credentials_when_key_set(
+    monkeypatch, tmp_path, cipher_key
+):
+    """With a key provisioned, DB sync seals credentials at rest."""
+    monkeypatch.setattr(
+        BotInstanceManager, "_db_persistence_enabled", staticmethod(lambda: True)
+    )
+    now = datetime.now()
+    record = _sealed_strategy_record(now, sealed=False)  # start plaintext
+    _wire_fake_db(monkeypatch, record)
+
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+    manager.instances["strategy-1-101"].status = BotStatus.STOPPED
+    manager._save_instances_state()
+
+    stored = record.config
+    assert "credentials_sealed" in stored
+    assert "credentials" not in stored
+    # Plaintext mnemonic must not appear anywhere in the stored payload.
+    assert "alpha beta gamma" not in json.dumps(stored)
+    # config_meta hash was computed over plaintext (stable), schema bumped to 2.
+    assert stored["config_meta"]["schema_version"] == 2
+
+
+def test_recovery_decrypts_sealed_credentials(monkeypatch, tmp_path, cipher_key):
+    """Recovery reads a sealed row and restores plaintext credentials."""
+    monkeypatch.setattr(
+        BotInstanceManager, "_db_persistence_enabled", staticmethod(lambda: True)
+    )
+    now = datetime.now()
+    record = _sealed_strategy_record(now, sealed=True)
+    _wire_fake_db(monkeypatch, record)
+
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+
+    assert set(manager.instances.keys()) == {"strategy-1-101"}
+    recovered = manager.instances["strategy-1-101"]
+    assert (
+        recovered.config.credentials.mnemonic
+        == "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
+    )
+    assert recovered.config.credentials.address == "dydx1recoveredaddress"
+    assert recovered.config.telegram.token == "persisted-token"
+
+
+def test_recovery_handles_legacy_plaintext_when_key_set(
+    monkeypatch, tmp_path, cipher_key
+):
+    """A legacy plaintext row still recovers even with a key provisioned."""
+    monkeypatch.setattr(
+        BotInstanceManager, "_db_persistence_enabled", staticmethod(lambda: True)
+    )
+    now = datetime.now()
+    record = _sealed_strategy_record(now, sealed=False)
+    _wire_fake_db(monkeypatch, record)
+
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+
+    recovered = manager.instances["strategy-1-101"]
+    assert (
+        recovered.config.credentials.mnemonic
+        == "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
+    )

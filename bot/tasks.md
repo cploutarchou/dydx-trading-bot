@@ -1,5 +1,21 @@
 # Tasks Log
 
+## 2026-07-21
+
+- Implemented at-rest credential encryption for `bot_instances.config` (CRITICAL security item from `IMPROVEMENTS.md`):
+  - Added `src/shared/credentials_cipher.py`: AES-256-GCM seal/open for the `credentials` and `telegram` sub-objects, with a dedicated key (`BOT_CREDENTIALS_ENCRYPTION_KEY` / `BOT_CREDENTIALS_ENCRYPTION_KEY_FILE`), versioned envelopes, key-id mismatch detection, and `BOT_CREDENTIALS_ENCRYPTION_REQUIRED` fail-safe gating. Non-breaking: plaintext fallback when no key is provisioned.
+  - Sealed at every write boundary (`BotInstanceManager._ensure_instance_record` / `_persist_instances_to_db`, and `POST /api/v1/bots` in `src/api/server.py`) and opened at every read boundary (`_coerce_record_config_payload`, `main_instance._load_config_data_from_db`, and `_persist_bot_status_and_event` so notifications/context keep plaintext).
+  - Bumped `config_meta.schema_version` to 2 (no DDL/Alembic change; column stays JSONB). Legacy v1 plaintext rows pass through and are re-sealed lazily on next write.
+  - Added idempotent admin backfill `scripts/encrypt_bot_credentials.py` (`--dry-run`, `--decrypt` rollback) plus `make credentials-keygen`, `make config-keygen`, and `make encrypt-bot-credentials` targets.
+  - Tests: `tests/test_credentials_cipher.py` (28 unit tests) and three manager integration tests in `tests/test_bot_instance_manager.py` (sealed storage, recovery decrypts, legacy+key tolerance).
+  - Validation: `bot/.venv/bin/python -m pytest bot/tests/test_credentials_cipher.py bot/tests/test_bot_instance_manager.py -q` -> `55 passed`. Full local suite: `404 passed, 11 skipped`; the only 3 failures (`test_api_database_integration`, two `test_websocket_security_fix` async cases) are pre-existing/environmental (live DB + pytest-asyncio mode), confirmed unchanged against the baseline.
+  - Updated `README.md` and `../docs/OPERATIONS.md`.
+- Hardened the WebSocket auth regression tests (HIGH security item from `IMPROVEMENTS.md`):
+  - The fix itself (bearer token via `Authorization` header only; `access_token` query-param fallback removed) was already shipped in commit `3b73f42` and covers all 5 WS endpoints; `src/api/websocket_server.py` has no auth path. Confirmed via repo-wide audit (no `query_params`/`access_token` token reads remain in WS code).
+  - The real gap: `tests/test_websocket_security_fix.py` used bare `async def` with no pytest-asyncio auto-mode, so under pytest it **errored and ran zero assertions** — the security fix had no CI guard. Rewrote the tests as sync functions using `asyncio.run()` (the project convention) with mocked bypass/auth/DB so they are deterministic and DB-free. Added cases: rejects query-param-only token (4401 Missing), query param ignored when header present, accepts valid header, rejects invalid header, bypass short-circuit, case-insensitive scheme.
+  - Validation: `bot/.venv/bin/python -m pytest bot/tests/test_websocket_security_fix.py -q` -> `7 passed`; full local suite now `411 passed, 11 skipped, 1 failed` (the lone failure is `test_api_database_integration`, which needs a live Postgres/ClickHouse and runs only via `make test-auth` in Docker).
+  - Marked the `IMPROVEMENTS.md` checkbox complete (the doc was inconsistent: the priority matrix already said COMPLETED).
+
 ## 2026-06-25
 
 - Implemented Sprint 1 bot safety fixes:

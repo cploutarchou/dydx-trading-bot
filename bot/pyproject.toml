@@ -1,0 +1,18 @@
+[project]
+name = "bot"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "cryptography>=49.0.0",
+    "django-qrcode>=0.3",
+    "fastapi>=0.139.2",
+    "httpx>=0.27.2,<0.28",
+    "loguru>=0.7.3",
+    "passlib>=1.7.4",
+    "pyotp>=2.10.0",
+    "python-decouple>=3.8",
+    "python-jose>=3.5.0",
+    "sqlalchemy>=2.0.51",
+    "uliweb-alembic>=0.6.9",
+    "uvicorn>=0.51.0",
+]

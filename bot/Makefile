@@ -11,8 +11,38 @@ ENV_FILE := $(DOCKER_DIR)/.env
 PROJECT_NAME := dydx-trading-bot
 DOCKER_REPO := dydx-trading-bot
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "latest")
-VENV_PYTHON_UNIX := .venv/bin/python
-VENV_PYTHON := $(VENV_PYTHON_UNIX)
+
+# Detect OS and set appropriate paths
+# For Windows (PowerShell/cmd), we need to explicitly use bash/sh
+# Check if we're on Windows by looking for typical Windows environment variables
+ifdef COMSPEC
+    # We're on Windows (cmd.exe or PowerShell sets COMSPEC)
+    # Use Windows path with escaped spaces for native Make
+    SHELL := C:/Program\ Files/Git/usr/bin/sh.exe
+    export SHELL
+    VENV_PYTHON := .venv/Scripts/python.exe
+else
+    # Try uname for Unix-like systems (including MSYS2 bash)
+    UNAME := $(shell uname -s 2>/dev/null)
+    ifeq ($(findstring MINGW,$(UNAME)),MINGW)
+        # MSYS2/MinGW - use Scripts directory
+        SHELL := C:/Program\ Files/Git/usr/bin/sh.exe
+        export SHELL
+        VENV_PYTHON := .venv/Scripts/python.exe
+    else ifeq ($(findstring CYGWIN,$(UNAME)),CYGWIN)
+        # Cygwin also uses Scripts directory
+        SHELL := C:/Program\ Files/Git/usr/bin/sh.exe
+        export SHELL
+        VENV_PYTHON := .venv/Scripts/python.exe
+    else ifeq ($(UNAME),)
+        # Empty UNAME - assume Unix-like
+        VENV_PYTHON := .venv/bin/python
+    else
+        # Unix-like systems use bin directory
+        VENV_PYTHON := .venv/bin/python
+    endif
+endif
+
 MODE ?= development
 
 # Reusable helper for local Python commands that must run via project venv.
@@ -154,7 +184,7 @@ ensure-venv: ## Ensure local virtual environment exists
 		echo "$(GREEN)✅ Using interpreter: $(VENV_PYTHON)$(RESET)"; \
 	else \
 		echo "$(RED)❌ Virtual environment interpreter not found at $(VENV_PYTHON)$(RESET)"; \
-		echo "$(YELLOW)Setup: python -m venv .venv && .venv/bin/python -m pip install -r requirements.txt$(RESET)"; \
+		echo "$(YELLOW)Setup: python -m venv .venv && .venv\Scripts\python -m pip install -r requirements.txt$(RESET)"; \
 		exit 1; \
 	fi
 

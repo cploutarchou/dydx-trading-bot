@@ -181,7 +181,6 @@ export default defineConfig(({ mode }) => {
       allowedHosts: ['.localhost'],
       hmr: {
         host: 'localhost',
-        port: 5173,
       },
       proxy: {
         '/api': {

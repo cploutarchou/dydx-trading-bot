@@ -22,6 +22,18 @@ The bot service is the Python runtime that manages bot instances, live strategy 
 
 ## Local Runtime
 
+### Python environment
+
+Use Python 3.12 for local Windows development. `dydx-v4-client==1.1.6` requires
+`coincurve>=20,<21`, which has no compatible Windows wheel for Python 3.13 or 3.14. Create the
+environment with Python 3.12 and install dependencies through that environment:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
 - API port: `8889`
 - dedicated database: bot PostgreSQL on `5432`
 - database env aliases: `BOT_DATABASE_URL`, `DATABASE_URL`, `BOT_DB_*`, `DB_*`, `POSTGRES_*`

@@ -4,6 +4,24 @@ This guide explains how to set up your local development environment for the dYd
 
 ## Prerequisites
 
+### Windows PowerShell
+
+The root Makefile can be invoked directly from PowerShell. On Windows it prefers
+Git Bash (so Docker Desktop remains on the recipe PATH) and falls back to an
+installed MSYS2 Bash for its POSIX recipes. Verify the detected shell and
+optionally enable target completion:
+
+```powershell
+make windows-check
+make install-completion-powershell
+# Restart PowerShell, then type: make <Tab>
+```
+
+For completion in only the current session, run
+`. .\scripts\powershell\MakeCompletion.ps1`. PowerShell 7 users can install
+into their PowerShell 7 profile with
+`make install-completion-powershell POWERSHELL=pwsh`.
+
 ```bash
 # 1. One-time setup: create config encryption key
 make config-keygen

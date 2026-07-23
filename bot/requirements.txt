@@ -30,6 +30,9 @@ scipy>=1.12.0
 statsmodels>=0.14.0,<0.15.0
 # dYdX V4 Client (for trading and market data)
 dydx-v4-client==1.1.6
+# Keep dYdX client dependency resolution deterministic on Windows.
+bip-utils==2.12.1
+crcmod==1.7
 # WebSocket support (for real-time data streaming)
 websockets==16.0
 requests==2.34.2
@@ -47,3 +50,7 @@ types-psutil==7.2.2.20260508
 black==26.5.1
 
 nats-py>=2.7.0,<3.0
+uvicorn [standard]>=0.49.0,<1.0
+cryptography
+httpx==0.27.2
+fastapi

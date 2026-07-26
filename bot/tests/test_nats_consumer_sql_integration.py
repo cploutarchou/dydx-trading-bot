@@ -247,4 +247,3 @@ class TestBacktestConsumerSQLIntegration(unittest.TestCase):
                 text("SELECT count(*) FROM task_runs WHERE command_id = :i"), {"i": completed_id}
             ).scalar()
             self.assertEqual(int(runs), 0)
-

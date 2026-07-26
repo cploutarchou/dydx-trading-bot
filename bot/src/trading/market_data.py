@@ -42,6 +42,7 @@ _rate_limiter_key = None  # type: ignore[assignment]
 if importlib.util.find_spec("aiolimiter") is not None:
     try:
         from aiolimiter import AsyncLimiter  # type: ignore[import]
+
         _rate_limiter_key = "_dydx_rate_limiter"
     except Exception:
         _rate_limiter_key = None
@@ -51,14 +52,14 @@ def _get_event_loop_limiter():
     """Get or create a rate limiter specific to the current event loop."""
     if _rate_limiter_key is None:
         return None
-    
+
     try:
         import asyncio
         current_loop = asyncio.get_running_loop()
     except RuntimeError:
         # No running event loop (e.g., sync context)
         return None
-    
+
     # Store limiter in loop's context to avoid reuse across loops
     if not hasattr(current_loop, _rate_limiter_key):
         try:
@@ -69,7 +70,7 @@ def _get_event_loop_limiter():
             ))
         except Exception:
             return None
-    
+
     return getattr(current_loop, _rate_limiter_key, None)
 
 
@@ -137,9 +138,11 @@ def _notify_circuit_breaker_open(fail_counter: int) -> None:
     except Exception as exc:
         logger.warning("dydx_circuit_breaker_notify_failed error={!r}", exc)
 
+
 if importlib.util.find_spec("pybreaker") is not None:
     try:
         import pybreaker as _pybreaker  # type: ignore[import]
+
 
         class _CircuitBreakerListener(_pybreaker.CircuitBreakerListener):  # type: ignore[misc]
             def state_change(self, cb, old_state, new_state):  # type: ignore[override]
@@ -154,6 +157,7 @@ if importlib.util.find_spec("pybreaker") is not None:
                     logger.info("dydx_circuit_breaker_closed")
                 elif new_state.name == "half-open":
                     logger.info("dydx_circuit_breaker_half_open")
+
 
         _dydx_circuit_breaker = _pybreaker.CircuitBreaker(
             fail_max=_CIRCUIT_FAIL_MAX,
@@ -394,9 +398,9 @@ async def get_markets(client):
     global _markets_cache
     now = time.monotonic()
     if (
-        MARKETS_CACHE_TTL_SECONDS > 0
-        and _markets_cache["data"] is not None
-        and now < _markets_cache["expires"]
+            MARKETS_CACHE_TTL_SECONDS > 0
+            and _markets_cache["data"] is not None
+            and now < _markets_cache["expires"]
     ):
         increment_metric("cache_hits_total")
         increment_metric("exchange_api_calls_saved_total")

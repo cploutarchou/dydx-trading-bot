@@ -57,7 +57,7 @@ class AsyncJobManager:
     def _looks_like_pool_overload(exc: BaseException) -> bool:
         message = str(exc).lower()
         return "queuepool limit" in message or (
-            "connection timed out" in message and "sqlalche.me/e/20/3o7r" in message
+                "connection timed out" in message and "sqlalche.me/e/20/3o7r" in message
         )
 
     def _trim_pool_overload_events_locked(self, now: float) -> None:
@@ -110,7 +110,7 @@ class AsyncJobManager:
                 "progress_skip_ratio": round(skip_ratio, 4),
                 "persistence_pool_overload_events_recent": recent_pool_events,
                 "persistence_pool_overloaded": (
-                    recent_pool_events >= self._pool_overload_threshold
+                        recent_pool_events >= self._pool_overload_threshold
                 ),
                 "persistence_pool_overload_window_seconds": self._pool_overload_window_seconds,
                 "persistence_pool_overload_threshold": self._pool_overload_threshold,
@@ -131,7 +131,7 @@ class AsyncJobManager:
         previous_ts, previous_pct = previous
         enough_time_elapsed = (now - previous_ts) >= self._progress_min_interval_seconds
         enough_progress_delta = (
-            abs(progress_pct - previous_pct) >= self._progress_min_delta_pct
+                abs(progress_pct - previous_pct) >= self._progress_min_delta_pct
         )
         return enough_time_elapsed or enough_progress_delta
 
@@ -142,7 +142,7 @@ class AsyncJobManager:
         self._progress_checkpoint.pop(job_id, None)
 
     def _resolve_bot_id(
-        self, uow: UnitOfWork, bot_instance_id: Optional[str]
+            self, uow: UnitOfWork, bot_instance_id: Optional[str]
     ) -> Optional[int]:
         if not bot_instance_id:
             return None
@@ -185,13 +185,13 @@ class AsyncJobManager:
         )
 
     def create_job(
-        self,
-        *,
-        job_type: str,
-        bot_instance_id: Optional[str] = None,
-        job_id: Optional[str] = None,
-        parameters: Optional[dict[str, Any]] = None,
-        metadata: Optional[dict[str, Any]] = None,
+            self,
+            *,
+            job_type: str,
+            bot_instance_id: Optional[str] = None,
+            job_id: Optional[str] = None,
+            parameters: Optional[dict[str, Any]] = None,
+            metadata: Optional[dict[str, Any]] = None,
     ) -> str:
         resolved_job_id = job_id or f"{job_type}-{uuid4().hex[:12]}"
 
@@ -226,11 +226,11 @@ class AsyncJobManager:
         logger.info("job_started job_id={} process_id={}", job_id, process_id)
 
     def mark_progress(
-        self,
-        job_id: str,
-        progress_pct: float,
-        *,
-        metadata: Optional[dict[str, Any]] = None,
+            self,
+            job_id: str,
+            progress_pct: float,
+            *,
+            metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         normalized_progress = max(0.0, min(100.0, float(progress_pct or 0.0)))
         if not self._should_persist_progress(job_id, normalized_progress):
@@ -239,8 +239,8 @@ class AsyncJobManager:
                 self._progress_skipped_total += 1
                 skipped_total = self._progress_skipped_total
             if (
-                self._progress_skip_log_every > 0
-                and skipped_total % self._progress_skip_log_every == 0
+                    self._progress_skip_log_every > 0
+                    and skipped_total % self._progress_skip_log_every == 0
             ):
                 logger.info(
                     "job_progress_throttle_skips total_skipped={} total_persisted={} min_interval_seconds={} min_delta_pct={}",
@@ -263,11 +263,11 @@ class AsyncJobManager:
         )
 
     def mark_completed(
-        self,
-        job_id: str,
-        *,
-        result: Optional[dict[str, Any]] = None,
-        execution_time_ms: Optional[int] = None,
+            self,
+            job_id: str,
+            *,
+            result: Optional[dict[str, Any]] = None,
+            execution_time_ms: Optional[int] = None,
     ) -> None:
         self._clear_progress_checkpoint(job_id)
         self._with_uow(
@@ -280,11 +280,11 @@ class AsyncJobManager:
         logger.info("job_completed job_id={}", job_id)
 
     def mark_failed(
-        self,
-        job_id: str,
-        error: BaseException | str,
-        *,
-        traceback_summary: Optional[str] = None,
+            self,
+            job_id: str,
+            error: BaseException | str,
+            *,
+            traceback_summary: Optional[str] = None,
     ) -> None:
         self._clear_progress_checkpoint(job_id)
         message = str(error).strip()
@@ -313,15 +313,15 @@ class AsyncJobManager:
         return await awaitable
 
     def create_supervised_task(
-        self,
-        awaitable: Awaitable[Any],
-        *,
-        job_type: str,
-        bot_instance_id: Optional[str] = None,
-        job_id: Optional[str] = None,
-        parameters: Optional[dict[str, Any]] = None,
-        metadata: Optional[dict[str, Any]] = None,
-        auto_complete: bool = True,
+            self,
+            awaitable: Awaitable[Any],
+            *,
+            job_type: str,
+            bot_instance_id: Optional[str] = None,
+            job_id: Optional[str] = None,
+            parameters: Optional[dict[str, Any]] = None,
+            metadata: Optional[dict[str, Any]] = None,
+            auto_complete: bool = True,
     ) -> asyncio.Task[Any]:
         resolved_job_id = self.create_job(
             job_type=job_type,

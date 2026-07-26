@@ -78,7 +78,7 @@ async def _ensure_event_stream(js: Any) -> None:
 
 def _is_enabled() -> bool:
     return os.getenv("NATS_ENABLED", "true").lower() == "true" or (
-        os.getenv("BOT_COMMAND_BUS_ENABLED", "true").lower() == "true"
+            os.getenv("BOT_COMMAND_BUS_ENABLED", "true").lower() == "true"
     )
 
 
@@ -92,13 +92,13 @@ def _utcnow_iso() -> str:
 
 
 def _build_envelope(
-    *,
-    run_id: str,
-    event: str,
-    progress: float,
-    current_pair: str,
-    error_code: Optional[str],
-    error_message: Optional[str],
+        *,
+        run_id: str,
+        event: str,
+        progress: float,
+        current_pair: str,
+        error_code: Optional[str],
+        error_message: Optional[str],
 ) -> tuple[dict[str, Any], str]:
     """Return (envelope_dict, msg_id) for a backtest event."""
     occurred_at = _utcnow_iso()
@@ -136,13 +136,13 @@ def _build_envelope(
 
 
 async def publish_backtest_event(
-    *,
-    run_id: str,
-    status: str,
-    progress: float = 0.0,
-    current_pair: str = "",
-    error_code: Optional[str] = None,
-    error_message: Optional[str] = None,
+        *,
+        run_id: str,
+        status: str,
+        progress: float = 0.0,
+        current_pair: str = "",
+        error_code: Optional[str] = None,
+        error_message: Optional[str] = None,
 ) -> Optional[str]:
     """Publish a durable backtest event to JetStream. Returns the msg_id or None.
 
@@ -199,13 +199,13 @@ async def publish_backtest_event(
 
 
 def emit_backtest_event_sync(
-    *,
-    run_id: str,
-    status: str,
-    progress: float = 0.0,
-    current_pair: str = "",
-    error_code: Optional[str] = None,
-    error_message: Optional[str] = None,
+        *,
+        run_id: str,
+        status: str,
+        progress: float = 0.0,
+        current_pair: str = "",
+        error_code: Optional[str] = None,
+        error_message: Optional[str] = None,
 ) -> Optional[str]:
     """Sync wrapper for callers not already running an asyncio loop.
 

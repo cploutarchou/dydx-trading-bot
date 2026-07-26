@@ -98,10 +98,12 @@ class BotInstance:
         return self.messenger
 
     @overload
-    async def _maybe_await(self, value: Awaitable[_T]) -> _T: ...
+    async def _maybe_await(self, value: Awaitable[_T]) -> _T:
+        ...
 
     @overload
-    async def _maybe_await(self, value: _T) -> _T: ...
+    async def _maybe_await(self, value: _T) -> _T:
+        ...
 
     async def _maybe_await(self, value: Awaitable[_T] | _T) -> _T:
         """Await values only when they are awaitable (supports sync/async callables)."""
@@ -132,7 +134,7 @@ class BotInstance:
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
     def _warn_on_config_metadata_hash_mismatch(
-        self, db_payload: Optional[Dict[str, Any]]
+            self, db_payload: Optional[Dict[str, Any]]
     ) -> None:
         if self.logger is None:
             return
@@ -222,7 +224,7 @@ class BotInstance:
         return value
 
     def _normalize_db_runtime_payload(
-        self, config_data: Dict[str, Any]
+            self, config_data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Convert persisted DB config into the runtime DydxConfig input shape."""
         payload = self._canonical_runtime_config_data(config_data)
@@ -290,7 +292,7 @@ class BotInstance:
             "telegram": {
                 "token": telegram.get("token") or runtime_defaults.telegram.token,
                 "chat_id": telegram.get("chat_id")
-                or runtime_defaults.telegram.chat_id,
+                           or runtime_defaults.telegram.chat_id,
             },
             "botSettings": {
                 "subaccountNumber": trading.get("subaccount_number", 0),

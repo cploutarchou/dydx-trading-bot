@@ -68,7 +68,8 @@ def upgrade() -> None:
         _add_column_if_missing("jobs", "bot_id", sa.Column("bot_id", sa.Integer(), nullable=True))
         _add_column_if_missing("jobs", "config", sa.Column("config", sa.JSON(), nullable=True))
         _add_column_if_missing("jobs", "error_traceback", sa.Column("error_traceback", sa.Text(), nullable=True))
-        _add_column_if_missing("jobs", "cancellation_reason", sa.Column("cancellation_reason", sa.Text(), nullable=True))
+        _add_column_if_missing("jobs", "cancellation_reason",
+                               sa.Column("cancellation_reason", sa.Text(), nullable=True))
         _add_column_if_missing(
             "jobs",
             "progress_pct",
@@ -90,14 +91,15 @@ def upgrade() -> None:
             op.execute(sa.text("UPDATE jobs SET bot_id = COALESCE(bot_id, bot_instance_id)"))
         if "parameters" in columns and "config" in columns:
             op.execute(sa.text("UPDATE jobs SET config = COALESCE(config, parameters)"))
-        op.execute(sa.text("UPDATE jobs SET updated_at = COALESCE(updated_at, completed_at, started_at, created_at, NOW())"))
+        op.execute(
+            sa.text("UPDATE jobs SET updated_at = COALESCE(updated_at, completed_at, started_at, created_at, NOW())"))
 
 
 def downgrade() -> None:
     for column_name in (
-        "updated_at",
-        "metadata_json",
-        "progress_pct",
-        "cancellation_reason",
+            "updated_at",
+            "metadata_json",
+            "progress_pct",
+            "cancellation_reason",
     ):
         _drop_column_if_present("jobs", column_name)

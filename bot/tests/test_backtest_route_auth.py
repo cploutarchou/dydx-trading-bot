@@ -216,5 +216,5 @@ def test_backtest_openapi_security_matches_route_auth_requirement():
         {"BearerAuth": []}
     ]
     assert schema["paths"]["/api/v1/admin/backtests/interrupted"]["get"][
-        "security"
-    ] == [{"BearerAuth": []}]
+               "security"
+           ] == [{"BearerAuth": []}]

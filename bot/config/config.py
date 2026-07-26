@@ -111,11 +111,11 @@ class BotSettings:
             subaccountNumber=int(os.getenv("BOT_SUBACCOUNT_NUMBER", "0")),
             capitalAllocationUsd=float(os.getenv("BOT_CAPITAL_ALLOCATION_USD", "0.0")),
             abortAllPositions=os.getenv("BOT_ABORT_ALL_POSITIONS", "false").lower()
-            == "true",
+                              == "true",
             findCointegratedPairs=os.getenv(
                 "BOT_FIND_COINTEGRATED_PAIRS", "false"
             ).lower()
-            == "true",
+                                  == "true",
             manageExits=os.getenv("BOT_MANAGE_EXITS", "false").lower() == "true",
             placeTrades=os.getenv("BOT_PLACE_TRADES", "false").lower() == "true",
             resolutionTimeframe=os.getenv("BOT_RESOLUTION_TIMEFRAME", "1HOUR"),
@@ -126,7 +126,7 @@ class BotSettings:
             usdPerTrade=float(os.getenv("BOT_USD_PER_TRADE", "10.0")),
             usdMinCollateral=float(os.getenv("BOT_USD_MIN_COLLATERAL", "100.0")),
             closeAtZscoreCross=os.getenv("BOT_CLOSE_AT_ZSCORE_CROSS", "true").lower()
-            == "true",
+                               == "true",
             maxPositions=int(os.getenv("BOT_MAX_POSITIONS", "5")),
             maxDrawdownPct=float(os.getenv("BOT_MAX_DRAWDOWN_PCT", "0.0")),
             stopLossPct=float(os.getenv("BOT_STOP_LOSS_PCT", "2.0")),
@@ -561,7 +561,7 @@ class ConfigurationManager:
             ),
             url=raw_url,
             host=host
-            or _get_env(
+                 or _get_env(
                 "BACKTEST_CLICKHOUSE_HOST", "CLICKHOUSE_HOST", default="localhost"
             ),
             port=(
@@ -575,40 +575,40 @@ class ConfigurationManager:
                 "BACKTEST_CLICKHOUSE_DATABASE",
                 "CLICKHOUSE_DATABASE",
                 default=(
-                    urlsplit(
-                        raw_url if "://" in raw_url else f"http://{raw_url}"
-                    ).path.lstrip("/")
-                    if raw_url
-                    else ""
-                )
-                or "default",
+                            urlsplit(
+                                raw_url if "://" in raw_url else f"http://{raw_url}"
+                            ).path.lstrip("/")
+                            if raw_url
+                            else ""
+                        )
+                        or "default",
             ),
             user=_get_env(
                 "BACKTEST_CLICKHOUSE_USER",
                 "CLICKHOUSE_USER",
                 default=(
-                    urlsplit(
-                        raw_url if "://" in raw_url else f"http://{raw_url}"
-                    ).username
-                    if raw_url
-                    else ""
-                )
-                or "default",
+                            urlsplit(
+                                raw_url if "://" in raw_url else f"http://{raw_url}"
+                            ).username
+                            if raw_url
+                            else ""
+                        )
+                        or "default",
             ),
             password=_get_env(
                 "BACKTEST_CLICKHOUSE_PASSWORD",
                 "CLICKHOUSE_PASSWORD",
                 default=(
-                    urlsplit(
-                        raw_url if "://" in raw_url else f"http://{raw_url}"
-                    ).password
-                    if raw_url
-                    else ""
-                )
-                or "",
+                            urlsplit(
+                                raw_url if "://" in raw_url else f"http://{raw_url}"
+                            ).password
+                            if raw_url
+                            else ""
+                        )
+                        or "",
             ),
             secure=default_secure
-            or _get_env_bool(
+                   or _get_env_bool(
                 "BACKTEST_CLICKHOUSE_SECURE", "CLICKHOUSE_SECURE", default=False
             ),
             batch_size=_get_env_int(

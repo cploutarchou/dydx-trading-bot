@@ -40,10 +40,10 @@ class BacktestRepository:
     _memory_request_snapshots: Dict[str, Dict[str, Any]] = {}
 
     def __init__(
-        self,
-        session: Optional[Session],
-        artifact_store: Optional[ArtifactStore] = None,
-        analytics_writer: Optional[AnalyticsWriter] = None,
+            self,
+            session: Optional[Session],
+            artifact_store: Optional[ArtifactStore] = None,
+            analytics_writer: Optional[AnalyticsWriter] = None,
     ):
         self.session = session
         self.artifact_store = artifact_store or self._build_artifact_store()
@@ -73,7 +73,7 @@ class BacktestRepository:
 
     @classmethod
     def _env_bool_prefer(
-        cls, primary: str, *aliases: str, default: bool = False
+            cls, primary: str, *aliases: str, default: bool = False
     ) -> bool:
         names = (primary, *aliases)
         for name in names:
@@ -329,7 +329,7 @@ class BacktestRepository:
 
     @staticmethod
     def _parse_dt(
-        value: Any, *, default: Optional[datetime] = None
+            value: Any, *, default: Optional[datetime] = None
     ) -> Optional[datetime]:
         if value is None or value == "":
             return default
@@ -424,9 +424,9 @@ class BacktestRepository:
             }
         )
         strict_artifacts_ready = not (
-            artifacts.get("enabled")
-            and artifacts.get("strict")
-            and not artifacts.get("healthy")
+                artifacts.get("enabled")
+                and artifacts.get("strict")
+                and not artifacts.get("healthy")
         )
         return {
             "ready": strict_artifacts_ready,
@@ -451,14 +451,14 @@ class BacktestRepository:
         message = str(orig or exc)
         message_lower = message.lower()
         return (
-            code in {1020, 1205, 1213}
-            or pg_code in {"40P01", "40001", "55P03"}
-            or (
-                "record has changed since last read" in message_lower
-                or "deadlock detected" in message_lower
-                or "could not serialize access" in message_lower
-                or "could not obtain lock" in message_lower
-            )
+                code in {1020, 1205, 1213}
+                or pg_code in {"40P01", "40001", "55P03"}
+                or (
+                        "record has changed since last read" in message_lower
+                        or "deadlock detected" in message_lower
+                        or "could not serialize access" in message_lower
+                        or "could not obtain lock" in message_lower
+                )
         )
 
     def _rollback_safely(self) -> None:
@@ -471,12 +471,12 @@ class BacktestRepository:
             logger.warning("backtest_repository_rollback_failed error=%r", rollback_exc)
 
     def _retry_with_backoff(
-        self,
-        operation: Any,
-        *args: Any,
-        max_attempts: int = 5,
-        initial_backoff_ms: float = 10.0,
-        **kwargs: Any,
+            self,
+            operation: Any,
+            *args: Any,
+            max_attempts: int = 5,
+            initial_backoff_ms: float = 10.0,
+            **kwargs: Any,
     ) -> Any:
         """
         Retry operation with exponential backoff for transient database errors.
@@ -575,18 +575,18 @@ class BacktestRepository:
         return [dict(row) for row in rows if isinstance(row, dict)]
 
     def _build_backtest_trade_analytics_rows(
-        self,
-        *,
-        run_id: str,
-        rows: Sequence[dict[str, Any]],
-        fallback_timestamp: str,
+            self,
+            *,
+            run_id: str,
+            rows: Sequence[dict[str, Any]],
+            fallback_timestamp: str,
     ) -> list[dict[str, Any]]:
         normalized: list[dict[str, Any]] = []
         for index, row in enumerate(rows):
             created_at = (
-                self._serialize_dt(row.get("exit_timestamp"))
-                or self._serialize_dt(row.get("entry_timestamp"))
-                or fallback_timestamp
+                    self._serialize_dt(row.get("exit_timestamp"))
+                    or self._serialize_dt(row.get("entry_timestamp"))
+                    or fallback_timestamp
             )
             normalized.append(
                 {
@@ -625,18 +625,18 @@ class BacktestRepository:
         return normalized
 
     def _build_backtest_position_snapshot_analytics_rows(
-        self,
-        *,
-        run_id: str,
-        rows: Sequence[dict[str, Any]],
-        fallback_timestamp: str,
+            self,
+            *,
+            run_id: str,
+            rows: Sequence[dict[str, Any]],
+            fallback_timestamp: str,
     ) -> list[dict[str, Any]]:
         normalized: list[dict[str, Any]] = []
         for snapshot in rows:
             snapshot_time = (
-                self._serialize_dt(snapshot.get("timestamp"))
-                or self._serialize_dt(snapshot.get("snapshot_time"))
-                or fallback_timestamp
+                    self._serialize_dt(snapshot.get("timestamp"))
+                    or self._serialize_dt(snapshot.get("snapshot_time"))
+                    or fallback_timestamp
             )
             positions = snapshot.get("positions")
             if isinstance(positions, list) and positions:
@@ -673,11 +673,11 @@ class BacktestRepository:
         return normalized
 
     def _build_backtest_daily_pnl_analytics_rows(
-        self,
-        *,
-        run_id: str,
-        rows: Sequence[dict[str, Any]],
-        fallback_timestamp: str,
+            self,
+            *,
+            run_id: str,
+            rows: Sequence[dict[str, Any]],
+            fallback_timestamp: str,
     ) -> list[dict[str, Any]]:
         ordered = sorted(
             rows,
@@ -702,7 +702,7 @@ class BacktestRepository:
                     "cumulative_pnl": cumulative_pnl,
                     "drawdown": max(0.0, peak_pnl - cumulative_pnl),
                     "created_at": (
-                        self._serialize_dt(row.get("timestamp")) or fallback_timestamp
+                            self._serialize_dt(row.get("timestamp")) or fallback_timestamp
                     ),
                 }
             )
@@ -720,9 +720,9 @@ class BacktestRepository:
         )
 
     def _read_backtest_artifact_json(
-        self,
-        run_id: str,
-        artifact_name: str,
+            self,
+            run_id: str,
+            artifact_name: str,
     ) -> Any | None:
         key = self._safe_artifact_key(["backtests", run_id, f"{artifact_name}.json"])
         try:
@@ -754,13 +754,13 @@ class BacktestRepository:
         return bucket, object_key
 
     def _persist_artifact_references(
-        self,
-        *,
-        run_id: str,
-        artifact_entries: Sequence[dict[str, Any]],
-        artifact_refs: Dict[str, str],
-        analytics_rows_written: Dict[str, int],
-        record: BacktestRun,
+            self,
+            *,
+            run_id: str,
+            artifact_entries: Sequence[dict[str, Any]],
+            artifact_refs: Dict[str, str],
+            analytics_rows_written: Dict[str, int],
+            record: BacktestRun,
     ) -> None:
         if self.session is None:
             return
@@ -801,7 +801,7 @@ class BacktestRepository:
         self._retry_with_backoff(_persist_once, max_attempts=5)
 
     def _sync_backtest_sidecars(
-        self, payload: Dict[str, Any], *, record: BacktestRun | None = None
+            self, payload: Dict[str, Any], *, record: BacktestRun | None = None
     ) -> Dict[str, Any]:
         run_id = str(payload.get("run_id") or "").strip()
         if not run_id:
@@ -891,8 +891,8 @@ class BacktestRepository:
         terminal_projection = self._is_terminal_status(payload.get("status"))
         projection_checksum = self._analytics_projection_checksum(rows_by_table)
         projection_already_complete = (
-            terminal_projection
-            and self._analytics_projection_is_complete(run_id, projection_checksum)
+                terminal_projection
+                and self._analytics_projection_is_complete(run_id, projection_checksum)
         )
         if not terminal_projection:
             # Progress snapshots are mutable. Projecting them would append the
@@ -950,7 +950,7 @@ class BacktestRepository:
         }
 
     def _materialize_strategy_metric_rows(
-        self, *, run_id: str, payload: Dict[str, Any]
+            self, *, run_id: str, payload: Dict[str, Any]
     ) -> list[dict[str, Any]]:
         metrics = payload.get("metrics")
         if not isinstance(metrics, dict):
@@ -962,13 +962,13 @@ class BacktestRepository:
             strategy_id = self._safe_int(request_payload.get("strategy_id"))
 
         metric_time = (
-            self._serialize_dt(
-                payload.get("completed_at")
-                or payload.get("finished_at")
-                or payload.get("created_at")
-                or payload.get("updated_at")
-            )
-            or self._now().isoformat()
+                self._serialize_dt(
+                    payload.get("completed_at")
+                    or payload.get("finished_at")
+                    or payload.get("created_at")
+                    or payload.get("updated_at")
+                )
+                or self._now().isoformat()
         )
 
         rows: list[dict[str, Any]] = []
@@ -989,7 +989,7 @@ class BacktestRepository:
         return rows
 
     def _write_analytics_rows(
-        self, table_name: str, rows: Sequence[Dict[str, Any]]
+            self, table_name: str, rows: Sequence[Dict[str, Any]]
     ) -> int:
         if not rows:
             return 0
@@ -997,7 +997,7 @@ class BacktestRepository:
 
     @staticmethod
     def _analytics_projection_checksum(
-        rows_by_table: Dict[str, Sequence[Dict[str, Any]]],
+            rows_by_table: Dict[str, Sequence[Dict[str, Any]]],
     ) -> str:
         encoded = json.dumps(
             rows_by_table,
@@ -1024,7 +1024,7 @@ class BacktestRepository:
             if metadata.get("artifact_kind") != "full_result_json":
                 continue
             return bool(metadata.get("analytics_projection_complete")) and (
-                metadata.get("analytics_projection_checksum") == checksum
+                    metadata.get("analytics_projection_checksum") == checksum
             )
         return False
 
@@ -1157,12 +1157,12 @@ class BacktestRepository:
         )
 
     def _save_run_once(
-        self,
-        *,
-        payload: Dict[str, Any],
-        run_id: str,
-        incoming_request_payload: Any,
-        created_at_provided: bool,
+            self,
+            *,
+            payload: Dict[str, Any],
+            run_id: str,
+            incoming_request_payload: Any,
+            created_at_provided: bool,
     ) -> Dict[str, Any]:
         record = (
             self.session.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
@@ -1295,10 +1295,10 @@ class BacktestRepository:
         return self._record_to_overview_dict(record) if record else None
 
     def list_run_overviews(
-        self,
-        *,
-        limit: Optional[int] = None,
-        offset: int = 0,
+            self,
+            *,
+            limit: Optional[int] = None,
+            offset: int = 0,
     ) -> List[Dict[str, Any]]:
         """Return monitor-safe runs in one query without loading result JSON blobs.
 
@@ -1312,7 +1312,7 @@ class BacktestRepository:
                 key=lambda row: str(row.get("updated_at", "")),
                 reverse=True,
             )
-            selected = runs[offset:] if limit is None else runs[offset : offset + limit]
+            selected = runs[offset:] if limit is None else runs[offset: offset + limit]
             overviews: List[Dict[str, Any]] = []
             for row in selected:
                 payload = self._normalize_run_data(dict(row))
@@ -1330,12 +1330,12 @@ class BacktestRepository:
                             key: value
                             for key, value in payload.items()
                             if key
-                            not in {
-                                "request",
-                                "trades",
-                                "position_snapshots",
-                                "daily_pnl",
-                            }
+                               not in {
+                                   "request",
+                                   "trades",
+                                   "position_snapshots",
+                                   "daily_pnl",
+                               }
                         },
                         "request": request_payload,
                     }
@@ -1398,7 +1398,7 @@ class BacktestRepository:
             "updated_at": self._parse_dt(
                 run_data.get("updated_at"), default=self._now()
             )
-            or self._now(),
+                          or self._now(),
         }
         if "completed_at" in run_data or "finished_at" in run_data:
             scalar_updates["completed_at"] = self._parse_dt(
@@ -1440,11 +1440,11 @@ class BacktestRepository:
             raise
 
     def list_runs(
-        self,
-        limit: Optional[int] = None,
-        offset: int = 0,
-        status_filter: Optional[str] = None,
-        days_filter: Optional[int] = None,
+            self,
+            limit: Optional[int] = None,
+            offset: int = 0,
+            status_filter: Optional[str] = None,
+            days_filter: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         if self.session is None:
             runs = list(BacktestRepository._memory_runs.values())
@@ -1462,7 +1462,7 @@ class BacktestRepository:
             )
             if limit is None:
                 return [dict(row) for row in runs[offset:]]
-            return [dict(row) for row in runs[offset : offset + limit]]
+            return [dict(row) for row in runs[offset: offset + limit]]
 
         query = self.session.query(BacktestRun).options(
             defer(BacktestRun.request_json),
@@ -1488,7 +1488,7 @@ class BacktestRepository:
         if self.session is None:
             BacktestRepository._memory_request_snapshots.pop(normalized_run_id, None)
             return (
-                BacktestRepository._memory_runs.pop(normalized_run_id, None) is not None
+                    BacktestRepository._memory_runs.pop(normalized_run_id, None) is not None
             )
 
         record = (
@@ -1511,10 +1511,10 @@ class BacktestRepository:
         return True
 
     def count_runs(
-        self,
-        *,
-        statuses: Optional[Sequence[str]] = None,
-        days_filter: Optional[int] = None,
+            self,
+            *,
+            statuses: Optional[Sequence[str]] = None,
+            days_filter: Optional[int] = None,
     ) -> int:
         if self.session is None:
             runs = self.list_runs(limit=None, offset=0, days_filter=days_filter)

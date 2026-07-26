@@ -50,6 +50,7 @@ ENV_REQUIRED = "BOT_CREDENTIALS_ENCRYPTION_REQUIRED"
 # Sub-objects that contain secrets and are sealed as opaque envelopes.
 SEALED_BLOCKS = ("credentials", "telegram")
 
+
 # --- Exceptions --------------------------------------------------------------
 
 

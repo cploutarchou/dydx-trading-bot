@@ -146,8 +146,8 @@ def test_each_seal_uses_fresh_nonce(monkeypatch):
     sealed_a = cc.seal_config_secrets(_sample_payload())
     sealed_b = cc.seal_config_secrets(_sample_payload())
     assert (
-        sealed_a["credentials_sealed"]["nonce"]
-        != sealed_b["credentials_sealed"]["nonce"]
+            sealed_a["credentials_sealed"]["nonce"]
+            != sealed_b["credentials_sealed"]["nonce"]
     )
 
 

@@ -7,7 +7,6 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-
 METRIC_NAMES = (
     "arbitrage_scan_cycles_total",
     "exchange_api_calls_total",

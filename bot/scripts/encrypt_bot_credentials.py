@@ -79,7 +79,7 @@ def _process(mode: str, dry_run: bool, instance_filter: Optional[str]) -> Dict[s
                     logger.info("SKIP (already sealed): {}", _row_summary(instance_id, config))
                     continue
                 if not (
-                    isinstance(config.get("credentials"), dict) and config.get("credentials")
+                        isinstance(config.get("credentials"), dict) and config.get("credentials")
                 ):
                     counts["skipped"] += 1
                     logger.info(

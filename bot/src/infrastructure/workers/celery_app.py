@@ -20,6 +20,7 @@ from src.shared.redis_env import redis_url
 # =============================================================================
 if sys.platform == "darwin":
     import multiprocessing
+
     try:
         multiprocessing.set_start_method("spawn", force=True)
     except RuntimeError:

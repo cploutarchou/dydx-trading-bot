@@ -14,7 +14,8 @@ Use this file when the task is primarily inside the Python bot service.
 - `.github/agents/senior-python-defi-runtime.agent.md`
   Use for runtime lifecycle, FastAPI, backtests, websocket, exchange, and execution-safety work.
 - `../.github/agents/senior-prod-backtest-defi-auditor.agent.md`
-  Use when bot work is part of a production-readiness audit, long-running backtest hang investigation, or DeFi trading-risk review.
+  Use when bot work is part of a production-readiness audit, long-running backtest hang investigation, or DeFi
+  trading-risk review.
 
 ## Instructions
 

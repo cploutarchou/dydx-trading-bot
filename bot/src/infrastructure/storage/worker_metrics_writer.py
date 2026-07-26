@@ -20,19 +20,19 @@ class WorkerMetricsWriter:
     """
 
     def __init__(
-        self,
-        analytics_writer: ClickHouseAnalyticsWriter | None = None,
-        batch_size: int = 100,
-        flush_interval_seconds: float = 5.0,
+            self,
+            analytics_writer: ClickHouseAnalyticsWriter | None = None,
+            batch_size: int = 100,
+            flush_interval_seconds: float = 5.0,
     ):
         self.analytics_writer = analytics_writer
         self.batch_size = max(1, batch_size)
         self.flush_interval_seconds = max(0.1, flush_interval_seconds)
-        
+
         self._buffer: list[dict[str, Any]] = []
         self._buffer_lock = threading.Lock()
         self._last_flush_time = time.monotonic()
-        
+
         # Start background flush thread if batching is enabled
         self._stop_event = threading.Event()
         if self._should_run_background_flusher():
@@ -59,13 +59,13 @@ class WorkerMetricsWriter:
                 pass
 
     def record_metric(
-        self,
-        worker_id: str,
-        worker_type: str,
-        queue_name: str,
-        metric_name: str,
-        metric_value: float,
-        timestamp: datetime | None = None,
+            self,
+            worker_id: str,
+            worker_type: str,
+            queue_name: str,
+            metric_name: str,
+            metric_value: float,
+            timestamp: datetime | None = None,
     ) -> None:
         """Record a single worker metric.
         
@@ -98,16 +98,16 @@ class WorkerMetricsWriter:
                 self._flush_buffer()
 
     def record_task_metrics(
-        self,
-        worker_id: str,
-        worker_type: str,
-        queue_name: str,
-        task_id: str,
-        task_name: str,
-        duration_ms: float,
-        success: bool,
-        retry_count: int = 0,
-        timestamp: datetime | None = None,
+            self,
+            worker_id: str,
+            worker_type: str,
+            queue_name: str,
+            task_id: str,
+            task_name: str,
+            duration_ms: float,
+            success: bool,
+            retry_count: int = 0,
+            timestamp: datetime | None = None,
     ) -> None:
         """Record a comprehensive set of metrics for a completed task.
         
@@ -176,12 +176,12 @@ class WorkerMetricsWriter:
             )
 
     def record_heartbeat(
-        self,
-        worker_id: str,
-        worker_type: str,
-        queue_name: str,
-        heartbeat_age_seconds: float | None = None,
-        timestamp: datetime | None = None,
+            self,
+            worker_id: str,
+            worker_type: str,
+            queue_name: str,
+            heartbeat_age_seconds: float | None = None,
+            timestamp: datetime | None = None,
     ) -> None:
         """Record a worker heartbeat metric.
         
@@ -216,7 +216,7 @@ class WorkerMetricsWriter:
         with self._buffer_lock:
             if not self._buffer:
                 return 0
-            
+
             buffer = self._buffer.copy()
             self._buffer.clear()
             self._last_flush_time = time.monotonic()

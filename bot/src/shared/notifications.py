@@ -409,16 +409,16 @@ class TelegramMessenger:
     def send_trade_opened_message(self, trade_info: Dict[str, Any]) -> bool:
         """Send notification when new trade is opened."""
         market_1 = (
-            trade_info.get("market_1")
-            or trade_info.get("base_market")
-            or trade_info.get("pair1")
-            or ""
+                trade_info.get("market_1")
+                or trade_info.get("base_market")
+                or trade_info.get("pair1")
+                or ""
         )
         market_2 = (
-            trade_info.get("market_2")
-            or trade_info.get("quote_market")
-            or trade_info.get("pair2")
-            or ""
+                trade_info.get("market_2")
+                or trade_info.get("quote_market")
+                or trade_info.get("pair2")
+                or ""
         )
         if (not market_1 or not market_2) and isinstance(trade_info.get("pair"), str):
             pair_parts = [part.strip() for part in str(trade_info.get("pair", "")).split("/")]
@@ -478,16 +478,16 @@ class TelegramMessenger:
     ) -> bool:
         """Send notification when trade is closed."""
         market_1 = (
-            trade_info.get("market_1")
-            or trade_info.get("base_market")
-            or trade_info.get("pair1")
-            or ""
+                trade_info.get("market_1")
+                or trade_info.get("base_market")
+                or trade_info.get("pair1")
+                or ""
         )
         market_2 = (
-            trade_info.get("market_2")
-            or trade_info.get("quote_market")
-            or trade_info.get("pair2")
-            or ""
+                trade_info.get("market_2")
+                or trade_info.get("quote_market")
+                or trade_info.get("pair2")
+                or ""
         )
         if (not market_1 or not market_2) and isinstance(trade_info.get("pair"), str):
             pair_parts = [part.strip() for part in str(trade_info.get("pair", "")).split("/")]

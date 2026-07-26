@@ -5,12 +5,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 ## Quick Reference
 
 **Primary documentation (read first):**
+
 - `README.md` - Bot service responsibilities, entry points, commands, runtime model
 - `AGENTS.md` - Repository-level guidance for coding agents (mandatory engineering rules)
 - `tasks.md` - Current task tracking and project priorities
 - `openapi.json` - Generated API schema contract
 
 **Operations documentation:**
+
 - `../docs/OPERATIONS.md` - Platform operations guide
 - `docs/BOT_FLOWS.md` - Bot flow documentation
 
@@ -49,6 +51,7 @@ src/
 **Before making any changes, read `AGENTS.md` for the complete rule set.**
 
 Quick summary:
+
 1. **Environment load order**: Call `load_repo_env(__file__)` before importing config/constants
 2. **Process management**: Use `BotInstanceManager` only; no direct process spawning
 3. **Async correctness**: No `time.sleep()` in async workflows; use async patterns
@@ -142,6 +145,7 @@ After making changes, verify:
 ## Common Patterns
 
 **API Response Envelope:**
+
 ```python
 from src.api.server import api_response
 
@@ -149,6 +153,7 @@ return api_response(data={"backtest_id": run_id})
 ```
 
 **Async Background Jobs:**
+
 ```python
 from src.infrastructure.use_cases.async_job_manager import create_supervised_job
 
@@ -162,6 +167,7 @@ await create_supervised_job(
 ```
 
 **Strategy Resolution Metrics:**
+
 ```bash
 # Check drift
 GET /api/v1/backtests/sync-health
@@ -172,6 +178,7 @@ POST /api/v1/admin/runtime/strategy-resolution-metrics/reset
 ```
 
 **Backtest Repair:**
+
 ```bash
 # Preview repair
 POST /api/v1/admin/backtests/{run_id}/repair-request?dry_run=true
@@ -191,8 +198,7 @@ See `docs/bot-risk-control-matrix.md` for current enforcement matrix.
 
 ## Integration Contract
 
-The bot service is NOT a public frontend integration surface.
-**Supported path**: `frontend → backend → bot`
+The bot service is NOT a public frontend integration surface. **Supported path**: `frontend → backend → bot`
 
 - Allowed: backend HTTP routes (`/api/*`), backend websocket routes (`/ws/*`)
 - Not allowed: direct bot HTTP/websocket, direct database access

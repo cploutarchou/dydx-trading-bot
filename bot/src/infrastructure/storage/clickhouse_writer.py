@@ -376,17 +376,17 @@ class ClickHouseAnalyticsWriter(AnalyticsWriter):
     """
 
     def __init__(
-        self,
-        *,
-        enabled: bool = False,
-        fallback: AnalyticsWriter | None = None,
-        database: str | None = None,
-        host: str | None = None,
-        port: int | None = None,
-        username: str | None = None,
-        password: str | None = None,
-        secure: bool = False,
-        extra_config: dict[str, Any] | None = None,
+            self,
+            *,
+            enabled: bool = False,
+            fallback: AnalyticsWriter | None = None,
+            database: str | None = None,
+            host: str | None = None,
+            port: int | None = None,
+            username: str | None = None,
+            password: str | None = None,
+            secure: bool = False,
+            extra_config: dict[str, Any] | None = None,
     ):
         self.enabled = enabled
         self.fallback = fallback or NoopAnalyticsWriter()
@@ -512,9 +512,9 @@ class ClickHouseAnalyticsWriter(AnalyticsWriter):
             )
 
     def _insert_rows(
-        self,
-        table_name: str,
-        rows: Sequence[Mapping[str, Any]],
+            self,
+            table_name: str,
+            rows: Sequence[Mapping[str, Any]],
     ) -> int:
         if self._client is None:
             return self.fallback.write_rows(table_name, rows)
@@ -553,7 +553,7 @@ class ClickHouseAnalyticsWriter(AnalyticsWriter):
         return (now - started_at) >= self.flush_interval_seconds
 
     def _flush_one_locked(
-        self, table_name: str, *, force: bool = False, now: float | None = None
+            self, table_name: str, *, force: bool = False, now: float | None = None
     ) -> int:
         timestamp = time.monotonic() if now is None else now
         if not force and not self._buffer_due(table_name, timestamp):
@@ -591,7 +591,7 @@ class ClickHouseAnalyticsWriter(AnalyticsWriter):
             return self._flush_one_locked(table_name)
 
     def flush(
-        self, table_name: str | None = None, *, force: bool = False
+            self, table_name: str | None = None, *, force: bool = False
     ) -> dict[str, int]:
         if not self._buffering_enabled:
             return {}

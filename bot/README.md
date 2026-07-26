@@ -189,6 +189,24 @@ traceback summaries are persisted in the `jobs` table instead of disappearing as
 `API_BYPASS_AUTH=true` is restricted to explicit local/test environments only (`development`, `dev`, `local`, `test`,
 `testing`, `ci`). API startup fails closed if auth bypass is enabled in `production`, `prod`, `live`, or `mainnet`.
 
+JWT sessions can be terminated explicitly via the auth router:
+
+- `POST /auth/logout` — revokes the **current** bearer token by adding its `jti` to the Redis-backed blacklist
+  (`TokenBlacklist`); the token is rejected on the next request.
+- `POST /auth/logout-all` — revokes **every** outstanding token for the user by bumping `users.token_version`
+  (embedded as the `stv` claim in each JWT). The verify path compares the claim against the column, so all previously
+  issued access **and** refresh tokens stop authenticating immediately. Works across all workers/replicas because the
+  stamp is DB-backed. The caller's current token is also blacklisted.
+
+```bash
+curl -X POST http://localhost:8889/auth/logout-all -H "Authorization: Bearer $JWT"
+```
+
+Both endpoints are no-ops under `API_BYPASS_AUTH` and return a rotation hint when invoked with a service token
+(service tokens are rotated via `BOT_API_TOKEN` / `BOT_API_TOKEN_PREVIOUS` / `BOT_API_TOKENS`, not revoked per session).
+Set `REDIS_ENABLED=true` for cross-worker single-token revocation; without Redis the blacklist falls back to an
+in-process set that is scoped to a single worker.
+
 Live runtime exit state is now confirmation-based: submitting reduce-only close orders is not enough to mark a trade or
 position closed. The runtime waits for exchange-flat confirmation before closing persistence state; partial, timed-out,
 or orphaned exits remain visible in tracked state and emit critical operator alerts.

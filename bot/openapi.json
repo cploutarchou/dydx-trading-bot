@@ -132,7 +132,7 @@
           "Authentication"
         ],
         "summary": "Logout",
-        "description": "Logout endpoint",
+        "description": "Revoke the presented bearer JWT by adding its JTI to the token blacklist, so it can no longer authenticate. Requires a valid bearer token.",
         "operationId": "logout_auth_logout_post",
         "responses": {
           "200": {
@@ -152,7 +152,7 @@
           "Authentication"
         ],
         "summary": "Logout All",
-        "description": "Logout all sessions endpoint (compatibility stub).",
+        "description": "Revoke every outstanding token for the authenticated user by bumping the user's token_version security stamp (embedded as the JWT 'stv' claim), and also blacklist the caller's current token for immediate effect. Requires a valid bearer token.",
         "operationId": "logout_all_auth_logout_all_post",
         "responses": {
           "200": {
@@ -292,7 +292,7 @@
           "Authentication"
         ],
         "summary": "Logout",
-        "description": "Logout endpoint",
+        "description": "Revoke the presented bearer JWT by adding its JTI to the token blacklist, so it can no longer authenticate. Requires a valid bearer token.",
         "operationId": "logout_api_v1_auth_logout_post",
         "responses": {
           "200": {
@@ -312,7 +312,7 @@
           "Authentication"
         ],
         "summary": "Logout All",
-        "description": "Logout all sessions endpoint (compatibility stub).",
+        "description": "Revoke every outstanding token for the authenticated user by bumping the user's token_version security stamp (embedded as the JWT 'stv' claim), and also blacklist the caller's current token for immediate effect. Requires a valid bearer token.",
         "operationId": "logout_all_api_v1_auth_logout_all_post",
         "responses": {
           "200": {

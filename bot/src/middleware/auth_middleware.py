@@ -168,6 +168,19 @@ def authenticate_bearer_token(token: str, session: Session) -> User:
             detail="User not found",
         )
 
+    # Security-stamp check: a mismatch means the user (or admin) bumped
+    # ``token_version`` via logout-all, so this token is no longer trusted.
+    # Legacy tokens without an ``stv`` claim are treated as version 0.
+    token_stv = payload.get("stv")
+    user_stv = int(getattr(user, "token_version", 0) or 0)
+    claim_stv = int(token_stv) if token_stv is not None else 0
+    if claim_stv != user_stv:
+        raise AuthenticationError(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return user
 
 

@@ -228,10 +228,11 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Missing Position History**: Snapshot flow incomplete
     - **Impact**: Incomplete feature set, wasted development effort
 
-- **Process Isolation Issues**: State consistency problems between processes
-    - **Position Confirmation**: `src/trading/position_manager.py` - Exit marks trade closed after close-order
-      submission, without demonstrated fill confirmation
-    - **DB/local state can say closed while exposure remains**
+- **Process Isolation Issues** (Position Confirmation RESOLVED): State consistency problems between processes
+    - **Position Confirmation**: `src/trading/position_manager.py` now gates `persist_live_trade_closed` on
+      exchange-flat confirmation (`_confirm_exchange_flat_after_close`), so DB/local state can no longer say
+      closed while exposure remains; partial/orphan/timeout outcomes stay visible. Fill data is telemetry-only
+      and never overrides an still-open position (pinned by `tests/test_position_exit_confirmation_hardening.py`).
     - **Impact**: Financial risk, incorrect position tracking
 
 - **Test Coverage Gaps**: Insufficient coverage for edge cases and distributed scenarios
@@ -294,11 +295,16 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 #### **Critical Architecture Fixes**
 
-- [ ] **Fix position confirmation logic** - Add fill confirmation before position closure
+- [x] **Fix position confirmation logic** - Add fill confirmation before position closure
     - **Files**: `src/trading/position_manager.py`
     - **Impact**: Prevent incorrect position tracking and financial risk
     - **Effort**: 3-4 days
     - **Priority**: CRITICAL
+    - **Status**: Already implemented — `persist_live_trade_closed` is gated on exchange-flat
+      confirmation (`_confirm_exchange_flat_after_close` → `flat_confirmed`) at
+      `src/trading/position_manager.py:1366→1381`; partial/orphan/timeout states never persist.
+      Regression coverage in `tests/test_position_manager_exit_safety.py` and the lower-level
+      invariants pinned by `tests/test_position_exit_confirmation_hardening.py`.
 
 - [ ] **Replace sys.exit () calls** with proper exception handling
     - **Files**: `src/infrastructure/database.py`, `src/main_instance.py`

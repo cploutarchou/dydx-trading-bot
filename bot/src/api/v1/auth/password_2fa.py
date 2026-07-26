@@ -64,8 +64,8 @@ def _get_enabled_record(session: Session, user_id: int):
 
 @router.post("/setup")
 async def setup_2fa(
-    current_user: User = Depends(get_current_active_user),
-    session: Session = Depends(db.get_session),
+        current_user: User = Depends(get_current_active_user),
+        session: Session = Depends(db.get_session),
 ):
     """Setup TOTP 2FA and return QR provisioning metadata."""
     user_id = _user_id_value(current_user)
@@ -102,9 +102,9 @@ async def setup_2fa(
 
 @router.post("/verify")
 async def verify_2fa(
-    payload: Verify2FARequest,
-    current_user: User = Depends(get_current_active_user),
-    session: Session = Depends(db.get_session),
+        payload: Verify2FARequest,
+        current_user: User = Depends(get_current_active_user),
+        session: Session = Depends(db.get_session),
 ):
     """Verify TOTP token and mark 2FA as enabled for user."""
     user_id = _user_id_value(current_user)

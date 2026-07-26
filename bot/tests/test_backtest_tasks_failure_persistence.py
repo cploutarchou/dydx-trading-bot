@@ -87,6 +87,3 @@ def test_mark_worker_failure_uses_lightweight_progress_update(monkeypatch):
     assert "trades" not in repository.updated_payload
     assert "position_snapshots" not in repository.updated_payload
     assert "daily_pnl" not in repository.updated_payload
-
-
-

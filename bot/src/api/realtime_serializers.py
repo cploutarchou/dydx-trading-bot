@@ -14,7 +14,7 @@ def _float_or_zero(value: Any) -> float:
 
 
 def serialize_realtime_position(
-    position: Any, include_updated_at: bool = False
+        position: Any, include_updated_at: bool = False
 ) -> Dict[str, Any]:
     """Serialize an open position for realtime payloads."""
     payload: Dict[str, Any] = {
@@ -46,7 +46,7 @@ def serialize_realtime_position(
 
 
 def serialize_market_core(
-    market: Any, include_volatility: bool = True
+        market: Any, include_volatility: bool = True
 ) -> Dict[str, Any]:
     """Serialize common market snapshot fields."""
     payload: Dict[str, Any] = {

@@ -59,13 +59,13 @@ def _resolve_writer() -> Optional[Any]:
 
 
 def record_celery_task_metric(
-    task_id: str,
-    task_name: str,
-    state: str,
-    duration_ms: float,
-    retries: int,
-    queue_name: str,
-    writer: Optional[Any],
+        task_id: str,
+        task_name: str,
+        state: str,
+        duration_ms: float,
+        retries: int,
+        queue_name: str,
+        writer: Optional[Any],
 ) -> None:
     """Record a completed task's metrics via the worker metrics writer.
 
@@ -93,10 +93,10 @@ def _on_task_prerun(task_id: str = "", **_kwargs: Any) -> None:
 
 
 def _on_task_postrun(
-    task_id: str = "",
-    task: Any = None,
-    state: str = "",
-    **_kwargs: Any,
+        task_id: str = "",
+        task: Any = None,
+        state: str = "",
+        **_kwargs: Any,
 ) -> None:
     # Metrics collection must never raise into the task execution path.
     try:

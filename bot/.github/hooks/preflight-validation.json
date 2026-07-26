@@ -1,24 +1,24 @@
 {
-	"name": "Preflight Validation Hooks",
-	"description": "Auto-run safety checks before shipping changes to bot runtime or trading logic",
-	"hooks": {
-		"PreToolUse": [
-			{
-				"type": "command",
-				"command": "bash -c 'if [[ \"$FILE_PATH\" =~ src/(trading|api|bot_instance_manager|main_instance)\\.py ]]; then echo \"Preflight: Checking imports and syntax...\"; .venv/bin/python -m py_compile \"$FILE_PATH\" 2>&1 | head -20 || exit 1; fi'",
-				"description": "Validate Python syntax for runtime files",
-				"timeout": 10,
-				"cwd": "/home/chris/workspace/dydx-trading-bot/bot"
-			}
-		],
-		"PostToolUse": [
-			{
-				"type": "command",
-				"command": "bash -c 'if [[ \"$FILE_PATH\" =~ src/.*\\.py ]]; then echo \"Preflight: Running import check...\"; .venv/bin/python -c \"import ast; ast.parse(open(\\\"$FILE_PATH\\\").read())\" 2>&1 || echo \"WARNING: Syntax check failed\"; fi'",
-				"description": "Validate AST parsing after edits",
-				"timeout": 10,
-				"cwd": "/home/chris/workspace/dydx-trading-bot/bot"
-			}
-		]
-	}
+  "name": "Preflight Validation Hooks",
+  "description": "Auto-run safety checks before shipping changes to bot runtime or trading logic",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "type": "command",
+        "command": "bash -c 'if [[ \"$FILE_PATH\" =~ src/(trading|api|bot_instance_manager|main_instance)\\.py ]]; then echo \"Preflight: Checking imports and syntax...\"; .venv/bin/python -m py_compile \"$FILE_PATH\" 2>&1 | head -20 || exit 1; fi'",
+        "description": "Validate Python syntax for runtime files",
+        "timeout": 10,
+        "cwd": "/home/chris/workspace/dydx-trading-bot/bot"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "type": "command",
+        "command": "bash -c 'if [[ \"$FILE_PATH\" =~ src/.*\\.py ]]; then echo \"Preflight: Running import check...\"; .venv/bin/python -c \"import ast; ast.parse(open(\\\"$FILE_PATH\\\").read())\" 2>&1 || echo \"WARNING: Syntax check failed\"; fi'",
+        "description": "Validate AST parsing after edits",
+        "timeout": 10,
+        "cwd": "/home/chris/workspace/dydx-trading-bot/bot"
+      }
+    ]
+  }
 }

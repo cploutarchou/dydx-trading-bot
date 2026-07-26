@@ -43,7 +43,7 @@ def _should_repair(run_data: Dict[str, Any]) -> bool:
 
 
 def _repair_run(
-    repository: BacktestRepository, run_data: Dict[str, Any]
+        repository: BacktestRepository, run_data: Dict[str, Any]
 ) -> tuple[bool, str]:
     run_id = str(run_data.get("run_id") or "").strip()
     if not run_id:

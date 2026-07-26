@@ -880,10 +880,10 @@ def downgrade() -> None:
     # Drop enum types
     bind = op.get_bind()
     for enum in (
-        _bot_status,
-        _job_status,
-        _trade_status,
-        _position_status,
-        _alert_severity,
+            _bot_status,
+            _job_status,
+            _trade_status,
+            _position_status,
+            _alert_severity,
     ):
         enum.drop(bind, checkfirst=True)

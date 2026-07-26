@@ -16,7 +16,8 @@ The bot service is the Python runtime that manages bot instances, live strategy 
 - canonical API app (ASGI): [src/api/server.py](/home/chris/workspace/dydx-trading-bot/bot/src/api/server.py)
 - canonical API launcher: [src/api/start_api.py](/home/chris/workspace/dydx-trading-bot/bot/src/api/start_api.py)
 - prefer running the canonical launcher directly: `python src/api/start_api.py`
-- instance manager (process lifecycle owner): [src/bot_instance_manager.py](/home/chris/workspace/dydx-trading-bot/bot/src/bot_instance_manager.py)
+- instance manager (process lifecycle
+  owner): [src/bot_instance_manager.py](/home/chris/workspace/dydx-trading-bot/bot/src/bot_instance_manager.py)
 - instance worker runtime: [src/main_instance.py](/home/chris/workspace/dydx-trading-bot/bot/src/main_instance.py)
 - container worker entrypoint: [worker_entrypoint.py](/home/chris/workspace/dydx-trading-bot/bot/worker_entrypoint.py)
 
@@ -25,8 +26,8 @@ The bot service is the Python runtime that manages bot instances, live strategy 
 ### Python environment
 
 Use Python 3.12 for local Windows development. `dydx-v4-client==1.1.6` requires
-`coincurve>=20,<21`, which has no compatible Windows wheel for Python 3.13 or 3.14. Create the
-environment with Python 3.12 and install dependencies through that environment:
+`coincurve>=20,<21`, which has no compatible Windows wheel for Python 3.13 or 3.14. Create the environment with Python
+3.12 and install dependencies through that environment:
 
 ```powershell
 py -3.12 -m venv .venv
@@ -39,7 +40,8 @@ py -3.12 -m venv .venv
 - database env aliases: `BOT_DATABASE_URL`, `DATABASE_URL`, `BOT_DB_*`, `DB_*`, `POSTGRES_*`
 - cache env aliases: `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `REDIS_URL`, `VALKEY_URL`, `REDIS_*`, `VALKEY_*`
 - analytics env aliases for the optional adapter path: `CLICKHOUSE_URL`, `CLICKHOUSE_*`
-- artifact storage env aliases for the optional adapter path: `MINIO_ENDPOINT`, `MINIO_CONSOLE_URL`, `MINIO_BUCKET`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE`
+- artifact storage env aliases for the optional adapter path: `MINIO_ENDPOINT`, `MINIO_CONSOLE_URL`, `MINIO_BUCKET`,
+  `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE`
 - config source: root `run.json`
 - preferred DB mode: `BOT_DB_CUTOVER_MODE=dedicated`
 
@@ -60,7 +62,8 @@ make preflight-testnet
 ```
 
 `make local-api` starts the canonical API without uvicorn hot reload by default, which gives cleaner shutdown semantics
-for runtime verification. Use `make dev-api` or set `BOT_API_RELOAD=true` only when file-watch reload behavior is needed.
+for runtime verification. Use `make dev-api` or set `BOT_API_RELOAD=true` only when file-watch reload behavior is
+needed.
 
 Strategy backtests use Celery by default. Start `make local-worker` before `make local-api` so backtests have an active
 consumer as soon as the API accepts requests. If the worker comes up later, already-queued runs remain pending until a
@@ -84,7 +87,8 @@ Required local services:
 
 - Valkey/Redis-compatible broker/result backend, defaulting to `redis://localhost:6379/1` and `redis://localhost:6379/2`
 - PostgreSQL on `localhost:5432`
-- optional but supported local integrations: NATS JetStream (`localhost:4222`), ClickHouse HTTP (`localhost:8123`), MinIO (`localhost:9010`)
+- optional but supported local integrations: NATS JetStream (`localhost:4222`), ClickHouse HTTP (`localhost:8123`),
+  MinIO (`localhost:9010`)
 - API: `make local-api`
 - worker: `make local-worker`
 - optional Flower: `make local-flower`
@@ -105,10 +109,12 @@ Useful environment variables:
 - `NATS_URL` and `NATS_MONITORING_URL` for the optional command/event bus contract
 - `BACKTEST_ARTIFACT_STORAGE_ENABLED=false` keeps artifact persistence on the local fallback path
 - `BACKTEST_CLICKHOUSE_WRITES_ENABLED=false` keeps analytical writes disabled by default
-- `BACKTEST_CLICKHOUSE_BATCH_SIZE=1000` and `BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS=5` control buffered analytical flushes when ClickHouse writes are enabled
+- `BACKTEST_CLICKHOUSE_BATCH_SIZE=1000` and `BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS=5` control buffered analytical
+  flushes when ClickHouse writes are enabled
 - `BACKTEST_MINIO_ARTIFACTS_ENABLED=false` keeps MinIO artifacts disabled by default
 - `CLICKHOUSE_URL` or `CLICKHOUSE_HOST` / `CLICKHOUSE_PORT` for optional analytical backtest writes
-- `MINIO_ENDPOINT`, `MINIO_BUCKET`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE` for optional artifact storage
+- `MINIO_ENDPOINT`, `MINIO_BUCKET`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE` for
+  optional artifact storage
 
 Queues:
 
@@ -167,12 +173,13 @@ Suggested daily workflow:
 
 ## Runtime Model
 
-The bot manager owns process lifecycle. Bot instances run as isolated subprocesses; PostgreSQL is the source of truth for
-instance status, lifecycle events, supervised job state, and backtest progress. `bot_states/` is kept only for generated
-subprocess log output and temporary/debug state artifacts.
+The bot manager owns process lifecycle. Bot instances run as isolated subprocesses; PostgreSQL is the source of truth
+for instance status, lifecycle events, supervised job state, and backtest progress. `bot_states/` is kept only for
+generated subprocess log output and temporary/debug state artifacts.
 
 Worker startup loads per-instance runtime config from `bot_instances.config` only. If the row is missing or lacks
-credentials/trading parameters, the worker fails fast instead of falling back to YAML or environment defaults. Deprecated
+credentials/trading parameters, the worker fails fast instead of falling back to YAML or environment defaults.
+Deprecated
 `bot_states/config_<instance_id>.yaml` files can be migrated once with
 `bot/.venv/bin/python scripts/migrate_yaml_configs_to_db.py`; workers do not read or refresh them.
 
@@ -212,8 +219,8 @@ For `/api/v1/backtests` and `/api/v1/backtests/run`, strategy resolution is orde
 (compatibility fallback).
 
 To monitor strategy-resolution drift, use `GET /api/v1/backtests/sync-health` and inspect
-`data.strategy_resolution_metrics.counts` (`store`, `history`, `request`, `not_found`).
-For lightweight dashboard polling, use:
+`data.strategy_resolution_metrics.counts` (`store`, `history`, `request`, `not_found`). For lightweight dashboard
+polling, use:
 
 - `GET /api/v1/backtests/sync-health?metrics_only=true`
 - `GET /api/v1/backtests/{run_id}/logs` (Celery worker logs)
@@ -223,16 +230,15 @@ For lightweight dashboard polling, use:
 - `POST /api/v1/admin/runtime/strategy-resolution-metrics/reset` (admin-only counter reset)
 
 Windowed alerting is also exposed under
-`data.strategy_resolution_metrics.alerts.request_ratio_alert_triggered`.
-Defaults:
+`data.strategy_resolution_metrics.alerts.request_ratio_alert_triggered`. Defaults:
 
 - `STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE=200`
 - `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_THRESHOLD=0.05`
 - `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_MIN_RUNS=20`
 
 Optional strict mode (production safety hardening): set
-`BACKTEST_DISABLE_REQUEST_SNAPSHOT_FALLBACK_IN_PRODUCTION=true`.
-When `ENVIRONMENT=production` (or `prod`), request-level
+`BACKTEST_DISABLE_REQUEST_SNAPSHOT_FALLBACK_IN_PRODUCTION=true`. When `ENVIRONMENT=production` (or `prod`),
+request-level
 `strategy_payload_snapshot` fallback is disabled.
 
 `GET /health` and `GET /ready` now include:
@@ -260,9 +266,8 @@ For live runtime launches, the platform now supports readiness checks that valid
 
 ## Credential Encryption
 
-Wallet mnemonics and Telegram tokens stored in `bot_instances.config` are
-encrypted at rest with AES-256-GCM (see `src/shared/credentials_cipher.py`).
-Only the `credentials` and `telegram` sub-objects are sealed; non-secret fields
+Wallet mnemonics and Telegram tokens stored in `bot_instances.config` are encrypted at rest with AES-256-GCM (see
+`src/shared/credentials_cipher.py`). Only the `credentials` and `telegram` sub-objects are sealed; non-secret fields
 (`instance_name`, `trading_params`, `config_meta`) stay readable for operators.
 
 **Key provisioning (required before enabling).** Generate a 32-byte key:
@@ -274,27 +279,26 @@ make credentials-keygen   # prints a base64 key
 Provide it via exactly one of:
 
 - `BOT_CREDENTIALS_ENCRYPTION_KEY` — base64-encoded 32 bytes, **or**
-- `BOT_CREDENTIALS_ENCRYPTION_KEY_FILE` — path to a file containing the base64-encoded 32 bytes (container/Docker secret friendly).
+- `BOT_CREDENTIALS_ENCRYPTION_KEY_FILE` — path to a file containing the base64-encoded 32 bytes (container/Docker secret
+  friendly).
 
-Store the key securely (e.g. in your secrets manager). **Losing it makes sealed
-credentials unrecoverable.**
+Store the key securely (e.g. in your secrets manager). **Losing it makes sealed credentials unrecoverable.**
 
 **Behavior.**
 
-- With a key set, new and updated rows are sealed automatically at every write
-  boundary (`BotInstanceManager` persistence and `POST /api/v1/bots`). The
+- With a key set, new and updated rows are sealed automatically at every write boundary (`BotInstanceManager`
+  persistence and `POST /api/v1/bots`). The
   `config_meta.schema_version` is `2`; sealed rows carry `credentials_sealed` /
   `telegram_sealed` envelopes instead of plaintext blocks.
-- Without a key, storage falls back to plaintext and the bot logs a one-time
-  warning (non-breaking upgrade path). Set `BOT_CREDENTIALS_ENCRYPTION_REQUIRED=true`
-  to make writes **fail** instead of storing plaintext — use this in production
-  once the key is deployed.
-- All read paths (instance recovery, runtime worker startup, lifecycle
-  notifications) decrypt transparently. Legacy plaintext rows (schema version 1)
+- Without a key, storage falls back to plaintext and the bot logs a one-time warning (non-breaking upgrade path). Set
+  `BOT_CREDENTIALS_ENCRYPTION_REQUIRED=true`
+  to make writes **fail** instead of storing plaintext — use this in production once the key is deployed.
+- All read paths (instance recovery, runtime worker startup, lifecycle notifications) decrypt transparently. Legacy
+  plaintext rows (schema version 1)
   keep working and are re-sealed lazily on the next write.
 
-**Backfill existing rows.** After deploying the encryption-aware code with a key,
-seal existing plaintext rows (idempotent; safe to re-run):
+**Backfill existing rows.** After deploying the encryption-aware code with a key, seal existing plaintext rows
+(idempotent; safe to re-run):
 
 ```bash
 make encrypt-bot-credentials ARGS=--dry-run   # preview
@@ -302,8 +306,8 @@ make encrypt-bot-credentials                   # seal all unsealed rows
 make encrypt-bot-credentials ARGS=--decrypt    # rollback to plaintext (needs same key)
 ```
 
-The implementation lives in `src/shared/credentials_cipher.py`; the backfill
-script in `scripts/encrypt_bot_credentials.py`.
+The implementation lives in `src/shared/credentials_cipher.py`; the backfill script in
+`scripts/encrypt_bot_credentials.py`.
 
 ## Contracts
 

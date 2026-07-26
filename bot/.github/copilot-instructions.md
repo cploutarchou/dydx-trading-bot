@@ -27,8 +27,10 @@ Bot instances run as **separate processes** (not threads), with isolated state f
 Use these as source-of-truth when in doubt:
 
 - Canonical API remains `src/api/server.py`; use `src/api/start_api.py` as the API process launcher.
-- Backend relies on normalized status/progress fields for delegated backtest/runtime contracts; avoid removing aliases without coordinated backend/frontend updates.
-- Service-token overlap and `/ready` strictness are active operational contracts and should remain covered by tests when touched.
+- Backend relies on normalized status/progress fields for delegated backtest/runtime contracts; avoid removing aliases
+  without coordinated backend/frontend updates.
+- Service-token overlap and `/ready` strictness are active operational contracts and should remain covered by tests when
+  touched.
 
 ## Critical Development Patterns
 
@@ -43,18 +45,18 @@ load_dotenv()
 
 ### 2) Lifecycle ownership
 
-Use `BotInstanceManager` for start/stop/delete/status lifecycle operations.
-Do not introduce direct unmanaged subprocess patterns in API/routes.
+Use `BotInstanceManager` for start/stop/delete/status lifecycle operations. Do not introduce direct unmanaged subprocess
+patterns in API/routes.
 
 ### 3) Async safety
 
-Avoid blocking calls (e.g., `time.sleep`) inside async runtime paths.
-Prefer async-compatible delay patterns for event-loop responsiveness.
+Avoid blocking calls (e.g., `time.sleep`) inside async runtime paths. Prefer async-compatible delay patterns for
+event-loop responsiveness.
 
 ### 4) Error propagation
 
-Prefer raising explicit exceptions from service/runtime modules.
-Reserve `sys.exit(...)` for top-level process entrypoints.
+Prefer raising explicit exceptions from service/runtime modules. Reserve `sys.exit(...)` for top-level process
+entrypoints.
 
 ### 5) Interpreter consistency
 

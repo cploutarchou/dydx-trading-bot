@@ -319,7 +319,7 @@ class TradeRepository:
     _analytics_writer_lock = threading.Lock()
 
     def __init__(
-        self, session: Session, analytics_writer: AnalyticsWriter | None = None
+            self, session: Session, analytics_writer: AnalyticsWriter | None = None
     ):
         self.session = session
         self.analytics_writer = analytics_writer or self._resolve_analytics_writer()
@@ -347,7 +347,7 @@ class TradeRepository:
 
     @classmethod
     def _build_analytics_row(
-        cls, trade: Trade, *, event_kind: str
+            cls, trade: Trade, *, event_kind: str
     ) -> dict[str, Any]:
         event_time = cls._normalize_event_time(
             trade.closed_at if event_kind == "closed" and trade.closed_at else trade.updated_at or trade.created_at
@@ -366,23 +366,23 @@ class TradeRepository:
         order_id = getattr(trade, "order_id", "") or ""
         market = getattr(trade, "market", "") or ""
         side = getattr(trade, "side", "") or ""
-        
+
         # Try to get fee information if available
         transaction_fee = getattr(trade, "transaction_fee", 0.0) or 0.0
         fee = float(transaction_fee) if transaction_fee else 0.0
         fee_pct = fee * 100 if fee else 0.0  # Approximate fee percentage
-        
+
         # Try to get fill details if available
         fill_id = getattr(trade, "fill_id", "") or ""
         fill_index = getattr(trade, "fill_index", 0) or 0
-        
+
         # Try to get correlation ID
         correlation_id = getattr(trade, "correlation_id", "") or ""
-        
+
         # Try to get individual leg prices/sizes for per-fill detail
         price = getattr(trade, "price", 0.0) or 0.0
         size = getattr(trade, "size", 0.0) or 0.0
-        
+
         return {
             "event_date": event_time.date(),
             "event_time": event_time,
@@ -590,7 +590,7 @@ class EventRepository:
     _analytics_writer_lock = threading.Lock()
 
     def __init__(
-        self, session: Session, analytics_writer: AnalyticsWriter | None = None
+            self, session: Session, analytics_writer: AnalyticsWriter | None = None
     ):
         self.session = session
         self.analytics_writer = analytics_writer or self._resolve_analytics_writer()
@@ -647,7 +647,7 @@ class EventRepository:
 
     @classmethod
     def _event_context(
-        cls, event: Event
+            cls, event: Event
     ) -> tuple[dict[str, Any], datetime, str, str]:
         details = dict(event.details or {}) if isinstance(event.details, dict) else {}
         created_at = event.created_at or utc_now()
@@ -675,9 +675,9 @@ class EventRepository:
     def _build_analytics_row(cls, event: Event) -> dict[str, Any]:
         details, created_at, correlation_id, bot_run_id = cls._event_context(event)
         worker_id = (
-            details.get("instance_id")
-            or details.get("worker_id")
-            or os.getenv("BOT_INSTANCE_ID", "")
+                details.get("instance_id")
+                or details.get("worker_id")
+                or os.getenv("BOT_INSTANCE_ID", "")
         )
         status = details.get("status") or details.get("state") or event.severity or ""
         strategy_id = cls._coerce_optional_int(
@@ -798,7 +798,7 @@ class EventRepository:
             post_only = int(details.get("post_only", 0) or 0)
             reduce_only = int(details.get("reduce_only", 0) or 0)
             ioc = int(details.get("ioc", 0) or 0)
-            
+
             rows.append(
                 {
                     "event_date": created_at.date(),

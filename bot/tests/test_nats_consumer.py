@@ -30,7 +30,7 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
         self.original_nats_enabled = os.environ.get("NATS_ENABLED")
         self.original_command_bus_enabled = os.environ.get("BOT_COMMAND_BUS_ENABLED")
         self.original_nats_url = os.environ.get("NATS_URL")
-        
+
         # Set NATS disabled by default for most tests
         os.environ["NATS_ENABLED"] = "false"
         os.environ["BOT_COMMAND_BUS_ENABLED"] = "false"
@@ -43,12 +43,12 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
             os.environ["NATS_ENABLED"] = self.original_nats_enabled
         else:
             os.environ.pop("NATS_ENABLED", None)
-            
+
         if self.original_command_bus_enabled is not None:
             os.environ["BOT_COMMAND_BUS_ENABLED"] = self.original_command_bus_enabled
         else:
             os.environ.pop("BOT_COMMAND_BUS_ENABLED", None)
-            
+
         if self.original_nats_url is not None:
             os.environ["NATS_URL"] = self.original_nats_url
         else:
@@ -57,7 +57,7 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
     def test_service_creation_disabled(self):
         """Test service creation when NATS is disabled."""
         from src.infrastructure.event_bus_nats import NATSConsumerService
-        
+
         service = NATSConsumerService(enabled=False)
         self.assertFalse(service.is_enabled())
         self.assertEqual(service.get_status().value, "disconnected")
@@ -65,7 +65,7 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
     def test_service_creation_enabled(self):
         """Test service creation when NATS is enabled."""
         from src.infrastructure.event_bus_nats import NATSConsumerService
-        
+
         with patch.dict(os.environ, {"NATS_ENABLED": "true"}):
             service = NATSConsumerService()
             self.assertTrue(service.is_enabled())
@@ -73,7 +73,7 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
     def test_default_servers_from_env(self):
         """Test default server configuration from environment."""
         from src.infrastructure.event_bus_nats import NATSConsumerService
-        
+
         with patch.dict(os.environ, {
             "NATS_ENABLED": "true",
             "NATS_URL": "nats://custom-host:4222"
@@ -84,7 +84,7 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
     def test_multiple_servers_from_env(self):
         """Test multiple servers configuration from environment."""
         from src.infrastructure.event_bus_nats import NATSConsumerService
-        
+
         with patch.dict(os.environ, {
             "NATS_ENABLED": "true",
             "NATS_SERVERS": "nats://server1:4222,nats://server2:4222,nats://server3:4222"
@@ -98,9 +98,9 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
     def test_stream_configs_match_plan(self):
         """Test that stream configurations match nats-jetstream-plan.md."""
         from src.infrastructure.event_bus_nats import NATSConsumerService, StreamConfig
-        
+
         service = NATSConsumerService(enabled=False)
-        
+
         # Check BACKTEST_COMMANDS stream configuration
         backtest_config = service.STREAM_CONFIGS["BACKTEST_COMMANDS"]
         self.assertEqual(backtest_config.name, "BACKTEST_COMMANDS")
@@ -114,7 +114,7 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
         bot_config = service.STREAM_CONFIGS["BOT_COMMANDS"]
         self.assertEqual(bot_config.name, "BOT_COMMANDS")
         self.assertEqual(bot_config.subjects, ["bot.command.>"])
-        
+
         # Check DEAD_LETTER stream configuration
         dead_letter_config = service.STREAM_CONFIGS["DEAD_LETTER"]
         self.assertEqual(dead_letter_config.name, "DEAD_LETTER")
@@ -124,9 +124,9 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
     def test_consumer_configs_match_plan(self):
         """Test that consumer configurations match nats-jetstream-plan.md."""
         from src.infrastructure.event_bus_nats import NATSConsumerService, ConsumerConfig
-        
+
         service = NATSConsumerService(enabled=False)
-        
+
         # Check backtest-worker consumer configuration
         backtest_consumer = service.CONSUMER_CONFIGS["backtest-worker"]
         self.assertEqual(backtest_consumer.name, "backtest-worker")
@@ -136,7 +136,7 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(backtest_consumer.durable_name, "backtest-worker")
         self.assertEqual(backtest_consumer.ack_wait_seconds, 600)  # 10 minutes
         self.assertEqual(backtest_consumer.max_deliver, 5)
-        
+
         # Check bot-worker consumer configuration
         bot_consumer = service.CONSUMER_CONFIGS["bot-worker"]
         self.assertEqual(bot_consumer.name, "bot-worker")
@@ -149,7 +149,7 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
     async def test_connect_disabled_service(self, mock_nats):
         """Test connection when service is disabled."""
         from src.infrastructure.event_bus_nats import NATSConsumerService
-        
+
         service = NATSConsumerService(enabled=False)
         result = await service.connect()
         self.assertFalse(result)
@@ -159,12 +159,12 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
     async def test_connect_failure(self, mock_nats):
         """Test connection failure handling."""
         from src.infrastructure.event_bus_nats import NATSConsumerService
-        
+
         # Mock connection to raise an exception
         mock_client = MagicMock()
         mock_client.connect.side_effect = Exception("Connection failed")
         mock_nats.aio.client.Client.return_value = mock_client
-        
+
         service = NATSConsumerService(enabled=True)
         result = await service.connect()
         self.assertFalse(result)
@@ -172,17 +172,18 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
 
     def test_handler_registration(self):
         """Test message handler registration."""
-        from src.infrastructure.event_bus_nats import NATSConsumerService, MessageHandler, ProcessedResult, MessageAction
-        
+        from src.infrastructure.event_bus_nats import NATSConsumerService, MessageHandler, ProcessedResult, \
+            MessageAction
+
         service = NATSConsumerService(enabled=False)
-        
+
         # Create a mock handler
         mock_handler = MagicMock()
         mock_handler.handle = AsyncMock()
-        
+
         # Register the handler
         service.register_handler("test-consumer", mock_handler)
-        
+
         # Verify handler is registered
         self.assertIn("test-consumer", service._handlers)
         self.assertEqual(service._handlers["test-consumer"], mock_handler)
@@ -190,9 +191,9 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
     def test_stream_name_resolution(self):
         """Test stream name resolution from subjects."""
         from src.infrastructure.event_bus_nats import NATSConsumerService
-        
+
         service = NATSConsumerService(enabled=False)
-        
+
         # Test BACKTEST_COMMANDS stream
         stream_name = service._get_stream_name("backtest.command.start")
         self.assertEqual(stream_name, "BACKTEST_COMMANDS")
@@ -203,7 +204,7 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
         # Test BOT_COMMANDS stream
         stream_name = service._get_stream_name("bot.command.start")
         self.assertEqual(stream_name, "BOT_COMMANDS")
-        
+
         # Test unknown subject
         stream_name = service._get_stream_name("unknown.subject")
         self.assertEqual(stream_name, "UNKNOWN")
@@ -218,20 +219,20 @@ class TestBacktestCommandHandler(unittest.IsolatedAsyncioTestCase):
         self.mock_session = MagicMock()
         self.mock_result = MagicMock()
         self.mock_row = MagicMock()
-        
+
         # Configure mocks
         self.mock_row.__getitem__ = MagicMock(side_effect=lambda x: {
             0: "test-command-id",
             1: "completed"
         }[x])
-        
+
         self.mock_result.fetchone.return_value = self.mock_row
         self.mock_session.execute.return_value = self.mock_result
 
     async def test_handler_creation(self):
         """Test handler creation."""
         from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler
-        
+
         handler = BacktestCommandHandler()
         self.assertIsNotNone(handler)
         self.assertIsNotNone(handler._worker_id)
@@ -240,9 +241,9 @@ class TestBacktestCommandHandler(unittest.IsolatedAsyncioTestCase):
     async def test_parse_valid_payload(self):
         """Test parsing of valid payload."""
         from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler, BacktestCommandPayload
-        
+
         handler = BacktestCommandHandler()
-        
+
         message = {
             "command_id": "cmd-123",
             "run_id": "run-456",
@@ -256,15 +257,15 @@ class TestBacktestCommandHandler(unittest.IsolatedAsyncioTestCase):
             "source": "ui",
             "environment": "testnet"
         }
-        
+
         context = {
             "message_id": "cmd-123",
             "idempotency_key": "backtest-unique-key",
             "consumer_name": "backtest-worker"
         }
-        
+
         payload = handler._parse_payload(message, context)
-        
+
         self.assertIsNotNone(payload)
         self.assertEqual(payload.command_id, "cmd-123")
         self.assertEqual(payload.run_id, "run-456")
@@ -275,42 +276,42 @@ class TestBacktestCommandHandler(unittest.IsolatedAsyncioTestCase):
     async def test_parse_missing_required_fields(self):
         """Test parsing fails with missing required fields."""
         from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler
-        
+
         handler = BacktestCommandHandler()
-        
+
         # Missing command_id and idempotency_key
         message = {"name": "test"}
         context = {}
-        
+
         payload = handler._parse_payload(message, context)
         self.assertIsNone(payload)
 
     async def test_parse_empty_payload(self):
         """Test parsing of empty payload."""
         from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler
-        
+
         handler = BacktestCommandHandler()
-        
+
         message = {}
         context = {}
-        
+
         payload = handler._parse_payload(message, context)
         self.assertIsNone(payload)
 
     async def test_parse_uses_context_fallback(self):
         """Test parsing uses context values as fallback."""
         from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler
-        
+
         handler = BacktestCommandHandler()
-        
+
         message = {"name": "test"}
         context = {
             "message_id": "cmd-from-context",
             "idempotency_key": "key-from-context"
         }
-        
+
         payload = handler._parse_payload(message, context)
-        
+
         self.assertIsNotNone(payload)
         self.assertEqual(payload.command_id, "cmd-from-context")
         self.assertEqual(payload.idempotency_key, "key-from-context")
@@ -319,7 +320,7 @@ class TestBacktestCommandHandler(unittest.IsolatedAsyncioTestCase):
     async def test_duplicate_detection(self, mock_get_session):
         """Test duplicate detection using task_commands table."""
         from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler
-        
+
         # Configure mock session
         mock_session = MagicMock()
         mock_result = MagicMock()
@@ -331,9 +332,9 @@ class TestBacktestCommandHandler(unittest.IsolatedAsyncioTestCase):
         mock_result.fetchone.return_value = mock_row
         mock_session.execute.return_value = mock_result
         mock_get_session.return_value = mock_session
-        
+
         handler = BacktestCommandHandler()
-        
+
         # Test duplicate detection
         is_duplicate = await handler._is_duplicate("test-key", "cmd-123")
         self.assertTrue(is_duplicate)
@@ -342,16 +343,16 @@ class TestBacktestCommandHandler(unittest.IsolatedAsyncioTestCase):
     async def test_no_duplicate_when_not_found(self, mock_get_session):
         """Test no duplicate when command not found."""
         from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler
-        
+
         # Configure mock session to return no rows
         mock_session = MagicMock()
         mock_result = MagicMock()
         mock_result.fetchone.return_value = None
         mock_session.execute.return_value = mock_result
         mock_get_session.return_value = mock_session
-        
+
         handler = BacktestCommandHandler()
-        
+
         # Test no duplicate
         is_duplicate = await handler._is_duplicate("new-key", "new-cmd")
         self.assertFalse(is_duplicate)
@@ -365,10 +366,10 @@ class TestGlobalFunctions(unittest.IsolatedAsyncioTestCase):
         # Clear any existing global instances
         import src.infrastructure.event_bus_nats as event_bus_nats
         event_bus_nats._consumer_service = None
-        
+
         import src.infrastructure.workers.nats_backtest_consumer as nats_backtest
         nats_backtest._backtest_command_handler = None
-        
+
         # Mock NATS disabled
         os.environ["NATS_ENABLED"] = "false"
         os.environ["BOT_COMMAND_BUS_ENABLED"] = "false"
@@ -378,10 +379,10 @@ class TestGlobalFunctions(unittest.IsolatedAsyncioTestCase):
         # Clear global instances
         import src.infrastructure.event_bus_nats as event_bus_nats
         event_bus_nats._consumer_service = None
-        
+
         import src.infrastructure.workers.nats_backtest_consumer as nats_backtest
         nats_backtest._backtest_command_handler = None
-        
+
         # Clean up environment
         os.environ.pop("NATS_ENABLED", None)
         os.environ.pop("BOT_COMMAND_BUS_ENABLED", None)
@@ -389,17 +390,17 @@ class TestGlobalFunctions(unittest.IsolatedAsyncioTestCase):
     def test_get_consumer_service_initially_none(self):
         """Test global consumer service is initially None."""
         from src.infrastructure.event_bus_nats import get_nats_consumer_service
-        
+
         service = get_nats_consumer_service()
         self.assertIsNone(service)
 
     def test_init_consumer_service(self):
         """Test global consumer service initialization."""
         from src.infrastructure.event_bus_nats import init_nats_consumer_service, get_nats_consumer_service
-        
+
         service = init_nats_consumer_service(enabled=False)
         self.assertIsNotNone(service)
-        
+
         # Verify it's the same instance
         retrieved_service = get_nats_consumer_service()
         self.assertIs(service, retrieved_service)
@@ -408,7 +409,7 @@ class TestGlobalFunctions(unittest.IsolatedAsyncioTestCase):
     async def test_init_nats_backtest_consumers_disabled(self):
         """Test backtest consumers initialization when NATS is disabled."""
         from src.infrastructure.workers.nats_backtest_consumer import init_nats_backtest_consumers
-        
+
         handler = await init_nats_backtest_consumers()
         self.assertIsNone(handler)
 
@@ -417,13 +418,13 @@ class TestGlobalFunctions(unittest.IsolatedAsyncioTestCase):
     async def test_shutdown_nats_backtest_consumers(self, mock_handler, mock_service):
         """Test backtest consumers shutdown."""
         from src.infrastructure.workers.nats_backtest_consumer import shutdown_nats_backtest_consumers
-        
+
         # Mock consumer service with async shutdown
         mock_consumer_service = MagicMock()
         mock_consumer_service.is_connected.return_value = True
         mock_consumer_service.shutdown = AsyncMock()  # Make shutdown awaitable
         mock_service.return_value = mock_consumer_service
-        
+
         # Shutdown should not raise errors
         await shutdown_nats_backtest_consumers()
         mock_consumer_service.shutdown.assert_called_once()
@@ -437,13 +438,13 @@ class TestMessageProcessing(unittest.IsolatedAsyncioTestCase):
         self.mock_session = MagicMock()
         self.mock_result = MagicMock()
         self.mock_row = MagicMock()
-        
+
         # Configure mocks for database operations
         self.mock_row.__getitem__ = MagicMock(side_effect=lambda x: {
             0: "test-command-id",
             1: "completed"
         }[x])
-        
+
         self.mock_result.fetchone.return_value = self.mock_row
         self.mock_session.execute.return_value = self.mock_result
         self.mock_session.commit = MagicMock()
@@ -454,7 +455,7 @@ class TestMessageProcessing(unittest.IsolatedAsyncioTestCase):
         """Test handling of duplicate message."""
         from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler, MessageAction
         from src.infrastructure.event_bus_nats import ProcessedResult
-        
+
         # Configure mock for duplicate detection
         mock_session = MagicMock()
         mock_result = MagicMock()
@@ -466,22 +467,22 @@ class TestMessageProcessing(unittest.IsolatedAsyncioTestCase):
         mock_result.fetchone.return_value = mock_row
         mock_session.execute.return_value = mock_result
         mock_get_session.return_value = mock_session
-        
+
         handler = BacktestCommandHandler()
-        
+
         message = {
             "command_id": "cmd-123",
             "idempotency_key": "test-key"
         }
-        
+
         context = {
             "message_id": "cmd-123",
             "idempotency_key": "test-key",
             "consumer_name": "backtest-worker"
         }
-        
+
         result = await handler.handle(message, context)
-        
+
         self.assertEqual(result.action, MessageAction.ACK)
         self.assertEqual(result.idempotency_key, "test-key")
 
@@ -490,15 +491,15 @@ class TestMessageProcessing(unittest.IsolatedAsyncioTestCase):
         """Test handling of invalid payload."""
         from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler, MessageAction
         from src.infrastructure.event_bus_nats import ProcessedResult
-        
+
         handler = BacktestCommandHandler()
-        
+
         # Invalid payload (missing required fields)
         message = {}
         context = {"consumer_name": "backtest-worker"}
-        
+
         result = await handler.handle(message, context)
-        
+
         self.assertEqual(result.action, MessageAction.NAK)
         self.assertIn("Invalid or empty payload", result.error_message)
 
@@ -540,7 +541,7 @@ class TestMessageProcessing(unittest.IsolatedAsyncioTestCase):
     @patch('src.infrastructure.use_cases.service_backtest.BacktestService')
     @patch('src.infrastructure.workers.nats_backtest_consumer.db.get_session')
     async def test_execute_backtest_invokes_real_service_and_emits_events(
-        self, mock_get_session, mock_service_cls, mock_emit,
+            self, mock_get_session, mock_service_cls, mock_emit,
     ):
         """_execute_backtest delegates to BacktestService.execute_existing_backtest
         (the real runtime, same path Celery uses) and emits started/completed events."""
@@ -579,7 +580,7 @@ class TestMessageProcessing(unittest.IsolatedAsyncioTestCase):
     @patch('src.infrastructure.use_cases.service_backtest.BacktestService')
     @patch('src.infrastructure.workers.nats_backtest_consumer.db.get_session')
     async def test_execute_backtest_failure_emits_failed_event(
-        self, mock_get_session, mock_service_cls, mock_emit,
+            self, mock_get_session, mock_service_cls, mock_emit,
     ):
         """A raised backtest exception is caught and emits a failed event."""
         from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler
@@ -612,28 +613,28 @@ class TestConfigurationConsistency(unittest.TestCase):
     def test_stream_policies_match_plan(self):
         """Test that stream policies match the plan document."""
         from src.infrastructure.event_bus_nats import NATSConsumerService, StreamConfig
-        
+
         service = NATSConsumerService(enabled=False)
-        
+
         # From nats-jetstream-plan.md:
         # BOT_COMMANDS: work queue retention, bot-worker durable consumer, 60s-300s ack, max delivery 5
         bot_commands = service.STREAM_CONFIGS["BOT_COMMANDS"]
         self.assertEqual(bot_commands.retention, "workqueue")
-        
+
         bot_consumer = service.CONSUMER_CONFIGS["bot-worker"]
         self.assertEqual(bot_consumer.queue_group, "bot-workers")
         self.assertEqual(bot_consumer.max_deliver, 5)
         self.assertEqual(bot_consumer.ack_wait_seconds, 300)
-        
+
         # BACKTEST_COMMANDS: work queue retention, backtest-worker durable consumer, long ack window
         backtest_commands = service.STREAM_CONFIGS["BACKTEST_COMMANDS"]
         self.assertEqual(backtest_commands.retention, "workqueue")
-        
+
         backtest_consumer = service.CONSUMER_CONFIGS["backtest-worker"]
         self.assertEqual(backtest_consumer.queue_group, "backtest-workers")
         self.assertEqual(backtest_consumer.max_deliver, 5)
         self.assertEqual(backtest_consumer.ack_wait_seconds, 600)  # 10 minutes
-        
+
         # DEAD_LETTER: limits retention with long retention window
         dead_letter = service.STREAM_CONFIGS["DEAD_LETTER"]
         self.assertEqual(dead_letter.retention, "limits")
@@ -730,17 +731,17 @@ class TestFailClosedBehavior(unittest.IsolatedAsyncioTestCase):
     async def test_service_disabled_no_connection_attempt(self, mock_nats):
         """Test that disabled service doesn't attempt connection."""
         from src.infrastructure.event_bus_nats import NATSConsumerService
-        
+
         service = NATSConsumerService(enabled=False)
-        
+
         # Mock the NATS client to track if connect is called
         mock_client = MagicMock()
         mock_client.connect = AsyncMock()
         mock_nats.aio.client.Client.return_value = mock_client
-        
+
         # Connect should return False without calling NATS when disabled
         result = await service.connect()
-        
+
         # Verify no connection attempt when disabled
         self.assertFalse(result)
         self.assertFalse(service.is_connected())
@@ -750,7 +751,7 @@ class TestFailClosedBehavior(unittest.IsolatedAsyncioTestCase):
     def test_global_functions_disabled(self):
         """Test global functions handle disabled NATS gracefully."""
         from src.infrastructure.event_bus_nats import init_nats_consumer_service
-        
+
         service = init_nats_consumer_service(enabled=False)
         self.assertFalse(service.is_enabled())
 

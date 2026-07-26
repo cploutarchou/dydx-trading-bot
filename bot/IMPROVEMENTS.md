@@ -191,8 +191,9 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Risk**: Database readers, backups, or logging mistakes can expose signing secrets
     - **Files**: `src/bot_instance_manager.py`, database configuration storage
 
-- **Missing Token Revocation**: Logout/logout-all are stubs (not implemented), Redis token blacklist utilities exist but
-  aren't wired
+- **Missing Token Revocation** (RESOLVED): Logout/logout-all are now implemented — `POST /auth/logout` blacklists the
+  current JTI via the Redis-backed `TokenBlacklist`, and `POST /auth/logout-all` bumps `users.token_version` (carried as
+  the JWT `stv` claim) to invalidate all outstanding access/refresh tokens, DB-backed for multi-worker correctness.
     - **Risk**: No JWT revocation mechanism, compromised tokens remain valid
     - **Files**: Authentication modules, token management utilities
 
@@ -285,7 +286,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Effort**: 1 day
     - **Priority**: HIGH
 
-- [ ] **Implement token revocation** - Complete logout/logout-all functionality
+- [x] **Implement token revocation** - Complete logout/logout-all functionality
     - **Files**: Authentication modules, Redis token blacklist utilities
     - **Impact**: Enable proper session termination
     - **Effort**: 2-3 days
@@ -526,7 +527,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 - **Break up monolithic files** - API server (5,920 lines) and backtest service (4,440 lines)
 - **Implement distributed state management** for horizontal scaling
 - **Replace sys.exit () calls** with proper exception handling
-- **Implement token revocation** - Complete logout/logout-all functionality
+- **Implement token revocation** - Complete logout/logout-all functionality (COMPLETED)
 - **Add multi-worker tests** for process-local state issues
 - **Refactor broad exception handling** - Replace 306+ `except Exception` patterns
 

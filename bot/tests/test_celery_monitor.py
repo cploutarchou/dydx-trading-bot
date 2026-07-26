@@ -39,14 +39,14 @@ def test_makefile_local_worker_and_flower_use_workers_celery_app():
     assert "src.infrastructure.workers.celery_app:celery_app worker -l info" in content
     assert "-Q $${CELERY_QUEUES:-backtests,default,high_priority,scheduled}" in content
     assert (
-        "src.infrastructure.workers.celery_app:celery_app flower --address=0.0.0.0 --port=5555"
-        in content
+            "src.infrastructure.workers.celery_app:celery_app flower --address=0.0.0.0 --port=5555"
+            in content
     )
     assert "redis://localhost:6379/1" in content
     assert "redis://localhost:6379/2" in content
     assert (
-        "CELERY_QUEUES=$${CELERY_QUEUES:-backtests,default,high_priority,scheduled}"
-        in content
+            "CELERY_QUEUES=$${CELERY_QUEUES:-backtests,default,high_priority,scheduled}"
+            in content
     )
 
 
@@ -54,11 +54,11 @@ def test_workers_celery_app_loads_repo_env_before_resolving_broker_settings():
     from pathlib import Path
 
     celery_app_module = (
-        Path(__file__).resolve().parents[1]
-        / "src"
-        / "infrastructure"
-        / "workers"
-        / "celery_app.py"
+            Path(__file__).resolve().parents[1]
+            / "src"
+            / "infrastructure"
+            / "workers"
+            / "celery_app.py"
     )
     content = celery_app_module.read_text(encoding="utf-8")
 
@@ -159,7 +159,7 @@ def test_task_context_overrides_replace_existing_worker_hostname():
 
 
 def test_mark_worker_failure_reuses_existing_task_context_without_duplicate_kwargs(
-    monkeypatch,
+        monkeypatch,
 ):
     from src.infrastructure.workers import backtest_tasks
 

@@ -25,10 +25,10 @@ def _sanitize_node_url_env(var_name: str) -> None:
     value = raw.strip()
     lowered = value.lower()
     if lowered.startswith("http://"):
-        os.environ[var_name] = value[len("http://") :]
+        os.environ[var_name] = value[len("http://"):]
         return
     if lowered.startswith("https://"):
-        os.environ[var_name] = value[len("https://") :]
+        os.environ[var_name] = value[len("https://"):]
         return
 
 
@@ -112,41 +112,41 @@ def _run_nats_worker() -> int:
     import asyncio
     import logging
     import signal
-    
+
     from src.shared.logging_setup import setup_logging
     from src.infrastructure.workers.nats_backtest_consumer import (
         init_nats_backtest_consumers,
         shutdown_nats_backtest_consumers,
     )
-    
+
     # Initialize Loguru bridge early so imports/logic are captured.
     setup_logging()
-    
+
     load_file_env_values(override=True)
-    
+
     # Set up standard logging
     logging.basicConfig(
         level=os.getenv("LOG_LEVEL", "INFO"),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
-    
+
     logger = logging.getLogger(__name__)
     logger.info("Starting NATS JetStream consumer worker...")
-    
+
     # Handle shutdown signals
     shutdown_event = asyncio.Event()
-    
+
     def handle_shutdown(signame, _):
         logger.info(f"Received signal {signame}, shutting down...")
         shutdown_event.set()
-    
+
     # Set up signal handlers
     try:
         import uvloop
         uvloop.install()
     except ImportError:
         pass
-    
+
     async def run():
         try:
             # Initialize NATS consumers
@@ -154,17 +154,17 @@ def _run_nats_worker() -> int:
             if not handler:
                 logger.error("Failed to initialize NATS consumers")
                 return 1
-            
+
             logger.info("NATS backtest consumer started successfully")
-            
+
             # Wait for shutdown signal
             await shutdown_event.wait()
-            
+
             # Shutdown NATS consumers
             await shutdown_nats_backtest_consumers()
-            
+
             return 0
-            
+
         except asyncio.CancelledError:
             logger.info("NATS worker cancelled")
             await shutdown_nats_backtest_consumers()
@@ -173,14 +173,14 @@ def _run_nats_worker() -> int:
             logger.error(f"NATS worker error: {e}")
             await shutdown_nats_backtest_consumers()
             return 1
-    
+
     # Set up signal handlers
     try:
         signal.signal(signal.SIGINT, lambda s, f: handle_shutdown("SIGINT", f))
         signal.signal(signal.SIGTERM, lambda s, f: handle_shutdown("SIGTERM", f))
     except (ValueError, OSError) as e:
         logger.warning(f"Could not set signal handlers: {e}")
-    
+
     try:
         return asyncio.run(run())
     except KeyboardInterrupt:
@@ -203,11 +203,11 @@ def main() -> int:
     _sanitize_node_url_env("DYDX_MAINNET_NODE_URL")
 
     mode = os.getenv("WORKER_MODE", "bot").strip().lower()
-    
+
     # Phase 4: NATS JetStream consumer mode
     if mode in {"nats", "nats-worker", "nats-backtest", "backtest-nats"}:
         return _run_nats_worker()
-    
+
     if mode in {"celery", "celery-backtest", "backtest-celery"}:
         argv = [
             "celery",

@@ -114,8 +114,8 @@ def downgrade() -> None:
 
     existing_indexes = {idx["name"] for idx in inspector.get_indexes(table_name)}
     for index_name in (
-        "ix_backtest_runtime_runs_completed_at",
-        "ix_backtest_runtime_runs_started_at",
+            "ix_backtest_runtime_runs_completed_at",
+            "ix_backtest_runtime_runs_started_at",
     ):
         if index_name in existing_indexes:
             op.drop_index(index_name, table_name=table_name)

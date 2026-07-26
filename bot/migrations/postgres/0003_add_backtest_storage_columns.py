@@ -71,4 +71,3 @@ def downgrade() -> None:
 
     if "artifact_refs" in existing_columns:
         op.drop_column("backtest_runtime_runs", "artifact_refs")
-

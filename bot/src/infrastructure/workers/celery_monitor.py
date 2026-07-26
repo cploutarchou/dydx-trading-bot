@@ -151,19 +151,19 @@ def redact_payload(value: Any) -> Any:
 
 
 def build_progress_meta(
-    *,
-    run_id: str,
-    progress_percent: float,
-    current_pair: Optional[str],
-    current_step: Optional[str],
-    total_pairs: Optional[int] = None,
-    completed_pairs: Optional[int] = None,
-    current_phase: Optional[str] = None,
-    eta_seconds: Optional[float] = None,
-    strategy_id: Optional[Any] = None,
-    bot_id: Optional[Any] = None,
-    environment: Optional[str] = None,
-    selected_pairs: Optional[Iterable[str]] = None,
+        *,
+        run_id: str,
+        progress_percent: float,
+        current_pair: Optional[str],
+        current_step: Optional[str],
+        total_pairs: Optional[int] = None,
+        completed_pairs: Optional[int] = None,
+        current_phase: Optional[str] = None,
+        eta_seconds: Optional[float] = None,
+        strategy_id: Optional[Any] = None,
+        bot_id: Optional[Any] = None,
+        environment: Optional[str] = None,
+        selected_pairs: Optional[Iterable[str]] = None,
 ) -> Dict[str, Any]:
     return {
         "task_id": run_id,
@@ -181,9 +181,9 @@ def build_progress_meta(
         "backtest_run_id": run_id,
         "bot_id": bot_id,
         "environment": environment
-        or os.getenv("ENVIRONMENT")
-        or os.getenv("APP_ENV")
-        or "local",
+                       or os.getenv("ENVIRONMENT")
+                       or os.getenv("APP_ENV")
+                       or "local",
         "selected_pairs": list(selected_pairs or []),
     }
 
@@ -243,7 +243,7 @@ def _task_failure(run: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _task_from_backtest(
-    run: Dict[str, Any], result: Optional[AsyncResult] = None
+        run: Dict[str, Any], result: Optional[AsyncResult] = None
 ) -> Dict[str, Any]:
     request = _backtest_request(run)
     task_context = _task_context(run)
@@ -259,10 +259,10 @@ def _task_from_backtest(
     finished_at = run.get("finished_at") or run.get("completed_at")
     result_meta = _result_payload(result) if result is not None else {}
     error_message = (
-        result_meta.get("error_message")
-        or task_failure.get("error_message")
-        or run.get("error_message")
-        or run.get("error")
+            result_meta.get("error_message")
+            or task_failure.get("error_message")
+            or run.get("error_message")
+            or run.get("error")
     )
     traceback_value = (
         result.traceback
@@ -270,11 +270,11 @@ def _task_from_backtest(
         else task_failure.get("traceback") or run.get("traceback")
     )
     selected_pairs = (
-        _as_list(result_meta.get("selected_pairs"))
-        or _as_list(task_context.get("selected_pairs"))
-        or _as_list(run.get("selected_pairs"))
-        or _as_list(request.get("selected_pairs"))
-        or _as_list(request.get("pairs"))
+            _as_list(result_meta.get("selected_pairs"))
+            or _as_list(task_context.get("selected_pairs"))
+            or _as_list(run.get("selected_pairs"))
+            or _as_list(request.get("selected_pairs"))
+            or _as_list(request.get("pairs"))
     )
     metadata: Dict[str, Any] = {}
     task_metadata = task_context.get("metadata")
@@ -296,9 +296,9 @@ def _task_from_backtest(
         "task_id": task_id,
         "task_name": "backtests.run",
         "queue": result_meta.get("queue")
-        or run.get("queue")
-        or task_context.get("queue")
-        or "backtests",
+                 or run.get("queue")
+                 or task_context.get("queue")
+                 or "backtests",
         "status": status,
         "normalized_status": normalized_task_status(status),
         "created_at": run.get("created_at"),
@@ -309,30 +309,30 @@ def _task_from_backtest(
         "current_step": run.get("current_task") or result_meta.get("current_step"),
         "current_pair": run.get("current_pair") or result_meta.get("current_pair"),
         "strategy_id": result_meta.get("strategy_id")
-        or task_context.get("strategy_id")
-        or run.get("strategy_id")
-        or request.get("strategy_id"),
+                       or task_context.get("strategy_id")
+                       or run.get("strategy_id")
+                       or request.get("strategy_id"),
         "backtest_run_id": run.get("run_id"),
         "bot_id": result_meta.get("bot_id")
-        or task_context.get("bot_id")
-        or run.get("bot_id")
-        or request.get("bot_id"),
+                  or task_context.get("bot_id")
+                  or run.get("bot_id")
+                  or request.get("bot_id"),
         "environment": result_meta.get("environment")
-        or task_context.get("environment")
-        or run.get("environment")
-        or request.get("environment")
-        or os.getenv("ENVIRONMENT")
-        or os.getenv("APP_ENV")
-        or "local",
+                       or task_context.get("environment")
+                       or run.get("environment")
+                       or request.get("environment")
+                       or os.getenv("ENVIRONMENT")
+                       or os.getenv("APP_ENV")
+                       or "local",
         "selected_pairs": selected_pairs,
         "error_code": result_meta.get("error_code") or task_failure.get("error_code"),
         "error_message": str(error_message) if error_message else None,
         "traceback": traceback_value,
         "worker_hostname": result_meta.get("worker_hostname")
-        or task_context.get("worker_hostname")
-        or result_meta.get("hostname"),
+                           or task_context.get("worker_hostname")
+                           or result_meta.get("hostname"),
         "retry_count": result_meta.get("retry_count")
-        or task_context.get("retry_count"),
+                       or task_context.get("retry_count"),
         "parent_task_id": result_meta.get("parent_task_id"),
         "child_task_ids": result_meta.get("child_task_ids") or [],
         "result": (
@@ -397,7 +397,7 @@ def _should_probe_async_result(run: Dict[str, Any]) -> bool:
 
 
 def _flatten_worker_tasks(
-    worker_payload: Optional[Dict[str, Any]], state_name: str
+        worker_payload: Optional[Dict[str, Any]], state_name: str
 ) -> List[Dict[str, Any]]:
     tasks: List[Dict[str, Any]] = []
     if not worker_payload:
@@ -434,8 +434,8 @@ def _flatten_worker_tasks(
                     ),
                     "bot_id": None,
                     "environment": os.getenv("ENVIRONMENT")
-                    or os.getenv("APP_ENV")
-                    or "local",
+                                   or os.getenv("APP_ENV")
+                                   or "local",
                     "selected_pairs": [],
                     "error_message": None,
                     "traceback": None,
@@ -449,7 +449,7 @@ def _flatten_worker_tasks(
 
 
 def list_celery_tasks(
-    filters: Optional[Dict[str, Any]] = None, limit: int = 100
+        filters: Optional[Dict[str, Any]] = None, limit: int = 100
 ) -> Dict[str, Any]:
     filters = filters or {}
     cache_key = f"tasks:{tuple(sorted(filters.items()))}:{max(1, min(limit, 500))}"
@@ -706,11 +706,11 @@ def celery_health() -> Dict[str, Any]:
 
 
 def failure_meta(
-    exc: BaseException,
-    task_id: str,
-    run_id: Optional[str] = None,
-    *,
-    error_code: Optional[str] = None,
+        exc: BaseException,
+        task_id: str,
+        run_id: Optional[str] = None,
+        *,
+        error_code: Optional[str] = None,
 ) -> Dict[str, Any]:
     return {
         "task_id": task_id,

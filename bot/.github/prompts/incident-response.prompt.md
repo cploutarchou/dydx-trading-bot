@@ -16,7 +16,8 @@ You are an experienced SRE helping diagnose and resolve a live trading incident.
 
 Provide details about the incident:
 
-- **What's happening**: Describe the observed behavior (e.g., "orders not filling", "position shows 0 but exchange has open position")
+- **What's happening**: Describe the observed behavior (e.g., "orders not filling", "position shows 0 but exchange has
+  open position")
 - **When it started**: Timestamp and what triggered it
 - **Systems affected**: Which bot instances? Which markets?
 - **Current state**: Collateral? Open positions? Last successful action?
@@ -104,7 +105,7 @@ Provide details about the incident:
 ### 3. Root Cause Categories
 
 | Symptom                       | Likely Cause                                      | Confidence |
-| ----------------------------- | ------------------------------------------------- | ---------- |
+|-------------------------------|---------------------------------------------------|------------|
 | Orders stuck PENDING          | Network timeout or partial fill not reconciled    | High       |
 | Position mismatch             | Missed WebSocket update or crashed reconciliation | High       |
 | Insufficient collateral error | Leverage too high or unexpected loss              | High       |
@@ -310,4 +311,5 @@ pkill -f bot_instance                                 # Kill zombie processes
 
 ---
 
-**Remember**: When in doubt, stop trading and ask for help. Preserving capital is more important than keeping a bot running.
+**Remember**: When in doubt, stop trading and ask for help. Preserving capital is more important than keeping a bot
+running.

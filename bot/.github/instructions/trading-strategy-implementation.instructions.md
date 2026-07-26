@@ -20,10 +20,10 @@ Apply these rules when building or modifying trading strategies and decision log
 ### 2. Arbitrage Safety
 
 - Cross-exchange spreads must account for:
-  - Withdrawal/deposit delays and fees
-  - Network latency and order execution variance
-  - Liquidity depth and partial fill scenarios
-  - Fee structures (maker, taker, withdrawal)
+    - Withdrawal/deposit delays and fees
+    - Network latency and order execution variance
+    - Liquidity depth and partial fill scenarios
+    - Fee structures (maker, taker, withdrawal)
 - Never assume instant fills; model partial execution and cancellation flow
 - Calculate break-even threshold BEFORE signal generation
 - Document all assumptions in docstrings with ranges/constraints
@@ -41,31 +41,31 @@ Apply these rules when building or modifying trading strategies and decision log
 - On startup: validate local position state vs. exchange state
 - Implement diffs tolerance: expected vs. actual holdings
 - For mismatches:
-  - Log with full context (exchange API calls, local cache, timing)
-  - Escalate with Telegram alert if drift exceeds threshold
-  - Never auto-correct without human review on mainnet
-  - Quarantine affected positions pending investigation
+    - Log with full context (exchange API calls, local cache, timing)
+    - Escalate with Telegram alert if drift exceeds threshold
+    - Never auto-correct without human review on mainnet
+    - Quarantine affected positions pending investigation
 - Implement per-subaccount position tracking with rollup validation
 
 ### 5. Market Data Validation
 
 - Validate market data freshness before using in decisions
-  - Detect stale price feeds (e.g., no update for N seconds)
-  - Detect spread anomalies (bid > ask or impossible levels)
-  - Detect volume anomalies (exchange circuit breaker behavior)
+    - Detect stale price feeds (e.g., no update for N seconds)
+    - Detect spread anomalies (bid > ask or impossible levels)
+    - Detect volume anomalies (exchange circuit breaker behavior)
 - Fallback to last-known state with explicit degradation mode
 - Log all data anomalies for post-incident review
 
 ### 6. Order Execution Safety
 
 - Implement pre-order validation:
-  - Sufficient collateral for worst-case loss
-  - Position limits not exceeded after fill
-  - Order price within band (e.g., ±5% of mark price)
+    - Sufficient collateral for worst-case loss
+    - Position limits not exceeded after fill
+    - Order price within band (e.g., ±5% of mark price)
 - Implement order lifecycle tracking:
-  - Keep pending orders in-memory with timeout
-  - Detect partial fills and adjust remaining quantity
-  - Reconcile filled quantities against exchange receipts
+    - Keep pending orders in-memory with timeout
+    - Detect partial fills and adjust remaining quantity
+    - Reconcile filled quantities against exchange receipts
 - For failed orders: log rejection reason, backoff if transient, escalate if persistent
 
 ### 7. Liquidation Prevention
@@ -73,10 +73,10 @@ Apply these rules when building or modifying trading strategies and decision log
 - Track liquidation distance (mark price to liquidation price)
 - Inject safety margin: never exceed collateral × (1 - safety_factor)
 - On liquidation risk (distance < threshold):
-  - Close highest-risk positions first
-  - Reduce position size by fixed factor (e.g., 25%)
-  - Notify with urgent alert + detailed reasoning
-  - Log trades that avoided liquidation (for audit)
+    - Close highest-risk positions first
+    - Reduce position size by fixed factor (e.g., 25%)
+    - Notify with urgent alert + detailed reasoning
+    - Log trades that avoided liquidation (for audit)
 
 ## Implementation Patterns
 

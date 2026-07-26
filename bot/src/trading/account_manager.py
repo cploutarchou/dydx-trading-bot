@@ -171,7 +171,7 @@ async def get_order_fills(client, order_id, market=None, limit: int = 100):
         for fill in fills
         if isinstance(fill, dict)
         if str(fill.get("orderId") or fill.get("order_id") or fill.get("orderID") or "")
-        == order_id_text
+           == order_id_text
     ]
 
 
@@ -320,7 +320,7 @@ def _resolve_order_from_snapshot(
         expected_side: str,
         expected_size: Any,
         expected_reduce_only: bool,
-    allow_fallback: bool = False,
+        allow_fallback: bool = False,
 ) -> Optional[str]:
     """Resolve placed order ID from a recent indexer snapshot."""
     expected_client_id = int(market_order_id.client_id)

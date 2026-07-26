@@ -28,38 +28,38 @@ Produce maintainable documentation that explains:
 ## Required output sections
 
 1. **Architecture snapshot**
-   - Core components and responsibilities
-   - Runtime boundaries and process isolation
+    - Core components and responsibilities
+    - Runtime boundaries and process isolation
 
 2. **Flow map (high level)**
-   - End-to-end flow in concise bullets
-   - Main happy path and critical alternate paths
+    - End-to-end flow in concise bullets
+    - Main happy path and critical alternate paths
 
 3. **Business logic flow**
-   - Decision points and guardrails
-   - Execution safety controls and reconciliation behavior
-   - Preconditions and postconditions for key operations
+    - Decision points and guardrails
+    - Execution safety controls and reconciliation behavior
+    - Preconditions and postconditions for key operations
 
 4. **Application/API flow**
-   - Route/handler to service/module mapping
-   - Instance lifecycle (create/start/status/stop/delete)
-   - Auth and readiness behavior where relevant
+    - Route/handler to service/module mapping
+    - Instance lifecycle (create/start/status/stop/delete)
+    - Auth and readiness behavior where relevant
 
 5. **Sequence diagrams (Mermaid)**
-   - One system-level sequence
-   - One lifecycle sequence
-   - One failure/recovery sequence
+    - One system-level sequence
+    - One lifecycle sequence
+    - One failure/recovery sequence
 
 6. **Data and state flow**
-   - Persistent stores, in-memory state, and `bot_states/*` artifacts
-   - State transitions and consistency safeguards
+    - Persistent stores, in-memory state, and `bot_states/*` artifacts
+    - State transitions and consistency safeguards
 
 7. **Failure modes and rollback notes**
-   - Top operational risks
-   - What to do if runtime/exchange/local state diverges
+    - Top operational risks
+    - What to do if runtime/exchange/local state diverges
 
 8. **Validation checklist**
-   - Concrete steps to verify behavior in dev/testnet
+    - Concrete steps to verify behavior in dev/testnet
 
 ## Documentation quality bar
 

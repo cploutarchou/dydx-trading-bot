@@ -177,7 +177,7 @@ class DatabaseConfig:
         raise ValueError(f"Unsupported database URL scheme: {raw_url}")
 
     def _fields_from_url(
-        self, raw_url: str
+            self, raw_url: str
     ) -> Optional[tuple[str, str, str, str, str]]:
         normalized = self._normalize_database_url(raw_url)
         if not normalized:
@@ -336,7 +336,7 @@ class DatabaseConfig:
 
     @staticmethod
     def _normalized_target_fields(
-        fields: tuple[str, str, str, str, str] | None,
+            fields: tuple[str, str, str, str, str] | None,
     ) -> tuple[str, str, str] | None:
         if fields is None:
             return None
@@ -645,7 +645,7 @@ class DatabaseManager:
                 }
                 bot_id_column = job_columns.get("bot_id")
                 if bot_id_column is not None and not bool(
-                    bot_id_column.get("nullable", True)
+                        bot_id_column.get("nullable", True)
                 ):
                     logger.info(
                         "Applying compatibility fix: allowing jobs.bot_id to be nullable"
@@ -746,7 +746,7 @@ class DatabaseManager:
         return alembic_config
 
     def ensure_alembic_baseline(
-        self, baseline_revision: str = "0003_backtest_storage_cols"
+            self, baseline_revision: str = "0003_backtest_storage_cols"
     ) -> str:
         """Stamp legacy schemas that were created outside Alembic.
 
@@ -865,11 +865,11 @@ def init_db():
 
     admin_username = os.getenv("BOOTSTRAP_ADMIN_USERNAME", "admin").strip() or "admin"
     admin_email = (
-        os.getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@localhost").strip()
-        or "admin@localhost"
+            os.getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@localhost").strip()
+            or "admin@localhost"
     )
     admin_password = (
-        os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "admin123").strip() or "admin123"
+            os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "admin123").strip() or "admin123"
     )
 
     if not admin_password:

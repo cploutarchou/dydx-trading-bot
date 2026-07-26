@@ -11,7 +11,7 @@ def _set_environment(monkeypatch, value: str):
 
 @pytest.mark.parametrize("environment", ["production", "prod", "live", "mainnet"])
 def test_auth_bypass_is_forbidden_in_production_like_environments(
-    monkeypatch, environment
+        monkeypatch, environment
 ):
     monkeypatch.setenv("API_BYPASS_AUTH", "true")
     _set_environment(monkeypatch, environment)
@@ -22,7 +22,7 @@ def test_auth_bypass_is_forbidden_in_production_like_environments(
 
 @pytest.mark.parametrize("environment", ["development", "dev", "local"])
 def test_auth_bypass_is_allowed_in_explicit_development_environments(
-    monkeypatch, environment
+        monkeypatch, environment
 ):
     monkeypatch.setenv("API_BYPASS_AUTH", "true")
     _set_environment(monkeypatch, environment)

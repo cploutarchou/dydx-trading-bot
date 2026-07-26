@@ -12,20 +12,31 @@ Repository-level guidance for coding agents working on this project.
 ## Task-specific instruction files
 
 **For API endpoint work (new or modified routes):**
-- `.github/instructions/api-route-safety.instructions.md` — Request validation, response envelopes, auth strictness, backwards compatibility
+
+- `.github/instructions/api-route-safety.instructions.md` — Request validation, response envelopes, auth strictness,
+  backwards compatibility
 
 **For trading strategy implementation:**
-- `.github/instructions/trading-strategy.instructions.md` — Safety-first design, collateral validation, position tracking, observability
-- `.github/instructions/trading-strategy-implementation.instructions.md` — Decision logic determinism, risk controls, liquidation prevention, audit logging
+
+- `.github/instructions/trading-strategy.instructions.md` — Safety-first design, collateral validation, position
+  tracking, observability
+- `.github/instructions/trading-strategy-implementation.instructions.md` — Decision logic determinism, risk controls,
+  liquidation prevention, audit logging
 
 **For runtime/lifecycle changes:**
-- `.github/instructions/runtime-safety.instructions.md` — Async safety, exception propagation, interpreter consistency, state safety
+
+- `.github/instructions/runtime-safety.instructions.md` — Async safety, exception propagation, interpreter consistency,
+  state safety
 
 **For database migrations:**
-- `.github/instructions/migration-safety.instructions.md` — Phased non-null rollout, lock risks, downgrade plans, verification
+
+- `.github/instructions/migration-safety.instructions.md` — Phased non-null rollout, lock risks, downgrade plans,
+  verification
 
 **For project quality improvements:**
-- `.github/instructions/improvement-output.instructions.md` — Findings/plan/changes/validation structure, risk assessment, rollback notes
+
+- `.github/instructions/improvement-output.instructions.md` — Findings/plan/changes/validation structure, risk
+  assessment, rollback notes
 
 ## Primary goals
 
@@ -64,30 +75,40 @@ Repository-level guidance for coding agents working on this project.
 
 - Keep overlap support for `BOT_API_TOKEN`, `BOT_API_TOKEN_PREVIOUS`, and `BOT_API_TOKENS`; if changed, update
   `tests/test_auth_middleware_service_token.py`.
+
 11. **Supervised async background work**
-     - Launch long-running/background tasks via `src/infrastructure/use_cases/async_job_manager.py` so task
-       failures/progress persist to job state and are visible to operators.
+    - Launch long-running/background tasks via `src/infrastructure/use_cases/async_job_manager.py` so task
+      failures/progress persist to job state and are visible to operators.
 
 ## Local Development Commands
 
 **API and runtime (use `.venv` interpreter):**
+
 - `make local-api` — Start canonical API server locally on port 8889 (default: no hot-reload for clean shutdown)
 - `make local-api-reload` — Start API with hot-reload (dev/debug only; use `BOT_API_RELOAD=true`)
 - `make local-bot` — Start bot instance runtime worker locally
-- `make local-worker` — Start Celery worker for backtest tasks (requires Valkey/Redis-compatible broker at `$CELERY_BROKER_URL`, `REDIS_URL`, `VALKEY_URL`, or local `localhost:6379`)
+- `make local-worker` — Start Celery worker for backtest tasks (requires Valkey/Redis-compatible broker at
+  `$CELERY_BROKER_URL`, `REDIS_URL`, `VALKEY_URL`, or local `localhost:6379`)
 - `make local-flower` — Start Celery Flower UI locally on port 5555 (requires active worker)
 
-**Important workflow**: When using Celery for backtest execution, start `make local-worker` BEFORE `make local-api` so the API startup probes detect the Celery backend. If worker comes online later, restart the API. For legacy `/api/backtest/jobs` requests, also ensure `BACKTEST_TASK_ALWAYS_EAGER=false` so tasks execute asynchronously instead of inline.
+**Important workflow**: When using Celery for backtest execution, start `make local-worker` BEFORE `make local-api` so
+the API startup probes detect the Celery backend. If worker comes online later, restart the API. For legacy
+`/api/backtest/jobs` requests, also ensure `BACKTEST_TASK_ALWAYS_EAGER=false` so tasks execute asynchronously instead of
+inline.
 
 **Testing and validation:**
+
 - `make test` — Run full pytest suite
 - `make test-auth` — Test authentication system (runs `test_api_database_integration.py` in Docker)
 - `make preflight-testnet` — Run testnet preflight checks with production-like simulation
 - `make preflight-testnet-strict` — Run strict preflight (warnings fail; required for release)
-- `make test-execution-safety` — Run regression tests for order execution, emergency cleanup, and position reconciliation
-- `make simulate-production-profile` — Run baseline vs production-profile simulation via backtest API (`scripts/simulate_production_profile.py --skip-auth`)
+- `make test-execution-safety` — Run regression tests for order execution, emergency cleanup, and position
+  reconciliation
+- `make simulate-production-profile` — Run baseline vs production-profile simulation via backtest API
+  (`scripts/simulate_production_profile.py --skip-auth`)
 
 **Docker orchestration:**
+
 - `make setup` — Initialize development environment
 - `make dev` — Start development environment with Docker (hot reload enabled)
 - `make dev-detached` — Start development environment in background
@@ -97,29 +118,46 @@ Repository-level guidance for coding agents working on this project.
 ## Celery and Backtest Patterns
 
 **Backtest job architecture:**
+
 - Backtest execution is Celery-backed when `make local-worker` is running and available at startup
 - Long-running backtests persist per-job logs to `bot_states/backtest_<run_id>.log` (Loguru handler)
 - Backtest progress is throttled in the database to reduce IO pressure
 - Log retrieval: `GET /api/v1/backtests/{run_id}/logs` returns detailed execution logs
 - Startup recovery modes:
-  - Default (fail-safe): stale backtest rows marked as failed, orphaned live bots marked error
-  - `BACKTEST_AUTO_RECOVERY_MODE=restart`: stale backtests requeued (waits for `BACKTEST_AUTO_RECOVERY_MIN_AGE_SECONDS`)
-  - `BOT_AUTO_RECOVER_LIVE_RUNTIMES=true`: testnet live bots auto-restarted on missing worker
-  - Mainnet auto-restart also requires `BOT_AUTO_RECOVER_LIVE_MAINNET=true`
-- Heartbeat keepalive: active backtests refresh heartbeat to avoid being flagged stale; override with `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS`
+    - Default (fail-safe): stale backtest rows marked as failed, orphaned live bots marked error
+    - `BACKTEST_AUTO_RECOVERY_MODE=restart`: stale backtests requeued (waits for
+      `BACKTEST_AUTO_RECOVERY_MIN_AGE_SECONDS`)
+    - `BOT_AUTO_RECOVER_LIVE_RUNTIMES=true`: testnet live bots auto-restarted on missing worker
+    - Mainnet auto-restart also requires `BOT_AUTO_RECOVER_LIVE_MAINNET=true`
+- Heartbeat keepalive: active backtests refresh heartbeat to avoid being flagged stale; override with
+  `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS`
 
 **Worker startup and config:**
+
 - Workers load structured config from `src.infrastructure.workers.celery_app:celery_app`
 - Celery broker/backend configured via `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` environment variables
-- Valkey is the standard local Redis-compatible backend (local defaults: `redis://localhost:6379/1` for Celery broker and `redis://localhost:6379/2` for results when `CELERY_*` is unset)
+- Valkey is the standard local Redis-compatible backend (local defaults: `redis://localhost:6379/1` for Celery broker
+  and `redis://localhost:6379/2` for results when `CELERY_*` is unset)
 - Flower connects to the same broker/backend and displays worker status only after worker is online
-- Additional scheduled workers: `src/infrastructure/workers/market_sync_tasks.py` (market data sync), `src/infrastructure/workers/candle_aggregate_tasks.py` (OHLCV aggregation), `src/infrastructure/workers/celery_monitor.py` (Celery health monitoring)
- - Worker metrics recording: `src/infrastructure/workers/celery_metrics.py` (Celery task metrics), `src/infrastructure/workers/nats_worker_metrics.py` (NATS worker metrics); both record task duration, success/failure, retry count, and throughput to ClickHouse (`worker_metrics` table) when `BACKTEST_CLICKHOUSE_WRITES_ENABLED=true`
-- NATS consumer infrastructure: `src/infrastructure/event_bus_nats.py` (dual-write JetStream consumer foundation for Phase 4), `src/infrastructure/workers/nats_backtest_consumer.py` (idempotent backtest command consumer); implements explicit ack after authoritative PostgreSQL state updates, retry/ack/dead-letter handling, and idempotency checking via task tables
+- Additional scheduled workers: `src/infrastructure/workers/market_sync_tasks.py` (market data sync),
+  `src/infrastructure/workers/candle_aggregate_tasks.py` (OHLCV aggregation),
+  `src/infrastructure/workers/celery_monitor.py` (Celery health monitoring)
+- Worker metrics recording: `src/infrastructure/workers/celery_metrics.py` (Celery task metrics),
+  `src/infrastructure/workers/nats_worker_metrics.py` (NATS worker metrics); both record task duration, success/failure,
+  retry count, and throughput to ClickHouse (`worker_metrics` table) when `BACKTEST_CLICKHOUSE_WRITES_ENABLED=true`
+- NATS consumer infrastructure: `src/infrastructure/event_bus_nats.py` (dual-write JetStream consumer foundation for
+  Phase 4), `src/infrastructure/workers/nats_backtest_consumer.py` (idempotent backtest command consumer); implements
+  explicit ack after authoritative PostgreSQL state updates, retry/ack/dead-letter handling, and idempotency checking
+  via task tables
 
 **Optional storage adapters:**
-- Analytics writes to ClickHouse: `BACKTEST_CLICKHOUSE_WRITES_ENABLED=false` (off by default); configure via `CLICKHOUSE_URL` or `CLICKHOUSE_HOST`/`CLICKHOUSE_PORT`; implementation in `src/infrastructure/storage/clickhouse_writer.py`
-- Artifact storage via MinIO/S3: `BACKTEST_MINIO_ARTIFACTS_ENABLED=false` (off by default); configure via `MINIO_ENDPOINT`, `MINIO_BUCKET`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `S3_ENDPOINT`; implementation in `src/infrastructure/storage/minio_artifact_store.py`
+
+- Analytics writes to ClickHouse: `BACKTEST_CLICKHOUSE_WRITES_ENABLED=false` (off by default); configure via
+  `CLICKHOUSE_URL` or `CLICKHOUSE_HOST`/`CLICKHOUSE_PORT`; implementation in
+  `src/infrastructure/storage/clickhouse_writer.py`
+- Artifact storage via MinIO/S3: `BACKTEST_MINIO_ARTIFACTS_ENABLED=false` (off by default); configure via
+  `MINIO_ENDPOINT`, `MINIO_BUCKET`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `S3_ENDPOINT`; implementation in
+  `src/infrastructure/storage/minio_artifact_store.py`
 - Storage abstraction layers: `src/infrastructure/storage/analytics.py` and `src/infrastructure/storage/artifacts.py`
 
 ## Required checks for bot-runtime changes
@@ -135,19 +173,29 @@ Repository-level guidance for coding agents working on this project.
   lifecycle updates after runtime state changes.
 - Verify per-instance subprocess logs still write to `bot_states/bot_<instance_id>.log` and dead-process cleanup remains
   active when touching `src/bot_instance_manager.py`.
-- Run `tests/test_backtest_api_contract.py` when touching backtest routes/payloads to preserve backend-facing status/progress and alias contracts.
+- Run `tests/test_backtest_api_contract.py` when touching backtest routes/payloads to preserve backend-facing
+  status/progress and alias contracts.
 - Run `tests/test_async_job_manager.py` when touching background task orchestration (`async_job_manager`) behavior.
-- Run `tests/test_market_sync_tasks.py` and `tests/test_market_data_cache.py` when touching market data sync, caching, or candle aggregation.
-- Run `tests/test_position_manager_exit_safety.py` and `tests/test_position_manager_entry_backoff.py` when touching position entry/exit logic or backoff behavior.
+- Run `tests/test_market_sync_tasks.py` and `tests/test_market_data_cache.py` when touching market data sync, caching,
+  or candle aggregation.
+- Run `tests/test_position_manager_exit_safety.py` and `tests/test_position_manager_entry_backoff.py` when touching
+  position entry/exit logic or backoff behavior.
 - Run `tests/test_storage_adapters.py` when touching ClickHouse or MinIO storage integration.
-- Run `tests/test_arbitrage_observability.py` and `tests/test_arbitrage_cycle_cache.py` when touching arbitrage decision logic or pair caching.
-- Run `tests/test_live_risk_controls.py` and `tests/test_live_trade_persistence.py` when touching live trading risk controls or trade persistence.
-- Run `tests/test_auth_api_contract.py` and `tests/test_auth_bypass_environment_guard.py` when touching auth routes or bypass behavior.
+- Run `tests/test_arbitrage_observability.py` and `tests/test_arbitrage_cycle_cache.py` when touching arbitrage decision
+  logic or pair caching.
+- Run `tests/test_live_risk_controls.py` and `tests/test_live_trade_persistence.py` when touching live trading risk
+  controls or trade persistence.
+- Run `tests/test_auth_api_contract.py` and `tests/test_auth_bypass_environment_guard.py` when touching auth routes or
+  bypass behavior.
 - Run `tests/test_celery_monitor.py` when touching Celery inspection, task monitoring, or Flower integration.
-- Run `tests/test_backtest_event_emitter.py` when touching NATS JetStream backtest event publishing (requires `NATS_TEST_URL` env var pointing at live NATS server).
-- Run `tests/test_celery_metrics.py` and `tests/test_nats_worker_metrics.py` when touching worker metrics recording to ClickHouse.
-- Run `tests/test_nats_consumer*.py` when touching NATS JetStream consumer infrastructure, idempotency checking, or message handling.
-- Run `make test-execution-safety` when touching order execution, emergency cleanup, or position-reconciliation safety paths.
+- Run `tests/test_backtest_event_emitter.py` when touching NATS JetStream backtest event publishing (requires
+  `NATS_TEST_URL` env var pointing at live NATS server).
+- Run `tests/test_celery_metrics.py` and `tests/test_nats_worker_metrics.py` when touching worker metrics recording to
+  ClickHouse.
+- Run `tests/test_nats_consumer*.py` when touching NATS JetStream consumer infrastructure, idempotency checking, or
+  message handling.
+- Run `make test-execution-safety` when touching order execution, emergency cleanup, or position-reconciliation safety
+  paths.
 - Run `make preflight-testnet` (and `make preflight-testnet-strict` for release-oriented changes) for
   runtime/safety-impacting edits.
 - When touching database runtime selection/cutover logic, run `tests/test_database_config_runtime.py` and verify
@@ -165,18 +213,43 @@ Repository-level guidance for coding agents working on this project.
 ## Latest bot context (2026-06)
 
 - Keep `src/api/server.py` as canonical API entrypoint and `src/api/start_api.py` as canonical launcher.
-- Preserve backend-facing normalized status/progress fields (and compatibility aliases) used by delegated runtime/backtest contracts.
-- Service-token overlap behavior (`BOT_API_TOKEN`, `BOT_API_TOKEN_PREVIOUS`, `BOT_API_TOKENS`) and readiness semantics remain active contracts with backend delegation.
-- Strategy runtime websocket expectations remain operator-critical: snapshot on connect plus lifecycle/status updates after runtime changes.
-- Use supervised job pattern (`async_job_manager`) for all long-running background work; task state must persist to `jobs` table for operator visibility.
-- **Celery and Flower**: Backtest execution is Celery-backed when Valkey/Redis-compatible infrastructure is available; `make local-worker` must start before `make local-api`; Flower UI connects to active workers on port 5555.
-- **Backtest logging**: Long-running backtests capture per-job logs to `bot_states/backtest_<run_id>.log`; retrieve via `GET /api/v1/backtests/{run_id}/logs` endpoint; progress reporting is throttled to reduce DB IO pressure.
-- **Runtime config**: Bot instances load config from `bot_instances.config` only (DB-first approach); deprecated `bot_states/config_*.yaml` files are no longer read; use `scripts/migrate_yaml_configs_to_db.py` for one-time migration if needed.
-- **Startup recovery**: Stale backtests and orphaned live bots are reconciled to failed state by default; use `BACKTEST_AUTO_RECOVERY_MODE=restart` and `BOT_AUTO_RECOVER_LIVE_*` flags to enable auto-recovery.
-- **New infrastructure components**: `src/infrastructure/event_bus.py` (event publishing/subscription), `src/infrastructure/cache_lock.py` (distributed locking); use these for coordination rather than ad-hoc locking.
-- **New trading components**: `src/trading/arbitrage_observability.py` (decision audit trail), `src/trading/pair_priority.py` (pair ranking engine), `src/trading/realtime_data_service.py` (real-time feed integration), `src/trading/trade_persistence.py` (live trade records).
-- **2FA auth routes**: `src/api/v1/auth/password_2fa.py` exposes `POST /auth/setup` and `POST /auth/verify`; follow existing `api_response(...)` envelope and auth-bypass guard patterns.
-- **Strategy resolution metrics**: Operator-facing endpoints for resolution drift monitoring — `GET /api/v1/runtime/strategy-resolution-metrics`, `GET /api/v1/runtime/strategy-resolution-metrics/prom` (Prometheus), `POST /api/v1/admin/runtime/strategy-resolution-metrics/reset`. Tune with `STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE`, `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_THRESHOLD`, `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_MIN_RUNS`.
-- **Backtest sync-health and repair**: `GET /api/v1/backtests/sync-health` monitors strategy-resolution drift; `POST /api/v1/admin/backtests/{run_id}/repair-request` (with `?dry_run=true` to preview) allows admin repair of misaligned backtest requests.
-- **Worker metrics infrastructure**: `src/infrastructure/storage/worker_metrics_writer.py` persists worker task duration, success/failure, retry count, and throughput to ClickHouse `worker_metrics` table (when `BACKTEST_CLICKHOUSE_WRITES_ENABLED=true`); Celery metrics wired via `celery_metrics.py`, NATS worker metrics via `nats_worker_metrics.py`; both record all task lifecycle signals and no-op when ClickHouse is disabled.
-- **NATS consumer (Phase 4)**: `src/infrastructure/event_bus_nats.py` and `src/infrastructure/workers/nats_backtest_consumer.py` implement dual-write JetStream consumer foundation with idempotency checking via PostgreSQL task tables, explicit ack after state update, and retry/ack/dead-letter handling; backend and bot use singular canonical subject form (e.g., `backtest.command.start`).
+- Preserve backend-facing normalized status/progress fields (and compatibility aliases) used by delegated
+  runtime/backtest contracts.
+- Service-token overlap behavior (`BOT_API_TOKEN`, `BOT_API_TOKEN_PREVIOUS`, `BOT_API_TOKENS`) and readiness semantics
+  remain active contracts with backend delegation.
+- Strategy runtime websocket expectations remain operator-critical: snapshot on connect plus lifecycle/status updates
+  after runtime changes.
+- Use supervised job pattern (`async_job_manager`) for all long-running background work; task state must persist to
+  `jobs` table for operator visibility.
+- **Celery and Flower**: Backtest execution is Celery-backed when Valkey/Redis-compatible infrastructure is available;
+  `make local-worker` must start before `make local-api`; Flower UI connects to active workers on port 5555.
+- **Backtest logging**: Long-running backtests capture per-job logs to `bot_states/backtest_<run_id>.log`; retrieve via
+  `GET /api/v1/backtests/{run_id}/logs` endpoint; progress reporting is throttled to reduce DB IO pressure.
+- **Runtime config**: Bot instances load config from `bot_instances.config` only (DB-first approach); deprecated
+  `bot_states/config_*.yaml` files are no longer read; use `scripts/migrate_yaml_configs_to_db.py` for one-time
+  migration if needed.
+- **Startup recovery**: Stale backtests and orphaned live bots are reconciled to failed state by default; use
+  `BACKTEST_AUTO_RECOVERY_MODE=restart` and `BOT_AUTO_RECOVER_LIVE_*` flags to enable auto-recovery.
+- **New infrastructure components**: `src/infrastructure/event_bus.py` (event publishing/subscription),
+  `src/infrastructure/cache_lock.py` (distributed locking); use these for coordination rather than ad-hoc locking.
+- **New trading components**: `src/trading/arbitrage_observability.py` (decision audit trail),
+  `src/trading/pair_priority.py` (pair ranking engine), `src/trading/realtime_data_service.py` (real-time feed
+  integration), `src/trading/trade_persistence.py` (live trade records).
+- **2FA auth routes**: `src/api/v1/auth/password_2fa.py` exposes `POST /auth/setup` and `POST /auth/verify`; follow
+  existing `api_response(...)` envelope and auth-bypass guard patterns.
+- **Strategy resolution metrics**: Operator-facing endpoints for resolution drift monitoring —
+  `GET /api/v1/runtime/strategy-resolution-metrics`, `GET /api/v1/runtime/strategy-resolution-metrics/prom`
+  (Prometheus), `POST /api/v1/admin/runtime/strategy-resolution-metrics/reset`. Tune with
+  `STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE`, `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_THRESHOLD`,
+  `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_MIN_RUNS`.
+- **Backtest sync-health and repair**: `GET /api/v1/backtests/sync-health` monitors strategy-resolution drift;
+  `POST /api/v1/admin/backtests/{run_id}/repair-request` (with `?dry_run=true` to preview) allows admin repair of
+  misaligned backtest requests.
+- **Worker metrics infrastructure**: `src/infrastructure/storage/worker_metrics_writer.py` persists worker task
+  duration, success/failure, retry count, and throughput to ClickHouse `worker_metrics` table (when
+  `BACKTEST_CLICKHOUSE_WRITES_ENABLED=true`); Celery metrics wired via `celery_metrics.py`, NATS worker metrics via
+  `nats_worker_metrics.py`; both record all task lifecycle signals and no-op when ClickHouse is disabled.
+- **NATS consumer (Phase 4)**: `src/infrastructure/event_bus_nats.py` and
+  `src/infrastructure/workers/nats_backtest_consumer.py` implement dual-write JetStream consumer foundation with
+  idempotency checking via PostgreSQL task tables, explicit ack after state update, and retry/ack/dead-letter handling;
+  backend and bot use singular canonical subject form (e.g., `backtest.command.start`).

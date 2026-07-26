@@ -14,10 +14,10 @@ def _db_persistence_enabled() -> bool:
     if any(
             bool(os.getenv(name, "").strip())
             for name in (
-                "BOT_DATABASE_URL",
-                "DATABASE_URL",
-                "BOT_DB_HOST",
-                "DB_HOST",
+                    "BOT_DATABASE_URL",
+                    "DATABASE_URL",
+                    "BOT_DB_HOST",
+                    "DB_HOST",
             )
     ):
         return True

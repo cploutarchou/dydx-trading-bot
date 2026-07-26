@@ -3,7 +3,7 @@
 ## Prioritized findings
 
 | Priority | Finding                                                                                                                                                                       | Impact                                                                                                                                           | Evidence                                                                                                                                                                 | Required validation/remediation direction                                                                                                        |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+|----------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
 | Critical | Many backtest mutations/reads have no executable auth dependency although OpenAPI declares Bearer auth.                                                                       | Untrusted callers may start, pause, cancel, restart, delete or inspect expensive/sensitive runs.                                                 | Backtest decorators/handler signatures in [`server.py`](../src/api/server.py); auth is dependency-based in [`auth_middleware.py`](../src/middleware/auth_middleware.py). | Confirm ingress enforcement immediately; add route-level/router-level auth if none exists.                                                       |
 | Medium   | WebSocket auth permits tokens in the `access_token` query string as well as the bearer header.                                                                                | Query strings can be retained in proxy/access logs, exposing JWT or service-token material.                                                      | [`_authorize_websocket_connection`](../src/api/server.py).                                                                                                               | Prefer header/subprotocol authentication where clients support it; redact query strings at every proxy/log layer.                                |
 | High     | API strategy CRUD is process-local despite durable strategy ORM tables.                                                                                                       | Strategies disappear on restart and diverge across workers/replicas; backtests can resolve different snapshots.                                  | [`InMemoryStrategyStore`](../src/api/server.py), [`Strategy`](../internal/domain/models.py).                                                                             | Establish authoritative owner/store and migrate handlers or label facade explicitly.                                                             |
@@ -33,15 +33,24 @@
 
 ### Exchange/local divergence
 
-The strongest current protection is explicit one-leg cleanup and orphaned-exit recovery ([`bot_agent.py`](../src/trading/bot_agent.py), [`position_manager.py`](../src/trading/position_manager.py)). Remaining gaps are confirmed-fill closure, best-effort DB writes, and no demonstrated periodic full account reconciliation beyond tracked positions. If local and exchange state disagree in an unrecognized way, the worker raises and asks for manual intervention; that is fail-safe for new work but leaves exposure management to operators.
+The strongest current protection is explicit one-leg cleanup and orphaned-exit recovery ([
+`bot_agent.py`](../src/trading/bot_agent.py), [`position_manager.py`](../src/trading/position_manager.py)). Remaining
+gaps are confirmed-fill closure, best-effort DB writes, and no demonstrated periodic full account reconciliation beyond
+tracked positions. If local and exchange state disagree in an unrecognized way, the worker raises and asks for manual
+intervention; that is fail-safe for new work but leaves exposure management to operators.
 
 ### Restart/recovery
 
-Bot manager startup is DB-first and can verify an external persisted PID, mark missing workers error, or auto-restart under flags ([`bot_instance_manager.py`](../src/bot_instance_manager.py)). Tracked positions are independently DB/file-backed. A safe restart therefore requires all three sources—exchange, `bot_instances`, and tracked position state—to agree. No single reconciliation transaction spans them.
+Bot manager startup is DB-first and can verify an external persisted PID, mark missing workers error, or auto-restart
+under flags ([`bot_instance_manager.py`](../src/bot_instance_manager.py)). Tracked positions are independently
+DB/file-backed. A safe restart therefore requires all three sources—exchange, `bot_instances`, and tracked position
+state—to agree. No single reconciliation transaction spans them.
 
 ### Backtest recovery
 
-Persist-before-dispatch and heartbeat/restart logic are strong. Risks remain around duplicate startup actors, Redis lock expiry, control latency during long external calls, and JSON-heavy row rewrites. Default fail-safe recovery limits accidental duplicate execution but sacrifices automatic continuation.
+Persist-before-dispatch and heartbeat/restart logic are strong. Risks remain around duplicate startup actors, Redis lock
+expiry, control latency during long external calls, and JSON-heavy row rewrites. Default fail-safe recovery limits
+accidental duplicate execution but sacrifices automatic continuation.
 
 ## Missing or incomplete flows
 
@@ -57,16 +66,27 @@ Persist-before-dispatch and heartbeat/restart logic are strong. Risks remain aro
 
 ## Manual validation plan
 
-1. Security: enumerate routes from live OpenAPI and send unauthenticated requests to every HTTP/WebSocket mutation/read; compare with this document.
-2. Data: apply Alembic to an empty PostgreSQL database without app startup, capture schema, then start API and diff; inspect production `alembic current` and both realtime table families.
-3. Safety: on testnet execute entry leg-2 failure, exit leg-2 failure, worker crash/restart and exchange/local mismatch scenarios; verify actual exposure and state.
-4. Distribution: run two API workers/replicas and validate bot ownership, strategy CRUD, rate limiting, `/ws/strategies`, bot sockets and backtest progress.
-5. Jobs: run worker loss/redelivery, lock-expiry, pause during history fetch, broker outage, Beat sync and stale recovery tests.
+1. Security: enumerate routes from live OpenAPI and send unauthenticated requests to every HTTP/WebSocket mutation/read;
+   compare with this document.
+2. Data: apply Alembic to an empty PostgreSQL database without app startup, capture schema, then start API and diff;
+   inspect production `alembic current` and both realtime table families.
+3. Safety: on testnet execute entry leg-2 failure, exit leg-2 failure, worker crash/restart and exchange/local mismatch
+   scenarios; verify actual exposure and state.
+4. Distribution: run two API workers/replicas and validate bot ownership, strategy CRUD, rate limiting,
+   `/ws/strategies`, bot sockets and backtest progress.
+5. Jobs: run worker loss/redelivery, lock-expiry, pause during history fetch, broker outage, Beat sync and stale
+   recovery tests.
 
 ## Rollback/operational notes
 
-This package changes no runtime behavior. For future fixes, preserve the current response aliases and DB-first bot configuration. Security fixes may intentionally break unauthenticated callers; coordinate the backend before enforcement. Schema consolidation requires a data inventory and reversible migration rather than dropping either realtime table family blindly.
+This package changes no runtime behavior. For future fixes, preserve the current response aliases and DB-first bot
+configuration. Security fixes may intentionally break unauthenticated callers; coordinate the backend before
+enforcement. Schema consolidation requires a data inventory and reversible migration rather than dropping either
+realtime table family blindly.
 
 ## Overall assessment
 
-The repository has meaningful safety mechanisms—process isolation, DB-first managed config, paired cleanup, reduce-only recovery, persist-before-dispatch, heartbeat/recovery and operator logs. The primary architectural weaknesses are contract/auth mismatch, process-local control-plane state, ambiguous realtime/schema ownership, and configured capabilities that are incomplete or not wired. These are production correctness issues, not merely code-style concerns.
+The repository has meaningful safety mechanisms—process isolation, DB-first managed config, paired cleanup, reduce-only
+recovery, persist-before-dispatch, heartbeat/recovery and operator logs. The primary architectural weaknesses are
+contract/auth mismatch, process-local control-plane state, ambiguous realtime/schema ownership, and configured
+capabilities that are incomplete or not wired. These are production correctness issues, not merely code-style concerns.

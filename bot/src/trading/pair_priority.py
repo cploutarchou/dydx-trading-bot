@@ -122,15 +122,15 @@ def score_pair(pair: Any, market_map: Dict[str, Any] | None = None) -> PairPrior
         "half_life_penalty": min(1.0, half_life / 48.0),
     }
     score = (
-        components["spread_potential_score"]
-        + components["volume_score"]
-        + components["liquidity_score"]
-        + components["volatility_score"]
-        + components["historical_opportunity_score"]
-        - components["slippage_risk"]
-        - components["stale_data_penalty"]
-        - components["api_cost_penalty"]
-        - components["half_life_penalty"]
+            components["spread_potential_score"]
+            + components["volume_score"]
+            + components["liquidity_score"]
+            + components["volatility_score"]
+            + components["historical_opportunity_score"]
+            - components["slippage_risk"]
+            - components["stale_data_penalty"]
+            - components["api_cost_penalty"]
+            - components["half_life_penalty"]
     )
 
     explanation = [
@@ -152,10 +152,10 @@ def score_pair(pair: Any, market_map: Dict[str, Any] | None = None) -> PairPrior
 
 
 def prioritize_pairs(
-    pairs: Iterable[Any],
-    *,
-    market_map: Dict[str, Any] | None = None,
-    max_pairs: int = 0,
+        pairs: Iterable[Any],
+        *,
+        market_map: Dict[str, Any] | None = None,
+        max_pairs: int = 0,
 ) -> Tuple[List[Any], List[PairPriorityScore]]:
     scored = [(pair, score_pair(pair, market_map)) for pair in pairs]
     scored.sort(key=lambda item: item[1].score, reverse=True)

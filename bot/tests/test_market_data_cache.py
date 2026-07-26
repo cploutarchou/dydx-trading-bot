@@ -127,6 +127,7 @@ def test_get_candles_recent_cache_is_bounded(monkeypatch):
 
 def test_rate_limiter_per_event_loop_behavior():
     """Test that rate limiter is created per event loop to avoid reuse warnings."""
+
     async def test_in_new_event_loop():
         # This should create a new limiter for this event loop
         limiter = market_data._get_event_loop_limiter()
@@ -146,11 +147,11 @@ def test_rate_limiter_per_event_loop_behavior():
     import asyncio
     loop1 = asyncio.new_event_loop()
     loop2 = asyncio.new_event_loop()
-    
+
     try:
         limiter1 = loop1.run_until_complete(test_in_new_event_loop())
         limiter2 = loop2.run_until_complete(test_in_another_event_loop())
-        
+
         # If both limiters exist, they should be different instances (different event loops)
         if limiter1 is not None and limiter2 is not None:
             assert limiter1 is not limiter2, "Limiters should be different for different event loops"
@@ -162,14 +163,14 @@ def test_rate_limiter_per_event_loop_behavior():
 def test_rate_limiter_fallback_when_aiolimiter_unavailable(monkeypatch):
     """Test that throttling falls back to sleep when aiolimiter is not available."""
     import os
-    
+
     # Mock aiolimiter to be unavailable
     monkeypatch.setattr(market_data, "_rate_limiter_key", None)
-    
+
     async def test_throttle_fallback():
         # This should not raise and should use sleep fallback
         await market_data._throttle_api_call()
         return True
-    
+
     result = asyncio.run(test_throttle_fallback())
     assert result is True

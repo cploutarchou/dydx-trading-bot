@@ -306,11 +306,12 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
       Regression coverage in `tests/test_position_manager_exit_safety.py` and the lower-level
       invariants pinned by `tests/test_position_exit_confirmation_hardening.py`.
 
-- [ ] **Replace sys.exit () calls** with proper exception handling
+- [x] **Replace sys.exit () calls** with proper exception handling
     - **Files**: `src/infrastructure/database.py`, `src/main_instance.py`
     - **Impact**: Proper cleanup and error propagation
     - **Effort**: 2-3 days
     - **Priority**: HIGH
+    - **Status**: COMPLETED - Replaced all sys.exit() calls with proper exception handling. Created DatabaseConnectionError for database connection failures and GracefulShutdownException for signal handling. Updated signal handlers to raise exceptions instead of calling sys.exit(), allowing proper cleanup and error propagation.
 
 - [ ] **Implement input validation** on all trading API endpoints
     - **Files**: `src/api/v1/` endpoints, trading validation modules

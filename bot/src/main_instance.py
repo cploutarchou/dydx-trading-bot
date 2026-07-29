@@ -12,7 +12,6 @@ import inspect
 import json
 import os
 import signal
-import sys
 from typing import Any, Awaitable, Dict, Optional, TypeVar, overload, cast
 
 from loguru import logger
@@ -569,6 +568,11 @@ class BotInstance:
                 self._log_exception("Failed to load config: {}", e)
             raise
 
+class GracefulShutdownException(Exception):
+    """Exception raised for graceful shutdown requests."""
+    pass
+
+
     def setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown"""
 
@@ -577,7 +581,7 @@ class BotInstance:
                 f"Received signal {signum}, shutting down instance {self.instance_id}..."
             )
             self.running = False
-            sys.exit(0)
+            raise GracefulShutdownException("Shutdown signal received")
 
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
@@ -772,7 +776,7 @@ class BotInstance:
                 # Sleep between iterations
                 await asyncio.sleep(5)  # 5 second cycle
 
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, GracefulShutdownException):
             runtime_logger.info(f"Bot instance {self.instance_id} stopped by user")
             runtime_messenger.send_shutdown_message(
                 f"User interrupt (instance {self.instance_id})"
@@ -796,6 +800,11 @@ class BotInstance:
             await self.initialize()
             await self.run_initial_setup()
             await self.trading_loop()
+        except GracefulShutdownException:
+            # Handle graceful shutdown from signal handlers
+            if self.logger:
+                self.logger.info("Bot instance {} gracefully shutting down", self.instance_id)
+            raise
         except Exception as e:
             if self.logger:
                 if hasattr(self.logger, "exception"):
@@ -839,12 +848,14 @@ async def main():
 
         await bot.run()
 
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, GracefulShutdownException):
         print("Bot instance interrupted")
-        sys.exit(0)
+        # Let the application exit naturally without sys.exit()
+        return
     except Exception as e:
         print(f"Bot instance failed: {e}")
-        sys.exit(1)
+        # Re-raise for proper error propagation instead of sys.exit(1)
+        raise
 
 
 if __name__ == "__main__":

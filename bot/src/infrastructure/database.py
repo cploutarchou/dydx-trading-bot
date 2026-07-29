@@ -899,10 +899,13 @@ def init_db():
         logger.info("⚠️  IMPORTANT: Change the default password after first login!")
 
 
+class DatabaseConnectionError(Exception):
+    """Exception raised when database connection fails."""
+    pass
+
+
 if __name__ == "__main__":
     # Test database connection
-    import sys
-
     from src.shared.logging_setup import setup_logging
 
     setup_logging()
@@ -911,10 +914,12 @@ if __name__ == "__main__":
         db_manager = DatabaseManager()
         if db_manager.health_check():
             print("✅ Database connection successful")
-            sys.exit(0)
         else:
             print("❌ Database connection failed")
-            sys.exit(1)
+            raise DatabaseConnectionError("Database health check failed")
+    except DatabaseConnectionError as e:
+        print(f"❌ Database connection error: {e}")
+        raise
     except Exception as e:
         print(f"❌ Database error: {e}")
-        sys.exit(1)
+        raise

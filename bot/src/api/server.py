@@ -5787,6 +5787,68 @@ async def _bot_manager_monitor_loop():
 
 
 # ============================================================================
+# DATABASE MONITORING ENDPOINTS
+# ============================================================================
+
+
+@app.get("/api/v1/monitoring/database/pool")
+async def get_database_pool_metrics(
+        current_user: User = Depends(get_current_active_user),
+):
+    """Get current database connection pool metrics."""
+    _ = current_user
+    metrics = db.get_pool_metrics()
+    return api_response(
+        success=True,
+        data=metrics,
+        message="Database pool metrics retrieved",
+    )
+
+
+@app.get("/api/v1/monitoring/database/pool/health")
+async def get_database_pool_health(
+        current_user: User = Depends(get_current_active_user),
+):
+    """Get database connection pool health status."""
+    _ = current_user
+    health = db.get_pool_health_status()
+    return api_response(
+        success=True,
+        data=health,
+        message="Database pool health status retrieved",
+    )
+
+
+@app.get("/api/v1/monitoring/database/pool/history")
+async def get_database_pool_history(
+        limit: int = 50,
+        current_user: User = Depends(get_current_active_user),
+):
+    """Get historical database connection pool metrics."""
+    _ = current_user
+    safe_limit = max(1, min(int(limit or 50), 500))
+    history = db.get_pool_metrics_history(limit=safe_limit)
+    return api_response(
+        success=True,
+        data={"history": history, "count": len(history)},
+        message=f"Retrieved {len(history)} database pool metrics samples",
+    )
+
+
+@app.get("/api/v1/monitoring/database/diagnostics")
+async def get_database_diagnostics(
+        current_user: User = Depends(get_current_active_user),
+):
+    """Get comprehensive database diagnostics including pool metrics."""
+    _ = current_user
+    diagnostics = db.get_diagnostics()
+    return api_response(
+        success=True,
+        data=diagnostics,
+        message="Database diagnostics retrieved",
+    )
+
+
 # STRATEGY ENDPOINTS
 # ============================================================================
 

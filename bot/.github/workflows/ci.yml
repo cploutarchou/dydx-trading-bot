@@ -35,15 +35,17 @@ jobs:
           pip install -r bot/requirements.txt
 
       - name: Lint with flake8
+        working-directory: ./bot
         run: |
           # Stop the build if there are Python syntax errors or undefined names
-          flake8 bot/src --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 src --count --select=E9,F63,F7,F82 --show-source --statistics
           # exit-zero treats all errors as warnings
-          flake8 bot/src --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+          flake8 src --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
       - name: Check code style with Black
+        working-directory: ./bot
         run: |
-          black --check bot/src --diff || true
+          black --check src --diff || true
 
   test:
     name: Test

@@ -2,7 +2,11 @@
 
 import os
 import sys
+import threading
+import time
+from collections import deque
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterator, Optional
 from urllib.parse import urlencode, urlparse
@@ -37,7 +41,290 @@ from loguru import logger
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import QueuePool
+from sqlalchemy.pool import QueuePool, Pool
+
+
+class ConnectionPoolMonitor:
+    """Monitor and alert on database connection pool health."""
+
+    def __init__(self,
+                 alert_threshold_percentage: float = 80.0,
+                 alert_threshold_wait_time: float = 5.0,
+                 alert_threshold_failure_rate: float = 0.1,
+                 monitoring_interval_seconds: int = 30,
+                 metrics_window_size: int = 100):
+        """
+        Initialize connection pool monitor.
+
+        Args:
+            alert_threshold_percentage: Alert when pool utilization exceeds this percentage
+            alert_threshold_wait_time: Alert when average connection wait time exceeds this (seconds)
+            alert_threshold_failure_rate: Alert when connection failure rate exceeds this (0.0-1.0)
+            monitoring_interval_seconds: How often to collect pool metrics
+            metrics_window_size: Number of recent metrics samples to keep for analysis
+        """
+        self.alert_threshold_percentage = alert_threshold_percentage
+        self.alert_threshold_wait_time = alert_threshold_wait_time
+        self.alert_threshold_failure_rate = alert_threshold_failure_rate
+        self.monitoring_interval_seconds = monitoring_interval_seconds
+        self.metrics_window_size = metrics_window_size
+
+        # Thread-safe metrics storage
+        self._lock = threading.Lock()
+        self._metrics_history = deque(maxlen=metrics_window_size)
+        self._connection_failures = deque(maxlen=metrics_window_size)
+        self._connection_timeouts = deque(maxlen=metrics_window_size)
+        self._last_alert_time = None
+        self._alert_cooldown_seconds = 300  # 5 minutes between alerts
+        self._monitoring_active = False
+        self._monitoring_thread = None
+
+        # Current pool state
+        self._current_pool_size = 0
+        self._current_pool_checked_out = 0
+        self._current_pool_overflow = 0
+        self._current_pool_available = 0
+
+    def start_monitoring(self, pool: Pool, engine_name: str = "database"):
+        """Start background monitoring of the connection pool."""
+        with self._lock:
+            if self._monitoring_active:
+                logger.warning(f"Connection pool monitoring already active for {engine_name}")
+                return
+
+            self._monitoring_active = True
+            self._engine_name = engine_name
+            self._pool = pool
+
+            self._monitoring_thread = threading.Thread(
+                target=self._monitor_pool,
+                daemon=True,
+                name=f"pool-monitor-{engine_name}"
+            )
+            self._monitoring_thread.start()
+            logger.info(f"Started connection pool monitoring for {engine_name}")
+
+    def stop_monitoring(self):
+        """Stop background monitoring."""
+        with self._lock:
+            self._monitoring_active = False
+            if self._monitoring_thread:
+                self._monitoring_thread.join(timeout=5)
+                self._monitoring_thread = None
+            logger.info("Stopped connection pool monitoring")
+
+    def _monitor_pool(self):
+        """Background monitoring loop."""
+        while self._monitoring_active:
+            try:
+                self._collect_metrics()
+                self._check_alerts()
+                time.sleep(self.monitoring_interval_seconds)
+            except Exception as e:
+                logger.error(f"Error in pool monitoring loop: {e}")
+                time.sleep(self.monitoring_interval_seconds)
+
+    def _collect_metrics(self):
+        """Collect current pool metrics."""
+        try:
+            pool = self._pool
+            if pool is None:
+                return
+
+            with self._lock:
+                # SQLAlchemy pool metrics
+                self._current_pool_size = pool.size()
+                self._current_pool_checked_out = pool.checkedout()
+                self._current_pool_overflow = pool.overflow()
+                self._current_pool_available = pool.size() - pool.checkedout()
+
+                # Calculate pool utilization
+                max_pool_size = pool.size() + pool.max_overflow()
+                pool_utilization = 0.0
+                if max_pool_size > 0:
+                    pool_utilization = (pool.checkedout() / max_pool_size) * 100
+
+                # Store metrics
+                metric = {
+                    "timestamp": datetime.utcnow(),
+                    "pool_size": pool.size(),
+                    "checked_out": pool.checkedout(),
+                    "overflow": pool.overflow(),
+                    "available": pool.size() - pool.checkedout(),
+                    "max_size": max_pool_size,
+                    "utilization_percentage": pool_utilization,
+                }
+                self._metrics_history.append(metric)
+
+        except Exception as e:
+            logger.error(f"Error collecting pool metrics: {e}")
+
+    def _check_alerts(self):
+        """Check if any alert conditions are met."""
+        try:
+            with self._lock:
+                if not self._metrics_history:
+                    return
+
+                latest = self._metrics_history[-1]
+                current_time = datetime.utcnow()
+
+                # Check alert cooldown
+                if self._last_alert_time:
+                    time_since_last_alert = (current_time - self._last_alert_time).total_seconds()
+                    if time_since_last_alert < self._alert_cooldown_seconds:
+                        return
+
+                # Check pool utilization alert
+                if latest["utilization_percentage"] >= self.alert_threshold_percentage:
+                    self._trigger_alert(
+                        "high_pool_utilization",
+                        f"Database connection pool utilization is {latest['utilization_percentage']:.1f}% "
+                        f"({latest['checked_out']} of {latest['max_size']} connections in use). "
+                        f"Threshold: {self.alert_threshold_percentage}%"
+                    )
+                    self._last_alert_time = current_time
+                    return
+
+                # Check connection failure rate
+                if self._connection_failures:
+                    recent_failures = sum(1 for f in self._connection_failures
+                                        if (current_time - f).total_seconds() <= 300)  # Last 5 minutes
+
+                    if recent_failures >= 5:  # 5+ failures in 5 minutes
+                        self._trigger_alert(
+                            "high_connection_failure_rate",
+                            f"Database connection failure rate elevated: {recent_failures} failures in last 5 minutes"
+                        )
+                        self._last_alert_time = current_time
+                        return
+
+        except Exception as e:
+            logger.error(f"Error checking pool alerts: {e}")
+
+    def _trigger_alert(self, alert_type: str, message: str):
+        """Trigger an alert."""
+        alert_msg = f"🚨 Database Connection Pool Alert [{alert_type}]: {message}"
+        logger.warning(alert_msg)
+
+        # Here you could integrate with external monitoring systems
+        # For example: send to metrics system, trigger PagerDuty, etc.
+
+    def record_connection_failure(self, error: Exception):
+        """Record a connection failure for alerting."""
+        with self._lock:
+            self._connection_failures.append(datetime.utcnow())
+            logger.warning(f"Database connection failure recorded: {error}")
+
+    def record_connection_timeout(self, timeout_seconds: float):
+        """Record a connection timeout for alerting."""
+        with self._lock:
+            self._connection_timeouts.append({
+                "timestamp": datetime.utcnow(),
+                "timeout": timeout_seconds
+            })
+            logger.warning(f"Database connection timeout recorded: {timeout_seconds}s")
+
+    def get_current_metrics(self) -> dict:
+        """Get current pool metrics."""
+        with self._lock:
+            if not self._metrics_history:
+                return {
+                    "status": "no_metrics",
+                    "monitoring_active": self._monitoring_active
+                }
+
+            latest = self._metrics_history[-1]
+
+            # Calculate statistics from history
+            utilization_history = [m["utilization_percentage"] for m in self._metrics_history]
+            avg_utilization = sum(utilization_history) / len(utilization_history) if utilization_history else 0
+            max_utilization = max(utilization_history) if utilization_history else 0
+            min_utilization = min(utilization_history) if utilization_history else 0
+
+            # Connection failure stats
+            current_time = datetime.utcnow()
+            recent_failures = sum(1 for f in self._connection_failures
+                                if (current_time - f).total_seconds() <= 300)
+            recent_timeouts = sum(1 for t in self._connection_timeouts
+                                if (current_time - t["timestamp"]).total_seconds() <= 300)
+
+            return {
+                "status": "monitoring",
+                "monitoring_active": self._monitoring_active,
+                "timestamp": latest["timestamp"].isoformat(),
+                "pool_size": latest["pool_size"],
+                "checked_out": latest["checked_out"],
+                "available": latest["available"],
+                "overflow": latest["overflow"],
+                "max_size": latest["max_size"],
+                "utilization_percentage": round(latest["utilization_percentage"], 2),
+                "avg_utilization_percentage": round(avg_utilization, 2),
+                "max_utilization_percentage": round(max_utilization, 2),
+                "min_utilization_percentage": round(min_utilization, 2),
+                "recent_failures_5min": recent_failures,
+                "recent_timeouts_5min": recent_timeouts,
+                "total_metrics_samples": len(self._metrics_history),
+                "alert_thresholds": {
+                    "utilization_percentage": self.alert_threshold_percentage,
+                    "wait_time_seconds": self.alert_threshold_wait_time,
+                    "failure_rate": self.alert_threshold_failure_rate
+                }
+            }
+
+    def get_metrics_history(self, limit: int = 50) -> list:
+        """Get historical metrics."""
+        with self._lock:
+            metrics = list(self._metrics_history)
+            if limit and limit < len(metrics):
+                metrics = metrics[-limit:]
+            return [
+                {
+                    **m,
+                    "timestamp": m["timestamp"].isoformat()
+                }
+                for m in metrics
+            ]
+
+    def get_health_status(self) -> dict:
+        """Get pool health status summary."""
+        with self._lock:
+            if not self._metrics_history:
+                return {
+                    "status": "unknown",
+                    "message": "No metrics collected yet"
+                }
+
+            latest = self._metrics_history[-1]
+            utilization = latest["utilization_percentage"]
+
+            # Determine health status
+            health_status = "healthy"
+            message = "Pool operating normally"
+
+            if utilization >= self.alert_threshold_percentage:
+                health_status = "critical"
+                message = f"Pool utilization {utilization:.1f}% exceeds alert threshold"
+            elif utilization >= self.alert_threshold_percentage * 0.8:
+                health_status = "warning"
+                message = f"Pool utilization {utilization:.1f}% approaching alert threshold"
+
+            # Check for recent failures
+            current_time = datetime.utcnow()
+            recent_failures = sum(1 for f in self._connection_failures
+                                if (current_time - f).total_seconds() <= 300)
+            if recent_failures >= 3:
+                health_status = "critical"
+                message = f"Connection failures detected: {recent_failures} in last 5 minutes"
+
+            return {
+                "status": health_status,
+                "message": message,
+                "utilization_percentage": round(utilization, 2),
+                "available_connections": latest["available"],
+                "checked_out_connections": latest["checked_out"],
+                "max_connections": latest["max_size"]
+            }
 
 
 class DatabaseConfig:
@@ -447,6 +734,7 @@ class DatabaseManager:
     _engine: Optional[Engine] = None
     _session_factory: Optional[sessionmaker] = None
     _fork_hook_registered: bool = False
+    _pool_monitor: Optional[ConnectionPoolMonitor] = None
 
     def __new__(cls):
         if cls._instance is None:

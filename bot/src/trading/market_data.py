@@ -324,9 +324,9 @@ async def get_candles_recent(client, market, resolution=None):
             "data": result,
             "expires": now + CANDLES_RECENT_CACHE_TTL_SECONDS,
         }
-        # Use improved cache cleanup
+        # Use improved cache cleanup (keep same limits as before)
         if len(_candles_recent_cache) > 200:
-            cleanup_cache_entries(_candles_recent_cache, max_size=180, max_age_minutes=30)
+            cleanup_cache_entries(_candles_recent_cache, max_size=200, max_age_minutes=30)
 
     return result
 

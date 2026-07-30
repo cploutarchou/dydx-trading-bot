@@ -796,12 +796,28 @@ class DatabaseManager:
         self._engine = create_engine(connection_string, **engine_kwargs)
         self.config = config
 
+        # Initialize connection pool monitor
+        alert_threshold = os.getenv("DB_POOL_ALERT_THRESHOLD", "80")
+        monitoring_interval = os.getenv("DB_POOL_MONITOR_INTERVAL", "30")
+
+        self._pool_monitor = ConnectionPoolMonitor(
+            alert_threshold_percentage=float(alert_threshold),
+            monitoring_interval_seconds=int(monitoring_interval),
+        )
+
         self._session_factory = sessionmaker(
             bind=self._engine,
             class_=Session,
             expire_on_commit=False,
             autoflush=False,
         )
+
+        # Start pool monitoring
+        try:
+            pool = self._engine.pool
+            self._pool_monitor.start_monitoring(pool, engine_name="main_database")
+        except Exception as e:
+            logger.warning(f"Failed to start connection pool monitoring: {e}")
 
         logger.info("Database initialization complete")
 
@@ -1117,10 +1133,67 @@ class DatabaseManager:
             return True
         except Exception as e:
             logger.error(f"Database health check failed: {e}")
+            # Record connection failure for monitoring
+            if self._pool_monitor:
+                self._pool_monitor.record_connection_failure(e)
             return False
+
+    def get_pool_metrics(self) -> dict:
+        """Get current connection pool metrics."""
+        if self._pool_monitor is None:
+            return {
+                "status": "not_monitored",
+                "message": "Connection pool monitoring not available"
+            }
+        return self._pool_monitor.get_current_metrics()
+
+    def get_pool_health_status(self) -> dict:
+        """Get connection pool health status."""
+        if self._pool_monitor is None:
+            return {
+                "status": "unknown",
+                "message": "Connection pool monitoring not available"
+            }
+        return self._pool_monitor.get_health_status()
+
+    def get_pool_metrics_history(self, limit: int = 50) -> list:
+        """Get historical connection pool metrics."""
+        if self._pool_monitor is None:
+            return []
+        return self._pool_monitor.get_metrics_history(limit)
+
+    def get_diagnostics(self) -> dict:
+        """Get comprehensive database diagnostics including pool metrics."""
+        diagnostics = {
+            "database": self.config.to_diagnostics() if self.config else {},
+            "pool_metrics": self.get_pool_metrics(),
+            "pool_health": self.get_pool_health_status(),
+        }
+
+        # Add basic database connection info
+        try:
+            engine = self.get_engine()
+            pool = engine.pool
+            diagnostics["pool_info"] = {
+                "pool_class": pool.__class__.__name__,
+                "size": pool.size(),
+                "checked_out": pool.checkedout(),
+                "overflow": pool.overflow(),
+                "max_overflow": pool.max_overflow,
+            }
+        except Exception as e:
+            diagnostics["pool_info"] = {
+                "error": f"Failed to get pool info: {e}"
+            }
+
+        return diagnostics
 
     def close(self):
         """Close database connection"""
+        # Stop pool monitoring
+        if self._pool_monitor:
+            self._pool_monitor.stop_monitoring()
+
         if self._engine:
             self._engine.dispose()
             logger.info("Database connection closed")

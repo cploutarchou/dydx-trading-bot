@@ -629,76 +629,75 @@ async def open_positions(client) -> None:
     try:
         # Find ZScore triggers
         for index, row in df.iterrows():
-
-        # Extract variables
-        base_market = row["base_market"]
-        quote_market = row["quote_market"]
-        pair_key = _entry_pair_key(base_market, quote_market)
-        try:
-            hedge_ratio = _as_float(row["hedge_ratio"], field_name="hedge_ratio")
-            half_life = _as_float(row["half_life"], field_name="half_life")
-        except ValueError as exc:
-            increment_metric("pair_candidates_skipped_total")
-            logger.warning(
-                "scan_cycle={} pair_skipped pair={}/{} reason=invalid_pair_data error={}",
-                scan_cycle_id,
-                base_market,
-                quote_market,
-                exc,
-            )
-            continue
-
-        # Continue if ignore asset
-        if base_market in IGNORE_ASSETS or quote_market in IGNORE_ASSETS:
-            increment_metric("pair_candidates_skipped_total")
-            logger.debug(
-                "scan_cycle={} pair_skipped pair={}/{} reason=ignored_asset",
-                scan_cycle_id,
-                base_market,
-                quote_market,
-            )
-            continue
-
-        skip_pair, remaining = _entry_should_skip_pair(pair_key)
-        if skip_pair:
-            increment_metric("pair_candidates_skipped_total")
-            logger.debug(
-                "scan_cycle={} pair_skipped pair={}/{} reason=entry_cooldown remaining_seconds={:.1f}",
-                scan_cycle_id,
-                base_market,
-                quote_market,
-                remaining,
-            )
-            continue
-
-        # Get prices
-        try:
-            series_1 = await _get_recent_candles_for_cycle(
-                client, base_market, cycle_candle_cache
-            )
-            series_2 = await _get_recent_candles_for_cycle(
-                client, quote_market, cycle_candle_cache
-            )
-        except Exception:
-            increment_metric("pair_candidates_skipped_total")
-            increment_metric("stale_data_detected_total")
-            logger.exception(
-                "Failed to fetch candles for {} / {}", base_market, quote_market
-            )
-            continue
-
-        # Get ZScore
-        if len(series_1) > 0 and len(series_1) == len(series_2):
+            # Extract variables
+            base_market = row["base_market"]
+            quote_market = row["quote_market"]
+            pair_key = _entry_pair_key(base_market, quote_market)
             try:
-                series_1_numeric = _as_numeric_series(series_1, field_name="series_1")
-                series_2_numeric = _as_numeric_series(series_2, field_name="series_2")
+                hedge_ratio = _as_float(row["hedge_ratio"], field_name="hedge_ratio")
+                half_life = _as_float(row["half_life"], field_name="half_life")
             except ValueError as exc:
                 increment_metric("pair_candidates_skipped_total")
                 logger.warning(
-                    "scan_cycle={} pair_skipped pair={}/{} reason=invalid_series_data error={}",
+                    "scan_cycle={} pair_skipped pair={}/{} reason=invalid_pair_data error={}",
                     scan_cycle_id,
                     base_market,
                     quote_market,
+                    exc,
+                )
+                continue
+
+            # Continue if ignore asset
+            if base_market in IGNORE_ASSETS or quote_market in IGNORE_ASSETS:
+                increment_metric("pair_candidates_skipped_total")
+                logger.debug(
+                    "scan_cycle={} pair_skipped pair={}/{} reason=ignored_asset",
+                    scan_cycle_id,
+                    base_market,
+                    quote_market,
+                )
+                continue
+
+            skip_pair, remaining = _entry_should_skip_pair(pair_key)
+            if skip_pair:
+                increment_metric("pair_candidates_skipped_total")
+                logger.debug(
+                    "scan_cycle={} pair_skipped pair={}/{} reason=entry_cooldown remaining_seconds={:.1f}",
+                    scan_cycle_id,
+                    base_market,
+                    quote_market,
+                    remaining,
+                )
+                continue
+
+            # Get prices
+            try:
+                series_1 = await _get_recent_candles_for_cycle(
+                    client, base_market, cycle_candle_cache
+                )
+                series_2 = await _get_recent_candles_for_cycle(
+                    client, quote_market, cycle_candle_cache
+                )
+            except Exception:
+                increment_metric("pair_candidates_skipped_total")
+                increment_metric("stale_data_detected_total")
+                logger.exception(
+                    "Failed to fetch candles for {} / {}", base_market, quote_market
+                )
+                continue
+
+            # Get ZScore
+            if len(series_1) > 0 and len(series_1) == len(series_2):
+                try:
+                    series_1_numeric = _as_numeric_series(series_1, field_name="series_1")
+                    series_2_numeric = _as_numeric_series(series_2, field_name="series_2")
+                except ValueError as exc:
+                    increment_metric("pair_candidates_skipped_total")
+                    logger.warning(
+                        "scan_cycle={} pair_skipped pair={}/{} reason=invalid_series_data error={}",
+                        scan_cycle_id,
+                        base_market,
+                        quote_market,
                     exc,
                 )
                 continue

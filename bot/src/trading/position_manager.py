@@ -1053,26 +1053,26 @@ async def open_positions(client) -> None:
                         is_base_open,
                         is_quote_open,
                     )
-                else:
-                    logger.debug(
-                        "scan_cycle={} pair_no_opportunity pair={}/{} z_score={:.6f} threshold={:.6f}",
-                        scan_cycle_id,
-                        base_market,
-                        quote_market,
-                        z_score,
-                        float(ZSCORE_THRESH),
-                    )
             else:
-                increment_metric("pair_candidates_skipped_total")
-                increment_metric("stale_data_detected_total")
                 logger.debug(
-                    "scan_cycle={} pair_skipped pair={}/{} reason=invalid_series_lengths len_1={} len_2={}",
+                    "scan_cycle={} pair_no_opportunity pair={}/{} z_score={:.6f} threshold={:.6f}",
                     scan_cycle_id,
                     base_market,
                     quote_market,
-                    len(series_1),
-                    len(series_2),
+                    z_score,
+                    float(ZSCORE_THRESH),
                 )
+        else:
+            increment_metric("pair_candidates_skipped_total")
+            increment_metric("stale_data_detected_total")
+            logger.debug(
+                "scan_cycle={} pair_skipped pair={}/{} reason=invalid_series_lengths len_1={} len_2={}",
+                scan_cycle_id,
+                base_market,
+                quote_market,
+                len(series_1),
+                len(series_2),
+            )
 
     # Cleanup DataFrame tracking after all processing is complete
     if df_id:

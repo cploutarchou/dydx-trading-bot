@@ -14,6 +14,13 @@ from src.infrastructure.domain.cointegration_storage import (
     pair_storage,
 )
 from src.shared.notifications import TelegramMessenger
+from src.shared.dataframe_utils import (
+    managed_dataframe,
+    cleanup_dataframe,
+    optimize_dataframe_memory,
+    register_dataframe,
+    unregister_dataframe
+)
 
 
 class SmartError(Exception):
@@ -141,135 +148,158 @@ def count_zero_crossings(series):
 def store_cointegration_results(df_market_prices):
     """
     Find and store cointegrated pairs from market price data.
-    
+
     Args:
         df_market_prices: DataFrame with market prices by column
-        
+
     Returns:
         Result of saving pairs to storage
     """
-    # Initialize
+    # Initialize with DataFrame tracking
     start_time = time.time()
     messenger = TelegramMessenger()
-    markets = df_market_prices.columns.to_list()
-    criteria_met_pairs = []
 
-    # Find cointegrated pairs
-    # Minimum return std (percent change) to consider a market tradeable for cointegration
-    MIN_RETURN_STD = 1e-4
-    for index, base_market in enumerate(markets[:-1]):
-        series_1 = df_market_prices[base_market].values.astype(np.float64).tolist()
+    # Register DataFrame for memory tracking
+    df_id = register_dataframe(df_market_prices, "cointegration_analysis", {
+        "markets_count": len(df_market_prices.columns),
+        "analysis_type": "cointegration"
+    })
 
-        # Quick filter: skip base markets with almost-zero return volatility
-        try:
-            import pandas as _pd
+    try:
+        markets = df_market_prices.columns.to_list()
+        criteria_met_pairs = []
 
-            returns_1 = _pd.Series(series_1).pct_change().dropna()
-            if returns_1.empty or returns_1.std() < MIN_RETURN_STD:
-                logger.debug(
-                    "Skipping market {}: return volatility below threshold", base_market
-                )
-                continue
-        except Exception:
-            logger.warning("Skipping market {}: error computing returns", base_market)
-            continue
+        # Find cointegrated pairs
+        # Minimum return std (percent change) to consider a market tradeable for cointegration
+        MIN_RETURN_STD = 1e-4
+        for index, base_market in enumerate(markets[:-1]):
+            series_1 = df_market_prices[base_market].values.astype(np.float64).tolist()
 
-        # Get Quote Pair
-        for quote_market in markets[index + 1:]:
-            series_2 = df_market_prices[quote_market].values.astype(np.float64).tolist()
-
-            # Quick filter: skip quote markets with near-zero return volatility
+            # Quick filter: skip base markets with almost-zero return volatility
             try:
-                returns_2 = _pd.Series(series_2).pct_change().dropna()
-                if returns_2.empty or returns_2.std() < MIN_RETURN_STD:
+                import pandas as _pd
+
+                returns_1 = _pd.Series(series_1).pct_change().dropna()
+                if returns_1.empty or returns_1.std() < MIN_RETURN_STD:
+                    logger.debug(
+                        "Skipping market {}: return volatility below threshold", base_market
+                    )
                     continue
             except Exception:
+                logger.warning("Skipping market {}: error computing returns", base_market)
                 continue
 
-            # Check cointegration
-            try:
-                coint_flag, hedge_ratio, half_life = calculate_cointegration(
-                    series_1, series_2
-                )
-            except SmartError as e:
-                logger.debug("Skipping pair {} / {}: {}", base_market, quote_market, e)
-                continue
-            except Exception:
-                logger.exception(
-                    "Error testing pair {} / {}", base_market, quote_market
-                )
-                continue
+            # Get Quote Pair
+            for quote_market in markets[index + 1:]:
+                series_2 = df_market_prices[quote_market].values.astype(np.float64).tolist()
 
-            # Log pair and calculate enhanced metrics
-            if coint_flag == 1 and half_life <= MAX_HALF_LIFE and half_life > 0:
+                # Quick filter: skip quote markets with near-zero return volatility
                 try:
-                    # Create spread for Z-score analysis
-                    spread = pd.Series(series_1) - hedge_ratio * pd.Series(series_2)
-                    z_scores = calculate_zscore(spread)
+                    returns_2 = _pd.Series(series_2).pct_change().dropna()
+                    if returns_2.empty or returns_2.std() < MIN_RETURN_STD:
+                        continue
+                except Exception:
+                    continue
 
-                    # Calculate zero crossings
-                    zero_crossings = count_zero_crossings(z_scores)
-
-                    # Calculate confidence score
-                    confidence = calculate_confidence_score(
-                        p_value=0.01,
-                        half_life=half_life,
-                        zero_crossings=zero_crossings
+                # Check cointegration
+                try:
+                    coint_flag, hedge_ratio, half_life = calculate_cointegration(
+                        series_1, series_2
                     )
-
-                    # Create enhanced result
-                    cointegration_result = CointegrationResult(
-                        base_market=base_market,
-                        quote_market=quote_market,
-                        hedge_ratio=hedge_ratio,
-                        half_life=half_life,
-                        zero_crossings=zero_crossings,
-                        p_value=0.01,
-                        z_score_mean=float(z_scores.mean()),
-                        z_score_std=float(z_scores.std()),
-                        analysis_timestamp=datetime.now(timezone.utc).isoformat(),
-                        confidence_score=confidence
+                except SmartError as e:
+                    logger.debug("Skipping pair {} / {}: {}", base_market, quote_market, e)
+                    continue
+                except Exception:
+                    logger.exception(
+                        "Error testing pair {} / {}", base_market, quote_market
                     )
+                    continue
 
-                    criteria_met_pairs.append(cointegration_result)
+                # Log pair and calculate enhanced metrics
+                if coint_flag == 1 and half_life <= MAX_HALF_LIFE and half_life > 0:
+                    try:
+                        # Create spread for Z-score analysis with cleanup
+                        spread_series = None
+                        z_scores_series = None
 
-                except Exception as e:
-                    # If enhanced metrics fail, create basic result
-                    logger.warning(
-                        f"Enhanced metrics failed for {base_market}/{quote_market}: {e}"
-                    )
-                    basic_result = CointegrationResult(
-                        base_market=base_market,
-                        quote_market=quote_market,
-                        hedge_ratio=hedge_ratio,
-                        half_life=half_life,
-                        zero_crossings=0,
-                        p_value=0.01,
-                        z_score_mean=0.0,
-                        z_score_std=1.0,
-                        analysis_timestamp=datetime.now(timezone.utc).isoformat(),
-                        confidence_score=0.5
-                    )
-                    criteria_met_pairs.append(basic_result)
+                        spread_series = pd.Series(series_1) - hedge_ratio * pd.Series(series_2)
+                        z_scores_series = calculate_zscore(spread_series)
 
-    # Save using enhanced storage system
-    result = pair_storage.save_pairs(criteria_met_pairs)
+                        # Calculate zero crossings
+                        zero_crossings = count_zero_crossings(z_scores_series)
 
-    # Calculate analysis time and send enhanced notification
-    analysis_time = time.time() - start_time
-    pairs_found = len(criteria_met_pairs)
-    high_confidence_pairs = len(
-        [p for p in criteria_met_pairs if p.is_high_confidence]
-    )
+                        # Calculate confidence score
+                        confidence = calculate_confidence_score(
+                            p_value=0.01,
+                            half_life=half_life,
+                            zero_crossings=zero_crossings
+                        )
 
-    messenger.send_cointegration_results(
-        pairs_found, analysis_time, high_confidence_pairs
-    )
+                        # Create enhanced result
+                        cointegration_result = CointegrationResult(
+                            base_market=base_market,
+                            quote_market=quote_market,
+                            hedge_ratio=hedge_ratio,
+                            half_life=half_life,
+                            zero_crossings=zero_crossings,
+                            p_value=0.01,
+                            z_score_mean=float(z_scores_series.mean()),
+                            z_score_std=float(z_scores_series.std()),
+                            analysis_timestamp=datetime.now(timezone.utc).isoformat(),
+                            confidence_score=confidence
+                        )
 
-    # Log enhanced results
-    logger.info(
-        f"Cointegrated pairs analysis complete: {pairs_found} total pairs, "
-        f"{high_confidence_pairs} high-confidence pairs, {analysis_time:.1f}s"
-    )
+                        criteria_met_pairs.append(cointegration_result)
 
-    return result
+                        # Cleanup intermediate series
+                        cleanup_dataframe(spread_series)
+                        cleanup_dataframe(z_scores_series)
+
+                    except Exception as e:
+                        # If enhanced metrics fail, create basic result
+                        logger.warning(
+                            f"Enhanced metrics failed for {base_market}/{quote_market}: {e}"
+                        )
+                        basic_result = CointegrationResult(
+                            base_market=base_market,
+                            quote_market=quote_market,
+                            hedge_ratio=hedge_ratio,
+                            half_life=half_life,
+                            zero_crossings=0,
+                            p_value=0.01,
+                            z_score_mean=0.0,
+                            z_score_std=1.0,
+                            analysis_timestamp=datetime.now(timezone.utc).isoformat(),
+                            confidence_score=0.5
+                        )
+                        criteria_met_pairs.append(basic_result)
+
+        # Save using enhanced storage system
+        result = pair_storage.save_pairs(criteria_met_pairs)
+
+        # Calculate analysis time and send enhanced notification
+        analysis_time = time.time() - start_time
+        pairs_found = len(criteria_met_pairs)
+        high_confidence_pairs = len(
+            [p for p in criteria_met_pairs if p.is_high_confidence]
+        )
+
+        messenger.send_cointegration_results(
+            pairs_found, analysis_time, high_confidence_pairs
+        )
+
+        # Log enhanced results
+        logger.info(
+            f"Cointegrated pairs analysis complete: {pairs_found} total pairs, "
+            f"{high_confidence_pairs} high-confidence pairs, {analysis_time:.1f}s"
+        )
+
+        return result
+
+    finally:
+        # Cleanup DataFrame tracking
+        if df_id:
+            unregister_dataframe(df_id)
+        # Optimize and cleanup the input DataFrame
+        if df_market_prices is not None:
+            optimize_dataframe_memory(df_market_prices)

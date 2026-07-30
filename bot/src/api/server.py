@@ -5787,6 +5787,62 @@ async def _bot_manager_monitor_loop():
 
 
 # ============================================================================
+# DATAFRAME MEMORY MONITORING ENDPOINTS
+# ============================================================================
+
+
+@app.get("/api/v1/monitoring/dataframe/memory")
+async def get_dataframe_memory_stats(
+        current_user: User = Depends(get_current_active_user),
+):
+    """Get DataFrame memory usage statistics."""
+    _ = current_user
+    try:
+        from src.shared.dataframe_utils import (
+            get_memory_summary,
+            get_dataframe_cleanup_stats
+        )
+
+        return api_response(
+            success=True,
+            data={
+                "memory_summary": get_memory_summary(),
+                "cleanup_stats": get_dataframe_cleanup_stats()
+            },
+            message="DataFrame memory statistics retrieved",
+        )
+    except Exception as e:
+        return api_response(
+            success=False,
+            data={"error": str(e)},
+            message="Failed to retrieve DataFrame memory statistics",
+        )
+
+
+@app.post("/api/v1/monitoring/dataframe/cleanup")
+async def cleanup_all_dataframes(
+        current_user: User = Depends(get_current_active_user),
+):
+    """Force cleanup of all tracked DataFrames."""
+    _ = current_user
+    try:
+        from src.shared.dataframe_utils import force_cleanup_all
+
+        cleaned_count = force_cleanup_all()
+
+        return api_response(
+            success=True,
+            data={"cleaned_dataframes": cleaned_count},
+            message=f"Cleaned up {cleaned_count} DataFrames",
+        )
+    except Exception as e:
+        return api_response(
+            success=False,
+            data={"error": str(e)},
+            message="Failed to cleanup DataFrames",
+        )
+
+
 # DATABASE MONITORING ENDPOINTS
 # ============================================================================
 

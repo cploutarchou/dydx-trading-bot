@@ -8,6 +8,14 @@ from typing import Any
 
 import pandas as pd
 from loguru import logger
+from src.shared.dataframe_utils import (
+    managed_dataframe,
+    cleanup_dataframe,
+    optimize_dataframe_memory,
+    cleanup_cache_entries,
+    register_dataframe,
+    unregister_dataframe
+)
 from src.constants import (
     CANDLE_FETCH_CONCURRENCY,
     CANDLES_RECENT_CACHE_TTL_SECONDS,
@@ -310,18 +318,15 @@ async def get_candles_recent(client, market, resolution=None):
     close_prices.reverse()
     result = pd.Series(close_prices, dtype=float)
 
-    # Store in cache, bounding size to 200 entries
+    # Store in cache with improved cleanup
     if cache_enabled:
         _candles_recent_cache[cache_key] = {
             "data": result,
             "expires": now + CANDLES_RECENT_CACHE_TTL_SECONDS,
         }
+        # Use improved cache cleanup
         if len(_candles_recent_cache) > 200:
-            oldest = min(
-                _candles_recent_cache.keys(),
-                key=lambda k: _candles_recent_cache[k]["expires"],
-            )
-            _candles_recent_cache.pop(oldest, None)
+            cleanup_cache_entries(_candles_recent_cache, max_size=180, max_age_minutes=30)
 
     return result
 
@@ -482,43 +487,67 @@ async def construct_market_prices(client, selected_markets=None, resolution=None
         *[fetch_one(m) for m in tradeable_markets], return_exceptions=True
     )
 
-    # Build DataFrame from gathered results
+    # Build DataFrame from gathered results with proper cleanup
     df: pd.DataFrame | None = None
-    for i, item in enumerate(results):
-        if isinstance(item, BaseException):
-            logger.warning(
-                "Skipping market {} – candle fetch failed: {}",
-                tradeable_markets[i],
-                item,
-            )
-            continue
-        if not isinstance(item, tuple) or len(item) != 2:
-            logger.warning(
-                "Skipping market {} – unexpected candle fetch payload type={}",
-                tradeable_markets[i],
-                type(item).__name__,
-            )
-            continue
-        market, close_prices = item
-        if not close_prices:
-            continue
-        df_add = pd.DataFrame(close_prices)
-        try:
-            df_add.set_index("datetime", inplace=True)
-            if df is None:
-                df = df_add
-            else:
-                df = pd.merge(df, df_add, how="outer", on="datetime")
-        except Exception as e:
-            logger.exception("Failed to add market {} to price matrix: {}", market, e)
+    df_id = None
 
-    if df is None:
-        df = pd.DataFrame()
+    try:
+        for i, item in enumerate(results):
+            if isinstance(item, BaseException):
+                logger.warning(
+                    "Skipping market {} – candle fetch failed: {}",
+                    tradeable_markets[i],
+                    item,
+                )
+                continue
+            if not isinstance(item, tuple) or len(item) != 2:
+                logger.warning(
+                    "Skipping market {} – unexpected candle fetch payload type={}",
+                    tradeable_markets[i],
+                    type(item).__name__,
+                )
+                continue
+            market, close_prices = item
+            if not close_prices:
+                continue
 
-    # Drop columns with NaNs
-    nans = df.columns[df.isna().any()].tolist()
-    if nans:
-        logger.warning("Dropping columns with NaNs: {}", nans)
-        df.drop(columns=nans, inplace=True)
+            # Create DataFrame and cleanup intermediate
+            df_add = pd.DataFrame(close_prices)
+            try:
+                df_add.set_index("datetime", inplace=True)
+                if df is None:
+                    df = df_add
+                    # Register for tracking
+                    df_id = register_dataframe(df, "market_prices", {
+                        "markets_count": len(tradeable_markets),
+                        "resolution": resolution
+                    })
+                else:
+                    df = pd.merge(df, df_add, how="outer", on="datetime")
+                    # Cleanup intermediate DataFrame
+                    cleanup_dataframe(df_add)
+            except Exception as e:
+                logger.exception("Failed to add market {} to price matrix: {}", market, e)
+                cleanup_dataframe(df_add)
 
-    return df
+        if df is None:
+            df = pd.DataFrame()
+
+        # Drop columns with NaNs
+        nans = df.columns[df.isna().any()].tolist()
+        if nans:
+            logger.warning("Dropping columns with NaNs: {}", nans)
+            df.drop(columns=nans, inplace=True)
+
+        # Optimize memory usage
+        df = optimize_dataframe_memory(df)
+
+        return df
+
+    except Exception as e:
+        # Cleanup on error
+        if df is not None:
+            cleanup_dataframe(df)
+        if df_id:
+            unregister_dataframe(df_id)
+        raise

@@ -9,6 +9,12 @@ from uuid import uuid4
 
 import pandas as pd
 from loguru import logger
+from src.shared.dataframe_utils import (
+    managed_dataframe,
+    cleanup_dataframe,
+    register_dataframe,
+    unregister_dataframe
+)
 
 from src.constants import (
     CLOSE_AT_ZSCORE_CROSS,
@@ -605,6 +611,11 @@ async def open_positions(client) -> None:
 
     # Convert to DataFrame for backward compatibility with existing logic
     df = pd.DataFrame([pair.to_dict() for pair in pairs])
+    df_id = register_dataframe(df, "position_scan", {
+        "scan_cycle_id": scan_cycle_id,
+        "pairs_count": len(pairs)
+    })
+
     cycle_candle_cache: Optional[Dict[str, Any]] = (
         {} if is_arbitrage_improvements_enabled() else None
     )
@@ -615,8 +626,9 @@ async def open_positions(client) -> None:
         pair_priority_enabled,
     )
 
-    # Find ZScore triggers
-    for index, row in df.iterrows():
+    try:
+        # Find ZScore triggers
+        for index, row in df.iterrows():
 
         # Extract variables
         base_market = row["base_market"]
@@ -1063,6 +1075,12 @@ async def open_positions(client) -> None:
                 len(series_1),
                 len(series_2),
             )
+
+    finally:
+        # Cleanup DataFrame tracking
+        if df_id:
+            unregister_dataframe(df_id)
+        cleanup_dataframe(df)
 
     logger.info("arbitrage_scan_cycle_complete cycle_id={}", scan_cycle_id)
 

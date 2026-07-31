@@ -106,7 +106,7 @@ async def test_process_backtest_command_logs_correlation_id():
 
     # Mock logger to capture log calls
     with patch(
-            "src.infrastructure.workers.nats_backtest_consumer.logger"
+        "src.infrastructure.workers.nats_backtest_consumer.logger"
     ) as mock_logger:
         result = await handler._process_backtest_command(payload, context)
 
@@ -140,7 +140,7 @@ async def test_handle_error_logs_correlation_id():
     }
 
     with patch(
-            "src.infrastructure.workers.nats_backtest_consumer.logger"
+        "src.infrastructure.workers.nats_backtest_consumer.logger"
     ) as mock_logger:
         result = await handler.handle(message, context)
 
@@ -183,7 +183,7 @@ async def test_handle_duplicate_logs_correlation_id():
     }
 
     with patch(
-            "src.infrastructure.workers.nats_backtest_consumer.logger"
+        "src.infrastructure.workers.nats_backtest_consumer.logger"
     ) as mock_logger:
         result = await handler.handle(message, context)
 

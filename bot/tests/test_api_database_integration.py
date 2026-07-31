@@ -3,6 +3,7 @@
 Test script to verify API database integration endpoints
 Tests bot history, jobs, trades, and statistics endpoints
 """
+
 import uuid
 
 import pytest
@@ -59,7 +60,9 @@ def test_api_database_integration():
         print(f"✅ Bot created: {bot.instance_id} (id={bot.id})")
 
         # Update bot status
-        uow.bots.update_status(api_test_bot_instance_id, BotStatusEnum.RUNNING, process_id=54321)
+        uow.bots.update_status(
+            api_test_bot_instance_id, BotStatusEnum.RUNNING, process_id=54321
+        )
         print("✅ Bot status updated to RUNNING (PID: 54321)")
 
         # ====================================================================
@@ -253,7 +256,9 @@ def test_api_database_integration():
         print(f"✅ Bot created: {bot2.instance_id}")
 
         # Start bot (simulates POST /api/v1/bots/{id}/start)
-        uow.bots.update_status(lifecycle_bot_instance_id, BotStatusEnum.RUNNING, process_id=66666)
+        uow.bots.update_status(
+            lifecycle_bot_instance_id, BotStatusEnum.RUNNING, process_id=66666
+        )
         uow.events.log_event(bot2.id, "bot_started", "info", "Bot started")
         print("✅ Bot started (PID: 66666)")
 
@@ -266,7 +271,9 @@ def test_api_database_integration():
         print(f"✅ Job started: {job.job_id}")
 
         # Complete job
-        uow.jobs.complete_job(lifecycle_job_id, result={"success": True}, execution_time_ms=1000)
+        uow.jobs.complete_job(
+            lifecycle_job_id, result={"success": True}, execution_time_ms=1000
+        )
         uow.events.log_event(
             bot2.id, "job_completed", "info", "Job completed", related_job_id=job.job_id
         )

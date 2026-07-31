@@ -69,7 +69,7 @@ def test_trade_opened_notification_uses_fallback_context_when_payload_is_sparse(
 
 
 def test_manage_trade_exits_keeps_orphan_state_when_second_leg_close_fails(
-        monkeypatch, tmp_path
+    monkeypatch, tmp_path
 ):
     """If leg 1 closes and leg 2 fails, preserve the orphaned state for recovery."""
 
@@ -142,12 +142,12 @@ def test_manage_trade_exits_keeps_orphan_state_when_second_leg_close_fails(
     calls = []
 
     async def fake_place_market_order(
-            _client,
-            market,
-            side,
-            size,
-            price,
-            reduce_only,
+        _client,
+        market,
+        side,
+        size,
+        price,
+        reduce_only,
     ):
         calls.append(
             {
@@ -260,12 +260,12 @@ def _install_exit_test_runtime(monkeypatch, tmp_path, open_positions_sequence):
         return pd.Series([2.0])
 
     async def fake_place_market_order(
-            _client,
-            market,
-            side,
-            size,
-            price,
-            reduce_only,
+        _client,
+        market,
+        side,
+        size,
+        price,
+        reduce_only,
     ):
         return {"id": f"close-{market}"}, f"close-{market}"
 
@@ -285,7 +285,7 @@ def _install_exit_test_runtime(monkeypatch, tmp_path, open_positions_sequence):
 
 
 def test_manage_trade_exits_does_not_mark_closed_without_flat_confirmation(
-        monkeypatch, tmp_path
+    monkeypatch, tmp_path
 ):
     open_sequence = [
         {
@@ -301,7 +301,9 @@ def test_manage_trade_exits_does_not_mark_closed_without_flat_confirmation(
             "ETH-USD": {"market": "ETH-USD", "side": "SHORT", "sumOpen": "1.0"},
         },
     ]
-    bot_agents_path, _messenger_cls = _install_exit_test_runtime(monkeypatch, tmp_path, open_sequence)
+    bot_agents_path, _messenger_cls = _install_exit_test_runtime(
+        monkeypatch, tmp_path, open_sequence
+    )
 
     persisted = []
     monkeypatch.setattr(
@@ -320,7 +322,7 @@ def test_manage_trade_exits_does_not_mark_closed_without_flat_confirmation(
 
 
 def test_manage_trade_exits_marks_close_confirmed_only_after_flat_exchange_state(
-        monkeypatch, tmp_path
+    monkeypatch, tmp_path
 ):
     open_sequence = [
         {
@@ -380,7 +382,7 @@ def test_manage_trade_exits_persists_partial_close_state(monkeypatch, tmp_path):
 
 
 def test_manage_trade_exits_marks_orphan_when_second_leg_close_fails(
-        monkeypatch, tmp_path
+    monkeypatch, tmp_path
 ):
     open_sequence = [
         {
@@ -393,12 +395,12 @@ def test_manage_trade_exits_marks_orphan_when_second_leg_close_fails(
     )
 
     async def fake_place_market_order(
-            _client,
-            market,
-            side,
-            size,
-            price,
-            reduce_only,
+        _client,
+        market,
+        side,
+        size,
+        price,
+        reduce_only,
     ):
         if market == "BTC-USD":
             return {"id": "close-BTC-USD"}, "close-BTC-USD"

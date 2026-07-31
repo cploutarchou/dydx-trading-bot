@@ -122,7 +122,10 @@ def test_get_candles_recent_cache_is_bounded(monkeypatch):
 
     assert len(market_data._candles_recent_cache) == 200
     assert ("MKT-0", "1HOUR") not in market_data._candles_recent_cache
-    assert ("NEW-MARKET", market_data.DYDX_RESOLUTION) in market_data._candles_recent_cache
+    assert (
+        "NEW-MARKET",
+        market_data.DYDX_RESOLUTION,
+    ) in market_data._candles_recent_cache
 
 
 def test_rate_limiter_per_event_loop_behavior():
@@ -145,6 +148,7 @@ def test_rate_limiter_per_event_loop_behavior():
 
     # Run in different event loops
     import asyncio
+
     loop1 = asyncio.new_event_loop()
     loop2 = asyncio.new_event_loop()
 
@@ -154,7 +158,9 @@ def test_rate_limiter_per_event_loop_behavior():
 
         # If both limiters exist, they should be different instances (different event loops)
         if limiter1 is not None and limiter2 is not None:
-            assert limiter1 is not limiter2, "Limiters should be different for different event loops"
+            assert (
+                limiter1 is not limiter2
+            ), "Limiters should be different for different event loops"
     finally:
         loop1.close()
         loop2.close()

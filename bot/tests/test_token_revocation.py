@@ -108,9 +108,7 @@ def test_logout_all_bumps_version_and_invalidates_prior_tokens(monkeypatch):
     session = _StubSession(user)
 
     # Pre-condition: the old token currently authenticates.
-    authenticate_bearer_token(
-        old_token, cast(Any, _StubSession(_StubUser("alice", 0)))
-    )
+    authenticate_bearer_token(old_token, cast(Any, _StubSession(_StubUser("alice", 0))))
 
     response = auth_router.logout_all(
         request=_FakeRequest(old_token),
@@ -131,9 +129,7 @@ def test_logout_all_bumps_version_and_invalidates_prior_tokens(monkeypatch):
 
     # A freshly minted token carrying the new stamp still authenticates.
     fresh = _make_token("alice", stv=1)
-    authenticate_bearer_token(
-        fresh, cast(Any, _StubSession(_StubUser("alice", 1)))
-    )
+    authenticate_bearer_token(fresh, cast(Any, _StubSession(_StubUser("alice", 1))))
 
 
 def test_legacy_token_without_stv_works_against_version_zero(monkeypatch):
@@ -163,9 +159,7 @@ def test_logout_in_bypass_mode_is_noop(monkeypatch):
     assert response == {"message": "Logged out"}
 
     # Blacklist untouched -> token still verifies through the JWT layer.
-    assert TokenBlacklist.is_token_blacklisted(
-        JWTUtils.get_token_jti(token)
-    ) is False
+    assert TokenBlacklist.is_token_blacklisted(JWTUtils.get_token_jti(token)) is False
 
 
 def test_logout_returns_rotation_message_for_service_token_principal(monkeypatch):
@@ -186,9 +180,7 @@ def test_logout_returns_rotation_message_for_service_token_principal(monkeypatch
 
     assert "rotated via environment" in response["message"]
     # JTI was not blacklisted.
-    assert TokenBlacklist.is_token_blacklisted(
-        JWTUtils.get_token_jti(token)
-    ) is False
+    assert TokenBlacklist.is_token_blacklisted(JWTUtils.get_token_jti(token)) is False
 
 
 def test_build_token_response_embeds_security_stamp():

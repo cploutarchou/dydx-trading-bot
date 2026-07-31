@@ -146,8 +146,8 @@ def test_each_seal_uses_fresh_nonce(monkeypatch):
     sealed_a = cc.seal_config_secrets(_sample_payload())
     sealed_b = cc.seal_config_secrets(_sample_payload())
     assert (
-            sealed_a["credentials_sealed"]["nonce"]
-            != sealed_b["credentials_sealed"]["nonce"]
+        sealed_a["credentials_sealed"]["nonce"]
+        != sealed_b["credentials_sealed"]["nonce"]
     )
 
 
@@ -186,7 +186,9 @@ def test_tamper_detection(monkeypatch):
     ct = base64.b64decode(sealed["credentials_sealed"]["ciphertext"])
     tampered = bytearray(ct)
     tampered[0] ^= 0xFF
-    sealed["credentials_sealed"]["ciphertext"] = base64.b64encode(bytes(tampered)).decode()
+    sealed["credentials_sealed"]["ciphertext"] = base64.b64encode(
+        bytes(tampered)
+    ).decode()
     with pytest.raises(cc.CredentialDecryptionError):
         cc.open_config_secrets(sealed)
 

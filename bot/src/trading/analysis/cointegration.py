@@ -1,4 +1,5 @@
 """Cointegration analysis module for pairs trading strategy."""
+
 import time
 from datetime import datetime, timezone
 from typing import Tuple, cast
@@ -19,12 +20,13 @@ from src.shared.dataframe_utils import (
     cleanup_dataframe,
     optimize_dataframe_memory,
     register_dataframe,
-    unregister_dataframe
+    unregister_dataframe,
 )
 
 
 class SmartError(Exception):
     """Custom exception for statistical analysis errors."""
+
     pass
 
 
@@ -82,7 +84,7 @@ def calculate_zscore(spread):
 def calculate_cointegration(series_1, series_2):
     """
     Test cointegration between two price series.
-    
+
     Returns:
         Tuple of (coint_flag, hedge_ratio, half_life)
     """
@@ -97,8 +99,8 @@ def calculate_cointegration(series_1, series_2):
     if np.isnan(series_1).any() or np.isnan(series_2).any():
         raise SmartError("Series contains NaN values")
     if (
-            np.nanstd(series_1) < np.finfo(np.float64).eps
-            or np.nanstd(series_2) < np.finfo(np.float64).eps
+        np.nanstd(series_1) < np.finfo(np.float64).eps
+        or np.nanstd(series_2) < np.finfo(np.float64).eps
     ):
         raise SmartError("Series variance is too small for reliable cointegration test")
     # Quick check for nearly identical series which make the test ill-conditioned
@@ -160,10 +162,14 @@ def store_cointegration_results(df_market_prices):
     messenger = TelegramMessenger()
 
     # Register DataFrame for memory tracking
-    df_id = register_dataframe(df_market_prices, "cointegration_analysis", {
-        "markets_count": len(df_market_prices.columns),
-        "analysis_type": "cointegration"
-    })
+    df_id = register_dataframe(
+        df_market_prices,
+        "cointegration_analysis",
+        {
+            "markets_count": len(df_market_prices.columns),
+            "analysis_type": "cointegration",
+        },
+    )
 
     try:
         markets = df_market_prices.columns.to_list()
@@ -182,16 +188,21 @@ def store_cointegration_results(df_market_prices):
                 returns_1 = _pd.Series(series_1).pct_change().dropna()
                 if returns_1.empty or returns_1.std() < MIN_RETURN_STD:
                     logger.debug(
-                        "Skipping market {}: return volatility below threshold", base_market
+                        "Skipping market {}: return volatility below threshold",
+                        base_market,
                     )
                     continue
             except Exception:
-                logger.warning("Skipping market {}: error computing returns", base_market)
+                logger.warning(
+                    "Skipping market {}: error computing returns", base_market
+                )
                 continue
 
             # Get Quote Pair
-            for quote_market in markets[index + 1:]:
-                series_2 = df_market_prices[quote_market].values.astype(np.float64).tolist()
+            for quote_market in markets[index + 1 :]:
+                series_2 = (
+                    df_market_prices[quote_market].values.astype(np.float64).tolist()
+                )
 
                 # Quick filter: skip quote markets with near-zero return volatility
                 try:
@@ -207,7 +218,9 @@ def store_cointegration_results(df_market_prices):
                         series_1, series_2
                     )
                 except SmartError as e:
-                    logger.debug("Skipping pair {} / {}: {}", base_market, quote_market, e)
+                    logger.debug(
+                        "Skipping pair {} / {}: {}", base_market, quote_market, e
+                    )
                     continue
                 except Exception:
                     logger.exception(
@@ -222,7 +235,9 @@ def store_cointegration_results(df_market_prices):
                         spread_series = None
                         z_scores_series = None
 
-                        spread_series = pd.Series(series_1) - hedge_ratio * pd.Series(series_2)
+                        spread_series = pd.Series(series_1) - hedge_ratio * pd.Series(
+                            series_2
+                        )
                         z_scores_series = calculate_zscore(spread_series)
 
                         # Calculate zero crossings
@@ -232,7 +247,7 @@ def store_cointegration_results(df_market_prices):
                         confidence = calculate_confidence_score(
                             p_value=0.01,
                             half_life=half_life,
-                            zero_crossings=zero_crossings
+                            zero_crossings=zero_crossings,
                         )
 
                         # Create enhanced result
@@ -246,7 +261,7 @@ def store_cointegration_results(df_market_prices):
                             z_score_mean=float(z_scores_series.mean()),
                             z_score_std=float(z_scores_series.std()),
                             analysis_timestamp=datetime.now(timezone.utc).isoformat(),
-                            confidence_score=confidence
+                            confidence_score=confidence,
                         )
 
                         criteria_met_pairs.append(cointegration_result)
@@ -270,7 +285,7 @@ def store_cointegration_results(df_market_prices):
                             z_score_mean=0.0,
                             z_score_std=1.0,
                             analysis_timestamp=datetime.now(timezone.utc).isoformat(),
-                            confidence_score=0.5
+                            confidence_score=0.5,
                         )
                         criteria_met_pairs.append(basic_result)
 

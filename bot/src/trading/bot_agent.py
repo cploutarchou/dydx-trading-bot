@@ -25,20 +25,20 @@ class BotAgent:
 
     # Initialize class
     def __init__(
-            self,
-            client,
-            market_1,
-            market_2,
-            base_side,
-            base_size,
-            base_price,
-            quote_side,
-            quote_size,
-            quote_price,
-            accept_failsafe_base_price,
-            z_score,
-            half_life,
-            hedge_ratio,
+        self,
+        client,
+        market_1,
+        market_2,
+        base_side,
+        base_size,
+        base_price,
+        quote_side,
+        quote_size,
+        quote_price,
+        accept_failsafe_base_price,
+        z_score,
+        half_life,
+        hedge_ratio,
     ):
         """Initialize bot agent with trade parameters."""
         # Initialize class variables
@@ -110,7 +110,7 @@ class BotAgent:
         retries = 3
         last_status = "unknown"
         for attempt in range(1, retries + 1):
-            (close_order, order_id) = await place_market_order(
+            close_order, order_id = await place_market_order(
                 self.client,
                 market=self.market_1,
                 side=close_side,
@@ -201,7 +201,9 @@ class BotAgent:
 
             # Guard: If order cancelled move onto next Pair
             if order_status in {"CANCELLED", "FAILED"}:
-                logger.warning("{} vs {} - Order cancelled", self.market_1, self.market_2)
+                logger.warning(
+                    "{} vs {} - Order cancelled", self.market_1, self.market_2
+                )
                 self.order_dict["pair_status"] = "FAILED"
                 return "failed"
 
@@ -322,7 +324,7 @@ class BotAgent:
 
         # Place Base Order
         try:
-            (base_order, order_id) = await place_market_order(
+            base_order, order_id = await place_market_order(
                 self.client,
                 market=self.market_1,
                 side=self.base_side,
@@ -342,8 +344,12 @@ class BotAgent:
             return self.order_dict
 
         # Ensure order is live before processing
-        logger.info("Checking first order status for {}", self.order_dict["order_id_m1"])
-        order_status_m1 = await self.check_order_status_by_id(self.order_dict["order_id_m1"])
+        logger.info(
+            "Checking first order status for {}", self.order_dict["order_id_m1"]
+        )
+        order_status_m1 = await self.check_order_status_by_id(
+            self.order_dict["order_id_m1"]
+        )
         logger.info("First order status: {}", order_status_m1)
 
         # Guard: Abort if order failed
@@ -368,7 +374,7 @@ class BotAgent:
 
         # Place Quote Order
         try:
-            (quote_order, order_id) = await place_market_order(
+            quote_order, order_id = await place_market_order(
                 self.client,
                 market=self.market_2,
                 side=self.quote_side,
@@ -399,8 +405,12 @@ class BotAgent:
             return self.order_dict
 
         # Ensure order is live before processing
-        logger.info("Checking second order status for {}", self.order_dict["order_id_m2"])
-        order_status_m2 = await self.check_order_status_by_id(self.order_dict["order_id_m2"])
+        logger.info(
+            "Checking second order status for {}", self.order_dict["order_id_m2"]
+        )
+        order_status_m2 = await self.check_order_status_by_id(
+            self.order_dict["order_id_m2"]
+        )
 
         # Guard: Abort if order failed
         if order_status_m2 != "live":
@@ -414,7 +424,9 @@ class BotAgent:
                 self.order_dict["pair_status"] = "ERROR"
                 self.order_dict["comments"] = f"Close Market 1 {self.market_1}: , {e}"
                 status_snapshot = locals().get("order_status_close_order", "unknown")
-                logger.critical("ABORT PROGRAM - Unexpected error closing {}", self.market_1)
+                logger.critical(
+                    "ABORT PROGRAM - Unexpected error closing {}", self.market_1
+                )
                 logger.critical("order_status_close_order={}", status_snapshot)
 
                 # Send Message

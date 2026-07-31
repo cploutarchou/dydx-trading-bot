@@ -51,8 +51,8 @@ def _normalize_request_payload(value: Any) -> Dict[str, Any]:
 
 
 def _merge_task_context_overrides(
-        task_context: Dict[str, Any] | None,
-        **overrides: Any,
+    task_context: Dict[str, Any] | None,
+    **overrides: Any,
 ) -> Dict[str, Any]:
     merged = dict(task_context or {})
     merged.update(overrides)
@@ -60,12 +60,12 @@ def _merge_task_context_overrides(
 
 
 def _build_runtime_task_context(
-        service: BacktestService,
-        request_payload: Dict[str, Any],
-        task_context: Dict[str, Any] | None = None,
-        *,
-        worker_hostname: str | None = None,
-        retry_count: int | None = None,
+    service: BacktestService,
+    request_payload: Dict[str, Any],
+    task_context: Dict[str, Any] | None = None,
+    *,
+    worker_hostname: str | None = None,
+    retry_count: int | None = None,
 ) -> Dict[str, Any]:
     """Merge persisted, queued, and live worker task context without duplicate kwargs."""
     merged = _merge_task_context_overrides(
@@ -108,9 +108,9 @@ def _get_redis_client():
 
 def _redis_lock_url() -> str | None:
     url = (
-            os.getenv("BACKTEST_LOCK_REDIS_URL")
-            or os.getenv("REDIS_URL")
-            or os.getenv("VALKEY_URL")
+        os.getenv("BACKTEST_LOCK_REDIS_URL")
+        or os.getenv("REDIS_URL")
+        or os.getenv("VALKEY_URL")
     )
     broker_url = redis_url(prefer_celery_broker=True)
     if not url and broker_url:
@@ -156,7 +156,9 @@ def _acquire_backtest_lock(run_id: str, token: str):
     try:
         client = _get_lock_redis_client()
     except Exception as exc:
-        logger.warning("backtest_lock_redis_init_failed run_id=%s error=%r", run_id, exc)
+        logger.warning(
+            "backtest_lock_redis_init_failed run_id=%s error=%r", run_id, exc
+        )
         return None
     if client is None:
         return None
@@ -226,13 +228,13 @@ def _is_transient_backtest_error(exc: BaseException) -> bool:
         status_code = getattr(exc.response, "status_code", None)
         return status_code in {408, 425, 429, 500, 502, 503, 504}
     if isinstance(
-            exc,
-            (
-                    httpx.TimeoutException,
-                    httpx.ConnectError,
-                    httpx.NetworkError,
-                    httpx.RemoteProtocolError,
-            ),
+        exc,
+        (
+            httpx.TimeoutException,
+            httpx.ConnectError,
+            httpx.NetworkError,
+            httpx.RemoteProtocolError,
+        ),
     ):
         return True
     message = str(exc).lower()
@@ -255,11 +257,11 @@ def _is_transient_backtest_error(exc: BaseException) -> bool:
 
 
 def _publish_backtest_status(
-        run_id: str,
-        status: str,
-        progress: float = 0.0,
-        current_pair: str = "",
-        eta_seconds: float = 0.0,
+    run_id: str,
+    status: str,
+    progress: float = 0.0,
+    current_pair: str = "",
+    eta_seconds: float = 0.0,
 ) -> None:
     """Publish a backtest status event to Redis for downstream WebSocket push."""
     rc = _get_redis_client()
@@ -288,13 +290,13 @@ def _publish_backtest_status(
 
 
 def _mark_worker_failure(
-        run_id: str,
-        message: str,
-        *,
-        error_code: str | None = None,
-        traceback_text: str | None = None,
-        worker_hostname: str | None = None,
-        retry_count: int | None = None,
+    run_id: str,
+    message: str,
+    *,
+    error_code: str | None = None,
+    traceback_text: str | None = None,
+    worker_hostname: str | None = None,
+    retry_count: int | None = None,
 ) -> None:
     session = db.get_session()
     try:
@@ -327,7 +329,7 @@ def _mark_worker_failure(
             service._set_task_context(request_payload, task_context),
             {
                 "error_code": error_code
-                              or service._error_code_from_message(
+                or service._error_code_from_message(
                     message, "BACKTEST_EXECUTION_FAILED"
                 ),
                 "error_message": message,
@@ -352,10 +354,10 @@ def _mark_worker_failure(
 def _selected_pairs(data: Dict[str, Any]) -> list[str]:
     request: Dict[str, Any] = _normalize_request_payload(data.get("request"))
     raw = (
-            data.get("selected_pairs")
-            or request.get("selected_pairs")
-            or request.get("pairs")
-            or []
+        data.get("selected_pairs")
+        or request.get("selected_pairs")
+        or request.get("pairs")
+        or []
     )
     if isinstance(raw, list):
         return [str(item) for item in raw if str(item).strip()]
@@ -368,9 +370,9 @@ def _selected_pairs(data: Dict[str, Any]) -> list[str]:
     autoretry_for=(),
 )
 def run_backtest_task(
-        self: Any,
-        run_id: str,
-        task_context: Dict[str, Any] | None = None,
+    self: Any,
+    run_id: str,
+    task_context: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Run a persisted backtest by id inside a Celery worker process."""
     task_id = str(self.request.id or run_id)
@@ -472,12 +474,13 @@ def run_backtest_task(
                     "worker_hostname": socket.gethostname(),
                     "backtest_run_id": run_id,
                     "strategy_id": strategy_id,
-                    "bot_id": task_context.get("bot_id") or request_payload.get("bot_id"),
+                    "bot_id": task_context.get("bot_id")
+                    or request_payload.get("bot_id"),
                     "environment": task_context.get("environment")
-                                   or request_payload.get("environment")
-                                   or os.getenv("ENVIRONMENT")
-                                   or os.getenv("APP_ENV")
-                                   or "local",
+                    or request_payload.get("environment")
+                    or os.getenv("ENVIRONMENT")
+                    or os.getenv("APP_ENV")
+                    or "local",
                     "selected_pairs": selected_pairs,
                     "retry_count": int(getattr(self.request, "retries", 0) or 0),
                     "source": task_context.get("source"),
@@ -508,7 +511,7 @@ def run_backtest_task(
             emit_backtest_event_sync(run_id=run_id, status="started")
 
             async def _progress_callback(
-                    callback_run_id: str, progress: float, current_pair: str, eta: float
+                callback_run_id: str, progress: float, current_pair: str, eta: float
             ) -> None:
                 completed_pairs = None
                 total_pairs = len(selected_pairs) if selected_pairs else None
@@ -523,19 +526,22 @@ def run_backtest_task(
                         progress_percent=progress,
                         current_pair=current_pair,
                         current_step=(
-                            "processing pair" if current_pair != "complete" else "complete"
+                            "processing pair"
+                            if current_pair != "complete"
+                            else "complete"
                         ),
                         total_pairs=total_pairs,
                         completed_pairs=completed_pairs,
                         current_phase="backtest",
                         eta_seconds=eta,
                         strategy_id=strategy_id,
-                        bot_id=task_context.get("bot_id") or request_payload.get("bot_id"),
+                        bot_id=task_context.get("bot_id")
+                        or request_payload.get("bot_id"),
                         environment=task_context.get("environment")
-                                    or request_payload.get("environment")
-                                    or os.getenv("ENVIRONMENT")
-                                    or os.getenv("APP_ENV")
-                                    or "local",
+                        or request_payload.get("environment")
+                        or os.getenv("ENVIRONMENT")
+                        or os.getenv("APP_ENV")
+                        or "local",
                         selected_pairs=selected_pairs,
                     ),
                 )
@@ -590,7 +596,10 @@ def run_backtest_task(
         )
         _publish_backtest_status(run_id, "failed")
         emit_backtest_event_sync(
-            run_id=run_id, status="failed", error_code="BACKTEST_TIMEOUT", error_message=message
+            run_id=run_id,
+            status="failed",
+            error_code="BACKTEST_TIMEOUT",
+            error_message=message,
         )
         raise
     except asyncio.CancelledError:
@@ -617,7 +626,10 @@ def run_backtest_task(
         )
         _publish_backtest_status(run_id, "cancelled")
         emit_backtest_event_sync(
-            run_id=run_id, status="cancelled", error_code="BACKTEST_CANCELLED", error_message=message
+            run_id=run_id,
+            status="cancelled",
+            error_code="BACKTEST_CANCELLED",
+            error_message=message,
         )
         raise
     except Exception as exc:
@@ -627,9 +639,7 @@ def run_backtest_task(
             try:
                 retry_session = db.get_session()
                 try:
-                    retry_service = BacktestService(
-                        BacktestRepository(retry_session)
-                    )
+                    retry_service = BacktestService(BacktestRepository(retry_session))
                     retry_service.mark_backtest_retrying(
                         run_id,
                         error=exc,

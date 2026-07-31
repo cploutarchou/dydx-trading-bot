@@ -84,7 +84,7 @@ class JWTUtils:
 
     @staticmethod
     def create_access_token(
-            data_: Dict[str, Any], expires_delta: Optional[timedelta] = None
+        data_: Dict[str, Any], expires_delta: Optional[timedelta] = None
     ) -> str:
         """Create a JWT access token"""
         to_encode = data_.copy()
@@ -108,7 +108,7 @@ class JWTUtils:
 
     @staticmethod
     def create_refresh_token(
-            data: Dict[str, Any], expires_delta: Optional[timedelta] = None
+        data: Dict[str, Any], expires_delta: Optional[timedelta] = None
     ) -> str:
         """Create a JWT refresh token"""
         to_encode = data.copy()
@@ -163,7 +163,11 @@ class JWTUtils:
                 try:
                     exp_ts = int(float(exp))
                 except ValueError:
-                    exp_ts = int(datetime.fromisoformat(exp).replace(tzinfo=timezone.utc).timestamp())
+                    exp_ts = int(
+                        datetime.fromisoformat(exp)
+                        .replace(tzinfo=timezone.utc)
+                        .timestamp()
+                    )
             elif isinstance(exp, datetime):
                 exp_ts = int(exp.replace(tzinfo=timezone.utc).timestamp())
             else:
@@ -241,7 +245,7 @@ class TwoFactorUtils:
 
     @staticmethod
     def generate_totp_uri(
-            secret: str, username: str, issuer: str = "dYdX Trading Bot"
+        secret: str, username: str, issuer: str = "dYdX Trading Bot"
     ) -> str:
         """Generate a TOTP URI for QR code generation"""
         totp = pyotp.TOTP(secret)
@@ -249,7 +253,7 @@ class TwoFactorUtils:
 
     @staticmethod
     def generate_qr_code(
-            secret: str, username: str, issuer: str = "dYdX Trading Bot"
+        secret: str, username: str, issuer: str = "dYdX Trading Bot"
     ) -> str:
         """Generate a QR code for TOTP setup as base64 string"""
         uri = TwoFactorUtils.generate_totp_uri(secret, username, issuer)
@@ -372,7 +376,7 @@ class EmailVerificationUtils:
 
     @staticmethod
     def is_verification_expired(
-            created_at: datetime, expires_in_minutes: int = 15
+        created_at: datetime, expires_in_minutes: int = 15
     ) -> bool:
         """Check if verification has expired"""
         expiry_time = created_at + timedelta(minutes=expires_in_minutes)
@@ -426,7 +430,9 @@ class TokenBlacklist:
                 redis_db(),
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("TokenBlacklist: Redis unavailable, falling back to in-memory: %s", exc)
+            logger.warning(
+                "TokenBlacklist: Redis unavailable, falling back to in-memory: %s", exc
+            )
         return cls._redis_client
 
     @classmethod
@@ -463,7 +469,9 @@ class TokenBlacklist:
             try:
                 return bool(r.exists(cls._REDIS_PREFIX + jti))
             except Exception as exc:  # noqa: BLE001
-                logger.warning("TokenBlacklist.is_token_blacklisted Redis error: %s", exc)
+                logger.warning(
+                    "TokenBlacklist.is_token_blacklisted Redis error: %s", exc
+                )
         return jti in cls._fallback_tokens
 
     @classmethod

@@ -97,31 +97,31 @@ def test_stop_loss_take_profit_and_timeout_exit_rules_are_enforced(monkeypatch):
     monkeypatch.setattr(position_manager, "CLOSE_AT_ZSCORE_CROSS", False)
 
     assert (
-            position_manager._resolve_exit_reason(
-                z_score_current=0.1,
-                z_score_traded=1.0,
-                unrealized_pnl_pct=-2.1,
-                position_age_hours=1.0,
-            )
-            == "stop_loss"
+        position_manager._resolve_exit_reason(
+            z_score_current=0.1,
+            z_score_traded=1.0,
+            unrealized_pnl_pct=-2.1,
+            position_age_hours=1.0,
+        )
+        == "stop_loss"
     )
     assert (
-            position_manager._resolve_exit_reason(
-                z_score_current=0.1,
-                z_score_traded=1.0,
-                unrealized_pnl_pct=5.1,
-                position_age_hours=1.0,
-            )
-            == "take_profit"
+        position_manager._resolve_exit_reason(
+            z_score_current=0.1,
+            z_score_traded=1.0,
+            unrealized_pnl_pct=5.1,
+            position_age_hours=1.0,
+        )
+        == "take_profit"
     )
     assert (
-            position_manager._resolve_exit_reason(
-                z_score_current=0.1,
-                z_score_traded=1.0,
-                unrealized_pnl_pct=0.0,
-                position_age_hours=24.0,
-            )
-            == "timeout"
+        position_manager._resolve_exit_reason(
+            z_score_current=0.1,
+            z_score_traded=1.0,
+            unrealized_pnl_pct=0.0,
+            position_age_hours=24.0,
+        )
+        == "timeout"
     )
 
 

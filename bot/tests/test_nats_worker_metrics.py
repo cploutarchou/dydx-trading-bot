@@ -49,7 +49,7 @@ def test_start_nats_command_with_none():
     assert "" not in _command_start_times
 
 
-@patch('src.infrastructure.workers.nats_worker_metrics._resolve_writer')
+@patch("src.infrastructure.workers.nats_worker_metrics._resolve_writer")
 def test_complete_nats_command(mock_resolve_writer):
     """Test complete_nats_command records metrics."""
     from src.infrastructure.workers.nats_worker_metrics import (
@@ -81,16 +81,16 @@ def test_complete_nats_command(mock_resolve_writer):
     # Verify writer was called
     assert mock_writer.record_task_metrics.called
     call_args = mock_writer.record_task_metrics.call_args
-    assert call_args[1]['task_id'] == command_id
-    assert call_args[1]['task_name'] == f"backtest-execution-{run_id}"
-    assert call_args[1]['success'] is True
-    assert call_args[1]['worker_type'] == "nats"
+    assert call_args[1]["task_id"] == command_id
+    assert call_args[1]["task_name"] == f"backtest-execution-{run_id}"
+    assert call_args[1]["success"] is True
+    assert call_args[1]["worker_type"] == "nats"
 
     # Verify start time was removed
     assert correlation_id not in _command_start_times
 
 
-@patch('src.infrastructure.workers.nats_worker_metrics._resolve_writer')
+@patch("src.infrastructure.workers.nats_worker_metrics._resolve_writer")
 def test_complete_nats_command_without_start(mock_resolve_writer):
     """Test complete_nats_command handles missing start time gracefully."""
     from src.infrastructure.workers.nats_worker_metrics import (
@@ -117,7 +117,7 @@ def test_complete_nats_command_without_start(mock_resolve_writer):
     assert not mock_writer.record_task_metrics.called
 
 
-@patch('src.infrastructure.workers.nats_worker_metrics._resolve_writer')
+@patch("src.infrastructure.workers.nats_worker_metrics._resolve_writer")
 def test_complete_nats_command_calls_resolve_writer_by_default(mock_resolve_writer):
     """Test that complete_nats_command calls _resolve_writer if writer not provided."""
     from src.infrastructure.workers.nats_worker_metrics import (
@@ -147,7 +147,7 @@ def test_complete_nats_command_calls_resolve_writer_by_default(mock_resolve_writ
     assert mock_writer.record_task_metrics.called
 
 
-@patch('src.infrastructure.workers.nats_worker_metrics._resolve_writer')
+@patch("src.infrastructure.workers.nats_worker_metrics._resolve_writer")
 def test_fail_nats_command(mock_resolve_writer):
     """Test fail_nats_command records failure metrics."""
     from src.infrastructure.workers.nats_worker_metrics import (
@@ -175,11 +175,11 @@ def test_fail_nats_command(mock_resolve_writer):
 
     assert mock_writer.record_task_metrics.called
     call_args = mock_writer.record_task_metrics.call_args
-    assert call_args[1]['success'] is False
-    assert call_args[1]['retry_count'] == 3
+    assert call_args[1]["success"] is False
+    assert call_args[1]["retry_count"] == 3
 
 
-@patch('src.infrastructure.workers.nats_worker_metrics._resolve_writer')
+@patch("src.infrastructure.workers.nats_worker_metrics._resolve_writer")
 def test_metrics_with_none_writer(mock_resolve_writer):
     """Test that metrics functions handle None writer gracefully."""
     from src.infrastructure.workers.nats_worker_metrics import (
@@ -224,10 +224,12 @@ def test_metrics_with_none_writer(mock_resolve_writer):
     )
 
 
-@patch('src.infrastructure.workers.nats_worker_metrics._resolve_writer')
+@patch("src.infrastructure.workers.nats_worker_metrics._resolve_writer")
 def test_get_nats_worker_metrics_writer(mock_resolve_writer):
     """Test get_nats_worker_metrics_writer returns writer."""
-    from src.infrastructure.workers.nats_worker_metrics import get_nats_worker_metrics_writer
+    from src.infrastructure.workers.nats_worker_metrics import (
+        get_nats_worker_metrics_writer,
+    )
 
     mock_writer = MagicMock()
     mock_resolve_writer.return_value = mock_writer

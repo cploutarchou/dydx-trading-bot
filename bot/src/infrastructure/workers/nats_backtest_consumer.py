@@ -52,6 +52,7 @@ logger = logging.getLogger(__name__)
 
 class TaskRunStatus:
     """Task run status constants matching backend Phase 4 implementation."""
+
     PENDING = "pending"
     STARTING = "starting"
     RUNNING = "running"
@@ -63,6 +64,7 @@ class TaskRunStatus:
 
 class TaskAttemptOutcome:
     """Task attempt outcome constants."""
+
     PENDING = "pending"
     STARTED = "started"
     SUCCESS = "success"
@@ -73,6 +75,7 @@ class TaskAttemptOutcome:
 @dataclass
 class BacktestCommandPayload:
     """Parsed backtest command payload from NATS message."""
+
     command_id: str
     run_id: str
     command_type: str
@@ -94,7 +97,7 @@ class BacktestCommandPayload:
 class BacktestCommandHandler:
     """
     Message handler for backtest commands from NATS JetStream.
-    
+
     Implements the Phase 4 consumer pattern:
     - Explicit ack after authoritative PostgreSQL state update
     - Idempotency checking using task_commands table
@@ -106,7 +109,7 @@ class BacktestCommandHandler:
     def __init__(self, backtest_repo: Optional[BacktestRepository] = None):
         """
         Initialize backtest command handler.
-        
+
         Args:
             backtest_repo: Backtest repository for persistence operations
         """
@@ -115,19 +118,23 @@ class BacktestCommandHandler:
         self._active_tasks: Dict[str, asyncio.Task] = {}  # command_id -> task
         self._running_backtests: Dict[str, bool] = {}  # run_id -> is_running
 
-        logger.info(f"BacktestCommandHandler initialized with worker_id: {self._worker_id}")
+        logger.info(
+            f"BacktestCommandHandler initialized with worker_id: {self._worker_id}"
+        )
 
-    async def handle(self, message: Dict[str, Any], context: Dict[str, Any]) -> ProcessedResult:
+    async def handle(
+        self, message: Dict[str, Any], context: Dict[str, Any]
+    ) -> ProcessedResult:
         """
         Handle a backtest command message.
-        
+
         This is the main entry point called by the NATS consumer service.
         Implements explicit ack pattern: only ack after PostgreSQL state is updated.
-        
+
         Args:
             message: The message payload (envelope.payload)
             context: Additional context including nats_message, consumer_name, etc.
-            
+
         Returns:
             ProcessedResult with action (ACK, NAK, REQUEUE, DEAD_LETTER)
         """
@@ -147,7 +154,7 @@ class BacktestCommandHandler:
                     message_id=context.get("message_id", "unknown"),
                     idempotency_key=context.get("idempotency_key", "unknown"),
                     error_message="Invalid or empty payload",
-                    consumer_name=context.get("consumer_name")
+                    consumer_name=context.get("consumer_name"),
                 )
 
             # Add correlation_id to payload for downstream use
@@ -163,7 +170,7 @@ class BacktestCommandHandler:
                     action=MessageAction.ACK,  # Ack duplicates to remove from stream
                     message_id=payload.command_id,
                     idempotency_key=payload.idempotency_key,
-                    consumer_name=context.get("consumer_name")
+                    consumer_name=context.get("consumer_name"),
                 )
 
             # Process the backtest command
@@ -192,20 +199,26 @@ class BacktestCommandHandler:
                 message_id=context.get("message_id", "unknown"),
                 idempotency_key=context.get("idempotency_key", "unknown"),
                 error_message=str(e),
-                consumer_name=context.get("consumer_name")
+                consumer_name=context.get("consumer_name"),
             )
 
-    def _parse_payload(self, message: Dict[str, Any], context: Dict[str, Any]) -> Optional[BacktestCommandPayload]:
+    def _parse_payload(
+        self, message: Dict[str, Any], context: Dict[str, Any]
+    ) -> Optional[BacktestCommandPayload]:
         """Parse and validate backtest command payload."""
         try:
             # Extract fields from message (this is the payload from the envelope)
             payload = BacktestCommandPayload(
                 command_id=message.get("command_id", context.get("message_id", "")),
-                run_id=message.get("run_id", message.get("owner_id", "")),  # owner_id is used as run_id in dual-write
+                run_id=message.get(
+                    "run_id", message.get("owner_id", "")
+                ),  # owner_id is used as run_id in dual-write
                 command_type=message.get("command_type", "backtest"),
                 owner_type=message.get("owner_type", "backtest"),
                 owner_id=message.get("owner_id", message.get("run_id", "")),
-                idempotency_key=message.get("idempotency_key", context.get("idempotency_key", "")),
+                idempotency_key=message.get(
+                    "idempotency_key", context.get("idempotency_key", "")
+                ),
                 created_at=message.get("created_at"),
                 status=message.get("status"),
                 name=message.get("name"),
@@ -223,7 +236,9 @@ class BacktestCommandHandler:
 
             # Ensure we have a run_id
             if not payload.run_id:
-                payload.run_id = payload.command_id  # Use command_id as run_id if not provided
+                payload.run_id = (
+                    payload.command_id
+                )  # Use command_id as run_id if not provided
 
             return payload
 
@@ -259,7 +274,9 @@ class BacktestCommandHandler:
                 # If it's a different command with same idempotency key, it's also a duplicate
                 # (shouldn't happen with proper idempotency, but be safe)
                 if status in ["completed", "failed"]:
-                    logger.info(f"Duplicate idempotency key {idempotency_key} with different command")
+                    logger.info(
+                        f"Duplicate idempotency key {idempotency_key} with different command"
+                    )
                     return True
 
             return False
@@ -269,11 +286,14 @@ class BacktestCommandHandler:
             # On error, assume not duplicate to avoid blocking processing
             return False
 
-    async def _process_backtest_command(self, payload: BacktestCommandPayload,
-                                        context: Dict[str, Any]) -> ProcessedResult:
+    async def _process_backtest_command(
+        self, payload: BacktestCommandPayload, context: Dict[str, Any]
+    ) -> ProcessedResult:
         """Process the backtest command and return appropriate result."""
         # Extract correlation_id for traceability
-        correlation_id = payload.correlation_id or context.get("correlation_id", "unknown")
+        correlation_id = payload.correlation_id or context.get(
+            "correlation_id", "unknown"
+        )
 
         try:
             logger.info(
@@ -318,7 +338,9 @@ class BacktestCommandHandler:
                 await self._update_task_run_status(
                     task_run_id, TaskRunStatus.COMPLETED, 100.0
                 )
-                await self._update_task_attempt_outcome(attempt_id, TaskAttemptOutcome.SUCCESS)
+                await self._update_task_attempt_outcome(
+                    attempt_id, TaskAttemptOutcome.SUCCESS
+                )
 
                 # Record successful completion metrics
                 complete_nats_command(
@@ -337,13 +359,17 @@ class BacktestCommandHandler:
                     action=MessageAction.ACK,
                     message_id=payload.command_id,
                     idempotency_key=payload.idempotency_key,
-                    consumer_name=context.get("consumer_name")
+                    consumer_name=context.get("consumer_name"),
                 )
             else:
                 # Update task run to failed
-                await self._update_task_run_status(task_run_id, TaskRunStatus.FAILED, 0.0)
+                await self._update_task_run_status(
+                    task_run_id, TaskRunStatus.FAILED, 0.0
+                )
                 await self._update_task_attempt_outcome(
-                    attempt_id, TaskAttemptOutcome.FAILED, error_message="Backtest execution failed"
+                    attempt_id,
+                    TaskAttemptOutcome.FAILED,
+                    error_message="Backtest execution failed",
                 )
 
                 # Record failure metrics
@@ -364,21 +390,23 @@ class BacktestCommandHandler:
                     message_id=payload.command_id,
                     idempotency_key=payload.idempotency_key,
                     error_message="Backtest execution failed",
-                    consumer_name=context.get("consumer_name")
+                    consumer_name=context.get("consumer_name"),
                 )
 
         except Exception as e:
             logger.error(f"Error processing backtest command {payload.command_id}: {e}")
 
             # Try to update task run to failed if we have the task_run_id
-            if 'task_run_id' in locals():
+            if "task_run_id" in locals():
                 try:
-                    await self._update_task_run_status(task_run_id, TaskRunStatus.FAILED, 0.0)
+                    await self._update_task_run_status(
+                        task_run_id, TaskRunStatus.FAILED, 0.0
+                    )
                 except Exception:
                     pass
 
             # Try to update task attempt to failed if we have the attempt_id
-            if 'attempt_id' in locals():
+            if "attempt_id" in locals():
                 try:
                     await self._update_task_attempt_outcome(
                         attempt_id, TaskAttemptOutcome.FAILED, error_message=str(e)
@@ -391,13 +419,15 @@ class BacktestCommandHandler:
                 message_id=payload.command_id,
                 idempotency_key=payload.idempotency_key,
                 error_message=str(e),
-                consumer_name=context.get("consumer_name")
+                consumer_name=context.get("consumer_name"),
             )
         finally:
             # Clean up running state
             self._running_backtests.pop(payload.run_id, None)
 
-    async def _execute_backtest(self, payload: BacktestCommandPayload, task_run_id: str, attempt_id: str) -> bool:
+    async def _execute_backtest(
+        self, payload: BacktestCommandPayload, task_run_id: str, attempt_id: str
+    ) -> bool:
         """Execute the real backtest via BacktestService (same path Celery uses).
 
         Imports are local so the consumer module stays import-safe and so a real
@@ -407,7 +437,9 @@ class BacktestCommandHandler:
         """
         try:
             from src.infrastructure.use_cases.service_backtest import BacktestService
-            from src.infrastructure.workers.backtest_event_emitter import publish_backtest_event
+            from src.infrastructure.workers.backtest_event_emitter import (
+                publish_backtest_event,
+            )
 
             logger.info(f"Starting backtest execution for run_id: {payload.run_id}")
 
@@ -415,11 +447,15 @@ class BacktestCommandHandler:
             repository = BacktestRepository(session)
             service = BacktestService(repository)
 
-            async def _progress(callback_run_id: str, progress: float, current_pair: str, eta: float) -> None:
+            async def _progress(
+                callback_run_id: str, progress: float, current_pair: str, eta: float
+            ) -> None:
                 await self._update_task_run_progress(task_run_id, float(progress))
                 await publish_backtest_event(
-                    run_id=callback_run_id, status="progress",
-                    progress=float(progress), current_pair=current_pair,
+                    run_id=callback_run_id,
+                    status="progress",
+                    progress=float(progress),
+                    current_pair=current_pair,
                 )
 
             await self._update_task_run_status(task_run_id, TaskRunStatus.RUNNING, 0.0)
@@ -432,16 +468,25 @@ class BacktestCommandHandler:
             )
 
             await self._update_task_run_progress(task_run_id, 100.0)
-            await publish_backtest_event(run_id=payload.run_id, status="completed", progress=100.0)
-            logger.info(f"Backtest {payload.run_id}: Completed successfully via NATS consumer")
+            await publish_backtest_event(
+                run_id=payload.run_id, status="completed", progress=100.0
+            )
+            logger.info(
+                f"Backtest {payload.run_id}: Completed successfully via NATS consumer"
+            )
             return True
 
         except Exception as e:
             logger.error(f"Backtest execution failed for {payload.run_id}: {e}")
-            from src.infrastructure.workers.backtest_event_emitter import publish_backtest_event
+            from src.infrastructure.workers.backtest_event_emitter import (
+                publish_backtest_event,
+            )
+
             await publish_backtest_event(
-                run_id=payload.run_id, status="failed",
-                error_code="BACKTEST_EXECUTION_FAILED", error_message=str(e),
+                run_id=payload.run_id,
+                status="failed",
+                error_code="BACKTEST_EXECUTION_FAILED",
+                error_message=str(e),
             )
             return False
 
@@ -479,13 +524,16 @@ class BacktestCommandHandler:
                 RETURNING id
             """)
 
-            result = session.execute(insert_query, {
-                "command_id": payload.command_id,
-                "task_type": "backtest_execution",
-                "max_retries": 3,  # Default max retries
-                "status": TaskRunStatus.PENDING,
-                "progress_pct": 0.0,
-            })
+            result = session.execute(
+                insert_query,
+                {
+                    "command_id": payload.command_id,
+                    "task_type": "backtest_execution",
+                    "max_retries": 3,  # Default max retries
+                    "status": TaskRunStatus.PENDING,
+                    "progress_pct": 0.0,
+                },
+            )
 
             row = result.fetchone()
             session.commit()
@@ -495,11 +543,15 @@ class BacktestCommandHandler:
             return str(row[0])
 
         except Exception as e:
-            logger.error(f"Failed to create task run for command {payload.command_id}: {e}")
+            logger.error(
+                f"Failed to create task run for command {payload.command_id}: {e}"
+            )
             session.rollback()
             raise
 
-    async def _create_task_attempt(self, task_run_id: str, payload: BacktestCommandPayload) -> str:
+    async def _create_task_attempt(
+        self, task_run_id: str, payload: BacktestCommandPayload
+    ) -> str:
         """Create a task attempt record for this processing.
 
         SQL is aligned with migration 000065_create_task_attempts.up.sql:
@@ -520,13 +572,16 @@ class BacktestCommandHandler:
                 RETURNING id
             """)
 
-            result = session.execute(insert_query, {
-                "task_run_id": task_run_id,
-                "attempt_number": retry_count + 1,
-                "worker_id": self._worker_id,
-                "consumer_name": "backtest-worker",
-                "outcome": TaskAttemptOutcome.STARTED,
-            })
+            result = session.execute(
+                insert_query,
+                {
+                    "task_run_id": task_run_id,
+                    "attempt_number": retry_count + 1,
+                    "worker_id": self._worker_id,
+                    "consumer_name": "backtest-worker",
+                    "outcome": TaskAttemptOutcome.STARTED,
+                },
+            )
 
             row = result.fetchone()
             session.commit()
@@ -574,17 +629,24 @@ class BacktestCommandHandler:
                 WHERE id = :command_id
             """)
 
-            session.execute(update_query, {
-                "status": status,
-                "command_id": command_id,
-            })
+            session.execute(
+                update_query,
+                {
+                    "status": status,
+                    "command_id": command_id,
+                },
+            )
             session.commit()
 
         except Exception as e:
-            logger.error(f"Failed to update task command {command_id} status to {status}: {e}")
+            logger.error(
+                f"Failed to update task command {command_id} status to {status}: {e}"
+            )
             session.rollback()
 
-    async def _update_task_run_status(self, task_run_id: str, status: str, progress_pct: float) -> None:
+    async def _update_task_run_status(
+        self, task_run_id: str, status: str, progress_pct: float
+    ) -> None:
         """Update task run status and progress."""
         try:
             session = db.get_session()
@@ -598,20 +660,25 @@ class BacktestCommandHandler:
                 WHERE id = :task_run_id
             """)
 
-            session.execute(update_query, {
-                "status": status,
-                "progress_pct": progress_pct,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-                "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
-                "task_run_id": task_run_id
-            })
+            session.execute(
+                update_query,
+                {
+                    "status": status,
+                    "progress_pct": progress_pct,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
+                    "task_run_id": task_run_id,
+                },
+            )
             session.commit()
 
         except Exception as e:
             logger.error(f"Failed to update task run {task_run_id} status: {e}")
             session.rollback()
 
-    async def _update_task_run_progress(self, task_run_id: str, progress_pct: float) -> None:
+    async def _update_task_run_progress(
+        self, task_run_id: str, progress_pct: float
+    ) -> None:
         """Update task run progress percentage."""
         try:
             session = db.get_session()
@@ -624,12 +691,17 @@ class BacktestCommandHandler:
                 WHERE id = :task_run_id
             """)
 
-            session.execute(update_query, {
-                "progress_pct": min(max(progress_pct, 0.0), 100.0),  # Clamp to 0-100
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-                "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
-                "task_run_id": task_run_id
-            })
+            session.execute(
+                update_query,
+                {
+                    "progress_pct": min(
+                        max(progress_pct, 0.0), 100.0
+                    ),  # Clamp to 0-100
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
+                    "task_run_id": task_run_id,
+                },
+            )
             session.commit()
 
         except Exception as e:
@@ -637,11 +709,11 @@ class BacktestCommandHandler:
             session.rollback()
 
     async def _update_task_attempt_outcome(
-            self,
-            attempt_id: str,
-            outcome: str,
-            error_message: Optional[str] = None,
-            error_code: Optional[str] = None
+        self,
+        attempt_id: str,
+        outcome: str,
+        error_message: Optional[str] = None,
+        error_code: Optional[str] = None,
     ) -> None:
         """Update task attempt outcome."""
         try:
@@ -656,13 +728,16 @@ class BacktestCommandHandler:
                 WHERE id = :attempt_id
             """)
 
-            session.execute(update_query, {
-                "outcome": outcome,
-                "finished_at": datetime.now(timezone.utc).isoformat(),
-                "error_message": error_message,
-                "error_code": error_code,
-                "attempt_id": attempt_id
-            })
+            session.execute(
+                update_query,
+                {
+                    "outcome": outcome,
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                    "error_message": error_message,
+                    "error_code": error_code,
+                    "attempt_id": attempt_id,
+                },
+            )
             session.commit()
 
         except Exception as e:
@@ -685,13 +760,13 @@ def get_backtest_command_handler() -> BacktestCommandHandler:
 async def init_nats_backtest_consumers() -> Optional[BacktestCommandHandler]:
     """
     Initialize NATS backtest consumers.
-    
+
     This function:
     1. Creates the NATS consumer service
     2. Registers the backtest command handler
     3. Subscribes to backtest command messages
     4. Starts the consumer service
-    
+
     Returns the backtest command handler or None if initialization failed.
     """
     try:
@@ -699,6 +774,7 @@ async def init_nats_backtest_consumers() -> Optional[BacktestCommandHandler]:
         consumer_service = get_nats_consumer_service()
         if consumer_service is None:
             from src.infrastructure.event_bus_nats import init_nats_consumer_service
+
             consumer_service = init_nats_consumer_service()
 
         # Check if NATS is enabled

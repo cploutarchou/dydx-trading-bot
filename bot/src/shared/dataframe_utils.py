@@ -24,7 +24,9 @@ def enable_dataframe_tracking(enabled: bool = True):
     logger.info(f"DataFrame tracking {'enabled' if enabled else 'disabled'}")
 
 
-def register_dataframe(df: Any, name: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+def register_dataframe(
+    df: Any, name: str, metadata: Optional[Dict[str, Any]] = None
+) -> str:
     """Register a DataFrame for memory tracking.
 
     Args:
@@ -47,11 +49,11 @@ def register_dataframe(df: Any, name: str, metadata: Optional[Dict[str, Any]] = 
             "name": name,
             "size_bytes": frame_size,
             "size_mb": frame_size / (1024 * 1024),
-            "rows": len(df) if hasattr(df, '__len__') else 0,
-            "columns": len(df.columns) if hasattr(df, 'columns') else 0,
+            "rows": len(df) if hasattr(df, "__len__") else 0,
+            "columns": len(df.columns) if hasattr(df, "columns") else 0,
             "created_at": datetime.now(),
             "metadata": metadata or {},
-            "df": df  # Keep reference to prevent garbage collection
+            "df": df,  # Keep reference to prevent garbage collection
         }
 
         with _registry_lock:
@@ -89,7 +91,9 @@ def unregister_dataframe(frame_id: str) -> bool:
                 if df is not None:
                     # Explicit cleanup
                     cleanup_dataframe(df)
-                logger.debug(f"Unregistered DataFrame {frame_id}: {entry['size_mb']:.2f} MB freed")
+                logger.debug(
+                    f"Unregistered DataFrame {frame_id}: {entry['size_mb']:.2f} MB freed"
+                )
                 return True
         return False
     except Exception as e:
@@ -107,11 +111,11 @@ def get_dataframe_memory_usage(df: Any) -> int:
         Memory usage in bytes
     """
     try:
-        if hasattr(df, 'memory_usage'):
+        if hasattr(df, "memory_usage"):
             return df.memory_usage(deep=True).sum()
-        elif hasattr(df, 'nbytes'):
+        elif hasattr(df, "nbytes"):
             return df.nbytes
-        elif hasattr(df, '__sizeof__'):
+        elif hasattr(df, "__sizeof__"):
             return df.__sizeof__()
         else:
             return 0
@@ -133,9 +137,9 @@ def cleanup_dataframe(df: Any) -> bool:
             return False
 
         # Clear DataFrame contents
-        if hasattr(df, 'columns'):
+        if hasattr(df, "columns"):
             # Drop columns to free memory
-            df.drop(columns=list(df.columns), inplace=True, errors='ignore')
+            df.drop(columns=list(df.columns), inplace=True, errors="ignore")
 
         # Delete the object reference
         del df
@@ -212,10 +216,12 @@ def get_memory_summary() -> Dict[str, Any]:
                     "tracked_dataframes": 0,
                     "total_memory_mb": 0.0,
                     "largest_frame_mb": 0.0,
-                    "oldest_frame_minutes": 0.0
+                    "oldest_frame_minutes": 0.0,
                 }
 
-            total_memory = sum(entry["size_bytes"] for entry in _frame_registry.values())
+            total_memory = sum(
+                entry["size_bytes"] for entry in _frame_registry.values()
+            )
             largest = max(_frame_registry.values(), key=lambda x: x["size_bytes"])
             oldest = min(_frame_registry.values(), key=lambda x: x["created_at"])
             oldest_age = (datetime.now() - oldest["created_at"]).total_seconds() / 60
@@ -245,7 +251,9 @@ def force_cleanup_all():
                 if unregister_dataframe(frame_id):
                     cleaned += 1
 
-            logger.info(f"Force cleanup completed: {cleaned}/{len(frame_ids)} DataFrames")
+            logger.info(
+                f"Force cleanup completed: {cleaned}/{len(frame_ids)} DataFrames"
+            )
             return cleaned
 
     except Exception as e:
@@ -263,7 +271,7 @@ def optimize_dataframe_memory(df: Any) -> Any:
         Optimized DataFrame
     """
     try:
-        if df is None or not hasattr(df, 'dtypes'):
+        if df is None or not hasattr(df, "dtypes"):
             return df
 
         # Make a copy to avoid modifying original
@@ -272,19 +280,23 @@ def optimize_dataframe_memory(df: Any) -> Any:
         # Downcast numeric columns
         for col in optimized.columns:
             dtype = optimized[col].dtype
-            if dtype == 'int64':
-                optimized[col] = optimized[col].astype('int32')
-            elif dtype == 'float64':
-                optimized[col] = optimized[col].astype('float32')
-            elif dtype == 'object':
+            if dtype == "int64":
+                optimized[col] = optimized[col].astype("int32")
+            elif dtype == "float64":
+                optimized[col] = optimized[col].astype("float32")
+            elif dtype == "object":
                 # Try to convert to categorical if many duplicates
                 unique_ratio = optimized[col].nunique() / len(optimized[col])
                 if unique_ratio < 0.5:  # If less than 50% unique values
-                    optimized[col] = optimized[col].astype('category')
+                    optimized[col] = optimized[col].astype("category")
 
         memory_before = get_dataframe_memory_usage(df)
         memory_after = get_dataframe_memory_usage(optimized)
-        saved_percent = ((memory_before - memory_after) / memory_before * 100) if memory_before > 0 else 0
+        saved_percent = (
+            ((memory_before - memory_after) / memory_before * 100)
+            if memory_before > 0
+            else 0
+        )
 
         logger.debug(f"DataFrame memory optimization: {saved_percent:.1f}% reduction")
         return optimized
@@ -294,7 +306,9 @@ def optimize_dataframe_memory(df: Any) -> Any:
         return df
 
 
-def cleanup_cache_entries(cache_dict: Dict[str, Any], max_size: int = 100, max_age_minutes: int = 60):
+def cleanup_cache_entries(
+    cache_dict: Dict[str, Any], max_size: int = 100, max_age_minutes: int = 60
+):
     """Clean up cache entries with size and age limits.
 
     Args:
@@ -317,15 +331,21 @@ def cleanup_cache_entries(cache_dict: Dict[str, Any], max_size: int = 100, max_a
             elif isinstance(value, dict) and "created_at" in value:
                 created_time = value["created_at"]
                 if isinstance(created_time, datetime):
-                    if (current_time - created_time.timestamp()) > (max_age_minutes * 60):
+                    if (current_time - created_time.timestamp()) > (
+                        max_age_minutes * 60
+                    ):
                         entries_to_remove.append(key)
 
         # Remove oldest entries if still too large
         if len(cache_dict) - len(entries_to_remove) > max_size:
             # Sort by expiration time and remove oldest
             sorted_entries = sorted(
-                [(k, v) for k, v in cache_dict.items() if k not in entries_to_remove and isinstance(v, dict)],
-                key=lambda x: x[1].get("expires", 0)
+                [
+                    (k, v)
+                    for k, v in cache_dict.items()
+                    if k not in entries_to_remove and isinstance(v, dict)
+                ],
+                key=lambda x: x[1].get("expires", 0),
             )
             excess = len(cache_dict) - len(entries_to_remove) - max_size
             for i in range(excess):
@@ -361,7 +381,7 @@ def get_dataframe_cleanup_stats() -> Dict[str, Any]:
         "tracked_count": len(_frame_registry),
         "max_tracked": _max_tracked_frames,
         "registry_size_kb": _get_registry_size(),
-        **get_memory_summary()
+        **get_memory_summary(),
     }
 
 
@@ -369,6 +389,7 @@ def _get_registry_size() -> float:
     """Get approximate size of the registry in KB."""
     try:
         import sys
+
         return sys.getsizeof(_frame_registry) / 1024
     except Exception:
         return 0.0

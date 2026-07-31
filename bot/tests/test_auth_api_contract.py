@@ -13,8 +13,12 @@ def _load_auth_module():
 def test_build_token_response_shape_is_stable(monkeypatch):
     auth = _load_auth_module()
 
-    monkeypatch.setattr(auth.JWTUtils, "create_access_token", lambda _payload: "acc-token")
-    monkeypatch.setattr(auth.JWTUtils, "create_refresh_token", lambda _payload: "ref-token")
+    monkeypatch.setattr(
+        auth.JWTUtils, "create_access_token", lambda _payload: "acc-token"
+    )
+    monkeypatch.setattr(
+        auth.JWTUtils, "create_refresh_token", lambda _payload: "ref-token"
+    )
 
     payload = auth._build_token_response("svc-user")
 
@@ -29,10 +33,16 @@ def test_login_bypass_returns_only_token_contract_fields(monkeypatch):
     auth = _load_auth_module()
 
     monkeypatch.setenv("API_BYPASS_AUTH", "true")
-    monkeypatch.setattr(auth.JWTUtils, "create_access_token", lambda _payload: "acc-token")
-    monkeypatch.setattr(auth.JWTUtils, "create_refresh_token", lambda _payload: "ref-token")
+    monkeypatch.setattr(
+        auth.JWTUtils, "create_access_token", lambda _payload: "acc-token"
+    )
+    monkeypatch.setattr(
+        auth.JWTUtils, "create_refresh_token", lambda _payload: "ref-token"
+    )
 
-    payload = asyncio.run(auth.login(auth.LoginRequest(username="bot", password="x"), session=None))
+    payload = asyncio.run(
+        auth.login(auth.LoginRequest(username="bot", password="x"), session=None)
+    )
 
     assert set(payload.keys()) == AUTH_TOKEN_KEYS
     assert payload["token_type"] == "bearer"

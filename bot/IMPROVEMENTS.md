@@ -104,9 +104,11 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 #### **Critical Issues**
 
-- **Black Formatting Not Enforced**: CI ignores Black formatting failures (`|| true` in `.github/workflows/ci.yml:46`)
+- **Black Formatting Not Enforced** (RESOLVED): CI no longer ignores Black formatting — the `|| true`
+  fallback was removed and the gate now fails on drift across `src` and `tests`, with a pinned
+  `[tool.black]` config in `pyproject.toml` for deterministic formatting
     - **Impact**: Inconsistent code style, maintenance overhead
-    - **Files**: `.github/workflows/ci.yml`
+    - **Files**: `.github/workflows/ci.yml`, `pyproject.toml`
 
 - **No Code Coverage Reporting**: No coverage tool configured or reported in CI
     - **Impact**: No visibility into test coverage gaps
@@ -337,11 +339,19 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 #### **Code Quality Tools**
 
-- [ ] **Enforce Black formatting** in CI (remove `|| true`)
-    - **Files**: `.github/workflows/ci.yml`
+- [x] **Enforce Black formatting** in CI (remove `|| true`)
+    - **Files**: `.github/workflows/ci.yml`, `pyproject.toml`, `src/`, `tests/`
     - **Impact**: Consistent code style enforcement
     - **Effort**: 1 day
     - **Priority**: HIGH
+    - **Status**: ✅ COMPLETED - Removed the `|| true` fallback so the CI lint job fails on Black drift;
+      the gate now checks both `src` and `tests`. Added a pinned `[tool.black]` config
+      (`line-length=88`, `target-version=["py312"]`) to `pyproject.toml` so formatting is identical
+      regardless of the Python that runs Black (CI uses a 3.11 runner; project targets >=3.12).
+      Reformatted 50 `src` files and 40 `tests` files to the enforced style. Also fixed a pre-existing
+      flake8 `F824` (redundant `global _consumer_service` in `src/infrastructure/event_bus_nats.py`)
+      that the same CI gate (`--select=E9,F63,F7,F82`) would otherwise fail. Verified with
+      `black --check`, the CI flake8 gate, `compileall`, and a unit-test smoke run.
 
 - [ ] **Add code coverage reporting** to CI/CD pipeline
     - **Files**: Add pytest-cov, update CI configuration

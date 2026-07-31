@@ -45,7 +45,11 @@ def test_open_positions_applies_pair_backoff_after_entry_exception(monkeypatch):
         return {
             "markets": {
                 "DOT-USD": {"tickSize": "0.001", "stepSize": "1", "oraclePrice": "1.2"},
-                "CRO-USD": {"tickSize": "0.00001", "stepSize": "1", "oraclePrice": "0.07"},
+                "CRO-USD": {
+                    "tickSize": "0.00001",
+                    "stepSize": "1",
+                    "oraclePrice": "0.07",
+                },
             }
         }
 
@@ -120,7 +124,11 @@ def test_open_positions_clears_backoff_after_success(monkeypatch):
     async def fake_get_markets(_client):
         return {
             "markets": {
-                "XLM-USD": {"tickSize": "0.0001", "stepSize": "1", "oraclePrice": "0.16"},
+                "XLM-USD": {
+                    "tickSize": "0.0001",
+                    "stepSize": "1",
+                    "oraclePrice": "0.16",
+                },
                 "ZEN-USD": {"tickSize": "0.001", "stepSize": "1", "oraclePrice": "5.7"},
             }
         }
@@ -174,7 +182,9 @@ def test_open_positions_clears_backoff_after_success(monkeypatch):
     monkeypatch.setattr(position_manager, "get_account", fake_get_account)
     monkeypatch.setattr(position_manager, "BotAgent", FlakyThenSuccessAgent)
     monkeypatch.setattr(position_manager, "append_tracked_position", _no_op_append)
-    monkeypatch.setattr(position_manager, "persist_live_trade_opened", lambda _payload: None)
+    monkeypatch.setattr(
+        position_manager, "persist_live_trade_opened", lambda _payload: None
+    )
 
     asyncio.run(position_manager.open_positions(object()))
     pair_key = "XLM-USD|ZEN-USD"
@@ -237,13 +247,17 @@ def test_open_positions_enforces_max_positions(monkeypatch):
 
     class ShouldNotOpenAgent:
         def __init__(self, *_args, **_kwargs):  # pragma: no cover - safety assertion
-            raise AssertionError("BotAgent should not be constructed when max_positions is reached")
+            raise AssertionError(
+                "BotAgent should not be constructed when max_positions is reached"
+            )
 
     monkeypatch.setattr(position_manager, "get_markets", fake_get_markets)
     monkeypatch.setattr(position_manager, "get_candles_recent", fake_get_candles_recent)
     monkeypatch.setattr(position_manager, "calculate_zscore", fake_calculate_zscore)
     monkeypatch.setattr(position_manager, "is_open_positions", fake_is_open_positions)
-    monkeypatch.setattr(position_manager, "load_tracked_positions", fake_load_tracked_positions)
+    monkeypatch.setattr(
+        position_manager, "load_tracked_positions", fake_load_tracked_positions
+    )
     monkeypatch.setattr(position_manager, "BotAgent", ShouldNotOpenAgent)
 
     asyncio.run(position_manager.open_positions(object()))

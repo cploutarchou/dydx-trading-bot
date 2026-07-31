@@ -82,7 +82,7 @@ def test_strategy_status_snapshot_only_includes_strategy_instances(tmp_path):
 
 
 def test_start_instance_marks_fast_exit_as_error_and_publishes_status(
-        tmp_path, monkeypatch
+    tmp_path, monkeypatch
 ):
     manager = BotInstanceManager(state_dir=str(tmp_path))
     published = []
@@ -201,7 +201,7 @@ def test_cleanup_dead_processes_publishes_error_for_crashed_strategy(tmp_path):
 
 
 def test_cleanup_dead_processes_refreshes_live_worker_heartbeat_without_degrading(
-        tmp_path,
+    tmp_path,
 ):
     manager = BotInstanceManager(state_dir=str(tmp_path))
     asyncio.run(manager.create_instance(_strategy_config()))
@@ -256,8 +256,8 @@ def test_degraded_live_worker_recovers_to_running_on_status_probe(tmp_path):
 
 
 def test_status_probe_preserves_running_when_metrics_access_denied(
-        tmp_path,
-        monkeypatch,
+    tmp_path,
+    monkeypatch,
 ):
     manager = BotInstanceManager(state_dir=str(tmp_path))
     asyncio.run(manager.create_instance(_strategy_config()))
@@ -294,8 +294,8 @@ def test_status_probe_preserves_running_when_metrics_access_denied(
 
 
 def test_start_instance_rejects_degraded_active_runtime_without_spawning(
-        tmp_path,
-        monkeypatch,
+    tmp_path,
+    monkeypatch,
 ):
     manager = BotInstanceManager(state_dir=str(tmp_path))
     asyncio.run(manager.create_instance(_strategy_config()))
@@ -314,7 +314,7 @@ def test_start_instance_rejects_degraded_active_runtime_without_spawning(
 
 
 def test_delete_instance_force_stops_degraded_runtime_before_cleanup(
-        tmp_path, monkeypatch
+    tmp_path, monkeypatch
 ):
     manager = BotInstanceManager(state_dir=str(tmp_path))
     asyncio.run(manager.create_instance(_strategy_config()))
@@ -416,7 +416,7 @@ def test_runtime_contract_payload_uses_instance_config_only(monkeypatch, tmp_pat
 
 
 def test_manager_recovers_instances_from_database_before_legacy_disk(
-        monkeypatch, tmp_path
+    monkeypatch, tmp_path
 ):
     monkeypatch.setattr(
         BotInstanceManager,
@@ -581,8 +581,8 @@ def test_save_instances_state_syncs_runtime_state_to_database(monkeypatch, tmp_p
     assert persisted_record.config["runtime_state"]["last_error"] == "runtime crashed"
     assert persisted_record.config["runtime_state"]["exit_code"] == 7
     assert (
-            persisted_record.config["runtime_state"]["trading_stats"]["active_positions"]
-            == 2
+        persisted_record.config["runtime_state"]["trading_stats"]["active_positions"]
+        == 2
     )
     assert not (tmp_path / "instances.json").exists()
 
@@ -675,7 +675,7 @@ def test_mark_instance_error_records_runtime_event(monkeypatch, tmp_path):
     recorded = {}
 
     def _fake_record_runtime_event(
-            instance_id, event_type, severity, message, details=None
+        instance_id, event_type, severity, message, details=None
     ):
         recorded["instance_id"] = instance_id
         recorded["event_type"] = event_type
@@ -698,7 +698,7 @@ def test_mark_instance_error_records_runtime_event(monkeypatch, tmp_path):
 
 
 def test_recovered_running_instance_is_marked_error_when_pid_is_dead(
-        monkeypatch, tmp_path
+    monkeypatch, tmp_path
 ):
     monkeypatch.setattr(
         BotInstanceManager,
@@ -776,7 +776,7 @@ def test_recovered_running_instance_is_marked_error_when_pid_is_dead(
 
 
 def test_live_auto_recovery_marks_dead_active_runtime_error_by_default(
-        monkeypatch, tmp_path
+    monkeypatch, tmp_path
 ):
     manager = BotInstanceManager(state_dir=str(tmp_path))
     asyncio.run(manager.create_instance(_strategy_config()))
@@ -801,14 +801,14 @@ def test_live_auto_recovery_marks_dead_active_runtime_error_by_default(
     assert report["marked_error"][0]["instance_id"] == "strategy-1-101"
     assert manager.instances["strategy-1-101"].status == BotStatus.ERROR
     assert (
-            "no longer running"
-            in manager.instances["strategy-1-101"].process_info["last_error"]
+        "no longer running"
+        in manager.instances["strategy-1-101"].process_info["last_error"]
     )
 
 
 def test_live_auto_recovery_restarts_dead_testnet_runtime_when_enabled(
-        monkeypatch,
-        tmp_path,
+    monkeypatch,
+    tmp_path,
 ):
     monkeypatch.setenv("BOT_AUTO_RECOVER_LIVE_RUNTIMES", "true")
     manager = BotInstanceManager(state_dir=str(tmp_path))
@@ -853,8 +853,8 @@ def test_live_auto_recovery_restarts_dead_testnet_runtime_when_enabled(
 
 
 def test_live_auto_recovery_does_not_restart_mainnet_without_explicit_gate(
-        monkeypatch,
-        tmp_path,
+    monkeypatch,
+    tmp_path,
 ):
     monkeypatch.setenv("BOT_AUTO_RECOVER_LIVE_RUNTIMES", "true")
     config = _strategy_config()
@@ -885,8 +885,8 @@ def test_live_auto_recovery_does_not_restart_mainnet_without_explicit_gate(
     assert report["allow_mainnet"] is False
     assert report["restarted"] == []
     assert (
-            report["marked_error"][0]["reason"]
-            == "auto-restart disabled for mainnet runtime"
+        report["marked_error"][0]["reason"]
+        == "auto-restart disabled for mainnet runtime"
     )
     assert manager.instances["strategy-1-101"].status == BotStatus.ERROR
 
@@ -1079,7 +1079,11 @@ def _sealed_strategy_record(now, *, sealed: bool):
         "credentials": plain_credentials,
         "telegram": {"token": "persisted-token", "chat_id": "persisted-chat"},
         "trading_params": _strategy_config().trading_params.model_dump(),
-        "backtesting_params": _strategy_config().backtesting_params.model_dump() if _strategy_config().backtesting_params else {},
+        "backtesting_params": (
+            _strategy_config().backtesting_params.model_dump()
+            if _strategy_config().backtesting_params
+            else {}
+        ),
     }
     config = cc.seal_config_secrets(base_payload) if sealed else dict(base_payload)
     return SimpleNamespace(
@@ -1116,12 +1120,14 @@ def _wire_fake_db(monkeypatch, record):
         def close(self):
             return None
 
-    monkeypatch.setattr(bot_instance_manager_module.db, "get_session", lambda: FakeSession())
+    monkeypatch.setattr(
+        bot_instance_manager_module.db, "get_session", lambda: FakeSession()
+    )
     monkeypatch.setattr(bot_instance_manager_module, "UnitOfWork", FakeUOW)
 
 
 def test_persist_instances_to_db_seals_credentials_when_key_set(
-        monkeypatch, tmp_path, cipher_key
+    monkeypatch, tmp_path, cipher_key
 ):
     """With a key provisioned, DB sync seals credentials at rest."""
     monkeypatch.setattr(
@@ -1158,15 +1164,15 @@ def test_recovery_decrypts_sealed_credentials(monkeypatch, tmp_path, cipher_key)
     assert set(manager.instances.keys()) == {"strategy-1-101"}
     recovered = manager.instances["strategy-1-101"]
     assert (
-            recovered.config.credentials.mnemonic
-            == "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
+        recovered.config.credentials.mnemonic
+        == "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
     )
     assert recovered.config.credentials.address == "dydx1recoveredaddress"
     assert recovered.config.telegram.token == "persisted-token"
 
 
 def test_recovery_handles_legacy_plaintext_when_key_set(
-        monkeypatch, tmp_path, cipher_key
+    monkeypatch, tmp_path, cipher_key
 ):
     """A legacy plaintext row still recovers even with a key provisioned."""
     monkeypatch.setattr(
@@ -1180,6 +1186,6 @@ def test_recovery_handles_legacy_plaintext_when_key_set(
 
     recovered = manager.instances["strategy-1-101"]
     assert (
-            recovered.config.credentials.mnemonic
-            == "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
+        recovered.config.credentials.mnemonic
+        == "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
     )

@@ -47,12 +47,14 @@ from sqlalchemy.pool import QueuePool, Pool
 class ConnectionPoolMonitor:
     """Monitor and alert on database connection pool health."""
 
-    def __init__(self,
-                 alert_threshold_percentage: float = 80.0,
-                 alert_threshold_wait_time: float = 5.0,
-                 alert_threshold_failure_rate: float = 0.1,
-                 monitoring_interval_seconds: int = 30,
-                 metrics_window_size: int = 100):
+    def __init__(
+        self,
+        alert_threshold_percentage: float = 80.0,
+        alert_threshold_wait_time: float = 5.0,
+        alert_threshold_failure_rate: float = 0.1,
+        monitoring_interval_seconds: int = 30,
+        metrics_window_size: int = 100,
+    ):
         """
         Initialize connection pool monitor.
 
@@ -89,7 +91,9 @@ class ConnectionPoolMonitor:
         """Start background monitoring of the connection pool."""
         with self._lock:
             if self._monitoring_active:
-                logger.warning(f"Connection pool monitoring already active for {engine_name}")
+                logger.warning(
+                    f"Connection pool monitoring already active for {engine_name}"
+                )
                 return
 
             self._monitoring_active = True
@@ -99,7 +103,7 @@ class ConnectionPoolMonitor:
             self._monitoring_thread = threading.Thread(
                 target=self._monitor_pool,
                 daemon=True,
-                name=f"pool-monitor-{engine_name}"
+                name=f"pool-monitor-{engine_name}",
             )
             self._monitoring_thread.start()
             logger.info(f"Started connection pool monitoring for {engine_name}")
@@ -171,7 +175,9 @@ class ConnectionPoolMonitor:
 
                 # Check alert cooldown
                 if self._last_alert_time:
-                    time_since_last_alert = (current_time - self._last_alert_time).total_seconds()
+                    time_since_last_alert = (
+                        current_time - self._last_alert_time
+                    ).total_seconds()
                     if time_since_last_alert < self._alert_cooldown_seconds:
                         return
 
@@ -181,20 +187,23 @@ class ConnectionPoolMonitor:
                         "high_pool_utilization",
                         f"Database connection pool utilization is {latest['utilization_percentage']:.1f}% "
                         f"({latest['checked_out']} of {latest['max_size']} connections in use). "
-                        f"Threshold: {self.alert_threshold_percentage}%"
+                        f"Threshold: {self.alert_threshold_percentage}%",
                     )
                     self._last_alert_time = current_time
                     return
 
                 # Check connection failure rate
                 if self._connection_failures:
-                    recent_failures = sum(1 for f in self._connection_failures
-                                        if (current_time - f).total_seconds() <= 300)  # Last 5 minutes
+                    recent_failures = sum(
+                        1
+                        for f in self._connection_failures
+                        if (current_time - f).total_seconds() <= 300
+                    )  # Last 5 minutes
 
                     if recent_failures >= 5:  # 5+ failures in 5 minutes
                         self._trigger_alert(
                             "high_connection_failure_rate",
-                            f"Database connection failure rate elevated: {recent_failures} failures in last 5 minutes"
+                            f"Database connection failure rate elevated: {recent_failures} failures in last 5 minutes",
                         )
                         self._last_alert_time = current_time
                         return
@@ -219,10 +228,9 @@ class ConnectionPoolMonitor:
     def record_connection_timeout(self, timeout_seconds: float):
         """Record a connection timeout for alerting."""
         with self._lock:
-            self._connection_timeouts.append({
-                "timestamp": datetime.utcnow(),
-                "timeout": timeout_seconds
-            })
+            self._connection_timeouts.append(
+                {"timestamp": datetime.utcnow(), "timeout": timeout_seconds}
+            )
             logger.warning(f"Database connection timeout recorded: {timeout_seconds}s")
 
     def get_current_metrics(self) -> dict:
@@ -231,23 +239,35 @@ class ConnectionPoolMonitor:
             if not self._metrics_history:
                 return {
                     "status": "no_metrics",
-                    "monitoring_active": self._monitoring_active
+                    "monitoring_active": self._monitoring_active,
                 }
 
             latest = self._metrics_history[-1]
 
             # Calculate statistics from history
-            utilization_history = [m["utilization_percentage"] for m in self._metrics_history]
-            avg_utilization = sum(utilization_history) / len(utilization_history) if utilization_history else 0
+            utilization_history = [
+                m["utilization_percentage"] for m in self._metrics_history
+            ]
+            avg_utilization = (
+                sum(utilization_history) / len(utilization_history)
+                if utilization_history
+                else 0
+            )
             max_utilization = max(utilization_history) if utilization_history else 0
             min_utilization = min(utilization_history) if utilization_history else 0
 
             # Connection failure stats
             current_time = datetime.utcnow()
-            recent_failures = sum(1 for f in self._connection_failures
-                                if (current_time - f).total_seconds() <= 300)
-            recent_timeouts = sum(1 for t in self._connection_timeouts
-                                if (current_time - t["timestamp"]).total_seconds() <= 300)
+            recent_failures = sum(
+                1
+                for f in self._connection_failures
+                if (current_time - f).total_seconds() <= 300
+            )
+            recent_timeouts = sum(
+                1
+                for t in self._connection_timeouts
+                if (current_time - t["timestamp"]).total_seconds() <= 300
+            )
 
             return {
                 "status": "monitoring",
@@ -268,8 +288,8 @@ class ConnectionPoolMonitor:
                 "alert_thresholds": {
                     "utilization_percentage": self.alert_threshold_percentage,
                     "wait_time_seconds": self.alert_threshold_wait_time,
-                    "failure_rate": self.alert_threshold_failure_rate
-                }
+                    "failure_rate": self.alert_threshold_failure_rate,
+                },
             }
 
     def get_metrics_history(self, limit: int = 50) -> list:
@@ -278,22 +298,13 @@ class ConnectionPoolMonitor:
             metrics = list(self._metrics_history)
             if limit and limit < len(metrics):
                 metrics = metrics[-limit:]
-            return [
-                {
-                    **m,
-                    "timestamp": m["timestamp"].isoformat()
-                }
-                for m in metrics
-            ]
+            return [{**m, "timestamp": m["timestamp"].isoformat()} for m in metrics]
 
     def get_health_status(self) -> dict:
         """Get pool health status summary."""
         with self._lock:
             if not self._metrics_history:
-                return {
-                    "status": "unknown",
-                    "message": "No metrics collected yet"
-                }
+                return {"status": "unknown", "message": "No metrics collected yet"}
 
             latest = self._metrics_history[-1]
             utilization = latest["utilization_percentage"]
@@ -307,15 +318,22 @@ class ConnectionPoolMonitor:
                 message = f"Pool utilization {utilization:.1f}% exceeds alert threshold"
             elif utilization >= self.alert_threshold_percentage * 0.8:
                 health_status = "warning"
-                message = f"Pool utilization {utilization:.1f}% approaching alert threshold"
+                message = (
+                    f"Pool utilization {utilization:.1f}% approaching alert threshold"
+                )
 
             # Check for recent failures
             current_time = datetime.utcnow()
-            recent_failures = sum(1 for f in self._connection_failures
-                                if (current_time - f).total_seconds() <= 300)
+            recent_failures = sum(
+                1
+                for f in self._connection_failures
+                if (current_time - f).total_seconds() <= 300
+            )
             if recent_failures >= 3:
                 health_status = "critical"
-                message = f"Connection failures detected: {recent_failures} in last 5 minutes"
+                message = (
+                    f"Connection failures detected: {recent_failures} in last 5 minutes"
+                )
 
             return {
                 "status": health_status,
@@ -323,7 +341,7 @@ class ConnectionPoolMonitor:
                 "utilization_percentage": round(utilization, 2),
                 "available_connections": latest["available"],
                 "checked_out_connections": latest["checked_out"],
-                "max_connections": latest["max_size"]
+                "max_connections": latest["max_size"],
             }
 
 
@@ -464,7 +482,7 @@ class DatabaseConfig:
         raise ValueError(f"Unsupported database URL scheme: {raw_url}")
 
     def _fields_from_url(
-            self, raw_url: str
+        self, raw_url: str
     ) -> Optional[tuple[str, str, str, str, str]]:
         normalized = self._normalize_database_url(raw_url)
         if not normalized:
@@ -623,7 +641,7 @@ class DatabaseConfig:
 
     @staticmethod
     def _normalized_target_fields(
-            fields: tuple[str, str, str, str, str] | None,
+        fields: tuple[str, str, str, str, str] | None,
     ) -> tuple[str, str, str] | None:
         if fields is None:
             return None
@@ -949,7 +967,7 @@ class DatabaseManager:
                 }
                 bot_id_column = job_columns.get("bot_id")
                 if bot_id_column is not None and not bool(
-                        bot_id_column.get("nullable", True)
+                    bot_id_column.get("nullable", True)
                 ):
                     logger.info(
                         "Applying compatibility fix: allowing jobs.bot_id to be nullable"
@@ -1050,7 +1068,7 @@ class DatabaseManager:
         return alembic_config
 
     def ensure_alembic_baseline(
-            self, baseline_revision: str = "0003_backtest_storage_cols"
+        self, baseline_revision: str = "0003_backtest_storage_cols"
     ) -> str:
         """Stamp legacy schemas that were created outside Alembic.
 
@@ -1143,7 +1161,7 @@ class DatabaseManager:
         if self._pool_monitor is None:
             return {
                 "status": "not_monitored",
-                "message": "Connection pool monitoring not available"
+                "message": "Connection pool monitoring not available",
             }
         return self._pool_monitor.get_current_metrics()
 
@@ -1152,7 +1170,7 @@ class DatabaseManager:
         if self._pool_monitor is None:
             return {
                 "status": "unknown",
-                "message": "Connection pool monitoring not available"
+                "message": "Connection pool monitoring not available",
             }
         return self._pool_monitor.get_health_status()
 
@@ -1182,9 +1200,7 @@ class DatabaseManager:
                 "max_overflow": pool.max_overflow,
             }
         except Exception as e:
-            diagnostics["pool_info"] = {
-                "error": f"Failed to get pool info: {e}"
-            }
+            diagnostics["pool_info"] = {"error": f"Failed to get pool info: {e}"}
 
         return diagnostics
 
@@ -1226,11 +1242,11 @@ def init_db():
 
     admin_username = os.getenv("BOOTSTRAP_ADMIN_USERNAME", "admin").strip() or "admin"
     admin_email = (
-            os.getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@localhost").strip()
-            or "admin@localhost"
+        os.getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@localhost").strip()
+        or "admin@localhost"
     )
     admin_password = (
-            os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "admin123").strip() or "admin123"
+        os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "admin123").strip() or "admin123"
     )
 
     if not admin_password:
@@ -1262,6 +1278,7 @@ def init_db():
 
 class DatabaseConnectionError(Exception):
     """Exception raised when database connection fails."""
+
     pass
 
 

@@ -21,8 +21,11 @@ from typing import Any, Dict
 class _MockWebSocket:
     """Minimal WebSocket double exposing the surface the authorizer touches."""
 
-    def __init__(self, headers: Dict[str, str] | None = None,
-                 query_params: Dict[str, str] | None = None):
+    def __init__(
+        self,
+        headers: Dict[str, str] | None = None,
+        query_params: Dict[str, str] | None = None,
+    ):
         self.headers = headers or {}
         # query_params is intentionally captured to prove it is *never* read.
         self.query_params = query_params or {}
@@ -36,10 +39,14 @@ class _MockWebSocket:
         self.close_reason = reason
 
 
-def _authorize(monkeypatch, websocket: _MockWebSocket, *,
-               bypass: bool = False,
-               token_is_valid: bool = True,
-               raise_on_auth: Exception | None = None) -> bool:
+def _authorize(
+    monkeypatch,
+    websocket: _MockWebSocket,
+    *,
+    bypass: bool = False,
+    token_is_valid: bool = True,
+    raise_on_auth: Exception | None = None,
+) -> bool:
     """Run the authorizer with mocked bypass/auth/DB dependencies.
 
     Patches the names as imported into ``src.api.server`` so the real
@@ -47,9 +54,7 @@ def _authorize(monkeypatch, websocket: _MockWebSocket, *,
     """
     import src.api.server as server_module
 
-    monkeypatch.setattr(
-        server_module, "is_auth_bypass_enabled", lambda: bypass
-    )
+    monkeypatch.setattr(server_module, "is_auth_bypass_enabled", lambda: bypass)
 
     sentinel_session = SimpleNamespace(close=lambda: None)
 
@@ -65,9 +70,7 @@ def _authorize(monkeypatch, websocket: _MockWebSocket, *,
         return SimpleNamespace(username="tester")
 
     monkeypatch.setattr(server_module.db, "get_session", _fake_get_session)
-    monkeypatch.setattr(
-        server_module, "authenticate_bearer_token", _fake_authenticate
-    )
+    monkeypatch.setattr(server_module, "authenticate_bearer_token", _fake_authenticate)
 
     return asyncio.run(server_module._authorize_websocket_connection(websocket))
 

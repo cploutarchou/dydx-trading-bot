@@ -38,7 +38,9 @@ class _FakeService:
         return {}
 
     @staticmethod
-    def _build_task_context(_request_payload: Dict[str, Any], **merged: Any) -> Dict[str, Any]:
+    def _build_task_context(
+        _request_payload: Dict[str, Any], **merged: Any
+    ) -> Dict[str, Any]:
         return dict(merged)
 
     @staticmethod
@@ -46,17 +48,23 @@ class _FakeService:
         return fallback
 
     @staticmethod
-    def _set_task_context(request_payload: Dict[str, Any], _task_context: Dict[str, Any]) -> Dict[str, Any]:
+    def _set_task_context(
+        request_payload: Dict[str, Any], _task_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
         return dict(request_payload)
 
     @staticmethod
-    def _set_task_failure(request_payload: Dict[str, Any], failure_payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _set_task_failure(
+        request_payload: Dict[str, Any], failure_payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
         updated = dict(request_payload)
         updated["task_failure"] = dict(failure_payload)
         return updated
 
     @staticmethod
-    def _set_runtime_control(run_data: Dict[str, Any], **updates: Any) -> Dict[str, Any]:
+    def _set_runtime_control(
+        run_data: Dict[str, Any], **updates: Any
+    ) -> Dict[str, Any]:
         request = dict(run_data.get("request") or {})
         request["_runtime_control"] = dict(updates)
         run_data["request"] = request

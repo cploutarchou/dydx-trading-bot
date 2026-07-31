@@ -1,4 +1,5 @@
 """Utility functions for trading bot."""
+
 from datetime import datetime, timedelta, timezone
 
 

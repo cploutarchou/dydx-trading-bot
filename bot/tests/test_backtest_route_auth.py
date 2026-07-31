@@ -102,7 +102,11 @@ def _user(is_admin: bool = False):
 
 def _route(path: str, method: str) -> APIRoute:
     for route in server.app.routes:
-        if isinstance(route, APIRoute) and route.path == path and method in route.methods:
+        if (
+            isinstance(route, APIRoute)
+            and route.path == path
+            and method in route.methods
+        ):
             return route
     raise AssertionError(f"Route not found for {method} {path}")
 
@@ -126,7 +130,9 @@ def test_backtest_routes_declare_executable_auth_dependencies():
 
     for path, method in protected_routes:
         route = _route(path, method)
-        dependency_calls = [dependency.call for dependency in route.dependant.dependencies]
+        dependency_calls = [
+            dependency.call for dependency in route.dependant.dependencies
+        ]
         assert server.get_current_active_user in dependency_calls
 
 
@@ -139,7 +145,9 @@ def test_admin_backtest_routes_declare_admin_dependency():
 
     for path, method in admin_routes:
         route = _route(path, method)
-        dependency_calls = [dependency.call for dependency in route.dependant.dependencies]
+        dependency_calls = [
+            dependency.call for dependency in route.dependant.dependencies
+        ]
         assert server.get_admin_user in dependency_calls
 
 
@@ -198,7 +206,9 @@ def test_admin_user_can_access_admin_backtest_handlers(monkeypatch):
         ),
     )
 
-    response = asyncio.run(server.list_interrupted_backtests_admin(current_user=_user(True)))
+    response = asyncio.run(
+        server.list_interrupted_backtests_admin(current_user=_user(True))
+    )
     payload = json.loads(response.body)
 
     assert response.status_code == 200
@@ -216,5 +226,5 @@ def test_backtest_openapi_security_matches_route_auth_requirement():
         {"BearerAuth": []}
     ]
     assert schema["paths"]["/api/v1/admin/backtests/interrupted"]["get"][
-               "security"
-           ] == [{"BearerAuth": []}]
+        "security"
+    ] == [{"BearerAuth": []}]

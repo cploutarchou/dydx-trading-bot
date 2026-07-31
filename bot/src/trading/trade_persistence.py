@@ -12,13 +12,13 @@ from src.infrastructure.persistence.repository_realtime import UnitOfWorkRealtim
 
 def _db_persistence_enabled() -> bool:
     if any(
-            bool(os.getenv(name, "").strip())
-            for name in (
-                    "BOT_DATABASE_URL",
-                    "DATABASE_URL",
-                    "BOT_DB_HOST",
-                    "DB_HOST",
-            )
+        bool(os.getenv(name, "").strip())
+        for name in (
+            "BOT_DATABASE_URL",
+            "DATABASE_URL",
+            "BOT_DB_HOST",
+            "DB_HOST",
+        )
     ):
         return True
     return getattr(db.get_session, "__self__", None) is not db
@@ -30,12 +30,12 @@ def _runtime_instance_id() -> Optional[str]:
 
 
 def persist_trade_activity_event(
-        event_type: str,
-        message: str,
-        *,
-        severity: str = "info",
-        details: Optional[Dict[str, Any]] = None,
-        related_trade_id: Optional[str] = None,
+    event_type: str,
+    message: str,
+    *,
+    severity: str = "info",
+    details: Optional[Dict[str, Any]] = None,
+    related_trade_id: Optional[str] = None,
 ) -> bool:
     """
     Persist structured trade activity events to the bot event log.
@@ -120,7 +120,9 @@ def persist_live_trade_opened(position: Dict[str, Any]) -> Optional[str]:
         realtime = UnitOfWorkRealtime(session)
         bot = uow.bots.get_by_instance_id(instance_id)
         if bot is None:
-            logger.debug("Skipping live trade persistence; no bot row for {}", instance_id)
+            logger.debug(
+                "Skipping live trade persistence; no bot row for {}", instance_id
+            )
             return None
 
         if uow.trades.get_by_position_id(trade_id) is None:
@@ -162,12 +164,12 @@ def persist_live_trade_opened(position: Dict[str, Any]) -> Optional[str]:
 
 
 def persist_live_trade_closed(
-        position: Dict[str, Any],
-        *,
-        exit_price1: Any,
-        exit_price2: Any,
-        exit_size1: Any,
-        exit_size2: Any,
+    position: Dict[str, Any],
+    *,
+    exit_price1: Any,
+    exit_price2: Any,
+    exit_size1: Any,
+    exit_size2: Any,
 ) -> Optional[str]:
     """Mark an existing live trade/position closed when both reduce-only exits submit."""
     instance_id = _runtime_instance_id()

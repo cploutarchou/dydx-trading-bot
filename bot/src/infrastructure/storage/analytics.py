@@ -15,7 +15,7 @@ class AnalyticsWriter(ABC):
         """Write rows and return the count accepted by the destination."""
 
     def flush(
-            self, table_name: str | None = None, *, force: bool = False
+        self, table_name: str | None = None, *, force: bool = False
     ) -> dict[str, int]:
         """Flush pending rows and return inserted counts keyed by table name."""
         del table_name, force

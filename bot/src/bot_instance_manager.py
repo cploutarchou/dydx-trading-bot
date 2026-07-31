@@ -56,7 +56,7 @@ class BotInstanceManager:
     }
 
     def __init__(
-            self, state_dir: str = "./bot_states", max_instances: Optional[int] = None
+        self, state_dir: str = "./bot_states", max_instances: Optional[int] = None
     ):
         self.state_dir = Path(state_dir)
         self.state_dir.mkdir(exist_ok=True)
@@ -103,7 +103,7 @@ class BotInstanceManager:
     def _looks_like_pool_overload(exc: BaseException) -> bool:
         message = str(exc).lower()
         return "queuepool limit" in message or (
-                "connection timed out" in message and "sqlalche.me/e/20/3o7r" in message
+            "connection timed out" in message and "sqlalche.me/e/20/3o7r" in message
         )
 
     def _db_sync_backoff_active(self) -> bool:
@@ -131,10 +131,10 @@ class BotInstanceManager:
     def _resolved_environment() -> str:
         return (
             (
-                    os.getenv("ENVIRONMENT")
-                    or os.getenv("APP_ENV")
-                    or os.getenv("APP_CONFIG_ENV")
-                    or "development"
+                os.getenv("ENVIRONMENT")
+                or os.getenv("APP_ENV")
+                or os.getenv("APP_CONFIG_ENV")
+                or "development"
             )
             .strip()
             .lower()
@@ -186,20 +186,20 @@ class BotInstanceManager:
     @staticmethod
     def _db_persistence_enabled() -> bool:
         if any(
-                bool(os.getenv(name, "").strip())
-                for name in (
-                        "BOT_DATABASE_URL",
-                        "DATABASE_URL",
-                        "BOT_DB_HOST",
-                        "DB_HOST",
-                )
+            bool(os.getenv(name, "").strip())
+            for name in (
+                "BOT_DATABASE_URL",
+                "DATABASE_URL",
+                "BOT_DB_HOST",
+                "DB_HOST",
+            )
         ):
             return True
         return getattr(db.get_session, "__self__", None) is not db
 
     def set_status_event_publisher(
-            self,
-            publisher: Optional[Callable[[Dict[str, object]], Awaitable[None]]],
+        self,
+        publisher: Optional[Callable[[Dict[str, object]], Awaitable[None]]],
     ):
         """Register async publisher for strategy runtime status events."""
         self.status_event_publisher = publisher
@@ -246,7 +246,7 @@ class BotInstanceManager:
         if isinstance(skipped_instances, list):
             skipped_instances.append({"instance_id": instance_id, "reason": reason})
         self.recovery_diagnostics["skipped"] = (
-                int(self.recovery_diagnostics.get("skipped", 0)) + 1
+            int(self.recovery_diagnostics.get("skipped", 0)) + 1
         )
 
     @staticmethod
@@ -277,10 +277,10 @@ class BotInstanceManager:
 
         environment = (
             (
-                    os.getenv("ENVIRONMENT")
-                    or os.getenv("APP_ENV")
-                    or os.getenv("APP_CONFIG_ENV")
-                    or "development"
+                os.getenv("ENVIRONMENT")
+                or os.getenv("APP_ENV")
+                or os.getenv("APP_CONFIG_ENV")
+                or "development"
             )
             .strip()
             .lower()
@@ -296,7 +296,7 @@ class BotInstanceManager:
         return any(marker in instance_id for marker in ("test", "fixture", "dummy"))
 
     def _delete_invalid_recovery_record_if_dev(
-            self, session, record, reason: str
+        self, session, record, reason: str
     ) -> bool:
         """Delete unrecoverable dev/test bot rows so recovery warnings do not repeat."""
         if not self._dev_invalid_recovery_cleanup_enabled(record):
@@ -305,13 +305,13 @@ class BotInstanceManager:
         try:
             stale_ids = "SELECT id FROM bot_instances WHERE instance_id = :instance_id"
             for table_name, column_name in (
-                    ("jobs", "bot_id"),
-                    ("trades", "bot_id"),
-                    ("event_logs", "bot_instance_id"),
-                    ("positions_realtime", "bot_instance_id"),
-                    ("market_data_realtime", "bot_instance_id"),
-                    ("bot_stats_realtime", "bot_instance_id"),
-                    ("alerts_realtime", "bot_instance_id"),
+                ("jobs", "bot_id"),
+                ("trades", "bot_id"),
+                ("event_logs", "bot_instance_id"),
+                ("positions_realtime", "bot_instance_id"),
+                ("market_data_realtime", "bot_instance_id"),
+                ("bot_stats_realtime", "bot_instance_id"),
+                ("alerts_realtime", "bot_instance_id"),
             ):
                 session.execute(
                     text(
@@ -370,7 +370,7 @@ class BotInstanceManager:
             for row in rows:
                 record = SimpleNamespace(**dict(row))
                 self.recovery_diagnostics["attempted"] = (
-                        int(self.recovery_diagnostics.get("attempted", 0)) + 1
+                    int(self.recovery_diagnostics.get("attempted", 0)) + 1
                 )
                 config = self._build_instance_config_from_record(record)
                 if config is None:
@@ -425,7 +425,7 @@ class BotInstanceManager:
                     data = json.load(f)
                     for instance_data in data.get("instances", []):
                         self.recovery_diagnostics["attempted"] = (
-                                int(self.recovery_diagnostics.get("attempted", 0)) + 1
+                            int(self.recovery_diagnostics.get("attempted", 0)) + 1
                         )
                         # Reconstruct instance state (without active processes)
                         instance_id = instance_data["instance_id"]
@@ -512,11 +512,11 @@ class BotInstanceManager:
 
         if "is_testnet" not in trading_payload:
             trading_payload["is_testnet"] = (
-                    str(record.network).strip().lower() != "mainnet"
+                str(record.network).strip().lower() != "mainnet"
             )
         if (
-                "strategy" not in trading_payload
-                or not str(trading_payload["strategy"]).strip()
+            "strategy" not in trading_payload
+            or not str(trading_payload["strategy"]).strip()
         ):
             trading_payload["strategy"] = record.strategy
 
@@ -643,12 +643,12 @@ class BotInstanceManager:
                 session.close()
 
     def _record_runtime_event(
-            self,
-            instance_id: str,
-            event_type: str,
-            severity: str,
-            message: str,
-            details: Optional[dict] = None,
+        self,
+        instance_id: str,
+        event_type: str,
+        severity: str,
+        message: str,
+        details: Optional[dict] = None,
     ):
         """Persist runtime events so failures survive process restarts."""
         if not self._db_persistence_enabled():
@@ -768,7 +768,7 @@ class BotInstanceManager:
         self._persist_instances_to_db()
 
         if os.getenv(
-                "BOT_WRITE_LEGACY_STATE_SNAPSHOT", "false"
+            "BOT_WRITE_LEGACY_STATE_SNAPSHOT", "false"
         ).strip().lower() not in {
             "1",
             "true",
@@ -801,10 +801,10 @@ class BotInstanceManager:
         """Extract strategy id from deterministic strategy runtime instance ids."""
         parts = instance_id.split("-")
         if (
-                len(parts) == 3
-                and parts[0] == "strategy"
-                and parts[1].isdigit()
-                and parts[2].isdigit()
+            len(parts) == 3
+            and parts[0] == "strategy"
+            and parts[1].isdigit()
+            and parts[2].isdigit()
         ):
             return int(parts[2])
         return None
@@ -824,10 +824,10 @@ class BotInstanceManager:
         }
 
     def _build_strategy_status_payload(
-            self,
-            instance_id: str,
-            event: str = "status",
-            last_error: Optional[str] = None,
+        self,
+        instance_id: str,
+        event: str = "status",
+        last_error: Optional[str] = None,
     ) -> Optional[Dict[str, object]]:
         """Build websocket/frontend-compatible strategy runtime payload."""
         instance = self.instances.get(instance_id)
@@ -867,11 +867,11 @@ class BotInstanceManager:
         return payload
 
     async def _publish_strategy_status(
-            self,
-            instance_id: str,
-            event: str = "status",
-            last_error: Optional[str] = None,
-            message: Optional[str] = None,
+        self,
+        instance_id: str,
+        event: str = "status",
+        last_error: Optional[str] = None,
+        message: Optional[str] = None,
     ):
         """Publish status update for strategy-managed instances when configured."""
         if event in {"running", "heartbeat"}:
@@ -909,7 +909,7 @@ class BotInstanceManager:
         return {
             "bot_agents": self.state_dir / f"bot_agents_{instance_id}.json",
             "cointegrated_pairs": self.state_dir
-                                  / f"cointegrated_pairs_{instance_id}.json",
+            / f"cointegrated_pairs_{instance_id}.json",
             "log": self.state_dir / f"bot_{instance_id}.log",
         }
 
@@ -949,7 +949,7 @@ class BotInstanceManager:
             return ""
 
     def _resolve_external_runtime_process(
-            self, instance_id: str
+        self, instance_id: str
     ) -> tuple[Optional[psutil.Process], Optional[str]]:
         """Probe a persisted runtime PID when the local subprocess handle was lost."""
         instance = self.instances.get(instance_id)
@@ -984,10 +984,10 @@ class BotInstanceManager:
         return process, None
 
     def _mark_instance_liveness_verified(
-            self,
-            instance_id: str,
-            *,
-            process_id: Optional[int] = None,
+        self,
+        instance_id: str,
+        *,
+        process_id: Optional[int] = None,
     ) -> bool:
         """Record a deterministic liveness heartbeat owned by the manager."""
         instance = self.instances.get(instance_id)
@@ -1000,8 +1000,8 @@ class BotInstanceManager:
         if process_id is not None:
             instance.process_info["pid"] = process_id
         if (
-                instance.recovery_state in {"degraded", "recovering"}
-                or instance.status == BotStatus.DEGRADED
+            instance.recovery_state in {"degraded", "recovering"}
+            or instance.status == BotStatus.DEGRADED
         ):
             instance.recovery_state = None
             instance.recovery_reason = None
@@ -1033,8 +1033,8 @@ class BotInstanceManager:
 
         try:
             if (
-                    external_process.is_running()
-                    and external_process.status() != psutil.STATUS_ZOMBIE
+                external_process.is_running()
+                and external_process.status() != psutil.STATUS_ZOMBIE
             ):
                 self._mark_instance_liveness_verified(
                     instance_id,
@@ -1052,10 +1052,10 @@ class BotInstanceManager:
         return False
 
     def _mark_instance_error(
-            self,
-            instance_id: str,
-            message: str,
-            exit_code: Optional[int] = None,
+        self,
+        instance_id: str,
+        message: str,
+        exit_code: Optional[int] = None,
     ) -> bool:
         """Transition an instance into ERROR state and capture failure details."""
         instance = self.instances.get(instance_id)
@@ -1171,7 +1171,9 @@ class BotInstanceManager:
                 )
 
             instance = self.instances[instance_id]
-            assert_supported_live_risk_controls(instance.config.trading_params.model_dump())
+            assert_supported_live_risk_controls(
+                instance.config.trading_params.model_dump()
+            )
 
             if instance.status in self.ACTIVE_RUNTIME_STATUSES:
                 return BotOperationResult(
@@ -1319,7 +1321,7 @@ class BotInstanceManager:
             )
 
     async def stop_instance(
-            self, instance_id: str, force: bool = False
+        self, instance_id: str, force: bool = False
     ) -> BotOperationResult:
         """Stop bot instance"""
         lock = self._get_instance_lock(instance_id)
@@ -1335,7 +1337,7 @@ class BotInstanceManager:
             return await self._stop_instance_locked(instance_id, force=force)
 
     async def _stop_instance_locked(
-            self, instance_id: str, force: bool = False
+        self, instance_id: str, force: bool = False
     ) -> BotOperationResult:
         """Stop bot instance while holding the per-instance lifecycle lock."""
         lifecycle_job_id: Optional[str] = None
@@ -1532,8 +1534,8 @@ class BotInstanceManager:
         try:
             # Stop instance first if running
             if (
-                    instance_id in self.instances
-                    and self.instances[instance_id].status in self.ACTIVE_RUNTIME_STATUSES
+                instance_id in self.instances
+                and self.instances[instance_id].status in self.ACTIVE_RUNTIME_STATUSES
             ):
                 stop_result = await self.stop_instance(instance_id, force=True)
                 if not stop_result.success:
@@ -1573,7 +1575,7 @@ class BotInstanceManager:
             )
 
     async def get_instance_status(
-            self, instance_id: str
+        self, instance_id: str
     ) -> Optional[BotInstanceStatus]:
         """Get current status of bot instance"""
         if instance_id not in self.instances:
@@ -1587,7 +1589,7 @@ class BotInstanceManager:
             if process.poll() is not None:  # Process died
                 error_message = f"Instance {instance_id} exited unexpectedly (exit_code={process.returncode})"
                 if self._mark_instance_error(
-                        instance_id, error_message, exit_code=process.returncode
+                    instance_id, error_message, exit_code=process.returncode
                 ):
                     await self._publish_strategy_status(
                         instance_id,
@@ -1630,7 +1632,7 @@ class BotInstanceManager:
                             "pid": external_process.pid,
                             "cpu_usage": external_process.cpu_percent(),
                             "memory_usage_mb": external_process.memory_info().rss
-                                               / (1024 * 1024),
+                            / (1024 * 1024),
                         }
                     )
                     self._mark_instance_liveness_verified(
@@ -1654,7 +1656,7 @@ class BotInstanceManager:
 
             if external_process is None:
                 error_message = (
-                        probe_error or f"Runtime process for {instance_id} is not attached"
+                    probe_error or f"Runtime process for {instance_id} is not attached"
                 )
                 if self._mark_instance_error(instance_id, error_message):
                     await self._publish_strategy_status(
@@ -1752,7 +1754,7 @@ class BotInstanceManager:
 
                 _, probe_error = self._resolve_external_runtime_process(instance_id)
                 error_message = (
-                        probe_error or f"Runtime process for {instance_id} is not attached"
+                    probe_error or f"Runtime process for {instance_id} is not attached"
                 )
                 is_mainnet = not instance.config.trading_params.is_testnet
                 can_restart = restart_enabled and (allow_mainnet or not is_mainnet)
@@ -1764,7 +1766,7 @@ class BotInstanceManager:
                         else "auto-restart disabled"
                     )
                     if self._mark_instance_error(
-                            instance_id, f"{error_message}; {reason}"
+                        instance_id, f"{error_message}; {reason}"
                     ):
                         await self._publish_strategy_status(
                             instance_id,
@@ -1815,7 +1817,7 @@ class BotInstanceManager:
                 logger.warning(f"Found dead process for instance {instance_id}")
                 error_message = f"Background monitor detected crashed process for {instance_id} (exit_code={process.returncode})"
                 if self._mark_instance_error(
-                        instance_id, error_message, exit_code=process.returncode
+                    instance_id, error_message, exit_code=process.returncode
                 ):
                     # P1.7: Mark as recovering state
                     if instance_id in self.instances:

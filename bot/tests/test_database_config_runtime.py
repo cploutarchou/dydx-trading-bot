@@ -92,7 +92,7 @@ def test_database_config_shared_mode_ignores_bot_values(monkeypatch):
 
 
 def test_database_config_dedicated_with_shared_fallback_uses_shared_when_bot_unset(
-        monkeypatch,
+    monkeypatch,
 ):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "dedicated_with_shared_fallback")
     monkeypatch.delenv("BOT_DATABASE_URL", raising=False)
@@ -117,7 +117,7 @@ def test_database_config_dedicated_requires_bot_target(monkeypatch):
     monkeypatch.delenv("BOT_DB_PASSWORD", raising=False)
 
     with pytest.raises(
-            ValueError, match="requires BOT_DATABASE_URL or BOT_DB_\\* values"
+        ValueError, match="requires BOT_DATABASE_URL or BOT_DB_\\* values"
     ):
         DatabaseConfig()
 
@@ -248,14 +248,14 @@ def test_database_config_dedicated_blocks_shared_target_regression(monkeypatch):
     )
 
     with pytest.raises(
-            ValueError,
-            match="cannot target the same database as the shared DB configuration",
+        ValueError,
+        match="cannot target the same database as the shared DB configuration",
     ):
         DatabaseConfig()
 
 
 def test_database_config_dedicated_with_fallback_reports_shared_target_match(
-        monkeypatch,
+    monkeypatch,
 ):
     monkeypatch.setenv("BOT_DB_CUTOVER_MODE", "dedicated_with_shared_fallback")
     monkeypatch.setenv(

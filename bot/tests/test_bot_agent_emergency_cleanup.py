@@ -13,12 +13,12 @@ def test_open_trades_returns_error_dict_after_second_leg_failure(monkeypatch):
             return None
 
     async def fake_place_market_order(
-            client,
-            market,
-            side,
-            size,
-            price,
-            reduce_only,
+        client,
+        market,
+        side,
+        size,
+        price,
+        reduce_only,
     ):
         calls.append(
             {
@@ -44,8 +44,12 @@ def test_open_trades_returns_error_dict_after_second_leg_failure(monkeypatch):
         return status_map[order_id]
 
     monkeypatch.setattr("src.trading.bot_agent.TelegramMessenger", DummyMessenger)
-    monkeypatch.setattr("src.trading.bot_agent.place_market_order", fake_place_market_order)
-    monkeypatch.setattr("src.trading.bot_agent.check_order_status", fake_check_order_status)
+    monkeypatch.setattr(
+        "src.trading.bot_agent.place_market_order", fake_place_market_order
+    )
+    monkeypatch.setattr(
+        "src.trading.bot_agent.check_order_status", fake_check_order_status
+    )
 
     async def _fast_sleep(_seconds):
         return None
@@ -83,7 +87,9 @@ def test_open_trades_returns_error_dict_after_second_leg_failure(monkeypatch):
     assert calls[-1]["reduce_only"] is True
 
 
-def test_open_trades_emergency_closes_first_leg_when_second_leg_placement_raises(monkeypatch):
+def test_open_trades_emergency_closes_first_leg_when_second_leg_placement_raises(
+    monkeypatch,
+):
     """If second leg placement raises after first fill, first leg must be reduced-only closed."""
 
     class DummyMessenger:
@@ -91,12 +97,12 @@ def test_open_trades_emergency_closes_first_leg_when_second_leg_placement_raises
             return None
 
     async def fake_place_market_order(
-            client,
-            market,
-            side,
-            size,
-            price,
-            reduce_only,
+        client,
+        market,
+        side,
+        size,
+        price,
+        reduce_only,
     ):
         calls.append(
             {
@@ -121,8 +127,12 @@ def test_open_trades_emergency_closes_first_leg_when_second_leg_placement_raises
         return status_map[order_id]
 
     monkeypatch.setattr("src.trading.bot_agent.TelegramMessenger", DummyMessenger)
-    monkeypatch.setattr("src.trading.bot_agent.place_market_order", fake_place_market_order)
-    monkeypatch.setattr("src.trading.bot_agent.check_order_status", fake_check_order_status)
+    monkeypatch.setattr(
+        "src.trading.bot_agent.place_market_order", fake_place_market_order
+    )
+    monkeypatch.setattr(
+        "src.trading.bot_agent.check_order_status", fake_check_order_status
+    )
 
     async def _fast_sleep(_seconds):
         return None
@@ -165,12 +175,12 @@ def test_open_trades_reconciles_entry_prices_from_weighted_fills(monkeypatch):
             return None
 
     async def fake_place_market_order(
-            client,
-            market,
-            side,
-            size,
-            price,
-            reduce_only,
+        client,
+        market,
+        side,
+        size,
+        price,
+        reduce_only,
     ):
         calls.append({"market": market, "side": side, "size": size, "price": price})
         if market == "BTC-USD":
@@ -214,8 +224,12 @@ def test_open_trades_reconciles_entry_prices_from_weighted_fills(monkeypatch):
         return None
 
     monkeypatch.setattr("src.trading.bot_agent.TelegramMessenger", DummyMessenger)
-    monkeypatch.setattr("src.trading.bot_agent.place_market_order", fake_place_market_order)
-    monkeypatch.setattr("src.trading.bot_agent.check_order_status", fake_check_order_status)
+    monkeypatch.setattr(
+        "src.trading.bot_agent.place_market_order", fake_place_market_order
+    )
+    monkeypatch.setattr(
+        "src.trading.bot_agent.check_order_status", fake_check_order_status
+    )
     monkeypatch.setattr("src.trading.bot_agent.get_order", fake_get_order)
     monkeypatch.setattr("src.trading.bot_agent.get_order_fills", fake_get_order_fills)
     monkeypatch.setattr("src.trading.bot_agent.asyncio.sleep", _fast_sleep)
@@ -249,7 +263,9 @@ def test_open_trades_reconciles_entry_prices_from_weighted_fills(monkeypatch):
     assert result["order_m2_size"] == "1.5"
 
 
-def test_open_trades_treats_non_filled_emergency_close_as_success_when_position_closed(monkeypatch):
+def test_open_trades_treats_non_filled_emergency_close_as_success_when_position_closed(
+    monkeypatch,
+):
     """If emergency close status is non-FILLED but market position is already closed, do not raise."""
 
     class DummyMessenger:
@@ -259,12 +275,12 @@ def test_open_trades_treats_non_filled_emergency_close_as_success_when_position_
     calls = []
 
     async def fake_place_market_order(
-            client,
-            market,
-            side,
-            size,
-            price,
-            reduce_only,
+        client,
+        market,
+        side,
+        size,
+        price,
+        reduce_only,
     ):
         calls.append(
             {
@@ -295,9 +311,15 @@ def test_open_trades_treats_non_filled_emergency_close_as_success_when_position_
         return None
 
     monkeypatch.setattr("src.trading.bot_agent.TelegramMessenger", DummyMessenger)
-    monkeypatch.setattr("src.trading.bot_agent.place_market_order", fake_place_market_order)
-    monkeypatch.setattr("src.trading.bot_agent.check_order_status", fake_check_order_status)
-    monkeypatch.setattr("src.trading.bot_agent.is_open_positions", fake_is_open_positions)
+    monkeypatch.setattr(
+        "src.trading.bot_agent.place_market_order", fake_place_market_order
+    )
+    monkeypatch.setattr(
+        "src.trading.bot_agent.check_order_status", fake_check_order_status
+    )
+    monkeypatch.setattr(
+        "src.trading.bot_agent.is_open_positions", fake_is_open_positions
+    )
     monkeypatch.setattr("src.trading.bot_agent.asyncio.sleep", _fast_sleep)
 
     agent = BotAgent(
@@ -334,12 +356,12 @@ def test_open_trades_emergency_failure_raises_json_telemetry(monkeypatch):
     calls = []
 
     async def fake_place_market_order(
-            client,
-            market,
-            side,
-            size,
-            price,
-            reduce_only,
+        client,
+        market,
+        side,
+        size,
+        price,
+        reduce_only,
     ):
         calls.append(
             {
@@ -363,8 +385,12 @@ def test_open_trades_emergency_failure_raises_json_telemetry(monkeypatch):
         return None
 
     monkeypatch.setattr("src.trading.bot_agent.TelegramMessenger", DummyMessenger)
-    monkeypatch.setattr("src.trading.bot_agent.place_market_order", fake_place_market_order)
-    monkeypatch.setattr("src.trading.bot_agent.check_order_status", fake_check_order_status)
+    monkeypatch.setattr(
+        "src.trading.bot_agent.place_market_order", fake_place_market_order
+    )
+    monkeypatch.setattr(
+        "src.trading.bot_agent.check_order_status", fake_check_order_status
+    )
     monkeypatch.setattr("src.trading.bot_agent.asyncio.sleep", _fast_sleep)
 
     agent = BotAgent(
@@ -411,7 +437,9 @@ def test_check_order_status_treats_failed_as_failed(monkeypatch):
         return None
 
     monkeypatch.setattr("src.trading.bot_agent.TelegramMessenger", DummyMessenger)
-    monkeypatch.setattr("src.trading.bot_agent.check_order_status", fake_check_order_status)
+    monkeypatch.setattr(
+        "src.trading.bot_agent.check_order_status", fake_check_order_status
+    )
     monkeypatch.setattr("src.trading.bot_agent.asyncio.sleep", _fast_sleep)
 
     agent = BotAgent(
@@ -455,7 +483,9 @@ def test_check_order_status_treats_cancelled_variants_as_failed(monkeypatch):
             return statuses.pop(0)
 
         monkeypatch.setattr("src.trading.bot_agent.TelegramMessenger", DummyMessenger)
-        monkeypatch.setattr("src.trading.bot_agent.check_order_status", fake_check_order_status)
+        monkeypatch.setattr(
+            "src.trading.bot_agent.check_order_status", fake_check_order_status
+        )
         monkeypatch.setattr("src.trading.bot_agent.asyncio.sleep", _fast_sleep)
 
         agent = BotAgent(
@@ -503,7 +533,9 @@ def test_check_order_status_cancels_non_filled_second_probe(monkeypatch):
         return None
 
     monkeypatch.setattr("src.trading.bot_agent.TelegramMessenger", DummyMessenger)
-    monkeypatch.setattr("src.trading.bot_agent.check_order_status", fake_check_order_status)
+    monkeypatch.setattr(
+        "src.trading.bot_agent.check_order_status", fake_check_order_status
+    )
     monkeypatch.setattr("src.trading.bot_agent.cancel_order", fake_cancel_order)
     monkeypatch.setattr("src.trading.bot_agent.asyncio.sleep", _fast_sleep)
 

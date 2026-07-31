@@ -214,7 +214,10 @@ def test_load_config_warns_when_deprecated_config_path_is_supplied(monkeypatch):
 
     bot.load_config()
 
-    assert any("Ignoring deprecated runtime config file path" in msg for msg in warning_messages)
+    assert any(
+        "Ignoring deprecated runtime config file path" in msg
+        for msg in warning_messages
+    )
 
 
 def test_load_config_warns_when_db_metadata_hash_is_stale(monkeypatch):

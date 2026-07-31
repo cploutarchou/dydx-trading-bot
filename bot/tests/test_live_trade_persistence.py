@@ -6,9 +6,14 @@ from src.trading import trade_persistence
 
 
 def test_live_trade_open_and_close_use_existing_trade_and_realtime_repositories(
-        monkeypatch,
+    monkeypatch,
 ):
-    calls = {"create_trade": [], "create_position": [], "update_exit": [], "close_position": []}
+    calls = {
+        "create_trade": [],
+        "create_position": [],
+        "update_exit": [],
+        "close_position": [],
+    }
 
     class FakeTrades:
         def get_by_position_id(self, _trade_id):

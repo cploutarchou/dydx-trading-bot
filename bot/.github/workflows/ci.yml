@@ -45,7 +45,9 @@ jobs:
       - name: Check code style with Black
         working-directory: ./bot
         run: |
-          black --check src --diff || true
+          # Enforced: build fails on formatting drift. Configuration lives in
+          # pyproject.toml ([tool.black]) so CI and local format identically.
+          black --check src tests --diff
 
   test:
     name: Test

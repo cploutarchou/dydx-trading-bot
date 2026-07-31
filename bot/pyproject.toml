@@ -16,3 +16,10 @@ dependencies = [
     "uliweb-alembic>=0.6.9",
     "uvicorn>=0.51.0",
 ]
+
+[tool.black]
+# Pinned so formatting is identical regardless of the Python that runs Black.
+# CI uses a 3.11 runner while the project targets >=3.12; without this, the
+# auto-detected target version could diverge between CI and local machines.
+line-length = 88
+target-version = ["py312"]

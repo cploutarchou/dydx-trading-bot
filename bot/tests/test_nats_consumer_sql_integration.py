@@ -35,9 +35,9 @@ DSN_ENV = "NATS_CONSUMER_TEST_DSN"
 def _normalize_dsn(raw: str) -> str:
     """Map a bare postgres:// URL to the SQLAlchemy psycopg2 driver form."""
     if raw.startswith("postgres://"):
-        return "postgresql+psycopg2://" + raw[len("postgres://"):]
+        return "postgresql+psycopg2://" + raw[len("postgres://") :]
     if raw.startswith("postgresql://"):
-        return "postgresql+psycopg2://" + raw[len("postgresql://"):]
+        return "postgresql+psycopg2://" + raw[len("postgresql://") :]
     return raw
 
 
@@ -54,7 +54,9 @@ class TestBacktestConsumerSQLIntegration(unittest.TestCase):
             future=True,
             connect_args={"connect_timeout": 5},
         )
-        self.session_factory = sessionmaker(bind=self.engine, expire_on_commit=False, future=True)
+        self.session_factory = sessionmaker(
+            bind=self.engine, expire_on_commit=False, future=True
+        )
 
         # Track every session handed out by the stub so we can close them before
         # TRUNCATE. The handler commits but does not always close its session
@@ -94,7 +96,11 @@ class TestBacktestConsumerSQLIntegration(unittest.TestCase):
                     "(id, command_type, owner_type, owner_id, idempotency_key, payload_json, status) "
                     "VALUES (:id, 'backtest', 'backtest', :owner, :idem, '{}'::jsonb, 'pending')"
                 ),
-                {"id": self.command_id, "owner": "run-" + self.command_id[:8], "idem": "idem-" + self.command_id},
+                {
+                    "id": self.command_id,
+                    "owner": "run-" + self.command_id[:8],
+                    "idem": "idem-" + self.command_id,
+                },
             )
 
     def tearDown(self):
@@ -114,14 +120,24 @@ class TestBacktestConsumerSQLIntegration(unittest.TestCase):
                 pass
         self._handed_out_sessions.clear()
         with self.engine.begin() as conn:
-            conn.execute(text("TRUNCATE task_attempts, task_runs, task_commands RESTART IDENTITY CASCADE"))
+            conn.execute(
+                text(
+                    "TRUNCATE task_attempts, task_runs, task_commands RESTART IDENTITY CASCADE"
+                )
+            )
 
     def _handler(self):
-        from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler
+        from src.infrastructure.workers.nats_backtest_consumer import (
+            BacktestCommandHandler,
+        )
 
         handler = BacktestCommandHandler()
         payload = handler._parse_payload(
-            {"command_id": self.command_id, "idempotency_key": "idem-x", "run_id": "run-x"},
+            {
+                "command_id": self.command_id,
+                "idempotency_key": "idem-x",
+                "run_id": "run-x",
+            },
             {"message_id": self.command_id, "idempotency_key": "idem-x"},
         )
         return handler, payload
@@ -143,13 +159,15 @@ class TestBacktestConsumerSQLIntegration(unittest.TestCase):
 
         with self.session_factory() as session:
             run = session.execute(
-                text("SELECT status, progress_pct FROM task_runs WHERE id = :i"), {"i": run_id}
+                text("SELECT status, progress_pct FROM task_runs WHERE id = :i"),
+                {"i": run_id},
             ).fetchone()
             self.assertEqual(run[0], "running")
             self.assertEqual(float(run[1]), 50.0)
 
             cmd = session.execute(
-                text("SELECT status FROM task_commands WHERE id = :i"), {"i": self.command_id}
+                text("SELECT status FROM task_commands WHERE id = :i"),
+                {"i": self.command_id},
             ).fetchone()
             self.assertEqual(cmd[0], "completed")
 
@@ -163,7 +181,8 @@ class TestBacktestConsumerSQLIntegration(unittest.TestCase):
 
         with self.session_factory() as session:
             count = session.execute(
-                text("SELECT count(*) FROM task_runs WHERE command_id = :i"), {"i": self.command_id}
+                text("SELECT count(*) FROM task_runs WHERE command_id = :i"),
+                {"i": self.command_id},
             ).scalar()
             self.assertEqual(int(count), 1)
 
@@ -181,42 +200,65 @@ class TestBacktestConsumerSQLIntegration(unittest.TestCase):
                     "(id, command_type, owner_type, owner_id, idempotency_key, payload_json, status) "
                     "VALUES (:id, 'backtest', 'backtest', :owner, :idem, '{}'::jsonb, :status)"
                 ),
-                {"id": cmd_id, "owner": "run-" + cmd_id[:8], "idem": idem_key, "status": status},
+                {
+                    "id": cmd_id,
+                    "owner": "run-" + cmd_id[:8],
+                    "idem": idem_key,
+                    "status": status,
+                },
             )
         return cmd_id
 
     def test_duplicate_barrier_terminal_command_is_duplicate(self):
         """A terminal (completed/failed) command with the same key blocks redelivery."""
-        from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler
+        from src.infrastructure.workers.nats_backtest_consumer import (
+            BacktestCommandHandler,
+        )
 
         handler = BacktestCommandHandler()
         completed_id = self._seed_command("idem-terminal", "completed")
 
         # Same command id -> duplicate. Different command id but same key and
         # terminal status -> also duplicate (idempotency key wins).
-        self.assertTrue(asyncio.run(handler._is_duplicate("idem-terminal", completed_id)))
-        self.assertTrue(asyncio.run(handler._is_duplicate("idem-terminal", "00000000-0000-0000-0000-000000000000")))
+        self.assertTrue(
+            asyncio.run(handler._is_duplicate("idem-terminal", completed_id))
+        )
+        self.assertTrue(
+            asyncio.run(
+                handler._is_duplicate(
+                    "idem-terminal", "00000000-0000-0000-0000-000000000000"
+                )
+            )
+        )
 
         failed_id = self._seed_command("idem-failed", "failed")
         self.assertTrue(asyncio.run(handler._is_duplicate("idem-failed", failed_id)))
 
     def test_duplicate_barrier_nonterminal_command_is_not_duplicate(self):
         """A pending/published command does not block (re)processing."""
-        from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler
+        from src.infrastructure.workers.nats_backtest_consumer import (
+            BacktestCommandHandler,
+        )
 
         handler = BacktestCommandHandler()
         pending_id = self._seed_command("idem-pending", "pending")
         self.assertFalse(asyncio.run(handler._is_duplicate("idem-pending", pending_id)))
 
         published_id = self._seed_command("idem-published", "published")
-        self.assertFalse(asyncio.run(handler._is_duplicate("idem-published", published_id)))
+        self.assertFalse(
+            asyncio.run(handler._is_duplicate("idem-published", published_id))
+        )
 
     def test_duplicate_barrier_unknown_key_is_not_duplicate(self):
         """An idempotency key with no command record is never a duplicate."""
-        from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler
+        from src.infrastructure.workers.nats_backtest_consumer import (
+            BacktestCommandHandler,
+        )
 
         handler = BacktestCommandHandler()
-        self.assertFalse(asyncio.run(handler._is_duplicate("idem-absent", str(uuid.uuid4()))))
+        self.assertFalse(
+            asyncio.run(handler._is_duplicate("idem-absent", str(uuid.uuid4())))
+        )
 
     def test_handle_acks_duplicate_redelivery_without_reprocessing(self):
         """Redelivery of a terminal command ACKs and never re-runs the backtest.
@@ -235,8 +277,16 @@ class TestBacktestConsumerSQLIntegration(unittest.TestCase):
 
         result = asyncio.run(
             handler.handle(
-                {"command_id": completed_id, "idempotency_key": "idem-redeliver", "run_id": "run-x"},
-                {"message_id": completed_id, "idempotency_key": "idem-redeliver", "consumer_name": "backtest-worker"},
+                {
+                    "command_id": completed_id,
+                    "idempotency_key": "idem-redeliver",
+                    "run_id": "run-x",
+                },
+                {
+                    "message_id": completed_id,
+                    "idempotency_key": "idem-redeliver",
+                    "consumer_name": "backtest-worker",
+                },
             )
         )
 
@@ -244,6 +294,7 @@ class TestBacktestConsumerSQLIntegration(unittest.TestCase):
         # No task_run should have been created for a redelivered terminal command.
         with self.session_factory() as session:
             runs = session.execute(
-                text("SELECT count(*) FROM task_runs WHERE command_id = :i"), {"i": completed_id}
+                text("SELECT count(*) FROM task_runs WHERE command_id = :i"),
+                {"i": completed_id},
             ).scalar()
             self.assertEqual(int(runs), 0)

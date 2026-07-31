@@ -97,12 +97,10 @@ class BotInstance:
         return self.messenger
 
     @overload
-    async def _maybe_await(self, value: Awaitable[_T]) -> _T:
-        ...
+    async def _maybe_await(self, value: Awaitable[_T]) -> _T: ...
 
     @overload
-    async def _maybe_await(self, value: _T) -> _T:
-        ...
+    async def _maybe_await(self, value: _T) -> _T: ...
 
     async def _maybe_await(self, value: Awaitable[_T] | _T) -> _T:
         """Await values only when they are awaitable (supports sync/async callables)."""
@@ -133,7 +131,7 @@ class BotInstance:
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
     def _warn_on_config_metadata_hash_mismatch(
-            self, db_payload: Optional[Dict[str, Any]]
+        self, db_payload: Optional[Dict[str, Any]]
     ) -> None:
         if self.logger is None:
             return
@@ -223,7 +221,7 @@ class BotInstance:
         return value
 
     def _normalize_db_runtime_payload(
-            self, config_data: Dict[str, Any]
+        self, config_data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Convert persisted DB config into the runtime DydxConfig input shape."""
         payload = self._canonical_runtime_config_data(config_data)
@@ -290,38 +288,29 @@ class BotInstance:
             "environment": runtime_defaults.environment,
             "telegram": {
                 "token": telegram.get("token") or runtime_defaults.telegram.token,
-                "chat_id": telegram.get("chat_id")
-                           or runtime_defaults.telegram.chat_id,
+                "chat_id": telegram.get("chat_id") or runtime_defaults.telegram.chat_id,
             },
             "botSettings": {
                 "subaccountNumber": trading.get("subaccount_number", 0),
                 "capitalAllocationUsd": trading.get("capital_allocation_usd", 0.0),
                 "abortAllPositions": trading.get("abort_all_positions", False),
-                "findCointegratedPairs": trading.get(
-                    "find_cointegrated_pairs", False
-                ),
+                "findCointegratedPairs": trading.get("find_cointegrated_pairs", False),
                 "manageExits": trading.get("manage_exits", False),
                 "placeTrades": trading.get("place_trades", False),
-                "resolutionTimeframe": trading.get(
-                    "resolution_timeframe", "1HOUR"
-                ),
+                "resolutionTimeframe": trading.get("resolution_timeframe", "1HOUR"),
                 "strategy": trading.get("strategy", "cointegration"),
                 "statsWindow": trading.get("stats_window", 21),
                 "maxHalfLife": trading.get("max_half_life", 24),
                 "ZScoreThreshold": trading.get("zscore_threshold", 1.5),
                 "usdPerTrade": trading.get("usd_per_trade", 10.0),
                 "usdMinCollateral": trading.get("usd_min_collateral", 100.0),
-                "closeAtZscoreCross": trading.get(
-                    "close_at_zscore_cross", True
-                ),
+                "closeAtZscoreCross": trading.get("close_at_zscore_cross", True),
                 "maxPositions": trading.get("max_positions", 5),
                 "maxDrawdownPct": trading.get("max_drawdown_pct", 0.0),
                 "stopLossPct": trading.get("stop_loss_pct", 2.0),
                 "takeProfitPct": trading.get("take_profit_pct", 5.0),
                 "trailingStopPct": trading.get("trailing_stop_pct", 0.0),
-                "rebalanceIntervalHours": trading.get(
-                    "rebalance_interval_hours", 24
-                ),
+                "rebalanceIntervalHours": trading.get("rebalance_interval_hours", 24),
                 "positionTimeoutHours": trading.get("position_timeout_hours", 72),
                 "selectedMarkets": selected_markets,
             },
@@ -568,10 +557,11 @@ class BotInstance:
                 self._log_exception("Failed to load config: {}", e)
             raise
 
+
 class GracefulShutdownException(Exception):
     """Exception raised for graceful shutdown requests."""
-    pass
 
+    pass
 
     def setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown"""
@@ -803,7 +793,9 @@ class GracefulShutdownException(Exception):
         except GracefulShutdownException:
             # Handle graceful shutdown from signal handlers
             if self.logger:
-                self.logger.info("Bot instance {} gracefully shutting down", self.instance_id)
+                self.logger.info(
+                    "Bot instance {} gracefully shutting down", self.instance_id
+                )
             raise
         except Exception as e:
             if self.logger:

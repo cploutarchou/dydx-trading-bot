@@ -19,7 +19,7 @@ class ArtifactStore(ABC):
 
     @abstractmethod
     def put_bytes(
-            self, key: str, data: bytes, *, content_type: str | None = None
+        self, key: str, data: bytes, *, content_type: str | None = None
     ) -> str:
         """Persist binary artifact data and return its reference."""
 
@@ -27,7 +27,7 @@ class ArtifactStore(ABC):
         return self.put_bytes(key, text.encode("utf-8"), content_type=content_type)
 
     def put_json(
-            self, key: str, payload: Any, *, content_type: str = "application/json"
+        self, key: str, payload: Any, *, content_type: str = "application/json"
     ) -> str:
         return self.put_text(
             key,
@@ -67,7 +67,7 @@ class LocalArtifactStore(ArtifactStore):
         return self._resolve_path(key).as_uri()
 
     def put_bytes(
-            self, key: str, data: bytes, *, content_type: str | None = None
+        self, key: str, data: bytes, *, content_type: str | None = None
     ) -> str:
         del content_type
         path = self._resolve_path(key)
@@ -77,11 +77,11 @@ class LocalArtifactStore(ArtifactStore):
         temp_path: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(
-                    mode="wb",
-                    dir=path.parent,
-                    prefix=f".{path.name}.",
-                    suffix=".tmp",
-                    delete=False,
+                mode="wb",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False,
             ) as handle:
                 temp_path = Path(handle.name)
                 handle.write(data)

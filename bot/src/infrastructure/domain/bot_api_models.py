@@ -18,7 +18,9 @@ class BotStatus(str, Enum):
     ERROR = "error"
     RECOVERING = "recovering"  # P1.7: Recovery in progress after crash/restart
     DEGRADED = "degraded"  # P1.7: Operational but with guardrails active
-    SAFEGUARDED = "safeguarded"  # P1.7: Active incident-response mode (capital/position locked)
+    SAFEGUARDED = (
+        "safeguarded"  # P1.7: Active incident-response mode (capital/position locked)
+    )
 
 
 class TradingParameters(BaseModel):
@@ -132,7 +134,9 @@ class BotInstanceState(BaseModel):
     # P1.7: Liveness and recovery tracking
     last_heartbeat: Optional[datetime] = None  # Last verified alive signal
     heartbeat_stale_seconds: int = 30  # Time before marking as stale/degraded
-    recovery_state: Optional[str] = None  # "recovering", "degraded", "safeguarded", or None
+    recovery_state: Optional[str] = (
+        None  # "recovering", "degraded", "safeguarded", or None
+    )
     recovery_reason: Optional[str] = None  # Why recovery state was activated
 
     def to_api_status(self) -> BotInstanceStatus:

@@ -11,7 +11,9 @@ def test_startup_message_prefers_instance_account_address(monkeypatch):
 
     captured = {}
 
-    def _fake_send_message(text, parse_mode="HTML", dedupe_key=None, dedupe_window_seconds=None):
+    def _fake_send_message(
+        text, parse_mode="HTML", dedupe_key=None, dedupe_window_seconds=None
+    ):
         captured["text"] = text
         captured["parse_mode"] = parse_mode
         captured["dedupe_key"] = dedupe_key
@@ -31,8 +33,10 @@ def test_startup_message_prefers_instance_account_address(monkeypatch):
     )
 
     assert sent is True
-    assert "https://www.mintscan.io/dydx-testnet/account/dydx16shv8n0j28djnjrcg0jxusmkf46umtzrepslsp" in captured[
-        "text"]
+    assert (
+        "https://www.mintscan.io/dydx-testnet/account/dydx16shv8n0j28djnjrcg0jxusmkf46umtzrepslsp"
+        in captured["text"]
+    )
     assert "dydx16sh..." in captured["text"]
 
 
@@ -47,7 +51,9 @@ def test_lifecycle_message_uses_explicit_runtime_context(monkeypatch):
 
     captured = {}
 
-    def _fake_send_message(text, parse_mode="HTML", dedupe_key=None, dedupe_window_seconds=None):
+    def _fake_send_message(
+        text, parse_mode="HTML", dedupe_key=None, dedupe_window_seconds=None
+    ):
         captured["text"] = text
         captured["parse_mode"] = parse_mode
         captured["dedupe_key"] = dedupe_key
@@ -86,7 +92,9 @@ def test_trade_opened_message_supports_normalized_trade_payload_keys(monkeypatch
 
     captured = {}
 
-    def _fake_send_message(text, parse_mode="HTML", dedupe_key=None, dedupe_window_seconds=None):
+    def _fake_send_message(
+        text, parse_mode="HTML", dedupe_key=None, dedupe_window_seconds=None
+    ):
         captured["text"] = text
         captured["parse_mode"] = parse_mode
         captured["dedupe_key"] = dedupe_key
@@ -120,7 +128,9 @@ def test_trade_opened_message_supports_pair_string_and_entry_size_keys(monkeypat
 
     captured = {}
 
-    def _fake_send_message(text, parse_mode="HTML", dedupe_key=None, dedupe_window_seconds=None):
+    def _fake_send_message(
+        text, parse_mode="HTML", dedupe_key=None, dedupe_window_seconds=None
+    ):
         captured["text"] = text
         captured["parse_mode"] = parse_mode
         captured["dedupe_key"] = dedupe_key
@@ -153,7 +163,9 @@ def test_trade_closed_message_supports_normalized_trade_payload_keys(monkeypatch
 
     captured = {}
 
-    def _fake_send_message(text, parse_mode="HTML", dedupe_key=None, dedupe_window_seconds=None):
+    def _fake_send_message(
+        text, parse_mode="HTML", dedupe_key=None, dedupe_window_seconds=None
+    ):
         captured["text"] = text
         captured["parse_mode"] = parse_mode
         captured["dedupe_key"] = dedupe_key
@@ -186,7 +198,9 @@ def test_recovery_message_uses_non_critical_template(monkeypatch):
 
     captured = {}
 
-    def _fake_send_message(text, parse_mode="HTML", dedupe_key=None, dedupe_window_seconds=None):
+    def _fake_send_message(
+        text, parse_mode="HTML", dedupe_key=None, dedupe_window_seconds=None
+    ):
         captured["text"] = text
         captured["parse_mode"] = parse_mode
         captured["dedupe_key"] = dedupe_key

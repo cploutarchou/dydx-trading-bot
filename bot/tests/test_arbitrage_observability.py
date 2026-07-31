@@ -25,7 +25,10 @@ def test_snapshot_includes_sorted_reason_buckets_and_reset_clears_them():
     record_rejection("min_order_size")
 
     snap = snapshot_metrics()
-    assert list(snap["rejection_reasons"].keys()) == ["market_already_open", "min_order_size"]
+    assert list(snap["rejection_reasons"].keys()) == [
+        "market_already_open",
+        "min_order_size",
+    ]
 
     reset_metrics()
     cleared = snapshot_metrics()

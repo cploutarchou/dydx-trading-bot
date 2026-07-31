@@ -48,12 +48,12 @@ def _request(**trading_parameters):
 
 class _FakeMarkets:
     async def get_perpetual_market_candles(
-            self,
-            market,
-            resolution,
-            from_iso=None,
-            to_iso=None,
-            limit=100,
+        self,
+        market,
+        resolution,
+        from_iso=None,
+        to_iso=None,
+        limit=100,
     ):
         del resolution, limit
         start = datetime.fromisoformat(str(from_iso).replace("Z", "+00:00"))
@@ -169,12 +169,12 @@ class _BlockingHeartbeatClient:
 
 class _PausableMarkets(_FakeMarkets):
     async def get_perpetual_market_candles(
-            self,
-            market,
-            resolution,
-            from_iso=None,
-            to_iso=None,
-            limit=100,
+        self,
+        market,
+        resolution,
+        from_iso=None,
+        to_iso=None,
+        limit=100,
     ):
         await asyncio.sleep(0.5)
         return await super().get_perpetual_market_candles(
@@ -328,9 +328,9 @@ def test_parameter_changes_produce_distinct_real_results(monkeypatch):
         assert a is not None and c is not None
 
         assert (
-                a.total_pnl != c.total_pnl
-                or a.total_trades != c.total_trades
-                or a.sharpe_ratio != c.sharpe_ratio
+            a.total_pnl != c.total_pnl
+            or a.total_trades != c.total_trades
+            or a.sharpe_ratio != c.sharpe_ratio
         )
 
     asyncio.run(_run())
@@ -439,7 +439,7 @@ def test_retry_backtest_starts_new_run_from_persisted_request(monkeypatch):
 
 
 def test_restart_backtest_reconstructs_missing_request_from_persisted_fields(
-        monkeypatch,
+    monkeypatch,
 ):
     _, service_module = _load_modules()
     BacktestService = service_module.BacktestService
@@ -539,7 +539,7 @@ def test_celery_worker_backend_queues_persisted_run(monkeypatch):
         lambda self, run_id, task_context=None: queued.update(
             {"run_id": run_id, "task_context": task_context}
         )
-                                                or f"task-{run_id}",
+        or f"task-{run_id}",
     )
 
     service = BacktestService(session=None)
@@ -614,7 +614,9 @@ def test_resolve_worker_backend_promotes_asyncio_when_probe_succeeds(monkeypatch
     BacktestService._backend_reprobe_last_monotonic = 0.0
     BacktestService._backend_reprobe_last_available = False
     monkeypatch.setattr(
-        BacktestService, "_probe_celery_worker_available", lambda *_args, **_kwargs: True
+        BacktestService,
+        "_probe_celery_worker_available",
+        lambda *_args, **_kwargs: True,
     )
 
     backend = asyncio.run(BacktestService._resolve_worker_backend())
@@ -633,7 +635,9 @@ def test_resolve_worker_backend_keeps_asyncio_when_probe_fails(monkeypatch):
     BacktestService._backend_reprobe_last_monotonic = 0.0
     BacktestService._backend_reprobe_last_available = False
     monkeypatch.setattr(
-        BacktestService, "_probe_celery_worker_available", lambda *_args, **_kwargs: False
+        BacktestService,
+        "_probe_celery_worker_available",
+        lambda *_args, **_kwargs: False,
     )
 
     backend = asyncio.run(BacktestService._resolve_worker_backend())
@@ -1180,8 +1184,8 @@ def test_pair_selection_mode_normalization_aliases():
     assert BacktestService._normalize_pair_selection_mode("none") == "input"
     assert BacktestService._normalize_pair_selection_mode("order") == "input"
     assert (
-            BacktestService._normalize_pair_selection_mode("cointegration")
-            == "cointegration"
+        BacktestService._normalize_pair_selection_mode("cointegration")
+        == "cointegration"
     )
     assert BacktestService._normalize_pair_selection_mode("volatility") == "volatility"
     assert BacktestService._normalize_pair_selection_mode("unknown-mode") == "liquidity"
@@ -1313,7 +1317,7 @@ def test_comprehensive_analytics_includes_sub_objects_and_candle_fields(monkeypa
 
 
 def test_backtest_status_survives_service_recreation_with_db_repository(
-        monkeypatch, tmp_path
+    monkeypatch, tmp_path
 ):
     _, service_module = _load_modules()
     BacktestService = service_module.BacktestService
@@ -1364,8 +1368,8 @@ def test_service_init_does_not_auto_reconcile_running_runs():
 
     service = BacktestService(session=None)
     now = (
-            datetime.now(timezone.utc)
-            - timedelta(seconds=BacktestService._STALE_BACKTEST_HEARTBEAT_SECONDS + 5)
+        datetime.now(timezone.utc)
+        - timedelta(seconds=BacktestService._STALE_BACKTEST_HEARTBEAT_SECONDS + 5)
     ).isoformat()
     service.repository.save_run(
         {
@@ -1474,8 +1478,8 @@ def test_explicit_interrupted_reconcile_flow_updates_orphaned_persisted_runs():
 
     service = BacktestService(session=None)
     now = (
-            datetime.now(timezone.utc)
-            - timedelta(seconds=BacktestService._STALE_BACKTEST_HEARTBEAT_SECONDS + 5)
+        datetime.now(timezone.utc)
+        - timedelta(seconds=BacktestService._STALE_BACKTEST_HEARTBEAT_SECONDS + 5)
     ).isoformat()
     seeded = service.repository.save_run(
         {
@@ -1525,8 +1529,8 @@ def test_auto_recovery_marks_orphaned_backtests_failed_by_default():
 
     service = BacktestService(session=None)
     now = (
-            datetime.now(timezone.utc)
-            - timedelta(seconds=BacktestService._STALE_BACKTEST_HEARTBEAT_SECONDS + 5)
+        datetime.now(timezone.utc)
+        - timedelta(seconds=BacktestService._STALE_BACKTEST_HEARTBEAT_SECONDS + 5)
     ).isoformat()
     service.repository.save_run(
         {
@@ -1600,8 +1604,8 @@ def test_auto_recovery_restart_requeues_existing_backtest_run(monkeypatch):
 
     service = BacktestService(session=None)
     now = (
-            datetime.now(timezone.utc)
-            - timedelta(seconds=BacktestService._STALE_BACKTEST_HEARTBEAT_SECONDS + 5)
+        datetime.now(timezone.utc)
+        - timedelta(seconds=BacktestService._STALE_BACKTEST_HEARTBEAT_SECONDS + 5)
     ).isoformat()
     service.repository.save_run(
         {

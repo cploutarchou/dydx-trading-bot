@@ -4,7 +4,9 @@ from src.trading import market_data
 def test_notify_circuit_breaker_open_sends_critical_telegram(monkeypatch):
     calls = []
 
-    def _fake_send_error_notification(error_type, error_details, is_critical=False, category=None):
+    def _fake_send_error_notification(
+        error_type, error_details, is_critical=False, category=None
+    ):
         calls.append(
             {
                 "error_type": error_type,
@@ -15,7 +17,9 @@ def test_notify_circuit_breaker_open_sends_critical_telegram(monkeypatch):
         )
         return True
 
-    monkeypatch.setattr(market_data, "_send_error_notification", _fake_send_error_notification)
+    monkeypatch.setattr(
+        market_data, "_send_error_notification", _fake_send_error_notification
+    )
 
     market_data._notify_circuit_breaker_open(4)
 

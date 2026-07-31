@@ -64,7 +64,9 @@ def _patch_market_and_sleep(monkeypatch):
     monkeypatch.setattr(account_manager.asyncio, "sleep", _fast_sleep)
 
 
-def test_place_market_order_retries_until_matching_order_appears(_patch_market_and_sleep):
+def test_place_market_order_retries_until_matching_order_appears(
+    _patch_market_and_sleep,
+):
     client = _FakeClient(
         snapshots=[
             [],
@@ -107,7 +109,9 @@ def test_place_market_order_retries_until_matching_order_appears(_patch_market_a
     assert order_id == "match-order-id"
 
 
-def test_place_market_order_raises_clean_runtime_error_when_orders_never_appear(_patch_market_and_sleep):
+def test_place_market_order_raises_clean_runtime_error_when_orders_never_appear(
+    _patch_market_and_sleep,
+):
     client = _FakeClient(snapshots=[[], [], [], []])
 
     with pytest.raises(RuntimeError) as exc:

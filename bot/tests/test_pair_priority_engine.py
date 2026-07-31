@@ -2,7 +2,11 @@ from datetime import datetime, timedelta, timezone
 
 from src.infrastructure.domain.cointegration_storage import CointegrationResult
 from src.trading.arbitrage_runtime_config import update_runtime_settings
-from src.trading.pair_priority import is_pair_analysis_stale, prioritize_pairs, score_pair
+from src.trading.pair_priority import (
+    is_pair_analysis_stale,
+    prioritize_pairs,
+    score_pair,
+)
 
 
 def _pair(base: str, quote: str, *, confidence: float, z_std: float, ts: str):
@@ -42,9 +46,10 @@ def test_pair_priority_scores_internal_cointegration_data():
 
     assert ranked[0].base_market == "ETH-USD"
     assert scores[0].pair == "ETH-USD/BTC-USD"
-    assert scores[0].components["historical_opportunity_score"] > scores[1].components[
-        "historical_opportunity_score"
-    ]
+    assert (
+        scores[0].components["historical_opportunity_score"]
+        > scores[1].components["historical_opportunity_score"]
+    )
 
 
 def test_pair_priority_marks_stale_analysis():

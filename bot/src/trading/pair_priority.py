@@ -58,7 +58,9 @@ def is_pair_analysis_stale(pair: Any, *, now: datetime | None = None) -> bool:
     reference = now or datetime.now(timezone.utc)
     if reference.tzinfo is None:
         reference = reference.replace(tzinfo=timezone.utc)
-    return (reference.astimezone(timezone.utc) - timestamp).total_seconds() > stale_after
+    return (
+        reference.astimezone(timezone.utc) - timestamp
+    ).total_seconds() > stale_after
 
 
 def _extract_market_liquidity(market_payload: Any) -> float:
@@ -74,7 +76,10 @@ def _extract_market_liquidity(market_payload: Any) -> float:
         "notional24H",
         "turnover24H",
     )
-    return max((_safe_float(market_payload.get(field), 0.0) for field in candidates), default=0.0)
+    return max(
+        (_safe_float(market_payload.get(field), 0.0) for field in candidates),
+        default=0.0,
+    )
 
 
 def _scaled_liquidity_score(value: float) -> float:
@@ -91,7 +96,9 @@ class PairPriorityScore:
     explanation: List[str]
 
 
-def score_pair(pair: Any, market_map: Dict[str, Any] | None = None) -> PairPriorityScore:
+def score_pair(
+    pair: Any, market_map: Dict[str, Any] | None = None
+) -> PairPriorityScore:
     base = str(_pair_value(pair, "base_market", "") or "")
     quote = str(_pair_value(pair, "quote_market", "") or "")
     market_map = market_map or {}
@@ -115,22 +122,25 @@ def score_pair(pair: Any, market_map: Dict[str, Any] | None = None) -> PairPrior
         "volume_score": liquidity_score,
         "liquidity_score": liquidity_score,
         "volatility_score": min(1.0, z_std),
-        "historical_opportunity_score": min(1.0, max(0.0, confidence)) + min(0.5, zero_crossings / 20.0),
-        "slippage_risk": 0.25 if liquidity_score <= 0 else max(0.0, 0.25 - liquidity_score * 0.25),
+        "historical_opportunity_score": min(1.0, max(0.0, confidence))
+        + min(0.5, zero_crossings / 20.0),
+        "slippage_risk": (
+            0.25 if liquidity_score <= 0 else max(0.0, 0.25 - liquidity_score * 0.25)
+        ),
         "stale_data_penalty": 1.0 if stale else 0.0,
         "api_cost_penalty": 0.05 if stale else 0.0,
         "half_life_penalty": min(1.0, half_life / 48.0),
     }
     score = (
-            components["spread_potential_score"]
-            + components["volume_score"]
-            + components["liquidity_score"]
-            + components["volatility_score"]
-            + components["historical_opportunity_score"]
-            - components["slippage_risk"]
-            - components["stale_data_penalty"]
-            - components["api_cost_penalty"]
-            - components["half_life_penalty"]
+        components["spread_potential_score"]
+        + components["volume_score"]
+        + components["liquidity_score"]
+        + components["volatility_score"]
+        + components["historical_opportunity_score"]
+        - components["slippage_risk"]
+        - components["stale_data_penalty"]
+        - components["api_cost_penalty"]
+        - components["half_life_penalty"]
     )
 
     explanation = [
@@ -152,10 +162,10 @@ def score_pair(pair: Any, market_map: Dict[str, Any] | None = None) -> PairPrior
 
 
 def prioritize_pairs(
-        pairs: Iterable[Any],
-        *,
-        market_map: Dict[str, Any] | None = None,
-        max_pairs: int = 0,
+    pairs: Iterable[Any],
+    *,
+    market_map: Dict[str, Any] | None = None,
+    max_pairs: int = 0,
 ) -> Tuple[List[Any], List[PairPriorityScore]]:
     scored = [(pair, score_pair(pair, market_map)) for pair in pairs]
     scored.sort(key=lambda item: item[1].score, reverse=True)

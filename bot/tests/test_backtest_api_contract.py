@@ -479,7 +479,7 @@ def test_runtime_strategy_resolution_metrics_endpoint_returns_snapshot(monkeypat
 
 
 def test_admin_runtime_strategy_resolution_metrics_endpoint_returns_snapshot(
-        monkeypatch,
+    monkeypatch,
 ):
     server = _load_server_module()
 
@@ -560,8 +560,8 @@ def test_strategy_resolution_request_ratio_alert_triggers(monkeypatch):
 
     prom = server._strategy_resolution_metrics_prometheus()
     assert (
-            'bot_strategy_resolution_alert_summary{alert="request_ratio",severity="warning",reason="request_ratio_exceeded"} 1'
-            in prom
+        'bot_strategy_resolution_alert_summary{alert="request_ratio",severity="warning",reason="request_ratio_exceeded"} 1'
+        in prom
     )
 
 
@@ -761,15 +761,15 @@ def test_run_backtest_compat_uses_strategy_snapshot_when_lookup_fails(monkeypatc
     assert stub_service.last_request.strategy_id == 4
     assert stub_service.last_request.strategy_payload_snapshot["id"] == 4
     assert (
-            stub_service.last_request.strategy_payload_snapshot["name"]
-            == "Backend Strategy"
+        stub_service.last_request.strategy_payload_snapshot["name"]
+        == "Backend Strategy"
     )
     metrics_after = server._strategy_resolution_metrics_snapshot()
     assert int(metrics_after["counts"].get("request", 0) or 0) == request_before + 1
 
 
 def test_run_backtest_compat_strict_mode_disables_request_snapshot_fallback_in_production(
-        monkeypatch,
+    monkeypatch,
 ):
     server = _load_server_module()
     stub_service = _RunStubService()
@@ -866,13 +866,13 @@ def test_create_backtest_uses_strategy_snapshot_when_lookup_returns_none(monkeyp
     assert stub_service.last_request.strategy_id == 9
     assert stub_service.last_request.strategy_payload_snapshot["id"] == 9
     assert (
-            stub_service.last_request.strategy_payload_snapshot["name"]
-            == "Backend-only Strategy"
+        stub_service.last_request.strategy_payload_snapshot["name"]
+        == "Backend-only Strategy"
     )
 
 
 def test_run_backtest_compat_prefers_history_snapshot_before_request_fallback(
-        monkeypatch,
+    monkeypatch,
 ):
     server = _load_server_module()
     stub_service = _RunStubService()
@@ -960,8 +960,8 @@ def test_run_backtest_compat_prefers_history_snapshot_before_request_fallback(
     assert payload["success"] is True
     assert stub_service.last_request is not None
     assert (
-            stub_service.last_request.strategy_payload_snapshot["name"]
-            == "History Snapshot"
+        stub_service.last_request.strategy_payload_snapshot["name"]
+        == "History Snapshot"
     )
 
 

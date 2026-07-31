@@ -28,14 +28,14 @@ class MinIOArtifactStore(ArtifactStore):
     """
 
     def __init__(
-            self,
-            *,
-            bucket: str,
-            enabled: bool = False,
-            fallback: ArtifactStore | None = None,
-            endpoint_url: str | None = None,
-            secure: bool = True,
-            extra_config: Mapping[str, Any] | None = None,
+        self,
+        *,
+        bucket: str,
+        enabled: bool = False,
+        fallback: ArtifactStore | None = None,
+        endpoint_url: str | None = None,
+        secure: bool = True,
+        extra_config: Mapping[str, Any] | None = None,
     ):
         self.bucket = bucket.strip()
         self.enabled = enabled
@@ -103,9 +103,9 @@ class MinIOArtifactStore(ArtifactStore):
         safe_key = str(key).strip().lstrip("/")
         path = PurePosixPath(safe_key)
         if (
-                not safe_key
-                or "\\" in safe_key
-                or any(part in {"", ".", ".."} for part in path.parts)
+            not safe_key
+            or "\\" in safe_key
+            or any(part in {"", ".", ".."} for part in path.parts)
         ):
             raise ValueError("artifact key must be a normalized relative object key")
         return safe_key
@@ -161,7 +161,7 @@ class MinIOArtifactStore(ArtifactStore):
         return f"s3://{self.bucket}/{safe_key}"
 
     def put_bytes(
-            self, key: str, data: bytes, *, content_type: str | None = None
+        self, key: str, data: bytes, *, content_type: str | None = None
     ) -> str:
         safe_key = self._safe_key(key)
         self._require_strict_client("persistence")

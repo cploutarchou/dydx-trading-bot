@@ -1,4 +1,5 @@
 """Authentication router."""
+
 from datetime import datetime, timezone
 from typing import Optional, cast
 
@@ -10,7 +11,10 @@ from sqlalchemy.orm import Session
 from src.api.auth_utils import JWTUtils, PasswordUtils, SecurityUtils, TokenBlacklist
 from src.infrastructure.database import db
 from src.infrastructure.domain.models.auth_models import User
-from src.middleware.auth_middleware import get_current_active_user, is_auth_bypass_enabled
+from src.middleware.auth_middleware import (
+    get_current_active_user,
+    is_auth_bypass_enabled,
+)
 from src.shared.time_utils import utc_now
 
 router = APIRouter()
@@ -96,9 +100,9 @@ def _revoke_presented_token(token: str) -> None:
 
 
 def _authenticate_user(
-        username: str,
-        password: str,
-        session: Session,
+    username: str,
+    password: str,
+    session: Session,
 ) -> dict:
     if is_auth_bypass_enabled():
         return _build_token_response(username)
@@ -125,8 +129,8 @@ def _authenticate_user(
 
 @router.post("/token")
 async def token_login(
-        form_data: OAuth2PasswordRequestForm = Depends(),
-        session: Session = Depends(db.get_session),
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    session: Session = Depends(db.get_session),
 ):
     """Login endpoint"""
     return _authenticate_user(form_data.username, form_data.password, session)
@@ -134,8 +138,8 @@ async def token_login(
 
 @router.post("/login")
 async def login(
-        payload: LoginRequest,
-        session: Session = Depends(db.get_session),
+    payload: LoginRequest,
+    session: Session = Depends(db.get_session),
 ):
     """Frontend-compatible JSON login endpoint."""
     return _authenticate_user(payload.username, payload.password, session)
@@ -143,8 +147,8 @@ async def login(
 
 @router.post("/register")
 async def register(
-        payload: RegisterRequest,
-        session: Session = Depends(db.get_session),
+    payload: RegisterRequest,
+    session: Session = Depends(db.get_session),
 ):
     """Register endpoint."""
     username = SecurityUtils.sanitize_input(payload.username, max_length=50)
@@ -223,8 +227,8 @@ _SERVICE_TOKEN_REVOCATION_MESSAGE = (
 
 @router.post("/logout")
 async def logout(
-        request: Request,
-        current_user: User = Depends(get_current_active_user),
+    request: Request,
+    current_user: User = Depends(get_current_active_user),
 ):
     """Logout the current session by revoking the presented JWT (JTI blacklist)."""
     if is_auth_bypass_enabled():
@@ -239,9 +243,9 @@ async def logout(
 
 @router.post("/logout-all")
 async def logout_all(
-        request: Request,
-        current_user: User = Depends(get_current_active_user),
-        session: Session = Depends(db.get_session),
+    request: Request,
+    current_user: User = Depends(get_current_active_user),
+    session: Session = Depends(db.get_session),
 ):
     """Revoke every outstanding token for the current user.
 

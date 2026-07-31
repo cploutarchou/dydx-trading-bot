@@ -32,9 +32,7 @@ class RealTimeDataService:
         self.update_tasks: Dict[int, asyncio.Task] = {}
         self.update_interval = 5  # seconds
         self.market_sync_resolution = (
-            str(os.getenv("MARKET_SYNC_RESOLUTION", "1HOUR") or "1HOUR")
-            .strip()
-            .upper()
+            str(os.getenv("MARKET_SYNC_RESOLUTION", "1HOUR") or "1HOUR").strip().upper()
         )
 
     def _get_redis_client(self):
@@ -210,21 +208,53 @@ class RealTimeDataService:
 
             try:
                 for market in market_data:
-                    cached_price = self._get_cached_latest_price(redis_client, market.symbol)
+                    cached_price = self._get_cached_latest_price(
+                        redis_client, market.symbol
+                    )
                     if cached_price is not None:
                         uow.market_data.upsert_market_data(
                             bot_instance_id=bot_instance_id,
                             symbol=market.symbol,
                             current_price=cached_price,
-                            bid_price=float(market.bid_price) if market.bid_price is not None else None,
-                            ask_price=float(market.ask_price) if market.ask_price is not None else None,
-                            volume_24h=float(market.volume_24h) if market.volume_24h is not None else None,
-                            volatility_24h=float(market.volatility_24h) if market.volatility_24h is not None else None,
+                            bid_price=(
+                                float(market.bid_price)
+                                if market.bid_price is not None
+                                else None
+                            ),
+                            ask_price=(
+                                float(market.ask_price)
+                                if market.ask_price is not None
+                                else None
+                            ),
+                            volume_24h=(
+                                float(market.volume_24h)
+                                if market.volume_24h is not None
+                                else None
+                            ),
+                            volatility_24h=(
+                                float(market.volatility_24h)
+                                if market.volatility_24h is not None
+                                else None
+                            ),
                             rsi=float(market.rsi) if market.rsi is not None else None,
-                            macd=float(market.macd) if market.macd is not None else None,
-                            moving_avg_20=float(market.moving_avg_20) if market.moving_avg_20 is not None else None,
-                            moving_avg_50=float(market.moving_avg_50) if market.moving_avg_50 is not None else None,
-                            funding_rate=float(market.funding_rate) if market.funding_rate is not None else None,
+                            macd=(
+                                float(market.macd) if market.macd is not None else None
+                            ),
+                            moving_avg_20=(
+                                float(market.moving_avg_20)
+                                if market.moving_avg_20 is not None
+                                else None
+                            ),
+                            moving_avg_50=(
+                                float(market.moving_avg_50)
+                                if market.moving_avg_50 is not None
+                                else None
+                            ),
+                            funding_rate=(
+                                float(market.funding_rate)
+                                if market.funding_rate is not None
+                                else None
+                            ),
                         )
                         market.current_price = cached_price
                         refreshed += 1
@@ -234,15 +264,15 @@ class RealTimeDataService:
                         {
                             "symbol": market.symbol,
                             "current_price": float(market.current_price),
-                            "bid_price": float(market.bid_price)
-                            if market.bid_price
-                            else None,
-                            "ask_price": float(market.ask_price)
-                            if market.ask_price
-                            else None,
-                            "volume_24h": float(market.volume_24h)
-                            if market.volume_24h
-                            else None,
+                            "bid_price": (
+                                float(market.bid_price) if market.bid_price else None
+                            ),
+                            "ask_price": (
+                                float(market.ask_price) if market.ask_price else None
+                            ),
+                            "volume_24h": (
+                                float(market.volume_24h) if market.volume_24h else None
+                            ),
                             "updated_at": utc_now_iso(),
                         },
                     )
@@ -305,7 +335,7 @@ class RealTimeDataService:
 
             # Check drawdown alert
             if (
-                    stats.max_drawdown_session and stats.max_drawdown_session < -0.05
+                stats.max_drawdown_session and stats.max_drawdown_session < -0.05
             ):  # -5% drawdown
                 alerts_to_create.append(
                     {
@@ -332,7 +362,7 @@ class RealTimeDataService:
 
             # Check high win rate
             if (
-                    stats.daily_win_rate > 0.8 and stats.daily_trades_closed >= 5
+                stats.daily_win_rate > 0.8 and stats.daily_trades_closed >= 5
             ):  # >80% win rate with 5+ trades
                 alerts_to_create.append(
                     {
@@ -411,7 +441,7 @@ class RealTimeDataService:
             logger.error(f"Error closing position: {e}")
 
     async def update_market_data(
-            self, bot_instance_id: int, symbol: str, market_data: Dict
+        self, bot_instance_id: int, symbol: str, market_data: Dict
     ):
         """Update market data for a symbol"""
         try:

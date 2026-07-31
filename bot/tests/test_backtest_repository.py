@@ -20,7 +20,7 @@ class _RecordingArtifactStore(ArtifactStore):
         return f"artifact://{key}"
 
     def put_bytes(
-            self, key: str, data: bytes, *, content_type: str | None = None
+        self, key: str, data: bytes, *, content_type: str | None = None
     ) -> str:
         del content_type
         self._payloads[key] = bytes(data)
@@ -282,8 +282,8 @@ def test_save_run_writes_backtest_sidecars_and_analytics(tmp_path):
         "artifact://backtests/run-sidecars/full_result.json"
     )
     assert (
-            artifact_store.read_json("backtests/run-sidecars/full_result.json")["status"]
-            == "completed"
+        artifact_store.read_json("backtests/run-sidecars/full_result.json")["status"]
+        == "completed"
     )
     assert artifact_store.read_json("backtests/run-sidecars/trades.json") == [
         {"trade_id": "trade-1", "pnl": 12.5}
@@ -374,8 +374,8 @@ def test_repeated_completed_save_does_not_duplicate_analytics_projection(tmp_pat
         (
             row
             for row in session.query(ArtifactReference)
-        .filter(ArtifactReference.owner_id == payload["run_id"])
-        .all()
+            .filter(ArtifactReference.owner_id == payload["run_id"])
+            .all()
             if (row.metadata_json or {}).get("artifact_kind") == "full_result_json"
         ),
         None,

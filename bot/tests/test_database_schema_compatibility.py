@@ -60,7 +60,7 @@ def _make_manager_with_inspector(monkeypatch, columns):
 
 
 def test_ensure_schema_compatibility_adds_missing_realtime_metadata_columns(
-        monkeypatch,
+    monkeypatch,
 ):
     manager, connection = _make_manager_with_inspector(
         monkeypatch,
@@ -86,7 +86,7 @@ def test_ensure_schema_compatibility_adds_missing_realtime_metadata_columns(
 
 
 def test_ensure_schema_compatibility_skips_existing_realtime_metadata_columns(
-        monkeypatch,
+    monkeypatch,
 ):
     manager, connection = _make_manager_with_inspector(
         monkeypatch,

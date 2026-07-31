@@ -120,7 +120,7 @@ AUTO_EXECUTION_CHANGES_ENABLED = _env_flag("AUTO_EXECUTION_CHANGES_ENABLED", Fal
 # Per-call sleep between dYdX API requests (milliseconds → seconds).
 # Set DYDX_API_THROTTLE_MS=0 to disable; default 200 ms.
 DYDX_API_THROTTLE_SECONDS: float = (
-        float(_os.getenv("DYDX_API_THROTTLE_MS", "200")) / 1000.0
+    float(_os.getenv("DYDX_API_THROTTLE_MS", "200")) / 1000.0
 )
 
 # How long to cache the perpetual markets list (seconds). 0 = disabled.

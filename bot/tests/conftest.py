@@ -62,7 +62,7 @@ def assert_db_type_supported(db_type_str: str) -> None:
     """
     supported = ("postgres", "postgresql")
     assert (
-            db_type_str in supported
+        db_type_str in supported
     ), f"Unsupported db_type: {db_type_str}. Supported: {supported}"
 
 
@@ -72,10 +72,10 @@ def get_test_db_port() -> str:
 
 
 def get_test_connection_string(
-        user: str = "bot_user",
-        password: str = "secret",
-        host: str = "db-host",
-        db_name: str = "bot_db",
+    user: str = "bot_user",
+    password: str = "secret",
+    host: str = "db-host",
+    db_name: str = "bot_db",
 ) -> str:
     """Generate a test connection string for current database environment.
 

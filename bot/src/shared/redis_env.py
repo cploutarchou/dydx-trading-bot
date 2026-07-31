@@ -29,7 +29,9 @@ def redis_password(default: str = "") -> str:
 
 
 def redis_ssl_enabled(default: bool = False) -> bool:
-    raw = _first_env("REDIS_SSL", default="true" if default else "false").strip().lower()
+    raw = (
+        _first_env("REDIS_SSL", default="true" if default else "false").strip().lower()
+    )
     return raw in {"1", "true", "yes", "on"}
 
 

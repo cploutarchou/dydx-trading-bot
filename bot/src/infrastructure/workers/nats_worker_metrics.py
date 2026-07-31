@@ -45,7 +45,9 @@ def _resolve_writer() -> Optional[Any]:
         return writer
     analytics_writer = None
     try:
-        from src.infrastructure.persistence.repository_backtest import BacktestRepository
+        from src.infrastructure.persistence.repository_backtest import (
+            BacktestRepository,
+        )
 
         analytics_writer = BacktestRepository._build_analytics_writer()
     except Exception:
@@ -56,13 +58,13 @@ def _resolve_writer() -> Optional[Any]:
 
 
 def record_nats_command_metric(
-        command_id: str,
-        correlation_id: str,
-        run_id: str,
-        state: str,
-        duration_ms: float,
-        retry_count: int,
-        writer: Optional[Any],
+    command_id: str,
+    correlation_id: str,
+    run_id: str,
+    state: str,
+    duration_ms: float,
+    retry_count: int,
+    writer: Optional[Any],
 ) -> None:
     """Record a completed NATS command's metrics via the worker metrics writer.
 
@@ -92,12 +94,12 @@ def start_nats_command(correlation_id: str) -> None:
 
 
 def complete_nats_command(
-        correlation_id: str,
-        command_id: str,
-        run_id: str,
-        state: str,
-        retry_count: int = 0,
-        writer: Optional[Any] = None,
+    correlation_id: str,
+    command_id: str,
+    run_id: str,
+    state: str,
+    retry_count: int = 0,
+    writer: Optional[Any] = None,
 ) -> None:
     """Record completion of a NATS command with metrics."""
     start_time = _command_start_times.pop(correlation_id, None)
@@ -115,12 +117,12 @@ def complete_nats_command(
 
 
 def fail_nats_command(
-        correlation_id: str,
-        command_id: str,
-        run_id: str,
-        error: str,
-        retry_count: int = 0,
-        writer: Optional[Any] = None,
+    correlation_id: str,
+    command_id: str,
+    run_id: str,
+    error: str,
+    retry_count: int = 0,
+    writer: Optional[Any] = None,
 ) -> None:
     """Record failure of a NATS command with metrics."""
     complete_nats_command(

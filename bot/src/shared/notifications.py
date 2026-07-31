@@ -20,14 +20,18 @@ class TelegramMessenger:
     _recent_messages: Dict[str, float] = {}
 
     def __init__(
-            self,
-            bot_token: Optional[str] = None,
-            chat_id: Optional[str] = None,
-            instance_id: Optional[str] = None,
-            environment: Optional[str] = None,
+        self,
+        bot_token: Optional[str] = None,
+        chat_id: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        environment: Optional[str] = None,
     ):
-        self.bot_token = (bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "").strip() or TELEGRAM_TOKEN)
-        self.chat_id = (chat_id or os.getenv("TELEGRAM_CHAT_ID", "").strip() or TELEGRAM_CHAT_ID)
+        self.bot_token = (
+            bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "").strip() or TELEGRAM_TOKEN
+        )
+        self.chat_id = (
+            chat_id or os.getenv("TELEGRAM_CHAT_ID", "").strip() or TELEGRAM_CHAT_ID
+        )
         self.instance_id = str(instance_id or "").strip()
         self.environment = str(environment or "").strip()
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
@@ -53,8 +57,10 @@ class TelegramMessenger:
 
     def _environment_prefix(self) -> str:
         environment = (
-                self.environment or os.getenv("ENVIRONMENT", "development")
-        ).strip().lower()
+            (self.environment or os.getenv("ENVIRONMENT", "development"))
+            .strip()
+            .lower()
+        )
         return f"🌍 <b>Env:</b> {self._escape_html(environment)}\n"
 
     def _truncate_text(self, text: str, hard_limit: int = 3900) -> str:
@@ -77,7 +83,9 @@ class TelegramMessenger:
             return "Unavailable"
 
         if is_testnet:
-            mintscan_url = f"https://www.mintscan.io/dydx-testnet/account/{account_address}"
+            mintscan_url = (
+                f"https://www.mintscan.io/dydx-testnet/account/{account_address}"
+            )
         else:
             mintscan_url = f"https://www.mintscan.io/dydx/account/{account_address}"
 
@@ -96,7 +104,9 @@ class TelegramMessenger:
         except (TypeError, ValueError):
             return default
 
-    def _normalize_error_category(self, category: Optional[str], error_type: str) -> str:
+    def _normalize_error_category(
+        self, category: Optional[str], error_type: str
+    ) -> str:
         source = (category or error_type or "general").strip().lower()
         normalized = [ch if ch.isalnum() else "_" for ch in source]
         compact = "".join(normalized).strip("_")
@@ -105,9 +115,9 @@ class TelegramMessenger:
         return compact or "general"
 
     def _resolve_error_dedupe_window_seconds(
-            self,
-            category: str,
-            is_critical: bool,
+        self,
+        category: str,
+        is_critical: bool,
     ) -> int:
         if is_critical:
             return self._safe_env_int("TELEGRAM_ERROR_DEDUPE_SECONDS_CRITICAL", 0)
@@ -142,8 +152,8 @@ class TelegramMessenger:
                     return True
 
                 if (
-                        response.status_code == 403
-                        and "bots can't send messages to bots" in response.text.lower()
+                    response.status_code == 403
+                    and "bots can't send messages to bots" in response.text.lower()
                 ):
                     logger.error(
                         "Telegram delivery blocked: TELEGRAM_CHAT_ID '{}' appears to belong to a bot account. "
@@ -152,15 +162,30 @@ class TelegramMessenger:
                     )
                     return False
 
-                transient = response.status_code in {408, 409, 425, 429, 500, 502, 503, 504}
+                transient = response.status_code in {
+                    408,
+                    409,
+                    425,
+                    429,
+                    500,
+                    502,
+                    503,
+                    504,
+                }
                 if transient and attempt < attempts:
                     retry_after = 0.0
                     if response.status_code == 429:
                         try:
-                            retry_after = float(response.json().get("parameters", {}).get("retry_after", 0))
+                            retry_after = float(
+                                response.json()
+                                .get("parameters", {})
+                                .get("retry_after", 0)
+                            )
                         except Exception:
                             retry_after = 0.0
-                    backoff = retry_after if retry_after > 0 else min(2.0, 0.5 * attempt)
+                    backoff = (
+                        retry_after if retry_after > 0 else min(2.0, 0.5 * attempt)
+                    )
                     logger.warning(
                         "Telegram API transient error {} on attempt {}/{}; retrying in {:.2f}s",
                         response.status_code,
@@ -171,7 +196,9 @@ class TelegramMessenger:
                     time.sleep(backoff)
                     continue
 
-                logger.error("Telegram API error {}: {}", response.status_code, response.text)
+                logger.error(
+                    "Telegram API error {}: {}", response.status_code, response.text
+                )
                 return False
 
             except requests.exceptions.RequestException as e:
@@ -207,19 +234,23 @@ class TelegramMessenger:
         return True
 
     def send_message(
-            self,
-            text: str,
-            parse_mode: str = "HTML",
-            dedupe_key: Optional[str] = None,
-            dedupe_window_seconds: Optional[int] = None,
+        self,
+        text: str,
+        parse_mode: str = "HTML",
+        dedupe_key: Optional[str] = None,
+        dedupe_window_seconds: Optional[int] = None,
     ) -> bool:
         """Send a formatted message to Telegram."""
         if not self.enabled:
             return False
 
         if dedupe_window_seconds is None:
-            dedupe_window_seconds = int(os.getenv("TELEGRAM_DEDUPE_SECONDS", "0") or "0")
-        if dedupe_key and self._should_skip_duplicate(dedupe_key, dedupe_window_seconds):
+            dedupe_window_seconds = int(
+                os.getenv("TELEGRAM_DEDUPE_SECONDS", "0") or "0"
+            )
+        if dedupe_key and self._should_skip_duplicate(
+            dedupe_key, dedupe_window_seconds
+        ):
             logger.info("Skipping duplicate Telegram notification key={}", dedupe_key)
             return False
 
@@ -250,10 +281,14 @@ class TelegramMessenger:
 
         network = "🧪 TESTNET" if is_testnet else "🔴 MAINNET"
         env_emoji = (
-            "🧪" if environment == "development" else "🚀" if environment == "production" else "⚙️"
+            "🧪"
+            if environment == "development"
+            else "🚀" if environment == "production" else "⚙️"
         )
 
-        network_text = "Testnet" if environment == "development" or is_testnet else "Mainnet"
+        network_text = (
+            "Testnet" if environment == "development" or is_testnet else "Mainnet"
+        )
 
         message = f"""
 🤖 <b>dYdX Trading Bot Started</b>
@@ -273,11 +308,11 @@ class TelegramMessenger:
         return self.send_message(message)
 
     def send_lifecycle_message(
-            self,
-            action: str,
-            lifecycle_info: Dict[str, Any],
-            *,
-            success: bool = True,
+        self,
+        action: str,
+        lifecycle_info: Dict[str, Any],
+        *,
+        success: bool = True,
     ) -> bool:
         """Send operator lifecycle notifications for runtime actions."""
         normalized_action = str(action or "updated").strip().lower()
@@ -290,7 +325,9 @@ class TelegramMessenger:
             self._resolve_account_address(lifecycle_info.get("account_address")),
             bool(lifecycle_info.get("is_testnet", True)),
         )
-        network_text = "Testnet" if lifecycle_info.get("is_testnet", True) else "Mainnet"
+        network_text = (
+            "Testnet" if lifecycle_info.get("is_testnet", True) else "Mainnet"
+        )
 
         title_map = {
             "created": ("🆕", "RUNTIME CREATED"),
@@ -340,14 +377,16 @@ class TelegramMessenger:
             f"lifecycle:{normalized_action}:{self.instance_id or lifecycle_info.get('instance_id', '')}:"
             f"{'success' if success else 'failure'}"
         )
-        return self.send_message("\n".join(lines), dedupe_key=dedupe_key, dedupe_window_seconds=0)
+        return self.send_message(
+            "\n".join(lines), dedupe_key=dedupe_key, dedupe_window_seconds=0
+        )
 
     def send_error_message(
-            self,
-            error_type: str,
-            error_details: str,
-            is_critical: bool = False,
-            category: Optional[str] = None,
+        self,
+        error_type: str,
+        error_details: str,
+        is_critical: bool = False,
+        category: Optional[str] = None,
     ) -> bool:
         """Send formatted error notification."""
         emoji = "🚨" if is_critical else "⚠️"
@@ -381,15 +420,17 @@ class TelegramMessenger:
         )
 
     def send_recovery_message(
-            self,
-            recovery_type: str,
-            recovery_details: str,
-            category: str = "execution_recovery",
+        self,
+        recovery_type: str,
+        recovery_details: str,
+        category: str = "execution_recovery",
     ) -> bool:
         """Send a successful recovery/auto-heal notification (non-error)."""
         safe_type = self._escape_html(recovery_type)
         safe_details = self._escape_html(recovery_details)
-        safe_category = self._escape_html(self._normalize_error_category(category, recovery_type))
+        safe_category = self._escape_html(
+            self._normalize_error_category(category, recovery_type)
+        )
 
         message = f"""
 🛠️ <b>RECOVERY ACTION APPLIED</b>
@@ -409,19 +450,21 @@ class TelegramMessenger:
     def send_trade_opened_message(self, trade_info: Dict[str, Any]) -> bool:
         """Send notification when new trade is opened."""
         market_1 = (
-                trade_info.get("market_1")
-                or trade_info.get("base_market")
-                or trade_info.get("pair1")
-                or ""
+            trade_info.get("market_1")
+            or trade_info.get("base_market")
+            or trade_info.get("pair1")
+            or ""
         )
         market_2 = (
-                trade_info.get("market_2")
-                or trade_info.get("quote_market")
-                or trade_info.get("pair2")
-                or ""
+            trade_info.get("market_2")
+            or trade_info.get("quote_market")
+            or trade_info.get("pair2")
+            or ""
         )
         if (not market_1 or not market_2) and isinstance(trade_info.get("pair"), str):
-            pair_parts = [part.strip() for part in str(trade_info.get("pair", "")).split("/")]
+            pair_parts = [
+                part.strip() for part in str(trade_info.get("pair", "")).split("/")
+            ]
             if len(pair_parts) == 2:
                 market_1 = market_1 or pair_parts[0]
                 market_2 = market_2 or pair_parts[1]
@@ -474,23 +517,25 @@ class TelegramMessenger:
         return self.send_message(message)
 
     def send_trade_closed_message(
-            self, trade_info: Dict[str, Any], reason: str = "Z-score reversion"
+        self, trade_info: Dict[str, Any], reason: str = "Z-score reversion"
     ) -> bool:
         """Send notification when trade is closed."""
         market_1 = (
-                trade_info.get("market_1")
-                or trade_info.get("base_market")
-                or trade_info.get("pair1")
-                or ""
+            trade_info.get("market_1")
+            or trade_info.get("base_market")
+            or trade_info.get("pair1")
+            or ""
         )
         market_2 = (
-                trade_info.get("market_2")
-                or trade_info.get("quote_market")
-                or trade_info.get("pair2")
-                or ""
+            trade_info.get("market_2")
+            or trade_info.get("quote_market")
+            or trade_info.get("pair2")
+            or ""
         )
         if (not market_1 or not market_2) and isinstance(trade_info.get("pair"), str):
-            pair_parts = [part.strip() for part in str(trade_info.get("pair", "")).split("/")]
+            pair_parts = [
+                part.strip() for part in str(trade_info.get("pair", "")).split("/")
+            ]
             if len(pair_parts) == 2:
                 market_1 = market_1 or pair_parts[0]
                 market_2 = market_2 or pair_parts[1]
@@ -535,12 +580,16 @@ class TelegramMessenger:
         return self.send_message(message)
 
     def send_cointegration_results(
-            self, pairs_found: int, analysis_time: float, high_confidence_pairs: int = 0
+        self, pairs_found: int, analysis_time: float, high_confidence_pairs: int = 0
     ) -> bool:
         """Send enhanced cointegration analysis results."""
-        confidence_ratio = (high_confidence_pairs / pairs_found * 100) if pairs_found > 0 else 0
+        confidence_ratio = (
+            (high_confidence_pairs / pairs_found * 100) if pairs_found > 0 else 0
+        )
 
-        status_emoji = "🎯" if high_confidence_pairs > 0 else "📊" if pairs_found > 0 else "⚠️"
+        status_emoji = (
+            "🎯" if high_confidence_pairs > 0 else "📊" if pairs_found > 0 else "⚠️"
+        )
 
         message = f"""
 🔬 <b>COINTEGRATION ANALYSIS COMPLETE</b>
@@ -555,7 +604,9 @@ class TelegramMessenger:
 
         return self.send_message(message)
 
-    def send_account_status(self, account_info: Dict[str, Any], is_testnet: bool = True) -> bool:
+    def send_account_status(
+        self, account_info: Dict[str, Any], is_testnet: bool = True
+    ) -> bool:
         """Send account status information."""
         balance = account_info.get("balance", 0.0)
         open_positions = account_info.get("open_positions", 0)
@@ -638,10 +689,10 @@ def send_startup_notification(config_info: Dict[str, Any]) -> bool:
 
 
 def send_error_notification(
-        error_type: str,
-        error_details: str,
-        is_critical: bool = False,
-        category: Optional[str] = None,
+    error_type: str,
+    error_details: str,
+    is_critical: bool = False,
+    category: Optional[str] = None,
 ) -> bool:
     """Send formatted error notification."""
     return _messenger.send_error_message(
@@ -667,7 +718,9 @@ def send_analysis_notification(pairs_found: int, analysis_time: float) -> bool:
     return _messenger.send_cointegration_results(pairs_found, analysis_time)
 
 
-def send_account_notification(account_info: Dict[str, Any], is_testnet: bool = True) -> bool:
+def send_account_notification(
+    account_info: Dict[str, Any], is_testnet: bool = True
+) -> bool:
     """Send account status notification."""
     return _messenger.send_account_status(account_info, is_testnet)
 
@@ -678,7 +731,7 @@ def send_daily_summary(summary_info: Dict[str, Any]) -> bool:
 
 
 def send_lifecycle_notification(
-        action: str, lifecycle_info: Dict[str, Any], success: bool = True
+    action: str, lifecycle_info: Dict[str, Any], success: bool = True
 ) -> bool:
     """Send lifecycle action notification."""
     return _messenger.send_lifecycle_message(action, lifecycle_info, success=success)

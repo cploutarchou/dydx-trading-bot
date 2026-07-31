@@ -4,7 +4,7 @@ from config.config import ConfigurationManager
 
 
 def test_configuration_manager_builds_valkey_settings_from_canonical_aliases(
-        monkeypatch,
+    monkeypatch,
 ):
     manager = ConfigurationManager()
     monkeypatch.setenv("VALKEY_ENABLED", "true")
@@ -31,7 +31,7 @@ def test_configuration_manager_builds_valkey_settings_from_canonical_aliases(
 
 
 def test_configuration_manager_builds_nats_clickhouse_and_minio_settings(
-        monkeypatch,
+    monkeypatch,
 ):
     manager = ConfigurationManager()
     monkeypatch.setenv("NATS_ENABLED", "true")

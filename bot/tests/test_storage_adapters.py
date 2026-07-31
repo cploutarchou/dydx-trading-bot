@@ -100,7 +100,7 @@ def test_minio_artifact_store_uses_local_fallback_when_disabled(tmp_path):
     assert ref.startswith("file:")
     assert fallback.read_bytes("artifacts/raw.bin") == b"payload"
     assert (
-            store.reference_for("artifacts/raw.bin") == "s3://backtests/artifacts/raw.bin"
+        store.reference_for("artifacts/raw.bin") == "s3://backtests/artifacts/raw.bin"
     )
 
 
@@ -186,7 +186,7 @@ def test_minio_artifact_store_strict_mode_fails_on_client_error(tmp_path):
 
     # In strict mode, write should fail instead of falling back
     with pytest.raises(
-            RuntimeError, match="MinIO artifact persistence failed.*strict mode"
+        RuntimeError, match="MinIO artifact persistence failed.*strict mode"
     ):
         store.put_bytes("run-3/strict.bin", b"payload")
 
@@ -206,7 +206,7 @@ def test_minio_artifact_store_strict_mode_fails_on_read_error(tmp_path):
 
     # Test exists() method in strict mode
     with pytest.raises(
-            RuntimeError, match="MinIO artifact exists check failed.*strict mode"
+        RuntimeError, match="MinIO artifact exists check failed.*strict mode"
     ):
         store.exists("run-3/missing.bin")
 
@@ -230,7 +230,7 @@ def test_minio_strict_mode_rejects_unavailable_client(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match="read failed.*client is unavailable"):
         store.read_bytes("run-5/out.bin")
     with pytest.raises(
-            RuntimeError, match="exists check failed.*client is unavailable"
+        RuntimeError, match="exists check failed.*client is unavailable"
     ):
         store.exists("run-5/out.bin")
     assert fallback.exists("run-5/out.bin") is False
@@ -338,7 +338,7 @@ def test_backtest_repository_resolves_clickhouse_url_alias(monkeypatch):
 
 
 def test_backtest_repository_keeps_minio_disabled_without_master_artifact_flag(
-        monkeypatch, tmp_path
+    monkeypatch, tmp_path
 ):
     monkeypatch.setenv("BACKTEST_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
     monkeypatch.setenv("BACKTEST_ARTIFACT_STORAGE_ENABLED", "false")
@@ -351,7 +351,7 @@ def test_backtest_repository_keeps_minio_disabled_without_master_artifact_flag(
 
 
 def test_backtest_repository_enables_minio_when_both_new_flags_are_true(
-        monkeypatch, tmp_path
+    monkeypatch, tmp_path
 ):
     monkeypatch.setenv("BACKTEST_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
     monkeypatch.setenv("BACKTEST_ARTIFACT_STORAGE_ENABLED", "true")
@@ -390,7 +390,7 @@ def test_backtest_repository_accepts_canonical_clickhouse_enabled_alias(monkeypa
 
 
 def test_backtest_repository_accepts_canonical_minio_enabled_alias(
-        monkeypatch, tmp_path
+    monkeypatch, tmp_path
 ):
     monkeypatch.setenv("BACKTEST_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
     monkeypatch.delenv("BACKTEST_ARTIFACT_STORAGE_ENABLED", raising=False)
@@ -407,7 +407,7 @@ def test_backtest_repository_accepts_canonical_minio_enabled_alias(
 
 
 def test_backtest_repository_resolves_relative_artifact_root_from_repo_root(
-        monkeypatch,
+    monkeypatch,
 ):
     monkeypatch.setenv("BACKTEST_ARTIFACT_STORAGE_ENABLED", "false")
     monkeypatch.setenv("BACKTEST_ARTIFACTS_DIR", "tmp/backtest-artifacts-test")
@@ -416,7 +416,7 @@ def test_backtest_repository_resolves_relative_artifact_root_from_repo_root(
 
     assert isinstance(store, LocalArtifactStore)
     expected_root = (
-            find_repo_root(__file__) / "tmp" / "backtest-artifacts-test"
+        find_repo_root(__file__) / "tmp" / "backtest-artifacts-test"
     ).resolve()
     assert store.root_dir == expected_root
 

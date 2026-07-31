@@ -164,7 +164,9 @@ async def _sync_market_candles_async() -> Dict[str, Any]:
                     resolution=resolution,
                     limit=candle_limit,
                 )
-                candles = response.get("candles", []) if isinstance(response, dict) else []
+                candles = (
+                    response.get("candles", []) if isinstance(response, dict) else []
+                )
                 if not isinstance(candles, list) or not candles:
                     failed += 1
                     failures.append(f"{market}:empty")
@@ -184,7 +186,11 @@ async def _sync_market_candles_async() -> Dict[str, Any]:
                     exc,
                 )
 
-        status = "ok" if synced > 0 and failed == 0 else "partial" if synced > 0 else "failed"
+        status = (
+            "ok"
+            if synced > 0 and failed == 0
+            else "partial" if synced > 0 else "failed"
+        )
         return {
             "status": status,
             "timestamp": _now_iso(),

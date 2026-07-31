@@ -195,7 +195,9 @@ def seal_secret(plaintext: Any) -> Dict[str, Any]:
         raise CredentialEncryptionError(
             "seal_secret requires a provisioned credential key."
         )
-    encoded = json.dumps(plaintext, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    encoded = json.dumps(plaintext, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
     return _encrypt_with_key(key, encoded)
 
 
@@ -283,7 +285,9 @@ def seal_config_secrets(payload: Dict[str, Any]) -> Dict[str, Any]:
     for block in SEALED_BLOCKS:
         value = sealed.get(block)
         if isinstance(value, dict) and value:
-            encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
             sealed[_sealed_key(block)] = _encrypt_with_key(key, encoded)
             sealed.pop(block, None)
         else:

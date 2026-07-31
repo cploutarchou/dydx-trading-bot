@@ -37,7 +37,9 @@ def test_get_subaccount_with_metrics_increments_api_counter(monkeypatch):
 
     monkeypatch.setattr(account_manager, "increment_metric", _capture_metric)
 
-    result = asyncio.run(account_manager._get_subaccount_with_metrics(fake_client, "addr1"))
+    result = asyncio.run(
+        account_manager._get_subaccount_with_metrics(fake_client, "addr1")
+    )
 
     assert result["subaccount"]["id"] == "ok"
     assert metric_names.count("exchange_api_calls_total") == 1

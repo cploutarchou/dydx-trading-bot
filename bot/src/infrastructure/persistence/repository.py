@@ -85,7 +85,9 @@ class BotRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def create_bot(self, instance_id: str, network: str, strategy: str, config: dict) -> Bot:
+    def create_bot(
+        self, instance_id: str, network: str, strategy: str, config: dict
+    ) -> Bot:
         """Create a new bot"""
         bot = Bot(
             instance_id=instance_id,
@@ -106,7 +108,7 @@ class BotRepository:
         return self.session.query(Bot).all()
 
     def update_status(
-            self, instance_id: str, status: BotStatusEnum, process_id: Optional[int] = None
+        self, instance_id: str, status: BotStatusEnum, process_id: Optional[int] = None
     ):
         """Update bot status"""
         bot = self.get_by_instance_id(instance_id)
@@ -132,10 +134,18 @@ class BotRepository:
         total_trades = len(trades)
         open_trades = len([t for t in trades if t.status == TradeStatusEnum.OPEN])
         successful_trades = len(
-            [t for t in trades if t.status == TradeStatusEnum.CLOSED and t.realized_pnl > 0]
+            [
+                t
+                for t in trades
+                if t.status == TradeStatusEnum.CLOSED and t.realized_pnl > 0
+            ]
         )
         failed_trades = len(
-            [t for t in trades if t.status == TradeStatusEnum.CLOSED and t.realized_pnl <= 0]
+            [
+                t
+                for t in trades
+                if t.status == TradeStatusEnum.CLOSED and t.realized_pnl <= 0
+            ]
         )
         total_pnl = sum(t.realized_pnl for t in trades if t.realized_pnl)
 
@@ -145,7 +155,9 @@ class BotRepository:
             "successful_trades": successful_trades,
             "failed_trades": failed_trades,
             "total_profit_loss": total_pnl,
-            "win_rate": ((successful_trades / total_trades * 100) if total_trades > 0 else 0),
+            "win_rate": (
+                (successful_trades / total_trades * 100) if total_trades > 0 else 0
+            ),
         }
 
 
@@ -156,12 +168,12 @@ class JobRepository:
         self.session = session
 
     def create_job(
-            self,
-            job_id: str,
-            bot_id: Optional[int],
-            job_type: str,
-            parameters: Optional[dict] = None,
-            metadata: Optional[dict] = None,
+        self,
+        job_id: str,
+        bot_id: Optional[int],
+        job_type: str,
+        parameters: Optional[dict] = None,
+        metadata: Optional[dict] = None,
     ) -> Job:
         """Create a new job"""
         job = Job(
@@ -206,10 +218,10 @@ class JobRepository:
             self.session.commit()
 
     def complete_job(
-            self,
-            job_id: str,
-            result: Optional[dict] = None,
-            execution_time_ms: Optional[int] = None,
+        self,
+        job_id: str,
+        result: Optional[dict] = None,
+        execution_time_ms: Optional[int] = None,
     ):
         """Complete a job"""
         job = self.get_by_job_id(job_id)
@@ -223,7 +235,9 @@ class JobRepository:
                 job.execution_time_ms = execution_time_ms
             self.session.commit()
 
-    def fail_job(self, job_id: str, error_message: str, error_traceback: Optional[str] = None):
+    def fail_job(
+        self, job_id: str, error_message: str, error_traceback: Optional[str] = None
+    ):
         """Fail a job"""
         job = self.get_by_job_id(job_id)
         if job:
@@ -245,10 +259,10 @@ class JobRepository:
             self.session.commit()
 
     def update_progress(
-            self,
-            job_id: str,
-            progress_pct: float,
-            metadata: Optional[dict[str, Any]] = None,
+        self,
+        job_id: str,
+        progress_pct: float,
+        metadata: Optional[dict[str, Any]] = None,
     ):
         """Persist job progress and optional structured metadata."""
         job = self.get_by_job_id(job_id)
@@ -272,15 +286,15 @@ class JobRepository:
         )
 
     def update_status(
-            self,
-            job_id: int,
-            status: JobStatusEnum,
-            result: Optional[dict] = None,
-            error_message: Optional[str] = None,
-            error_traceback: Optional[str] = None,
-            cancellation_reason: Optional[str] = None,
-            progress_pct: Optional[float] = None,
-            metadata: Optional[dict[str, Any]] = None,
+        self,
+        job_id: int,
+        status: JobStatusEnum,
+        result: Optional[dict] = None,
+        error_message: Optional[str] = None,
+        error_traceback: Optional[str] = None,
+        cancellation_reason: Optional[str] = None,
+        progress_pct: Optional[float] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ):
         """Update job status"""
         job = self.get_by_id(job_id)
@@ -319,7 +333,7 @@ class TradeRepository:
     _analytics_writer_lock = threading.Lock()
 
     def __init__(
-            self, session: Session, analytics_writer: AnalyticsWriter | None = None
+        self, session: Session, analytics_writer: AnalyticsWriter | None = None
     ):
         self.session = session
         self.analytics_writer = analytics_writer or self._resolve_analytics_writer()
@@ -346,11 +360,11 @@ class TradeRepository:
         return timestamp.astimezone(timezone.utc)
 
     @classmethod
-    def _build_analytics_row(
-            cls, trade: Trade, *, event_kind: str
-    ) -> dict[str, Any]:
+    def _build_analytics_row(cls, trade: Trade, *, event_kind: str) -> dict[str, Any]:
         event_time = cls._normalize_event_time(
-            trade.closed_at if event_kind == "closed" and trade.closed_at else trade.updated_at or trade.created_at
+            trade.closed_at
+            if event_kind == "closed" and trade.closed_at
+            else trade.updated_at or trade.created_at
         )
         closed_at = (
             cls._normalize_event_time(trade.closed_at) if trade.closed_at else None
@@ -419,9 +433,7 @@ class TradeRepository:
             "size": float(size),
             "fee": float(fee),
             "fee_pct": float(fee_pct),
-            "realized_pnl": float(
-                trade.realized_pnl or trade.profit_loss or 0.0
-            ),
+            "realized_pnl": float(trade.realized_pnl or trade.profit_loss or 0.0),
             "realized_pnl_pct": float(
                 trade.realized_pnl_pct or trade.profit_loss_percentage or 0.0
             ),
@@ -451,17 +463,17 @@ class TradeRepository:
             )
 
     def create_trade(
-            self,
-            trade_id: str,
-            bot_id: int,
-            pair1: str,
-            pair2: str,
-            entry_price1: float,
-            entry_price2: float,
-            entry_size1: float,
-            entry_size2: float,
-            side1: str = "BUY",
-            side2: str = "SELL",
+        self,
+        trade_id: str,
+        bot_id: int,
+        pair1: str,
+        pair2: str,
+        entry_price1: float,
+        entry_price2: float,
+        entry_size1: float,
+        entry_size2: float,
+        side1: str = "BUY",
+        side2: str = "SELL",
     ) -> Trade:
         """Create a new trade"""
         trade = Trade(
@@ -495,12 +507,12 @@ class TradeRepository:
         return self.get_by_bot_id(bot_id)
 
     def close_trade(
-            self,
-            trade_id: str,
-            exit_price1: Optional[float] = None,
-            exit_price2: Optional[float] = None,
-            exit_size1: Optional[float] = None,
-            exit_size2: Optional[float] = None,
+        self,
+        trade_id: str,
+        exit_price1: Optional[float] = None,
+        exit_price2: Optional[float] = None,
+        exit_size1: Optional[float] = None,
+        exit_size2: Optional[float] = None,
     ):
         """Close a trade"""
         trade = self.get_by_position_id(trade_id)
@@ -514,18 +526,23 @@ class TradeRepository:
             if exit_size2 is not None:
                 trade.exit_size2 = exit_size2
             # Calculate P&L
-            if exit_price1 and exit_price2 and trade.entry_price1 and trade.entry_price2:
+            if (
+                exit_price1
+                and exit_price2
+                and trade.entry_price1
+                and trade.entry_price2
+            ):
                 # Simple P&L calculation
                 pnl1 = (exit_price1 - trade.entry_price1) * trade.entry_size1
                 pnl2 = (trade.entry_price2 - exit_price2) * trade.entry_size2
                 trade.profit_loss = pnl1 + pnl2
                 trade.profit_loss_percentage = (
-                                                       trade.profit_loss
-                                                       / (
-                                                               trade.entry_price1 * trade.entry_size1
-                                                               + trade.entry_price2 * trade.entry_size2
-                                                       )
-                                               ) * 100
+                    trade.profit_loss
+                    / (
+                        trade.entry_price1 * trade.entry_size1
+                        + trade.entry_price2 * trade.entry_size2
+                    )
+                ) * 100
             trade.status = TradeStatusEnum.CLOSED
             trade.closed_at = utc_now()
             self.session.commit()
@@ -536,10 +553,18 @@ class TradeRepository:
         trades = self.get_by_bot_id(bot_id)
         total_trades = len(trades)
         winning_trades = len(
-            [t for t in trades if t.status == TradeStatusEnum.CLOSED and t.profit_loss > 0]
+            [
+                t
+                for t in trades
+                if t.status == TradeStatusEnum.CLOSED and t.profit_loss > 0
+            ]
         )
         losing_trades = len(
-            [t for t in trades if t.status == TradeStatusEnum.CLOSED and t.profit_loss <= 0]
+            [
+                t
+                for t in trades
+                if t.status == TradeStatusEnum.CLOSED and t.profit_loss <= 0
+            ]
         )
         total_profit_loss = sum(t.profit_loss for t in trades if t.profit_loss)
         average_trade_pnl = total_profit_loss / total_trades if total_trades > 0 else 0
@@ -555,14 +580,14 @@ class TradeRepository:
         }
 
     def update_trade_exit(
-            self,
-            position_id: str,
-            exit_price1: Optional[float] = None,
-            exit_price2: Optional[float] = None,
-            exit_size1: Optional[float] = None,
-            exit_size2: Optional[float] = None,
-            realized_pnl: float = 0.0,
-            realized_pnl_pct: float = 0.0,
+        self,
+        position_id: str,
+        exit_price1: Optional[float] = None,
+        exit_price2: Optional[float] = None,
+        exit_size1: Optional[float] = None,
+        exit_size2: Optional[float] = None,
+        realized_pnl: float = 0.0,
+        realized_pnl_pct: float = 0.0,
     ):
         """Update trade exit information"""
         trade = self.get_by_position_id(position_id)
@@ -590,7 +615,7 @@ class EventRepository:
     _analytics_writer_lock = threading.Lock()
 
     def __init__(
-            self, session: Session, analytics_writer: AnalyticsWriter | None = None
+        self, session: Session, analytics_writer: AnalyticsWriter | None = None
     ):
         self.session = session
         self.analytics_writer = analytics_writer or self._resolve_analytics_writer()
@@ -646,9 +671,7 @@ class EventRepository:
         return None
 
     @classmethod
-    def _event_context(
-            cls, event: Event
-    ) -> tuple[dict[str, Any], datetime, str, str]:
+    def _event_context(cls, event: Event) -> tuple[dict[str, Any], datetime, str, str]:
         details = dict(event.details or {}) if isinstance(event.details, dict) else {}
         created_at = event.created_at or utc_now()
         if created_at.tzinfo is None:
@@ -675,9 +698,9 @@ class EventRepository:
     def _build_analytics_row(cls, event: Event) -> dict[str, Any]:
         details, created_at, correlation_id, bot_run_id = cls._event_context(event)
         worker_id = (
-                details.get("instance_id")
-                or details.get("worker_id")
-                or os.getenv("BOT_INSTANCE_ID", "")
+            details.get("instance_id")
+            or details.get("worker_id")
+            or os.getenv("BOT_INSTANCE_ID", "")
         )
         status = details.get("status") or details.get("state") or event.severity or ""
         strategy_id = cls._coerce_optional_int(
@@ -722,12 +745,13 @@ class EventRepository:
         details, created_at, correlation_id, bot_run_id = cls._event_context(event)
         event_type = str(event.event_type or "")
         instance_id = str(
-            details.get("instance_id")
-            or details.get("bot_instance_id")
-            or ""
+            details.get("instance_id") or details.get("bot_instance_id") or ""
         )
         trade_id = str(
-            event.related_trade_id or details.get("trade_id") or details.get("related_trade_id") or ""
+            event.related_trade_id
+            or details.get("trade_id")
+            or details.get("related_trade_id")
+            or ""
         )
 
         order_specs: list[dict[str, Any]] = []
@@ -856,15 +880,15 @@ class EventRepository:
             )
 
     def log_event(
-            self,
-            bot_instance_id: int,
-            event_type: str,
-            severity: str,
-            message: str,
-            details: Optional[dict] = None,
-            user_id: Optional[str] = None,
-            related_job_id: Optional[str] = None,
-            related_trade_id: Optional[str] = None,
+        self,
+        bot_instance_id: int,
+        event_type: str,
+        severity: str,
+        message: str,
+        details: Optional[dict] = None,
+        user_id: Optional[str] = None,
+        related_job_id: Optional[str] = None,
+        related_trade_id: Optional[str] = None,
     ) -> Event:
         """Log an event"""
         event = Event(
@@ -950,10 +974,18 @@ class StrategyRepository:
             "risk_free_rate": float(strategy.risk_free_rate),
             "initial_amount": float(strategy.initial_amount),
             "usage_count": int(strategy.usage_count or 0),
-            "last_used_at": (strategy.last_used_at.isoformat() if strategy.last_used_at else None),
-            "created_at": (strategy.created_at.isoformat() if strategy.created_at else None),
-            "updated_at": (strategy.updated_at.isoformat() if strategy.updated_at else None),
-            "deleted_at": (strategy.deleted_at.isoformat() if strategy.deleted_at else None),
+            "last_used_at": (
+                strategy.last_used_at.isoformat() if strategy.last_used_at else None
+            ),
+            "created_at": (
+                strategy.created_at.isoformat() if strategy.created_at else None
+            ),
+            "updated_at": (
+                strategy.updated_at.isoformat() if strategy.updated_at else None
+            ),
+            "deleted_at": (
+                strategy.deleted_at.isoformat() if strategy.deleted_at else None
+            ),
         }
 
     def list(self, skip: int = 0, limit: int = 50) -> dict:
@@ -1048,7 +1080,7 @@ class StrategyRepository:
         return self._to_dict(strategy)
 
     def update(
-            self, strategy_id: int, payload: dict, note: str = "Updated strategy"
+        self, strategy_id: int, payload: dict, note: str = "Updated strategy"
     ) -> Optional[dict]:
         strategy = (
             self.session.query(Strategy)
@@ -1067,10 +1099,16 @@ class StrategyRepository:
         strategy.is_public = bool(merged.get("is_public", strategy.is_public))
         strategy.is_default = bool(merged.get("is_default", strategy.is_default))
         strategy.user_id = int(merged.get("user_id", strategy.user_id))
-        strategy.zscore_threshold = float(merged.get("zscore_threshold", strategy.zscore_threshold))
+        strategy.zscore_threshold = float(
+            merged.get("zscore_threshold", strategy.zscore_threshold)
+        )
         strategy.stats_window = int(merged.get("stats_window", strategy.stats_window))
-        strategy.max_half_life = float(merged.get("max_half_life", strategy.max_half_life))
-        strategy.usd_per_trade = float(merged.get("usd_per_trade", strategy.usd_per_trade))
+        strategy.max_half_life = float(
+            merged.get("max_half_life", strategy.max_half_life)
+        )
+        strategy.usd_per_trade = float(
+            merged.get("usd_per_trade", strategy.usd_per_trade)
+        )
         strategy.usd_min_collateral = float(
             merged.get("usd_min_collateral", strategy.usd_min_collateral)
         )
@@ -1085,10 +1123,18 @@ class StrategyRepository:
         strategy.abort_all_positions = bool(
             merged.get("abort_all_positions", strategy.abort_all_positions)
         )
-        strategy.max_positions = int(merged.get("max_positions", strategy.max_positions))
-        strategy.max_drawdown_pct = float(merged.get("max_drawdown_pct", strategy.max_drawdown_pct))
-        strategy.stop_loss_pct = float(merged.get("stop_loss_pct", strategy.stop_loss_pct))
-        strategy.take_profit_pct = float(merged.get("take_profit_pct", strategy.take_profit_pct))
+        strategy.max_positions = int(
+            merged.get("max_positions", strategy.max_positions)
+        )
+        strategy.max_drawdown_pct = float(
+            merged.get("max_drawdown_pct", strategy.max_drawdown_pct)
+        )
+        strategy.stop_loss_pct = float(
+            merged.get("stop_loss_pct", strategy.stop_loss_pct)
+        )
+        strategy.take_profit_pct = float(
+            merged.get("take_profit_pct", strategy.take_profit_pct)
+        )
         strategy.trailing_stop_pct = float(
             merged.get("trailing_stop_pct", strategy.trailing_stop_pct)
         )
@@ -1101,17 +1147,29 @@ class StrategyRepository:
         strategy.pair_selection_mode = str(
             merged.get("pair_selection_mode", strategy.pair_selection_mode)
         )
-        strategy.transaction_fee = float(merged.get("transaction_fee", strategy.transaction_fee))
+        strategy.transaction_fee = float(
+            merged.get("transaction_fee", strategy.transaction_fee)
+        )
         strategy.slippage = float(merged.get("slippage", strategy.slippage))
-        strategy.starting_balance = float(merged.get("starting_balance", strategy.starting_balance))
+        strategy.starting_balance = float(
+            merged.get("starting_balance", strategy.starting_balance)
+        )
         strategy.candle_resolution = merged.get(
             "candle_resolution",
             merged.get("resolution", strategy.candle_resolution),
         )
-        strategy.max_history_days = int(merged.get("max_history_days", strategy.max_history_days))
-        strategy.benchmark_symbol = merged.get("benchmark_symbol", strategy.benchmark_symbol)
-        strategy.risk_free_rate = float(merged.get("risk_free_rate", strategy.risk_free_rate))
-        strategy.initial_amount = float(merged.get("initial_amount", strategy.initial_amount))
+        strategy.max_history_days = int(
+            merged.get("max_history_days", strategy.max_history_days)
+        )
+        strategy.benchmark_symbol = merged.get(
+            "benchmark_symbol", strategy.benchmark_symbol
+        )
+        strategy.risk_free_rate = float(
+            merged.get("risk_free_rate", strategy.risk_free_rate)
+        )
+        strategy.initial_amount = float(
+            merged.get("initial_amount", strategy.initial_amount)
+        )
 
         self.session.flush()
 

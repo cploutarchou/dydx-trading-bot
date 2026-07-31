@@ -33,13 +33,13 @@ def _sanitize_node_url(raw_url: str, env_name: str) -> str:
             "{} should not include 'http://'; stripping scheme for compatibility",
             env_name,
         )
-        return node_url[len("http://"):]
+        return node_url[len("http://") :]
     if node_url.startswith("https://"):
         logger.warning(
             "{} should not include 'https://'; stripping scheme for compatibility",
             env_name,
         )
-        return node_url[len("https://"):]
+        return node_url[len("https://") :]
     return node_url
 
 

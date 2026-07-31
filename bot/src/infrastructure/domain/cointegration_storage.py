@@ -69,11 +69,11 @@ class CointegrationResult:
 
 
 def calculate_confidence_score(
-        p_value: float,
-        half_life: float,
-        zero_crossings: int,
-        max_half_life: float = 14.0,
-        min_zero_crossings: int = 5,
+    p_value: float,
+    half_life: float,
+    zero_crossings: int,
+    max_half_life: float = 14.0,
+    min_zero_crossings: int = 5,
 ) -> float:
     """
     Calculate a confidence score for a cointegrated pair.
@@ -160,6 +160,7 @@ class PairStorage:
         try:
             from sqlalchemy import text
             from src.infrastructure.database import db
+
             instance_id = _get_instance_id()
             pairs_count = storage_data.get("total_pairs", 0)
             high_confidence_count = storage_data.get("high_confidence_pairs", 0)
@@ -209,7 +210,9 @@ class PairStorage:
             finally:
                 session.close()
         except Exception as exc:
-            logger.debug(f"DB save cointegrated pairs failed ({exc}); falling back to file")
+            logger.debug(
+                f"DB save cointegrated pairs failed ({exc}); falling back to file"
+            )
             return False
 
     def _db_load(self) -> Optional[dict]:
@@ -217,11 +220,14 @@ class PairStorage:
         try:
             from sqlalchemy import text
             from src.infrastructure.database import db
+
             instance_id = _get_instance_id()
             session = db.get_session()
             try:
                 result = session.execute(
-                    text("SELECT pairs_json FROM cointegrated_pairs WHERE instance_id = :iid"),
+                    text(
+                        "SELECT pairs_json FROM cointegrated_pairs WHERE instance_id = :iid"
+                    ),
                     {"iid": instance_id},
                 ).fetchone()
                 if result is None:
@@ -233,7 +239,9 @@ class PairStorage:
             finally:
                 session.close()
         except Exception as exc:
-            logger.debug(f"DB load cointegrated pairs failed ({exc}); using file fallback")
+            logger.debug(
+                f"DB load cointegrated pairs failed ({exc}); using file fallback"
+            )
             return None
 
     # ------------------------------------------------------------------
@@ -260,13 +268,17 @@ class PairStorage:
         }
 
         if self._db_save(storage_data):
-            logger.info(f"Saved {len(pairs)} cointegration results to database (instance={_get_instance_id()})")
+            logger.info(
+                f"Saved {len(pairs)} cointegration results to database (instance={_get_instance_id()})"
+            )
         else:
             # File fallback
             try:
                 with open(self.storage_path, "w") as f:
                     json.dump(storage_data, f, indent=2)
-                logger.info(f"Saved {len(pairs)} cointegration results to {self.storage_path}")
+                logger.info(
+                    f"Saved {len(pairs)} cointegration results to {self.storage_path}"
+                )
             except Exception as e:
                 logger.error(f"Error saving pairs to {self.storage_path}: {e}")
                 return {"success": False, "error": str(e)}
@@ -315,6 +327,7 @@ class PairStorage:
         try:
             from sqlalchemy import text
             from src.infrastructure.database import db
+
             instance_id = _get_instance_id()
             session = db.get_session()
             try:

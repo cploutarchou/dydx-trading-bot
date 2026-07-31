@@ -67,7 +67,9 @@ class TestBacktestEventEmitter(unittest.TestCase):
             _os.environ["NATS_ENABLED"] = self._orig_nats
 
     def test_emit_completed_publishes_canonical_envelope(self) -> None:
-        from src.infrastructure.workers.backtest_event_emitter import emit_backtest_event_sync
+        from src.infrastructure.workers.backtest_event_emitter import (
+            emit_backtest_event_sync,
+        )
 
         msg_id = emit_backtest_event_sync(
             run_id="run-emit-1", status="completed", progress=100.0
@@ -89,7 +91,9 @@ class TestBacktestEventEmitter(unittest.TestCase):
         self.assertEqual(env["payload"]["progress"], 100.0)
 
     def test_emit_failed_requires_and_carries_error_code(self) -> None:
-        from src.infrastructure.workers.backtest_event_emitter import emit_backtest_event_sync
+        from src.infrastructure.workers.backtest_event_emitter import (
+            emit_backtest_event_sync,
+        )
 
         msg_id = emit_backtest_event_sync(
             run_id="run-emit-2",
@@ -106,7 +110,9 @@ class TestBacktestEventEmitter(unittest.TestCase):
         self.assertEqual(env["payload"]["error_message"], "boom")
 
     def test_emit_unknown_status_is_noop(self) -> None:
-        from src.infrastructure.workers.backtest_event_emitter import emit_backtest_event_sync
+        from src.infrastructure.workers.backtest_event_emitter import (
+            emit_backtest_event_sync,
+        )
 
         # Unknown statuses map to nothing and must not publish.
         self.assertIsNone(emit_backtest_event_sync(run_id="run-x", status="bogus"))
@@ -123,9 +129,14 @@ class TestBacktestEventEmitter(unittest.TestCase):
         _os.environ["NATS_ENABLED"] = "false"
         _os.environ["BOT_COMMAND_BUS_ENABLED"] = "false"
         try:
-            self.assertIsNone(em.emit_backtest_event_sync(run_id="run-x", status="started"))
+            self.assertIsNone(
+                em.emit_backtest_event_sync(run_id="run-x", status="started")
+            )
         finally:
-            for key, val in (("NATS_ENABLED", orig_nats), ("BOT_COMMAND_BUS_ENABLED", orig_bus)):
+            for key, val in (
+                ("NATS_ENABLED", orig_nats),
+                ("BOT_COMMAND_BUS_ENABLED", orig_bus),
+            ):
                 if val is None:
                     _os.environ.pop(key, None)
                 else:

@@ -24,7 +24,7 @@ def test_celery_pool_args_prefers_valid_autoscale(monkeypatch):
 
 
 def test_celery_pool_args_falls_back_to_concurrency_when_autoscale_invalid(
-        monkeypatch, capsys
+    monkeypatch, capsys
 ):
     monkeypatch.setenv("CELERY_AUTOSCALE", "not-valid")
     monkeypatch.setenv("CELERY_CONCURRENCY", "7")

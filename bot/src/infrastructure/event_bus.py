@@ -18,11 +18,11 @@ class EventBus(ABC):
 
     @abstractmethod
     def publish(
-            self,
-            subject: str,
-            payload: Mapping[str, Any],
-            *,
-            headers: Mapping[str, str] | None = None,
+        self,
+        subject: str,
+        payload: Mapping[str, Any],
+        *,
+        headers: Mapping[str, str] | None = None,
     ) -> None:
         """Publish a small message payload to the backing transport."""
 
@@ -36,22 +36,22 @@ class NatsJetStreamEventBus(EventBus):
     """
 
     def __init__(
-            self,
-            *,
-            enabled: bool = False,
-            url: str = "",
-            stream_prefix: str = "bot",
+        self,
+        *,
+        enabled: bool = False,
+        url: str = "",
+        stream_prefix: str = "bot",
     ):
         self.enabled = enabled
         self.url = url
         self.stream_prefix = stream_prefix
 
     def publish(
-            self,
-            subject: str,
-            payload: Mapping[str, Any],
-            *,
-            headers: Mapping[str, str] | None = None,
+        self,
+        subject: str,
+        payload: Mapping[str, Any],
+        *,
+        headers: Mapping[str, str] | None = None,
     ) -> None:
         del subject, payload, headers
         raise RuntimeError("NATS JetStream event bus is not wired in Phase 1")

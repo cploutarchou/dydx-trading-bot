@@ -9,6 +9,12 @@ from uuid import uuid4
 
 import pandas as pd
 from loguru import logger
+from src.shared.dataframe_utils import (
+    managed_dataframe,
+    cleanup_dataframe,
+    register_dataframe,
+    unregister_dataframe,
+)
 
 from src.constants import (
     CLOSE_AT_ZSCORE_CROSS,
@@ -94,7 +100,7 @@ def _entry_backoff_seconds(failure_count: int) -> float:
     mult = float(os.getenv("ENTRY_FAILURE_BACKOFF_MULTIPLIER", "2") or "2")
     max_seconds = float(os.getenv("ENTRY_FAILURE_BACKOFF_MAX_SECONDS", "180") or "180")
     exponent = max(0, int(failure_count) - 1)
-    delay = base * (mult ** exponent)
+    delay = base * (mult**exponent)
     return min(max_seconds, max(base, delay))
 
 
@@ -128,7 +134,9 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _position_leg_pnl(side: str, entry_price: float, current_price: float, size: float) -> float:
+def _position_leg_pnl(
+    side: str, entry_price: float, current_price: float, size: float
+) -> float:
     normalized_side = str(side).upper()
     if normalized_side == "BUY":
         return (current_price - entry_price) * size
@@ -138,10 +146,10 @@ def _position_leg_pnl(side: str, entry_price: float, current_price: float, size:
 
 
 def _pair_unrealized_pnl_pct(
-        position: Dict[str, Any],
-        *,
-        current_price1: float,
-        current_price2: float,
+    position: Dict[str, Any],
+    *,
+    current_price1: float,
+    current_price2: float,
 ) -> float:
     entry_price1 = _as_float(position["order_m1_price"], field_name="order_m1_price")
     entry_price2 = _as_float(position["order_m2_price"], field_name="order_m2_price")
@@ -181,11 +189,11 @@ def _position_open_age_hours(position: Dict[str, Any]) -> float:
 
 
 def _resolve_exit_reason(
-        *,
-        z_score_current: float,
-        z_score_traded: float,
-        unrealized_pnl_pct: float,
-        position_age_hours: float,
+    *,
+    z_score_current: float,
+    z_score_traded: float,
+    unrealized_pnl_pct: float,
+    position_age_hours: float,
 ) -> Optional[str]:
     if STOP_LOSS_PCT > 0 and unrealized_pnl_pct <= (-1.0 * STOP_LOSS_PCT):
         return "stop_loss"
@@ -196,7 +204,7 @@ def _resolve_exit_reason(
     if CLOSE_AT_ZSCORE_CROSS:
         z_score_level_check = abs(z_score_current) >= abs(z_score_traded)
         z_score_cross_check = (z_score_current < 0 < z_score_traded) or (
-                z_score_current > 0 > z_score_traded
+            z_score_current > 0 > z_score_traded
         )
         if z_score_level_check and z_score_cross_check:
             return "zscore_reversion"
@@ -229,10 +237,16 @@ def _exit_confirm_delay_seconds() -> float:
         return 2.0
 
 
-def _remaining_leg_size(exchange_position: Optional[Dict[str, Any]], fallback_size: Any) -> float:
+def _remaining_leg_size(
+    exchange_position: Optional[Dict[str, Any]], fallback_size: Any
+) -> float:
     if not exchange_position:
         return 0.0
-    raw = exchange_position.get("sumOpen") or exchange_position.get("size") or fallback_size
+    raw = (
+        exchange_position.get("sumOpen")
+        or exchange_position.get("size")
+        or fallback_size
+    )
     try:
         return abs(float(raw))
     except (TypeError, ValueError):
@@ -240,8 +254,8 @@ def _remaining_leg_size(exchange_position: Optional[Dict[str, Any]], fallback_si
 
 
 def _classify_exit_confirmation_state(
-        position: Dict[str, Any],
-        exchange_positions: Dict[str, Any],
+    position: Dict[str, Any],
+    exchange_positions: Dict[str, Any],
 ) -> Dict[str, Any]:
     market_1 = str(position.get("market_1") or "")
     market_2 = str(position.get("market_2") or "")
@@ -278,12 +292,15 @@ def _classify_exit_confirmation_state(
 
 
 async def _confirm_exchange_flat_after_close(
-        client,
-        *,
-        position: Dict[str, Any],
-        close_order_ids: Dict[str, str],
+    client,
+    *,
+    position: Dict[str, Any],
+    close_order_ids: Dict[str, str],
 ) -> Dict[str, Any]:
-    last_state: Dict[str, Any] = {"pair_status": "CLOSE_SUBMITTED", "flat_confirmed": False}
+    last_state: Dict[str, Any] = {
+        "pair_status": "CLOSE_SUBMITTED",
+        "flat_confirmed": False,
+    }
     for attempt in range(1, _exit_confirm_max_attempts() + 1):
         await asyncio.sleep(_exit_confirm_delay_seconds())
         exchange_positions = await get_open_positions(client)
@@ -303,16 +320,18 @@ async def _confirm_exchange_flat_after_close(
                 await get_order_fills(client, order_id, market=market)
             )
         except Exception as exc:
-            logger.warning("Failed to fetch exit fills for {} ({}): {}", market_key, order_id, exc)
+            logger.warning(
+                "Failed to fetch exit fills for {} ({}): {}", market_key, order_id, exc
+            )
     last_state["fill_counts"] = fills_summary
     last_state["timed_out"] = True
     return last_state
 
 
 async def _get_recent_candles_for_cycle(
-        client,
-        market: str,
-        cycle_cache: Optional[Dict[str, Any]],
+    client,
+    market: str,
+    cycle_cache: Optional[Dict[str, Any]],
 ):
     if not is_arbitrage_improvements_enabled() or cycle_cache is None:
         return await get_candles_recent(client, market)
@@ -327,11 +346,11 @@ async def _get_recent_candles_for_cycle(
 
 
 async def _resolve_leg_open_state(
-        client,
-        *,
-        base_market: str,
-        quote_market: str,
-        scan_cycle_id: str,
+    client,
+    *,
+    base_market: str,
+    quote_market: str,
+    scan_cycle_id: str,
 ) -> tuple[bool, bool]:
     """Resolve whether either leg is already open, with safe fallback behavior."""
     if is_arbitrage_improvements_enabled():
@@ -357,17 +376,17 @@ async def _resolve_leg_open_state(
 
 
 def _build_trade_opened_notification(
-        bot_open_dict: Dict[str, Any],
-        *,
-        fallback_base_market: str = "",
-        fallback_quote_market: str = "",
-        fallback_base_side: str = "",
-        fallback_quote_side: str = "",
-        fallback_base_size: Any = 0,
-        fallback_quote_size: Any = 0,
-        fallback_z_score: Any = 0,
-        fallback_hedge_ratio: Any = 0,
-        fallback_half_life: Any = 0,
+    bot_open_dict: Dict[str, Any],
+    *,
+    fallback_base_market: str = "",
+    fallback_quote_market: str = "",
+    fallback_base_side: str = "",
+    fallback_quote_side: str = "",
+    fallback_base_size: Any = 0,
+    fallback_quote_size: Any = 0,
+    fallback_z_score: Any = 0,
+    fallback_hedge_ratio: Any = 0,
+    fallback_half_life: Any = 0,
 ) -> Dict[str, Any]:
     """Map BotAgent.open_trades() fields into Telegram's opened-trade payload."""
     base_market = bot_open_dict.get("market_1", "") or fallback_base_market
@@ -398,7 +417,7 @@ def _opposite_order_side(side: str) -> str:
 
 
 def _close_side_from_exchange_position(
-        position: Dict[str, Any], fallback_side: str
+    position: Dict[str, Any], fallback_side: str
 ) -> str:
     exchange_side = str(position.get("side", "")).upper()
     if exchange_side == "LONG":
@@ -409,22 +428,22 @@ def _close_side_from_exchange_position(
 
 
 def _close_size_from_exchange_position(
-        position: Dict[str, Any], fallback_size: Any
+    position: Dict[str, Any], fallback_size: Any
 ) -> Any:
     return position.get("sumOpen") or position.get("size") or fallback_size
 
 
 def _failsafe_close_price(
-        market: str,
-        side: str,
-        exchange_position: Optional[Dict[str, Any]],
-        markets: Dict[str, Any],
-        fallback_price: Any = None,
+    market: str,
+    side: str,
+    exchange_position: Optional[Dict[str, Any]],
+    markets: Dict[str, Any],
+    fallback_price: Any = None,
 ) -> str:
     raw_price = (
-            (exchange_position or {}).get("entryPrice")
-            or (exchange_position or {}).get("price")
-            or fallback_price
+        (exchange_position or {}).get("entryPrice")
+        or (exchange_position or {}).get("price")
+        or fallback_price
     )
     price = float(raw_price)
     accept_price = price * 1.7 if side == "BUY" else price * 0.3
@@ -433,13 +452,13 @@ def _failsafe_close_price(
 
 
 async def _place_reduce_only_close_with_retries(
-        client,
-        *,
-        market: str,
-        side: str,
-        size: Any,
-        price: Any,
-        attempts: int = 3,
+    client,
+    *,
+    market: str,
+    side: str,
+    size: Any,
+    price: Any,
+    attempts: int = 3,
 ) -> tuple[Dict[str, Any], str]:
     last_error: Optional[Exception] = None
     for attempt in range(1, attempts + 1):
@@ -467,14 +486,14 @@ async def _place_reduce_only_close_with_retries(
 
 
 async def _close_orphan_exchange_leg(
-        client,
-        *,
-        tracked_position: Dict[str, Any],
-        exchange_positions: Dict[str, Any],
-        orphan_market: str,
-        fallback_side: str,
-        fallback_size: Any,
-        messenger: TelegramMessenger,
+    client,
+    *,
+    tracked_position: Dict[str, Any],
+    exchange_positions: Dict[str, Any],
+    orphan_market: str,
+    fallback_side: str,
+    fallback_size: Any,
+    messenger: TelegramMessenger,
 ) -> bool:
     markets = await get_markets(client)
     exchange_position = exchange_positions.get(orphan_market, {})
@@ -605,6 +624,10 @@ async def open_positions(client) -> None:
 
     # Convert to DataFrame for backward compatibility with existing logic
     df = pd.DataFrame([pair.to_dict() for pair in pairs])
+    df_id = register_dataframe(
+        df, "position_scan", {"scan_cycle_id": scan_cycle_id, "pairs_count": len(pairs)}
+    )
+
     cycle_candle_cache: Optional[Dict[str, Any]] = (
         {} if is_arbitrage_improvements_enabled() else None
     )
@@ -617,7 +640,6 @@ async def open_positions(client) -> None:
 
     # Find ZScore triggers
     for index, row in df.iterrows():
-
         # Extract variables
         base_market = row["base_market"]
         quote_market = row["quote_market"]
@@ -941,8 +963,8 @@ async def open_positions(client) -> None:
 
                         # Handle success in opening trades
                         if (
-                                isinstance(bot_open_dict, dict)
-                                and bot_open_dict.get("pair_status") == "LIVE"
+                            isinstance(bot_open_dict, dict)
+                            and bot_open_dict.get("pair_status") == "LIVE"
                         ):
                             increment_metric("opportunities_executed_total")
                             _record_entry_success(pair_key)
@@ -981,8 +1003,12 @@ async def open_positions(client) -> None:
                                     "order_m2_side": bot_open_dict.get("order_m2_side"),
                                     "order_m1_size": bot_open_dict.get("order_m1_size"),
                                     "order_m2_size": bot_open_dict.get("order_m2_size"),
-                                    "order_m1_price": bot_open_dict.get("order_m1_price"),
-                                    "order_m2_price": bot_open_dict.get("order_m2_price"),
+                                    "order_m1_price": bot_open_dict.get(
+                                        "order_m1_price"
+                                    ),
+                                    "order_m2_price": bot_open_dict.get(
+                                        "order_m2_price"
+                                    ),
                                     "order_time_m1": bot_open_dict.get("order_time_m1"),
                                     "order_time_m2": bot_open_dict.get("order_time_m2"),
                                 },
@@ -1064,6 +1090,11 @@ async def open_positions(client) -> None:
                 len(series_2),
             )
 
+    # Cleanup DataFrame tracking after all processing is complete
+    if df_id:
+        unregister_dataframe(df_id)
+    cleanup_dataframe(df)
+
     logger.info("arbitrage_scan_cycle_complete cycle_id={}", scan_cycle_id)
 
 
@@ -1142,14 +1173,14 @@ async def manage_trade_exits(client) -> str | None:
 
         # Perform matching checks
         check_m1 = (
-                position_market_m1 == order_market_m1
-                and position_size_m1 == order_size_m1
-                and position_side_m1 == order_side_m1
+            position_market_m1 == order_market_m1
+            and position_size_m1 == order_size_m1
+            and position_side_m1 == order_side_m1
         )
         check_m2 = (
-                position_market_m2 == order_market_m2
-                and position_size_m2 == order_size_m2
-                and position_side_m2 == order_side_m2
+            position_market_m2 == order_market_m2
+            and position_size_m2 == order_size_m2
+            and position_side_m2 == order_side_m2
         )
         m1_live = position_market_m1 in markets_live
         m2_live = position_market_m2 in markets_live
@@ -1246,7 +1277,7 @@ async def manage_trade_exits(client) -> str | None:
         if CLOSE_AT_ZSCORE_CROSS:
             hedge_ratio = _as_float(position["hedge_ratio"], field_name="hedge_ratio")
             if len(series_1_numeric) > 0 and len(series_1_numeric) == len(
-                    series_2_numeric
+                series_2_numeric
             ):
                 spread = series_1_numeric - (hedge_ratio * series_2_numeric)
                 z_score_current = _as_float(

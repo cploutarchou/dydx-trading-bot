@@ -124,11 +124,11 @@ class ConnectionManager:
         self._prune_recent_failures(bucket, now_ts)
 
     def _record_send_failure(
-            self,
-            channel_id: Optional[str],
-            exc: Exception,
-            *,
-            operation: str,
+        self,
+        channel_id: Optional[str],
+        exc: Exception,
+        *,
+        operation: str,
     ) -> None:
         if not channel_id or not self._is_backtest_channel(channel_id):
             return
@@ -171,8 +171,8 @@ class ConnectionManager:
         )
         recent_failures = len(bucket.get("recent_failure_timestamps") or [])
         if (
-                bucket["consecutive_send_failures"] >= alert_threshold
-                or recent_failures >= alert_threshold
+            bucket["consecutive_send_failures"] >= alert_threshold
+            or recent_failures >= alert_threshold
         ):
             logger.warning(
                 "backtest_ws_send_failure_alert run_id={} operation={} consecutive_failures={} recent_failures={} threshold={} last_error_type={} last_error_repr={!r}",
@@ -235,8 +235,8 @@ class ConnectionManager:
             "BACKTEST_WS_FAILURE_ALERT_WINDOW_SECONDS", 60.0
         )
         alert_recommended = (
-                int(bucket.get("consecutive_send_failures", 0) or 0) >= alert_threshold
-                or recent_failures >= alert_threshold
+            int(bucket.get("consecutive_send_failures", 0) or 0) >= alert_threshold
+            or recent_failures >= alert_threshold
         )
 
         return {
@@ -332,10 +332,10 @@ class ConnectionManager:
         self.user_subscriptions.pop(websocket, None)
 
     async def _broadcast_connection_send(
-            self,
-            channel_id: str,
-            connection: WebSocket,
-            message: Dict,
+        self,
+        channel_id: str,
+        connection: WebSocket,
+        message: Dict,
     ) -> tuple[WebSocket, bool]:
         try:
             await connection.send_json(message)
@@ -384,11 +384,11 @@ class ConnectionManager:
             self._drop_connection(connection)
 
     async def send_personal_message(
-            self,
-            message: Dict,
-            websocket: WebSocket,
-            *,
-            channel_id: Optional[str] = None,
+        self,
+        message: Dict,
+        websocket: WebSocket,
+        *,
+        channel_id: Optional[str] = None,
     ) -> bool:
         """Send message to specific client"""
         try:
@@ -723,7 +723,7 @@ class WebSocketServer:
             )
 
         elif message_type == "request_status" and WebSocketServer._is_backtest_channel(
-                bot_instance_id
+            bot_instance_id
         ):
             sent = await WebSocketServer.send_backtest_status(
                 websocket, WebSocketServer._backtest_run_id(bot_instance_id)

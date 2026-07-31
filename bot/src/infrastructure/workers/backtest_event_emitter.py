@@ -78,12 +78,14 @@ async def _ensure_event_stream(js: Any) -> None:
 
 def _is_enabled() -> bool:
     return os.getenv("NATS_ENABLED", "true").lower() == "true" or (
-            os.getenv("BOT_COMMAND_BUS_ENABLED", "true").lower() == "true"
+        os.getenv("BOT_COMMAND_BUS_ENABLED", "true").lower() == "true"
     )
 
 
 def _servers() -> list[str]:
-    url = os.getenv("NATS_URL") or os.getenv("NATS_SERVER_URL") or "nats://localhost:4222"
+    url = (
+        os.getenv("NATS_URL") or os.getenv("NATS_SERVER_URL") or "nats://localhost:4222"
+    )
     return [url]
 
 
@@ -92,13 +94,13 @@ def _utcnow_iso() -> str:
 
 
 def _build_envelope(
-        *,
-        run_id: str,
-        event: str,
-        progress: float,
-        current_pair: str,
-        error_code: Optional[str],
-        error_message: Optional[str],
+    *,
+    run_id: str,
+    event: str,
+    progress: float,
+    current_pair: str,
+    error_code: Optional[str],
+    error_message: Optional[str],
 ) -> tuple[dict[str, Any], str]:
     """Return (envelope_dict, msg_id) for a backtest event."""
     occurred_at = _utcnow_iso()
@@ -136,13 +138,13 @@ def _build_envelope(
 
 
 async def publish_backtest_event(
-        *,
-        run_id: str,
-        status: str,
-        progress: float = 0.0,
-        current_pair: str = "",
-        error_code: Optional[str] = None,
-        error_message: Optional[str] = None,
+    *,
+    run_id: str,
+    status: str,
+    progress: float = 0.0,
+    current_pair: str = "",
+    error_code: Optional[str] = None,
+    error_message: Optional[str] = None,
 ) -> Optional[str]:
     """Publish a durable backtest event to JetStream. Returns the msg_id or None.
 
@@ -153,7 +155,9 @@ async def publish_backtest_event(
         return None
     event = STATUS_TO_EVENT.get(status)
     if event is None:
-        logger.debug("backtest_event_emit_skip unknown_status=%s run_id=%s", status, run_id)
+        logger.debug(
+            "backtest_event_emit_skip unknown_status=%s run_id=%s", status, run_id
+        )
         return None
     # Terminal failed events require an error code per the projector contract.
     if event == "failed" and not error_code:
@@ -178,17 +182,24 @@ async def publish_backtest_event(
 
     nc = None
     try:
-        nc = await nats.connect(servers=_servers(), connect_timeout=5, max_reconnect_attempts=-1)
+        nc = await nats.connect(
+            servers=_servers(), connect_timeout=5, max_reconnect_attempts=-1
+        )
         js = nc.jetstream()
         await _ensure_event_stream(js)
         await js.publish(subject, data, headers={"Msg-Id": msg_id})
         logger.info(
             "backtest_event_emitted run_id=%s event=%s subject=%s msg_id=%s",
-            run_id, event, subject, msg_id,
+            run_id,
+            event,
+            subject,
+            msg_id,
         )
         return msg_id
     except Exception as exc:
-        logger.debug("backtest_event_emit_failed run_id=%s event=%s error=%r", run_id, event, exc)
+        logger.debug(
+            "backtest_event_emit_failed run_id=%s event=%s error=%r", run_id, event, exc
+        )
         return None
     finally:
         if nc is not None:
@@ -199,13 +210,13 @@ async def publish_backtest_event(
 
 
 def emit_backtest_event_sync(
-        *,
-        run_id: str,
-        status: str,
-        progress: float = 0.0,
-        current_pair: str = "",
-        error_code: Optional[str] = None,
-        error_message: Optional[str] = None,
+    *,
+    run_id: str,
+    status: str,
+    progress: float = 0.0,
+    current_pair: str = "",
+    error_code: Optional[str] = None,
+    error_message: Optional[str] = None,
 ) -> Optional[str]:
     """Sync wrapper for callers not already running an asyncio loop.
 

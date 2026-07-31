@@ -53,6 +53,7 @@ logger = logging.getLogger(__name__)
 
 class ConsumerStatus(Enum):
     """Consumer lifecycle status."""
+
     DISCONNECTED = "disconnected"
     CONNECTING = "connecting"
     CONNECTED = "connected"
@@ -63,6 +64,7 @@ class ConsumerStatus(Enum):
 
 class MessageAction(Enum):
     """Action types for NATS message handling."""
+
     ACK = "ack"
     NAK = "nak"
     REQUEUE = "requeue"
@@ -72,6 +74,7 @@ class MessageAction(Enum):
 @dataclass
 class ConsumerConfig:
     """Configuration for a NATS JetStream durable consumer."""
+
     name: str
     stream: str
     subject_filter: str
@@ -90,6 +93,7 @@ class ConsumerConfig:
 @dataclass
 class StreamConfig:
     """Configuration for a NATS JetStream stream."""
+
     name: str
     subjects: List[str]
     retention: str = "workqueue"  # "limits", "interest", "workqueue"
@@ -107,6 +111,7 @@ class StreamConfig:
 @dataclass
 class ProcessedResult:
     """Result of processing a NATS message."""
+
     action: MessageAction
     message_id: str
     idempotency_key: str
@@ -118,7 +123,9 @@ class ProcessedResult:
 class MessageHandler(Protocol):
     """Protocol for message handlers."""
 
-    async def handle(self, message: Dict[str, Any], context: Dict[str, Any]) -> ProcessedResult:
+    async def handle(
+        self, message: Dict[str, Any], context: Dict[str, Any]
+    ) -> ProcessedResult:
         """Handle a NATS message and return processing result."""
         ...
 
@@ -126,7 +133,7 @@ class MessageHandler(Protocol):
 class NATSConsumerService:
     """
     NATS JetStream durable consumer service.
-    
+
     Implements explicit ack after authoritative PostgreSQL state updates,
     with retry/ack/dead-letter handling per the NATS JetStream plan.
     """
@@ -230,18 +237,18 @@ class NATSConsumerService:
     }
 
     def __init__(
-            self,
-            *,
-            servers: Optional[List[str]] = None,
-            enabled: bool = False,
-            connect_timeout: int = 10,
-            reconnect_timeout: int = 30,
-            max_reconnects: int = -1,  # -1 = unlimited
-            verbose: bool = False,
+        self,
+        *,
+        servers: Optional[List[str]] = None,
+        enabled: bool = False,
+        connect_timeout: int = 10,
+        reconnect_timeout: int = 30,
+        max_reconnects: int = -1,  # -1 = unlimited
+        verbose: bool = False,
     ):
         """
         Initialize NATS consumer service.
-        
+
         Args:
             servers: List of NATS server URLs (e.g., ["nats://localhost:4222"])
             enabled: Whether NATS consumers are enabled
@@ -271,7 +278,9 @@ class NATSConsumerService:
 
         # Check if NATS library is available
         if not NATS_AVAILABLE:
-            logger.warning("NATS library not available - consumer service will be disabled")
+            logger.warning(
+                "NATS library not available - consumer service will be disabled"
+            )
             self.enabled = False
 
         logger.info(
@@ -306,7 +315,9 @@ class NATSConsumerService:
     def _is_nats_enabled(self) -> bool:
         """Check if NATS is enabled via environment variables."""
         nats_enabled = os.getenv("NATS_ENABLED", "false").lower() == "true"
-        command_bus_enabled = os.getenv("BOT_COMMAND_BUS_ENABLED", "false").lower() == "true"
+        command_bus_enabled = (
+            os.getenv("BOT_COMMAND_BUS_ENABLED", "false").lower() == "true"
+        )
         return nats_enabled or command_bus_enabled
 
     def set_task_repository(self, repo: Any) -> None:
@@ -343,7 +354,9 @@ class NATSConsumerService:
 
             # Configure connection options
             # Note: max_reconnects=-1 means unlimited in our API, but nats-py uses max_reconnect_attempts
-            max_reconnect_attempts = self.max_reconnects if self.max_reconnects >= 0 else 60
+            max_reconnect_attempts = (
+                self.max_reconnects if self.max_reconnects >= 0 else 60
+            )
 
             options = {
                 "servers": self.servers,
@@ -365,9 +378,7 @@ class NATSConsumerService:
             self._jetstream = self._client.jetstream()
 
             self._status = ConsumerStatus.CONNECTED
-            logger.info(
-                f"Connected to NATS server: {self._client.connected_url}"
-            )
+            logger.info(f"Connected to NATS server: {self._client.connected_url}")
 
             return True
 
@@ -456,7 +467,9 @@ class NATSConsumerService:
                 replicas=stream_config.replicas,
                 duplicates=stream_config.duplicates_window,
             )
-            logger.info(f"Created stream {stream_name} with subjects {stream_config.subjects}")
+            logger.info(
+                f"Created stream {stream_name} with subjects {stream_config.subjects}"
+            )
 
         except Exception as e:
             logger.error(f"Failed to create stream {stream_name}: {e}")
@@ -470,15 +483,20 @@ class NATSConsumerService:
         try:
             # Check if consumer exists
             consumer_info = await self._jetstream.consumer_info(
-                stream=consumer_config.stream,
-                consumer=consumer_config.durable_name
+                stream=consumer_config.stream, consumer=consumer_config.durable_name
             )
-            logger.info(f"Consumer {consumer_config.durable_name} already exists in stream {consumer_config.stream}")
+            logger.info(
+                f"Consumer {consumer_config.durable_name} already exists in stream {consumer_config.stream}"
+            )
             return
         except nats.errors.ConsumerNotFoundError:
-            logger.info(f"Consumer {consumer_config.durable_name} not found, creating...")
+            logger.info(
+                f"Consumer {consumer_config.durable_name} not found, creating..."
+            )
         except Exception as e:
-            logger.warning(f"Error checking consumer {consumer_config.durable_name}: {e}")
+            logger.warning(
+                f"Error checking consumer {consumer_config.durable_name}: {e}"
+            )
             return
 
         # Create consumer
@@ -498,13 +516,19 @@ class NATSConsumerService:
                 start_sequence=consumer_config.start_sequence,
                 deliver_all=consumer_config.deliver_all,
             )
-            logger.info(f"Created consumer {consumer_config.durable_name} in stream {consumer_config.stream}")
+            logger.info(
+                f"Created consumer {consumer_config.durable_name} in stream {consumer_config.stream}"
+            )
 
         except Exception as e:
-            logger.error(f"Failed to create consumer {consumer_config.durable_name}: {e}")
+            logger.error(
+                f"Failed to create consumer {consumer_config.durable_name}: {e}"
+            )
             raise
 
-    async def _subscribe_consumer(self, consumer_name: str, consumer_config: ConsumerConfig) -> None:
+    async def _subscribe_consumer(
+        self, consumer_name: str, consumer_config: ConsumerConfig
+    ) -> None:
         """Subscribe to messages for a specific consumer."""
         if not self._jetstream:
             raise RuntimeError("JetStream context not available")
@@ -526,7 +550,7 @@ class NATSConsumerService:
                     ack_wait=consumer_config.ack_wait_seconds,
                     max_delivery_attempts=consumer_config.max_deliver,
                     max_ack_pending=consumer_config.max_ack_pending,
-                )
+                ),
             )
 
             self._subscriptions[consumer_name] = subscription
@@ -544,7 +568,9 @@ class NATSConsumerService:
             logger.error(f"Failed to subscribe consumer {consumer_name}: {e}")
             raise
 
-    async def _process_messages(self, consumer_name: str, subscription: NatsSubscription) -> None:
+    async def _process_messages(
+        self, consumer_name: str, subscription: NatsSubscription
+    ) -> None:
         """Process messages from a subscription."""
         handler = self._handlers.get(consumer_name)
         if not handler:
@@ -617,14 +643,18 @@ class NATSConsumerService:
                     await self._handle_result(message, result)
 
                 except Exception as e:
-                    logger.error(f"Error processing message in consumer {consumer_name}: {e}")
+                    logger.error(
+                        f"Error processing message in consumer {consumer_name}: {e}"
+                    )
                     try:
                         await message.nak()
                     except Exception as nak_error:
                         logger.error(f"Failed to send NAK: {nak_error}")
 
         except Exception as e:
-            logger.error(f"Message processing loop failed for consumer {consumer_name}: {e}")
+            logger.error(
+                f"Message processing loop failed for consumer {consumer_name}: {e}"
+            )
         except asyncio.CancelledError:
             logger.info(f"Message processing cancelled for consumer {consumer_name}")
         finally:
@@ -636,8 +666,15 @@ class NATSConsumerService:
             return None
 
         # Check if this is already the envelope format
-        required_fields = ["message_id", "idempotency_key", "correlation_id", "subject", "occurred_at",
-                           "producer_service", "schema_version"]
+        required_fields = [
+            "message_id",
+            "idempotency_key",
+            "correlation_id",
+            "subject",
+            "occurred_at",
+            "producer_service",
+            "schema_version",
+        ]
         if all(field in payload for field in required_fields):
             return payload
 
@@ -683,7 +720,9 @@ class NATSConsumerService:
                 status = row[1]  # status column
                 # If command exists and is already published/completed, it's a duplicate
                 if status in ["published", "completed", "failed"]:
-                    logger.info(f"Duplicate detected for idempotency_key: {idempotency_key}, status: {status}")
+                    logger.info(
+                        f"Duplicate detected for idempotency_key: {idempotency_key}, status: {status}"
+                    )
                     return True
 
             return False
@@ -693,30 +732,44 @@ class NATSConsumerService:
             # On error, assume not duplicate to avoid blocking message processing
             return False
 
-    async def _handle_result(self, message: nats.aio.client.Msg, result: ProcessedResult) -> None:
+    async def _handle_result(
+        self, message: nats.aio.client.Msg, result: ProcessedResult
+    ) -> None:
         """Handle the result of message processing."""
         try:
             if result.action == MessageAction.ACK:
                 logger.info(f"Acking message: {result.message_id}")
                 await message.ack()
             elif result.action == MessageAction.NAK:
-                logger.warning(f"Nak-ing message {result.message_id}: {result.error_message}")
+                logger.warning(
+                    f"Nak-ing message {result.message_id}: {result.error_message}"
+                )
                 await message.nak()
             elif result.action == MessageAction.REQUEUE:
                 delay = result.requeue_delay_seconds or 0
-                logger.info(f"Requeuing message {result.message_id} with delay: {delay}s")
+                logger.info(
+                    f"Requeuing message {result.message_id} with delay: {delay}s"
+                )
                 await message.nak(delay=delay)
             elif result.action == MessageAction.DEAD_LETTER:
-                logger.error(f"Moving message {result.message_id} to dead letter: {result.error_message}")
+                logger.error(
+                    f"Moving message {result.message_id} to dead letter: {result.error_message}"
+                )
                 await self._move_to_dead_letter(message, result)
             else:
-                logger.warning(f"Unknown action {result.action} for message {result.message_id}")
+                logger.warning(
+                    f"Unknown action {result.action} for message {result.message_id}"
+                )
                 await message.nak()
 
         except Exception as e:
-            logger.error(f"Failed to handle result for message {result.message_id}: {e}")
+            logger.error(
+                f"Failed to handle result for message {result.message_id}: {e}"
+            )
 
-    async def _move_to_dead_letter(self, message: nats.aio.client.Msg, result: ProcessedResult) -> None:
+    async def _move_to_dead_letter(
+        self, message: nats.aio.client.Msg, result: ProcessedResult
+    ) -> None:
         """Move message to dead letter stream."""
         if not self._jetstream:
             await message.nak()
@@ -749,7 +802,7 @@ class NATSConsumerService:
                     "Original-Subject": original_subject,
                     "Error": result.error_message or "unknown",
                     "Delivery-Count": str(message.meta.num_delivered),
-                }
+                },
             )
 
             logger.info(f"Published to dead letter: {dead_letter_subject}")
@@ -770,7 +823,7 @@ class NATSConsumerService:
                     return stream_name
 
                 # Wildcard match (stream_subject ends with '>')
-                if stream_subject.endswith('>'):
+                if stream_subject.endswith(">"):
                     prefix = stream_subject[:-1]  # Remove the '>'
                     # In NATS, '>' is a wildcard that matches any suffix.
                     # 'backtest.command.>' matches 'backtest.command.start',
@@ -787,7 +840,9 @@ class NATSConsumerService:
     async def subscribe_backtest_commands(self) -> bool:
         """Subscribe to backtest command messages."""
         if not self.enabled:
-            logger.info("NATS consumer disabled, skipping backtest command subscription")
+            logger.info(
+                "NATS consumer disabled, skipping backtest command subscription"
+            )
             return False
 
         if not self._client:
@@ -844,7 +899,9 @@ class NATSConsumerService:
             results = await self.subscribe_all()
 
             success_count = sum(1 for result in results.values() if result)
-            logger.info(f"Started {success_count}/{len(results)} consumers successfully")
+            logger.info(
+                f"Started {success_count}/{len(results)} consumers successfully"
+            )
 
             return success_count > 0
 
@@ -901,13 +958,12 @@ _consumer_service: Optional[NATSConsumerService] = None
 
 def get_nats_consumer_service() -> Optional[NATSConsumerService]:
     """Get the global NATS consumer service instance."""
-    global _consumer_service
     return _consumer_service
 
 
 def init_nats_consumer_service(
-        servers: Optional[List[str]] = None,
-        enabled: Optional[bool] = None,
+    servers: Optional[List[str]] = None,
+    enabled: Optional[bool] = None,
 ) -> NATSConsumerService:
     """Initialize the global NATS consumer service."""
     global _consumer_service
@@ -915,8 +971,10 @@ def init_nats_consumer_service(
     if _consumer_service is None:
         # If enabled is not specified, check environment variables
         if enabled is None:
-            enabled = os.getenv("NATS_ENABLED", "false").lower() == "true" or \
-                      os.getenv("BOT_COMMAND_BUS_ENABLED", "false").lower() == "true"
+            enabled = (
+                os.getenv("NATS_ENABLED", "false").lower() == "true"
+                or os.getenv("BOT_COMMAND_BUS_ENABLED", "false").lower() == "true"
+            )
 
         _consumer_service = NATSConsumerService(
             servers=servers,

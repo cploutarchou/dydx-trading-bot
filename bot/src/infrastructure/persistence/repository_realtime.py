@@ -49,10 +49,10 @@ def _float_or_default(value: Any, default: float = 0.0) -> float:
 
 
 def _position_leg_pnl(
-        side: str,
-        entry_price: Any,
-        current_price: Any,
-        size: Any,
+    side: str,
+    entry_price: Any,
+    current_price: Any,
+    size: Any,
 ) -> float:
     entry = _float_or_default(entry_price)
     current = _float_or_default(current_price)
@@ -78,7 +78,7 @@ class PositionRepository:
     _analytics_writer_lock = threading.Lock()
 
     def __init__(
-            self, session: Session, analytics_writer: AnalyticsWriter | None = None
+        self, session: Session, analytics_writer: AnalyticsWriter | None = None
     ):
         self.session = session
         self.analytics_writer = analytics_writer or self._resolve_analytics_writer()
@@ -106,7 +106,7 @@ class PositionRepository:
 
     @classmethod
     def _build_analytics_row(
-            cls, position: Position, *, event_kind: str
+        cls, position: Position, *, event_kind: str
     ) -> dict[str, Any]:
         closed_at_value = getattr(position, "closed_at", None)
         updated_at_value = getattr(position, "updated_at", None)
@@ -148,9 +148,7 @@ class PositionRepository:
             "snapshot_time": snapshot_time,
             "position_id": str(getattr(position, "position_id", "") or ""),
             "bot_id": str(getattr(position, "bot_instance_id", "") or ""),
-            "instance_id": str(
-                getattr(position, "_analytics_instance_id", "") or ""
-            ),
+            "instance_id": str(getattr(position, "_analytics_instance_id", "") or ""),
             "bot_run_id": str(bot_run_id),
             "pair1": str(getattr(position, "pair1", "") or ""),
             "pair2": str(getattr(position, "pair2", "") or ""),
@@ -231,9 +229,7 @@ class PositionRepository:
             "closed_at": closed_at,
         }
 
-    def _write_position_snapshot(
-            self, position: Position, *, event_kind: str
-    ) -> None:
+    def _write_position_snapshot(self, position: Position, *, event_kind: str) -> None:
         setattr(
             position,
             "_analytics_instance_id",
@@ -274,22 +270,22 @@ class PositionRepository:
         )
 
     def create_position(
-            self,
-            bot_instance_id: int,
-            position_id: str,
-            pair1: str,
-            pair2: str,
-            side1: str,
-            side2: str,
-            entry_price1: float,
-            entry_price2: float,
-            entry_size1: float,
-            entry_size2: float,
-            z_score_entry: Optional[float] = None,
-            hedge_ratio: Optional[float] = None,
-            correlation: Optional[float] = None,
-            half_life: Optional[float] = None,
-            funding_rate: Optional[float] = None,
+        self,
+        bot_instance_id: int,
+        position_id: str,
+        pair1: str,
+        pair2: str,
+        side1: str,
+        side2: str,
+        entry_price1: float,
+        entry_price2: float,
+        entry_size1: float,
+        entry_size2: float,
+        z_score_entry: Optional[float] = None,
+        hedge_ratio: Optional[float] = None,
+        correlation: Optional[float] = None,
+        half_life: Optional[float] = None,
+        funding_rate: Optional[float] = None,
     ) -> Position:
         """Create a new position"""
         position = Position(
@@ -316,13 +312,13 @@ class PositionRepository:
         return position
 
     def update_position_prices(
-            self,
-            position_id: str,
-            current_price1: float,
-            current_price2: float,
-            *,
-            z_score_current: Optional[float] = None,
-            funding_rate: Optional[float] = None,
+        self,
+        position_id: str,
+        current_price1: float,
+        current_price2: float,
+        *,
+        z_score_current: Optional[float] = None,
+        funding_rate: Optional[float] = None,
     ):
         """Update current prices for a position"""
         position = (
@@ -376,7 +372,7 @@ class MarketDataRepository:
         self.session = session
 
     def get_market_data(
-            self, bot_instance_id: int, symbol: str
+        self, bot_instance_id: int, symbol: str
     ) -> Optional[MarketData]:
         """Get market data for a symbol"""
         return (
@@ -397,19 +393,19 @@ class MarketDataRepository:
         )
 
     def upsert_market_data(
-            self,
-            bot_instance_id: int,
-            symbol: str,
-            current_price: float,
-            bid_price: Optional[float] = None,
-            ask_price: Optional[float] = None,
-            volume_24h: Optional[float] = None,
-            volatility_24h: Optional[float] = None,
-            rsi: Optional[float] = None,
-            macd: Optional[float] = None,
-            moving_avg_20: Optional[float] = None,
-            moving_avg_50: Optional[float] = None,
-            funding_rate: Optional[float] = None,
+        self,
+        bot_instance_id: int,
+        symbol: str,
+        current_price: float,
+        bid_price: Optional[float] = None,
+        ask_price: Optional[float] = None,
+        volume_24h: Optional[float] = None,
+        volatility_24h: Optional[float] = None,
+        rsi: Optional[float] = None,
+        macd: Optional[float] = None,
+        moving_avg_20: Optional[float] = None,
+        moving_avg_50: Optional[float] = None,
+        funding_rate: Optional[float] = None,
     ):
         """Insert or update market data"""
         market_data = self.get_market_data(bot_instance_id, symbol)
@@ -461,7 +457,7 @@ class StatsRepository:
         )
 
     def calculate_and_update_stats(
-            self, bot_instance_id: int, position_repo: PositionRepository
+        self, bot_instance_id: int, position_repo: PositionRepository
     ):
         """Calculate and update bot statistics"""
         positions = position_repo.get_open_positions(bot_instance_id)
@@ -500,12 +496,12 @@ class AlertRepository:
         self.session = session
 
     def create_alert(
-            self,
-            bot_instance_id: int,
-            alert_type: str,
-            severity: str,
-            message: str,
-            details: Optional[dict] = None,
+        self,
+        bot_instance_id: int,
+        alert_type: str,
+        severity: str,
+        message: str,
+        details: Optional[dict] = None,
     ):
         """Create a new alert"""
         alert = Alert(

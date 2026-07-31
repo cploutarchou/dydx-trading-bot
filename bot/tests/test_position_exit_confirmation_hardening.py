@@ -33,11 +33,11 @@ _CLOSE_ORDER_IDS = {"market_1": "close-m1", "market_2": "close-m2"}
 
 
 def _install_confirm_runtime(
-        monkeypatch,
-        *,
-        open_positions,
-        fills=None,
-        fill_error=None,
+    monkeypatch,
+    *,
+    open_positions,
+    fills=None,
+    fill_error=None,
 ):
     """Stub the exchange calls used by ``_confirm_exchange_flat_after_close``."""
     open_iter = list(open_positions)

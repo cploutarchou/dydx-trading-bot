@@ -214,8 +214,8 @@ async def append_tracked_position(position: Dict[str, Any]) -> None:
 
 
 async def save_processed_positions(
-        original_positions: List[Dict[str, Any]],
-        remaining_positions: List[Dict[str, Any]],
+    original_positions: List[Dict[str, Any]],
+    remaining_positions: List[Dict[str, Any]],
 ) -> None:
     """Atomically save processed positions while preserving concurrent appends."""
     processed_ids = {position_identity(item) for item in original_positions}

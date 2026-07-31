@@ -114,7 +114,9 @@ def _configured_service_tokens() -> list[str]:
     # Optional comma-separated pool when operators prefer a list-based rollout.
     token_list = os.getenv("BOT_API_TOKENS", "")
     if token_list:
-        candidates.extend(token.strip() for token in token_list.split(",") if token.strip())
+        candidates.extend(
+            token.strip() for token in token_list.split(",") if token.strip()
+        )
 
     # Preserve order while removing duplicates.
     unique_tokens: list[str] = []
@@ -197,8 +199,8 @@ class AuthorizationError(HTTPException):
 
 
 async def get_current_user(
-        credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-        session: Session = Depends(get_session),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    session: Session = Depends(get_session),
 ) -> User:
     """
     Get the current authenticated user from JWT token
@@ -242,7 +244,7 @@ async def get_current_user(
 
 
 async def get_current_active_user(
-        current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> User:
     """
     Get current active user - verify user is not disabled
@@ -266,7 +268,7 @@ async def get_current_active_user(
 
 
 async def get_admin_user(
-        current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ) -> User:
     """
     Get current admin user - verify user has admin role

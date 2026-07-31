@@ -8,6 +8,14 @@ from typing import Any
 
 import pandas as pd
 from loguru import logger
+from src.shared.dataframe_utils import (
+    managed_dataframe,
+    cleanup_dataframe,
+    optimize_dataframe_memory,
+    cleanup_cache_entries,
+    register_dataframe,
+    unregister_dataframe,
+)
 from src.constants import (
     CANDLE_FETCH_CONCURRENCY,
     CANDLES_RECENT_CACHE_TTL_SECONDS,
@@ -55,6 +63,7 @@ def _get_event_loop_limiter():
 
     try:
         import asyncio
+
         current_loop = asyncio.get_running_loop()
     except RuntimeError:
         # No running event loop (e.g., sync context)
@@ -64,10 +73,15 @@ def _get_event_loop_limiter():
     if not hasattr(current_loop, _rate_limiter_key):
         try:
             from aiolimiter import AsyncLimiter  # type: ignore[import]
-            setattr(current_loop, _rate_limiter_key, AsyncLimiter(
-                max_rate=_DYDX_RATE_LIMIT_RPS,
-                time_period=_DYDX_RATE_LIMIT_WINDOW,
-            ))
+
+            setattr(
+                current_loop,
+                _rate_limiter_key,
+                AsyncLimiter(
+                    max_rate=_DYDX_RATE_LIMIT_RPS,
+                    time_period=_DYDX_RATE_LIMIT_WINDOW,
+                ),
+            )
         except Exception:
             return None
 
@@ -76,7 +90,7 @@ def _get_event_loop_limiter():
 
 async def _throttle_api_call() -> None:
     """Acquire one slot from the token-bucket rate limiter, or fall back to sleep.
-    
+
     Uses per-event-loop limiters to avoid RuntimeWarning about AsyncLimiter reuse.
     """
     limiter = _get_event_loop_limiter()
@@ -143,7 +157,6 @@ if importlib.util.find_spec("pybreaker") is not None:
     try:
         import pybreaker as _pybreaker  # type: ignore[import]
 
-
         class _CircuitBreakerListener(_pybreaker.CircuitBreakerListener):  # type: ignore[misc]
             def state_change(self, cb, old_state, new_state):  # type: ignore[override]
                 if new_state.name == "open":
@@ -157,7 +170,6 @@ if importlib.util.find_spec("pybreaker") is not None:
                     logger.info("dydx_circuit_breaker_closed")
                 elif new_state.name == "half-open":
                     logger.info("dydx_circuit_breaker_half_open")
-
 
         _dydx_circuit_breaker = _pybreaker.CircuitBreaker(
             fail_max=_CIRCUIT_FAIL_MAX,
@@ -310,18 +322,17 @@ async def get_candles_recent(client, market, resolution=None):
     close_prices.reverse()
     result = pd.Series(close_prices, dtype=float)
 
-    # Store in cache, bounding size to 200 entries
+    # Store in cache with improved cleanup
     if cache_enabled:
         _candles_recent_cache[cache_key] = {
             "data": result,
             "expires": now + CANDLES_RECENT_CACHE_TTL_SECONDS,
         }
+        # Use improved cache cleanup (keep same limits as before)
         if len(_candles_recent_cache) > 200:
-            oldest = min(
-                _candles_recent_cache.keys(),
-                key=lambda k: _candles_recent_cache[k]["expires"],
+            cleanup_cache_entries(
+                _candles_recent_cache, max_size=200, max_age_minutes=30
             )
-            _candles_recent_cache.pop(oldest, None)
 
     return result
 
@@ -398,9 +409,9 @@ async def get_markets(client):
     global _markets_cache
     now = time.monotonic()
     if (
-            MARKETS_CACHE_TTL_SECONDS > 0
-            and _markets_cache["data"] is not None
-            and now < _markets_cache["expires"]
+        MARKETS_CACHE_TTL_SECONDS > 0
+        and _markets_cache["data"] is not None
+        and now < _markets_cache["expires"]
     ):
         increment_metric("cache_hits_total")
         increment_metric("exchange_api_calls_saved_total")
@@ -482,43 +493,73 @@ async def construct_market_prices(client, selected_markets=None, resolution=None
         *[fetch_one(m) for m in tradeable_markets], return_exceptions=True
     )
 
-    # Build DataFrame from gathered results
+    # Build DataFrame from gathered results with proper cleanup
     df: pd.DataFrame | None = None
-    for i, item in enumerate(results):
-        if isinstance(item, BaseException):
-            logger.warning(
-                "Skipping market {} – candle fetch failed: {}",
-                tradeable_markets[i],
-                item,
-            )
-            continue
-        if not isinstance(item, tuple) or len(item) != 2:
-            logger.warning(
-                "Skipping market {} – unexpected candle fetch payload type={}",
-                tradeable_markets[i],
-                type(item).__name__,
-            )
-            continue
-        market, close_prices = item
-        if not close_prices:
-            continue
-        df_add = pd.DataFrame(close_prices)
-        try:
-            df_add.set_index("datetime", inplace=True)
-            if df is None:
-                df = df_add
-            else:
-                df = pd.merge(df, df_add, how="outer", on="datetime")
-        except Exception as e:
-            logger.exception("Failed to add market {} to price matrix: {}", market, e)
+    df_id = None
 
-    if df is None:
-        df = pd.DataFrame()
+    try:
+        for i, item in enumerate(results):
+            if isinstance(item, BaseException):
+                logger.warning(
+                    "Skipping market {} – candle fetch failed: {}",
+                    tradeable_markets[i],
+                    item,
+                )
+                continue
+            if not isinstance(item, tuple) or len(item) != 2:
+                logger.warning(
+                    "Skipping market {} – unexpected candle fetch payload type={}",
+                    tradeable_markets[i],
+                    type(item).__name__,
+                )
+                continue
+            market, close_prices = item
+            if not close_prices:
+                continue
 
-    # Drop columns with NaNs
-    nans = df.columns[df.isna().any()].tolist()
-    if nans:
-        logger.warning("Dropping columns with NaNs: {}", nans)
-        df.drop(columns=nans, inplace=True)
+            # Create DataFrame and cleanup intermediate
+            df_add = pd.DataFrame(close_prices)
+            try:
+                df_add.set_index("datetime", inplace=True)
+                if df is None:
+                    df = df_add
+                    # Register for tracking
+                    df_id = register_dataframe(
+                        df,
+                        "market_prices",
+                        {
+                            "markets_count": len(tradeable_markets),
+                            "resolution": resolution,
+                        },
+                    )
+                else:
+                    df = pd.merge(df, df_add, how="outer", on="datetime")
+                    # Cleanup intermediate DataFrame
+                    cleanup_dataframe(df_add)
+            except Exception as e:
+                logger.exception(
+                    "Failed to add market {} to price matrix: {}", market, e
+                )
+                cleanup_dataframe(df_add)
 
-    return df
+        if df is None:
+            df = pd.DataFrame()
+
+        # Drop columns with NaNs
+        nans = df.columns[df.isna().any()].tolist()
+        if nans:
+            logger.warning("Dropping columns with NaNs: {}", nans)
+            df.drop(columns=nans, inplace=True)
+
+        # Optimize memory usage
+        df = optimize_dataframe_memory(df)
+
+        return df
+
+    except Exception as e:
+        # Cleanup on error
+        if df is not None:
+            cleanup_dataframe(df)
+        if df_id:
+            unregister_dataframe(df_id)
+        raise

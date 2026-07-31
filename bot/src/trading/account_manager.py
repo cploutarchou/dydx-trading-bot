@@ -75,7 +75,9 @@ async def _get_subaccount_orders_with_metrics(client, *args, **kwargs) -> Any:
     """Fetch subaccount orders and track API/provider metrics."""
     increment_metric("exchange_api_calls_total")
     try:
-        return await client.indexer_account.account.get_subaccount_orders(*args, **kwargs)
+        return await client.indexer_account.account.get_subaccount_orders(
+            *args, **kwargs
+        )
     except Exception:
         increment_metric("provider_errors_total")
         raise
@@ -171,7 +173,7 @@ async def get_order_fills(client, order_id, market=None, limit: int = 100):
         for fill in fills
         if isinstance(fill, dict)
         if str(fill.get("orderId") or fill.get("order_id") or fill.get("orderID") or "")
-           == order_id_text
+        == order_id_text
     ]
 
 
@@ -314,13 +316,13 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 
 
 def _resolve_order_from_snapshot(
-        orders: list[dict[str, Any]],
-        *,
-        market_order_id,
-        expected_side: str,
-        expected_size: Any,
-        expected_reduce_only: bool,
-        allow_fallback: bool = False,
+    orders: list[dict[str, Any]],
+    *,
+    market_order_id,
+    expected_side: str,
+    expected_size: Any,
+    expected_reduce_only: bool,
+    allow_fallback: bool = False,
 ) -> Optional[str]:
     """Resolve placed order ID from a recent indexer snapshot."""
     expected_client_id = int(market_order_id.client_id)
@@ -358,7 +360,9 @@ def _resolve_order_from_snapshot(
         order_size = abs(_safe_float(order.get("size"), 0.0))
         if expected_size_value > 0 and order_size > 0:
             # Accept tiny rounding differences.
-            if abs(order_size - expected_size_value) > max(1e-9, expected_size_value * 1e-6):
+            if abs(order_size - expected_size_value) > max(
+                1e-9, expected_size_value * 1e-6
+            ):
                 continue
 
         candidates.append(order)
@@ -374,23 +378,27 @@ def _resolve_order_from_snapshot(
 
 
 async def _resolve_recent_order_id(
-        *,
-        client,
-        order_lookup_address: str,
-        ticker: str,
-        market_order_id,
-        expected_side: str,
-        expected_size: Any,
-        expected_reduce_only: bool,
-        max_attempts: int = 5,
-        initial_delay_seconds: float = 1.2,
-        retry_delay_seconds: float = 0.75,
+    *,
+    client,
+    order_lookup_address: str,
+    ticker: str,
+    market_order_id,
+    expected_side: str,
+    expected_size: Any,
+    expected_reduce_only: bool,
+    max_attempts: int = 5,
+    initial_delay_seconds: float = 1.2,
+    retry_delay_seconds: float = 0.75,
 ) -> str:
     """Retry indexer lookups to resolve recently placed order ID."""
     latest_snapshot: list[dict[str, Any]] = []
 
     for attempt in range(1, max_attempts + 1):
-        delay = initial_delay_seconds if attempt == 1 else min(2.5, retry_delay_seconds * attempt)
+        delay = (
+            initial_delay_seconds
+            if attempt == 1
+            else min(2.5, retry_delay_seconds * attempt)
+        )
         await asyncio.sleep(delay)
 
         try:
@@ -440,9 +448,13 @@ async def _resolve_recent_order_id(
             key=lambda item: _safe_int(item.get("createdAtHeight"), default=0),
             reverse=True,
         )
-        logger.error("Unable to detect latest order; most recent entry: {}", sorted_orders[0])
+        logger.error(
+            "Unable to detect latest order; most recent entry: {}", sorted_orders[0]
+        )
     else:
-        logger.error("Unable to detect latest order; indexer returned no orders for {}", ticker)
+        logger.error(
+            "Unable to detect latest order; indexer returned no orders for {}", ticker
+        )
 
     logger.error("Please verify the order status on the dashboard")
     raise RuntimeError(
@@ -456,8 +468,7 @@ async def cancel_all_orders(client):
     try:
         order_lookup_address = _resolve_client_address(client)
         orders = await _get_subaccount_orders_with_metrics(
-            client,
-            order_lookup_address, _resolve_subaccount_number(), status="OPEN"
+            client, order_lookup_address, _resolve_subaccount_number(), status="OPEN"
         )
     except Exception as e:
         # If the account doesn't exist on the indexer (404) treat as no open orders
@@ -529,7 +540,7 @@ async def abort_all_positions(client):
             accept_price = format_number(accept_price, tick_size)
 
             # Place order to close
-            (order, order_id) = await place_market_order(
+            order, order_id = await place_market_order(
                 client, market, side, pos["sumOpen"], accept_price, True
             )
 

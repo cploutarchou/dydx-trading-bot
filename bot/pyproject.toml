@@ -61,3 +61,42 @@ source = [
     "*/bot/src",
     "*/site-packages/src",
 ]
+
+[tool.mypy]
+# ---------------------------------------------------------------------------
+# Type checking — phase 1 (reporting-only baseline; does NOT gate CI yet).
+# ---------------------------------------------------------------------------
+# The codebase predates type annotations, so mypy runs in CI as a NON-blocking
+# job (see the `bot-typecheck` job in .github/workflows/bot-quality.yml, which
+# uses continue-on-error) to surface existing type debt without blocking merges.
+# Tighten over time:
+#   1. Clear errors module-by-module — largest offenders: infrastructure/
+#      persistence/repository.py, infrastructure/event_bus_nats.py,
+#      infrastructure/persistence/repository_backtest.py.
+#   2. Flip the CI job to blocking (drop continue-on-error, add to quality-gate).
+#   3. Enable the stricter options commented out below.
+python_version = "3.12"
+# `src` is the importable top package, but several subpackages (api/v1,
+# api/pair_history, infrastructure/persistence, infrastructure/use_cases) are
+# namespace packages without __init__.py; mypy needs this to resolve modules.
+explicit_package_bases = true
+# Many runtime deps ship no stubs (dydx-v4-client, bip-utils, crcmod,
+# clickhouse-connect, minio, aiolimiter, pybreaker, flower, ...). Silencing
+# missing-import noise keeps the report focused on our own code.
+ignore_missing_imports = true
+# Skip generated/vendored/cache dirs if mypy follows an import into them.
+exclude = '^(_build|build|dist|\.venv|__pycache__|bot_states)/'
+
+# --- Phase-2 candidates (enable after the baseline above is cleared) ---
+# Notes on deferral: warn_unused_ignores / warn_redundant_casts are valuable but
+# make the ratchet non-monotonic (fixing a real error can turn a previously-needed
+# `# type: ignore` into an unused-ignore warning, raising the count). Enable them
+# once the core type debt is cleared. check_untyped_defs will add errors from
+# unannotated function bodies; disallow_untyped_defs requires annotations.
+# warn_unused_configs = true
+# warn_redundant_casts = true
+# warn_unused_ignores = true
+# check_untyped_defs = true
+# disallow_untyped_defs = true
+# warn_return_any = true
+# strict = true

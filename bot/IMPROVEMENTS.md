@@ -110,7 +110,9 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Impact**: Inconsistent code style, maintenance overhead
     - **Files**: `.github/workflows/ci.yml`, `pyproject.toml`
 
-- **No Code Coverage Reporting**: No coverage tool configured or reported in CI
+- **No Code Coverage Reporting** (RESOLVED): CI now runs pytest with `pytest-cov` and publishes line/branch
+  coverage — terminal report, `coverage.xml`, an HTML report (uploaded as the `coverage-report` artifact), and a
+  summary on the GitHub job summary. Configuration lives in `pyproject.toml` (`[tool.coverage.*]`)
     - **Impact**: No visibility into test coverage gaps
     - **Files**: CI configuration, missing pytest-cov setup
 
@@ -353,11 +355,25 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
       that the same CI gate (`--select=E9,F63,F7,F82`) would otherwise fail. Verified with
       `black --check`, the CI flake8 gate, `compileall`, and a unit-test smoke run.
 
-- [ ] **Add code coverage reporting** to CI/CD pipeline
+- [x] **Add code coverage reporting** to CI/CD pipeline
     - **Files**: Add pytest-cov, update CI configuration
     - **Impact**: Visibility into test coverage gaps
     - **Effort**: 1-2 days
     - **Priority**: HIGH
+    - **Status**: COMPLETED - Added `pytest-cov==7.1.0` and `coverage==7.15.2` to `requirements.txt`
+      (installed automatically by CI via `pip install -r bot/requirements.txt`). Centralized configuration in
+      `pyproject.toml` (`[tool.coverage.run]` / `[tool.coverage.report]` / `[tool.coverage.paths]`) so CI and local
+      runs measure identically: `source = ["src"]`, branch coverage on, tests/migrations/cache omitted, and
+      non-measurable lines (`pragma: no cover`, `if TYPE_CHECKING:`, `if __name__ == "__main__":`, abstract methods,
+      `...` stubs) excluded. Updated the Test job in `.github/workflows/ci.yml` to run pytest with `--cov=src`
+      and emit terminal, `coverage.xml`, and `htmlcov/` reports; a follow-up step publishes a line/branch coverage
+      summary to the GitHub job summary (`$GITHUB_STEP_SUMMARY`) and `actions/upload-artifact@v4` uploads the
+      browsable report as the `coverage-report` artifact (14-day retention, `if: always()` so it surfaces even on
+      test failure). Reporting is intentionally non-failing (no `--cov-fail-under` gate yet) — visibility first;
+      once baseline coverage is established, add `--cov-fail-under=<N>` to the pytest invocation to enforce a floor.
+      Added local `make test-cov` and `make test-cov-html` targets (venv via the `run-venv-python-env` macro) and
+      gitignored the generated artifacts (`.coverage`, `coverage.xml`, `htmlcov/`, `.pytest_cache/`). Verified the
+      config parses, `ci.yml` is valid YAML, and a real `--cov` run produces all three report outputs.
 
 - [ ] **Implement pre-commit hooks** for automated quality checks
     - **Files**: Create `.pre-commit-config.yaml`

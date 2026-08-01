@@ -1,1 +1,8 @@
 bot_states/*
+
+# Test coverage artifacts (pytest-cov / coverage.py)
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/

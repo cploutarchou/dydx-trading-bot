@@ -129,7 +129,9 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Impact**: Poor code quality not caught in reviews
     - **Files**: `.pylintrc`
 
-- **No Type Checking**: No mypy or static type checking configured
+- **No Type Checking** (RESOLVED — phase 1): mypy is configured in `pyproject.toml` (`[tool.mypy]`) and runs in CI via
+  the **non-blocking** `bot-typecheck` job (`.github/workflows/bot-quality.yml`); reports a ~189-error baseline to the
+  job summary without gating merges. Path to a blocking gate is documented in the config
     - **Impact**: Type-related bugs, poor IDE support
     - **Files**: Missing mypy.ini or pyproject.toml type checking
 
@@ -406,11 +408,28 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
       reformatting; better as a focused follow-up (config + CI gate + one-time sort). NOTE: runs locally only; the live
       CI (`../.github/workflows/bot-quality.yml`) does not yet invoke pre-commit/black/flake8.
 
-- [ ] **Add type checking** with mypy
+- [x] **Add type checking** with mypy
     - **Files**: Create mypy.ini or pyproject.toml configuration
     - **Impact**: Catch type-related bugs early
     - **Effort**: 2-3 days
     - **Priority**: MEDIUM
+    - **Status**: COMPLETED (phase 1 — reporting-only baseline) - Added `mypy==2.3.0` plus stubs (`types-requests`,
+      `types-PyYAML`; `pandas-stubs`/`types-psutil` were already present) to `requirements.txt`, and a `[tool.mypy]`
+      section to `pyproject.toml`: `python_version = "3.12"`, `explicit_package_bases = true` (several subpackages —
+      `api/v1`, `api/pair_history`, `infrastructure/persistence`, `infrastructure/use_cases` — are namespace packages
+      without `__init__.py`, which mypy can't resolve without it), `ignore_missing_imports = true` (dydx-v4-client,
+      bip-utils, crcmod, clickhouse-connect, minio, aiolimiter, pybreaker, flower, … ship no stubs), and a cache
+      `exclude`. The valuable-but-noisy options (`warn_unused_ignores`, `warn_redundant_casts`, `check_untyped_defs`,
+      `disallow_untyped_defs`, `warn_return_any`, `strict`) are documented as commented phase-2 toggles —
+      `warn_unused_ignores` in particular is deferred because it makes the ratchet non-monotonic (fixing a real error
+      turns a previously-needed `# type: ignore` into a new warning). mypy runs in CI via a new **non-blocking**
+      `bot-typecheck` job in `.github/workflows/bot-quality.yml` (`continue-on-error` on the mypy step, NOT in the
+      `quality-gate` needs) that posts the error count to the job summary. Current baseline: **189 errors in 22 files**,
+      dominated by real categories (assignment 66, arg-type 41, misc 19, union-attr 14, return-value 7) and concentrated
+      in `infrastructure/persistence/repository.py` (68), `infrastructure/event_bus_nats.py` (29), and
+      `infrastructure/persistence/repository_backtest.py` (18). Path to a real gate: clear the baseline module-by-module
+      → drop `continue-on-error` + add the job to `quality-gate.needs` → enable the phase-2 options. Not added to
+      pre-commit (mypy needs whole-program context and is slow; CI is the right place for it).
 
 #### **Testing**
 

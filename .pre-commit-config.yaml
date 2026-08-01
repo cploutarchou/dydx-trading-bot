@@ -1,0 +1,72 @@
+# Pre-commit hooks for the dYdX trading bot monorepo.
+#
+# Why this lives at the repo root: pre-commit discovers .pre-commit-config.yaml
+# from the git top-level (this repo's root), never from a subdirectory. The bot/
+# service is the only consumer today, so every hook is filtered to ^bot/ — the
+# backend (Go) and frontend are intentionally untouched until their owners opt in.
+#
+# Design principle: hooks mirror what the Python service already enforces (Black
+# formatting + the flake8 hard selection) plus zero-config hygiene, so local
+# feedback matches CI and the hooks stay fast and non-annoying. Black and flake8
+# run in pre-commit-managed environments pinned to the SAME versions as
+# bot/requirements.txt (black==26.5.1, flake8==7.3.0), so formatting is identical
+# to CI without requiring bot/.venv to be active. Black reads its settings from
+# bot/pyproject.toml [tool.black] (line-length=88, py312). Keep these versions in
+# sync with requirements.txt when bumping.
+#
+# Install (one-time), from anywhere in the repo:
+#   pre-commit install
+# ...or via the bot Makefile:
+#   make -C bot install-hooks
+#
+# Run manually on every file:
+#   pre-commit run --all-files
+
+# Skip generated/vendored paths everywhere, even if a file slips through staging.
+exclude: '^bot/(\.venv|__pycache__|bot_states)/'
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        files: ^bot/
+      - id: end-of-file-fixer
+        files: ^bot/
+      - id: check-merge-conflict
+        files: ^bot/
+      - id: check-added-large-files
+        args: [--maxkb=500]
+        files: ^bot/
+      - id: check-yaml
+        files: ^bot/
+      - id: check-toml
+        files: ^bot/
+      - id: check-json
+        files: ^bot/
+      - id: debug-statements
+        files: ^bot/
+      - id: detect-private-key
+        files: ^bot/
+
+  # Project tooling — self-contained envs pinned to match bot/requirements.txt.
+  - repo: local
+    hooks:
+      - id: black
+        name: black (format)
+        description: Reformat with Black (version pinned to bot/requirements.txt); config from bot/pyproject.toml [tool.black].
+        entry: black
+        language: python
+        additional_dependencies: [black==26.5.1]
+        types: [python]
+        files: ^bot/(src|tests)/
+        require_serial: true
+      - id: flake8
+        name: flake8 (E9,F63,F7,F82)
+        description: Hard gate only — syntax errors and undefined names (mirrors the CI gate).
+        entry: flake8
+        language: python
+        additional_dependencies: [flake8==7.3.0]
+        types: [python]
+        files: ^bot/(src|tests)/
+        args: [--select=E9,F63,F7,F82]

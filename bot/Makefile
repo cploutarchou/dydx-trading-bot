@@ -275,6 +275,21 @@ test-cov-html: ensure-venv ## Run tests with coverage and write HTML report (htm
 	$(call run-venv-python-env,PYTHONPATH=$(CURDIR),-m pytest tests/ --cov=src --cov-report=html --cov-report=term-missing)
 	@echo "$(GREEN)📄 HTML report written to htmlcov/index.html$(RESET)"
 
+.PHONY: install-hooks
+install-hooks: ensure-venv ## Install git pre-commit hooks (run once after clone)
+	@echo "$(CYAN)🪝 Installing pre-commit hooks...$(RESET)"
+	$(VENV_PYTHON) -m pre_commit install
+	@echo "$(GREEN)✅ Pre-commit hooks installed — they run on every commit.$(RESET)"
+	@echo "$(YELLOW)   Requires bot/.venv active at commit time. Run '$(CYAN)make hooks-run$(RESET)$(YELLOW)' to check all files.$(RESET)"
+
+.PHONY: hooks-run
+hooks-run: ensure-venv ## Run pre-commit on all files (manual check)
+	$(VENV_PYTHON) -m pre_commit run --all-files
+
+.PHONY: hooks-update
+hooks-update: ensure-venv ## Update pre-commit hook repos to their latest tags
+	$(VENV_PYTHON) -m pre_commit autoupdate
+
 # =============================================================================
 # PRODUCTION COMMANDS
 # =============================================================================

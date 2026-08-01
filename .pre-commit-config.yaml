@@ -69,4 +69,7 @@ repos:
         additional_dependencies: [flake8==7.3.0]
         types: [python]
         files: ^bot/(src|tests)/
-        args: [--select=E9,F63,F7,F82]
+        # Block style on purpose: a flow-style list [--select=E9,F63,F7,F82] would
+        # split on the commas into four argv tokens.
+        args:
+          - --select=E9,F63,F7,F82

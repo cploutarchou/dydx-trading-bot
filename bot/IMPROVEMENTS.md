@@ -106,9 +106,10 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 - **Black Formatting Not Enforced** (RESOLVED): CI no longer ignores Black formatting — the `|| true`
   fallback was removed and the gate now fails on drift across `src` and `tests`, with a pinned
-  `[tool.black]` config in `pyproject.toml` for deterministic formatting
+  `[tool.black]` config in `pyproject.toml` for deterministic formatting; enforced live in the `bot-lint` job of
+  `.github/workflows/bot-quality.yml`
     - **Impact**: Inconsistent code style, maintenance overhead
-    - **Files**: `.github/workflows/ci.yml`, `pyproject.toml`
+    - **Files**: `.github/workflows/bot-quality.yml`, `pyproject.toml`
 
 - **No Code Coverage Reporting** (RESOLVED): CI now runs pytest with `pytest-cov` and publishes line/branch
   coverage — terminal report, `coverage.xml`, an HTML report (uploaded as the `coverage-report` artifact), and a
@@ -116,7 +117,9 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Impact**: No visibility into test coverage gaps
     - **Files**: CI configuration, missing pytest-cov setup
 
-- **Missing Pre-commit Hooks**: No automated quality checks before commits
+- **Missing Pre-commit Hooks** (RESOLVED): `.pre-commit-config.yaml` now lives at the monorepo git root, scoped to
+  `bot/` — Black + flake8 (hard gate) plus hygiene hooks (whitespace, large files, private keys, debug statements,
+  YAML/TOML/JSON validity). Install with `make -C bot install-hooks`
     - **Impact**: Poor code quality reaches repository
     - **Files**: Missing `.pre-commit-config.yaml`
 
@@ -342,7 +345,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 #### **Code Quality Tools**
 
 - [x] **Enforce Black formatting** in CI (remove `|| true`)
-    - **Files**: `.github/workflows/ci.yml`, `pyproject.toml`, `src/`, `tests/`
+    - **Files**: `.github/workflows/bot-quality.yml`, `pyproject.toml`, `src/`, `tests/`
     - **Impact**: Consistent code style enforcement
     - **Effort**: 1 day
     - **Priority**: HIGH
@@ -353,7 +356,9 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
       Reformatted 50 `src` files and 40 `tests` files to the enforced style. Also fixed a pre-existing
       flake8 `F824` (redundant `global _consumer_service` in `src/infrastructure/event_bus_nats.py`)
       that the same CI gate (`--select=E9,F63,F7,F82`) would otherwise fail. Verified with
-      `black --check`, the CI flake8 gate, `compileall`, and a unit-test smoke run.
+      `black --check`, the CI flake8 gate, `compileall`, and a unit-test smoke run. NOTE: the gate originally lived
+      in the non-executed `bot/.github/workflows/ci.yml` (subdir workflows are ignored by GitHub); it is now enforced
+      live in the `bot-lint` job of `.github/workflows/bot-quality.yml` (`black --check src tests` + flake8 hard gate).
 
 - [x] **Add code coverage reporting** to CI/CD pipeline
     - **Files**: Add pytest-cov, update CI configuration
@@ -365,7 +370,8 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
       `pyproject.toml` (`[tool.coverage.run]` / `[tool.coverage.report]` / `[tool.coverage.paths]`) so CI and local
       runs measure identically: `source = ["src"]`, branch coverage on, tests/migrations/cache omitted, and
       non-measurable lines (`pragma: no cover`, `if TYPE_CHECKING:`, `if __name__ == "__main__":`, abstract methods,
-      `...` stubs) excluded. Updated the Test job in `.github/workflows/ci.yml` to run pytest with `--cov=src`
+      `...` stubs) excluded. Coverage runs in the **live** `bot-tests` job of `.github/workflows/bot-quality.yml`
+      (pytest with `--cov=src`)
       and emit terminal, `coverage.xml`, and `htmlcov/` reports; a follow-up step publishes a line/branch coverage
       summary to the GitHub job summary (`$GITHUB_STEP_SUMMARY`) and `actions/upload-artifact@v4` uploads the
       browsable report as the `coverage-report` artifact (14-day retention, `if: always()` so it surfaces even on
@@ -373,13 +379,32 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
       once baseline coverage is established, add `--cov-fail-under=<N>` to the pytest invocation to enforce a floor.
       Added local `make test-cov` and `make test-cov-html` targets (venv via the `run-venv-python-env` macro) and
       gitignored the generated artifacts (`.coverage`, `coverage.xml`, `htmlcov/`, `.pytest_cache/`). Verified the
-      config parses, `ci.yml` is valid YAML, and a real `--cov` run produces all three report outputs.
+      config parses, `bot-quality.yml` is valid YAML, and a real `--cov` run produces all three report outputs.
+      NOTE: coverage was originally wired into the non-executed `bot/.github/workflows/ci.yml` (subdir workflows are
+      ignored by GitHub); it has since been migrated to the live `bot-quality.yml`, a `bot-lint` job (Black `--check`
+      + flake8 hard gate) was added, and the dead `bot/.github/workflows/ci.yml` was retired.
 
-- [ ] **Implement pre-commit hooks** for automated quality checks
+- [x] **Implement pre-commit hooks** for automated quality checks
     - **Files**: Create `.pre-commit-config.yaml`
     - **Impact**: Prevent poor code quality from reaching repository
     - **Effort**: 2-3 days
     - **Priority**: MEDIUM
+    - **Status**: COMPLETED — the implementation landed in commit `cea4603` (`.pre-commit-config.yaml` at the
+      **monorepo git root**, plus `make install-hooks`/`hooks-run`/`hooks-update` and `pre-commit==4.6.1` in
+      `requirements.txt`); the checkbox here was stale. Re-verified end-to-end this pass and fixed one latent bug
+      (see below). The config is scoped to `^bot/` (backend Go / frontend untouched until their owners opt in) and
+      mirrors what the Python service enforces plus zero-config hygiene: `pre-commit-hooks` v6.0.0 (trailing-whitespace,
+      end-of-file-fixer, check-merge-conflict, check-added-large-files >500 KB, check-yaml/toml/json, debug-statements,
+      detect-private-key) and two self-contained local hooks — `black` (reads `bot/pyproject.toml [tool.black]`) and
+      `flake8` hard gate. Black/flake8 use `language: python` + `additional_dependencies` pinned to the exact
+      `bot/requirements.txt` versions (`black==26.5.1`, `flake8==7.3.0`) so formatting matches CI without requiring
+      `.venv` active. **Bug fixed this pass:** the committed flake8 hook used `args: [--select=E9,F63,F7,F82]`; in YAML
+      flow style the commas are list delimiters, so pre-commit passed `--select=E9 F63 F7 F82` and flake8 treated
+      `F63`/`F7`/`F82` as filenames (verified: `FileNotFoundError`) — i.e. the hook failed on every commit. Switched
+      to block-style `args:`. Verified all 11 hooks pass on tracked bot files and that flake8 correctly fails on an
+      undefined name (F821). isort **deferred** — installed by CI but never enforced, and ~10 existing files would need
+      reformatting; better as a focused follow-up (config + CI gate + one-time sort). NOTE: runs locally only; the live
+      CI (`../.github/workflows/bot-quality.yml`) does not yet invoke pre-commit/black/flake8.
 
 - [ ] **Add type checking** with mypy
     - **Files**: Create mypy.ini or pyproject.toml configuration

@@ -264,6 +264,17 @@ test-auth: ## Test authentication system
 	@echo "$(CYAN)🔐 Testing authentication system...$(RESET)"
 	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) exec bot-api python test_api_database_integration.py
 
+.PHONY: test-cov
+test-cov: ensure-venv ## Run tests with coverage (terminal report, missing lines shown)
+	@echo "$(CYAN)🧪 Running tests with coverage...$(RESET)"
+	$(call run-venv-python-env,PYTHONPATH=$(CURDIR),-m pytest tests/ --cov=src --cov-report=term-missing)
+
+.PHONY: test-cov-html
+test-cov-html: ensure-venv ## Run tests with coverage and write HTML report (htmlcov/index.html)
+	@echo "$(CYAN)🧪 Running tests with coverage (HTML)...$(RESET)"
+	$(call run-venv-python-env,PYTHONPATH=$(CURDIR),-m pytest tests/ --cov=src --cov-report=html --cov-report=term-missing)
+	@echo "$(GREEN)📄 HTML report written to htmlcov/index.html$(RESET)"
+
 # =============================================================================
 # PRODUCTION COMMANDS
 # =============================================================================

@@ -23,3 +23,41 @@ dependencies = [
 # auto-detected target version could diverge between CI and local machines.
 line-length = 88
 target-version = ["py312"]
+
+[tool.coverage.run]
+# Measure production code only. The test suite lives under tests/ and is never
+# counted toward coverage; src/ is the single source root.
+source = ["src"]
+branch = true
+# Generated/migration/cache paths carry no measurable business logic.
+omit = [
+    "*/__pycache__/*",
+    "*/alembic/*",
+    "*/migrations/*",
+    "*/proto/*",
+]
+
+[tool.coverage.report]
+# Surface uncovered lines directly in the terminal report so gaps are visible
+# without opening the HTML report.
+show_missing = true
+skip_covered = false
+precision = 1
+# Lines that are not reasonably reachable and should not count as gaps.
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "@(abc\\.)?abstractmethod",
+    "\\.\\.\\.",  # `...` placeholder bodies (Protocol / overload stubs)
+]
+
+[tool.coverage.paths]
+# Normalize reported paths so coverage.xml / htmlcov are stable across the CI
+# runner and local machines (used when combining data files).
+source = [
+    "src",
+    "*/bot/src",
+    "*/site-packages/src",
+]

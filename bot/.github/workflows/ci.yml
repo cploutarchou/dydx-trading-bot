@@ -93,8 +93,58 @@ jobs:
           DB_USER: bot
           DB_PASSWORD: bot
           BOT_DB_CUTOVER_MODE: shared
+        # Coverage is reporting-only (does not fail the build). pytest-cov and
+        # coverage are pulled in via requirements.txt. Configuration lives in
+        # pyproject.toml ([tool.coverage.*]); source root is src.
         run: |
-          cd bot && python -m pytest tests/ -v --tb=short
+          cd bot && python -m pytest tests/ -v --tb=short \
+            --cov=src \
+            --cov-report=term \
+            --cov-report=xml:coverage.xml \
+            --cov-report=html:htmlcov
+
+      - name: Publish coverage summary
+        if: always()
+        working-directory: ./bot
+        run: |
+          python - <<'EOF'
+          import os
+          import xml.etree.ElementTree as ET
+
+          path = "coverage.xml"
+          summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
+          if not os.path.exists(path):
+              msg = "### 📊 Test Coverage\n\ncoverage.xml not found — did the test step run?"
+          else:
+              root = ET.parse(path).getroot()
+              line_rate = float(root.attrib.get("line-rate", 0)) * 100
+              branch_rate = float(root.attrib.get("branch-rate", 0)) * 100
+              lines_valid = int(root.attrib.get("lines-valid", 0))
+              lines_covered = int(root.attrib.get("lines-covered", 0))
+              msg = (
+                  "### 📊 Test Coverage\n\n"
+                  "| Metric | Value |\n| --- | --- |\n"
+                  f"| Line coverage | **{line_rate:.1f}%** ({lines_covered}/{lines_valid}) |\n"
+                  f"| Branch coverage | {branch_rate:.1f}% |\n\n"
+                  "Download the **coverage-report** artifact and open `htmlcov/index.html` "
+                  "for the full line-by-line report."
+              )
+          print(msg)
+          if summary:
+              with open(summary, "a") as fh:
+                  fh.write(msg + "\n")
+          EOF
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            bot/coverage.xml
+            bot/htmlcov
+          if-no-files-found: warn
+          retention-days: 14
 
   build:
     name: Build Docker Image

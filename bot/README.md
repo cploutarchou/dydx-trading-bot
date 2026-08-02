@@ -334,6 +334,20 @@ The implementation lives in `src/shared/credentials_cipher.py`; the backfill scr
 
 Use the generated schema and source code as the detailed endpoint contract, not old handoff markdown.
 
+### Request validation
+
+Trading-critical request bodies are schema-validated at the API boundary. The
+Pydantic models in `src/infrastructure/domain/bot_api_models.py`,
+`src/infrastructure/domain/models_backtest.py`, and `src/api/server.py` carry
+explicit `Field` bounds (`gt`/`ge`/`le`/`min_length`/`max_length`/`pattern`), so
+out-of-range trades (negative `usd_per_trade`, zero `stats_window`, non-positive
+balances, malformed dates, invalid instance IDs) are rejected before reaching the
+runtime. Shared validators live in `src/shared/trading_validators.py`.
+
+Validation failures return the standardized `api_response` 422 envelope
+(`{success: false, message: "Validation error", data: {errors: [...]}, timestamp, trace_id}`)
+via a global `RequestValidationError` handler, instead of FastAPI's default shape.
+
 ## Safety Rules
 
 - keep lifecycle control inside `BotInstanceManager`

@@ -322,11 +322,29 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Priority**: HIGH
     - **Status**: COMPLETED - Replaced all sys.exit() calls with proper exception handling. Created DatabaseConnectionError for database connection failures and GracefulShutdownException for signal handling. Updated signal handlers to raise exceptions instead of calling sys.exit(), allowing proper cleanup and error propagation.
 
-- [ ] **Implement input validation** on all trading API endpoints
+- [x] **Implement input validation** on all trading API endpoints
     - **Files**: `src/api/v1/` endpoints, trading validation modules
     - **Impact**: Prevent invalid trades, improve error messages
     - **Effort**: 2-3 days
     - **Priority**: HIGH
+    - **Status**: COMPLETED — trading-critical request models now carry explicit `Field`
+      bounds (`gt`/`ge`/`le`/`min_length`/`pattern`) so out-of-range trades (negative
+      `usd_per_trade`, zero `stats_window`, non-positive balances, bad dates/IDs) are
+      rejected at the API boundary. Tightened: `TradingParameters`, `BacktestingParameters`,
+      `BotCredentials`, `BotInstanceConfig` (`src/infrastructure/domain/bot_api_models.py`),
+      `BacktestConfigRequest` (`src/infrastructure/domain/models_backtest.py`), and
+      `BacktestRunRequestCompat`/`StrategyRequest` (`src/api/server.py`). Three raw-`Dict`
+      bodies were promoted to schema-validated models — `ArbitrageRuntimeSettingsRequest`,
+      `BacktestMetadataRequest`, `BacktestComparisonRequest` (`extra="ignore"` / `min_length`
+      keep them backwards-compatible). Shared validators live in
+      `src/shared/trading_validators.py` (`validate_iso_date_range`, `normalize_market_list`).
+      A global `RequestValidationError` handler now returns the standardized `api_response`
+      422 envelope (`{success, message, data:{errors}, trace_id}`) instead of FastAPI's default
+      shape; scope kept to `RequestValidationError` only (default `HTTPException` shape untouched).
+      Coverage in `tests/test_api_input_validation.py` (49 cases). `openapi.json` regenerated so
+      the contract surfaces `minimum`/`maximum`/`exclusiveMinimum`/`pattern` on the trading
+      schemas. Scope was trading-critical endpoints only (bot lifecycle, backtests, strategies,
+      arbitrage runtime-settings) — admin/celery housekeeping (revoke, metrics reset) deferred.
 
 #### **Performance**
 
@@ -613,7 +631,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 ### **High Priority / Medium Impact** (Week 2-4)
 
 - **Add integration tests** for external services (Redis, Celery, dYdX)
-- **Implement input validation** on all trading API endpoints
+- ✅ **Implement input validation** on all trading API endpoints (COMPLETED)
 - ✅ **Add connection pool monitoring** and alerting (COMPLETED)
 - **Extract WebSocket management** from API server
 - **Implement consistent error handling** with custom exception hierarchy

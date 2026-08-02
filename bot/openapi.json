@@ -132,7 +132,7 @@
           "Authentication"
         ],
         "summary": "Logout",
-        "description": "Revoke the presented bearer JWT by adding its JTI to the token blacklist, so it can no longer authenticate. Requires a valid bearer token.",
+        "description": "Logout the current session by revoking the presented JWT (JTI blacklist).",
         "operationId": "logout_auth_logout_post",
         "responses": {
           "200": {
@@ -143,7 +143,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/auth/logout-all": {
@@ -152,7 +157,7 @@
           "Authentication"
         ],
         "summary": "Logout All",
-        "description": "Revoke every outstanding token for the authenticated user by bumping the user's token_version security stamp (embedded as the JWT 'stv' claim), and also blacklist the caller's current token for immediate effect. Requires a valid bearer token.",
+        "description": "Revoke every outstanding token for the current user.\n\nBumps ``users.token_version`` so all previously issued JWTs (whose ``stv``\nclaim no longer matches) are rejected on the next request, and also\nblacklists the caller's current token for immediate effect.",
         "operationId": "logout_all_auth_logout_all_post",
         "responses": {
           "200": {
@@ -163,7 +168,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/auth/token": {
@@ -292,7 +302,7 @@
           "Authentication"
         ],
         "summary": "Logout",
-        "description": "Revoke the presented bearer JWT by adding its JTI to the token blacklist, so it can no longer authenticate. Requires a valid bearer token.",
+        "description": "Logout the current session by revoking the presented JWT (JTI blacklist).",
         "operationId": "logout_api_v1_auth_logout_post",
         "responses": {
           "200": {
@@ -303,7 +313,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/auth/logout-all": {
@@ -312,7 +327,7 @@
           "Authentication"
         ],
         "summary": "Logout All",
-        "description": "Revoke every outstanding token for the authenticated user by bumping the user's token_version security stamp (embedded as the JWT 'stv' claim), and also blacklist the caller's current token for immediate effect. Requires a valid bearer token.",
+        "description": "Revoke every outstanding token for the current user.\n\nBumps ``users.token_version`` so all previously issued JWTs (whose ``stv``\nclaim no longer matches) are rejected on the next request, and also\nblacklists the caller's current token for immediate effect.",
         "operationId": "logout_all_api_v1_auth_logout_all_post",
         "responses": {
           "200": {
@@ -323,7 +338,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/runtime/preflight": {
@@ -1300,9 +1320,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "additionalProperties": true,
-                "type": "object",
-                "title": "Payload"
+                "$ref": "#/components/schemas/ArbitrageRuntimeSettingsRequest"
               }
             }
           },
@@ -3153,12 +3171,11 @@
           }
         ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "additionalProperties": true,
-                "title": "Payload"
+                "$ref": "#/components/schemas/BacktestMetadataRequest"
               }
             }
           }
@@ -4024,9 +4041,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "additionalProperties": true,
-                "type": "object",
-                "title": "Request"
+                "$ref": "#/components/schemas/BacktestComparisonRequest"
               }
             }
           },
@@ -4433,6 +4448,238 @@
             }
           }
         },
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/monitoring/dataframe/memory": {
+      "get": {
+        "summary": "Get Dataframe Memory Stats",
+        "description": "Get DataFrame memory usage statistics.",
+        "operationId": "get_dataframe_memory_stats_api_v1_monitoring_dataframe_memory_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/monitoring/dataframe/cleanup": {
+      "post": {
+        "summary": "Cleanup All Dataframes",
+        "description": "Force cleanup of all tracked DataFrames.",
+        "operationId": "cleanup_all_dataframes_api_v1_monitoring_dataframe_cleanup_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/monitoring/database/pool": {
+      "get": {
+        "summary": "Get Database Pool Metrics",
+        "description": "Get current database connection pool metrics.",
+        "operationId": "get_database_pool_metrics_api_v1_monitoring_database_pool_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/monitoring/database/pool/health": {
+      "get": {
+        "summary": "Get Database Pool Health",
+        "description": "Get database connection pool health status.",
+        "operationId": "get_database_pool_health_api_v1_monitoring_database_pool_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/monitoring/database/pool/history": {
+      "get": {
+        "summary": "Get Database Pool History",
+        "description": "Get historical database connection pool metrics.",
+        "operationId": "get_database_pool_history_api_v1_monitoring_database_pool_history_get",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/monitoring/database/diagnostics": {
+      "get": {
+        "summary": "Get Database Diagnostics",
+        "description": "Get comprehensive database diagnostics including pool metrics.",
+        "operationId": "get_database_diagnostics_api_v1_monitoring_database_diagnostics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "x-response-envelope": "StandardApiResponse"
       }
     },
@@ -4899,17 +5146,149 @@
   },
   "components": {
     "schemas": {
+      "ArbitrageRuntimeSettingsRequest": {
+        "properties": {
+          "ARBITRAGE_IMPROVEMENTS_ENABLED": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arbitrage Improvements Enabled"
+          },
+          "PAIR_PRIORITY_ENGINE_ENABLED": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pair Priority Engine Enabled"
+          },
+          "POLYMARKET_SIGNALS_ENABLED": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Polymarket Signals Enabled"
+          },
+          "DEFILLAMA_SIGNALS_ENABLED": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Defillama Signals Enabled"
+          },
+          "NEWS_SIGNALS_ENABLED": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "News Signals Enabled"
+          },
+          "AUTO_EXECUTION_CHANGES_ENABLED": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Execution Changes Enabled"
+          },
+          "PAIR_PRIORITY_MAX_PAIRS": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pair Priority Max Pairs"
+          },
+          "PAIR_PRIORITY_STALE_SECONDS": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pair Priority Stale Seconds"
+          }
+        },
+        "type": "object",
+        "title": "ArbitrageRuntimeSettingsRequest",
+        "description": "Validated body for arbitrage runtime-settings updates.\n\nUnknown keys are ignored so existing clients that send unrelated fields\nkeep working; the downstream ``update_runtime_settings`` still clamps the\ntyped values it recognizes."
+      },
+      "BacktestComparisonRequest": {
+        "properties": {
+          "run_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 2,
+            "title": "Run Ids"
+          },
+          "metrics": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metrics"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_ids"
+        ],
+        "title": "BacktestComparisonRequest",
+        "description": "Compare multiple backtest runs with advanced analytics."
+      },
       "BacktestConfigRequest": {
         "properties": {
           "name": {
             "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
             "title": "Name",
             "description": "Backtest name"
           },
           "description": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 2000
               },
               {
                 "type": "null"
@@ -4921,7 +5300,8 @@
           "strategy_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "integer",
+                "minimum": 1.0
               },
               {
                 "type": "null"
@@ -4932,28 +5312,35 @@
           },
           "start_date": {
             "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
             "title": "Start Date",
             "description": "Start date (YYYY-MM-DD)"
           },
           "end_date": {
             "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
             "title": "End Date",
             "description": "End date (YYYY-MM-DD)"
           },
           "initial_balance": {
             "type": "number",
+            "exclusiveMinimum": 0.0,
             "title": "Initial Balance",
             "description": "Initial balance",
             "default": 10000.0
           },
           "pair_selection_mode": {
             "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
             "title": "Pair Selection Mode",
             "description": "Pair selection mode",
             "default": "liquidity"
           },
           "max_pairs": {
             "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
             "title": "Max Pairs",
             "description": "Maximum number of pairs to process (0 means no cap)",
             "default": 0
@@ -5003,7 +5390,9 @@
           "bot_id": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -5015,7 +5404,9 @@
           "source": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -5027,7 +5418,9 @@
           "environment": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 32,
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -5039,7 +5432,8 @@
           "requested_by_user_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "integer",
+                "minimum": 1.0
               },
               {
                 "type": "null"
@@ -5061,7 +5455,8 @@
           "timeout_seconds": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "exclusiveMinimum": 0.0
               },
               {
                 "type": "null"
@@ -5093,16 +5488,19 @@
           "pairs"
         ],
         "title": "BacktestConfigRequest",
-        "description": "Backtest configuration request"
+        "description": "Backtest configuration request."
       },
       "BacktestCreateStrategyRequest": {
         "properties": {
           "name": {
             "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
             "title": "Name"
           },
           "description": {
             "type": "string",
+            "maxLength": 2000,
             "title": "Description",
             "default": ""
           },
@@ -5192,6 +5590,20 @@
             },
             "type": "array",
             "title": "Equity Curve"
+          },
+          "artifact_refs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Artifact Refs",
+            "description": "Backtest artifact references keyed by artifact kind"
+          },
+          "analytics_rows_written": {
+            "type": "integer",
+            "title": "Analytics Rows Written",
+            "description": "Total analytical rows written during artifact sidecar sync",
+            "default": 0
           }
         },
         "type": "object",
@@ -5232,6 +5644,26 @@
         ],
         "title": "BacktestListResponse",
         "description": "Backtest list response"
+      },
+      "BacktestMetadataRequest": {
+        "properties": {
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          },
+          "merge": {
+            "type": "boolean",
+            "title": "Merge",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "metadata"
+        ],
+        "title": "BacktestMetadataRequest",
+        "description": "Attach or merge structured metadata into a persisted backtest run."
       },
       "BacktestResponse": {
         "properties": {
@@ -5350,16 +5782,19 @@
         "properties": {
           "start_date": {
             "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
             "title": "Start Date"
           },
           "end_date": {
             "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
             "title": "End Date"
           },
           "strategy_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "integer",
+                "minimum": 1.0
               },
               {
                 "type": "null"
@@ -5370,7 +5805,8 @@
           "name": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 255
               },
               {
                 "type": "null"
@@ -5381,7 +5817,8 @@
           "description": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 2000
               },
               {
                 "type": "null"
@@ -5391,13 +5828,15 @@
           },
           "initial_balance": {
             "type": "number",
+            "exclusiveMinimum": 0.0,
             "title": "Initial Balance",
             "default": 1000.0
           },
           "timeout_seconds": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "exclusiveMinimum": 0.0
               },
               {
                 "type": "null"
@@ -5407,13 +5846,16 @@
           },
           "max_pairs": {
             "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
             "title": "Max Pairs",
             "default": 0
           },
           "pair_selection_mode": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 64
               },
               {
                 "type": "null"
@@ -5476,7 +5918,8 @@
           "bot_id": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 128
               },
               {
                 "type": "null"
@@ -5487,7 +5930,8 @@
           "source": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 64
               },
               {
                 "type": "null"
@@ -5498,7 +5942,8 @@
           "environment": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 32
               },
               {
                 "type": "null"
@@ -5509,7 +5954,8 @@
           "requested_by_user_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "integer",
+                "minimum": 1.0
               },
               {
                 "type": "null"
@@ -5688,36 +6134,49 @@
         "properties": {
           "candle_resolution": {
             "type": "string",
+            "maxLength": 16,
+            "minLength": 1,
             "title": "Candle Resolution",
             "default": "1HOUR"
           },
           "max_history_days": {
             "type": "integer",
+            "maximum": 36500.0,
+            "minimum": 1.0,
             "title": "Max History Days",
             "default": 90
           },
           "starting_balance": {
             "type": "number",
+            "exclusiveMinimum": 0.0,
             "title": "Starting Balance",
             "default": 1000.0
           },
           "transaction_fee": {
             "type": "number",
+            "exclusiveMaximum": 1.0,
+            "minimum": 0.0,
             "title": "Transaction Fee",
             "default": 0.0005
           },
           "slippage": {
             "type": "number",
+            "exclusiveMaximum": 1.0,
+            "minimum": 0.0,
             "title": "Slippage",
             "default": 0.001
           },
           "benchmark_symbol": {
             "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
             "title": "Benchmark Symbol",
             "default": "BTC-USD"
           },
           "risk_free_rate": {
             "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
             "title": "Risk Free Rate",
             "default": 0.02
           }
@@ -5864,15 +6323,20 @@
         "properties": {
           "chain_id": {
             "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
             "title": "Chain Id",
             "default": "dydx-testnet-4"
           },
           "address": {
             "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
             "title": "Address"
           },
           "mnemonic": {
             "type": "string",
+            "minLength": 1,
             "title": "Mnemonic"
           }
         },
@@ -5888,13 +6352,16 @@
         "properties": {
           "instance_id": {
             "type": "string",
-            "title": "Instance Id",
-            "description": "Unique instance identifier"
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Instance Id"
           },
           "instance_name": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 255
               },
               {
                 "type": "null"
@@ -6190,15 +6657,20 @@
         "properties": {
           "name": {
             "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
             "title": "Name"
           },
           "category": {
             "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
             "title": "Category",
             "default": "pairs_trading"
           },
           "description": {
             "type": "string",
+            "maxLength": 2000,
             "title": "Description",
             "default": ""
           },
@@ -6209,18 +6681,22 @@
           },
           "user_id": {
             "type": "integer",
+            "minimum": 1.0,
             "title": "User Id",
             "default": 1
           },
           "resolution": {
             "type": "string",
+            "maxLength": 16,
+            "minLength": 1,
             "title": "Resolution",
             "default": "1HOUR"
           },
           "candle_resolution": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 16
               },
               {
                 "type": "null"
@@ -6230,26 +6706,33 @@
           },
           "zscore_threshold": {
             "type": "number",
+            "exclusiveMinimum": 0.0,
             "title": "Zscore Threshold",
             "default": 1.5
           },
           "stats_window": {
             "type": "integer",
+            "maximum": 2000.0,
+            "minimum": 2.0,
             "title": "Stats Window",
             "default": 21
           },
           "max_half_life": {
             "type": "number",
+            "maximum": 10000.0,
+            "minimum": 1.0,
             "title": "Max Half Life",
             "default": 24.0
           },
           "usd_per_trade": {
             "type": "number",
+            "exclusiveMinimum": 0.0,
             "title": "Usd Per Trade",
             "default": 10.0
           },
           "usd_min_collateral": {
             "type": "number",
+            "minimum": 0.0,
             "title": "Usd Min Collateral",
             "default": 100.0
           },
@@ -6280,76 +6763,104 @@
           },
           "max_positions": {
             "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
             "title": "Max Positions",
             "default": 5
           },
           "max_drawdown_pct": {
             "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
             "title": "Max Drawdown Pct",
             "default": 15.0
           },
           "stop_loss_pct": {
             "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
             "title": "Stop Loss Pct",
             "default": 3.0
           },
           "take_profit_pct": {
             "type": "number",
+            "maximum": 1000.0,
+            "minimum": 0.0,
             "title": "Take Profit Pct",
             "default": 8.0
           },
           "trailing_stop_pct": {
             "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
             "title": "Trailing Stop Pct",
             "default": 2.0
           },
           "rebalance_interval_hours": {
             "type": "integer",
+            "maximum": 8760.0,
+            "minimum": 0.0,
             "title": "Rebalance Interval Hours",
             "default": 24
           },
           "position_timeout_hours": {
             "type": "integer",
+            "maximum": 8760.0,
+            "minimum": 0.0,
             "title": "Position Timeout Hours",
             "default": 72
           },
           "initial_amount": {
             "type": "number",
+            "exclusiveMinimum": 0.0,
             "title": "Initial Amount",
             "default": 1000.0
           },
           "starting_balance": {
             "type": "number",
+            "exclusiveMinimum": 0.0,
             "title": "Starting Balance",
             "default": 1000.0
           },
           "transaction_fee": {
             "type": "number",
+            "exclusiveMaximum": 1.0,
+            "minimum": 0.0,
             "title": "Transaction Fee",
             "default": 0.0005
           },
           "slippage": {
             "type": "number",
+            "exclusiveMaximum": 1.0,
+            "minimum": 0.0,
             "title": "Slippage",
             "default": 0.001
           },
           "max_history_days": {
             "type": "integer",
+            "maximum": 36500.0,
+            "minimum": 1.0,
             "title": "Max History Days",
             "default": 90
           },
           "benchmark_symbol": {
             "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
             "title": "Benchmark Symbol",
             "default": "BTC-USD"
           },
           "risk_free_rate": {
             "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
             "title": "Risk Free Rate",
             "default": 0.02
           },
           "pair_selection_mode": {
             "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
             "title": "Pair Selection Mode",
             "default": "liquidity"
           }
@@ -6404,11 +6915,13 @@
           },
           "subaccount_number": {
             "type": "integer",
+            "minimum": 0.0,
             "title": "Subaccount Number",
             "default": 0
           },
           "capital_allocation_usd": {
             "type": "number",
+            "minimum": 0.0,
             "title": "Capital Allocation Usd",
             "default": 0.0
           },
@@ -6434,36 +6947,47 @@
           },
           "resolution_timeframe": {
             "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
             "title": "Resolution Timeframe",
             "default": "1HOUR"
           },
           "strategy": {
             "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
             "title": "Strategy",
             "default": "cointegration"
           },
           "stats_window": {
             "type": "integer",
+            "maximum": 2000.0,
+            "minimum": 2.0,
             "title": "Stats Window",
             "default": 21
           },
           "max_half_life": {
             "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 1.0,
             "title": "Max Half Life",
             "default": 24
           },
           "zscore_threshold": {
             "type": "number",
+            "exclusiveMinimum": 0.0,
             "title": "Zscore Threshold",
             "default": 1.5
           },
           "usd_per_trade": {
             "type": "number",
+            "exclusiveMinimum": 0.0,
             "title": "Usd Per Trade",
             "default": 10.0
           },
           "usd_min_collateral": {
             "type": "number",
+            "minimum": 0.0,
             "title": "Usd Min Collateral",
             "default": 100.0
           },
@@ -6474,36 +6998,50 @@
           },
           "max_positions": {
             "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
             "title": "Max Positions",
             "default": 5
           },
           "max_drawdown_pct": {
             "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
             "title": "Max Drawdown Pct",
             "default": 0.0
           },
           "stop_loss_pct": {
             "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
             "title": "Stop Loss Pct",
             "default": 2.0
           },
           "take_profit_pct": {
             "type": "number",
+            "maximum": 1000.0,
+            "minimum": 0.0,
             "title": "Take Profit Pct",
             "default": 5.0
           },
           "trailing_stop_pct": {
             "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
             "title": "Trailing Stop Pct",
             "default": 0.0
           },
           "rebalance_interval_hours": {
             "type": "integer",
+            "maximum": 8760.0,
+            "minimum": 0.0,
             "title": "Rebalance Interval Hours",
             "default": 24
           },
           "position_timeout_hours": {
             "type": "integer",
+            "maximum": 8760.0,
+            "minimum": 0.0,
             "title": "Position Timeout Hours",
             "default": 72
           },
@@ -6517,7 +7055,7 @@
         },
         "type": "object",
         "title": "TradingParameters",
-        "description": "Trading parameters used by bot instances."
+        "description": "Trading parameters used by bot instances.\n\nNumeric fields carry explicit bounds so invalid trades (negative sizes,\nzero stats windows, etc.) are rejected at the API boundary with a 422\ninstead of reaching the live runtime. Values left unbounded here are either\nconfig-driven free-form strings (``resolution_timeframe``, ``strategy``) or\nrejected later by ``assert_supported_live_risk_controls`` when > 0."
       },
       "ValidationError": {
         "properties": {

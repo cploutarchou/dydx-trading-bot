@@ -18,7 +18,6 @@ from uuid import uuid4
 import httpx
 import uvicorn
 from fastapi import (
-    BackgroundTasks,
     Body,
     Depends,
     FastAPI,
@@ -54,9 +53,6 @@ from src.api.v1.auth import router as auth_router  # noqa: E402
 from src.infrastructure.domain.bot_api_models import (  # noqa: E402
     BotCredentials,
     BotInstanceConfig,
-    BotInstanceList,
-    BotInstanceStatus,
-    BotOperationResult,
     BotStatus,
     TradingParameters,
 )
@@ -78,7 +74,7 @@ except Exception as bot_manager_import_error:  # pragma: no cover
     )
     bot_manager = None
 
-from internal.domain.models import BacktestRun, BotStatusEnum  # noqa: E402
+from internal.domain.models import BacktestRun  # noqa: E402
 from src.api.realtime_serializers import (  # noqa: E402
     serialize_market_core,
     serialize_realtime_position,
@@ -93,7 +89,6 @@ from src.api.websocket_server import (  # noqa: E402
 
 # Import database utilities
 from src.infrastructure.database import DatabaseConfig, db  # noqa: E402
-from src.infrastructure.domain.cointegration_storage import pair_storage  # noqa: E402
 
 # Import backtest modules
 from src.infrastructure.domain.models_backtest import (  # noqa: E402
@@ -121,11 +116,6 @@ from src.shared.logging_setup import setup_logging  # noqa: E402
 from src.shared.live_risk_controls import (
     assert_supported_live_risk_controls,
 )  # noqa: E402
-from src.shared.credentials_cipher import (  # noqa: E402
-    open_config_secrets,
-    seal_config_secrets,
-)
-from src.shared.notifications import TelegramMessenger  # noqa: E402
 from src.shared.time_utils import utc_now_iso  # noqa: E402
 from src.api.responses import (  # noqa: E402
     INTERNAL_ERROR_MESSAGE,
@@ -147,11 +137,8 @@ from src.trading.arbitrage_observability import snapshot_metrics  # noqa: E402
 from src.trading.arbitrage_runtime_config import (  # noqa: E402
     get_feature_flags,
     get_runtime_settings,
-    is_pair_priority_engine_enabled,
-    update_runtime_settings,
 )
 from src.trading.dydx_client import connect_dydx, connect_dydx_runtime  # noqa: E402
-from src.trading.pair_priority import prioritize_pairs, score_pair  # noqa: E402
 
 # Filter noisy third-party warnings after imports
 _original_stderr = sys.stderr
@@ -713,14 +700,6 @@ class BacktestComparisonRequest(BaseModel):
 
 def _bot_manager_ready() -> bool:
     return bot_manager is not None
-
-
-def _bot_manager_unavailable_response() -> JSONResponse:
-    return api_response(
-        success=False,
-        message="Bot manager unavailable in this environment",
-        status_code=503,
-    )
 
 
 def _bot_recovery_diagnostics() -> Dict[str, Any]:
@@ -1821,10 +1800,38 @@ app.include_router(
 from src.api.v1.monitoring import router as monitoring_router  # noqa: E402
 from src.api.v1.celery_admin import router as celery_admin_router  # noqa: E402
 from src.api.v1.strategies import router as strategies_router  # noqa: E402
+from src.api.v1.arbitrage import router as arbitrage_router  # noqa: E402
+from src.api.v1.bot_lifecycle import (  # noqa: E402
+    configure_bot_lifecycle,
+    create_bot_instance,
+    delete_bot_instance,
+    get_bot_instance,
+    list_bot_instances,
+    quick_deploy_bot,
+    restart_bot_instance,
+    router as bot_lifecycle_router,
+    start_bot_instance,
+    stop_bot_instance,
+)
+from src.api.v1.bot_records import (  # noqa: E402
+    get_bot_history,
+    get_bot_jobs,
+    get_bot_stats,
+    get_bot_trades,
+    router as bot_records_router,
+)
+
+configure_bot_lifecycle(
+    bot_manager_provider=lambda: bot_manager,
+    instance_rate_limiter=_check_instance_rate_limit,
+)
 
 app.include_router(monitoring_router)
 app.include_router(celery_admin_router)
 app.include_router(strategies_router)
+app.include_router(arbitrage_router)
+app.include_router(bot_lifecycle_router)
+app.include_router(bot_records_router)
 
 
 # ============================================================================
@@ -2008,130 +2015,6 @@ async def runtime_preflight(
         )
 
 
-def _resolve_operator_name(current_user: Optional[User]) -> str:
-    if current_user is None:
-        return "system"
-    return (
-        str(getattr(current_user, "full_name", "") or "").strip()
-        or str(getattr(current_user, "username", "") or "").strip()
-        or str(getattr(current_user, "email", "") or "").strip()
-        or "system"
-    )
-
-
-def _resolve_action_details(message: Optional[str], fallback: str) -> str:
-    text = str(message or "").strip()
-    return text or fallback
-
-
-def _build_bot_lifecycle_context(
-    instance_id: str,
-    config_payload: Optional[Dict[str, Any]],
-    current_user: Optional[User],
-    *,
-    details: str = "",
-    reason: str = "",
-) -> Dict[str, Any]:
-    payload = config_payload or {}
-    trading_params = payload.get("trading_params") or {}
-    credentials = payload.get("credentials") or {}
-    is_testnet = bool(trading_params.get("is_testnet", True))
-    return {
-        "instance_id": instance_id,
-        "instance_name": payload.get("instance_name") or instance_id,
-        "strategy": trading_params.get("strategy", "unknown"),
-        "is_testnet": is_testnet,
-        "account_address": credentials.get("address"),
-        "operator": _resolve_operator_name(current_user),
-        "details": details,
-        "reason": reason,
-    }
-
-
-def _send_bot_lifecycle_notification(
-    action: str,
-    instance_id: str,
-    config_payload: Optional[Dict[str, Any]],
-    current_user: Optional[User],
-    *,
-    success: bool = True,
-    details: str = "",
-    reason: str = "",
-) -> bool:
-    payload = config_payload or {}
-    telegram = payload.get("telegram") or {}
-    messenger = TelegramMessenger(
-        bot_token=str(telegram.get("token") or "").strip(),
-        chat_id=str(telegram.get("chat_id") or "").strip(),
-        instance_id=instance_id,
-        environment=os.getenv("ENVIRONMENT", "development"),
-    )
-    return messenger.send_lifecycle_message(
-        action,
-        _build_bot_lifecycle_context(
-            instance_id,
-            payload,
-            current_user,
-            details=details,
-            reason=reason,
-        ),
-        success=success,
-    )
-
-
-def _persist_bot_status_and_event(
-    instance_id: str,
-    *,
-    status: Optional[BotStatusEnum] = None,
-    process_id: Optional[int] = None,
-    event_type: Optional[str] = None,
-    severity: str = "info",
-    message: str = "",
-    details: Optional[Dict[str, Any]] = None,
-) -> Optional[Dict[str, Any]]:
-    """Persist lifecycle status/event updates and return the current bot config payload."""
-    session = None
-    try:
-        session = db.get_session()
-        uow = UnitOfWork(session)
-        bot = uow.bots.get_by_instance_id(instance_id)
-        if bot is None:
-            return None
-
-        if status is not None:
-            uow.bots.update_status(instance_id, status, process_id=process_id)
-            bot = uow.bots.get_by_instance_id(instance_id)
-            if bot is None:
-                return None
-
-        if event_type:
-            uow.events.log_event(
-                int(bot.id),  # type: ignore[arg-type]
-                event_type,
-                severity,
-                message,
-                details=details,
-            )
-
-        # The stored config is encrypted at rest; decrypt before returning so the
-        # notification/context helpers (which read telegram.token/credentials)
-        # observe plaintext secrets.
-        raw_config = dict(bot.config) if bot.config is not None else {}  # type: ignore[arg-type]
-        return open_config_secrets(raw_config)
-    except Exception as db_error:
-        logger.warning(
-            "Failed to persist bot lifecycle state for {}: {}",
-            instance_id,
-            db_error,
-        )
-        if session is not None:
-            session.rollback()
-        return None
-    finally:
-        if session is not None:
-            session.close()
-
-
 @app.middleware("http")
 async def request_trace_logging_middleware(request: Request, call_next):
     """Attach per-request trace IDs and emit verbose request logs in development."""
@@ -2214,945 +2097,11 @@ def _is_expected_strategy_runtime_probe_404(request: Request, status_code: int) 
     )
 
 
-# ============================================================================
-# BOT INSTANCE MANAGEMENT ENDPOINTS
-# ============================================================================
+# BOT LIFECYCLE ENDPOINTS — extracted to src/api/v1/bot_lifecycle.py.
+# The canonical manager and instance-create rate limiter are injected above.
 
 
-@app.post("/api/v1/bots", response_model=BotOperationResult)
-async def create_bot_instance(
-    config: BotInstanceConfig,
-    current_user: User = Depends(get_current_active_user),
-    _rate: None = Depends(_check_instance_rate_limit),
-):
-    """Create a new bot instance"""
-    try:
-        assert_supported_live_risk_controls(config.trading_params.model_dump())
-        if bot_manager is None:
-            return _bot_manager_unavailable_response()
-        result = await bot_manager.create_instance(config)
-
-        if result.success:
-            # Persist DB-backed runtime config. Worker startup requires this row.
-            persisted_config: Dict[str, Any] = {
-                "instance_name": config.instance_name,
-                "credentials": (
-                    config.credentials.model_dump() if config.credentials else {}
-                ),
-                "telegram": (config.telegram.model_dump() if config.telegram else {}),
-                "trading_params": (
-                    config.trading_params.model_dump() if config.trading_params else {}
-                ),
-                "backtesting_params": (
-                    config.backtesting_params.model_dump()
-                    if config.backtesting_params
-                    else {}
-                ),
-            }
-            session = None
-            try:
-                session = db.get_session()
-                uow = UnitOfWork(session)
-
-                # Create database record if the manager has not already done so.
-                bot_db = uow.bots.get_by_instance_id(config.instance_id)
-                config_meta = bot_manager._build_config_meta(persisted_config)
-                # Seal credential/telegram blocks at the persistence boundary so
-                # secrets are encrypted at rest. persisted_config itself stays
-                # plaintext for the lifecycle notification below.
-                stored_config = seal_config_secrets(
-                    {**persisted_config, "config_meta": config_meta}
-                )
-                if bot_db is None:
-                    bot_db = uow.bots.create_bot(
-                        instance_id=config.instance_id,
-                        network=(
-                            "testnet"
-                            if (
-                                config.trading_params
-                                and config.trading_params.is_testnet
-                            )
-                            else "mainnet"
-                        ),
-                        strategy=(
-                            config.trading_params.strategy
-                            if config.trading_params
-                            else "default"
-                        ),
-                        config=stored_config,
-                    )
-                else:
-                    bot_db.config = stored_config
-                    session.commit()
-
-                try:
-                    uow.events.log_event(
-                        int(bot_db.id),  # type: ignore[arg-type]
-                        "bot_created",
-                        "info",
-                        f"Bot instance created via API: {config.instance_id}",
-                        details={"instance_name": config.instance_name},
-                    )
-                except Exception as event_error:
-                    logger.warning(
-                        "Failed to record bot_created event for '{}': {}",
-                        config.instance_id,
-                        event_error,
-                    )
-                logger.info(
-                    f"Bot instance '{config.instance_id}' persisted to database"
-                )
-            except Exception as db_error:
-                logger.error(f"Failed to persist bot to database: {db_error}")
-                if session is not None:
-                    session.rollback()
-                try:
-                    await bot_manager.delete_instance(config.instance_id)
-                except Exception as cleanup_error:
-                    logger.warning(
-                        "Failed to clean up bot instance '{}' after DB persistence failure: {}",
-                        config.instance_id,
-                        cleanup_error,
-                    )
-                return api_response(
-                    success=False,
-                    message=(
-                        "Failed to persist DB-backed bot configuration; "
-                        "instance was not created"
-                    ),
-                    status_code=500,
-                )
-            finally:
-                if session is not None:
-                    session.close()
-
-            _send_bot_lifecycle_notification(
-                "created",
-                config.instance_id,
-                persisted_config,
-                current_user,
-                success=True,
-                details="Runtime instance created and ready to start.",
-            )
-
-            return api_response(
-                success=True,
-                data=result.model_dump(),
-                message=f"Bot instance '{config.instance_id}' created successfully",
-            )
-        else:
-            return api_response(success=False, message=result.message, status_code=400)
-
-    except Exception as e:
-        if isinstance(e, ValueError):
-            return api_response(
-                success=False,
-                message=f"Validation error: {str(e)}",
-                data={"error": "UNSUPPORTED_RISK_CONTROL"},
-                status_code=422,
-            )
-        logger.error(f"Error creating bot instance: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-
-
-@app.get("/api/v1/bots", response_model=BotInstanceList)
-async def list_bot_instances(current_user: User = Depends(get_current_active_user)):
-    """Get list of all bot instances"""
-    try:
-        if bot_manager is None:
-            return api_response(
-                success=True,
-                data={"bots": [], "total": 0},
-                message="Retrieved 0 bot instances (bot manager unavailable)",
-            )
-        instances = await bot_manager.list_instances()
-
-        return api_response(
-            success=True,
-            data={
-                "bots": [instance.model_dump() for instance in instances],
-                "total": len(instances),
-            },
-            message=f"Retrieved {len(instances)} bot instances",
-        )
-
-    except Exception as e:
-        logger.error(f"Error listing bot instances: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-
-
-@app.get("/api/v1/bots/{instance_id}", response_model=BotInstanceStatus)
-async def get_bot_instance(
-    instance_id: str, current_user: User = Depends(get_current_active_user)
-):
-    """Get specific bot instance status"""
-    try:
-        if bot_manager is None:
-            return _bot_manager_unavailable_response()
-        instance = await bot_manager.get_instance_status(instance_id)
-
-        if instance is None:
-            return api_response(
-                success=False,
-                message=f"Bot instance '{instance_id}' not found",
-                status_code=404,
-            )
-
-        return api_response(
-            success=True,
-            data=instance.model_dump(),
-            message=f"Retrieved status for bot instance '{instance_id}'",
-        )
-
-    except Exception as e:
-        logger.error(f"Error getting bot instance {instance_id}: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-
-
-@app.delete("/api/v1/bots/{instance_id}")
-async def delete_bot_instance(
-    instance_id: str, current_user: User = Depends(get_current_active_user)
-):
-    """Delete bot instance"""
-    try:
-        if bot_manager is None:
-            return _bot_manager_unavailable_response()
-        existing_config = _persist_bot_status_and_event(
-            instance_id,
-            event_type=None,
-        )
-        result = await bot_manager.delete_instance(instance_id)
-
-        if result.success:
-            session = None
-            try:
-                session = db.get_session()
-                uow = UnitOfWork(session)
-                bot = uow.bots.get_by_instance_id(instance_id)
-                if bot is not None:
-                    uow.events.log_event(
-                        int(bot.id),  # type: ignore[arg-type]
-                        "bot_deleted",
-                        "info",
-                        "Bot instance deleted via API",
-                    )
-                uow.bots.delete_bot(instance_id)
-            except Exception as db_error:
-                logger.warning(
-                    f"Failed to delete bot instance '{instance_id}' from database: {db_error}"
-                )
-                if session is not None:
-                    session.rollback()
-            finally:
-                if session is not None:
-                    session.close()
-            _send_bot_lifecycle_notification(
-                "deleted",
-                instance_id,
-                existing_config,
-                current_user,
-                success=True,
-                details=_resolve_action_details(
-                    result.message,
-                    "Runtime definition deleted successfully.",
-                ),
-            )
-            return api_response(
-                success=True,
-                data=result.model_dump(),
-                message=f"Bot instance '{instance_id}' deleted successfully",
-            )
-        else:
-            _send_bot_lifecycle_notification(
-                "delete",
-                instance_id,
-                existing_config,
-                current_user,
-                success=False,
-                details=_resolve_action_details(
-                    result.error or result.message,
-                    "Runtime deletion failed.",
-                ),
-            )
-            return api_response(success=False, message=result.message, status_code=400)
-
-    except Exception as e:
-        logger.error(f"Error deleting bot instance {instance_id}: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-
-
-# ============================================================================
-# BOT CONTROL ENDPOINTS
-# ============================================================================
-
-
-@app.post("/api/v1/bots/{instance_id}/start")
-async def start_bot_instance(
-    instance_id: str,
-    background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Start bot instance"""
-    try:
-        if bot_manager is None:
-            return _bot_manager_unavailable_response()
-        result = await bot_manager.start_instance(instance_id)
-
-        if result.success:
-            # Update database
-            persisted_config = _persist_bot_status_and_event(
-                instance_id,
-                status=BotStatusEnum.RUNNING,
-                process_id=(result.data.get("process_id") if result.data else None),
-                event_type="bot_started",
-                severity="info",
-                message=f"Bot started via API (PID: {result.data.get('process_id') if result.data else 'unknown'})",
-                details={
-                    "process_id": result.data.get("process_id") if result.data else None
-                },
-            )
-            _send_bot_lifecycle_notification(
-                "started",
-                instance_id,
-                persisted_config,
-                current_user,
-                success=True,
-                details=_resolve_action_details(
-                    result.message,
-                    "Runtime process started successfully.",
-                ),
-            )
-
-            return api_response(
-                success=True,
-                data=result.model_dump(),
-                message=f"Bot instance '{instance_id}' started successfully",
-            )
-        else:
-            persisted_config = _persist_bot_status_and_event(
-                instance_id,
-                status=BotStatusEnum.ERROR,
-                process_id=None,
-                event_type="bot_start_failed",
-                severity="error",
-                message=_resolve_action_details(result.message, "Bot failed to start"),
-                details={"error": result.error or result.message},
-            )
-            _send_bot_lifecycle_notification(
-                "start",
-                instance_id,
-                persisted_config,
-                current_user,
-                success=False,
-                details=_resolve_action_details(
-                    result.error or result.message,
-                    "Runtime start failed before reaching RUNNING state.",
-                ),
-            )
-            return api_response(success=False, message=result.message, status_code=400)
-
-    except Exception as e:
-        logger.error(f"Error starting bot instance {instance_id}: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-
-
-@app.post("/api/v1/bots/{instance_id}/stop")
-async def stop_bot_instance(
-    instance_id: str,
-    force: bool = False,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Stop bot instance"""
-    try:
-        if bot_manager is None:
-            return _bot_manager_unavailable_response()
-        result = await bot_manager.stop_instance(instance_id, force=force)
-
-        if result.success:
-            # Update database
-            persisted_config = _persist_bot_status_and_event(
-                instance_id,
-                status=BotStatusEnum.STOPPED,
-                process_id=None,
-                event_type="bot_stopped",
-                severity="info",
-                message=f"Bot stopped via API (force={force})",
-                details={"force": force},
-            )
-            _send_bot_lifecycle_notification(
-                "stopped",
-                instance_id,
-                persisted_config,
-                current_user,
-                success=True,
-                details=_resolve_action_details(
-                    result.message,
-                    "Runtime process stopped successfully.",
-                ),
-                reason="Force stop" if force else "Operator stop",
-            )
-
-            return api_response(
-                success=True,
-                data=result.model_dump(),
-                message=f"Bot instance '{instance_id}' stopped successfully",
-            )
-        else:
-            persisted_config = _persist_bot_status_and_event(
-                instance_id,
-                status=BotStatusEnum.ERROR,
-                process_id=None,
-                event_type="bot_stop_failed",
-                severity="error",
-                message=_resolve_action_details(result.message, "Bot failed to stop"),
-                details={"error": result.error or result.message, "force": force},
-            )
-            _send_bot_lifecycle_notification(
-                "stop",
-                instance_id,
-                persisted_config,
-                current_user,
-                success=False,
-                details=_resolve_action_details(
-                    result.error or result.message,
-                    "Runtime stop request failed.",
-                ),
-                reason="Force stop" if force else "Operator stop",
-            )
-            return api_response(success=False, message=result.message, status_code=400)
-
-    except Exception as e:
-        logger.error(f"Error stopping bot instance {instance_id}: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-
-
-@app.post("/api/v1/bots/{instance_id}/restart")
-async def restart_bot_instance(
-    instance_id: str, current_user: User = Depends(get_current_active_user)
-):
-    """Restart bot instance"""
-    try:
-        if bot_manager is None:
-            return _bot_manager_unavailable_response()
-        # Stop first
-        stop_result = await bot_manager.stop_instance(instance_id, force=False)
-        if not stop_result.success:
-            persisted_config = _persist_bot_status_and_event(
-                instance_id,
-                status=BotStatusEnum.ERROR,
-                process_id=None,
-                event_type="bot_restart_failed",
-                severity="error",
-                message=_resolve_action_details(
-                    stop_result.message,
-                    "Failed to stop runtime during restart",
-                ),
-                details={
-                    "phase": "stop",
-                    "error": stop_result.error or stop_result.message,
-                },
-            )
-            _send_bot_lifecycle_notification(
-                "restart",
-                instance_id,
-                persisted_config,
-                current_user,
-                success=False,
-                details=_resolve_action_details(
-                    stop_result.error or stop_result.message,
-                    "Restart failed during stop phase.",
-                ),
-                reason="Operator restart",
-            )
-            return api_response(
-                success=False,
-                message=f"Failed to stop instance: {stop_result.message}",
-                status_code=400,
-            )
-
-        # Wait a moment
-        await asyncio.sleep(2)
-
-        # Start again
-        start_result = await bot_manager.start_instance(instance_id)
-
-        if start_result.success:
-            persisted_config = _persist_bot_status_and_event(
-                instance_id,
-                status=BotStatusEnum.RUNNING,
-                process_id=(
-                    start_result.data.get("process_id") if start_result.data else None
-                ),
-                event_type="bot_restarted",
-                severity="info",
-                message=f"Bot restarted via API (PID: {start_result.data.get('process_id') if start_result.data else 'unknown'})",
-                details={
-                    "process_id": (
-                        start_result.data.get("process_id")
-                        if start_result.data
-                        else None
-                    )
-                },
-            )
-            _send_bot_lifecycle_notification(
-                "restarted",
-                instance_id,
-                persisted_config,
-                current_user,
-                success=True,
-                details=_resolve_action_details(
-                    start_result.message,
-                    "Runtime restarted successfully.",
-                ),
-                reason="Operator restart",
-            )
-            return api_response(
-                success=True,
-                data=start_result.model_dump(),
-                message=f"Bot instance '{instance_id}' restarted successfully",
-            )
-        else:
-            persisted_config = _persist_bot_status_and_event(
-                instance_id,
-                status=BotStatusEnum.ERROR,
-                process_id=None,
-                event_type="bot_restart_failed",
-                severity="error",
-                message=_resolve_action_details(
-                    start_result.message,
-                    "Failed to start runtime during restart",
-                ),
-                details={
-                    "phase": "start",
-                    "error": start_result.error or start_result.message,
-                },
-            )
-            _send_bot_lifecycle_notification(
-                "restart",
-                instance_id,
-                persisted_config,
-                current_user,
-                success=False,
-                details=_resolve_action_details(
-                    start_result.error or start_result.message,
-                    "Restart failed during start phase.",
-                ),
-                reason="Operator restart",
-            )
-            return api_response(
-                success=False,
-                message=f"Failed to start instance: {start_result.message}",
-                status_code=400,
-            )
-
-    except Exception as e:
-        logger.error(f"Error restarting bot instance {instance_id}: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-
-
-# ============================================================================
-# DATABASE & HISTORY ENDPOINTS
-# ============================================================================
-
-
-@app.get("/api/v1/bots/{instance_id}/history")
-async def get_bot_history(
-    instance_id: str,
-    days: int = 7,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get bot event history"""
-    try:
-        session = db.get_session()
-        uow = UnitOfWork(session)
-
-        # Get bot first to verify it exists
-        bot = uow.bots.get_by_instance_id(instance_id)
-        if not bot:
-            return api_response(
-                success=False,
-                message=f"Bot instance '{instance_id}' not found",
-                status_code=404,
-            )
-
-        # Get events
-        events = uow.events.get_bot_events(int(bot.id), days=days)  # type: ignore[arg-type]
-
-        return api_response(
-            success=True,
-            data={
-                "instance_id": instance_id,
-                "total_events": len(events),
-                "days_requested": days,
-                "events": [
-                    {
-                        "timestamp": e.created_at.isoformat(),
-                        "event_type": e.event_type,
-                        "severity": e.severity,
-                        "message": e.message,
-                        "details": e.details,
-                    }
-                    for e in events
-                ],
-            },
-            message=f"Retrieved {len(events)} events for bot '{instance_id}'",
-        )
-
-    except Exception as e:
-        logger.error(f"Error getting bot history for {instance_id}: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-    finally:
-        session.close()
-
-
-@app.get("/api/v1/bots/{instance_id}/jobs")
-async def get_bot_jobs(
-    instance_id: str,
-    days: int = 7,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get bot job history"""
-    try:
-        session = db.get_session()
-        uow = UnitOfWork(session)
-
-        # Get bot first
-        bot = uow.bots.get_by_instance_id(instance_id)
-        if not bot:
-            return api_response(
-                success=False,
-                message=f"Bot instance '{instance_id}' not found",
-                status_code=404,
-            )
-
-        # Get jobs
-        jobs = uow.jobs.get_job_history(int(bot.id), days=days)  # type: ignore[arg-type]
-
-        # Calculate job statistics
-        total_jobs = len(jobs)
-
-        def _job_status_value(job) -> str:
-            return str(getattr(job.status, "value", job.status)).lower()
-
-        completed_jobs = len([j for j in jobs if _job_status_value(j) == "completed"])
-        failed_jobs = len([j for j in jobs if _job_status_value(j) == "failed"])
-        cancelled_jobs = len([j for j in jobs if _job_status_value(j) == "cancelled"])
-        pending_jobs = len([j for j in jobs if _job_status_value(j) == "pending"])
-        running_jobs = len([j for j in jobs if _job_status_value(j) == "running"])
-
-        return api_response(
-            success=True,
-            data={
-                "instance_id": instance_id,
-                "statistics": {
-                    "total_jobs": total_jobs,
-                    "completed": completed_jobs,
-                    "failed": failed_jobs,
-                    "cancelled": cancelled_jobs,
-                    "pending": pending_jobs,
-                    "running": running_jobs,
-                },
-                "jobs": [
-                    {
-                        "job_id": j.job_id,
-                        "job_type": j.job_type,
-                        "status": _job_status_value(j),
-                        "progress_pct": float(getattr(j, "progress_pct", 0.0) or 0.0),
-                        "process_id": getattr(j, "process_id", None),
-                        "execution_time_ms": getattr(j, "execution_time_ms", None),
-                        "retry_count": f"{j.retry_count}/{j.max_retries}",
-                        "created_at": j.created_at.isoformat(),
-                        "updated_at": (
-                            j.updated_at.isoformat()
-                            if getattr(j, "updated_at", None)
-                            else None
-                        ),
-                        "started_at": (
-                            j.started_at.isoformat()
-                            if j.started_at is not None
-                            else None
-                        ),
-                        "completed_at": (
-                            j.completed_at.isoformat()
-                            if j.completed_at is not None
-                            else None
-                        ),
-                        "error_message": j.error_message,
-                        "cancellation_reason": getattr(j, "cancellation_reason", None),
-                        "metadata": dict(getattr(j, "metadata_json", None) or {}),
-                    }
-                    for j in jobs
-                ],
-            },
-            message=f"Retrieved {total_jobs} jobs for bot '{instance_id}'",
-        )
-
-    except Exception as e:
-        logger.error(f"Error getting bot jobs for {instance_id}: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-    finally:
-        session.close()
-
-
-@app.get("/api/v1/bots/{instance_id}/trades")
-async def get_bot_trades(
-    instance_id: str,
-    status: Optional[str] = None,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get bot trades"""
-    try:
-        session = db.get_session()
-        uow = UnitOfWork(session)
-
-        # Get bot first
-        bot = uow.bots.get_by_instance_id(instance_id)
-        if not bot:
-            return api_response(
-                success=False,
-                message=f"Bot instance '{instance_id}' not found",
-                status_code=404,
-            )
-
-        # Get trades
-        trades = uow.trades.get_bot_trades(int(bot.id))  # type: ignore[arg-type]
-
-        # Filter by status if requested
-        if status:
-            trades = [t for t in trades if str(t.status) == status.upper()]
-
-        return api_response(
-            success=True,
-            data={
-                "instance_id": instance_id,
-                "total_trades": len(trades),
-                "filter_status": status,
-                "trades": [
-                    {
-                        "trade_id": t.trade_id,
-                        "pair1": t.pair1,
-                        "pair2": t.pair2,
-                        "status": t.status,
-                        "entry_price1": (
-                            float(t.entry_price1) if t.entry_price1 is not None else None  # type: ignore[arg-type]
-                        ),
-                        "entry_price2": (
-                            float(t.entry_price2) if t.entry_price2 is not None else None  # type: ignore[arg-type]
-                        ),
-                        "exit_price1": (
-                            float(t.exit_price1) if t.exit_price1 is not None else None
-                        ),
-                        # type: ignore[arg-type]
-                        "exit_price2": (
-                            float(t.exit_price2) if t.exit_price2 is not None else None
-                        ),
-                        # type: ignore[arg-type]
-                        "entry_cost": (
-                            float(t.entry_cost) if t.entry_cost is not None else None
-                        ),
-                        # type: ignore[arg-type]
-                        "exit_proceeds": (
-                            float(t.exit_proceeds) if t.exit_proceeds is not None else None  # type: ignore[arg-type]
-                        ),
-                        "profit_loss": (
-                            float(t.profit_loss) if t.profit_loss is not None else None
-                        ),
-                        # type: ignore[arg-type]
-                        "profit_loss_percentage": (
-                            float(t.profit_loss_percentage)  # type: ignore[arg-type]
-                            if t.profit_loss_percentage is not None
-                            else None
-                        ),
-                        "opened_at": (
-                            t.opened_at.isoformat() if t.opened_at is not None else None
-                        ),
-                        "closed_at": (
-                            t.closed_at.isoformat() if t.closed_at is not None else None
-                        ),
-                        "duration_seconds": t.duration_seconds,
-                    }
-                    for t in trades
-                ],
-            },
-            message=f"Retrieved {len(trades)} trades for bot '{instance_id}'",
-        )
-
-    except Exception as e:
-        logger.error(f"Error getting bot trades for {instance_id}: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-    finally:
-        session.close()
-
-
-@app.get("/api/v1/bots/{instance_id}/stats")
-async def get_bot_stats(
-    instance_id: str, current_user: User = Depends(get_current_active_user)
-):
-    """Get bot statistics"""
-    try:
-        session = db.get_session()
-        uow = UnitOfWork(session)
-
-        # Get bot first
-        bot = uow.bots.get_by_instance_id(instance_id)
-        if not bot:
-            return api_response(
-                success=False,
-                message=f"Bot instance '{instance_id}' not found",
-                status_code=404,
-            )
-
-        # Get bot statistics
-        bot_stats = uow.bots.get_statistics(instance_id)
-
-        # Get trade statistics
-        trade_stats = uow.trades.get_trade_statistics(int(bot.id))  # type: ignore[arg-type]
-
-        return api_response(
-            success=True,
-            data={
-                "instance_id": instance_id,
-                "bot_statistics": {
-                    "total_trades": bot_stats.get("total_trades", 0),
-                    "successful_trades": bot_stats.get("successful_trades", 0),
-                    "failed_trades": bot_stats.get("failed_trades", 0),
-                    "total_profit_loss": float(bot_stats.get("total_profit_loss", 0)),
-                    "win_rate": float(bot_stats.get("win_rate", 0)),
-                    "uptime_seconds": (
-                        bot.uptime_seconds if hasattr(bot, "uptime_seconds") else None
-                    ),
-                },
-                "trade_statistics": {
-                    "total_trades": trade_stats.get("total_trades", 0),
-                    "winning_trades": trade_stats.get("winning_trades", 0),
-                    "losing_trades": trade_stats.get("losing_trades", 0),
-                    "total_profit": float(trade_stats.get("total_profit", 0)),
-                    "total_loss": float(trade_stats.get("total_loss", 0)),
-                    "net_profit": float(trade_stats.get("net_profit", 0)),
-                    "average_profit": float(trade_stats.get("average_profit", 0)),
-                    "win_rate": float(trade_stats.get("win_rate", 0)),
-                    "average_duration_seconds": trade_stats.get(
-                        "average_duration_seconds", 0
-                    ),
-                },
-            },
-            message=f"Retrieved statistics for bot '{instance_id}'",
-        )
-
-    except Exception as e:
-        logger.error(f"Error getting bot statistics for {instance_id}: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-    finally:
-        session.close()
-
-
-# ============================================================================
-# QUICK DEPLOYMENT ENDPOINTS
-# ============================================================================
-
-
-@app.post("/api/v1/bots/quick-deploy")
-async def quick_deploy_bot(
-    instance_name: str,
-    credentials: BotCredentials,
-    trading_params: TradingParameters,
-    auto_start: bool = True,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Quick deploy and optionally start a new bot instance"""
-    try:
-        if bot_manager is None:
-            return _bot_manager_unavailable_response()
-        # Generate instance ID from name
-        import re
-
-        instance_id = re.sub(r"[^a-zA-Z0-9_-]", "-", instance_name.lower())
-        instance_id = (
-            f"{instance_id}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
-        )
-
-        # Create configuration
-        config = BotInstanceConfig(
-            instance_id=instance_id,
-            instance_name=instance_name,
-            credentials=credentials,
-            trading_params=trading_params,
-        )
-
-        # Create instance
-        create_result = await bot_manager.create_instance(config)
-        if not create_result.success:
-            return api_response(
-                success=False, message=create_result.message, status_code=400
-            )
-
-        # Auto-start if requested
-        if auto_start:
-            await asyncio.sleep(1)  # Brief pause
-            start_result = await bot_manager.start_instance(instance_id)
-
-            if start_result.success:
-                return api_response(
-                    success=True,
-                    data={
-                        "instance_id": instance_id,
-                        "created": create_result.success,
-                        "started": start_result.success,
-                        "status": "running",
-                    },
-                    message=f"Bot '{instance_name}' deployed and started successfully",
-                )
-            else:
-                return api_response(
-                    success=True,
-                    data={
-                        "instance_id": instance_id,
-                        "created": create_result.success,
-                        "started": False,
-                        "status": "stopped",
-                        "start_error": start_result.message,
-                    },
-                    message=f"Bot '{instance_name}' deployed but failed to start: {start_result.message}",
-                )
-        else:
-            return api_response(
-                success=True,
-                data={
-                    "instance_id": instance_id,
-                    "created": create_result.success,
-                    "started": False,
-                    "status": "stopped",
-                },
-                message=f"Bot '{instance_name}' deployed successfully (not started)",
-            )
-
-    except Exception as e:
-        logger.error(f"Error in quick deploy: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+# BOT DATABASE RECORD ENDPOINTS — extracted to src/api/v1/bot_records.py.
 
 
 # ============================================================================
@@ -3269,8 +2218,29 @@ async def api_capabilities():
     commands: List[str] = []
     queries: List[str] = []
 
-    for route in app.routes:
-        path = getattr(route, "path", "")
+    def _registered_routes(routes, prefix: str = ""):
+        """Yield direct and lazily included FastAPI routes with effective paths.
+
+        FastAPI 0.138+ stores ``include_router`` mounts as ``_IncludedRouter``
+        objects. Walking only ``app.routes`` would omit every operation in an
+        extracted router from this capability contract.
+        """
+
+        for route in routes:
+            original_router = getattr(route, "original_router", None)
+            if original_router is not None:
+                include_context = getattr(route, "include_context", None)
+                include_prefix = str(getattr(include_context, "prefix", "") or "")
+                yield from _registered_routes(
+                    getattr(original_router, "routes", []) or [],
+                    f"{prefix}{include_prefix}",
+                )
+                continue
+
+            path = f"{prefix}{getattr(route, 'path', '')}"
+            yield route, path
+
+    for route, path in _registered_routes(app.routes):
         if not path:
             continue
 
@@ -3324,140 +2294,10 @@ async def api_capabilities():
     )
 
 
-@app.get("/api/v1/arbitrage/improvement-metrics")
-async def get_arbitrage_improvement_metrics(
-    current_user: User = Depends(get_current_active_user),
-):
-    _ = current_user
-    return api_response(
-        success=True,
-        data=snapshot_metrics(
-            {
-                "feature_flags": get_feature_flags(),
-                "runtime_settings": get_runtime_settings(),
-            }
-        ),
-        message="Arbitrage improvement metrics retrieved",
-    )
-
-
-@app.get("/api/v1/arbitrage/runtime-settings")
-async def get_arbitrage_runtime_settings(
-    current_user: User = Depends(get_current_active_user),
-):
-    _ = current_user
-    settings = get_runtime_settings()
-    return api_response(
-        success=True,
-        data={"settings": settings, "feature_flags": get_feature_flags()},
-        message="Arbitrage runtime settings retrieved",
-    )
-
-
-@app.put("/api/v1/arbitrage/runtime-settings")
-async def update_arbitrage_runtime_settings(
-    payload: ArbitrageRuntimeSettingsRequest,
-    current_user: User = Depends(get_current_active_user),
-):
-    _ = current_user
-    # Only forward keys the caller actually set so unset fields keep their
-    # current runtime value (matches prior ``payload or {}`` semantics).
-    settings = update_runtime_settings(payload.model_dump(exclude_unset=True))
-    return api_response(
-        success=True,
-        data={"settings": settings, "feature_flags": get_feature_flags()},
-        message="Arbitrage runtime settings updated",
-    )
-
-
-@app.get("/api/v1/arbitrage/pair-priority")
-async def get_arbitrage_pair_priority(
-    limit: int = 25,
-    current_user: User = Depends(get_current_active_user),
-):
-    _ = current_user
-    safe_limit = max(1, min(int(limit or 25), 100))
-    pairs = pair_storage.load_pairs()
-    pair_priority_enabled = is_pair_priority_engine_enabled()
-    if pair_priority_enabled:
-        ranked_pairs, scores = prioritize_pairs(pairs, max_pairs=safe_limit)
-    else:
-        ranked_pairs = pairs[:safe_limit]
-        scores = [score_pair(pair) for pair in ranked_pairs]
-    ranked_lookup = {score.pair: score for score in scores}
-    data = []
-    for pair in ranked_pairs:
-        label = f"{pair.base_market}/{pair.quote_market}"
-        score = ranked_lookup.get(label)
-        data.append(
-            {
-                "pair": label,
-                "base_market": pair.base_market,
-                "quote_market": pair.quote_market,
-                "score": score.score if score else 0.0,
-                "components": score.components if score else {},
-                "explanation": score.explanation if score else [],
-                "enabled": pair_priority_enabled,
-            }
-        )
-    return api_response(
-        success=True,
-        data={"pairs": data, "count": len(data), "enabled": pair_priority_enabled},
-        message="Arbitrage pair priority retrieved",
-    )
-
-
-@app.get("/api/v1/arbitrage/opportunity/{opportunity_id}/explain")
-async def get_arbitrage_opportunity_explain(
-    opportunity_id: str,
-    current_user: User = Depends(get_current_active_user),
-):
-    _ = current_user
-    metrics = snapshot_metrics(
-        {
-            "feature_flags": get_feature_flags(),
-            "runtime_settings": get_runtime_settings(),
-        }
-    )
-    rejection_reasons = metrics.get("rejection_reasons", {})
-    normalized_id = str(opportunity_id or "").strip().lower().replace(" ", "_")
-
-    matched_reason = None
-    if isinstance(rejection_reasons, dict) and normalized_id in rejection_reasons:
-        matched_reason = {
-            "reason": normalized_id,
-            "count": rejection_reasons.get(normalized_id, 0),
-        }
-
-    top_rejections: List[Dict[str, Any]] = []
-    if isinstance(rejection_reasons, dict):
-        sorted_reasons = sorted(
-            rejection_reasons.items(),
-            key=lambda item: float(item[1]),
-            reverse=True,
-        )
-        top_rejections = [
-            {"reason": str(reason), "count": float(count)}
-            for reason, count in sorted_reasons[:10]
-        ]
-
-    return api_response(
-        success=True,
-        data={
-            "opportunity_id": opportunity_id,
-            "matched_rejection_reason": matched_reason,
-            "top_rejection_reasons": top_rejections,
-            "counters": metrics.get("counters", {}),
-            "feature_flags": metrics.get("feature_flags", {}),
-            "runtime_settings": metrics.get("runtime_settings", {}),
-            "explainability_scope": "runtime_diagnostics",
-            "note": (
-                "Per-opportunity historical explain payloads are not persisted yet; "
-                "this endpoint provides current runtime diagnostics and rejection trends."
-            ),
-        },
-        message="Arbitrage opportunity explainability retrieved",
-    )
+# ARBITRAGE ENDPOINTS — extracted to src/api/v1/arbitrage.py (APIRouter, mounted
+# above via app.include_router). The 5 authenticated runtime visibility/settings
+# routes and ArbitrageRuntimeSettingsRequest live there now; the request model is
+# re-imported above for backwards-compatible server attribute access.
 
 
 @app.get("/api/v1/markets/perpetuals")

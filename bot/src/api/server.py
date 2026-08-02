@@ -113,15 +113,10 @@ from src.infrastructure.use_cases.async_job_manager import (  # noqa: E402
     async_job_manager,
 )
 from src.infrastructure.use_cases.service_backtest import BacktestService  # noqa: E402
-from src.infrastructure.workers.celery_monitor import (  # noqa: E402
-    celery_health,
-    get_celery_task,
-    list_celery_queues,
-    list_celery_tasks,
-    list_celery_workers,
-    retry_celery_task,
-    revoke_celery_task,
-)
+
+# Celery inspection helpers (list_celery_tasks, get_celery_task, revoke_celery_task,
+# retry_celery_task, list_celery_workers, list_celery_queues, celery_health) are now
+# imported directly by src/api/v1/celery_admin.py and no longer used here.
 from src.shared.logging_setup import setup_logging  # noqa: E402
 from src.shared.live_risk_controls import (
     assert_supported_live_risk_controls,
@@ -136,6 +131,11 @@ from src.api.responses import (  # noqa: E402
     INTERNAL_ERROR_MESSAGE,
     api_response,
     trace_id_ctx,
+)
+from src.api.endpoint_timing import (  # noqa: E402
+    endpoint_perf_headers as _endpoint_perf_headers,
+    log_endpoint_timing as _log_endpoint_timing,
+    payload_size_bytes as _payload_size_bytes,
 )
 from src.trading.arbitrage_observability import snapshot_metrics  # noqa: E402
 from src.trading.arbitrage_runtime_config import (  # noqa: E402
@@ -482,56 +482,6 @@ def _cache_set(key: str, value: Any) -> None:
         )
         for cached_key, _ in oldest_keys[:overflow]:
             _backtest_endpoint_cache.pop(cached_key, None)
-
-
-def _payload_size_bytes(payload: Any) -> int:
-    try:
-        return len(json.dumps(payload, default=str, separators=(",", ":")))
-    except Exception:
-        return -1
-
-
-def _log_endpoint_timing(
-    endpoint: str,
-    started_at: float,
-    payload: Any,
-    *,
-    cache_hit: bool = False,
-    payload_items: Optional[int] = None,
-    extra: Optional[Dict[str, Any]] = None,
-) -> None:
-    elapsed_ms = (time.perf_counter() - started_at) * 1000.0
-    size_bytes = _payload_size_bytes(payload)
-    details: Dict[str, Any] = {
-        "endpoint": endpoint,
-        "duration_ms": round(elapsed_ms, 2),
-        "cache_hit": cache_hit,
-        "payload_bytes": size_bytes,
-    }
-    if payload_items is not None:
-        details["payload_items"] = int(payload_items)
-    if extra:
-        details.update(extra)
-
-    logger.info(
-        "endpoint_perf endpoint={} duration_ms={} cache_hit={} payload_bytes={} payload_items={} details={}",
-        details["endpoint"],
-        details["duration_ms"],
-        details["cache_hit"],
-        details["payload_bytes"],
-        details.get("payload_items", -1),
-        details,
-    )
-
-
-def _endpoint_perf_headers(
-    started_at: float, *, cache_hit: Optional[bool] = None
-) -> Dict[str, str]:
-    elapsed_ms = max(0.0, (time.perf_counter() - started_at) * 1000.0)
-    headers: Dict[str, str] = {"X-Endpoint-Duration-Ms": f"{elapsed_ms:.2f}"}
-    if cache_hit is not None:
-        headers["X-Cache-Hit"] = "1" if cache_hit else "0"
-    return headers
 
 
 def _build_backtest_analytics_summary(
@@ -2016,8 +1966,10 @@ app.include_router(
 # Include extracted route modules (monolith breakup). Monitoring is first; its
 # routes live in src/api/v1/monitoring.py and inherit app middleware/auth/handlers.
 from src.api.v1.monitoring import router as monitoring_router  # noqa: E402
+from src.api.v1.celery_admin import router as celery_admin_router  # noqa: E402
 
 app.include_router(monitoring_router)
+app.include_router(celery_admin_router)
 
 
 # ============================================================================
@@ -3782,168 +3734,9 @@ async def runtime_db_config(current_user: User = Depends(get_admin_user)):
         )
 
 
-@app.get("/api/v1/celery/tasks")
-async def celery_tasks(
-    status: Optional[str] = Query(default=None),
-    task_name: Optional[str] = Query(default=None),
-    queue: Optional[str] = Query(default=None),
-    strategy_id: Optional[str] = Query(default=None),
-    backtest_run_id: Optional[str] = Query(default=None),
-    bot_id: Optional[str] = Query(default=None),
-    environment: Optional[str] = Query(default=None),
-    limit: int = Query(default=100, ge=1, le=500),
-    current_user: User = Depends(get_admin_user),
-):
-    """Admin-only Celery task list with safe metadata redaction."""
-    _ = current_user
-    started_at = time.perf_counter()
-    payload = list_celery_tasks(
-        {
-            "status": status,
-            "task_name": task_name,
-            "queue": queue,
-            "strategy_id": strategy_id,
-            "backtest_run_id": backtest_run_id,
-            "bot_id": bot_id,
-            "environment": environment,
-        },
-        limit,
-    )
-    task_count = (
-        len(payload.get("tasks", []))
-        if isinstance(payload, dict) and isinstance(payload.get("tasks"), list)
-        else None
-    )
-    _log_endpoint_timing(
-        "/api/v1/celery/tasks",
-        started_at,
-        payload,
-        payload_items=task_count,
-        extra={"limit": limit},
-    )
-    return api_response(
-        True,
-        payload,
-        "Celery tasks fetched successfully",
-        headers=_endpoint_perf_headers(started_at),
-    )
-
-
-@app.get("/api/v1/celery/tasks/{task_id}")
-async def celery_task_detail(
-    task_id: str,
-    current_user: User = Depends(get_admin_user),
-):
-    """Admin-only Celery task detail including failure traceback when available."""
-    _ = current_user
-    started_at = time.perf_counter()
-    task = get_celery_task(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Celery task not found")
-    _log_endpoint_timing(
-        "/api/v1/celery/tasks/{task_id}",
-        started_at,
-        {"task": task},
-        payload_items=1,
-    )
-    return api_response(
-        True,
-        {"task": task},
-        "Celery task fetched successfully",
-        headers=_endpoint_perf_headers(started_at),
-    )
-
-
-@app.post("/api/v1/celery/tasks/{task_id}/revoke")
-async def celery_task_revoke(
-    task_id: str,
-    payload: Dict[str, Any] = Body(default_factory=dict),
-    current_user: User = Depends(get_admin_user),
-):
-    """Admin-only Celery revoke/cancel endpoint."""
-    _ = current_user
-    terminate = bool(payload.get("terminate", False))
-    return api_response(
-        True,
-        revoke_celery_task(task_id, terminate=terminate),
-        "Celery task revoke requested",
-    )
-
-
-@app.post("/api/v1/celery/tasks/{task_id}/retry")
-async def celery_task_retry(
-    task_id: str,
-    current_user: User = Depends(get_admin_user),
-):
-    """Admin-only retry for supported failed tasks."""
-    _ = current_user
-    try:
-        result = await retry_celery_task(task_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return api_response(True, result, "Celery task retry requested")
-
-
-@app.get("/api/v1/celery/workers")
-async def celery_workers(current_user: User = Depends(get_admin_user)):
-    """Admin-only Celery worker inspection."""
-    _ = current_user
-    started_at = time.perf_counter()
-    payload = list_celery_workers()
-    worker_count = len(payload) if isinstance(payload, dict) else None
-    _log_endpoint_timing(
-        "/api/v1/celery/workers",
-        started_at,
-        payload,
-        payload_items=worker_count,
-    )
-    return api_response(
-        True,
-        payload,
-        "Celery workers fetched successfully",
-        headers=_endpoint_perf_headers(started_at),
-    )
-
-
-@app.get("/api/v1/celery/queues")
-async def celery_queues(current_user: User = Depends(get_admin_user)):
-    """Admin-only Celery queue overview."""
-    _ = current_user
-    started_at = time.perf_counter()
-    payload = list_celery_queues()
-    queue_count = len(payload) if isinstance(payload, dict) else None
-    _log_endpoint_timing(
-        "/api/v1/celery/queues",
-        started_at,
-        payload,
-        payload_items=queue_count,
-    )
-    return api_response(
-        True,
-        payload,
-        "Celery queues fetched successfully",
-        headers=_endpoint_perf_headers(started_at),
-    )
-
-
-@app.get("/api/v1/celery/health")
-async def celery_monitor_health(current_user: User = Depends(get_admin_user)):
-    """Admin-only Celery broker/backend/worker health."""
-    _ = current_user
-    started_at = time.perf_counter()
-    payload = celery_health()
-    _log_endpoint_timing(
-        "/api/v1/celery/health",
-        started_at,
-        payload,
-        payload_items=1,
-    )
-    return api_response(
-        True,
-        payload,
-        "Celery health fetched successfully",
-        headers=_endpoint_perf_headers(started_at),
-    )
+# CELERY INSPECTION ENDPOINTS — extracted to src/api/v1/celery_admin.py
+# (APIRouter, mounted below via app.include_router). The 7 admin-only routes
+# (tasks list/detail, revoke, retry, workers, queues, health) live there now.
 
 
 @app.get("/api/v1/users/me")

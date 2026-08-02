@@ -3,7 +3,6 @@ Bot API Server - FastAPI server for controlling multiple bot instances
 """
 
 import asyncio
-import contextvars
 import json
 import os
 import re
@@ -133,6 +132,11 @@ from src.shared.credentials_cipher import (  # noqa: E402
 )
 from src.shared.notifications import TelegramMessenger  # noqa: E402
 from src.shared.time_utils import utc_now_iso  # noqa: E402
+from src.api.responses import (  # noqa: E402
+    INTERNAL_ERROR_MESSAGE,
+    api_response,
+    trace_id_ctx,
+)
 from src.trading.arbitrage_observability import snapshot_metrics  # noqa: E402
 from src.trading.arbitrage_runtime_config import (  # noqa: E402
     get_feature_flags,
@@ -169,10 +173,8 @@ sys.stderr = _FilteredStderr(_original_stderr)
 
 # Setup logging (Loguru + stdlib bridge)
 setup_logging()
-trace_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "trace_id", default=""
-)
-INTERNAL_ERROR_MESSAGE = "Internal server error"
+# trace_id_ctx / INTERNAL_ERROR_MESSAGE / api_response live in src/api/responses.py
+# (re-imported above) so extracted route modules can share them without a circular import.
 bot_manager_monitor_task: Optional[asyncio.Task] = None
 
 MARKET_RESOLUTION_TIMEOUT_SECONDS = 10.0
@@ -2011,38 +2013,20 @@ app.include_router(
     tags=["Authentication"],
 )
 
+# Include extracted route modules (monolith breakup). Monitoring is first; its
+# routes live in src/api/v1/monitoring.py and inherit app middleware/auth/handlers.
+from src.api.v1.monitoring import router as monitoring_router  # noqa: E402
+
+app.include_router(monitoring_router)
+
 
 # ============================================================================
 # API RESPONSE WRAPPER
 # ============================================================================
-
-
-def api_response(
-    success: bool,
-    data=None,
-    message: str = "",
-    status_code: int = 200,
-    headers: Optional[Dict[str, str]] = None,
-):
-    """Standardized API response format"""
-    if status_code >= 500:
-        # Never expose raw exceptions/DB internals in client-facing 5xx responses.
-        message = INTERNAL_ERROR_MESSAGE
-    trace_id = trace_id_ctx.get()
-    response_data = {
-        "success": success,
-        "message": message,
-        "data": data,
-        "timestamp": utc_now_iso(),
-        "trace_id": trace_id,
-    }
-    response = JSONResponse(
-        content=jsonable_encoder(response_data),
-        status_code=status_code,
-    )
-    for header_name, header_value in (headers or {}).items():
-        response.headers[header_name] = str(header_value)
-    return response
+# ``api_response`` (and ``trace_id_ctx`` / ``INTERNAL_ERROR_MESSAGE``) now live in
+# ``src/api/responses.py`` and are re-imported at the top of this module so existing
+# call sites and ``server.api_response`` / ``server.trace_id_ctx`` attribute access
+# keep working unchanged.
 
 
 @app.post("/api/v1/runtime/preflight")
@@ -5824,122 +5808,10 @@ async def _bot_manager_monitor_loop():
 
 
 # ============================================================================
-# DATAFRAME MEMORY MONITORING ENDPOINTS
+# MONITORING ENDPOINTS — extracted to src/api/v1/monitoring.py (APIRouter,
+# mounted below via app.include_router). DataFrame memory/cleanup + DB pool
+# metrics/health/history/diagnostics live there now.
 # ============================================================================
-
-
-@app.get("/api/v1/monitoring/dataframe/memory")
-async def get_dataframe_memory_stats(
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get DataFrame memory usage statistics."""
-    _ = current_user
-    try:
-        from src.shared.dataframe_utils import (
-            get_memory_summary,
-            get_dataframe_cleanup_stats,
-        )
-
-        return api_response(
-            success=True,
-            data={
-                "memory_summary": get_memory_summary(),
-                "cleanup_stats": get_dataframe_cleanup_stats(),
-            },
-            message="DataFrame memory statistics retrieved",
-        )
-    except Exception as e:
-        return api_response(
-            success=False,
-            data={"error": str(e)},
-            message="Failed to retrieve DataFrame memory statistics",
-        )
-
-
-@app.post("/api/v1/monitoring/dataframe/cleanup")
-async def cleanup_all_dataframes(
-    current_user: User = Depends(get_current_active_user),
-):
-    """Force cleanup of all tracked DataFrames."""
-    _ = current_user
-    try:
-        from src.shared.dataframe_utils import force_cleanup_all
-
-        cleaned_count = force_cleanup_all()
-
-        return api_response(
-            success=True,
-            data={"cleaned_dataframes": cleaned_count},
-            message=f"Cleaned up {cleaned_count} DataFrames",
-        )
-    except Exception as e:
-        return api_response(
-            success=False,
-            data={"error": str(e)},
-            message="Failed to cleanup DataFrames",
-        )
-
-
-# DATABASE MONITORING ENDPOINTS
-# ============================================================================
-
-
-@app.get("/api/v1/monitoring/database/pool")
-async def get_database_pool_metrics(
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get current database connection pool metrics."""
-    _ = current_user
-    metrics = db.get_pool_metrics()
-    return api_response(
-        success=True,
-        data=metrics,
-        message="Database pool metrics retrieved",
-    )
-
-
-@app.get("/api/v1/monitoring/database/pool/health")
-async def get_database_pool_health(
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get database connection pool health status."""
-    _ = current_user
-    health = db.get_pool_health_status()
-    return api_response(
-        success=True,
-        data=health,
-        message="Database pool health status retrieved",
-    )
-
-
-@app.get("/api/v1/monitoring/database/pool/history")
-async def get_database_pool_history(
-    limit: int = 50,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get historical database connection pool metrics."""
-    _ = current_user
-    safe_limit = max(1, min(int(limit or 50), 500))
-    history = db.get_pool_metrics_history(limit=safe_limit)
-    return api_response(
-        success=True,
-        data={"history": history, "count": len(history)},
-        message=f"Retrieved {len(history)} database pool metrics samples",
-    )
-
-
-@app.get("/api/v1/monitoring/database/diagnostics")
-async def get_database_diagnostics(
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get comprehensive database diagnostics including pool metrics."""
-    _ = current_user
-    diagnostics = db.get_diagnostics()
-    return api_response(
-        success=True,
-        data=diagnostics,
-        message="Database diagnostics retrieved",
-    )
 
 
 # STRATEGY ENDPOINTS

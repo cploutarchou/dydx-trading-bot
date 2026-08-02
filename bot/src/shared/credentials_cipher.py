@@ -54,17 +54,14 @@ SEALED_BLOCKS = ("credentials", "telegram")
 # --- Exceptions --------------------------------------------------------------
 
 
-class CredentialCipherError(RuntimeError):
-    """Base class for credential cipher failures (key/config problems)."""
-
-
-class CredentialEncryptionError(CredentialCipherError):
-    """Raised when a payload cannot be sealed (missing/invalid key, etc.)."""
-
-
-class CredentialDecryptionError(CredentialCipherError):
-    """Raised when an envelope cannot be opened (tamper, wrong key, etc.)."""
-
+# Canonical definitions live in :mod:`src.exceptions` (under ``CredentialError``);
+# re-imported here so existing ``from src.shared.credentials_cipher import ...``
+# paths keep resolving to the same class objects.
+from src.exceptions import (  # noqa: E402
+    CredentialCipherError,
+    CredentialDecryptionError,
+    CredentialEncryptionError,
+)
 
 # --- Key resolution ----------------------------------------------------------
 

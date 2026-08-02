@@ -373,15 +373,15 @@ def test_backtest_trades_uses_ttl_cache_between_calls(monkeypatch):
 
 
 def test_celery_tasks_endpoint_includes_duration_header(monkeypatch):
-    server = _load_server_module()
+    from src.api.v1 import celery_admin
 
     monkeypatch.setattr(
-        server,
+        celery_admin,
         "list_celery_tasks",
         lambda _filters, _limit: {"tasks": [{"id": "task-1"}]},
     )
 
-    response = asyncio.run(_call(server.celery_tasks(current_user=object())))
+    response = asyncio.run(_call(celery_admin.celery_tasks(current_user=object())))
     payload = json.loads(response.body)
 
     assert payload["success"] is True

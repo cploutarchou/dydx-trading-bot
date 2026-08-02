@@ -12,7 +12,6 @@ Usage:
 
 import argparse
 import json
-import sys
 from typing import Optional
 
 from sqlalchemy import text

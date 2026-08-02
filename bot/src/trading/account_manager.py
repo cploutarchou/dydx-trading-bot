@@ -8,13 +8,14 @@ from dydx_v4_client import MAX_CLIENT_ID, OrderFlags
 from dydx_v4_client.indexer.rest.constants import OrderType
 from dydx_v4_client.node.market import Market
 from loguru import logger
+from v4_proto.dydxprotocol.clob.order_pb2 import Order
+
 from src.constants import DYDX_ADDRESS, DYDX_API_THROTTLE_SECONDS, SUBACCOUNT_NUMBER
 from src.shared.utils import format_number
 from src.trading.arbitrage_observability import increment_metric
 from src.trading.arbitrage_runtime_config import is_arbitrage_improvements_enabled
 from src.trading.bot_agents_state import clear_tracked_positions
 from src.trading.market_data import get_markets
-from v4_proto.dydxprotocol.clob.order_pb2 import Order
 
 
 def _resolve_client_address(client) -> str:

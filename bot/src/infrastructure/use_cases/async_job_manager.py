@@ -8,10 +8,11 @@ import threading
 import time
 import traceback
 from collections import deque
-from typing import Any, Awaitable, Callable, Coroutine, Optional, cast
+from typing import Any, Awaitable, Callable, Optional
 from uuid import uuid4
 
 from loguru import logger
+
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
 

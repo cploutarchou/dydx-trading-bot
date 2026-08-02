@@ -2,6 +2,7 @@ from contextlib import contextmanager
 from typing import cast
 
 from sqlalchemy.engine import Engine
+
 from src.infrastructure.database import DatabaseManager
 
 

@@ -8,8 +8,9 @@ import json
 import os
 from typing import Any, Dict, cast
 
-from internal.repository.repository_realtime import UnitOfWorkRealtime
 from loguru import logger
+
+from internal.repository.repository_realtime import UnitOfWorkRealtime
 from src.api.realtime_serializers import serialize_stats_risk_fields
 from src.api.websocket_server import (
     broadcast_alert,

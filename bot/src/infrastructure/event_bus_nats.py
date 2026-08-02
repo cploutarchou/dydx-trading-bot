@@ -23,14 +23,10 @@ import asyncio
 import json
 import logging
 import os
-import signal
-import socket
-import time
-from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol
 
 # Optional import for NATS - will be None if not installed
 try:
@@ -45,8 +41,14 @@ except ImportError:
     NatsSubscription = None
     nats = None
 
+# Type-only imports (the runtime import above is optional/guarded). JetStreamContext
+# lives in nats.js.client, NOT nats.aio.client — the annotations previously pointed
+# at the wrong module, which mypy flagged as name-defined.
+if TYPE_CHECKING:
+    from nats.aio.client import Msg
+    from nats.js.client import JetStreamContext
+
 from src.infrastructure.database import db
-from src.infrastructure.persistence.repository_backtest import BacktestRepository
 
 logger = logging.getLogger(__name__)
 
@@ -265,7 +267,7 @@ class NATSConsumerService:
         self.verbose = verbose
 
         self._client: Optional[NatsClient] = None
-        self._jetstream: Optional[nats.aio.client.JetStreamContext] = None
+        self._jetstream: Optional[JetStreamContext] = None
         self._subscriptions: Dict[str, NatsSubscription] = {}
         self._handlers: Dict[str, MessageHandler] = {}
         self._status = ConsumerStatus.DISCONNECTED
@@ -528,7 +530,7 @@ class NATSConsumerService:
 
     async def _subscribe_consumer(
         self, consumer_name: str, consumer_config: ConsumerConfig
-    ) -> None:
+    ) -> bool:
         """Subscribe to messages for a specific consumer."""
         if not self._jetstream:
             raise RuntimeError("JetStream context not available")
@@ -564,8 +566,11 @@ class NATSConsumerService:
             # Start processing messages
             asyncio.create_task(self._process_messages(consumer_name, subscription))
 
+            return True
+
         except Exception as e:
             logger.error(f"Failed to subscribe consumer {consumer_name}: {e}")
+            return False
             raise
 
     async def _process_messages(
@@ -733,7 +738,7 @@ class NATSConsumerService:
             return False
 
     async def _handle_result(
-        self, message: nats.aio.client.Msg, result: ProcessedResult
+        self, message: Msg, result: ProcessedResult
     ) -> None:
         """Handle the result of message processing."""
         try:
@@ -768,7 +773,7 @@ class NATSConsumerService:
             )
 
     async def _move_to_dead_letter(
-        self, message: nats.aio.client.Msg, result: ProcessedResult
+        self, message: Msg, result: ProcessedResult
     ) -> None:
         """Move message to dead letter stream."""
         if not self._jetstream:
@@ -871,7 +876,7 @@ class NATSConsumerService:
 
     async def subscribe_all(self) -> Dict[str, bool]:
         """Subscribe to all configured consumers."""
-        results = {}
+        results: Dict[str, bool] = {}
 
         for consumer_name, consumer_config in self._consumer_configs.items():
             try:

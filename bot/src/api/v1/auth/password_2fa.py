@@ -25,7 +25,7 @@ class Verify2FARequest(BaseModel):
 
 
 def _user_id_value(user: User) -> int:
-    return int(cast(int, user.id))
+    return int(user.id)
 
 
 def _username_value(user: User) -> str:

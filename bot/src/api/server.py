@@ -366,7 +366,7 @@ _strategy_resolution_metrics: Dict[str, Any] = {
     "last_path": None,
     "last_updated_at": None,
 }
-_strategy_resolution_recent_paths = deque(
+_strategy_resolution_recent_paths: deque[str] = deque(
     maxlen=max(
         1,
         _read_non_negative_int_env("STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE", 200),
@@ -1884,7 +1884,7 @@ app = FastAPI(
 )
 
 # Set custom OpenAPI schema
-app.openapi = custom_openapi
+app.openapi = custom_openapi  # type: ignore[method-assign]  # FastAPI's documented override pattern
 
 # Add CORS middleware
 app.add_middleware(

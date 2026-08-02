@@ -506,7 +506,7 @@ def list_celery_tasks(
         )
         return {"tasks": tasks[: max(1, min(limit, 500))], "total": len(tasks)}
 
-    return cast(Dict[str, Any], _cached_monitor_result(cache_key, _build_tasks))
+    return _cached_monitor_result(cache_key, _build_tasks)
 
 
 def get_celery_task(task_id: str) -> Optional[Dict[str, Any]]:
@@ -622,7 +622,7 @@ def list_celery_workers() -> Dict[str, Any]:
             )
         return {"workers": workers, "total": len(workers)}
 
-    return cast(Dict[str, Any], _cached_monitor_result("workers", _build_workers))
+    return _cached_monitor_result("workers", _build_workers)
 
 
 def list_celery_queues() -> Dict[str, Any]:
@@ -646,7 +646,7 @@ def list_celery_queues() -> Dict[str, Any]:
             pass
         return {"queues": payload, "total": len(payload)}
 
-    return cast(Dict[str, Any], _cached_monitor_result("queues", _build_queues))
+    return _cached_monitor_result("queues", _build_queues)
 
 
 def celery_health() -> Dict[str, Any]:
@@ -702,7 +702,7 @@ def celery_health() -> Dict[str, Any]:
             "errors": errors,
         }
 
-    return cast(Dict[str, Any], _cached_monitor_result("health", _build_health))
+    return _cached_monitor_result("health", _build_health)
 
 
 def failure_meta(

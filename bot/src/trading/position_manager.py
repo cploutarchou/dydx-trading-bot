@@ -53,7 +53,7 @@ from src.trading.bot_agents_state import (
     save_processed_positions,
 )
 from src.trading.market_data import get_candles_recent, get_markets
-from src.trading.pair_priority import prioritize_pairs
+from src.trading.pair_priority import PairPriorityScore, prioritize_pairs
 from src.trading.trade_persistence import (
     persist_live_trade_closed,
     persist_live_trade_opened,
@@ -601,7 +601,7 @@ async def open_positions(client) -> None:
     markets = await get_markets(client)
     market_map = markets.get("markets", {}) if isinstance(markets, dict) else {}
 
-    priority_scores = []
+    priority_scores: list[PairPriorityScore] = []
     pair_priority_enabled = is_pair_priority_engine_enabled()
     if pair_priority_enabled:
         max_pairs = pair_priority_max_pairs()

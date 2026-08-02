@@ -142,6 +142,7 @@ from src.api.v1.strategies import (  # noqa: E402
     StrategyRequest,
     StrategyVersionRevertRequest,
 )
+from src.api.v1.arbitrage import ArbitrageRuntimeSettingsRequest  # noqa: E402
 from src.trading.arbitrage_observability import snapshot_metrics  # noqa: E402
 from src.trading.arbitrage_runtime_config import (  # noqa: E402
     get_feature_flags,
@@ -703,24 +704,7 @@ class BacktestComparisonRequest(BaseModel):
         return normalize_market_list(value)
 
 
-class ArbitrageRuntimeSettingsRequest(BaseModel):
-    """Validated body for arbitrage runtime-settings updates.
-
-    Unknown keys are ignored so existing clients that send unrelated fields
-    keep working; the downstream ``update_runtime_settings`` still clamps the
-    typed values it recognizes.
-    """
-
-    model_config = ConfigDict(extra="ignore")
-
-    ARBITRAGE_IMPROVEMENTS_ENABLED: Optional[bool] = None
-    PAIR_PRIORITY_ENGINE_ENABLED: Optional[bool] = None
-    POLYMARKET_SIGNALS_ENABLED: Optional[bool] = None
-    DEFILLAMA_SIGNALS_ENABLED: Optional[bool] = None
-    NEWS_SIGNALS_ENABLED: Optional[bool] = None
-    AUTO_EXECUTION_CHANGES_ENABLED: Optional[bool] = None
-    PAIR_PRIORITY_MAX_PAIRS: Optional[int] = Field(default=None, ge=0)
-    PAIR_PRIORITY_STALE_SECONDS: Optional[float] = Field(default=None, ge=0.0)
+# ArbitrageRuntimeSettingsRequest moved to src/api/v1/arbitrage.py (re-imported above).
 
 
 # InMemoryStrategyStore moved to src/api/v1/strategies.py (re-imported above for

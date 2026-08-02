@@ -340,10 +340,11 @@ Use the generated schema and source code as the detailed endpoint contract, not 
 routes). Route groups are being extracted into `APIRouter` modules under `src/api/v1/` and
 mounted with `app.include_router` (an incremental monolith-breakup). Extracted so far:
 `src/api/v1/monitoring.py` (operational visibility), `src/api/v1/celery_admin.py` (admin-only
-Celery inspection); WebSocket logic lives in `src/api/websocket_server.py`. Shared helpers
-extracted alongside so routers can use them without a circular import: the response envelope
-(`api_response`, `trace_id_ctx`, `INTERNAL_ERROR_MESSAGE`) in `src/api/responses.py`, and
-endpoint timing (`log_endpoint_timing`, `endpoint_perf_headers`) in `src/api/endpoint_timing.py`.
+Celery inspection), `src/api/v1/strategies.py` (strategy CRUD + store); WebSocket logic lives in
+`src/api/websocket_server.py`. Shared helpers extracted alongside so routers can use them without
+a circular import: the response envelope (`api_response`, `trace_id_ctx`, `INTERNAL_ERROR_MESSAGE`)
+in `src/api/responses.py`, and endpoint timing (`log_endpoint_timing`, `endpoint_perf_headers`)
+in `src/api/endpoint_timing.py`.
 
 ### Request validation
 

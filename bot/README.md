@@ -334,6 +334,16 @@ The implementation lives in `src/shared/credentials_cipher.py`; the backfill scr
 
 Use the generated schema and source code as the detailed endpoint contract, not old handoff markdown.
 
+### Route module layout
+
+`src/api/server.py` is the canonical FastAPI app (middleware, exception handlers, the bulk of
+routes). Route groups are being extracted into `APIRouter` modules under `src/api/v1/` and
+mounted with `app.include_router` (an incremental monolith-breakup). `src/api/v1/monitoring.py`
+(operational visibility endpoints) is the first extracted module; WebSocket logic lives in
+`src/api/websocket_server.py`. The shared response envelope helper (`api_response`,
+`trace_id_ctx`, `INTERNAL_ERROR_MESSAGE`) lives in `src/api/responses.py` so extracted routers
+can use it without a circular import.
+
 ### Request validation
 
 Trading-critical request bodies are schema-validated at the API boundary. The

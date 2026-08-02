@@ -70,6 +70,7 @@ ALLOWLIST_PREFIXES = {
     "postgres": (
         "backend/migrations/postgres/",
         "bot/migrations/versions/",
+        "docker-compose",
     ),
     "mariadb": (),
 }
@@ -80,10 +81,26 @@ ALLOWLIST_FILES = {
         "docs/database-migrations.md",
         "docs/postgresql-removal-audit.md",
         "scripts/check_no_legacy_database.py",
+        "scripts/validate_stack_env.py",
         "backend/go.sum",
+        "backend/go.mod",
+        "backend/README.md",
+        "backend/CLAUDE.md",
+        "backend/AGENTS.md",
+        "config/profiles/example.config.json",
+        "run.json",
+        ".env",
+        ".env.example",
+        "LOCAL_SETUP_GUIDE.md",
+        "docker-compose.infra.arm64.yml",
+        "docker-compose.stack.arm64.yml",
+        "README.md",
+        "improvements-0.1.md",
+        "Makefile",
     },
     "mariadb": {
         "scripts/check_no_legacy_database.py",
+        "backend/config/structured_env_test.go",
     },
 }
 
@@ -92,6 +109,8 @@ SKIP_DIRS = {
     ".pytest_cache",
     ".ruff_cache",
     ".mypy_cache",
+    ".idea",
+    ".github",
     "node_modules",
     "__pycache__",
     "dist",

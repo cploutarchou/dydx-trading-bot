@@ -1976,6 +1976,33 @@ async def _validation_exception_handler(
     )
 
 
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    """Catch-all for unhandled exceptions → standardized 500 envelope.
+
+    Centralizes the envelope-preserving 500 behavior so individual routes no longer
+    need a ``try/except Exception → return api_response(500)`` block, and clients
+    always receive ``{success, message, data, timestamp, trace_id}`` rather than
+    FastAPI's default ``{"detail": "Internal Server Error"}``. FastAPI dispatches by
+    type specificity, so ``RequestValidationError`` (422) and ``HTTPException``
+    (FastAPI default) still resolve to their own handlers; only truly unhandled
+    ``Exception``s land here. ``BaseException`` (KeyboardInterrupt/SystemExit) is
+    intentionally not caught.
+    """
+    logger.exception(
+        "Unhandled exception on {method} {path}",
+        method=request.method,
+        path=request.url.path,
+    )
+    return api_response(
+        success=False,
+        message=INTERNAL_ERROR_MESSAGE,
+        status_code=500,
+    )
+
+
 # Include authentication routes
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(
@@ -4891,50 +4918,38 @@ async def reconcile_interrupted_backtests(
 
 def _reconcile_interrupted_backtests_response(dry_run: bool):
     """Shared response builder for interrupted backtest reconcile routes."""
-    try:
-        with backtest_service_scope() as service:
-            report = service.reconcile_interrupted_runs(dry_run=dry_run)
-        report["count"] = int(report.get("candidate_count", 0))
-        message = (
-            "Dry-run completed for interrupted backtest reconciliation"
-            if dry_run
-            else "Interrupted backtest reconciliation completed"
-        )
-        return api_response(
-            success=True,
-            data=report,
-            message=message,
-        )
-    except Exception as e:
-        logger.error(f"Error reconciling interrupted backtests: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    with backtest_service_scope() as service:
+        report = service.reconcile_interrupted_runs(dry_run=dry_run)
+    report["count"] = int(report.get("candidate_count", 0))
+    message = (
+        "Dry-run completed for interrupted backtest reconciliation"
+        if dry_run
+        else "Interrupted backtest reconciliation completed"
+    )
+    return api_response(
+        success=True,
+        data=report,
+        message=message,
+    )
 
 
 def _repair_backtest_request_response(run_id: str, dry_run: bool):
     """Shared response builder for request repair routes."""
-    try:
-        with backtest_service_scope() as service:
-            report = service.repair_backtest_request(run_id, dry_run=dry_run)
-        if report is None:
-            return api_response(
-                success=False,
-                message=f"Backtest '{run_id}' not found",
-                status_code=404,
-            )
-
-        message = (
-            f"Dry-run completed for backtest '{run_id}' request repair"
-            if dry_run
-            else f"Backtest '{run_id}' request payload repaired"
-        )
-        return api_response(success=True, data=report, message=message)
-    except Exception as e:
-        logger.error(f"Error repairing backtest request: {e}")
+    with backtest_service_scope() as service:
+        report = service.repair_backtest_request(run_id, dry_run=dry_run)
+    if report is None:
         return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
+            success=False,
+            message=f"Backtest '{run_id}' not found",
+            status_code=404,
         )
+
+    message = (
+        f"Dry-run completed for backtest '{run_id}' request repair"
+        if dry_run
+        else f"Backtest '{run_id}' request payload repaired"
+    )
+    return api_response(success=True, data=report, message=message)
 
 
 @app.get("/api/v1/admin/backtests/interrupted")
@@ -4975,26 +4990,19 @@ async def get_backtest_details(
 ):
     """Get detailed backtest results"""
     del current_user
-    try:
-        result = _get_backtest_details_sync(run_id)
-        if not result:
-            return api_response(
-                success=False,
-                message=f"Backtest run '{run_id}' not found",
-                status_code=404,
-            )
-
+    result = _get_backtest_details_sync(run_id)
+    if not result:
         return api_response(
-            success=True,
-            data=result.model_dump(),
-            message=f"Retrieved details for backtest '{run_id}'",
+            success=False,
+            message=f"Backtest run '{run_id}' not found",
+            status_code=404,
         )
 
-    except Exception as e:
-        logger.error(f"Error getting backtest details: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    return api_response(
+        success=True,
+        data=result.model_dump(),
+        message=f"Retrieved details for backtest '{run_id}'",
+    )
 
 
 @app.get("/api/v1/backtests/{run_id}/status")
@@ -5004,33 +5012,26 @@ async def get_backtest_status(
 ):
     """Get current backtest status and progress"""
     del current_user
-    try:
-        result = _get_backtest_status_sync(run_id)
-        if not result:
-            return api_response(
-                success=False,
-                message=f"Backtest run '{run_id}' not found",
-                status_code=404,
-            )
-
-        payload = result.model_dump()
-        payload["progress"] = float(payload.get("progress_pct", 0.0))
-        payload["count"] = 1
-        payload["websocket_send_metrics"] = manager.get_backtest_send_failure_metrics(
-            run_id
-        )
-
+    result = _get_backtest_status_sync(run_id)
+    if not result:
         return api_response(
-            success=True,
-            data=payload,
-            message=f"Retrieved status for backtest '{run_id}'",
+            success=False,
+            message=f"Backtest run '{run_id}' not found",
+            status_code=404,
         )
 
-    except Exception as e:
-        logger.error(f"Error getting backtest status: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    payload = result.model_dump()
+    payload["progress"] = float(payload.get("progress_pct", 0.0))
+    payload["count"] = 1
+    payload["websocket_send_metrics"] = manager.get_backtest_send_failure_metrics(
+        run_id
+    )
+
+    return api_response(
+        success=True,
+        data=payload,
+        message=f"Retrieved status for backtest '{run_id}'",
+    )
 
 
 @app.post("/api/v1/backtests/{run_id}/metadata")
@@ -5041,32 +5042,25 @@ async def update_backtest_metadata(
 ):
     """Attach or merge structured metadata into a persisted backtest run."""
     del current_user
-    try:
-        with backtest_service_scope() as service:
-            result = service.update_backtest_metadata(
-                run_id,
-                payload.metadata,
-                merge=payload.merge,
-            )
-
-        if result is None:
-            return api_response(
-                success=False,
-                message=f"Backtest run '{run_id}' not found",
-                status_code=404,
-            )
-
-        return api_response(
-            success=True,
-            data=result,
-            message=f"Updated metadata for backtest '{run_id}'",
+    with backtest_service_scope() as service:
+        result = service.update_backtest_metadata(
+            run_id,
+            payload.metadata,
+            merge=payload.merge,
         )
 
-    except Exception as e:
-        logger.error(f"Error updating backtest metadata: {e}")
+    if result is None:
         return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
+            success=False,
+            message=f"Backtest run '{run_id}' not found",
+            status_code=404,
         )
+
+    return api_response(
+        success=True,
+        data=result,
+        message=f"Updated metadata for backtest '{run_id}'",
+    )
 
 
 @app.get("/api/v1/backtests/{run_id}/websocket-metrics")
@@ -5076,32 +5070,24 @@ async def get_backtest_websocket_metrics(
 ):
     """Get per-run websocket send-failure metrics for reconnect-thrashing alerting."""
     del current_user
-    try:
-        status = _get_backtest_status_sync(run_id)
-        if status is None:
-            return api_response(
-                success=False,
-                message=f"Backtest run '{run_id}' not found",
-                status_code=404,
-            )
-
-        metrics = manager.get_backtest_send_failure_metrics(run_id)
-        return api_response(
-            success=True,
-            data={
-                "run_id": run_id,
-                "status": status.status,
-                "metrics": metrics,
-            },
-            message=f"Retrieved websocket metrics for backtest '{run_id}'",
-        )
-    except Exception as e:
-        logger.error(f"Error getting backtest websocket metrics: {e}")
+    status = _get_backtest_status_sync(run_id)
+    if status is None:
         return api_response(
             success=False,
-            message=f"Internal server error: {str(e)}",
-            status_code=500,
+            message=f"Backtest run '{run_id}' not found",
+            status_code=404,
         )
+
+    metrics = manager.get_backtest_send_failure_metrics(run_id)
+    return api_response(
+        success=True,
+        data={
+            "run_id": run_id,
+            "status": status.status,
+            "metrics": metrics,
+        },
+        message=f"Retrieved websocket metrics for backtest '{run_id}'",
+    )
 
 
 @app.post("/api/v1/backtests/{run_id}/create-strategy")
@@ -5250,25 +5236,18 @@ async def cancel_backtest(
 ):
     """Cancel running backtest"""
     del current_user
-    try:
-        with backtest_service_scope() as service:
-            success = service.cancel_backtest(run_id)
-        if not success:
-            return api_response(
-                success=False,
-                message=f"Backtest '{run_id}' not found or not running",
-                status_code=404,
-            )
-
+    with backtest_service_scope() as service:
+        success = service.cancel_backtest(run_id)
+    if not success:
         return api_response(
-            success=True, message=f"Backtest '{run_id}' cancelled successfully"
+            success=False,
+            message=f"Backtest '{run_id}' not found or not running",
+            status_code=404,
         )
 
-    except Exception as e:
-        logger.error(f"Error cancelling backtest: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    return api_response(
+        success=True, message=f"Backtest '{run_id}' cancelled successfully"
+    )
 
 
 @app.post("/api/v1/backtests/{run_id}/pause")
@@ -5278,27 +5257,20 @@ async def pause_backtest(
 ):
     """Request a cooperative pause for a running backtest."""
     del current_user
-    try:
-        with backtest_service_scope() as service:
-            result = service.pause_backtest(run_id)
-        if not result:
-            return api_response(
-                success=False,
-                message=f"Backtest '{run_id}' not found or cannot be paused",
-                status_code=404,
-            )
-
+    with backtest_service_scope() as service:
+        result = service.pause_backtest(run_id)
+    if not result:
         return api_response(
-            success=True,
-            data=result,
-            message=f"Backtest '{run_id}' pause requested",
+            success=False,
+            message=f"Backtest '{run_id}' not found or cannot be paused",
+            status_code=404,
         )
 
-    except Exception as e:
-        logger.error(f"Error pausing backtest: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    return api_response(
+        success=True,
+        data=result,
+        message=f"Backtest '{run_id}' pause requested",
+    )
 
 
 @app.post("/api/v1/backtests/{run_id}/resume")
@@ -5308,27 +5280,20 @@ async def resume_backtest(
 ):
     """Resume a paused backtest."""
     del current_user
-    try:
-        with backtest_service_scope() as service:
-            result = service.resume_backtest(run_id)
-        if not result:
-            return api_response(
-                success=False,
-                message=f"Backtest '{run_id}' not found or cannot be resumed",
-                status_code=404,
-            )
-
+    with backtest_service_scope() as service:
+        result = service.resume_backtest(run_id)
+    if not result:
         return api_response(
-            success=True,
-            data=result,
-            message=f"Backtest '{run_id}' resume requested",
+            success=False,
+            message=f"Backtest '{run_id}' not found or cannot be resumed",
+            status_code=404,
         )
 
-    except Exception as e:
-        logger.error(f"Error resuming backtest: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    return api_response(
+        success=True,
+        data=result,
+        message=f"Backtest '{run_id}' resume requested",
+    )
 
 
 @app.post("/api/v1/backtests/{run_id}/restart")

@@ -348,6 +348,21 @@ Validation failures return the standardized `api_response` 422 envelope
 (`{success: false, message: "Validation error", data: {errors: [...]}, timestamp, trace_id}`)
 via a global `RequestValidationError` handler, instead of FastAPI's default shape.
 
+### Error handling
+
+Bot-domain errors share a typed hierarchy in `src/exceptions.py` (`BotError` base +
+domain categories: `DatabaseError`, `ExchangeError`, `TradingError`, `BacktestError`,
+`ProcessManagerError`, `CredentialError`, `CacheServiceError`, `StorageError`,
+`MessageBusError`, `ConfigurationError`). Raise the most specific subtype; callers can
+catch at the category or `BotError` level without trapping unrelated stdlib exceptions.
+Unhandled route exceptions are caught by a global `@app.exception_handler(Exception)`
+that logs with `trace_id` and returns the standardized `api_response` 500 envelope
+(`Internal server error` — internals are never exposed to clients).
+
+A ratchet test (`tests/test_exception_handling_ratchet.py`) fails the build if the count
+of broad `except Exception` / bare `except:` sites in `src/` grows past the current
+baseline, so the long-term reduction (toward `<15`) is enforced incrementally.
+
 ## Safety Rules
 
 - keep lifecycle control inside `BotInstanceManager`

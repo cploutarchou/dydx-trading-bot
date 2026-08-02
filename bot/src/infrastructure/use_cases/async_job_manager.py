@@ -333,7 +333,7 @@ class AsyncJobManager:
         self.mark_running(resolved_job_id)
         started = time.perf_counter()
         if isinstance(awaitable, asyncio.Task):
-            task = cast(asyncio.Task[Any], awaitable)
+            task = awaitable
             if task.get_name() != resolved_job_id:
                 task.set_name(resolved_job_id)
         elif asyncio.iscoroutine(awaitable):

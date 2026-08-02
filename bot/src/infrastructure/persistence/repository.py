@@ -672,7 +672,7 @@ class EventRepository:
 
     @classmethod
     def _event_context(cls, event: Event) -> tuple[dict[str, Any], datetime, str, str]:
-        details = dict(event.details or {}) if isinstance(event.details, dict) else {}
+        details: dict[str, Any] = dict(event.details or {}) if isinstance(event.details, dict) else {}
         created_at = event.created_at or utc_now()
         if created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=timezone.utc)

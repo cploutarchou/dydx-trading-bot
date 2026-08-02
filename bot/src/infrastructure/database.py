@@ -8,7 +8,7 @@ from collections import deque
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Any, Iterator, Optional
 from urllib.parse import urlencode, urlparse
 
 # =============================================================================
@@ -73,9 +73,9 @@ class ConnectionPoolMonitor:
 
         # Thread-safe metrics storage
         self._lock = threading.Lock()
-        self._metrics_history = deque(maxlen=metrics_window_size)
-        self._connection_failures = deque(maxlen=metrics_window_size)
-        self._connection_timeouts = deque(maxlen=metrics_window_size)
+        self._metrics_history: deque[dict[str, Any]] = deque(maxlen=metrics_window_size)
+        self._connection_failures: deque[datetime] = deque(maxlen=metrics_window_size)
+        self._connection_timeouts: deque[dict[str, Any]] = deque(maxlen=metrics_window_size)
         self._last_alert_time = None
         self._alert_cooldown_seconds = 300  # 5 minutes between alerts
         self._monitoring_active = False

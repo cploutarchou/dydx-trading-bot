@@ -558,11 +558,6 @@ class BotInstance:
             raise
 
 
-class GracefulShutdownException(Exception):
-    """Exception raised for graceful shutdown requests."""
-
-    pass
-
     def setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown"""
 
@@ -848,6 +843,12 @@ async def main():
         print(f"Bot instance failed: {e}")
         # Re-raise for proper error propagation instead of sys.exit(1)
         raise
+
+
+class GracefulShutdownException(Exception):
+    """Exception raised for graceful shutdown requests."""
+
+    pass
 
 
 if __name__ == "__main__":

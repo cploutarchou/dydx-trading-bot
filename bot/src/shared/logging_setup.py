@@ -5,6 +5,7 @@ import time
 from typing import Any, Dict, Mapping
 
 from loguru import logger
+
 from src.constants import (
     ENVIRONMENT,
     LOG_LEVEL,

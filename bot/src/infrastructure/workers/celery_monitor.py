@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, TypeVar, cast
 
 from celery import states
 from celery.result import AsyncResult
+
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.workers.celery_app import celery_app

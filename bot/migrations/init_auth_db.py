@@ -5,8 +5,8 @@ Creates authentication tables. Bootstrap admin creation is opt-in through
 environment variables so local setup does not inject hardcoded credentials.
 """
 
-from datetime import datetime
 import os
+from datetime import datetime
 from typing import Optional, Type, Union
 
 from loguru import logger

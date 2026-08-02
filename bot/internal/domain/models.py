@@ -25,7 +25,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.shared.time_utils import utc_now
-
 from . import Base
 
 

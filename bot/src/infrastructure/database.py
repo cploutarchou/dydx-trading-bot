@@ -6,7 +6,7 @@ import threading
 import time
 from collections import deque
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator, Optional
 from urllib.parse import urlencode, urlparse

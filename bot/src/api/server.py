@@ -35,6 +35,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, PlainTextResponse
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
+
 from src.shared.env_loader import load_repo_env
 from src.shared.redis_env import redis_url
 

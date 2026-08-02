@@ -9,12 +9,6 @@ from uuid import uuid4
 
 import pandas as pd
 from loguru import logger
-from src.shared.dataframe_utils import (
-    managed_dataframe,
-    cleanup_dataframe,
-    register_dataframe,
-    unregister_dataframe,
-)
 
 from src.constants import (
     CLOSE_AT_ZSCORE_CROSS,
@@ -28,6 +22,11 @@ from src.constants import (
     ZSCORE_THRESH,
 )
 from src.infrastructure.domain.cointegration_storage import pair_storage
+from src.shared.dataframe_utils import (
+    cleanup_dataframe,
+    register_dataframe,
+    unregister_dataframe,
+)
 from src.shared.notifications import TelegramMessenger
 from src.shared.utils import format_number
 from src.trading.account_manager import (

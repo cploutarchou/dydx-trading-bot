@@ -467,19 +467,23 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Impact**: Maintainability, testability, reduced complexity
     - **Effort**: 2-3 weeks
     - **Priority**: HIGH
-    - **Status**: Phase 1 STARTED — extracted a shared `src/api/responses.py` (`api_response`,
-      `trace_id_ctx`, `INTERNAL_ERROR_MESSAGE` moved out of the monolith; server.py re-imports them,
-      preserving identity and all call sites / `server.api_response` attribute access) and the first
-      `APIRouter` route module `src/api/v1/monitoring.py` (6 low-criticality monitoring endpoints:
-      DataFrame memory/cleanup, DB pool metrics/health/history/diagnostics). server.py shrank
-      **6,093 → 5,969 lines** (~124 removed). Verified via `tests/test_monitoring_routes.py` (TestClient
-      reachability + auth + envelope + limit clamping) and identity assertions. NOTE: discovered
-      FastAPI 0.138.1 uses lazy `_IncludedRouter` (included routes are NOT materialized in
-      `app.routes`), so the security route-coverage gate was enhanced to walk `original_router`
-      too — coverage now spans included routers (auth + monitoring), an improvement. **Phase 2:**
-      apply the proven pattern to larger groups — strategies, celery/admin, arbitrage, then bots
-      and backtests (most intertwined, save for last). Each future extraction reuses `responses.py`
-      (no more prerequisite).
+    - **Status**: Phase 1–3 STARTED — extracted shared helper modules out of the monolith
+      (`src/api/responses.py`: `api_response`, `trace_id_ctx`, `INTERNAL_ERROR_MESSAGE`; and
+      `src/api/endpoint_timing.py`: `_log_endpoint_timing`, `_endpoint_perf_headers`,
+      `_payload_size_bytes` — server.py re-imports all, preserving identity and every call site)
+      and **three `APIRouter` route modules**: `src/api/v1/monitoring.py` (6 monitoring endpoints),
+      `src/api/v1/celery_admin.py` (7 admin-only Celery inspection endpoints), and
+      `src/api/v1/strategies.py` (8 strategy CRUD endpoints + `StrategyRequest` /
+      `StrategyVersionRevertRequest` / `InMemoryStrategyStore` moved with them; `list_public_strategies`
+      intentionally unauthenticated). server.py shrank **6,093 → 5,505 lines** (~588 removed, ~10%).
+      Verified via `tests/test_monitoring_routes.py`, `tests/test_celery_admin_routes.py`, and
+      `tests/test_strategies_routes.py` (TestClient reachability + auth/admin enforcement + envelope
+      + 404/validation paths) and identity assertions. NOTE: FastAPI 0.138.1 uses lazy `_IncludedRouter`
+      (included routes are NOT materialized in `app.routes`), so the security route-coverage gate was
+      enhanced to walk `original_router` too — it now covers all included routers, an improvement.
+      **Phase 4+:** apply the proven pattern to the larger remaining groups — arbitrage, then bots
+      and backtests (most intertwined, save for last). Each future extraction reuses `responses.py` /
+      `endpoint_timing.py` (no more prerequisites).
 
 - [ ] **Break up backtest service** - Split `src/infrastructure/use_cases/service_backtest.py` (4,440 lines)
     - **Files**: Extract orchestration, execution, reporting into focused modules
@@ -681,7 +685,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 ### **High Priority / High Impact** (Week 1-2)
 
-- **Break up monolithic files** - API server (5,920 lines) and backtest service (4,440 lines) — API server Phase 1 STARTED (monitoring + `responses.py` extracted, 6,093→5,969)
+- **Break up monolithic files** - API server (5,920 lines) and backtest service (4,440 lines) — API server Phase 1–3 STARTED (monitoring + celery + strategies extracted, shared `responses.py`/`endpoint_timing.py`, 6,093→5,505)
 - **Implement distributed state management** for horizontal scaling
 - **Replace sys.exit () calls** with proper exception handling
 - **Implement token revocation** - Complete logout/logout-all functionality (COMPLETED)

@@ -17,6 +17,7 @@ import qrcode
 from decouple import config
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+
 from src.shared.redis_env import (
     redis_db,
     redis_host,

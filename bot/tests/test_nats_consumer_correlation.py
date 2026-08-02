@@ -1,7 +1,8 @@
 """Tests for NATS consumer correlation ID propagation."""
 
+from unittest.mock import MagicMock, AsyncMock
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 
 
 @pytest.mark.asyncio

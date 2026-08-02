@@ -9,12 +9,6 @@ from uuid import uuid4
 
 import pandas as pd
 from loguru import logger
-from src.shared.dataframe_utils import (
-    managed_dataframe,
-    cleanup_dataframe,
-    register_dataframe,
-    unregister_dataframe,
-)
 
 from src.constants import (
     CLOSE_AT_ZSCORE_CROSS,
@@ -28,6 +22,11 @@ from src.constants import (
     ZSCORE_THRESH,
 )
 from src.infrastructure.domain.cointegration_storage import pair_storage
+from src.shared.dataframe_utils import (
+    cleanup_dataframe,
+    register_dataframe,
+    unregister_dataframe,
+)
 from src.shared.notifications import TelegramMessenger
 from src.shared.utils import format_number
 from src.trading.account_manager import (
@@ -53,7 +52,7 @@ from src.trading.bot_agents_state import (
     save_processed_positions,
 )
 from src.trading.market_data import get_candles_recent, get_markets
-from src.trading.pair_priority import prioritize_pairs
+from src.trading.pair_priority import PairPriorityScore, prioritize_pairs
 from src.trading.trade_persistence import (
     persist_live_trade_closed,
     persist_live_trade_opened,
@@ -601,7 +600,7 @@ async def open_positions(client) -> None:
     markets = await get_markets(client)
     market_map = markets.get("markets", {}) if isinstance(markets, dict) else {}
 
-    priority_scores = []
+    priority_scores: list[PairPriorityScore] = []
     pair_priority_enabled = is_pair_priority_engine_enabled()
     if pair_priority_enabled:
         max_pairs = pair_priority_max_pairs()

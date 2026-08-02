@@ -8,20 +8,20 @@ from typing import Any
 
 import pandas as pd
 from loguru import logger
-from src.shared.dataframe_utils import (
-    managed_dataframe,
-    cleanup_dataframe,
-    optimize_dataframe_memory,
-    cleanup_cache_entries,
-    register_dataframe,
-    unregister_dataframe,
-)
+
 from src.constants import (
     CANDLE_FETCH_CONCURRENCY,
     CANDLES_RECENT_CACHE_TTL_SECONDS,
     DYDX_API_THROTTLE_SECONDS,
     MARKETS_CACHE_TTL_SECONDS,
     RESOLUTION,
+)
+from src.shared.dataframe_utils import (
+    cleanup_dataframe,
+    optimize_dataframe_memory,
+    cleanup_cache_entries,
+    register_dataframe,
+    unregister_dataframe,
 )
 from src.shared.notifications import send_error_notification as _send_error_notification
 from src.shared.redis_env import redis_url

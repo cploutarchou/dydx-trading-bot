@@ -5,6 +5,7 @@ import os
 from typing import Any, Dict, Optional
 
 from loguru import logger
+
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
 from src.infrastructure.persistence.repository_realtime import UnitOfWorkRealtime

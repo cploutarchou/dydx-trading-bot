@@ -1,12 +1,12 @@
 """DataFrame memory management and cleanup utilities."""
 
-import gc
 import contextlib
+import gc
 import logging
 import threading
 import time
-from typing import Any, Optional, Dict, List
 from datetime import datetime, timedelta
+from typing import Any, Optional, Dict
 
 logger = logging.getLogger(__name__)
 

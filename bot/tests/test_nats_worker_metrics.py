@@ -1,8 +1,8 @@
 """Tests for NATS worker metrics producer."""
 
-import os
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 def test_worker_id():

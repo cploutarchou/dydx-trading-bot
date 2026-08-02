@@ -106,7 +106,7 @@ class BotInstance:
         """Await values only when they are awaitable (supports sync/async callables)."""
         if inspect.isawaitable(value):
             return await cast(Awaitable[_T], value)
-        return cast(_T, value)
+        return value
 
     def setup_logging(self):
         """Setup instance-specific logging"""

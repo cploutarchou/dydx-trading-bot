@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Test script for database connection pool monitoring."""
 
-import os
 import sys
 import time
 from pathlib import Path

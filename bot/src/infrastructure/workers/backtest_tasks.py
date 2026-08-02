@@ -12,19 +12,19 @@ from datetime import datetime, timezone
 from typing import Any, Dict
 from urllib.parse import urlparse
 
+import httpx
 from celery.exceptions import SoftTimeLimitExceeded
 from loguru import logger as loguru_logger
-import httpx
 
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.use_cases.service_backtest import BacktestService
-from src.infrastructure.workers.celery_app import celery_app
-from src.infrastructure.workers.celery_monitor import build_progress_meta, failure_meta
 from src.infrastructure.workers.backtest_event_emitter import (
     emit_backtest_event_sync,
     publish_backtest_event,
 )
+from src.infrastructure.workers.celery_app import celery_app
+from src.infrastructure.workers.celery_monitor import build_progress_meta, failure_meta
 from src.shared.redis_env import (
     redis_db,
     redis_host,

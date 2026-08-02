@@ -11,12 +11,9 @@ These tests cover:
 
 from __future__ import annotations
 
-import asyncio
-import json
 import os
-import tempfile
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -99,7 +96,7 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
 
     def test_stream_configs_match_plan(self):
         """Test that stream configurations match nats-jetstream-plan.md."""
-        from src.infrastructure.event_bus_nats import NATSConsumerService, StreamConfig
+        from src.infrastructure.event_bus_nats import NATSConsumerService
 
         service = NATSConsumerService(enabled=False)
 
@@ -127,7 +124,6 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
         """Test that consumer configurations match nats-jetstream-plan.md."""
         from src.infrastructure.event_bus_nats import (
             NATSConsumerService,
-            ConsumerConfig,
         )
 
         service = NATSConsumerService(enabled=False)
@@ -179,9 +175,6 @@ class TestNATSConsumerService(unittest.IsolatedAsyncioTestCase):
         """Test message handler registration."""
         from src.infrastructure.event_bus_nats import (
             NATSConsumerService,
-            MessageHandler,
-            ProcessedResult,
-            MessageAction,
         )
 
         service = NATSConsumerService(enabled=False)
@@ -252,7 +245,6 @@ class TestBacktestCommandHandler(unittest.IsolatedAsyncioTestCase):
         """Test parsing of valid payload."""
         from src.infrastructure.workers.nats_backtest_consumer import (
             BacktestCommandHandler,
-            BacktestCommandPayload,
         )
 
         handler = BacktestCommandHandler()
@@ -496,7 +488,6 @@ class TestMessageProcessing(unittest.IsolatedAsyncioTestCase):
             BacktestCommandHandler,
             MessageAction,
         )
-        from src.infrastructure.event_bus_nats import ProcessedResult
 
         # Configure mock for duplicate detection
         mock_session = MagicMock()
@@ -531,7 +522,6 @@ class TestMessageProcessing(unittest.IsolatedAsyncioTestCase):
             BacktestCommandHandler,
             MessageAction,
         )
-        from src.infrastructure.event_bus_nats import ProcessedResult
 
         handler = BacktestCommandHandler()
 
@@ -673,7 +663,7 @@ class TestConfigurationConsistency(unittest.TestCase):
 
     def test_stream_policies_match_plan(self):
         """Test that stream policies match the plan document."""
-        from src.infrastructure.event_bus_nats import NATSConsumerService, StreamConfig
+        from src.infrastructure.event_bus_nats import NATSConsumerService
 
         service = NATSConsumerService(enabled=False)
 

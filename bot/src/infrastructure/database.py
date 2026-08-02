@@ -6,9 +6,9 @@ import threading
 import time
 from collections import deque
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Any, Iterator, Optional
 from urllib.parse import urlencode, urlparse
 
 # =============================================================================
@@ -73,9 +73,11 @@ class ConnectionPoolMonitor:
 
         # Thread-safe metrics storage
         self._lock = threading.Lock()
-        self._metrics_history = deque(maxlen=metrics_window_size)
-        self._connection_failures = deque(maxlen=metrics_window_size)
-        self._connection_timeouts = deque(maxlen=metrics_window_size)
+        self._metrics_history: deque[dict[str, Any]] = deque(maxlen=metrics_window_size)
+        self._connection_failures: deque[datetime] = deque(maxlen=metrics_window_size)
+        self._connection_timeouts: deque[dict[str, Any]] = deque(
+            maxlen=metrics_window_size
+        )
         self._last_alert_time = None
         self._alert_cooldown_seconds = 300  # 5 minutes between alerts
         self._monitoring_active = False
@@ -1276,11 +1278,10 @@ def init_db():
         logger.info("⚠️  IMPORTANT: Change the default password after first login!")
 
 
-class DatabaseConnectionError(Exception):
-    """Exception raised when database connection fails."""
-
-    pass
-
+# Canonical definition lives in :mod:`src.exceptions` (as a ``DatabaseError``
+# subclass); re-imported here so existing ``from src.infrastructure.database
+# import DatabaseConnectionError`` paths keep resolving to the same class.
+from src.exceptions import DatabaseConnectionError  # noqa: E402
 
 if __name__ == "__main__":
     # Test database connection

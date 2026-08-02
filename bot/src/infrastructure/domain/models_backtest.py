@@ -6,7 +6,13 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from src.shared.trading_validators import (
+    ISO_DATE_PATTERN,
+    normalize_market_list,
+    validate_iso_date_range,
+)
 
 
 class BacktestStatus(str, Enum):
@@ -23,19 +29,32 @@ class BacktestStatus(str, Enum):
 
 
 class BacktestConfigRequest(BaseModel):
-    """Backtest configuration request"""
+    """Backtest configuration request."""
 
-    name: str = Field(..., description="Backtest name")
-    description: Optional[str] = Field(None, description="Backtest description")
-    strategy_id: Optional[int] = Field(
-        None, description="Optional originating strategy id"
+    name: str = Field(..., min_length=1, max_length=255, description="Backtest name")
+    description: Optional[str] = Field(
+        None, max_length=2000, description="Backtest description"
     )
-    start_date: str = Field(..., description="Start date (YYYY-MM-DD)")
-    end_date: str = Field(..., description="End date (YYYY-MM-DD)")
-    initial_balance: float = Field(10000.0, description="Initial balance")
-    pair_selection_mode: str = Field("liquidity", description="Pair selection mode")
+    strategy_id: Optional[int] = Field(
+        None, ge=1, description="Optional originating strategy id"
+    )
+    start_date: str = Field(
+        ..., pattern=ISO_DATE_PATTERN, description="Start date (YYYY-MM-DD)"
+    )
+    end_date: str = Field(
+        ..., pattern=ISO_DATE_PATTERN, description="End date (YYYY-MM-DD)"
+    )
+    initial_balance: float = Field(
+        default=10000.0, gt=0.0, description="Initial balance"
+    )
+    pair_selection_mode: str = Field(
+        "liquidity", min_length=1, max_length=64, description="Pair selection mode"
+    )
     max_pairs: int = Field(
-        0, description="Maximum number of pairs to process (0 means no cap)"
+        default=0,
+        ge=0,
+        le=1000,
+        description="Maximum number of pairs to process (0 means no cap)",
     )
     trading_parameters: Dict[str, Any] = Field(..., description="Trading parameters")
     pairs: List[str] = Field(..., description="Trading pairs to test")
@@ -45,21 +64,41 @@ class BacktestConfigRequest(BaseModel):
     strategy_payload_snapshot: Optional[Dict[str, Any]] = Field(
         None, description="Immutable strategy payload snapshot used for this run"
     )
-    bot_id: Optional[str] = Field(None, description="Optional bot identifier")
-    source: Optional[str] = Field(None, description="Request source label")
-    environment: Optional[str] = Field(None, description="Selected runtime environment")
+    bot_id: Optional[str] = Field(
+        None, min_length=1, max_length=128, description="Optional bot identifier"
+    )
+    source: Optional[str] = Field(
+        None, min_length=1, max_length=64, description="Request source label"
+    )
+    environment: Optional[str] = Field(
+        None, min_length=1, max_length=32, description="Selected runtime environment"
+    )
     requested_by_user_id: Optional[int] = Field(
-        None, description="Requesting user identifier"
+        None, ge=1, description="Requesting user identifier"
     )
     source_strategy_version: Optional[Any] = Field(
         None, description="Originating strategy version metadata"
     )
     timeout_seconds: Optional[float] = Field(
-        None, description="Maximum wall-clock runtime for the backtest"
+        default=None, gt=0.0, description="Maximum wall-clock runtime for the backtest"
     )
     metadata: Optional[Dict[str, Any]] = Field(
         None, description="Optional structured run metadata persisted with the request"
     )
+
+    @field_validator("pairs", "selected_pairs", mode="before")
+    @classmethod
+    def _normalize_pair_lists(cls, value: Any) -> Any:
+        # Only normalize when a list-like is supplied; leave ``None`` untouched
+        # so Optional fields keep their absence semantics.
+        if value is None:
+            return None
+        return normalize_market_list(value)
+
+    @model_validator(mode="after")
+    def _validate_date_range(self) -> "BacktestConfigRequest":
+        validate_iso_date_range(self.start_date, self.end_date)
+        return self
 
 
 class BacktestResponse(BaseModel):

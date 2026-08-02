@@ -22,7 +22,6 @@ Contract:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import socket
@@ -31,12 +30,10 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
 
 from src.infrastructure.database import db
 from src.infrastructure.event_bus_nats import (
     MessageAction,
-    MessageHandler,
     ProcessedResult,
     get_nats_consumer_service,
 )

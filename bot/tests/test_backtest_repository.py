@@ -1,11 +1,12 @@
 import json
 from datetime import datetime, timezone
 
-from internal.domain import Base
-from internal.domain.models import ArtifactReference, BacktestRun
 from sqlalchemy import create_engine, event
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
+
+from internal.domain import Base
+from internal.domain.models import ArtifactReference, BacktestRun
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.storage.analytics import AnalyticsWriter
 from src.infrastructure.storage.artifacts import ArtifactStore

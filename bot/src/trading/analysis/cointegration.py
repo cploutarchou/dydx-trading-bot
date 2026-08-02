@@ -14,14 +14,13 @@ from src.infrastructure.domain.cointegration_storage import (
     CointegrationResult,
     pair_storage,
 )
-from src.shared.notifications import TelegramMessenger
 from src.shared.dataframe_utils import (
-    managed_dataframe,
     cleanup_dataframe,
     optimize_dataframe_memory,
     register_dataframe,
     unregister_dataframe,
 )
+from src.shared.notifications import TelegramMessenger
 
 
 class SmartError(Exception):

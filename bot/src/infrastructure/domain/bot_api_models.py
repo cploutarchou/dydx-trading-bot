@@ -4,7 +4,9 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from src.shared.trading_validators import normalize_market_list
 
 
 class BotStatus(str, Enum):
@@ -24,51 +26,71 @@ class BotStatus(str, Enum):
 
 
 class TradingParameters(BaseModel):
-    """Trading parameters used by bot instances."""
+    """Trading parameters used by bot instances.
+
+    Numeric fields carry explicit bounds so invalid trades (negative sizes,
+    zero stats windows, etc.) are rejected at the API boundary with a 422
+    instead of reaching the live runtime. Values left unbounded here are either
+    config-driven free-form strings (``resolution_timeframe``, ``strategy``) or
+    rejected later by ``assert_supported_live_risk_controls`` when > 0.
+    """
 
     is_testnet: bool = True
-    subaccount_number: int = 0
-    capital_allocation_usd: float = 0.0
+    subaccount_number: int = Field(default=0, ge=0)
+    capital_allocation_usd: float = Field(
+        default=0.0, ge=0.0
+    )  # rejected if > 0 by live risk controls
     find_cointegrated_pairs: bool = True
     manage_exits: bool = True
     place_trades: bool = True
     abort_all_positions: bool = False
-    resolution_timeframe: str = "1HOUR"
-    strategy: str = "cointegration"
-    stats_window: int = 21
-    max_half_life: int = 24
-    zscore_threshold: float = 1.5
-    usd_per_trade: float = 10.0
-    usd_min_collateral: float = 100.0
+    resolution_timeframe: str = Field(default="1HOUR", min_length=1, max_length=64)
+    strategy: str = Field(default="cointegration", min_length=1, max_length=64)
+    stats_window: int = Field(default=21, ge=2, le=2000)
+    max_half_life: int = Field(default=24, ge=1, le=10000)
+    zscore_threshold: float = Field(default=1.5, gt=0.0)
+    usd_per_trade: float = Field(default=10.0, gt=0.0)
+    usd_min_collateral: float = Field(default=100.0, ge=0.0)
     close_at_zscore_cross: bool = True
-    max_positions: int = 5
-    max_drawdown_pct: float = 0.0
-    stop_loss_pct: float = 2.0
-    take_profit_pct: float = 5.0
-    trailing_stop_pct: float = 0.0
-    rebalance_interval_hours: int = 24
-    position_timeout_hours: int = 72
+    max_positions: int = Field(default=5, ge=0, le=100)
+    max_drawdown_pct: float = Field(
+        default=0.0, ge=0.0, le=100.0
+    )  # rejected if > 0 by live risk controls
+    stop_loss_pct: float = Field(default=2.0, ge=0.0, le=100.0)
+    take_profit_pct: float = Field(default=5.0, ge=0.0, le=1000.0)
+    trailing_stop_pct: float = Field(
+        default=0.0, ge=0.0, le=100.0
+    )  # rejected if > 0 by live risk controls
+    rebalance_interval_hours: int = Field(default=24, ge=0, le=8760)
+    position_timeout_hours: int = Field(default=72, ge=0, le=8760)
     selected_markets: List[str] = Field(default_factory=list)
+
+    @field_validator("selected_markets", mode="before")
+    @classmethod
+    def _normalize_selected_markets(cls, value: Any) -> List[str]:
+        # Strip/dedupe/uppercase before constraints run so callers receive a
+        # clean canonical list rather than a 422 on minor formatting.
+        return normalize_market_list(value)
 
 
 class BacktestingParameters(BaseModel):
     """Backtesting defaults stored alongside runtime-managed instances."""
 
-    candle_resolution: str = "1HOUR"
-    max_history_days: int = 90
-    starting_balance: float = 1000.0
-    transaction_fee: float = 0.0005
-    slippage: float = 0.001
-    benchmark_symbol: str = "BTC-USD"
-    risk_free_rate: float = 0.02
+    candle_resolution: str = Field(default="1HOUR", min_length=1, max_length=16)
+    max_history_days: int = Field(default=90, ge=1, le=36500)
+    starting_balance: float = Field(default=1000.0, gt=0.0)
+    transaction_fee: float = Field(default=0.0005, ge=0.0, lt=1.0)
+    slippage: float = Field(default=0.001, ge=0.0, lt=1.0)
+    benchmark_symbol: str = Field(default="BTC-USD", min_length=1, max_length=32)
+    risk_free_rate: float = Field(default=0.02, ge=0.0, le=1.0)
 
 
 class BotCredentials(BaseModel):
     """Minimal credentials for managing instance configs."""
 
-    chain_id: str = "dydx-testnet-4"
-    address: str
-    mnemonic: str
+    chain_id: str = Field(default="dydx-testnet-4", min_length=1, max_length=64)
+    address: str = Field(..., min_length=1, max_length=128)
+    mnemonic: str = Field(..., min_length=1)
 
 
 class TelegramConfig(BaseModel):
@@ -81,9 +103,11 @@ class TelegramConfig(BaseModel):
 class BotInstanceConfig(BaseModel):
     """Bot instance configuration payload."""
 
-    instance_id: str = Field(..., description="Unique instance identifier")
+    instance_id: str = Field(
+        ..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$"
+    )
     instance_name: Optional[str] = Field(
-        None, description="Human-friendly instance name"
+        None, description="Human-friendly instance name", max_length=255
     )
     credentials: BotCredentials
     telegram: Optional[TelegramConfig] = None

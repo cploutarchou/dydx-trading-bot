@@ -3,7 +3,6 @@ Bot API Server - FastAPI server for controlling multiple bot instances
 """
 
 import asyncio
-import contextvars
 import json
 import os
 import re
@@ -19,7 +18,6 @@ from uuid import uuid4
 import httpx
 import uvicorn
 from fastapi import (
-    BackgroundTasks,
     Body,
     Depends,
     FastAPI,
@@ -30,13 +28,20 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, PlainTextResponse
 from loguru import logger
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
 from src.shared.env_loader import load_repo_env
 from src.shared.redis_env import redis_url
+from src.shared.trading_validators import (
+    ISO_DATE_PATTERN,
+    normalize_market_list,
+    validate_iso_date_range,
+)
 
 # Load structured config BEFORE importing project modules that initialize config/database.
 load_repo_env(__file__)
@@ -48,9 +53,6 @@ from src.api.v1.auth import router as auth_router  # noqa: E402
 from src.infrastructure.domain.bot_api_models import (  # noqa: E402
     BotCredentials,
     BotInstanceConfig,
-    BotInstanceList,
-    BotInstanceStatus,
-    BotOperationResult,
     BotStatus,
     TradingParameters,
 )
@@ -72,7 +74,7 @@ except Exception as bot_manager_import_error:  # pragma: no cover
     )
     bot_manager = None
 
-from internal.domain.models import BacktestRun, BotStatusEnum  # noqa: E402
+from internal.domain.models import BacktestRun  # noqa: E402
 from src.api.realtime_serializers import (  # noqa: E402
     serialize_market_core,
     serialize_realtime_position,
@@ -87,7 +89,6 @@ from src.api.websocket_server import (  # noqa: E402
 
 # Import database utilities
 from src.infrastructure.database import DatabaseConfig, db  # noqa: E402
-from src.infrastructure.domain.cointegration_storage import pair_storage  # noqa: E402
 
 # Import backtest modules
 from src.infrastructure.domain.models_backtest import (  # noqa: E402
@@ -107,34 +108,37 @@ from src.infrastructure.use_cases.async_job_manager import (  # noqa: E402
     async_job_manager,
 )
 from src.infrastructure.use_cases.service_backtest import BacktestService  # noqa: E402
-from src.infrastructure.workers.celery_monitor import (  # noqa: E402
-    celery_health,
-    get_celery_task,
-    list_celery_queues,
-    list_celery_tasks,
-    list_celery_workers,
-    retry_celery_task,
-    revoke_celery_task,
-)
+
+# Celery inspection helpers (list_celery_tasks, get_celery_task, revoke_celery_task,
+# retry_celery_task, list_celery_workers, list_celery_queues, celery_health) are now
+# imported directly by src/api/v1/celery_admin.py and no longer used here.
 from src.shared.logging_setup import setup_logging  # noqa: E402
 from src.shared.live_risk_controls import (
     assert_supported_live_risk_controls,
 )  # noqa: E402
-from src.shared.credentials_cipher import (  # noqa: E402
-    open_config_secrets,
-    seal_config_secrets,
-)
-from src.shared.notifications import TelegramMessenger  # noqa: E402
 from src.shared.time_utils import utc_now_iso  # noqa: E402
+from src.api.responses import (  # noqa: E402
+    INTERNAL_ERROR_MESSAGE,
+    api_response,
+    trace_id_ctx,
+)
+from src.api.endpoint_timing import (  # noqa: E402
+    endpoint_perf_headers as _endpoint_perf_headers,
+    log_endpoint_timing as _log_endpoint_timing,
+    payload_size_bytes as _payload_size_bytes,
+)
+from src.api.v1.strategies import (  # noqa: E402
+    InMemoryStrategyStore,
+    StrategyRequest,
+    StrategyVersionRevertRequest,
+)
+from src.api.v1.arbitrage import ArbitrageRuntimeSettingsRequest  # noqa: E402
 from src.trading.arbitrage_observability import snapshot_metrics  # noqa: E402
 from src.trading.arbitrage_runtime_config import (  # noqa: E402
     get_feature_flags,
     get_runtime_settings,
-    is_pair_priority_engine_enabled,
-    update_runtime_settings,
 )
 from src.trading.dydx_client import connect_dydx, connect_dydx_runtime  # noqa: E402
-from src.trading.pair_priority import prioritize_pairs, score_pair  # noqa: E402
 
 # Filter noisy third-party warnings after imports
 _original_stderr = sys.stderr
@@ -162,10 +166,8 @@ sys.stderr = _FilteredStderr(_original_stderr)
 
 # Setup logging (Loguru + stdlib bridge)
 setup_logging()
-trace_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "trace_id", default=""
-)
-INTERNAL_ERROR_MESSAGE = "Internal server error"
+# trace_id_ctx / INTERNAL_ERROR_MESSAGE / api_response live in src/api/responses.py
+# (re-imported above) so extracted route modules can share them without a circular import.
 bot_manager_monitor_task: Optional[asyncio.Task] = None
 
 MARKET_RESOLUTION_TIMEOUT_SECONDS = 10.0
@@ -366,7 +368,7 @@ _strategy_resolution_metrics: Dict[str, Any] = {
     "last_path": None,
     "last_updated_at": None,
 }
-_strategy_resolution_recent_paths = deque(
+_strategy_resolution_recent_paths: deque[str] = deque(
     maxlen=max(
         1,
         _read_non_negative_int_env("STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE", 200),
@@ -475,56 +477,6 @@ def _cache_set(key: str, value: Any) -> None:
             _backtest_endpoint_cache.pop(cached_key, None)
 
 
-def _payload_size_bytes(payload: Any) -> int:
-    try:
-        return len(json.dumps(payload, default=str, separators=(",", ":")))
-    except Exception:
-        return -1
-
-
-def _log_endpoint_timing(
-    endpoint: str,
-    started_at: float,
-    payload: Any,
-    *,
-    cache_hit: bool = False,
-    payload_items: Optional[int] = None,
-    extra: Optional[Dict[str, Any]] = None,
-) -> None:
-    elapsed_ms = (time.perf_counter() - started_at) * 1000.0
-    size_bytes = _payload_size_bytes(payload)
-    details: Dict[str, Any] = {
-        "endpoint": endpoint,
-        "duration_ms": round(elapsed_ms, 2),
-        "cache_hit": cache_hit,
-        "payload_bytes": size_bytes,
-    }
-    if payload_items is not None:
-        details["payload_items"] = int(payload_items)
-    if extra:
-        details.update(extra)
-
-    logger.info(
-        "endpoint_perf endpoint={} duration_ms={} cache_hit={} payload_bytes={} payload_items={} details={}",
-        details["endpoint"],
-        details["duration_ms"],
-        details["cache_hit"],
-        details["payload_bytes"],
-        details.get("payload_items", -1),
-        details,
-    )
-
-
-def _endpoint_perf_headers(
-    started_at: float, *, cache_hit: Optional[bool] = None
-) -> Dict[str, str]:
-    elapsed_ms = max(0.0, (time.perf_counter() - started_at) * 1000.0)
-    headers: Dict[str, str] = {"X-Endpoint-Duration-Ms": f"{elapsed_ms:.2f}"}
-    if cache_hit is not None:
-        headers["X-Cache-Hit"] = "1" if cache_hit else "0"
-    return headers
-
-
 def _build_backtest_analytics_summary(
     run_id: str, analytics: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -601,61 +553,8 @@ def _runtime_db_pool_warnings(config: DatabaseConfig) -> List[str]:
     return warnings
 
 
-class StrategyRequest(BaseModel):
-    """UI-compatible strategy payload."""
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "name": "Balanced Mean Reversion",
-                "category": "pairs_trading",
-                "description": "Strategy with liquidity-ranked pair selection",
-                "resolution": "1HOUR",
-                "zscore_threshold": 1.5,
-                "stats_window": 21,
-                "usd_per_trade": 10.0,
-                "max_positions": 5,
-                "pair_selection_mode": "liquidity",
-            }
-        }
-    )
-
-    name: str
-    category: str = "pairs_trading"
-    description: str = ""
-    is_public: bool = False
-    user_id: int = 1
-    resolution: str = "1HOUR"
-    candle_resolution: Optional[str] = None
-    zscore_threshold: float = 1.5
-    stats_window: int = 21
-    max_half_life: float = 24.0
-    usd_per_trade: float = 10.0
-    usd_min_collateral: float = 100.0
-    close_at_zscore_cross: bool = True
-    find_cointegrated_pairs: bool = True
-    manage_exits: bool = True
-    place_trades: bool = True
-    abort_all_positions: bool = False
-    max_positions: int = 5
-    max_drawdown_pct: float = 15.0
-    stop_loss_pct: float = 3.0
-    take_profit_pct: float = 8.0
-    trailing_stop_pct: float = 2.0
-    rebalance_interval_hours: int = 24
-    position_timeout_hours: int = 72
-    initial_amount: float = 1000.0
-    starting_balance: float = 1000.0
-    transaction_fee: float = 0.0005
-    slippage: float = 0.001
-    max_history_days: int = 90
-    benchmark_symbol: str = "BTC-USD"
-    risk_free_rate: float = 0.02
-    pair_selection_mode: str = "liquidity"
-
-
-class StrategyVersionRevertRequest(BaseModel):
-    """Placeholder body for strategy version revert."""
+# StrategyRequest / StrategyVersionRevertRequest / InMemoryStrategyStore now live in
+# src/api/v1/strategies.py and are re-imported above for the backtest→strategy path.
 
 
 class RuntimePreflightRequest(BaseModel):
@@ -689,26 +588,38 @@ class BacktestRunRequestCompat(BaseModel):
         }
     )
 
-    start_date: str
-    end_date: str
-    strategy_id: Optional[int] = None
-    name: Optional[str] = None
-    description: Optional[str] = None
-    initial_balance: float = 1000.0
-    timeout_seconds: Optional[float] = None
+    start_date: str = Field(..., pattern=ISO_DATE_PATTERN)
+    end_date: str = Field(..., pattern=ISO_DATE_PATTERN)
+    strategy_id: Optional[int] = Field(default=None, ge=1)
+    name: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = Field(default=None, max_length=2000)
+    initial_balance: float = Field(default=1000.0, gt=0.0)
+    timeout_seconds: Optional[float] = Field(default=None, gt=0.0)
     # 0 means "all available markets" (no cap)
-    max_pairs: int = 0
-    pair_selection_mode: Optional[str] = None
+    max_pairs: int = Field(default=0, ge=0, le=1000)
+    pair_selection_mode: Optional[str] = Field(default=None, max_length=64)
     trading_parameters: Optional[Dict[str, Any]] = None
     pairs: Optional[List[str]] = None
     selected_pairs: Optional[List[str]] = None
     strategy_payload_snapshot: Optional[Dict[str, Any]] = None
-    bot_id: Optional[str] = None
-    source: Optional[str] = None
-    environment: Optional[str] = None
-    requested_by_user_id: Optional[int] = None
+    bot_id: Optional[str] = Field(default=None, max_length=128)
+    source: Optional[str] = Field(default=None, max_length=64)
+    environment: Optional[str] = Field(default=None, max_length=32)
+    requested_by_user_id: Optional[int] = Field(default=None, ge=1)
     source_strategy_version: Optional[Any] = None
     metadata: Optional[Dict[str, Any]] = None
+
+    @field_validator("pairs", "selected_pairs", mode="before")
+    @classmethod
+    def _normalize_pair_lists(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        return normalize_market_list(value)
+
+    @model_validator(mode="after")
+    def _validate_date_range(self) -> "BacktestRunRequestCompat":
+        validate_iso_date_range(self.start_date, self.end_date)
+        return self
 
 
 def _normalize_string_list(values: Optional[List[str]]) -> List[str]:
@@ -754,108 +665,41 @@ def _build_selected_pair_labels(markets: List[str]) -> List[str]:
 class BacktestCreateStrategyRequest(BaseModel):
     """Create a strategy from an existing backtest."""
 
-    name: str
-    description: str = ""
+    name: str = Field(..., min_length=1, max_length=255)
+    description: str = Field(default="", max_length=2000)
     config: Dict[str, Any] = Field(default_factory=dict)
 
 
-class InMemoryStrategyStore:
-    """DB-backed strategy storage with the same interface as the prior in-memory store."""
+class BacktestMetadataRequest(BaseModel):
+    """Attach or merge structured metadata into a persisted backtest run."""
 
-    @classmethod
-    def list(cls, skip: int = 0, limit: int = 50) -> Dict[str, Any]:
-        session = db.get_session()
-        try:
-            uow = UnitOfWork(session)
-            return uow.strategies.list(skip=skip, limit=limit)
-        finally:
-            session.close()
+    metadata: Dict[str, Any]
+    merge: bool = True
 
-    @classmethod
-    def list_public(cls) -> Dict[str, Any]:
-        session = db.get_session()
-        try:
-            uow = UnitOfWork(session)
-            return uow.strategies.list_public()
-        finally:
-            session.close()
 
-    @classmethod
-    def get(cls, strategy_id: int) -> Optional[Dict[str, Any]]:
-        session = db.get_session()
-        try:
-            uow = UnitOfWork(session)
-            return uow.strategies.get(strategy_id)
-        finally:
-            session.close()
+class BacktestComparisonRequest(BaseModel):
+    """Compare multiple backtest runs with advanced analytics."""
 
-    @classmethod
-    def create(
-        cls,
-        payload: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        session = db.get_session()
-        try:
-            uow = UnitOfWork(session)
-            return uow.strategies.create(payload, note="Initial version")
-        finally:
-            session.close()
+    run_ids: List[str] = Field(..., min_length=2)
+    metrics: Optional[List[str]] = None
 
+    @field_validator("run_ids", mode="before")
     @classmethod
-    def update(
-        cls,
-        strategy_id: int,
-        payload: Dict[str, Any],
-    ) -> Optional[Dict[str, Any]]:
-        session = db.get_session()
-        try:
-            uow = UnitOfWork(session)
-            return uow.strategies.update(strategy_id, payload, note="Updated strategy")
-        finally:
-            session.close()
+    def _normalize_run_ids(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        return normalize_market_list(value)
 
-    @classmethod
-    def delete(cls, strategy_id: int) -> bool:
-        session = db.get_session()
-        try:
-            uow = UnitOfWork(session)
-            return uow.strategies.delete(strategy_id)
-        finally:
-            session.close()
 
-    @classmethod
-    def versions(cls, strategy_id: int) -> List[Dict[str, Any]]:
-        session = db.get_session()
-        try:
-            uow = UnitOfWork(session)
-            return uow.strategies.versions(strategy_id)
-        finally:
-            session.close()
+# ArbitrageRuntimeSettingsRequest moved to src/api/v1/arbitrage.py (re-imported above).
 
-    @classmethod
-    def revert(
-        cls,
-        strategy_id: int,
-        version_id: int,
-    ) -> Optional[Dict[str, Any]]:
-        session = db.get_session()
-        try:
-            uow = UnitOfWork(session)
-            return uow.strategies.revert(strategy_id, version_id)
-        finally:
-            session.close()
+
+# InMemoryStrategyStore moved to src/api/v1/strategies.py (re-imported above for
+# the backtest→strategy creation path).
 
 
 def _bot_manager_ready() -> bool:
     return bot_manager is not None
-
-
-def _bot_manager_unavailable_response() -> JSONResponse:
-    return api_response(
-        success=False,
-        message="Bot manager unavailable in this environment",
-        status_code=503,
-    )
 
 
 def _bot_recovery_diagnostics() -> Dict[str, Any]:
@@ -1884,7 +1728,7 @@ app = FastAPI(
 )
 
 # Set custom OpenAPI schema
-app.openapi = custom_openapi
+app.openapi = custom_openapi  # type: ignore[method-assign]  # FastAPI's documented override pattern
 
 # Add CORS middleware
 app.add_middleware(
@@ -1895,6 +1739,54 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.exception_handler(RequestValidationError)
+async def _validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """Map FastAPI request-validation failures onto the standardized envelope.
+
+    Without this, an out-of-bounds trading payload returns FastAPI's default
+    ``{"detail": [...]}`` 422 instead of the ``api_response`` envelope required
+    by the API safety contract. Kept scoped to ``RequestValidationError`` only;
+    ``HTTPException`` keeps its default shape to limit regression surface.
+    """
+    del request
+    return api_response(
+        success=False,
+        message="Validation error",
+        data={"errors": jsonable_encoder(exc.errors())},
+        status_code=422,
+    )
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    """Catch-all for unhandled exceptions → standardized 500 envelope.
+
+    Centralizes the envelope-preserving 500 behavior so individual routes no longer
+    need a ``try/except Exception → return api_response(500)`` block, and clients
+    always receive ``{success, message, data, timestamp, trace_id}`` rather than
+    FastAPI's default ``{"detail": "Internal Server Error"}``. FastAPI dispatches by
+    type specificity, so ``RequestValidationError`` (422) and ``HTTPException``
+    (FastAPI default) still resolve to their own handlers; only truly unhandled
+    ``Exception``s land here. ``BaseException`` (KeyboardInterrupt/SystemExit) is
+    intentionally not caught.
+    """
+    logger.exception(
+        "Unhandled exception on {method} {path}",
+        method=request.method,
+        path=request.url.path,
+    )
+    return api_response(
+        success=False,
+        message=INTERNAL_ERROR_MESSAGE,
+        status_code=500,
+    )
+
+
 # Include authentication routes
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(
@@ -1903,38 +1795,52 @@ app.include_router(
     tags=["Authentication"],
 )
 
+# Include extracted route modules (monolith breakup). Monitoring is first; its
+# routes live in src/api/v1/monitoring.py and inherit app middleware/auth/handlers.
+from src.api.v1.monitoring import router as monitoring_router  # noqa: E402
+from src.api.v1.celery_admin import router as celery_admin_router  # noqa: E402
+from src.api.v1.strategies import router as strategies_router  # noqa: E402
+from src.api.v1.arbitrage import router as arbitrage_router  # noqa: E402
+from src.api.v1.bot_lifecycle import (  # noqa: E402
+    configure_bot_lifecycle,
+    create_bot_instance,
+    delete_bot_instance,
+    get_bot_instance,
+    list_bot_instances,
+    quick_deploy_bot,
+    restart_bot_instance,
+    router as bot_lifecycle_router,
+    start_bot_instance,
+    stop_bot_instance,
+)
+from src.api.v1.bot_records import (  # noqa: E402
+    get_bot_history,
+    get_bot_jobs,
+    get_bot_stats,
+    get_bot_trades,
+    router as bot_records_router,
+)
+
+configure_bot_lifecycle(
+    bot_manager_provider=lambda: bot_manager,
+    instance_rate_limiter=_check_instance_rate_limit,
+)
+
+app.include_router(monitoring_router)
+app.include_router(celery_admin_router)
+app.include_router(strategies_router)
+app.include_router(arbitrage_router)
+app.include_router(bot_lifecycle_router)
+app.include_router(bot_records_router)
+
 
 # ============================================================================
 # API RESPONSE WRAPPER
 # ============================================================================
-
-
-def api_response(
-    success: bool,
-    data=None,
-    message: str = "",
-    status_code: int = 200,
-    headers: Optional[Dict[str, str]] = None,
-):
-    """Standardized API response format"""
-    if status_code >= 500:
-        # Never expose raw exceptions/DB internals in client-facing 5xx responses.
-        message = INTERNAL_ERROR_MESSAGE
-    trace_id = trace_id_ctx.get()
-    response_data = {
-        "success": success,
-        "message": message,
-        "data": data,
-        "timestamp": utc_now_iso(),
-        "trace_id": trace_id,
-    }
-    response = JSONResponse(
-        content=jsonable_encoder(response_data),
-        status_code=status_code,
-    )
-    for header_name, header_value in (headers or {}).items():
-        response.headers[header_name] = str(header_value)
-    return response
+# ``api_response`` (and ``trace_id_ctx`` / ``INTERNAL_ERROR_MESSAGE``) now live in
+# ``src/api/responses.py`` and are re-imported at the top of this module so existing
+# call sites and ``server.api_response`` / ``server.trace_id_ctx`` attribute access
+# keep working unchanged.
 
 
 @app.post("/api/v1/runtime/preflight")
@@ -2109,130 +2015,6 @@ async def runtime_preflight(
         )
 
 
-def _resolve_operator_name(current_user: Optional[User]) -> str:
-    if current_user is None:
-        return "system"
-    return (
-        str(getattr(current_user, "full_name", "") or "").strip()
-        or str(getattr(current_user, "username", "") or "").strip()
-        or str(getattr(current_user, "email", "") or "").strip()
-        or "system"
-    )
-
-
-def _resolve_action_details(message: Optional[str], fallback: str) -> str:
-    text = str(message or "").strip()
-    return text or fallback
-
-
-def _build_bot_lifecycle_context(
-    instance_id: str,
-    config_payload: Optional[Dict[str, Any]],
-    current_user: Optional[User],
-    *,
-    details: str = "",
-    reason: str = "",
-) -> Dict[str, Any]:
-    payload = config_payload or {}
-    trading_params = payload.get("trading_params") or {}
-    credentials = payload.get("credentials") or {}
-    is_testnet = bool(trading_params.get("is_testnet", True))
-    return {
-        "instance_id": instance_id,
-        "instance_name": payload.get("instance_name") or instance_id,
-        "strategy": trading_params.get("strategy", "unknown"),
-        "is_testnet": is_testnet,
-        "account_address": credentials.get("address"),
-        "operator": _resolve_operator_name(current_user),
-        "details": details,
-        "reason": reason,
-    }
-
-
-def _send_bot_lifecycle_notification(
-    action: str,
-    instance_id: str,
-    config_payload: Optional[Dict[str, Any]],
-    current_user: Optional[User],
-    *,
-    success: bool = True,
-    details: str = "",
-    reason: str = "",
-) -> bool:
-    payload = config_payload or {}
-    telegram = payload.get("telegram") or {}
-    messenger = TelegramMessenger(
-        bot_token=str(telegram.get("token") or "").strip(),
-        chat_id=str(telegram.get("chat_id") or "").strip(),
-        instance_id=instance_id,
-        environment=os.getenv("ENVIRONMENT", "development"),
-    )
-    return messenger.send_lifecycle_message(
-        action,
-        _build_bot_lifecycle_context(
-            instance_id,
-            payload,
-            current_user,
-            details=details,
-            reason=reason,
-        ),
-        success=success,
-    )
-
-
-def _persist_bot_status_and_event(
-    instance_id: str,
-    *,
-    status: Optional[BotStatusEnum] = None,
-    process_id: Optional[int] = None,
-    event_type: Optional[str] = None,
-    severity: str = "info",
-    message: str = "",
-    details: Optional[Dict[str, Any]] = None,
-) -> Optional[Dict[str, Any]]:
-    """Persist lifecycle status/event updates and return the current bot config payload."""
-    session = None
-    try:
-        session = db.get_session()
-        uow = UnitOfWork(session)
-        bot = uow.bots.get_by_instance_id(instance_id)
-        if bot is None:
-            return None
-
-        if status is not None:
-            uow.bots.update_status(instance_id, status, process_id=process_id)
-            bot = uow.bots.get_by_instance_id(instance_id)
-            if bot is None:
-                return None
-
-        if event_type:
-            uow.events.log_event(
-                int(bot.id),  # type: ignore[arg-type]
-                event_type,
-                severity,
-                message,
-                details=details,
-            )
-
-        # The stored config is encrypted at rest; decrypt before returning so the
-        # notification/context helpers (which read telegram.token/credentials)
-        # observe plaintext secrets.
-        raw_config = dict(bot.config) if bot.config is not None else {}  # type: ignore[arg-type]
-        return open_config_secrets(raw_config)
-    except Exception as db_error:
-        logger.warning(
-            "Failed to persist bot lifecycle state for {}: {}",
-            instance_id,
-            db_error,
-        )
-        if session is not None:
-            session.rollback()
-        return None
-    finally:
-        if session is not None:
-            session.close()
-
-
 @app.middleware("http")
 async def request_trace_logging_middleware(request: Request, call_next):
     """Attach per-request trace IDs and emit verbose request logs in development."""
@@ -2315,945 +2097,11 @@ def _is_expected_strategy_runtime_probe_404(request: Request, status_code: int) 
     )
 
 
-# ============================================================================
-# BOT INSTANCE MANAGEMENT ENDPOINTS
-# ============================================================================
+# BOT LIFECYCLE ENDPOINTS — extracted to src/api/v1/bot_lifecycle.py.
+# The canonical manager and instance-create rate limiter are injected above.
 
 
-@app.post("/api/v1/bots", response_model=BotOperationResult)
-async def create_bot_instance(
-    config: BotInstanceConfig,
-    current_user: User = Depends(get_current_active_user),
-    _rate: None = Depends(_check_instance_rate_limit),
-):
-    """Create a new bot instance"""
-    try:
-        assert_supported_live_risk_controls(config.trading_params.model_dump())
-        if bot_manager is None:
-            return _bot_manager_unavailable_response()
-        result = await bot_manager.create_instance(config)
-
-        if result.success:
-            # Persist DB-backed runtime config. Worker startup requires this row.
-            persisted_config: Dict[str, Any] = {
-                "instance_name": config.instance_name,
-                "credentials": (
-                    config.credentials.model_dump() if config.credentials else {}
-                ),
-                "telegram": (config.telegram.model_dump() if config.telegram else {}),
-                "trading_params": (
-                    config.trading_params.model_dump() if config.trading_params else {}
-                ),
-                "backtesting_params": (
-                    config.backtesting_params.model_dump()
-                    if config.backtesting_params
-                    else {}
-                ),
-            }
-            session = None
-            try:
-                session = db.get_session()
-                uow = UnitOfWork(session)
-
-                # Create database record if the manager has not already done so.
-                bot_db = uow.bots.get_by_instance_id(config.instance_id)
-                config_meta = bot_manager._build_config_meta(persisted_config)
-                # Seal credential/telegram blocks at the persistence boundary so
-                # secrets are encrypted at rest. persisted_config itself stays
-                # plaintext for the lifecycle notification below.
-                stored_config = seal_config_secrets(
-                    {**persisted_config, "config_meta": config_meta}
-                )
-                if bot_db is None:
-                    bot_db = uow.bots.create_bot(
-                        instance_id=config.instance_id,
-                        network=(
-                            "testnet"
-                            if (
-                                config.trading_params
-                                and config.trading_params.is_testnet
-                            )
-                            else "mainnet"
-                        ),
-                        strategy=(
-                            config.trading_params.strategy
-                            if config.trading_params
-                            else "default"
-                        ),
-                        config=stored_config,
-                    )
-                else:
-                    bot_db.config = stored_config
-                    session.commit()
-
-                try:
-                    uow.events.log_event(
-                        int(bot_db.id),  # type: ignore[arg-type]
-                        "bot_created",
-                        "info",
-                        f"Bot instance created via API: {config.instance_id}",
-                        details={"instance_name": config.instance_name},
-                    )
-                except Exception as event_error:
-                    logger.warning(
-                        "Failed to record bot_created event for '{}': {}",
-                        config.instance_id,
-                        event_error,
-                    )
-                logger.info(
-                    f"Bot instance '{config.instance_id}' persisted to database"
-                )
-            except Exception as db_error:
-                logger.error(f"Failed to persist bot to database: {db_error}")
-                if session is not None:
-                    session.rollback()
-                try:
-                    await bot_manager.delete_instance(config.instance_id)
-                except Exception as cleanup_error:
-                    logger.warning(
-                        "Failed to clean up bot instance '{}' after DB persistence failure: {}",
-                        config.instance_id,
-                        cleanup_error,
-                    )
-                return api_response(
-                    success=False,
-                    message=(
-                        "Failed to persist DB-backed bot configuration; "
-                        "instance was not created"
-                    ),
-                    status_code=500,
-                )
-            finally:
-                if session is not None:
-                    session.close()
-
-            _send_bot_lifecycle_notification(
-                "created",
-                config.instance_id,
-                persisted_config,
-                current_user,
-                success=True,
-                details="Runtime instance created and ready to start.",
-            )
-
-            return api_response(
-                success=True,
-                data=result.model_dump(),
-                message=f"Bot instance '{config.instance_id}' created successfully",
-            )
-        else:
-            return api_response(success=False, message=result.message, status_code=400)
-
-    except Exception as e:
-        if isinstance(e, ValueError):
-            return api_response(
-                success=False,
-                message=f"Validation error: {str(e)}",
-                data={"error": "UNSUPPORTED_RISK_CONTROL"},
-                status_code=422,
-            )
-        logger.error(f"Error creating bot instance: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-
-
-@app.get("/api/v1/bots", response_model=BotInstanceList)
-async def list_bot_instances(current_user: User = Depends(get_current_active_user)):
-    """Get list of all bot instances"""
-    try:
-        if bot_manager is None:
-            return api_response(
-                success=True,
-                data={"bots": [], "total": 0},
-                message="Retrieved 0 bot instances (bot manager unavailable)",
-            )
-        instances = await bot_manager.list_instances()
-
-        return api_response(
-            success=True,
-            data={
-                "bots": [instance.model_dump() for instance in instances],
-                "total": len(instances),
-            },
-            message=f"Retrieved {len(instances)} bot instances",
-        )
-
-    except Exception as e:
-        logger.error(f"Error listing bot instances: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-
-
-@app.get("/api/v1/bots/{instance_id}", response_model=BotInstanceStatus)
-async def get_bot_instance(
-    instance_id: str, current_user: User = Depends(get_current_active_user)
-):
-    """Get specific bot instance status"""
-    try:
-        if bot_manager is None:
-            return _bot_manager_unavailable_response()
-        instance = await bot_manager.get_instance_status(instance_id)
-
-        if instance is None:
-            return api_response(
-                success=False,
-                message=f"Bot instance '{instance_id}' not found",
-                status_code=404,
-            )
-
-        return api_response(
-            success=True,
-            data=instance.model_dump(),
-            message=f"Retrieved status for bot instance '{instance_id}'",
-        )
-
-    except Exception as e:
-        logger.error(f"Error getting bot instance {instance_id}: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-
-
-@app.delete("/api/v1/bots/{instance_id}")
-async def delete_bot_instance(
-    instance_id: str, current_user: User = Depends(get_current_active_user)
-):
-    """Delete bot instance"""
-    try:
-        if bot_manager is None:
-            return _bot_manager_unavailable_response()
-        existing_config = _persist_bot_status_and_event(
-            instance_id,
-            event_type=None,
-        )
-        result = await bot_manager.delete_instance(instance_id)
-
-        if result.success:
-            session = None
-            try:
-                session = db.get_session()
-                uow = UnitOfWork(session)
-                bot = uow.bots.get_by_instance_id(instance_id)
-                if bot is not None:
-                    uow.events.log_event(
-                        int(bot.id),  # type: ignore[arg-type]
-                        "bot_deleted",
-                        "info",
-                        "Bot instance deleted via API",
-                    )
-                uow.bots.delete_bot(instance_id)
-            except Exception as db_error:
-                logger.warning(
-                    f"Failed to delete bot instance '{instance_id}' from database: {db_error}"
-                )
-                if session is not None:
-                    session.rollback()
-            finally:
-                if session is not None:
-                    session.close()
-            _send_bot_lifecycle_notification(
-                "deleted",
-                instance_id,
-                existing_config,
-                current_user,
-                success=True,
-                details=_resolve_action_details(
-                    result.message,
-                    "Runtime definition deleted successfully.",
-                ),
-            )
-            return api_response(
-                success=True,
-                data=result.model_dump(),
-                message=f"Bot instance '{instance_id}' deleted successfully",
-            )
-        else:
-            _send_bot_lifecycle_notification(
-                "delete",
-                instance_id,
-                existing_config,
-                current_user,
-                success=False,
-                details=_resolve_action_details(
-                    result.error or result.message,
-                    "Runtime deletion failed.",
-                ),
-            )
-            return api_response(success=False, message=result.message, status_code=400)
-
-    except Exception as e:
-        logger.error(f"Error deleting bot instance {instance_id}: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-
-
-# ============================================================================
-# BOT CONTROL ENDPOINTS
-# ============================================================================
-
-
-@app.post("/api/v1/bots/{instance_id}/start")
-async def start_bot_instance(
-    instance_id: str,
-    background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Start bot instance"""
-    try:
-        if bot_manager is None:
-            return _bot_manager_unavailable_response()
-        result = await bot_manager.start_instance(instance_id)
-
-        if result.success:
-            # Update database
-            persisted_config = _persist_bot_status_and_event(
-                instance_id,
-                status=BotStatusEnum.RUNNING,
-                process_id=(result.data.get("process_id") if result.data else None),
-                event_type="bot_started",
-                severity="info",
-                message=f"Bot started via API (PID: {result.data.get('process_id') if result.data else 'unknown'})",
-                details={
-                    "process_id": result.data.get("process_id") if result.data else None
-                },
-            )
-            _send_bot_lifecycle_notification(
-                "started",
-                instance_id,
-                persisted_config,
-                current_user,
-                success=True,
-                details=_resolve_action_details(
-                    result.message,
-                    "Runtime process started successfully.",
-                ),
-            )
-
-            return api_response(
-                success=True,
-                data=result.model_dump(),
-                message=f"Bot instance '{instance_id}' started successfully",
-            )
-        else:
-            persisted_config = _persist_bot_status_and_event(
-                instance_id,
-                status=BotStatusEnum.ERROR,
-                process_id=None,
-                event_type="bot_start_failed",
-                severity="error",
-                message=_resolve_action_details(result.message, "Bot failed to start"),
-                details={"error": result.error or result.message},
-            )
-            _send_bot_lifecycle_notification(
-                "start",
-                instance_id,
-                persisted_config,
-                current_user,
-                success=False,
-                details=_resolve_action_details(
-                    result.error or result.message,
-                    "Runtime start failed before reaching RUNNING state.",
-                ),
-            )
-            return api_response(success=False, message=result.message, status_code=400)
-
-    except Exception as e:
-        logger.error(f"Error starting bot instance {instance_id}: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-
-
-@app.post("/api/v1/bots/{instance_id}/stop")
-async def stop_bot_instance(
-    instance_id: str,
-    force: bool = False,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Stop bot instance"""
-    try:
-        if bot_manager is None:
-            return _bot_manager_unavailable_response()
-        result = await bot_manager.stop_instance(instance_id, force=force)
-
-        if result.success:
-            # Update database
-            persisted_config = _persist_bot_status_and_event(
-                instance_id,
-                status=BotStatusEnum.STOPPED,
-                process_id=None,
-                event_type="bot_stopped",
-                severity="info",
-                message=f"Bot stopped via API (force={force})",
-                details={"force": force},
-            )
-            _send_bot_lifecycle_notification(
-                "stopped",
-                instance_id,
-                persisted_config,
-                current_user,
-                success=True,
-                details=_resolve_action_details(
-                    result.message,
-                    "Runtime process stopped successfully.",
-                ),
-                reason="Force stop" if force else "Operator stop",
-            )
-
-            return api_response(
-                success=True,
-                data=result.model_dump(),
-                message=f"Bot instance '{instance_id}' stopped successfully",
-            )
-        else:
-            persisted_config = _persist_bot_status_and_event(
-                instance_id,
-                status=BotStatusEnum.ERROR,
-                process_id=None,
-                event_type="bot_stop_failed",
-                severity="error",
-                message=_resolve_action_details(result.message, "Bot failed to stop"),
-                details={"error": result.error or result.message, "force": force},
-            )
-            _send_bot_lifecycle_notification(
-                "stop",
-                instance_id,
-                persisted_config,
-                current_user,
-                success=False,
-                details=_resolve_action_details(
-                    result.error or result.message,
-                    "Runtime stop request failed.",
-                ),
-                reason="Force stop" if force else "Operator stop",
-            )
-            return api_response(success=False, message=result.message, status_code=400)
-
-    except Exception as e:
-        logger.error(f"Error stopping bot instance {instance_id}: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-
-
-@app.post("/api/v1/bots/{instance_id}/restart")
-async def restart_bot_instance(
-    instance_id: str, current_user: User = Depends(get_current_active_user)
-):
-    """Restart bot instance"""
-    try:
-        if bot_manager is None:
-            return _bot_manager_unavailable_response()
-        # Stop first
-        stop_result = await bot_manager.stop_instance(instance_id, force=False)
-        if not stop_result.success:
-            persisted_config = _persist_bot_status_and_event(
-                instance_id,
-                status=BotStatusEnum.ERROR,
-                process_id=None,
-                event_type="bot_restart_failed",
-                severity="error",
-                message=_resolve_action_details(
-                    stop_result.message,
-                    "Failed to stop runtime during restart",
-                ),
-                details={
-                    "phase": "stop",
-                    "error": stop_result.error or stop_result.message,
-                },
-            )
-            _send_bot_lifecycle_notification(
-                "restart",
-                instance_id,
-                persisted_config,
-                current_user,
-                success=False,
-                details=_resolve_action_details(
-                    stop_result.error or stop_result.message,
-                    "Restart failed during stop phase.",
-                ),
-                reason="Operator restart",
-            )
-            return api_response(
-                success=False,
-                message=f"Failed to stop instance: {stop_result.message}",
-                status_code=400,
-            )
-
-        # Wait a moment
-        await asyncio.sleep(2)
-
-        # Start again
-        start_result = await bot_manager.start_instance(instance_id)
-
-        if start_result.success:
-            persisted_config = _persist_bot_status_and_event(
-                instance_id,
-                status=BotStatusEnum.RUNNING,
-                process_id=(
-                    start_result.data.get("process_id") if start_result.data else None
-                ),
-                event_type="bot_restarted",
-                severity="info",
-                message=f"Bot restarted via API (PID: {start_result.data.get('process_id') if start_result.data else 'unknown'})",
-                details={
-                    "process_id": (
-                        start_result.data.get("process_id")
-                        if start_result.data
-                        else None
-                    )
-                },
-            )
-            _send_bot_lifecycle_notification(
-                "restarted",
-                instance_id,
-                persisted_config,
-                current_user,
-                success=True,
-                details=_resolve_action_details(
-                    start_result.message,
-                    "Runtime restarted successfully.",
-                ),
-                reason="Operator restart",
-            )
-            return api_response(
-                success=True,
-                data=start_result.model_dump(),
-                message=f"Bot instance '{instance_id}' restarted successfully",
-            )
-        else:
-            persisted_config = _persist_bot_status_and_event(
-                instance_id,
-                status=BotStatusEnum.ERROR,
-                process_id=None,
-                event_type="bot_restart_failed",
-                severity="error",
-                message=_resolve_action_details(
-                    start_result.message,
-                    "Failed to start runtime during restart",
-                ),
-                details={
-                    "phase": "start",
-                    "error": start_result.error or start_result.message,
-                },
-            )
-            _send_bot_lifecycle_notification(
-                "restart",
-                instance_id,
-                persisted_config,
-                current_user,
-                success=False,
-                details=_resolve_action_details(
-                    start_result.error or start_result.message,
-                    "Restart failed during start phase.",
-                ),
-                reason="Operator restart",
-            )
-            return api_response(
-                success=False,
-                message=f"Failed to start instance: {start_result.message}",
-                status_code=400,
-            )
-
-    except Exception as e:
-        logger.error(f"Error restarting bot instance {instance_id}: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-
-
-# ============================================================================
-# DATABASE & HISTORY ENDPOINTS
-# ============================================================================
-
-
-@app.get("/api/v1/bots/{instance_id}/history")
-async def get_bot_history(
-    instance_id: str,
-    days: int = 7,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get bot event history"""
-    try:
-        session = db.get_session()
-        uow = UnitOfWork(session)
-
-        # Get bot first to verify it exists
-        bot = uow.bots.get_by_instance_id(instance_id)
-        if not bot:
-            return api_response(
-                success=False,
-                message=f"Bot instance '{instance_id}' not found",
-                status_code=404,
-            )
-
-        # Get events
-        events = uow.events.get_bot_events(int(bot.id), days=days)  # type: ignore[arg-type]
-
-        return api_response(
-            success=True,
-            data={
-                "instance_id": instance_id,
-                "total_events": len(events),
-                "days_requested": days,
-                "events": [
-                    {
-                        "timestamp": e.created_at.isoformat(),
-                        "event_type": e.event_type,
-                        "severity": e.severity,
-                        "message": e.message,
-                        "details": e.details,
-                    }
-                    for e in events
-                ],
-            },
-            message=f"Retrieved {len(events)} events for bot '{instance_id}'",
-        )
-
-    except Exception as e:
-        logger.error(f"Error getting bot history for {instance_id}: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-    finally:
-        session.close()
-
-
-@app.get("/api/v1/bots/{instance_id}/jobs")
-async def get_bot_jobs(
-    instance_id: str,
-    days: int = 7,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get bot job history"""
-    try:
-        session = db.get_session()
-        uow = UnitOfWork(session)
-
-        # Get bot first
-        bot = uow.bots.get_by_instance_id(instance_id)
-        if not bot:
-            return api_response(
-                success=False,
-                message=f"Bot instance '{instance_id}' not found",
-                status_code=404,
-            )
-
-        # Get jobs
-        jobs = uow.jobs.get_job_history(int(bot.id), days=days)  # type: ignore[arg-type]
-
-        # Calculate job statistics
-        total_jobs = len(jobs)
-
-        def _job_status_value(job) -> str:
-            return str(getattr(job.status, "value", job.status)).lower()
-
-        completed_jobs = len([j for j in jobs if _job_status_value(j) == "completed"])
-        failed_jobs = len([j for j in jobs if _job_status_value(j) == "failed"])
-        cancelled_jobs = len([j for j in jobs if _job_status_value(j) == "cancelled"])
-        pending_jobs = len([j for j in jobs if _job_status_value(j) == "pending"])
-        running_jobs = len([j for j in jobs if _job_status_value(j) == "running"])
-
-        return api_response(
-            success=True,
-            data={
-                "instance_id": instance_id,
-                "statistics": {
-                    "total_jobs": total_jobs,
-                    "completed": completed_jobs,
-                    "failed": failed_jobs,
-                    "cancelled": cancelled_jobs,
-                    "pending": pending_jobs,
-                    "running": running_jobs,
-                },
-                "jobs": [
-                    {
-                        "job_id": j.job_id,
-                        "job_type": j.job_type,
-                        "status": _job_status_value(j),
-                        "progress_pct": float(getattr(j, "progress_pct", 0.0) or 0.0),
-                        "process_id": getattr(j, "process_id", None),
-                        "execution_time_ms": getattr(j, "execution_time_ms", None),
-                        "retry_count": f"{j.retry_count}/{j.max_retries}",
-                        "created_at": j.created_at.isoformat(),
-                        "updated_at": (
-                            j.updated_at.isoformat()
-                            if getattr(j, "updated_at", None)
-                            else None
-                        ),
-                        "started_at": (
-                            j.started_at.isoformat()
-                            if j.started_at is not None
-                            else None
-                        ),
-                        "completed_at": (
-                            j.completed_at.isoformat()
-                            if j.completed_at is not None
-                            else None
-                        ),
-                        "error_message": j.error_message,
-                        "cancellation_reason": getattr(j, "cancellation_reason", None),
-                        "metadata": dict(getattr(j, "metadata_json", None) or {}),
-                    }
-                    for j in jobs
-                ],
-            },
-            message=f"Retrieved {total_jobs} jobs for bot '{instance_id}'",
-        )
-
-    except Exception as e:
-        logger.error(f"Error getting bot jobs for {instance_id}: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-    finally:
-        session.close()
-
-
-@app.get("/api/v1/bots/{instance_id}/trades")
-async def get_bot_trades(
-    instance_id: str,
-    status: Optional[str] = None,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get bot trades"""
-    try:
-        session = db.get_session()
-        uow = UnitOfWork(session)
-
-        # Get bot first
-        bot = uow.bots.get_by_instance_id(instance_id)
-        if not bot:
-            return api_response(
-                success=False,
-                message=f"Bot instance '{instance_id}' not found",
-                status_code=404,
-            )
-
-        # Get trades
-        trades = uow.trades.get_bot_trades(int(bot.id))  # type: ignore[arg-type]
-
-        # Filter by status if requested
-        if status:
-            trades = [t for t in trades if str(t.status) == status.upper()]
-
-        return api_response(
-            success=True,
-            data={
-                "instance_id": instance_id,
-                "total_trades": len(trades),
-                "filter_status": status,
-                "trades": [
-                    {
-                        "trade_id": t.trade_id,
-                        "pair1": t.pair1,
-                        "pair2": t.pair2,
-                        "status": t.status,
-                        "entry_price1": (
-                            float(t.entry_price1) if t.entry_price1 is not None else None  # type: ignore[arg-type]
-                        ),
-                        "entry_price2": (
-                            float(t.entry_price2) if t.entry_price2 is not None else None  # type: ignore[arg-type]
-                        ),
-                        "exit_price1": (
-                            float(t.exit_price1) if t.exit_price1 is not None else None
-                        ),
-                        # type: ignore[arg-type]
-                        "exit_price2": (
-                            float(t.exit_price2) if t.exit_price2 is not None else None
-                        ),
-                        # type: ignore[arg-type]
-                        "entry_cost": (
-                            float(t.entry_cost) if t.entry_cost is not None else None
-                        ),
-                        # type: ignore[arg-type]
-                        "exit_proceeds": (
-                            float(t.exit_proceeds) if t.exit_proceeds is not None else None  # type: ignore[arg-type]
-                        ),
-                        "profit_loss": (
-                            float(t.profit_loss) if t.profit_loss is not None else None
-                        ),
-                        # type: ignore[arg-type]
-                        "profit_loss_percentage": (
-                            float(t.profit_loss_percentage)  # type: ignore[arg-type]
-                            if t.profit_loss_percentage is not None
-                            else None
-                        ),
-                        "opened_at": (
-                            t.opened_at.isoformat() if t.opened_at is not None else None
-                        ),
-                        "closed_at": (
-                            t.closed_at.isoformat() if t.closed_at is not None else None
-                        ),
-                        "duration_seconds": t.duration_seconds,
-                    }
-                    for t in trades
-                ],
-            },
-            message=f"Retrieved {len(trades)} trades for bot '{instance_id}'",
-        )
-
-    except Exception as e:
-        logger.error(f"Error getting bot trades for {instance_id}: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-    finally:
-        session.close()
-
-
-@app.get("/api/v1/bots/{instance_id}/stats")
-async def get_bot_stats(
-    instance_id: str, current_user: User = Depends(get_current_active_user)
-):
-    """Get bot statistics"""
-    try:
-        session = db.get_session()
-        uow = UnitOfWork(session)
-
-        # Get bot first
-        bot = uow.bots.get_by_instance_id(instance_id)
-        if not bot:
-            return api_response(
-                success=False,
-                message=f"Bot instance '{instance_id}' not found",
-                status_code=404,
-            )
-
-        # Get bot statistics
-        bot_stats = uow.bots.get_statistics(instance_id)
-
-        # Get trade statistics
-        trade_stats = uow.trades.get_trade_statistics(int(bot.id))  # type: ignore[arg-type]
-
-        return api_response(
-            success=True,
-            data={
-                "instance_id": instance_id,
-                "bot_statistics": {
-                    "total_trades": bot_stats.get("total_trades", 0),
-                    "successful_trades": bot_stats.get("successful_trades", 0),
-                    "failed_trades": bot_stats.get("failed_trades", 0),
-                    "total_profit_loss": float(bot_stats.get("total_profit_loss", 0)),
-                    "win_rate": float(bot_stats.get("win_rate", 0)),
-                    "uptime_seconds": (
-                        bot.uptime_seconds if hasattr(bot, "uptime_seconds") else None
-                    ),
-                },
-                "trade_statistics": {
-                    "total_trades": trade_stats.get("total_trades", 0),
-                    "winning_trades": trade_stats.get("winning_trades", 0),
-                    "losing_trades": trade_stats.get("losing_trades", 0),
-                    "total_profit": float(trade_stats.get("total_profit", 0)),
-                    "total_loss": float(trade_stats.get("total_loss", 0)),
-                    "net_profit": float(trade_stats.get("net_profit", 0)),
-                    "average_profit": float(trade_stats.get("average_profit", 0)),
-                    "win_rate": float(trade_stats.get("win_rate", 0)),
-                    "average_duration_seconds": trade_stats.get(
-                        "average_duration_seconds", 0
-                    ),
-                },
-            },
-            message=f"Retrieved statistics for bot '{instance_id}'",
-        )
-
-    except Exception as e:
-        logger.error(f"Error getting bot statistics for {instance_id}: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
-    finally:
-        session.close()
-
-
-# ============================================================================
-# QUICK DEPLOYMENT ENDPOINTS
-# ============================================================================
-
-
-@app.post("/api/v1/bots/quick-deploy")
-async def quick_deploy_bot(
-    instance_name: str,
-    credentials: BotCredentials,
-    trading_params: TradingParameters,
-    auto_start: bool = True,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Quick deploy and optionally start a new bot instance"""
-    try:
-        if bot_manager is None:
-            return _bot_manager_unavailable_response()
-        # Generate instance ID from name
-        import re
-
-        instance_id = re.sub(r"[^a-zA-Z0-9_-]", "-", instance_name.lower())
-        instance_id = (
-            f"{instance_id}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
-        )
-
-        # Create configuration
-        config = BotInstanceConfig(
-            instance_id=instance_id,
-            instance_name=instance_name,
-            credentials=credentials,
-            trading_params=trading_params,
-        )
-
-        # Create instance
-        create_result = await bot_manager.create_instance(config)
-        if not create_result.success:
-            return api_response(
-                success=False, message=create_result.message, status_code=400
-            )
-
-        # Auto-start if requested
-        if auto_start:
-            await asyncio.sleep(1)  # Brief pause
-            start_result = await bot_manager.start_instance(instance_id)
-
-            if start_result.success:
-                return api_response(
-                    success=True,
-                    data={
-                        "instance_id": instance_id,
-                        "created": create_result.success,
-                        "started": start_result.success,
-                        "status": "running",
-                    },
-                    message=f"Bot '{instance_name}' deployed and started successfully",
-                )
-            else:
-                return api_response(
-                    success=True,
-                    data={
-                        "instance_id": instance_id,
-                        "created": create_result.success,
-                        "started": False,
-                        "status": "stopped",
-                        "start_error": start_result.message,
-                    },
-                    message=f"Bot '{instance_name}' deployed but failed to start: {start_result.message}",
-                )
-        else:
-            return api_response(
-                success=True,
-                data={
-                    "instance_id": instance_id,
-                    "created": create_result.success,
-                    "started": False,
-                    "status": "stopped",
-                },
-                message=f"Bot '{instance_name}' deployed successfully (not started)",
-            )
-
-    except Exception as e:
-        logger.error(f"Error in quick deploy: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+# BOT DATABASE RECORD ENDPOINTS — extracted to src/api/v1/bot_records.py.
 
 
 # ============================================================================
@@ -3370,8 +2218,29 @@ async def api_capabilities():
     commands: List[str] = []
     queries: List[str] = []
 
-    for route in app.routes:
-        path = getattr(route, "path", "")
+    def _registered_routes(routes, prefix: str = ""):
+        """Yield direct and lazily included FastAPI routes with effective paths.
+
+        FastAPI 0.138+ stores ``include_router`` mounts as ``_IncludedRouter``
+        objects. Walking only ``app.routes`` would omit every operation in an
+        extracted router from this capability contract.
+        """
+
+        for route in routes:
+            original_router = getattr(route, "original_router", None)
+            if original_router is not None:
+                include_context = getattr(route, "include_context", None)
+                include_prefix = str(getattr(include_context, "prefix", "") or "")
+                yield from _registered_routes(
+                    getattr(original_router, "routes", []) or [],
+                    f"{prefix}{include_prefix}",
+                )
+                continue
+
+            path = f"{prefix}{getattr(route, 'path', '')}"
+            yield route, path
+
+    for route, path in _registered_routes(app.routes):
         if not path:
             continue
 
@@ -3425,138 +2294,10 @@ async def api_capabilities():
     )
 
 
-@app.get("/api/v1/arbitrage/improvement-metrics")
-async def get_arbitrage_improvement_metrics(
-    current_user: User = Depends(get_current_active_user),
-):
-    _ = current_user
-    return api_response(
-        success=True,
-        data=snapshot_metrics(
-            {
-                "feature_flags": get_feature_flags(),
-                "runtime_settings": get_runtime_settings(),
-            }
-        ),
-        message="Arbitrage improvement metrics retrieved",
-    )
-
-
-@app.get("/api/v1/arbitrage/runtime-settings")
-async def get_arbitrage_runtime_settings(
-    current_user: User = Depends(get_current_active_user),
-):
-    _ = current_user
-    settings = get_runtime_settings()
-    return api_response(
-        success=True,
-        data={"settings": settings, "feature_flags": get_feature_flags()},
-        message="Arbitrage runtime settings retrieved",
-    )
-
-
-@app.put("/api/v1/arbitrage/runtime-settings")
-async def update_arbitrage_runtime_settings(
-    payload: Dict[str, Any],
-    current_user: User = Depends(get_current_active_user),
-):
-    _ = current_user
-    settings = update_runtime_settings(payload or {})
-    return api_response(
-        success=True,
-        data={"settings": settings, "feature_flags": get_feature_flags()},
-        message="Arbitrage runtime settings updated",
-    )
-
-
-@app.get("/api/v1/arbitrage/pair-priority")
-async def get_arbitrage_pair_priority(
-    limit: int = 25,
-    current_user: User = Depends(get_current_active_user),
-):
-    _ = current_user
-    safe_limit = max(1, min(int(limit or 25), 100))
-    pairs = pair_storage.load_pairs()
-    pair_priority_enabled = is_pair_priority_engine_enabled()
-    if pair_priority_enabled:
-        ranked_pairs, scores = prioritize_pairs(pairs, max_pairs=safe_limit)
-    else:
-        ranked_pairs = pairs[:safe_limit]
-        scores = [score_pair(pair) for pair in ranked_pairs]
-    ranked_lookup = {score.pair: score for score in scores}
-    data = []
-    for pair in ranked_pairs:
-        label = f"{pair.base_market}/{pair.quote_market}"
-        score = ranked_lookup.get(label)
-        data.append(
-            {
-                "pair": label,
-                "base_market": pair.base_market,
-                "quote_market": pair.quote_market,
-                "score": score.score if score else 0.0,
-                "components": score.components if score else {},
-                "explanation": score.explanation if score else [],
-                "enabled": pair_priority_enabled,
-            }
-        )
-    return api_response(
-        success=True,
-        data={"pairs": data, "count": len(data), "enabled": pair_priority_enabled},
-        message="Arbitrage pair priority retrieved",
-    )
-
-
-@app.get("/api/v1/arbitrage/opportunity/{opportunity_id}/explain")
-async def get_arbitrage_opportunity_explain(
-    opportunity_id: str,
-    current_user: User = Depends(get_current_active_user),
-):
-    _ = current_user
-    metrics = snapshot_metrics(
-        {
-            "feature_flags": get_feature_flags(),
-            "runtime_settings": get_runtime_settings(),
-        }
-    )
-    rejection_reasons = metrics.get("rejection_reasons", {})
-    normalized_id = str(opportunity_id or "").strip().lower().replace(" ", "_")
-
-    matched_reason = None
-    if isinstance(rejection_reasons, dict) and normalized_id in rejection_reasons:
-        matched_reason = {
-            "reason": normalized_id,
-            "count": rejection_reasons.get(normalized_id, 0),
-        }
-
-    top_rejections: List[Dict[str, Any]] = []
-    if isinstance(rejection_reasons, dict):
-        sorted_reasons = sorted(
-            rejection_reasons.items(),
-            key=lambda item: float(item[1]),
-            reverse=True,
-        )
-        top_rejections = [
-            {"reason": str(reason), "count": float(count)}
-            for reason, count in sorted_reasons[:10]
-        ]
-
-    return api_response(
-        success=True,
-        data={
-            "opportunity_id": opportunity_id,
-            "matched_rejection_reason": matched_reason,
-            "top_rejection_reasons": top_rejections,
-            "counters": metrics.get("counters", {}),
-            "feature_flags": metrics.get("feature_flags", {}),
-            "runtime_settings": metrics.get("runtime_settings", {}),
-            "explainability_scope": "runtime_diagnostics",
-            "note": (
-                "Per-opportunity historical explain payloads are not persisted yet; "
-                "this endpoint provides current runtime diagnostics and rejection trends."
-            ),
-        },
-        message="Arbitrage opportunity explainability retrieved",
-    )
+# ARBITRAGE ENDPOINTS — extracted to src/api/v1/arbitrage.py (APIRouter, mounted
+# above via app.include_router). The 5 authenticated runtime visibility/settings
+# routes and ArbitrageRuntimeSettingsRequest live there now; the request model is
+# re-imported above for backwards-compatible server attribute access.
 
 
 @app.get("/api/v1/markets/perpetuals")
@@ -3688,168 +2429,9 @@ async def runtime_db_config(current_user: User = Depends(get_admin_user)):
         )
 
 
-@app.get("/api/v1/celery/tasks")
-async def celery_tasks(
-    status: Optional[str] = Query(default=None),
-    task_name: Optional[str] = Query(default=None),
-    queue: Optional[str] = Query(default=None),
-    strategy_id: Optional[str] = Query(default=None),
-    backtest_run_id: Optional[str] = Query(default=None),
-    bot_id: Optional[str] = Query(default=None),
-    environment: Optional[str] = Query(default=None),
-    limit: int = Query(default=100, ge=1, le=500),
-    current_user: User = Depends(get_admin_user),
-):
-    """Admin-only Celery task list with safe metadata redaction."""
-    _ = current_user
-    started_at = time.perf_counter()
-    payload = list_celery_tasks(
-        {
-            "status": status,
-            "task_name": task_name,
-            "queue": queue,
-            "strategy_id": strategy_id,
-            "backtest_run_id": backtest_run_id,
-            "bot_id": bot_id,
-            "environment": environment,
-        },
-        limit,
-    )
-    task_count = (
-        len(payload.get("tasks", []))
-        if isinstance(payload, dict) and isinstance(payload.get("tasks"), list)
-        else None
-    )
-    _log_endpoint_timing(
-        "/api/v1/celery/tasks",
-        started_at,
-        payload,
-        payload_items=task_count,
-        extra={"limit": limit},
-    )
-    return api_response(
-        True,
-        payload,
-        "Celery tasks fetched successfully",
-        headers=_endpoint_perf_headers(started_at),
-    )
-
-
-@app.get("/api/v1/celery/tasks/{task_id}")
-async def celery_task_detail(
-    task_id: str,
-    current_user: User = Depends(get_admin_user),
-):
-    """Admin-only Celery task detail including failure traceback when available."""
-    _ = current_user
-    started_at = time.perf_counter()
-    task = get_celery_task(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Celery task not found")
-    _log_endpoint_timing(
-        "/api/v1/celery/tasks/{task_id}",
-        started_at,
-        {"task": task},
-        payload_items=1,
-    )
-    return api_response(
-        True,
-        {"task": task},
-        "Celery task fetched successfully",
-        headers=_endpoint_perf_headers(started_at),
-    )
-
-
-@app.post("/api/v1/celery/tasks/{task_id}/revoke")
-async def celery_task_revoke(
-    task_id: str,
-    payload: Dict[str, Any] = Body(default_factory=dict),
-    current_user: User = Depends(get_admin_user),
-):
-    """Admin-only Celery revoke/cancel endpoint."""
-    _ = current_user
-    terminate = bool(payload.get("terminate", False))
-    return api_response(
-        True,
-        revoke_celery_task(task_id, terminate=terminate),
-        "Celery task revoke requested",
-    )
-
-
-@app.post("/api/v1/celery/tasks/{task_id}/retry")
-async def celery_task_retry(
-    task_id: str,
-    current_user: User = Depends(get_admin_user),
-):
-    """Admin-only retry for supported failed tasks."""
-    _ = current_user
-    try:
-        result = await retry_celery_task(task_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return api_response(True, result, "Celery task retry requested")
-
-
-@app.get("/api/v1/celery/workers")
-async def celery_workers(current_user: User = Depends(get_admin_user)):
-    """Admin-only Celery worker inspection."""
-    _ = current_user
-    started_at = time.perf_counter()
-    payload = list_celery_workers()
-    worker_count = len(payload) if isinstance(payload, dict) else None
-    _log_endpoint_timing(
-        "/api/v1/celery/workers",
-        started_at,
-        payload,
-        payload_items=worker_count,
-    )
-    return api_response(
-        True,
-        payload,
-        "Celery workers fetched successfully",
-        headers=_endpoint_perf_headers(started_at),
-    )
-
-
-@app.get("/api/v1/celery/queues")
-async def celery_queues(current_user: User = Depends(get_admin_user)):
-    """Admin-only Celery queue overview."""
-    _ = current_user
-    started_at = time.perf_counter()
-    payload = list_celery_queues()
-    queue_count = len(payload) if isinstance(payload, dict) else None
-    _log_endpoint_timing(
-        "/api/v1/celery/queues",
-        started_at,
-        payload,
-        payload_items=queue_count,
-    )
-    return api_response(
-        True,
-        payload,
-        "Celery queues fetched successfully",
-        headers=_endpoint_perf_headers(started_at),
-    )
-
-
-@app.get("/api/v1/celery/health")
-async def celery_monitor_health(current_user: User = Depends(get_admin_user)):
-    """Admin-only Celery broker/backend/worker health."""
-    _ = current_user
-    started_at = time.perf_counter()
-    payload = celery_health()
-    _log_endpoint_timing(
-        "/api/v1/celery/health",
-        started_at,
-        payload,
-        payload_items=1,
-    )
-    return api_response(
-        True,
-        payload,
-        "Celery health fetched successfully",
-        headers=_endpoint_perf_headers(started_at),
-    )
+# CELERY INSPECTION ENDPOINTS — extracted to src/api/v1/celery_admin.py
+# (APIRouter, mounted below via app.include_router). The 7 admin-only routes
+# (tasks list/detail, revoke, retry, workers, queues, health) live there now.
 
 
 @app.get("/api/v1/users/me")
@@ -4808,50 +3390,38 @@ async def reconcile_interrupted_backtests(
 
 def _reconcile_interrupted_backtests_response(dry_run: bool):
     """Shared response builder for interrupted backtest reconcile routes."""
-    try:
-        with backtest_service_scope() as service:
-            report = service.reconcile_interrupted_runs(dry_run=dry_run)
-        report["count"] = int(report.get("candidate_count", 0))
-        message = (
-            "Dry-run completed for interrupted backtest reconciliation"
-            if dry_run
-            else "Interrupted backtest reconciliation completed"
-        )
-        return api_response(
-            success=True,
-            data=report,
-            message=message,
-        )
-    except Exception as e:
-        logger.error(f"Error reconciling interrupted backtests: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    with backtest_service_scope() as service:
+        report = service.reconcile_interrupted_runs(dry_run=dry_run)
+    report["count"] = int(report.get("candidate_count", 0))
+    message = (
+        "Dry-run completed for interrupted backtest reconciliation"
+        if dry_run
+        else "Interrupted backtest reconciliation completed"
+    )
+    return api_response(
+        success=True,
+        data=report,
+        message=message,
+    )
 
 
 def _repair_backtest_request_response(run_id: str, dry_run: bool):
     """Shared response builder for request repair routes."""
-    try:
-        with backtest_service_scope() as service:
-            report = service.repair_backtest_request(run_id, dry_run=dry_run)
-        if report is None:
-            return api_response(
-                success=False,
-                message=f"Backtest '{run_id}' not found",
-                status_code=404,
-            )
-
-        message = (
-            f"Dry-run completed for backtest '{run_id}' request repair"
-            if dry_run
-            else f"Backtest '{run_id}' request payload repaired"
-        )
-        return api_response(success=True, data=report, message=message)
-    except Exception as e:
-        logger.error(f"Error repairing backtest request: {e}")
+    with backtest_service_scope() as service:
+        report = service.repair_backtest_request(run_id, dry_run=dry_run)
+    if report is None:
         return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
+            success=False,
+            message=f"Backtest '{run_id}' not found",
+            status_code=404,
         )
+
+    message = (
+        f"Dry-run completed for backtest '{run_id}' request repair"
+        if dry_run
+        else f"Backtest '{run_id}' request payload repaired"
+    )
+    return api_response(success=True, data=report, message=message)
 
 
 @app.get("/api/v1/admin/backtests/interrupted")
@@ -4892,26 +3462,19 @@ async def get_backtest_details(
 ):
     """Get detailed backtest results"""
     del current_user
-    try:
-        result = _get_backtest_details_sync(run_id)
-        if not result:
-            return api_response(
-                success=False,
-                message=f"Backtest run '{run_id}' not found",
-                status_code=404,
-            )
-
+    result = _get_backtest_details_sync(run_id)
+    if not result:
         return api_response(
-            success=True,
-            data=result.model_dump(),
-            message=f"Retrieved details for backtest '{run_id}'",
+            success=False,
+            message=f"Backtest run '{run_id}' not found",
+            status_code=404,
         )
 
-    except Exception as e:
-        logger.error(f"Error getting backtest details: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    return api_response(
+        success=True,
+        data=result.model_dump(),
+        message=f"Retrieved details for backtest '{run_id}'",
+    )
 
 
 @app.get("/api/v1/backtests/{run_id}/status")
@@ -4921,79 +3484,55 @@ async def get_backtest_status(
 ):
     """Get current backtest status and progress"""
     del current_user
-    try:
-        result = _get_backtest_status_sync(run_id)
-        if not result:
-            return api_response(
-                success=False,
-                message=f"Backtest run '{run_id}' not found",
-                status_code=404,
-            )
-
-        payload = result.model_dump()
-        payload["progress"] = float(payload.get("progress_pct", 0.0))
-        payload["count"] = 1
-        payload["websocket_send_metrics"] = manager.get_backtest_send_failure_metrics(
-            run_id
-        )
-
+    result = _get_backtest_status_sync(run_id)
+    if not result:
         return api_response(
-            success=True,
-            data=payload,
-            message=f"Retrieved status for backtest '{run_id}'",
+            success=False,
+            message=f"Backtest run '{run_id}' not found",
+            status_code=404,
         )
 
-    except Exception as e:
-        logger.error(f"Error getting backtest status: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    payload = result.model_dump()
+    payload["progress"] = float(payload.get("progress_pct", 0.0))
+    payload["count"] = 1
+    payload["websocket_send_metrics"] = manager.get_backtest_send_failure_metrics(
+        run_id
+    )
+
+    return api_response(
+        success=True,
+        data=payload,
+        message=f"Retrieved status for backtest '{run_id}'",
+    )
 
 
 @app.post("/api/v1/backtests/{run_id}/metadata")
 async def update_backtest_metadata(
     run_id: str,
-    payload: Dict[str, Any] = Body(default_factory=dict),
+    payload: BacktestMetadataRequest,
     current_user: User = Depends(get_current_active_user),
 ):
     """Attach or merge structured metadata into a persisted backtest run."""
     del current_user
-    try:
-        metadata = payload.get("metadata")
-        if not isinstance(metadata, dict):
-            return api_response(
-                success=False,
-                message="Validation error: metadata must be an object",
-                data={"error": "INVALID_METADATA"},
-                status_code=422,
-            )
-
-        merge = bool(payload.get("merge", True))
-        with backtest_service_scope() as service:
-            result = service.update_backtest_metadata(
-                run_id,
-                metadata,
-                merge=merge,
-            )
-
-        if result is None:
-            return api_response(
-                success=False,
-                message=f"Backtest run '{run_id}' not found",
-                status_code=404,
-            )
-
-        return api_response(
-            success=True,
-            data=result,
-            message=f"Updated metadata for backtest '{run_id}'",
+    with backtest_service_scope() as service:
+        result = service.update_backtest_metadata(
+            run_id,
+            payload.metadata,
+            merge=payload.merge,
         )
 
-    except Exception as e:
-        logger.error(f"Error updating backtest metadata: {e}")
+    if result is None:
         return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
+            success=False,
+            message=f"Backtest run '{run_id}' not found",
+            status_code=404,
         )
+
+    return api_response(
+        success=True,
+        data=result,
+        message=f"Updated metadata for backtest '{run_id}'",
+    )
 
 
 @app.get("/api/v1/backtests/{run_id}/websocket-metrics")
@@ -5003,32 +3542,24 @@ async def get_backtest_websocket_metrics(
 ):
     """Get per-run websocket send-failure metrics for reconnect-thrashing alerting."""
     del current_user
-    try:
-        status = _get_backtest_status_sync(run_id)
-        if status is None:
-            return api_response(
-                success=False,
-                message=f"Backtest run '{run_id}' not found",
-                status_code=404,
-            )
-
-        metrics = manager.get_backtest_send_failure_metrics(run_id)
-        return api_response(
-            success=True,
-            data={
-                "run_id": run_id,
-                "status": status.status,
-                "metrics": metrics,
-            },
-            message=f"Retrieved websocket metrics for backtest '{run_id}'",
-        )
-    except Exception as e:
-        logger.error(f"Error getting backtest websocket metrics: {e}")
+    status = _get_backtest_status_sync(run_id)
+    if status is None:
         return api_response(
             success=False,
-            message=f"Internal server error: {str(e)}",
-            status_code=500,
+            message=f"Backtest run '{run_id}' not found",
+            status_code=404,
         )
+
+    metrics = manager.get_backtest_send_failure_metrics(run_id)
+    return api_response(
+        success=True,
+        data={
+            "run_id": run_id,
+            "status": status.status,
+            "metrics": metrics,
+        },
+        message=f"Retrieved websocket metrics for backtest '{run_id}'",
+    )
 
 
 @app.post("/api/v1/backtests/{run_id}/create-strategy")
@@ -5177,25 +3708,18 @@ async def cancel_backtest(
 ):
     """Cancel running backtest"""
     del current_user
-    try:
-        with backtest_service_scope() as service:
-            success = service.cancel_backtest(run_id)
-        if not success:
-            return api_response(
-                success=False,
-                message=f"Backtest '{run_id}' not found or not running",
-                status_code=404,
-            )
-
+    with backtest_service_scope() as service:
+        success = service.cancel_backtest(run_id)
+    if not success:
         return api_response(
-            success=True, message=f"Backtest '{run_id}' cancelled successfully"
+            success=False,
+            message=f"Backtest '{run_id}' not found or not running",
+            status_code=404,
         )
 
-    except Exception as e:
-        logger.error(f"Error cancelling backtest: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    return api_response(
+        success=True, message=f"Backtest '{run_id}' cancelled successfully"
+    )
 
 
 @app.post("/api/v1/backtests/{run_id}/pause")
@@ -5205,27 +3729,20 @@ async def pause_backtest(
 ):
     """Request a cooperative pause for a running backtest."""
     del current_user
-    try:
-        with backtest_service_scope() as service:
-            result = service.pause_backtest(run_id)
-        if not result:
-            return api_response(
-                success=False,
-                message=f"Backtest '{run_id}' not found or cannot be paused",
-                status_code=404,
-            )
-
+    with backtest_service_scope() as service:
+        result = service.pause_backtest(run_id)
+    if not result:
         return api_response(
-            success=True,
-            data=result,
-            message=f"Backtest '{run_id}' pause requested",
+            success=False,
+            message=f"Backtest '{run_id}' not found or cannot be paused",
+            status_code=404,
         )
 
-    except Exception as e:
-        logger.error(f"Error pausing backtest: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    return api_response(
+        success=True,
+        data=result,
+        message=f"Backtest '{run_id}' pause requested",
+    )
 
 
 @app.post("/api/v1/backtests/{run_id}/resume")
@@ -5235,27 +3752,20 @@ async def resume_backtest(
 ):
     """Resume a paused backtest."""
     del current_user
-    try:
-        with backtest_service_scope() as service:
-            result = service.resume_backtest(run_id)
-        if not result:
-            return api_response(
-                success=False,
-                message=f"Backtest '{run_id}' not found or cannot be resumed",
-                status_code=404,
-            )
-
+    with backtest_service_scope() as service:
+        result = service.resume_backtest(run_id)
+    if not result:
         return api_response(
-            success=True,
-            data=result,
-            message=f"Backtest '{run_id}' resume requested",
+            success=False,
+            message=f"Backtest '{run_id}' not found or cannot be resumed",
+            status_code=404,
         )
 
-    except Exception as e:
-        logger.error(f"Error resuming backtest: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    return api_response(
+        success=True,
+        data=result,
+        message=f"Backtest '{run_id}' resume requested",
+    )
 
 
 @app.post("/api/v1/backtests/{run_id}/restart")
@@ -5556,23 +4066,14 @@ async def get_position_snapshots(
 
 @app.post("/api/v1/backtests/compare")
 async def compare_backtests(
-    request: dict,  # BacktestComparisonRequest - simplified for now
+    request: BacktestComparisonRequest,
     current_user: User = Depends(get_current_active_user),
 ):
     """Compare multiple backtest runs with advanced analytics"""
     del current_user
     try:
-        run_ids = request.get("run_ids", [])
-        metrics = request.get(
-            "metrics", ["total_return_pct", "sharpe_ratio", "win_rate"]
-        )
-
-        if len(run_ids) < 2:
-            return api_response(
-                success=False,
-                message="At least 2 backtest runs required for comparison",
-                status_code=400,
-            )
+        run_ids = request.run_ids
+        metrics = request.metrics or (["total_return_pct", "sharpe_ratio", "win_rate"])
 
         comparison = _compare_backtests_sync(run_ids, metrics)
 
@@ -5795,252 +4296,16 @@ async def _bot_manager_monitor_loop():
 
 
 # ============================================================================
-# DATAFRAME MEMORY MONITORING ENDPOINTS
+# MONITORING ENDPOINTS — extracted to src/api/v1/monitoring.py (APIRouter,
+# mounted below via app.include_router). DataFrame memory/cleanup + DB pool
+# metrics/health/history/diagnostics live there now.
 # ============================================================================
 
 
-@app.get("/api/v1/monitoring/dataframe/memory")
-async def get_dataframe_memory_stats(
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get DataFrame memory usage statistics."""
-    _ = current_user
-    try:
-        from src.shared.dataframe_utils import (
-            get_memory_summary,
-            get_dataframe_cleanup_stats,
-        )
-
-        return api_response(
-            success=True,
-            data={
-                "memory_summary": get_memory_summary(),
-                "cleanup_stats": get_dataframe_cleanup_stats(),
-            },
-            message="DataFrame memory statistics retrieved",
-        )
-    except Exception as e:
-        return api_response(
-            success=False,
-            data={"error": str(e)},
-            message="Failed to retrieve DataFrame memory statistics",
-        )
-
-
-@app.post("/api/v1/monitoring/dataframe/cleanup")
-async def cleanup_all_dataframes(
-    current_user: User = Depends(get_current_active_user),
-):
-    """Force cleanup of all tracked DataFrames."""
-    _ = current_user
-    try:
-        from src.shared.dataframe_utils import force_cleanup_all
-
-        cleaned_count = force_cleanup_all()
-
-        return api_response(
-            success=True,
-            data={"cleaned_dataframes": cleaned_count},
-            message=f"Cleaned up {cleaned_count} DataFrames",
-        )
-    except Exception as e:
-        return api_response(
-            success=False,
-            data={"error": str(e)},
-            message="Failed to cleanup DataFrames",
-        )
-
-
-# DATABASE MONITORING ENDPOINTS
-# ============================================================================
-
-
-@app.get("/api/v1/monitoring/database/pool")
-async def get_database_pool_metrics(
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get current database connection pool metrics."""
-    _ = current_user
-    metrics = db.get_pool_metrics()
-    return api_response(
-        success=True,
-        data=metrics,
-        message="Database pool metrics retrieved",
-    )
-
-
-@app.get("/api/v1/monitoring/database/pool/health")
-async def get_database_pool_health(
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get database connection pool health status."""
-    _ = current_user
-    health = db.get_pool_health_status()
-    return api_response(
-        success=True,
-        data=health,
-        message="Database pool health status retrieved",
-    )
-
-
-@app.get("/api/v1/monitoring/database/pool/history")
-async def get_database_pool_history(
-    limit: int = 50,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get historical database connection pool metrics."""
-    _ = current_user
-    safe_limit = max(1, min(int(limit or 50), 500))
-    history = db.get_pool_metrics_history(limit=safe_limit)
-    return api_response(
-        success=True,
-        data={"history": history, "count": len(history)},
-        message=f"Retrieved {len(history)} database pool metrics samples",
-    )
-
-
-@app.get("/api/v1/monitoring/database/diagnostics")
-async def get_database_diagnostics(
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get comprehensive database diagnostics including pool metrics."""
-    _ = current_user
-    diagnostics = db.get_diagnostics()
-    return api_response(
-        success=True,
-        data=diagnostics,
-        message="Database diagnostics retrieved",
-    )
-
-
-# STRATEGY ENDPOINTS
-# ============================================================================
-
-
-@app.get("/api/v1/strategies")
-async def list_strategies(
-    skip: int = 0,
-    limit: int = 50,
-    current_user: User = Depends(get_current_active_user),
-):
-    """List stored strategies for the UI."""
-    del current_user
-    data = InMemoryStrategyStore.list(skip=skip, limit=limit)
-    return api_response(
-        success=True,
-        data=data,
-        message=f"Retrieved {len(data['strategies'])} strategies",
-    )
-
-
-@app.get("/api/v1/strategies/public")
-async def list_public_strategies():
-    """List public strategies."""
-    data = InMemoryStrategyStore.list_public()
-    return api_response(
-        success=True,
-        data=data,
-        message=f"Retrieved {len(data['strategies'])} public strategies",
-    )
-
-
-@app.post("/api/v1/strategies")
-async def create_strategy(
-    request: StrategyRequest,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Create a strategy."""
-    del current_user
-    strategy = InMemoryStrategyStore.create(request.model_dump())
-    return api_response(
-        success=True,
-        data=strategy,
-        message=f"Strategy '{strategy['name']}' created successfully",
-    )
-
-
-@app.get("/api/v1/strategies/{strategy_id}")
-async def get_strategy(
-    strategy_id: int,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get one strategy."""
-    del current_user
-    strategy = InMemoryStrategyStore.get(strategy_id)
-    if not strategy:
-        return api_response(
-            success=False,
-            message=f"Strategy '{strategy_id}' not found",
-            status_code=404,
-        )
-    return api_response(success=True, data=strategy, message="Strategy retrieved")
-
-
-@app.put("/api/v1/strategies/{strategy_id}")
-async def update_strategy(
-    strategy_id: int,
-    request: StrategyRequest,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Update one strategy."""
-    del current_user
-    strategy = InMemoryStrategyStore.update(strategy_id, request.model_dump())
-    if not strategy:
-        return api_response(
-            success=False,
-            message=f"Strategy '{strategy_id}' not found",
-            status_code=404,
-        )
-    return api_response(success=True, data=strategy, message="Strategy updated")
-
-
-@app.delete("/api/v1/strategies/{strategy_id}")
-async def delete_strategy(
-    strategy_id: int,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Delete one strategy."""
-    del current_user
-    if not InMemoryStrategyStore.delete(strategy_id):
-        return api_response(
-            success=False,
-            message=f"Strategy '{strategy_id}' not found",
-            status_code=404,
-        )
-    return api_response(success=True, message="Strategy deleted")
-
-
-@app.get("/api/v1/strategies/{strategy_id}/versions")
-async def get_strategy_versions(
-    strategy_id: int,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get in-memory version history for a strategy."""
-    del current_user
-    return api_response(
-        success=True,
-        data={"versions": InMemoryStrategyStore.versions(strategy_id)},
-        message="Strategy version history retrieved",
-    )
-
-
-@app.post("/api/v1/strategies/{strategy_id}/versions/{version_id}/revert")
-async def revert_strategy_version(
-    strategy_id: int,
-    version_id: int,
-    request: StrategyVersionRevertRequest,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Revert a strategy to a prior stored version."""
-    del request, current_user
-    strategy = InMemoryStrategyStore.revert(strategy_id, version_id)
-    if not strategy:
-        return api_response(
-            success=False,
-            message="Strategy version not found",
-            status_code=404,
-        )
-    return api_response(success=True, data=strategy, message="Strategy reverted")
+# STRATEGY ENDPOINTS — extracted to src/api/v1/strategies.py (APIRouter, mounted
+# below via app.include_router). The 8 strategy routes + StrategyRequest/
+# StrategyVersionRevertRequest/InMemoryStrategyStore live there now (re-imported
+# above for the backtest→strategy path).
 
 
 # ============================================================================

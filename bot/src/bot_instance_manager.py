@@ -929,7 +929,7 @@ class BotInstanceManager:
         try:
             handle.flush()
             handle.close()
-        except Exception as exc:
+        except OSError as exc:
             logger.warning("Failed to close log handle for {}: {}", instance_id, exc)
 
     def _read_recent_log_tail(self, instance_id: str, max_chars: int = 500) -> str:
@@ -944,7 +944,7 @@ class BotInstanceManager:
                 size = handle.tell()
                 handle.seek(max(0, size - max_chars))
                 return handle.read().decode("utf-8", errors="ignore").strip()
-        except Exception as exc:
+        except OSError as exc:
             logger.warning("Failed to read log tail for {}: {}", instance_id, exc)
             return ""
 

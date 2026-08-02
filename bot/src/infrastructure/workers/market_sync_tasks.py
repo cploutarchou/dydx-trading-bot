@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from loguru import logger
+
 from src.infrastructure.workers.celery_app import celery_app
 from src.shared.redis_env import redis_url
 

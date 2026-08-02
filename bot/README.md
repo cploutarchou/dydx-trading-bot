@@ -334,6 +334,47 @@ The implementation lives in `src/shared/credentials_cipher.py`; the backfill scr
 
 Use the generated schema and source code as the detailed endpoint contract, not old handoff markdown.
 
+### Route module layout
+
+`src/api/server.py` is the canonical FastAPI app (middleware, exception handlers, the bulk of
+routes). Route groups are being extracted into `APIRouter` modules under `src/api/v1/` and
+mounted with `app.include_router` (an incremental monolith-breakup). Extracted so far:
+`src/api/v1/monitoring.py` (operational visibility), `src/api/v1/celery_admin.py` (admin-only
+Celery inspection), `src/api/v1/strategies.py` (strategy CRUD + store); WebSocket logic lives in
+`src/api/websocket_server.py`. Shared helpers extracted alongside so routers can use them without
+a circular import: the response envelope (`api_response`, `trace_id_ctx`, `INTERNAL_ERROR_MESSAGE`)
+in `src/api/responses.py`, and endpoint timing (`log_endpoint_timing`, `endpoint_perf_headers`)
+in `src/api/endpoint_timing.py`.
+
+### Request validation
+
+Trading-critical request bodies are schema-validated at the API boundary. The
+Pydantic models in `src/infrastructure/domain/bot_api_models.py`,
+`src/infrastructure/domain/models_backtest.py`, and `src/api/server.py` carry
+explicit `Field` bounds (`gt`/`ge`/`le`/`min_length`/`max_length`/`pattern`), so
+out-of-range trades (negative `usd_per_trade`, zero `stats_window`, non-positive
+balances, malformed dates, invalid instance IDs) are rejected before reaching the
+runtime. Shared validators live in `src/shared/trading_validators.py`.
+
+Validation failures return the standardized `api_response` 422 envelope
+(`{success: false, message: "Validation error", data: {errors: [...]}, timestamp, trace_id}`)
+via a global `RequestValidationError` handler, instead of FastAPI's default shape.
+
+### Error handling
+
+Bot-domain errors share a typed hierarchy in `src/exceptions.py` (`BotError` base +
+domain categories: `DatabaseError`, `ExchangeError`, `TradingError`, `BacktestError`,
+`ProcessManagerError`, `CredentialError`, `CacheServiceError`, `StorageError`,
+`MessageBusError`, `ConfigurationError`). Raise the most specific subtype; callers can
+catch at the category or `BotError` level without trapping unrelated stdlib exceptions.
+Unhandled route exceptions are caught by a global `@app.exception_handler(Exception)`
+that logs with `trace_id` and returns the standardized `api_response` 500 envelope
+(`Internal server error` — internals are never exposed to clients).
+
+A ratchet test (`tests/test_exception_handling_ratchet.py`) fails the build if the count
+of broad `except Exception` / bare `except:` sites in `src/` grows past the current
+baseline, so the long-term reduction (toward `<15`) is enforced incrementally.
+
 ## Safety Rules
 
 - keep lifecycle control inside `BotInstanceManager`

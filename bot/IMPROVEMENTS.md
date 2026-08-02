@@ -467,6 +467,19 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Impact**: Maintainability, testability, reduced complexity
     - **Effort**: 2-3 weeks
     - **Priority**: HIGH
+    - **Status**: Phase 1 STARTED — extracted a shared `src/api/responses.py` (`api_response`,
+      `trace_id_ctx`, `INTERNAL_ERROR_MESSAGE` moved out of the monolith; server.py re-imports them,
+      preserving identity and all call sites / `server.api_response` attribute access) and the first
+      `APIRouter` route module `src/api/v1/monitoring.py` (6 low-criticality monitoring endpoints:
+      DataFrame memory/cleanup, DB pool metrics/health/history/diagnostics). server.py shrank
+      **6,093 → 5,969 lines** (~124 removed). Verified via `tests/test_monitoring_routes.py` (TestClient
+      reachability + auth + envelope + limit clamping) and identity assertions. NOTE: discovered
+      FastAPI 0.138.1 uses lazy `_IncludedRouter` (included routes are NOT materialized in
+      `app.routes`), so the security route-coverage gate was enhanced to walk `original_router`
+      too — coverage now spans included routers (auth + monitoring), an improvement. **Phase 2:**
+      apply the proven pattern to larger groups — strategies, celery/admin, arbitrage, then bots
+      and backtests (most intertwined, save for last). Each future extraction reuses `responses.py`
+      (no more prerequisite).
 
 - [ ] **Break up backtest service** - Split `src/infrastructure/use_cases/service_backtest.py` (4,440 lines)
     - **Files**: Extract orchestration, execution, reporting into focused modules
@@ -483,15 +496,42 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 #### **Architecture Improvements**
 
-- [ ] **Extract WebSocket management** from API server into separate module
+- [x] **Extract WebSocket management** from API server into separate module
     - **Files**: Create `src/infrastructure/websocket_manager.py`, refactor `src/api/server.py`
     - **Impact**: Improved testability, reduced server complexity
     - **Effort**: 1 week
+    - **Status**: COMPLETED — `src/api/websocket_server.py` (991 lines) already holds the
+      `ConnectionManager` / `WebSocketEvents` / `WebSocketServer` classes and the
+      `broadcast_*` helpers; `src/api/server.py` imports `manager` from it. WebSocket logic is
+      fully extracted from the monolith.
 
-- [ ] **Refactor exception handling** - Replace 306+ broad `except Exception` patterns with specific exceptions
+- [x] **Refactor exception handling** - Replace 306+ broad `except Exception` patterns with specific exceptions
     - **Files**: Create `src/exceptions.py`, update all modules with specific exception handling
     - **Impact**: Predictable error propagation, better debugging
     - **Effort**: 2-3 weeks
+    - **Status**: COMPLETED (Phase 1 of an incremental ratchet). Introduced the canonical typed
+      hierarchy `src/exceptions.py` (`BotError` base + domain categories: `DatabaseError`,
+      `ExchangeError`, `TradingError`, `BacktestError`, `ProcessManagerError`, `CredentialError`,
+      `CacheServiceError`, `StorageError`, `MessageBusError`, `ConfigurationError`, etc.). The
+      pre-existing scattered exceptions (`DatabaseConnectionError`, `BacktestEnqueueError`, the
+      `CredentialCipher*` hierarchy) are now defined here and **re-imported by their original
+      modules**, so every existing import path resolves to the same class object (verified by
+      `tests/test_exceptions_hierarchy.py`, 28 cases). Added a **global `@app.exception_handler(Exception)`**
+      in `src/api/server.py` that logs with trace_id and returns the standardized `api_response` 500
+      envelope — this makes per-route `except Exception → return api_response(500)` blocks redundant
+      (behavior-neutral: `api_response` already forces `INTERNAL_ERROR_MESSAGE` for any 500), so 9
+      were removed from backtest routes/helpers. Narrowed 2 file-IO catches in
+      `src/bot_instance_manager.py` (`Exception` → `OSError`). `account_manager.py` was reviewed and
+      **intentionally left unchanged** — its broad catches are correct instrument-and-re-raise
+      (`provider_errors_total` metric) or best-effort 404 fallbacks; narrowing them would reduce
+      observability/resilience. Installed a **ratchet guard** (`tests/test_exception_handling_ratchet.py`)
+      that fails the build if the broad-catch count grows past the baseline (currently **315**, down
+      from 324) — it makes the remaining reduction enforceable and incremental. **Phase 2 (tracked
+      by the ratchet):** continue module-by-module — `service_backtest.py` (20), `event_bus_nats.py`
+      (19), `nats_backtest_consumer.py` (15), remaining `server.py` pure-500 residue, trading modules.
+      NOTE: `GracefulShutdownException` was intentionally NOT moved — it is structurally entangled
+      with `BotInstance` in `src/main_instance.py` (its class body interrupts `BotInstance`); left in
+      place to avoid breaking the runtime entrypoint.
 
 - [ ] **Add caching layer** for frequently accessed market data
     - **Files**: Create `src/infrastructure/cache/`, implement Redis-backed cache
@@ -641,20 +681,20 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 ### **High Priority / High Impact** (Week 1-2)
 
-- **Break up monolithic files** - API server (5,920 lines) and backtest service (4,440 lines)
+- **Break up monolithic files** - API server (5,920 lines) and backtest service (4,440 lines) — API server Phase 1 STARTED (monitoring + `responses.py` extracted, 6,093→5,969)
 - **Implement distributed state management** for horizontal scaling
 - **Replace sys.exit () calls** with proper exception handling
 - **Implement token revocation** - Complete logout/logout-all functionality (COMPLETED)
 - **Add multi-worker tests** for process-local state issues
-- **Refactor broad exception handling** - Replace 306+ `except Exception` patterns
+- ✅ **Refactor broad exception handling** - Replace 306+ `except Exception` patterns (Phase 1 COMPLETED — hierarchy + global 500 handler + ratchet at 315; see action-plan item)
 
 ### **High Priority / Medium Impact** (Week 2-4)
 
 - **Add integration tests** for external services (Redis, Celery, dYdX)
 - ✅ **Implement input validation** on all trading API endpoints (COMPLETED)
 - ✅ **Add connection pool monitoring** and alerting (COMPLETED)
-- **Extract WebSocket management** from API server
-- **Implement consistent error handling** with custom exception hierarchy
+- ✅ **Extract WebSocket management** from API server (COMPLETED — `websocket_server.py`)
+- ✅ **Implement consistent error handling** with custom exception hierarchy (Phase 1 — `src/exceptions.py` + global 500 envelope handler)
 
 ### **Medium Priority / High Impact** (Month 2)
 

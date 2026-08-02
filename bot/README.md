@@ -334,6 +334,16 @@ The implementation lives in `src/shared/credentials_cipher.py`; the backfill scr
 
 Use the generated schema and source code as the detailed endpoint contract, not old handoff markdown.
 
+### Route module layout
+
+`src/api/server.py` is the canonical FastAPI app (middleware, exception handlers, the bulk of
+routes). Route groups are being extracted into `APIRouter` modules under `src/api/v1/` and
+mounted with `app.include_router` (an incremental monolith-breakup). `src/api/v1/monitoring.py`
+(operational visibility endpoints) is the first extracted module; WebSocket logic lives in
+`src/api/websocket_server.py`. The shared response envelope helper (`api_response`,
+`trace_id_ctx`, `INTERNAL_ERROR_MESSAGE`) lives in `src/api/responses.py` so extracted routers
+can use it without a circular import.
+
 ### Request validation
 
 Trading-critical request bodies are schema-validated at the API boundary. The
@@ -347,6 +357,21 @@ runtime. Shared validators live in `src/shared/trading_validators.py`.
 Validation failures return the standardized `api_response` 422 envelope
 (`{success: false, message: "Validation error", data: {errors: [...]}, timestamp, trace_id}`)
 via a global `RequestValidationError` handler, instead of FastAPI's default shape.
+
+### Error handling
+
+Bot-domain errors share a typed hierarchy in `src/exceptions.py` (`BotError` base +
+domain categories: `DatabaseError`, `ExchangeError`, `TradingError`, `BacktestError`,
+`ProcessManagerError`, `CredentialError`, `CacheServiceError`, `StorageError`,
+`MessageBusError`, `ConfigurationError`). Raise the most specific subtype; callers can
+catch at the category or `BotError` level without trapping unrelated stdlib exceptions.
+Unhandled route exceptions are caught by a global `@app.exception_handler(Exception)`
+that logs with `trace_id` and returns the standardized `api_response` 500 envelope
+(`Internal server error` — internals are never exposed to clients).
+
+A ratchet test (`tests/test_exception_handling_ratchet.py`) fails the build if the count
+of broad `except Exception` / bare `except:` sites in `src/` grows past the current
+baseline, so the long-term reduction (toward `<15`) is enforced incrementally.
 
 ## Safety Rules
 

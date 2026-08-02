@@ -50,8 +50,10 @@ AUTH_DEPENDENCY_CALLS = {
 
 # Mutating routes that are intentionally public (login/registration/token grant).
 # Listed explicitly so the route-coverage gate can distinguish "deliberately
-# public" from "forgot to add auth". Empty today for /api/v1/* but kept for
-# forward safety.
+# public" from "forgot to add auth". Includes both the prefixed (mounted) paths
+# and the unprefixed paths seen on the auth router before its include prefix is
+# applied (FastAPI 0.138+ exposes included-router routes via _IncludedRouter
+# with the original, unprefixed paths).
 PUBLIC_MUTATING_PATHS = {
     "/auth/token",
     "/auth/login",
@@ -59,6 +61,9 @@ PUBLIC_MUTATING_PATHS = {
     "/api/v1/auth/token",
     "/api/v1/auth/login",
     "/api/v1/auth/register",
+    "/token",
+    "/login",
+    "/register",
 }
 
 MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -88,12 +93,34 @@ class _StubSession:
 
 
 def _mutating_api_routes():
-    """All registered mutating APIRoutes (the gate's scope)."""
-    return [
-        route
-        for route in server.app.routes
-        if isinstance(route, APIRoute) and (route.methods or set()) & MUTATING_METHODS
-    ]
+    """All registered mutating APIRoutes (the gate's scope).
+
+    Covers both routes defined directly on ``app`` AND routes brought in via
+    ``app.include_router``. FastAPI 0.138+ wraps included routers lazily as
+    ``_IncludedRouter``; those routes are reachable through ``original_router``.
+    Dedupes because the auth router is mounted under two prefixes.
+    """
+    seen: set[tuple[frozenset, str]] = set()
+    out: list = []
+
+    def _consider(route: APIRoute) -> None:
+        if not (route.methods or set()) & MUTATING_METHODS:
+            return
+        key = (frozenset(route.methods or ()), route.path)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(route)
+
+    for route in server.app.routes:
+        if isinstance(route, APIRoute):
+            _consider(route)
+        elif type(route).__name__ == "_IncludedRouter":
+            original = getattr(route, "original_router", None)
+            for sub in getattr(original, "routes", []) or []:
+                if isinstance(sub, APIRoute):
+                    _consider(sub)
+    return out
 
 
 def _route_auth_callables(route: APIRoute):

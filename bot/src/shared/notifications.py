@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 
 import requests
 from loguru import logger
+
 from src.constants import DYDX_ADDRESS, TELEGRAM_CHAT_ID, TELEGRAM_TOKEN
 
 

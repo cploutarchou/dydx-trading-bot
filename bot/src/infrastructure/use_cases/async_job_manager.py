@@ -8,10 +8,11 @@ import threading
 import time
 import traceback
 from collections import deque
-from typing import Any, Awaitable, Callable, Coroutine, Optional, cast
+from typing import Any, Awaitable, Callable, Optional
 from uuid import uuid4
 
 from loguru import logger
+
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
 
@@ -333,7 +334,7 @@ class AsyncJobManager:
         self.mark_running(resolved_job_id)
         started = time.perf_counter()
         if isinstance(awaitable, asyncio.Task):
-            task = cast(asyncio.Task[Any], awaitable)
+            task = awaitable
             if task.get_name() != resolved_job_id:
                 task.set_name(resolved_job_id)
         elif asyncio.iscoroutine(awaitable):

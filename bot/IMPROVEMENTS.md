@@ -322,11 +322,29 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Priority**: HIGH
     - **Status**: COMPLETED - Replaced all sys.exit() calls with proper exception handling. Created DatabaseConnectionError for database connection failures and GracefulShutdownException for signal handling. Updated signal handlers to raise exceptions instead of calling sys.exit(), allowing proper cleanup and error propagation.
 
-- [ ] **Implement input validation** on all trading API endpoints
+- [x] **Implement input validation** on all trading API endpoints
     - **Files**: `src/api/v1/` endpoints, trading validation modules
     - **Impact**: Prevent invalid trades, improve error messages
     - **Effort**: 2-3 days
     - **Priority**: HIGH
+    - **Status**: COMPLETED — trading-critical request models now carry explicit `Field`
+      bounds (`gt`/`ge`/`le`/`min_length`/`pattern`) so out-of-range trades (negative
+      `usd_per_trade`, zero `stats_window`, non-positive balances, bad dates/IDs) are
+      rejected at the API boundary. Tightened: `TradingParameters`, `BacktestingParameters`,
+      `BotCredentials`, `BotInstanceConfig` (`src/infrastructure/domain/bot_api_models.py`),
+      `BacktestConfigRequest` (`src/infrastructure/domain/models_backtest.py`), and
+      `BacktestRunRequestCompat`/`StrategyRequest` (`src/api/server.py`). Three raw-`Dict`
+      bodies were promoted to schema-validated models — `ArbitrageRuntimeSettingsRequest`,
+      `BacktestMetadataRequest`, `BacktestComparisonRequest` (`extra="ignore"` / `min_length`
+      keep them backwards-compatible). Shared validators live in
+      `src/shared/trading_validators.py` (`validate_iso_date_range`, `normalize_market_list`).
+      A global `RequestValidationError` handler now returns the standardized `api_response`
+      422 envelope (`{success, message, data:{errors}, trace_id}`) instead of FastAPI's default
+      shape; scope kept to `RequestValidationError` only (default `HTTPException` shape untouched).
+      Coverage in `tests/test_api_input_validation.py` (49 cases). `openapi.json` regenerated so
+      the contract surfaces `minimum`/`maximum`/`exclusiveMinimum`/`pattern` on the trading
+      schemas. Scope was trading-critical endpoints only (bot lifecycle, backtests, strategies,
+      arbitrage runtime-settings) — admin/celery housekeeping (revoke, metrics reset) deferred.
 
 #### **Performance**
 
@@ -511,11 +529,31 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Effort**: 2-3 weeks
     - **Priority**: HIGH
 
-- [ ] **Add security tests** for authentication bypass scenarios
+- [x] **Add security tests** for authentication bypass scenarios
     - **Files**: Create security test suite, penetration tests
     - **Impact**: Catch authentication vulnerabilities before production
     - **Effort**: 1-2 weeks
     - **Priority**: CRITICAL
+    - **Status**: COMPLETED — added a dedicated regression suite
+      `tests/test_security_auth_bypass.py` (20 cases) that systematically pins the
+      authentication defenses so any regression of the earlier security fixes
+      (route auth, secure WebSocket auth, token revocation) is caught here. Coverage:
+      (1) **route-coverage gate** — asserts every mutating `/api/v1/*` route declares an
+      executable auth dependency (`get_current_active_user`/`get_admin_user`) and that
+      admin/celery-scoped routes require `get_admin_user` (the direct regression test for
+      the original auth-bypass class of bug); (2) **credential/authorization behavior** —
+      missing credentials → 401, disabled user → 403, non-admin → 403; (3) **token defenses** —
+      wrong and near-miss (prefix/suffix/single-char) service tokens and signature-tampered
+      JWTs are rejected (timing-safe via `secrets.compare_digest`); (4) **bypass startup
+      guard** — `API_BYPASS_AUTH=true` in production-like envs raises `RuntimeError` at
+      startup; (5) **runtime enforcement** — representative protected routes return 401 over
+      HTTP via `TestClient`. Verified the current posture holds: all 30 mutating routes
+      carry auth deps, 5 admin routes carry the admin dep. NOTE: complements (does not
+      duplicate) the narrower `test_backtest_route_auth`, `test_websocket_security_fix`,
+      `test_token_revocation`, `test_auth_bypass_environment_guard`,
+      `test_auth_middleware_service_token`. Pre-existing unrelated failures in
+      `test_token_revocation.py` (an async `logout` "coroutine never awaited" test bug) were
+      observed and are out of scope for this item.
 
 - [ ] **Improve test coverage** for critical monolithic files
     - **Files**: Add tests for `src/api/server.py` (5,920 lines) and `src/infrastructure/use_cases/service_backtest.py`
@@ -598,7 +636,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 - ✅ **Fix authentication bypass vulnerabilities** - Add auth dependencies to all backtest routes (COMPLETED)
 - **Implement credential encryption** for `bot_instances.config`
 - **Fix position confirmation logic** - Add fill confirmation before position closure
-- **Add security tests** for authentication bypass scenarios
+- ✅ **Add security tests** for authentication bypass scenarios (COMPLETED)
 - **Secure WebSocket authentication** - Remove JWT from query strings (COMPLETED - part of auth bypass fix)
 
 ### **High Priority / High Impact** (Week 1-2)
@@ -613,7 +651,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 ### **High Priority / Medium Impact** (Week 2-4)
 
 - **Add integration tests** for external services (Redis, Celery, dYdX)
-- **Implement input validation** on all trading API endpoints
+- ✅ **Implement input validation** on all trading API endpoints (COMPLETED)
 - ✅ **Add connection pool monitoring** and alerting (COMPLETED)
 - **Extract WebSocket management** from API server
 - **Implement consistent error handling** with custom exception hierarchy

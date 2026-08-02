@@ -11,7 +11,6 @@ import pytest
 
 import src.bot_instance_manager as bot_instance_manager_module
 from src.bot_instance_manager import BotInstanceManager
-from src.shared import credentials_cipher as cc
 from src.infrastructure.domain.bot_api_models import (
     BacktestingParameters,
     BotCredentials,
@@ -20,6 +19,7 @@ from src.infrastructure.domain.bot_api_models import (
     BotStatus,
     TradingParameters,
 )
+from src.shared import credentials_cipher as cc
 
 
 @pytest.fixture(autouse=True)

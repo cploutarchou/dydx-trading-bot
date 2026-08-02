@@ -7,7 +7,6 @@ import pytest
 from fastapi.routing import APIRoute
 
 from src.api import server
-from src.infrastructure.domain.models.auth_models import User
 from src.middleware import auth_middleware
 
 

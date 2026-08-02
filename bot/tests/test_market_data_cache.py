@@ -1,7 +1,7 @@
 import asyncio
-import os
 
 import pandas as pd
+
 from src.trading import market_data
 
 
@@ -168,7 +168,6 @@ def test_rate_limiter_per_event_loop_behavior():
 
 def test_rate_limiter_fallback_when_aiolimiter_unavailable(monkeypatch):
     """Test that throttling falls back to sleep when aiolimiter is not available."""
-    import os
 
     # Mock aiolimiter to be unavailable
     monkeypatch.setattr(market_data, "_rate_limiter_key", None)

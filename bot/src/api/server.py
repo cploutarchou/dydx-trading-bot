@@ -30,13 +30,20 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, PlainTextResponse
 from loguru import logger
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
 from src.shared.env_loader import load_repo_env
 from src.shared.redis_env import redis_url
+from src.shared.trading_validators import (
+    ISO_DATE_PATTERN,
+    normalize_market_list,
+    validate_iso_date_range,
+)
 
 # Load structured config BEFORE importing project modules that initialize config/database.
 load_repo_env(__file__)
@@ -366,7 +373,7 @@ _strategy_resolution_metrics: Dict[str, Any] = {
     "last_path": None,
     "last_updated_at": None,
 }
-_strategy_resolution_recent_paths = deque(
+_strategy_resolution_recent_paths: deque[str] = deque(
     maxlen=max(
         1,
         _read_non_negative_int_env("STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE", 200),
@@ -620,38 +627,38 @@ class StrategyRequest(BaseModel):
         }
     )
 
-    name: str
-    category: str = "pairs_trading"
-    description: str = ""
+    name: str = Field(..., min_length=1, max_length=255)
+    category: str = Field(default="pairs_trading", min_length=1, max_length=64)
+    description: str = Field(default="", max_length=2000)
     is_public: bool = False
-    user_id: int = 1
-    resolution: str = "1HOUR"
-    candle_resolution: Optional[str] = None
-    zscore_threshold: float = 1.5
-    stats_window: int = 21
-    max_half_life: float = 24.0
-    usd_per_trade: float = 10.0
-    usd_min_collateral: float = 100.0
+    user_id: int = Field(default=1, ge=1)
+    resolution: str = Field(default="1HOUR", min_length=1, max_length=16)
+    candle_resolution: Optional[str] = Field(default=None, max_length=16)
+    zscore_threshold: float = Field(default=1.5, gt=0.0)
+    stats_window: int = Field(default=21, ge=2, le=2000)
+    max_half_life: float = Field(default=24.0, ge=1.0, le=10000.0)
+    usd_per_trade: float = Field(default=10.0, gt=0.0)
+    usd_min_collateral: float = Field(default=100.0, ge=0.0)
     close_at_zscore_cross: bool = True
     find_cointegrated_pairs: bool = True
     manage_exits: bool = True
     place_trades: bool = True
     abort_all_positions: bool = False
-    max_positions: int = 5
-    max_drawdown_pct: float = 15.0
-    stop_loss_pct: float = 3.0
-    take_profit_pct: float = 8.0
-    trailing_stop_pct: float = 2.0
-    rebalance_interval_hours: int = 24
-    position_timeout_hours: int = 72
-    initial_amount: float = 1000.0
-    starting_balance: float = 1000.0
-    transaction_fee: float = 0.0005
-    slippage: float = 0.001
-    max_history_days: int = 90
-    benchmark_symbol: str = "BTC-USD"
-    risk_free_rate: float = 0.02
-    pair_selection_mode: str = "liquidity"
+    max_positions: int = Field(default=5, ge=0, le=100)
+    max_drawdown_pct: float = Field(default=15.0, ge=0.0, le=100.0)
+    stop_loss_pct: float = Field(default=3.0, ge=0.0, le=100.0)
+    take_profit_pct: float = Field(default=8.0, ge=0.0, le=1000.0)
+    trailing_stop_pct: float = Field(default=2.0, ge=0.0, le=100.0)
+    rebalance_interval_hours: int = Field(default=24, ge=0, le=8760)
+    position_timeout_hours: int = Field(default=72, ge=0, le=8760)
+    initial_amount: float = Field(default=1000.0, gt=0.0)
+    starting_balance: float = Field(default=1000.0, gt=0.0)
+    transaction_fee: float = Field(default=0.0005, ge=0.0, lt=1.0)
+    slippage: float = Field(default=0.001, ge=0.0, lt=1.0)
+    max_history_days: int = Field(default=90, ge=1, le=36500)
+    benchmark_symbol: str = Field(default="BTC-USD", min_length=1, max_length=32)
+    risk_free_rate: float = Field(default=0.02, ge=0.0, le=1.0)
+    pair_selection_mode: str = Field(default="liquidity", min_length=1, max_length=64)
 
 
 class StrategyVersionRevertRequest(BaseModel):
@@ -689,26 +696,38 @@ class BacktestRunRequestCompat(BaseModel):
         }
     )
 
-    start_date: str
-    end_date: str
-    strategy_id: Optional[int] = None
-    name: Optional[str] = None
-    description: Optional[str] = None
-    initial_balance: float = 1000.0
-    timeout_seconds: Optional[float] = None
+    start_date: str = Field(..., pattern=ISO_DATE_PATTERN)
+    end_date: str = Field(..., pattern=ISO_DATE_PATTERN)
+    strategy_id: Optional[int] = Field(default=None, ge=1)
+    name: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = Field(default=None, max_length=2000)
+    initial_balance: float = Field(default=1000.0, gt=0.0)
+    timeout_seconds: Optional[float] = Field(default=None, gt=0.0)
     # 0 means "all available markets" (no cap)
-    max_pairs: int = 0
-    pair_selection_mode: Optional[str] = None
+    max_pairs: int = Field(default=0, ge=0, le=1000)
+    pair_selection_mode: Optional[str] = Field(default=None, max_length=64)
     trading_parameters: Optional[Dict[str, Any]] = None
     pairs: Optional[List[str]] = None
     selected_pairs: Optional[List[str]] = None
     strategy_payload_snapshot: Optional[Dict[str, Any]] = None
-    bot_id: Optional[str] = None
-    source: Optional[str] = None
-    environment: Optional[str] = None
-    requested_by_user_id: Optional[int] = None
+    bot_id: Optional[str] = Field(default=None, max_length=128)
+    source: Optional[str] = Field(default=None, max_length=64)
+    environment: Optional[str] = Field(default=None, max_length=32)
+    requested_by_user_id: Optional[int] = Field(default=None, ge=1)
     source_strategy_version: Optional[Any] = None
     metadata: Optional[Dict[str, Any]] = None
+
+    @field_validator("pairs", "selected_pairs", mode="before")
+    @classmethod
+    def _normalize_pair_lists(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        return normalize_market_list(value)
+
+    @model_validator(mode="after")
+    def _validate_date_range(self) -> "BacktestRunRequestCompat":
+        validate_iso_date_range(self.start_date, self.end_date)
+        return self
 
 
 def _normalize_string_list(values: Optional[List[str]]) -> List[str]:
@@ -754,9 +773,50 @@ def _build_selected_pair_labels(markets: List[str]) -> List[str]:
 class BacktestCreateStrategyRequest(BaseModel):
     """Create a strategy from an existing backtest."""
 
-    name: str
-    description: str = ""
+    name: str = Field(..., min_length=1, max_length=255)
+    description: str = Field(default="", max_length=2000)
     config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class BacktestMetadataRequest(BaseModel):
+    """Attach or merge structured metadata into a persisted backtest run."""
+
+    metadata: Dict[str, Any]
+    merge: bool = True
+
+
+class BacktestComparisonRequest(BaseModel):
+    """Compare multiple backtest runs with advanced analytics."""
+
+    run_ids: List[str] = Field(..., min_length=2)
+    metrics: Optional[List[str]] = None
+
+    @field_validator("run_ids", mode="before")
+    @classmethod
+    def _normalize_run_ids(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        return normalize_market_list(value)
+
+
+class ArbitrageRuntimeSettingsRequest(BaseModel):
+    """Validated body for arbitrage runtime-settings updates.
+
+    Unknown keys are ignored so existing clients that send unrelated fields
+    keep working; the downstream ``update_runtime_settings`` still clamps the
+    typed values it recognizes.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    ARBITRAGE_IMPROVEMENTS_ENABLED: Optional[bool] = None
+    PAIR_PRIORITY_ENGINE_ENABLED: Optional[bool] = None
+    POLYMARKET_SIGNALS_ENABLED: Optional[bool] = None
+    DEFILLAMA_SIGNALS_ENABLED: Optional[bool] = None
+    NEWS_SIGNALS_ENABLED: Optional[bool] = None
+    AUTO_EXECUTION_CHANGES_ENABLED: Optional[bool] = None
+    PAIR_PRIORITY_MAX_PAIRS: Optional[int] = Field(default=None, ge=0)
+    PAIR_PRIORITY_STALE_SECONDS: Optional[float] = Field(default=None, ge=0.0)
 
 
 class InMemoryStrategyStore:
@@ -1884,7 +1944,7 @@ app = FastAPI(
 )
 
 # Set custom OpenAPI schema
-app.openapi = custom_openapi
+app.openapi = custom_openapi  # type: ignore[method-assign]  # FastAPI's documented override pattern
 
 # Add CORS middleware
 app.add_middleware(
@@ -1894,6 +1954,54 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """Map FastAPI request-validation failures onto the standardized envelope.
+
+    Without this, an out-of-bounds trading payload returns FastAPI's default
+    ``{"detail": [...]}`` 422 instead of the ``api_response`` envelope required
+    by the API safety contract. Kept scoped to ``RequestValidationError`` only;
+    ``HTTPException`` keeps its default shape to limit regression surface.
+    """
+    del request
+    return api_response(
+        success=False,
+        message="Validation error",
+        data={"errors": jsonable_encoder(exc.errors())},
+        status_code=422,
+    )
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    """Catch-all for unhandled exceptions → standardized 500 envelope.
+
+    Centralizes the envelope-preserving 500 behavior so individual routes no longer
+    need a ``try/except Exception → return api_response(500)`` block, and clients
+    always receive ``{success, message, data, timestamp, trace_id}`` rather than
+    FastAPI's default ``{"detail": "Internal Server Error"}``. FastAPI dispatches by
+    type specificity, so ``RequestValidationError`` (422) and ``HTTPException``
+    (FastAPI default) still resolve to their own handlers; only truly unhandled
+    ``Exception``s land here. ``BaseException`` (KeyboardInterrupt/SystemExit) is
+    intentionally not caught.
+    """
+    logger.exception(
+        "Unhandled exception on {method} {path}",
+        method=request.method,
+        path=request.url.path,
+    )
+    return api_response(
+        success=False,
+        message=INTERNAL_ERROR_MESSAGE,
+        status_code=500,
+    )
+
 
 # Include authentication routes
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
@@ -3457,11 +3565,13 @@ async def get_arbitrage_runtime_settings(
 
 @app.put("/api/v1/arbitrage/runtime-settings")
 async def update_arbitrage_runtime_settings(
-    payload: Dict[str, Any],
+    payload: ArbitrageRuntimeSettingsRequest,
     current_user: User = Depends(get_current_active_user),
 ):
     _ = current_user
-    settings = update_runtime_settings(payload or {})
+    # Only forward keys the caller actually set so unset fields keep their
+    # current runtime value (matches prior ``payload or {}`` semantics).
+    settings = update_runtime_settings(payload.model_dump(exclude_unset=True))
     return api_response(
         success=True,
         data={"settings": settings, "feature_flags": get_feature_flags()},
@@ -4808,50 +4918,38 @@ async def reconcile_interrupted_backtests(
 
 def _reconcile_interrupted_backtests_response(dry_run: bool):
     """Shared response builder for interrupted backtest reconcile routes."""
-    try:
-        with backtest_service_scope() as service:
-            report = service.reconcile_interrupted_runs(dry_run=dry_run)
-        report["count"] = int(report.get("candidate_count", 0))
-        message = (
-            "Dry-run completed for interrupted backtest reconciliation"
-            if dry_run
-            else "Interrupted backtest reconciliation completed"
-        )
-        return api_response(
-            success=True,
-            data=report,
-            message=message,
-        )
-    except Exception as e:
-        logger.error(f"Error reconciling interrupted backtests: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    with backtest_service_scope() as service:
+        report = service.reconcile_interrupted_runs(dry_run=dry_run)
+    report["count"] = int(report.get("candidate_count", 0))
+    message = (
+        "Dry-run completed for interrupted backtest reconciliation"
+        if dry_run
+        else "Interrupted backtest reconciliation completed"
+    )
+    return api_response(
+        success=True,
+        data=report,
+        message=message,
+    )
 
 
 def _repair_backtest_request_response(run_id: str, dry_run: bool):
     """Shared response builder for request repair routes."""
-    try:
-        with backtest_service_scope() as service:
-            report = service.repair_backtest_request(run_id, dry_run=dry_run)
-        if report is None:
-            return api_response(
-                success=False,
-                message=f"Backtest '{run_id}' not found",
-                status_code=404,
-            )
-
-        message = (
-            f"Dry-run completed for backtest '{run_id}' request repair"
-            if dry_run
-            else f"Backtest '{run_id}' request payload repaired"
-        )
-        return api_response(success=True, data=report, message=message)
-    except Exception as e:
-        logger.error(f"Error repairing backtest request: {e}")
+    with backtest_service_scope() as service:
+        report = service.repair_backtest_request(run_id, dry_run=dry_run)
+    if report is None:
         return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
+            success=False,
+            message=f"Backtest '{run_id}' not found",
+            status_code=404,
         )
+
+    message = (
+        f"Dry-run completed for backtest '{run_id}' request repair"
+        if dry_run
+        else f"Backtest '{run_id}' request payload repaired"
+    )
+    return api_response(success=True, data=report, message=message)
 
 
 @app.get("/api/v1/admin/backtests/interrupted")
@@ -4892,26 +4990,19 @@ async def get_backtest_details(
 ):
     """Get detailed backtest results"""
     del current_user
-    try:
-        result = _get_backtest_details_sync(run_id)
-        if not result:
-            return api_response(
-                success=False,
-                message=f"Backtest run '{run_id}' not found",
-                status_code=404,
-            )
-
+    result = _get_backtest_details_sync(run_id)
+    if not result:
         return api_response(
-            success=True,
-            data=result.model_dump(),
-            message=f"Retrieved details for backtest '{run_id}'",
+            success=False,
+            message=f"Backtest run '{run_id}' not found",
+            status_code=404,
         )
 
-    except Exception as e:
-        logger.error(f"Error getting backtest details: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    return api_response(
+        success=True,
+        data=result.model_dump(),
+        message=f"Retrieved details for backtest '{run_id}'",
+    )
 
 
 @app.get("/api/v1/backtests/{run_id}/status")
@@ -4921,79 +5012,55 @@ async def get_backtest_status(
 ):
     """Get current backtest status and progress"""
     del current_user
-    try:
-        result = _get_backtest_status_sync(run_id)
-        if not result:
-            return api_response(
-                success=False,
-                message=f"Backtest run '{run_id}' not found",
-                status_code=404,
-            )
-
-        payload = result.model_dump()
-        payload["progress"] = float(payload.get("progress_pct", 0.0))
-        payload["count"] = 1
-        payload["websocket_send_metrics"] = manager.get_backtest_send_failure_metrics(
-            run_id
-        )
-
+    result = _get_backtest_status_sync(run_id)
+    if not result:
         return api_response(
-            success=True,
-            data=payload,
-            message=f"Retrieved status for backtest '{run_id}'",
+            success=False,
+            message=f"Backtest run '{run_id}' not found",
+            status_code=404,
         )
 
-    except Exception as e:
-        logger.error(f"Error getting backtest status: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    payload = result.model_dump()
+    payload["progress"] = float(payload.get("progress_pct", 0.0))
+    payload["count"] = 1
+    payload["websocket_send_metrics"] = manager.get_backtest_send_failure_metrics(
+        run_id
+    )
+
+    return api_response(
+        success=True,
+        data=payload,
+        message=f"Retrieved status for backtest '{run_id}'",
+    )
 
 
 @app.post("/api/v1/backtests/{run_id}/metadata")
 async def update_backtest_metadata(
     run_id: str,
-    payload: Dict[str, Any] = Body(default_factory=dict),
+    payload: BacktestMetadataRequest,
     current_user: User = Depends(get_current_active_user),
 ):
     """Attach or merge structured metadata into a persisted backtest run."""
     del current_user
-    try:
-        metadata = payload.get("metadata")
-        if not isinstance(metadata, dict):
-            return api_response(
-                success=False,
-                message="Validation error: metadata must be an object",
-                data={"error": "INVALID_METADATA"},
-                status_code=422,
-            )
-
-        merge = bool(payload.get("merge", True))
-        with backtest_service_scope() as service:
-            result = service.update_backtest_metadata(
-                run_id,
-                metadata,
-                merge=merge,
-            )
-
-        if result is None:
-            return api_response(
-                success=False,
-                message=f"Backtest run '{run_id}' not found",
-                status_code=404,
-            )
-
-        return api_response(
-            success=True,
-            data=result,
-            message=f"Updated metadata for backtest '{run_id}'",
+    with backtest_service_scope() as service:
+        result = service.update_backtest_metadata(
+            run_id,
+            payload.metadata,
+            merge=payload.merge,
         )
 
-    except Exception as e:
-        logger.error(f"Error updating backtest metadata: {e}")
+    if result is None:
         return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
+            success=False,
+            message=f"Backtest run '{run_id}' not found",
+            status_code=404,
         )
+
+    return api_response(
+        success=True,
+        data=result,
+        message=f"Updated metadata for backtest '{run_id}'",
+    )
 
 
 @app.get("/api/v1/backtests/{run_id}/websocket-metrics")
@@ -5003,32 +5070,24 @@ async def get_backtest_websocket_metrics(
 ):
     """Get per-run websocket send-failure metrics for reconnect-thrashing alerting."""
     del current_user
-    try:
-        status = _get_backtest_status_sync(run_id)
-        if status is None:
-            return api_response(
-                success=False,
-                message=f"Backtest run '{run_id}' not found",
-                status_code=404,
-            )
-
-        metrics = manager.get_backtest_send_failure_metrics(run_id)
-        return api_response(
-            success=True,
-            data={
-                "run_id": run_id,
-                "status": status.status,
-                "metrics": metrics,
-            },
-            message=f"Retrieved websocket metrics for backtest '{run_id}'",
-        )
-    except Exception as e:
-        logger.error(f"Error getting backtest websocket metrics: {e}")
+    status = _get_backtest_status_sync(run_id)
+    if status is None:
         return api_response(
             success=False,
-            message=f"Internal server error: {str(e)}",
-            status_code=500,
+            message=f"Backtest run '{run_id}' not found",
+            status_code=404,
         )
+
+    metrics = manager.get_backtest_send_failure_metrics(run_id)
+    return api_response(
+        success=True,
+        data={
+            "run_id": run_id,
+            "status": status.status,
+            "metrics": metrics,
+        },
+        message=f"Retrieved websocket metrics for backtest '{run_id}'",
+    )
 
 
 @app.post("/api/v1/backtests/{run_id}/create-strategy")
@@ -5177,25 +5236,18 @@ async def cancel_backtest(
 ):
     """Cancel running backtest"""
     del current_user
-    try:
-        with backtest_service_scope() as service:
-            success = service.cancel_backtest(run_id)
-        if not success:
-            return api_response(
-                success=False,
-                message=f"Backtest '{run_id}' not found or not running",
-                status_code=404,
-            )
-
+    with backtest_service_scope() as service:
+        success = service.cancel_backtest(run_id)
+    if not success:
         return api_response(
-            success=True, message=f"Backtest '{run_id}' cancelled successfully"
+            success=False,
+            message=f"Backtest '{run_id}' not found or not running",
+            status_code=404,
         )
 
-    except Exception as e:
-        logger.error(f"Error cancelling backtest: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    return api_response(
+        success=True, message=f"Backtest '{run_id}' cancelled successfully"
+    )
 
 
 @app.post("/api/v1/backtests/{run_id}/pause")
@@ -5205,27 +5257,20 @@ async def pause_backtest(
 ):
     """Request a cooperative pause for a running backtest."""
     del current_user
-    try:
-        with backtest_service_scope() as service:
-            result = service.pause_backtest(run_id)
-        if not result:
-            return api_response(
-                success=False,
-                message=f"Backtest '{run_id}' not found or cannot be paused",
-                status_code=404,
-            )
-
+    with backtest_service_scope() as service:
+        result = service.pause_backtest(run_id)
+    if not result:
         return api_response(
-            success=True,
-            data=result,
-            message=f"Backtest '{run_id}' pause requested",
+            success=False,
+            message=f"Backtest '{run_id}' not found or cannot be paused",
+            status_code=404,
         )
 
-    except Exception as e:
-        logger.error(f"Error pausing backtest: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    return api_response(
+        success=True,
+        data=result,
+        message=f"Backtest '{run_id}' pause requested",
+    )
 
 
 @app.post("/api/v1/backtests/{run_id}/resume")
@@ -5235,27 +5280,20 @@ async def resume_backtest(
 ):
     """Resume a paused backtest."""
     del current_user
-    try:
-        with backtest_service_scope() as service:
-            result = service.resume_backtest(run_id)
-        if not result:
-            return api_response(
-                success=False,
-                message=f"Backtest '{run_id}' not found or cannot be resumed",
-                status_code=404,
-            )
-
+    with backtest_service_scope() as service:
+        result = service.resume_backtest(run_id)
+    if not result:
         return api_response(
-            success=True,
-            data=result,
-            message=f"Backtest '{run_id}' resume requested",
+            success=False,
+            message=f"Backtest '{run_id}' not found or cannot be resumed",
+            status_code=404,
         )
 
-    except Exception as e:
-        logger.error(f"Error resuming backtest: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    return api_response(
+        success=True,
+        data=result,
+        message=f"Backtest '{run_id}' resume requested",
+    )
 
 
 @app.post("/api/v1/backtests/{run_id}/restart")
@@ -5556,23 +5594,14 @@ async def get_position_snapshots(
 
 @app.post("/api/v1/backtests/compare")
 async def compare_backtests(
-    request: dict,  # BacktestComparisonRequest - simplified for now
+    request: BacktestComparisonRequest,
     current_user: User = Depends(get_current_active_user),
 ):
     """Compare multiple backtest runs with advanced analytics"""
     del current_user
     try:
-        run_ids = request.get("run_ids", [])
-        metrics = request.get(
-            "metrics", ["total_return_pct", "sharpe_ratio", "win_rate"]
-        )
-
-        if len(run_ids) < 2:
-            return api_response(
-                success=False,
-                message="At least 2 backtest runs required for comparison",
-                status_code=400,
-            )
+        run_ids = request.run_ids
+        metrics = request.metrics or (["total_return_pct", "sharpe_ratio", "win_rate"])
 
         comparison = _compare_backtests_sync(run_ids, metrics)
 

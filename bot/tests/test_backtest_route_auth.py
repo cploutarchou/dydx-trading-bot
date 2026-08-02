@@ -100,13 +100,17 @@ def _user(is_admin: bool = False):
 
 
 def _route(path: str, method: str) -> APIRoute:
-    for route in server.app.routes:
-        if (
-            isinstance(route, APIRoute)
-            and route.path == path
-            and method in route.methods
-        ):
-            return route
+    pending = list(server.app.routes)
+    while pending:
+        route = pending.pop(0)
+        if isinstance(route, APIRoute):
+            if route.path == path and method in route.methods:
+                return route
+            continue
+
+        if type(route).__name__ == "_IncludedRouter":
+            original_router = getattr(route, "original_router", None)
+            pending.extend(getattr(original_router, "routes", []))
     raise AssertionError(f"Route not found for {method} {path}")
 
 

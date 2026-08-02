@@ -451,10 +451,20 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 #### **Testing**
 
-- [ ] **Add edge case tests** for network failures and API errors
-    - **Files**: `tests/test_trading_*.py`, integration tests
-    - **Impact**: Improved reliability confidence
+- [x] **Add edge case tests** for network failures and API errors
+    - **Files**: `tests/test_trading_network_errors.py`
+    - **Impact**: Improved reliability confidence - added 36 comprehensive tests covering:
+      - Account manager network failures (ConnectionError, TimeoutError, HTTP 404/429/503)
+      - Fallback behavior on 404 errors
+      - Metrics tracking for API calls and provider errors
+      - Position manager network failures
+      - BotAgent error handling
+      - Malformed API responses
+      - Mixed error scenarios
+      - Retry and exponential backoff behavior
+      - Concurrent network failure scenarios
     - **Effort**: 3-4 days
+    - **Status**: COMPLETED - Created comprehensive test suite in `tests/test_trading_network_errors.py` with 36 tests
 
 ---
 

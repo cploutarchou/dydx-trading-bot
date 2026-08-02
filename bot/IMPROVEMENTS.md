@@ -529,11 +529,31 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Effort**: 2-3 weeks
     - **Priority**: HIGH
 
-- [ ] **Add security tests** for authentication bypass scenarios
+- [x] **Add security tests** for authentication bypass scenarios
     - **Files**: Create security test suite, penetration tests
     - **Impact**: Catch authentication vulnerabilities before production
     - **Effort**: 1-2 weeks
     - **Priority**: CRITICAL
+    - **Status**: COMPLETED — added a dedicated regression suite
+      `tests/test_security_auth_bypass.py` (20 cases) that systematically pins the
+      authentication defenses so any regression of the earlier security fixes
+      (route auth, secure WebSocket auth, token revocation) is caught here. Coverage:
+      (1) **route-coverage gate** — asserts every mutating `/api/v1/*` route declares an
+      executable auth dependency (`get_current_active_user`/`get_admin_user`) and that
+      admin/celery-scoped routes require `get_admin_user` (the direct regression test for
+      the original auth-bypass class of bug); (2) **credential/authorization behavior** —
+      missing credentials → 401, disabled user → 403, non-admin → 403; (3) **token defenses** —
+      wrong and near-miss (prefix/suffix/single-char) service tokens and signature-tampered
+      JWTs are rejected (timing-safe via `secrets.compare_digest`); (4) **bypass startup
+      guard** — `API_BYPASS_AUTH=true` in production-like envs raises `RuntimeError` at
+      startup; (5) **runtime enforcement** — representative protected routes return 401 over
+      HTTP via `TestClient`. Verified the current posture holds: all 30 mutating routes
+      carry auth deps, 5 admin routes carry the admin dep. NOTE: complements (does not
+      duplicate) the narrower `test_backtest_route_auth`, `test_websocket_security_fix`,
+      `test_token_revocation`, `test_auth_bypass_environment_guard`,
+      `test_auth_middleware_service_token`. Pre-existing unrelated failures in
+      `test_token_revocation.py` (an async `logout` "coroutine never awaited" test bug) were
+      observed and are out of scope for this item.
 
 - [ ] **Improve test coverage** for critical monolithic files
     - **Files**: Add tests for `src/api/server.py` (5,920 lines) and `src/infrastructure/use_cases/service_backtest.py`
@@ -616,7 +636,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 - ✅ **Fix authentication bypass vulnerabilities** - Add auth dependencies to all backtest routes (COMPLETED)
 - **Implement credential encryption** for `bot_instances.config`
 - **Fix position confirmation logic** - Add fill confirmation before position closure
-- **Add security tests** for authentication bypass scenarios
+- ✅ **Add security tests** for authentication bypass scenarios (COMPLETED)
 - **Secure WebSocket authentication** - Remove JWT from query strings (COMPLETED - part of auth bypass fix)
 
 ### **High Priority / High Impact** (Week 1-2)

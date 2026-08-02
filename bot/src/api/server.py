@@ -93,7 +93,6 @@ from src.api.websocket_server import (  # noqa: E402
 
 # Import database utilities
 from src.infrastructure.database import DatabaseConfig, db  # noqa: E402
-from src.infrastructure.domain.cointegration_storage import pair_storage  # noqa: E402
 
 # Import backtest modules
 from src.infrastructure.domain.models_backtest import (  # noqa: E402
@@ -147,11 +146,8 @@ from src.trading.arbitrage_observability import snapshot_metrics  # noqa: E402
 from src.trading.arbitrage_runtime_config import (  # noqa: E402
     get_feature_flags,
     get_runtime_settings,
-    is_pair_priority_engine_enabled,
-    update_runtime_settings,
 )
 from src.trading.dydx_client import connect_dydx, connect_dydx_runtime  # noqa: E402
-from src.trading.pair_priority import prioritize_pairs, score_pair  # noqa: E402
 
 # Filter noisy third-party warnings after imports
 _original_stderr = sys.stderr
@@ -1821,10 +1817,12 @@ app.include_router(
 from src.api.v1.monitoring import router as monitoring_router  # noqa: E402
 from src.api.v1.celery_admin import router as celery_admin_router  # noqa: E402
 from src.api.v1.strategies import router as strategies_router  # noqa: E402
+from src.api.v1.arbitrage import router as arbitrage_router  # noqa: E402
 
 app.include_router(monitoring_router)
 app.include_router(celery_admin_router)
 app.include_router(strategies_router)
+app.include_router(arbitrage_router)
 
 
 # ============================================================================
@@ -3269,8 +3267,29 @@ async def api_capabilities():
     commands: List[str] = []
     queries: List[str] = []
 
-    for route in app.routes:
-        path = getattr(route, "path", "")
+    def _registered_routes(routes, prefix: str = ""):
+        """Yield direct and lazily included FastAPI routes with effective paths.
+
+        FastAPI 0.138+ stores ``include_router`` mounts as ``_IncludedRouter``
+        objects. Walking only ``app.routes`` would omit every operation in an
+        extracted router from this capability contract.
+        """
+
+        for route in routes:
+            original_router = getattr(route, "original_router", None)
+            if original_router is not None:
+                include_context = getattr(route, "include_context", None)
+                include_prefix = str(getattr(include_context, "prefix", "") or "")
+                yield from _registered_routes(
+                    getattr(original_router, "routes", []) or [],
+                    f"{prefix}{include_prefix}",
+                )
+                continue
+
+            path = f"{prefix}{getattr(route, 'path', '')}"
+            yield route, path
+
+    for route, path in _registered_routes(app.routes):
         if not path:
             continue
 
@@ -3324,140 +3343,10 @@ async def api_capabilities():
     )
 
 
-@app.get("/api/v1/arbitrage/improvement-metrics")
-async def get_arbitrage_improvement_metrics(
-    current_user: User = Depends(get_current_active_user),
-):
-    _ = current_user
-    return api_response(
-        success=True,
-        data=snapshot_metrics(
-            {
-                "feature_flags": get_feature_flags(),
-                "runtime_settings": get_runtime_settings(),
-            }
-        ),
-        message="Arbitrage improvement metrics retrieved",
-    )
-
-
-@app.get("/api/v1/arbitrage/runtime-settings")
-async def get_arbitrage_runtime_settings(
-    current_user: User = Depends(get_current_active_user),
-):
-    _ = current_user
-    settings = get_runtime_settings()
-    return api_response(
-        success=True,
-        data={"settings": settings, "feature_flags": get_feature_flags()},
-        message="Arbitrage runtime settings retrieved",
-    )
-
-
-@app.put("/api/v1/arbitrage/runtime-settings")
-async def update_arbitrage_runtime_settings(
-    payload: ArbitrageRuntimeSettingsRequest,
-    current_user: User = Depends(get_current_active_user),
-):
-    _ = current_user
-    # Only forward keys the caller actually set so unset fields keep their
-    # current runtime value (matches prior ``payload or {}`` semantics).
-    settings = update_runtime_settings(payload.model_dump(exclude_unset=True))
-    return api_response(
-        success=True,
-        data={"settings": settings, "feature_flags": get_feature_flags()},
-        message="Arbitrage runtime settings updated",
-    )
-
-
-@app.get("/api/v1/arbitrage/pair-priority")
-async def get_arbitrage_pair_priority(
-    limit: int = 25,
-    current_user: User = Depends(get_current_active_user),
-):
-    _ = current_user
-    safe_limit = max(1, min(int(limit or 25), 100))
-    pairs = pair_storage.load_pairs()
-    pair_priority_enabled = is_pair_priority_engine_enabled()
-    if pair_priority_enabled:
-        ranked_pairs, scores = prioritize_pairs(pairs, max_pairs=safe_limit)
-    else:
-        ranked_pairs = pairs[:safe_limit]
-        scores = [score_pair(pair) for pair in ranked_pairs]
-    ranked_lookup = {score.pair: score for score in scores}
-    data = []
-    for pair in ranked_pairs:
-        label = f"{pair.base_market}/{pair.quote_market}"
-        score = ranked_lookup.get(label)
-        data.append(
-            {
-                "pair": label,
-                "base_market": pair.base_market,
-                "quote_market": pair.quote_market,
-                "score": score.score if score else 0.0,
-                "components": score.components if score else {},
-                "explanation": score.explanation if score else [],
-                "enabled": pair_priority_enabled,
-            }
-        )
-    return api_response(
-        success=True,
-        data={"pairs": data, "count": len(data), "enabled": pair_priority_enabled},
-        message="Arbitrage pair priority retrieved",
-    )
-
-
-@app.get("/api/v1/arbitrage/opportunity/{opportunity_id}/explain")
-async def get_arbitrage_opportunity_explain(
-    opportunity_id: str,
-    current_user: User = Depends(get_current_active_user),
-):
-    _ = current_user
-    metrics = snapshot_metrics(
-        {
-            "feature_flags": get_feature_flags(),
-            "runtime_settings": get_runtime_settings(),
-        }
-    )
-    rejection_reasons = metrics.get("rejection_reasons", {})
-    normalized_id = str(opportunity_id or "").strip().lower().replace(" ", "_")
-
-    matched_reason = None
-    if isinstance(rejection_reasons, dict) and normalized_id in rejection_reasons:
-        matched_reason = {
-            "reason": normalized_id,
-            "count": rejection_reasons.get(normalized_id, 0),
-        }
-
-    top_rejections: List[Dict[str, Any]] = []
-    if isinstance(rejection_reasons, dict):
-        sorted_reasons = sorted(
-            rejection_reasons.items(),
-            key=lambda item: float(item[1]),
-            reverse=True,
-        )
-        top_rejections = [
-            {"reason": str(reason), "count": float(count)}
-            for reason, count in sorted_reasons[:10]
-        ]
-
-    return api_response(
-        success=True,
-        data={
-            "opportunity_id": opportunity_id,
-            "matched_rejection_reason": matched_reason,
-            "top_rejection_reasons": top_rejections,
-            "counters": metrics.get("counters", {}),
-            "feature_flags": metrics.get("feature_flags", {}),
-            "runtime_settings": metrics.get("runtime_settings", {}),
-            "explainability_scope": "runtime_diagnostics",
-            "note": (
-                "Per-opportunity historical explain payloads are not persisted yet; "
-                "this endpoint provides current runtime diagnostics and rejection trends."
-            ),
-        },
-        message="Arbitrage opportunity explainability retrieved",
-    )
+# ARBITRAGE ENDPOINTS — extracted to src/api/v1/arbitrage.py (APIRouter, mounted
+# above via app.include_router). The 5 authenticated runtime visibility/settings
+# routes and ArbitrageRuntimeSettingsRequest live there now; the request model is
+# re-imported above for backwards-compatible server attribute access.
 
 
 @app.get("/api/v1/markets/perpetuals")

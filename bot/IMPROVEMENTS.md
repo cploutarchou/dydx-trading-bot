@@ -26,10 +26,10 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 ### Codebase Scale (Detailed Analysis)
 
-- **~34,934 lines** of production Python code across 78 files under `src/`
-- **Largest modules**: `src/api/server.py` (5,378 lines), `src/infrastructure/use_cases/service_backtest.py` (4,443
+- **~35,113 lines** of production Python code across 80 files under `src/`
+- **Largest modules**: `src/api/server.py` (4,329 lines), `src/infrastructure/use_cases/service_backtest.py` (4,443
   lines)
-- **Test suite**: 69 test files with ~450 test functions
+- **Test suite**: 71 test files with 465 test functions
 - **Critical complexity**: 315 broad exception handlers at the current ratcheted baseline, multiple monolithic files
 - **Architecture patterns**: Process-local state management, synchronous I/O in async contexts
 
@@ -41,11 +41,11 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 #### **Critical Issues**
 
-- **Monolithic API Server**: `src/api/server.py` still contains **5,378 lines** (down from the 6,093-line extraction
+- **Monolithic API Server**: `src/api/server.py` still contains **4,329 lines** (down from the 6,093-line extraction
   baseline) with excessive complexity and mixed responsibilities (routing, business logic, lifecycle management,
   and backtest orchestration)
     - **Impact**: Difficult to test, maintain, and extend
-    - **Location**: `src/api/server.py:1-5378`
+    - **Location**: `src/api/server.py:1-4329`
 
 - **Large Backtest Service**: `src/infrastructure/use_cases/service_backtest.py` contains **4,443 lines** of backtest
   orchestration logic
@@ -250,7 +250,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Missing Security Tests**: No authentication bypass testing
     - **Limited Performance Tests**: No load testing or scalability validation
     - **Impact**: Production surprises, reliability issues
-    - **Files**: `tests/test_*.py` (68 test files, ~391 test functions)
+    - **Files**: `tests/test_*.py` (71 test files, 465 test functions)
 
 #### **Moderate Issues**
 
@@ -472,34 +472,42 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 #### **Critical Architecture Improvements**
 
-- [ ] **Break up monolithic API server** - Split `src/api/server.py` (6,093-line baseline; currently 5,378 lines) into
+- [ ] **Break up monolithic API server** - Split `src/api/server.py` (6,093-line baseline; currently 4,329 lines) into
   focused modules
     - **Files**: Extract WebSocket, monitoring, routing into separate modules
     - **Impact**: Maintainability, testability, reduced complexity
     - **Effort**: 2-3 weeks
     - **Priority**: HIGH
-    - **Status**: IN PROGRESS — Phases 1–4 delivered. Extracted shared helper modules out of the monolith
+    - **Status**: IN PROGRESS — Phases 1–4 and Phase 5a–5b delivered. Extracted shared helper modules out of the
+      monolith
       (`src/api/responses.py`: `api_response`, `trace_id_ctx`, `INTERNAL_ERROR_MESSAGE`; and
       `src/api/endpoint_timing.py`: `_log_endpoint_timing`, `_endpoint_perf_headers`,
       `_payload_size_bytes` — server.py re-imports all, preserving identity and every call site)
-      and **four `APIRouter` route modules**: `src/api/v1/monitoring.py` (6 monitoring endpoints),
+      and **six `APIRouter` route modules**: `src/api/v1/monitoring.py` (6 monitoring endpoints),
       `src/api/v1/celery_admin.py` (7 admin-only Celery inspection endpoints), and
       `src/api/v1/strategies.py` (8 strategy CRUD endpoints + `StrategyRequest` /
       `StrategyVersionRevertRequest` / `InMemoryStrategyStore` moved with them; `list_public_strategies`
       intentionally unauthenticated), and `src/api/v1/arbitrage.py` (5 authenticated runtime
-      visibility/settings endpoints + `ArbitrageRuntimeSettingsRequest`). `server.py` shrank
-      **6,093 → 5,378 physical lines** (**715 removed, ~11.7%**). The arbitrage extraction preserves
-      auth, response envelopes, request-model/signature identity, exact generated OpenAPI, and
-      `/api/v1/capabilities` discovery; the capability walker now includes FastAPI 0.138.1 lazy
+      visibility/settings endpoints + `ArbitrageRuntimeSettingsRequest`), and
+      `src/api/v1/bot_lifecycle.py` (8 authenticated manager-backed lifecycle CRUD/control and quick-deploy
+      operations, with the canonical manager and create-rate limiter injected by `server.py`), and
+      `src/api/v1/bot_records.py` (4 authenticated database-backed history/jobs/trades/statistics operations with
+      guarded session cleanup). `server.py` shrank **6,093 → 4,329 physical lines** (**1,764 removed, ~29.0%**).
+      These extractions preserve auth, response envelopes, request-model/signature identity, exact generated OpenAPI,
+      and `/api/v1/capabilities` discovery; the capability walker now includes FastAPI 0.138.1 lazy
       `_IncludedRouter` routes. Verified via `tests/test_monitoring_routes.py`,
       `tests/test_celery_admin_routes.py`, `tests/test_strategies_routes.py`, and the 11-case
-      `tests/test_arbitrage_routes.py` suite.
+      `tests/test_arbitrage_routes.py` suite, the 9-case `tests/test_bot_lifecycle_routes.py` suite, and the 12-case
+      `tests/test_bot_record_routes.py` suite.
     - **Delivery checkpoints**:
         - [x] Phase 1 — shared response/timing helpers + monitoring router
         - [x] Phase 2 — Celery admin router
         - [x] Phase 3 — strategy router/models/store
         - [x] Phase 4 — arbitrage router/settings model + capability preservation
         - [ ] Phase 5 — bot lifecycle/realtime route extraction
+            - [x] Phase 5a — manager-backed lifecycle CRUD/control + quick deploy (8 operations)
+            - [x] Phase 5b — bot history/jobs/trades/stats HTTP routes
+            - [ ] Phase 5c — remaining realtime bot HTTP + WebSocket adapters
         - [ ] Phase 6 — backtest route extraction (most intertwined; keep last)
 
 - [ ] **Break up backtest service** - Split `src/infrastructure/use_cases/service_backtest.py` (4,443 lines)
@@ -617,7 +625,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
       observed and are out of scope for this item.
 
 - [ ] **Improve test coverage** for critical monolithic files
-    - **Files**: Add tests for `src/api/server.py` (5,378 lines) and `src/infrastructure/use_cases/service_backtest.py`
+    - **Files**: Add tests for `src/api/server.py` (4,329 lines) and `src/infrastructure/use_cases/service_backtest.py`
       (4,443 lines)
     - **Impact**: Better coverage of core functionality
     - **Effort**: 2-3 weeks
@@ -702,9 +710,9 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 ### **High Priority / High Impact** (Week 1-2)
 
-- **Break up monolithic files** - API server (5,378 lines) and backtest service (4,443 lines) — API server Phases 1–4
-  delivered (monitoring + Celery admin + strategies + arbitrage extracted, shared
-  `responses.py`/`endpoint_timing.py`, 6,093→5,378); overall task remains in progress
+- **Break up monolithic files** - API server (4,329 lines) and backtest service (4,443 lines) — API server Phases 1–4
+  and Phase 5a–5b delivered (monitoring + Celery admin + strategies + arbitrage + lifecycle + bot records extracted,
+  shared `responses.py`/`endpoint_timing.py`, 6,093→4,329); overall task remains in progress
 - **Implement distributed state management** for horizontal scaling
 - ✅ **Replace sys.exit () calls** with proper exception handling (COMPLETED)
 - ✅ **Implement token revocation** - Complete logout/logout-all functionality (COMPLETED)
@@ -788,7 +796,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 ### **Code Quality Metrics**
 
-- **File Size Reduction**: No single file exceeds 2,000 lines (target: finish decomposing the current 5,378-line API
+- **File Size Reduction**: No single file exceeds 2,000 lines (target: finish decomposing the current 4,329-line API
   server and 4,443-line backtest service)
 - **Exception Handling**: Reduce broad `except Exception` patterns by 95% (from 306 to <15 instances)
 - **Test Coverage**: Target 85%+ coverage for critical paths
@@ -852,7 +860,7 @@ The original Week-1 items are retained as an implementation record; completed wo
 
 ### **Week 2: Architecture Foundation**
 
-1. 🟡 **Break up the API server** — IN PROGRESS (Phases 1–4 delivered; Phases 5–6 remain)
+1. 🟡 **Break up the API server** — IN PROGRESS (Phases 1–4 and Phase 5a–5b delivered; Phase 5c and Phase 6 remain)
 2. ⬜ **Implement distributed state management planning** - Design Redis-backed strategy storage
 3. ⬜ **Add multi-worker test infrastructure** - Begin testing process-local state issues
 
@@ -871,13 +879,13 @@ The original Week-1 items are retained as an implementation record; completed wo
 ### **Architecture Strengths**
 
 - Strong foundational architecture with good safety mechanisms
-- Comprehensive test coverage for core contracts (391 test functions)
+- Comprehensive test coverage for core contracts (465 test functions)
 - Production-grade deployment with CI/CD pipelines
 - Well-documented operational procedures
 
 ### **Technical Debt Hotspots**
 
-- `src/api/server.py`: 5,378 lines with mixed responsibilities (down from 6,093 after Phases 1–4)
+- `src/api/server.py`: 4,329 lines with mixed responsibilities (down from 6,093 after Phases 1–4 and Phase 5a–5b)
 - `src/infrastructure/use_cases/service_backtest.py`: 4,443 lines of complexity
 - Configuration complexity across multiple sources
 - Missing implementations for 2FA, candle aggregation, realtime service

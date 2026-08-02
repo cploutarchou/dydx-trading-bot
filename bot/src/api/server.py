@@ -137,6 +137,11 @@ from src.api.endpoint_timing import (  # noqa: E402
     log_endpoint_timing as _log_endpoint_timing,
     payload_size_bytes as _payload_size_bytes,
 )
+from src.api.v1.strategies import (  # noqa: E402
+    InMemoryStrategyStore,
+    StrategyRequest,
+    StrategyVersionRevertRequest,
+)
 from src.trading.arbitrage_observability import snapshot_metrics  # noqa: E402
 from src.trading.arbitrage_runtime_config import (  # noqa: E402
     get_feature_flags,
@@ -560,61 +565,8 @@ def _runtime_db_pool_warnings(config: DatabaseConfig) -> List[str]:
     return warnings
 
 
-class StrategyRequest(BaseModel):
-    """UI-compatible strategy payload."""
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "name": "Balanced Mean Reversion",
-                "category": "pairs_trading",
-                "description": "Strategy with liquidity-ranked pair selection",
-                "resolution": "1HOUR",
-                "zscore_threshold": 1.5,
-                "stats_window": 21,
-                "usd_per_trade": 10.0,
-                "max_positions": 5,
-                "pair_selection_mode": "liquidity",
-            }
-        }
-    )
-
-    name: str = Field(..., min_length=1, max_length=255)
-    category: str = Field(default="pairs_trading", min_length=1, max_length=64)
-    description: str = Field(default="", max_length=2000)
-    is_public: bool = False
-    user_id: int = Field(default=1, ge=1)
-    resolution: str = Field(default="1HOUR", min_length=1, max_length=16)
-    candle_resolution: Optional[str] = Field(default=None, max_length=16)
-    zscore_threshold: float = Field(default=1.5, gt=0.0)
-    stats_window: int = Field(default=21, ge=2, le=2000)
-    max_half_life: float = Field(default=24.0, ge=1.0, le=10000.0)
-    usd_per_trade: float = Field(default=10.0, gt=0.0)
-    usd_min_collateral: float = Field(default=100.0, ge=0.0)
-    close_at_zscore_cross: bool = True
-    find_cointegrated_pairs: bool = True
-    manage_exits: bool = True
-    place_trades: bool = True
-    abort_all_positions: bool = False
-    max_positions: int = Field(default=5, ge=0, le=100)
-    max_drawdown_pct: float = Field(default=15.0, ge=0.0, le=100.0)
-    stop_loss_pct: float = Field(default=3.0, ge=0.0, le=100.0)
-    take_profit_pct: float = Field(default=8.0, ge=0.0, le=1000.0)
-    trailing_stop_pct: float = Field(default=2.0, ge=0.0, le=100.0)
-    rebalance_interval_hours: int = Field(default=24, ge=0, le=8760)
-    position_timeout_hours: int = Field(default=72, ge=0, le=8760)
-    initial_amount: float = Field(default=1000.0, gt=0.0)
-    starting_balance: float = Field(default=1000.0, gt=0.0)
-    transaction_fee: float = Field(default=0.0005, ge=0.0, lt=1.0)
-    slippage: float = Field(default=0.001, ge=0.0, lt=1.0)
-    max_history_days: int = Field(default=90, ge=1, le=36500)
-    benchmark_symbol: str = Field(default="BTC-USD", min_length=1, max_length=32)
-    risk_free_rate: float = Field(default=0.02, ge=0.0, le=1.0)
-    pair_selection_mode: str = Field(default="liquidity", min_length=1, max_length=64)
-
-
-class StrategyVersionRevertRequest(BaseModel):
-    """Placeholder body for strategy version revert."""
+# StrategyRequest / StrategyVersionRevertRequest / InMemoryStrategyStore now live in
+# src/api/v1/strategies.py and are re-imported above for the backtest→strategy path.
 
 
 class RuntimePreflightRequest(BaseModel):
@@ -771,91 +723,8 @@ class ArbitrageRuntimeSettingsRequest(BaseModel):
     PAIR_PRIORITY_STALE_SECONDS: Optional[float] = Field(default=None, ge=0.0)
 
 
-class InMemoryStrategyStore:
-    """DB-backed strategy storage with the same interface as the prior in-memory store."""
-
-    @classmethod
-    def list(cls, skip: int = 0, limit: int = 50) -> Dict[str, Any]:
-        session = db.get_session()
-        try:
-            uow = UnitOfWork(session)
-            return uow.strategies.list(skip=skip, limit=limit)
-        finally:
-            session.close()
-
-    @classmethod
-    def list_public(cls) -> Dict[str, Any]:
-        session = db.get_session()
-        try:
-            uow = UnitOfWork(session)
-            return uow.strategies.list_public()
-        finally:
-            session.close()
-
-    @classmethod
-    def get(cls, strategy_id: int) -> Optional[Dict[str, Any]]:
-        session = db.get_session()
-        try:
-            uow = UnitOfWork(session)
-            return uow.strategies.get(strategy_id)
-        finally:
-            session.close()
-
-    @classmethod
-    def create(
-        cls,
-        payload: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        session = db.get_session()
-        try:
-            uow = UnitOfWork(session)
-            return uow.strategies.create(payload, note="Initial version")
-        finally:
-            session.close()
-
-    @classmethod
-    def update(
-        cls,
-        strategy_id: int,
-        payload: Dict[str, Any],
-    ) -> Optional[Dict[str, Any]]:
-        session = db.get_session()
-        try:
-            uow = UnitOfWork(session)
-            return uow.strategies.update(strategy_id, payload, note="Updated strategy")
-        finally:
-            session.close()
-
-    @classmethod
-    def delete(cls, strategy_id: int) -> bool:
-        session = db.get_session()
-        try:
-            uow = UnitOfWork(session)
-            return uow.strategies.delete(strategy_id)
-        finally:
-            session.close()
-
-    @classmethod
-    def versions(cls, strategy_id: int) -> List[Dict[str, Any]]:
-        session = db.get_session()
-        try:
-            uow = UnitOfWork(session)
-            return uow.strategies.versions(strategy_id)
-        finally:
-            session.close()
-
-    @classmethod
-    def revert(
-        cls,
-        strategy_id: int,
-        version_id: int,
-    ) -> Optional[Dict[str, Any]]:
-        session = db.get_session()
-        try:
-            uow = UnitOfWork(session)
-            return uow.strategies.revert(strategy_id, version_id)
-        finally:
-            session.close()
+# InMemoryStrategyStore moved to src/api/v1/strategies.py (re-imported above for
+# the backtest→strategy creation path).
 
 
 def _bot_manager_ready() -> bool:
@@ -1967,9 +1836,11 @@ app.include_router(
 # routes live in src/api/v1/monitoring.py and inherit app middleware/auth/handlers.
 from src.api.v1.monitoring import router as monitoring_router  # noqa: E402
 from src.api.v1.celery_admin import router as celery_admin_router  # noqa: E402
+from src.api.v1.strategies import router as strategies_router  # noqa: E402
 
 app.include_router(monitoring_router)
 app.include_router(celery_admin_router)
+app.include_router(strategies_router)
 
 
 # ============================================================================
@@ -5607,134 +5478,10 @@ async def _bot_manager_monitor_loop():
 # ============================================================================
 
 
-# STRATEGY ENDPOINTS
-# ============================================================================
-
-
-@app.get("/api/v1/strategies")
-async def list_strategies(
-    skip: int = 0,
-    limit: int = 50,
-    current_user: User = Depends(get_current_active_user),
-):
-    """List stored strategies for the UI."""
-    del current_user
-    data = InMemoryStrategyStore.list(skip=skip, limit=limit)
-    return api_response(
-        success=True,
-        data=data,
-        message=f"Retrieved {len(data['strategies'])} strategies",
-    )
-
-
-@app.get("/api/v1/strategies/public")
-async def list_public_strategies():
-    """List public strategies."""
-    data = InMemoryStrategyStore.list_public()
-    return api_response(
-        success=True,
-        data=data,
-        message=f"Retrieved {len(data['strategies'])} public strategies",
-    )
-
-
-@app.post("/api/v1/strategies")
-async def create_strategy(
-    request: StrategyRequest,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Create a strategy."""
-    del current_user
-    strategy = InMemoryStrategyStore.create(request.model_dump())
-    return api_response(
-        success=True,
-        data=strategy,
-        message=f"Strategy '{strategy['name']}' created successfully",
-    )
-
-
-@app.get("/api/v1/strategies/{strategy_id}")
-async def get_strategy(
-    strategy_id: int,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get one strategy."""
-    del current_user
-    strategy = InMemoryStrategyStore.get(strategy_id)
-    if not strategy:
-        return api_response(
-            success=False,
-            message=f"Strategy '{strategy_id}' not found",
-            status_code=404,
-        )
-    return api_response(success=True, data=strategy, message="Strategy retrieved")
-
-
-@app.put("/api/v1/strategies/{strategy_id}")
-async def update_strategy(
-    strategy_id: int,
-    request: StrategyRequest,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Update one strategy."""
-    del current_user
-    strategy = InMemoryStrategyStore.update(strategy_id, request.model_dump())
-    if not strategy:
-        return api_response(
-            success=False,
-            message=f"Strategy '{strategy_id}' not found",
-            status_code=404,
-        )
-    return api_response(success=True, data=strategy, message="Strategy updated")
-
-
-@app.delete("/api/v1/strategies/{strategy_id}")
-async def delete_strategy(
-    strategy_id: int,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Delete one strategy."""
-    del current_user
-    if not InMemoryStrategyStore.delete(strategy_id):
-        return api_response(
-            success=False,
-            message=f"Strategy '{strategy_id}' not found",
-            status_code=404,
-        )
-    return api_response(success=True, message="Strategy deleted")
-
-
-@app.get("/api/v1/strategies/{strategy_id}/versions")
-async def get_strategy_versions(
-    strategy_id: int,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get in-memory version history for a strategy."""
-    del current_user
-    return api_response(
-        success=True,
-        data={"versions": InMemoryStrategyStore.versions(strategy_id)},
-        message="Strategy version history retrieved",
-    )
-
-
-@app.post("/api/v1/strategies/{strategy_id}/versions/{version_id}/revert")
-async def revert_strategy_version(
-    strategy_id: int,
-    version_id: int,
-    request: StrategyVersionRevertRequest,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Revert a strategy to a prior stored version."""
-    del request, current_user
-    strategy = InMemoryStrategyStore.revert(strategy_id, version_id)
-    if not strategy:
-        return api_response(
-            success=False,
-            message="Strategy version not found",
-            status_code=404,
-        )
-    return api_response(success=True, data=strategy, message="Strategy reverted")
+# STRATEGY ENDPOINTS — extracted to src/api/v1/strategies.py (APIRouter, mounted
+# below via app.include_router). The 8 strategy routes + StrategyRequest/
+# StrategyVersionRevertRequest/InMemoryStrategyStore live there now (re-imported
+# above for the backtest→strategy path).
 
 
 # ============================================================================

@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.api.responses import api_response
 from src.infrastructure.domain.cointegration_storage import pair_storage
+from src.infrastructure.domain.models.auth_models import User
 from src.middleware.auth_middleware import get_current_active_user
 from src.trading.arbitrage_observability import snapshot_metrics
 from src.trading.arbitrage_runtime_config import (
@@ -51,12 +52,12 @@ class ArbitrageRuntimeSettingsRequest(BaseModel):
     PAIR_PRIORITY_STALE_SECONDS: Optional[float] = Field(default=None, ge=0.0)
 
 
-router = APIRouter(prefix="/api/v1/arbitrage", tags=["Arbitrage"])
+router = APIRouter(prefix="/api/v1/arbitrage")
 
 
 @router.get("/improvement-metrics")
 async def get_arbitrage_improvement_metrics(
-    current_user=Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ):
     _ = current_user
     return api_response(
@@ -73,7 +74,7 @@ async def get_arbitrage_improvement_metrics(
 
 @router.get("/runtime-settings")
 async def get_arbitrage_runtime_settings(
-    current_user=Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ):
     _ = current_user
     settings = get_runtime_settings()
@@ -87,7 +88,7 @@ async def get_arbitrage_runtime_settings(
 @router.put("/runtime-settings")
 async def update_arbitrage_runtime_settings(
     payload: ArbitrageRuntimeSettingsRequest,
-    current_user=Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ):
     _ = current_user
     # Only forward keys the caller actually set so unset fields keep their
@@ -103,7 +104,7 @@ async def update_arbitrage_runtime_settings(
 @router.get("/pair-priority")
 async def get_arbitrage_pair_priority(
     limit: int = 25,
-    current_user=Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ):
     _ = current_user
     safe_limit = max(1, min(int(limit or 25), 100))
@@ -140,7 +141,7 @@ async def get_arbitrage_pair_priority(
 @router.get("/opportunity/{opportunity_id}/explain")
 async def get_arbitrage_opportunity_explain(
     opportunity_id: str,
-    current_user=Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ):
     _ = current_user
     metrics = snapshot_metrics(

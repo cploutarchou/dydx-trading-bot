@@ -26,11 +26,11 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 ### Codebase Scale (Detailed Analysis)
 
-- **~64,820 lines** of production Python code across 58 source files
-- **Largest modules**: `src/api/server.py` (5,920 lines), `src/infrastructure/use_cases/service_backtest.py` (4,440
+- **~34,934 lines** of production Python code across 78 files under `src/`
+- **Largest modules**: `src/api/server.py` (5,378 lines), `src/infrastructure/use_cases/service_backtest.py` (4,443
   lines)
-- **Test suite**: 68 test files with ~391 test functions
-- **Critical complexity**: 306+ broad exception handlers, multiple monolithic files
+- **Test suite**: 69 test files with ~450 test functions
+- **Critical complexity**: 315 broad exception handlers at the current ratcheted baseline, multiple monolithic files
 - **Architecture patterns**: Process-local state management, synchronous I/O in async contexts
 
 ---
@@ -41,21 +41,21 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 #### **Critical Issues**
 
-- **Monolithic API Server**: `src/api/server.py` contains **5,920 lines** with excessive complexity and mixed
-  responsibilities (routing, business logic, WebSocket management)
+- **Monolithic API Server**: `src/api/server.py` still contains **5,378 lines** (down from the 6,093-line extraction
+  baseline) with excessive complexity and mixed responsibilities (routing, business logic, lifecycle management,
+  and backtest orchestration)
     - **Impact**: Difficult to test, maintain, and extend
-    - **Location**: `src/api/server.py:1-5920`
+    - **Location**: `src/api/server.py:1-5378`
 
-- **Large Backtest Service**: `src/infrastructure/use_cases/service_backtest.py` contains **4,440 lines** of backtest
+- **Large Backtest Service**: `src/infrastructure/use_cases/service_backtest.py` contains **4,443 lines** of backtest
   orchestration logic
     - **Impact**: Maintenance nightmare, difficult to test individual components
-    - **Location**: `src/infrastructure/use_cases/service_backtest.py:1-4440`
+    - **Location**: `src/infrastructure/use_cases/service_backtest.py:1-4443`
 
-- **Process Exit Anti-Patterns**: Direct `sys.exit()` calls instead of proper exception handling
-    - **Impact**: Abrupt process termination, no cleanup, difficult debugging
-    - **Locations**:
-        - `src/infrastructure/database.py` - Multiple `sys.exit(0)` and `sys.exit(1)` calls
-        - `src/main_instance.py` - Process termination without cleanup
+- **Process Exit Anti-Patterns** (RESOLVED): Library/runtime termination paths now raise typed exceptions; process-exit
+  decisions remain at entrypoint boundaries
+    - **Previous impact**: Abrupt process termination, skipped cleanup, difficult debugging
+    - **Files**: `src/infrastructure/database.py`, `src/main_instance.py`, `src/exceptions.py`
 
 - **Configuration Complexity**: Multiple environment variable aliases and configuration sources create confusion
     - **Examples**: `BOT_DATABASE_URL`, `DATABASE_URL`, `BOT_DB_*`, `DB_*`, `POSTGRES_*`
@@ -185,25 +185,25 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 #### **Critical Issues**
 
-- **Authentication Bypass Vulnerabilities**: Multiple authentication gaps in critical endpoints
-    - **Risk**: Unauthorized access to trading operations and backtests
-    - **Files**:
-        - `src/middleware/auth_middleware.py` - Only validates exact environment string matches
-        - Many backtest endpoints lack executable auth dependencies despite OpenAPI declaring Bearer auth
-        - Untrusted callers can start, pause, cancel expensive backtest runs
+- **Authentication Bypass Vulnerabilities** (RESOLVED): Trading/backtest mutations declare executable auth
+  dependencies, and production-like auth bypass is rejected during startup
+    - **Previous risk**: Unauthorized access to trading operations and backtests
+    - **Coverage**: `tests/test_security_auth_bypass.py`, `tests/test_auth_bypass_environment_guard.py`
 
-- **WebSocket Security Issues**: JWT tokens permitted in query strings (can be retained in proxy/access logs)
-    - **Risk**: Token exposure in logs, authentication bypass
-    - **Location**: `src/api/server.py` - WebSocket auth permits tokens in query string AND bearer header
+- **WebSocket Security Issues** (RESOLVED): JWT query-string authentication was removed; websocket auth uses approved
+  header/initial-message flows
+    - **Previous risk**: Token exposure in proxy/access logs
+    - **Coverage**: `tests/test_websocket_security_fix.py`
 
-- **Credential Storage in Plain Text**: Trading credentials/mnemonic persisted in plain JSON in `bot_instances.config`
-    - **Risk**: Database readers, backups, or logging mistakes can expose signing secrets
-    - **Files**: `src/bot_instance_manager.py`, database configuration storage
+- **Credential Storage in Plain Text** (RESOLVED): Sensitive `bot_instances.config` fields are sealed before database
+  persistence and opened only at runtime boundaries
+    - **Previous risk**: Database readers, backups, or logging mistakes exposing signing secrets
+    - **Files**: `src/bot_instance_manager.py`, `src/shared/credentials_cipher.py`
 
 - **Missing Token Revocation** (RESOLVED): Logout/logout-all are now implemented — `POST /auth/logout` blacklists the
   current JTI via the Redis-backed `TokenBlacklist`, and `POST /auth/logout-all` bumps `users.token_version` (carried as
   the JWT `stv` claim) to invalidate all outstanding access/refresh tokens, DB-backed for multi-worker correctness.
-    - **Risk**: No JWT revocation mechanism, compromised tokens remain valid
+    - **Previous risk**: No JWT revocation mechanism; compromised tokens remained valid
     - **Files**: Authentication modules, token management utilities
 
 #### **Moderate Issues**
@@ -472,30 +472,37 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 #### **Critical Architecture Improvements**
 
-- [ ] **Break up monolithic API server** - Split `src/api/server.py` (5,920 lines) into focused modules
+- [ ] **Break up monolithic API server** - Split `src/api/server.py` (6,093-line baseline; currently 5,378 lines) into
+  focused modules
     - **Files**: Extract WebSocket, monitoring, routing into separate modules
     - **Impact**: Maintainability, testability, reduced complexity
     - **Effort**: 2-3 weeks
     - **Priority**: HIGH
-    - **Status**: Phase 1–3 STARTED — extracted shared helper modules out of the monolith
+    - **Status**: IN PROGRESS — Phases 1–4 delivered. Extracted shared helper modules out of the monolith
       (`src/api/responses.py`: `api_response`, `trace_id_ctx`, `INTERNAL_ERROR_MESSAGE`; and
       `src/api/endpoint_timing.py`: `_log_endpoint_timing`, `_endpoint_perf_headers`,
       `_payload_size_bytes` — server.py re-imports all, preserving identity and every call site)
-      and **three `APIRouter` route modules**: `src/api/v1/monitoring.py` (6 monitoring endpoints),
+      and **four `APIRouter` route modules**: `src/api/v1/monitoring.py` (6 monitoring endpoints),
       `src/api/v1/celery_admin.py` (7 admin-only Celery inspection endpoints), and
       `src/api/v1/strategies.py` (8 strategy CRUD endpoints + `StrategyRequest` /
       `StrategyVersionRevertRequest` / `InMemoryStrategyStore` moved with them; `list_public_strategies`
-      intentionally unauthenticated). server.py shrank **6,093 → 5,505 lines** (~588 removed, ~10%).
-      Verified via `tests/test_monitoring_routes.py`, `tests/test_celery_admin_routes.py`, and
-      `tests/test_strategies_routes.py` (TestClient reachability + auth/admin enforcement + envelope
-      + 404/validation paths) and identity assertions. NOTE: FastAPI 0.138.1 uses lazy `_IncludedRouter`
-      (included routes are NOT materialized in `app.routes`), so the security route-coverage gate was
-      enhanced to walk `original_router` too — it now covers all included routers, an improvement.
-      **Phase 4+:** apply the proven pattern to the larger remaining groups — arbitrage, then bots
-      and backtests (most intertwined, save for last). Each future extraction reuses `responses.py` /
-      `endpoint_timing.py` (no more prerequisites).
+      intentionally unauthenticated), and `src/api/v1/arbitrage.py` (5 authenticated runtime
+      visibility/settings endpoints + `ArbitrageRuntimeSettingsRequest`). `server.py` shrank
+      **6,093 → 5,378 physical lines** (**715 removed, ~11.7%**). The arbitrage extraction preserves
+      auth, response envelopes, request-model/signature identity, exact generated OpenAPI, and
+      `/api/v1/capabilities` discovery; the capability walker now includes FastAPI 0.138.1 lazy
+      `_IncludedRouter` routes. Verified via `tests/test_monitoring_routes.py`,
+      `tests/test_celery_admin_routes.py`, `tests/test_strategies_routes.py`, and the 11-case
+      `tests/test_arbitrage_routes.py` suite.
+    - **Delivery checkpoints**:
+        - [x] Phase 1 — shared response/timing helpers + monitoring router
+        - [x] Phase 2 — Celery admin router
+        - [x] Phase 3 — strategy router/models/store
+        - [x] Phase 4 — arbitrage router/settings model + capability preservation
+        - [ ] Phase 5 — bot lifecycle/realtime route extraction
+        - [ ] Phase 6 — backtest route extraction (most intertwined; keep last)
 
-- [ ] **Break up backtest service** - Split `src/infrastructure/use_cases/service_backtest.py` (4,440 lines)
+- [ ] **Break up backtest service** - Split `src/infrastructure/use_cases/service_backtest.py` (4,443 lines)
     - **Files**: Extract orchestration, execution, reporting into focused modules
     - **Impact**: Testability, maintenance, parallel development
     - **Effort**: 2-3 weeks
@@ -610,8 +617,8 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
       observed and are out of scope for this item.
 
 - [ ] **Improve test coverage** for critical monolithic files
-    - **Files**: Add tests for `src/api/server.py` (5,920 lines) and `src/infrastructure/use_cases/service_backtest.py`
-      (4,440 lines)
+    - **Files**: Add tests for `src/api/server.py` (5,378 lines) and `src/infrastructure/use_cases/service_backtest.py`
+      (4,443 lines)
     - **Impact**: Better coverage of core functionality
     - **Effort**: 2-3 weeks
     - **Priority**: HIGH
@@ -688,17 +695,19 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 ### **CRITICAL / Start Immediately** (Security & Financial Risk)
 
 - ✅ **Fix authentication bypass vulnerabilities** - Add auth dependencies to all backtest routes (COMPLETED)
-- **Implement credential encryption** for `bot_instances.config`
-- **Fix position confirmation logic** - Add fill confirmation before position closure
+- ✅ **Implement credential encryption** for `bot_instances.config` (COMPLETED)
+- ✅ **Fix position confirmation logic** - Add fill confirmation before position closure (COMPLETED)
 - ✅ **Add security tests** for authentication bypass scenarios (COMPLETED)
-- **Secure WebSocket authentication** - Remove JWT from query strings (COMPLETED - part of auth bypass fix)
+- ✅ **Secure WebSocket authentication** - Remove JWT from query strings (COMPLETED - part of auth bypass fix)
 
 ### **High Priority / High Impact** (Week 1-2)
 
-- **Break up monolithic files** - API server (5,920 lines) and backtest service (4,440 lines) — API server Phase 1–3 STARTED (monitoring + celery + strategies extracted, shared `responses.py`/`endpoint_timing.py`, 6,093→5,505)
+- **Break up monolithic files** - API server (5,378 lines) and backtest service (4,443 lines) — API server Phases 1–4
+  delivered (monitoring + Celery admin + strategies + arbitrage extracted, shared
+  `responses.py`/`endpoint_timing.py`, 6,093→5,378); overall task remains in progress
 - **Implement distributed state management** for horizontal scaling
-- **Replace sys.exit () calls** with proper exception handling
-- **Implement token revocation** - Complete logout/logout-all functionality (COMPLETED)
+- ✅ **Replace sys.exit () calls** with proper exception handling (COMPLETED)
+- ✅ **Implement token revocation** - Complete logout/logout-all functionality (COMPLETED)
 - **Add multi-worker tests** for process-local state issues
 - ✅ **Refactor broad exception handling** - Replace 306+ `except Exception` patterns (Phase 1 COMPLETED — hierarchy + global 500 handler + ratchet at 315; see action-plan item)
 
@@ -779,7 +788,8 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 ### **Code Quality Metrics**
 
-- **File Size Reduction**: No single file exceeds 2,000 lines (target: break up 5,920-line and 4,440-line files)
+- **File Size Reduction**: No single file exceeds 2,000 lines (target: finish decomposing the current 5,378-line API
+  server and 4,443-line backtest service)
 - **Exception Handling**: Reduce broad `except Exception` patterns by 95% (from 306 to <15 instances)
 - **Test Coverage**: Target 85%+ coverage for critical paths
 - **Code Complexity**: Reduce cyclomatic complexity by 20%
@@ -822,29 +832,29 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 ---
 
-## 🚨 Immediate Action Items (Week 1)
+## 🚨 Historical Immediate Action Items (Week 1)
 
-Based on the comprehensive analysis, these **critical security and reliability issues** should be addressed immediately:
+The original Week-1 items are retained as an implementation record; completed work is marked explicitly.
 
 ### **Day 1-3: Security Hardening**
 
-1. **Add authentication dependencies to all backtest endpoints** (`src/api/v1/backtests*.py`)
-2. **Secure WebSocket authentication** - Remove JWT from query strings (`src/api/server.py`)
-3. **Implement credential encryption** for `bot_instances.config` (`src/bot_instance_manager.py`)
+1. ✅ **Add authentication dependencies to all backtest endpoints** (`src/api/v1/backtests*.py`) — COMPLETED
+2. ✅ **Secure WebSocket authentication** - Remove JWT from query strings (`src/api/server.py`) — COMPLETED
+3. ✅ **Implement credential encryption** for `bot_instances.config` (`src/bot_instance_manager.py`) — COMPLETED
 
 ### **Day 4-7: Critical Reliability Fixes**
 
-1. **Fix position confirmation logic** - Add fill confirmation before position closure
-   (`src/trading/position_manager.py`)
-2. **Replace sys.exit () calls** with proper exception handling (`src/infrastructure/database.py`,
-   `src/main_instance.py`)
-3. **Implement security tests** for authentication bypass scenarios
+1. ✅ **Fix position confirmation logic** - Add fill confirmation before position closure
+   (`src/trading/position_manager.py`) — COMPLETED
+2. ✅ **Replace sys.exit () calls** with proper exception handling (`src/infrastructure/database.py`,
+   `src/main_instance.py`) — COMPLETED
+3. ✅ **Implement security tests** for authentication bypass scenarios — COMPLETED
 
 ### **Week 2: Architecture Foundation**
 
-1. **Begin breaking up monolithic files** - Start with API server extraction
-2. **Implement distributed state management planning** - Design Redis-backed strategy storage
-3. **Add multi-worker test infrastructure** - Begin testing process-local state issues
+1. 🟡 **Break up the API server** — IN PROGRESS (Phases 1–4 delivered; Phases 5–6 remain)
+2. ⬜ **Implement distributed state management planning** - Design Redis-backed strategy storage
+3. ⬜ **Add multi-worker test infrastructure** - Begin testing process-local state issues
 
 ---
 
@@ -852,11 +862,11 @@ Based on the comprehensive analysis, these **critical security and reliability i
 
 ### **Most Critical Issues Discovered**
 
-1. **Authentication bypass vulnerabilities** in expensive backtest operations
-2. **Credentials stored in plain text** in database configuration
-3. **Position tracking errors** due to missing fill confirmation
-4. **Process-local state limitations** preventing horizontal scaling
-5. **306+ broad exception handlers** masking real issues
+1. ✅ **Authentication bypass vulnerabilities** in expensive backtest operations — RESOLVED
+2. ✅ **Credentials stored in plain text** in database configuration — RESOLVED
+3. ✅ **Position tracking errors** due to missing fill confirmation — RESOLVED
+4. ⬜ **Process-local state limitations** preventing horizontal scaling — OPEN
+5. 🟡 **Broad exception handlers** masking real issues — PHASE 1 DELIVERED; ratcheted reduction remains in progress
 
 ### **Architecture Strengths**
 
@@ -867,8 +877,8 @@ Based on the comprehensive analysis, these **critical security and reliability i
 
 ### **Technical Debt Hotspots**
 
-- `src/api/server.py`: 5,920 lines with mixed responsibilities
-- `src/infrastructure/use_cases/service_backtest.py`: 4,440 lines of complexity
+- `src/api/server.py`: 5,378 lines with mixed responsibilities (down from 6,093 after Phases 1–4)
+- `src/infrastructure/use_cases/service_backtest.py`: 4,443 lines of complexity
 - Configuration complexity across multiple sources
 - Missing implementations for 2FA, candle aggregation, realtime service
 

@@ -41,8 +41,10 @@ _BACKEND_PROBE_EXECUTOR = ThreadPoolExecutor(
 )
 
 
-class BacktestEnqueueError(RuntimeError):
-    """Raised when a backtest cannot be handed off to its configured worker."""
+# Canonical definition lives in :mod:`src.exceptions` (under ``BacktestError``);
+# re-imported here so existing ``from ...service_backtest import BacktestEnqueueError``
+# paths keep resolving to the same class.
+from src.exceptions import BacktestEnqueueError  # noqa: E402
 
 
 def _linregress_slope(x: Any, y: Any) -> float:

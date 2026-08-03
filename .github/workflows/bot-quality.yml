@@ -237,6 +237,48 @@ jobs:
                   fi
 
     # ---------------------------------------------------------------------------
+    # Bandit security scan (non-blocking, phase 1 — mirrors bot-typecheck/mypy)
+    # ---------------------------------------------------------------------------
+    bot-security:
+        name: Bot security scan (bandit)
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: bot
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.12"
+                  cache: pip
+                  cache-dependency-path: bot/requirements.txt
+
+            - name: Install dependencies
+              run: pip install -r requirements.txt
+
+            - name: Run bandit
+              continue-on-error: true # phase 1: reporting-only, does not gate
+              run: |
+                  set -o pipefail
+                  python -m bandit -r src -c pyproject.toml -ll 2>&1 | tee bandit-output.txt
+
+            - name: Publish bandit summary
+              if: always()
+              run: |
+                  echo "### 🛡️ Security scanning (bandit — phase 1, non-blocking)" >> "$GITHUB_STEP_SUMMARY"
+                  echo "" >> "$GITHUB_STEP_SUMMARY"
+                  echo "Reporting-only (medium+high severity via \`-ll\`). Drive issues to 0, then flip this job to a gate (see bot/pyproject.toml)." >> "$GITHUB_STEP_SUMMARY"
+                  echo "" >> "$GITHUB_STEP_SUMMARY"
+                  if [ -f bandit-output.txt ]; then
+                      echo '```' >> "$GITHUB_STEP_SUMMARY"
+                      tail -20 bandit-output.txt >> "$GITHUB_STEP_SUMMARY"
+                      echo '```' >> "$GITHUB_STEP_SUMMARY"
+                  fi
+
+    # ---------------------------------------------------------------------------
     # K8s plaintext secret scanner
     # ---------------------------------------------------------------------------
     k8s-secret-scan:

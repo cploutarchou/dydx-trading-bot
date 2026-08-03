@@ -519,11 +519,37 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
             - [x] Phase 5c — remaining realtime bot HTTP + WebSocket adapters
         - [x] Phase 6 — backtest route extraction (30 HTTP operations + 2 WebSocket adapters)
 
-- [ ] **Break up backtest service** - Split `src/infrastructure/use_cases/service_backtest.py` (4,443 lines)
+- [ ] **Break up backtest service** - Split `src/infrastructure/use_cases/service_backtest.py` (4,443-line baseline)
     - **Files**: Extract orchestration, execution, reporting into focused modules
     - **Impact**: Testability, maintenance, parallel development
     - **Effort**: 2-3 weeks
     - **Priority**: HIGH
+    - **Status**: IN PROGRESS — Phase 1 delivered. Extracted the response/serialization DTOs
+      (`_BacktestRunStatus`, `_BacktestTrade`, `_BacktestRunDetails`, `_BacktestRunList`) and the
+      `_linregress_slope` helper into a focused `src/infrastructure/use_cases/backtest_models.py`
+      (145 lines). `service_backtest.py` re-imports all five symbols so every existing bare-name
+      reference (`_BacktestRunDetails(**run_data)`, `_BacktestTrade(**trade)`, etc.) resolves to the
+      **same class/function objects** (verified by identity assertions). Removed the now-unused
+      `pydantic.BaseModel` and `scipy.stats.linregress` imports from the service. `service_backtest.py`
+      shrank **4,443 → 4,324 physical lines** (−119, ~2.7%). Zero behavioral change: pure type/helper
+      move with no exception handlers relocated (broad-catch ratchet held at **315**). Verified via
+      `tests/test_exceptions_hierarchy.py` (28 cases — `BacktestEnqueueError` identity preserved), the
+      `tests/test_exception_handling_ratchet.py` gate, `tests/test_backtest_api_contract.py`,
+      `tests/test_backtest_routes.py`, and the full backtest test sweep (**179 passed, 11 skipped,
+      0 failed**). `openapi.json` unchanged (private DTOs, no API surface). Black + flake8 hard gate
+      clean. Follows the proven monolith-breakup pattern (move to leaf module → re-import preserving
+      identity → verify via tests, not by reading `app.routes`).
+    - **Delivery checkpoints**:
+        - [x] Phase 1 — response/serialization DTOs + `_linregress_slope` → `backtest_models.py`
+        - [ ] Phase 2 — pair selection / scoring analytics (`_prioritize_pairs*`,
+          `_pair_cointegration_score`, `_align_series`, `_build_market_pairs`, `_compute_market_*`)
+          as module-level functions; resolve the shared `cls._clamp` cross-dependency
+        - [ ] Phase 3 — market-history fetcher + retry/telemetry (`_fetch_market_history`,
+          `_history_*` helpers) behind a small `BacktestHistoryFetcher` class
+        - [ ] Phase 4 — read-side / reporting API (`get_backtest_*`, `compare_backtests`,
+          `get_comprehensive_analytics`, `get_position_snapshots`) as a query service/mixin
+        - [ ] Phase 5 — control/payload codec + shared-state refactor (`BacktestRunStore` for
+          `_runs`/`_tasks` + `WorkerBackendProbe` singleton; do last — highest coupling)
 
 - [ ] **Implement distributed state management** for horizontal scaling
     - **Files**: Replace process-local WebSocket connections, strategy storage, and rate limiting with Redis-backed
@@ -721,7 +747,8 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 - ✅ **Break up monolithic files** - API server decomposition COMPLETED (6,093→1,740 lines; Phases 1–6 delivered,
   including monitoring + Celery admin + strategies + arbitrage + lifecycle + bot records + bot realtime + backtests,
-  plus shared `responses.py`/`endpoint_timing.py`); the separate 4,443-line backtest-service task remains open
+  plus shared `responses.py`/`endpoint_timing.py`); the backtest-service decomposition is in progress
+  (Phase 1 done: 4,443→4,324 lines + extracted `backtest_models.py` — see action-plan item)
 - **Implement distributed state management** for horizontal scaling
 - ✅ **Replace sys.exit () calls** with proper exception handling (COMPLETED)
 - ✅ **Implement token revocation** - Complete logout/logout-all functionality (COMPLETED)
@@ -896,7 +923,8 @@ The original Week-1 items are retained as an implementation record; completed wo
 
 - `src/api/server.py`: reduced to a 1,740-line assembly/runtime module after Phases 1–6 (down from 6,093)
 - `src/api/v1/backtests.py`: 2,377 lines across 30 HTTP operations, 2 WebSocket adapters, and shared route support
-- `src/infrastructure/use_cases/service_backtest.py`: 4,443 lines of complexity
+- `src/infrastructure/use_cases/service_backtest.py`: 4,324 lines (was 4,443; Phase 1 extracted the
+  response/serialization DTOs + `_linregress_slope` into `backtest_models.py`)
 - Configuration complexity across multiple sources
 - Missing implementations for 2FA, candle aggregation, realtime service
 

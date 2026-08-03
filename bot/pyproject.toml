@@ -100,3 +100,26 @@ exclude = '^(_build|build|dist|\.venv|__pycache__|bot_states)/'
 # disallow_untyped_defs = true
 # warn_return_any = true
 # strict = true
+
+[tool.bandit]
+# ---------------------------------------------------------------------------
+# Security scanning — phase 1 (reporting-only baseline; does NOT gate CI yet).
+# ---------------------------------------------------------------------------
+# bandit runs in CI as a NON-blocking job (see the `bot-security` job in
+# .github/workflows/bot-quality.yml, which uses continue-on-error) at medium+
+# high severity (`-ll`). Low-severity findings (mostly assert/B101 and
+# try/except-pass patterns) are suppressed from the report for signal-to-noise.
+# Baseline (2026-08): 3 medium, 0 high — 2x B104 (bind 0.0.0.0, standard for
+# containerized services) + 1x B608 (f-string SQL with internal table constants,
+# false positive). Tighten over time: triage findings, add `# nosec` with
+# justification or fix, then flip the job to a gate (drop continue-on-error,
+# add to quality-gate.needs).
+exclude_dirs = [
+    "tests",
+    ".venv",
+    "build",
+    "dist",
+    "htmlcov",
+    "scripts",
+    "bot_states",
+]

@@ -524,8 +524,8 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Impact**: Testability, maintenance, parallel development
     - **Effort**: 2-3 weeks
     - **Priority**: HIGH
-    - **Status**: IN PROGRESS — Phases 1–3 delivered (cumulative **4,443 → 3,719 physical lines**,
-      −724, ~16.3%; extracted modules total ~715 lines).
+    - **Status**: IN PROGRESS — Phases 1–4 delivered (cumulative **4,443 → 3,133 physical lines**,
+      −1,310, ~29.5%; extracted modules total ~1,477 lines).
       - **Phase 1**: Extracted the response/serialization DTOs (`_BacktestRunStatus`,
         `_BacktestTrade`, `_BacktestRunDetails`, `_BacktestRunList`) + `_linregress_slope` into
         `src/infrastructure/use_cases/backtest_models.py`; the service re-imports all five so bare-name
@@ -554,6 +554,19 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
         import (4,115 → 3,719). Zero behavioral change — moved methods used only narrow
         `except (asyncio.TimeoutError, httpx.HTTPError)` / `(TypeError, ValueError)`, so the ratchet
         held at **315**.
+      - **Phase 4**: Extracted the 11 read-side / reporting methods (`get_backtest_details`,
+        `get_backtest_status`, `get_backtest_trades`, `get_summary_stats`, `get_runtime_health`,
+        `get_backtest_analytics`, `get_advanced_performance_metrics`, `get_live_progress`,
+        `compare_backtests`, `get_comprehensive_analytics`, `get_position_snapshots`) into
+        `src/infrastructure/use_cases/backtest_queries.py` as a **`BacktestQueryMixin`** — the first
+        phase to use a mixin rather than module functions, because these are *public* methods the
+        router calls as `service.get_X(...)`. `BacktestService(BacktestQueryMixin)` inherits them, so
+        the public API is unchanged with zero router/test edits. The 7 control/mutation methods
+        (pause/resume/restart/cancel/delete/retry/repair) **stayed** on `BacktestService` (they
+        couple to the runtime-control codec — Phase 5). Dropped 4 now-unused imports (`random`,
+        `date`, `_BacktestRunStatus`, `_BacktestTrade`) (3,719 → 3,133). Two `except Exception`
+        blocks (in `get_backtest_trades` + `get_runtime_health`) moved with the methods → ratchet
+        held at **315**.
       Verified via `tests/test_exceptions_hierarchy.py` (28 cases), the
       `tests/test_exception_handling_ratchet.py` gate, `tests/test_backtest_api_contract.py`,
       `tests/test_backtest_routes.py`, `test_backtest_service.py` (its two direct
@@ -569,8 +582,8 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
         - [x] Phase 3 — market-history fetcher + retry/telemetry → `backtest_history.py`
           (5 delegators retained; 6 history methods removed from class; 3 `_execute_backtest` call
           sites repointed; `_attach_history_fetch_summary` kept for task-context coupling)
-        - [ ] Phase 4 — read-side / reporting API (`get_backtest_*`, `compare_backtests`,
-          `get_comprehensive_analytics`, `get_position_snapshots`) as a query service/mixin
+        - [x] Phase 4 — read-side / reporting API → `backtest_queries.py` as a `BacktestQueryMixin`
+          (11 public read methods; `BacktestService` subclasses it; 7 control methods stayed)
         - [ ] Phase 5 — control/payload codec + shared-state refactor (`BacktestRunStore` for
           `_runs`/`_tasks` + `WorkerBackendProbe` singleton; do last — highest coupling)
 
@@ -771,8 +784,8 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 - ✅ **Break up monolithic files** - API server decomposition COMPLETED (6,093→1,740 lines; Phases 1–6 delivered,
   including monitoring + Celery admin + strategies + arbitrage + lifecycle + bot records + bot realtime + backtests,
   plus shared `responses.py`/`endpoint_timing.py`); the backtest-service decomposition is in progress
-  (Phases 1–3 done: 4,443→3,719 lines + extracted `backtest_models.py` /
-  `backtest_pair_selection.py` / `backtest_history.py` — see action-plan item)
+  (Phases 1–4 done: 4,443→3,133 lines + extracted `backtest_models.py` /
+  `backtest_pair_selection.py` / `backtest_history.py` / `backtest_queries.py` — see action-plan item)
 - **Implement distributed state management** for horizontal scaling
 - ✅ **Replace sys.exit () calls** with proper exception handling (COMPLETED)
 - ✅ **Implement token revocation** - Complete logout/logout-all functionality (COMPLETED)
@@ -947,10 +960,10 @@ The original Week-1 items are retained as an implementation record; completed wo
 
 - `src/api/server.py`: reduced to a 1,740-line assembly/runtime module after Phases 1–6 (down from 6,093)
 - `src/api/v1/backtests.py`: 2,377 lines across 30 HTTP operations, 2 WebSocket adapters, and shared route support
-- `src/infrastructure/use_cases/service_backtest.py`: 3,719 lines (was 4,443; Phases 1–3 extracted
-  the response/serialization DTOs + `_linregress_slope` into `backtest_models.py`, the
-  pair-prioritization engine into `backtest_pair_selection.py`, and the market-history fetcher into
-  `backtest_history.py`)
+- `src/infrastructure/use_cases/service_backtest.py`: 3,133 lines (was 4,443; Phases 1–4 extracted
+  the DTOs into `backtest_models.py`, the pair-prioritization engine into
+  `backtest_pair_selection.py`, the market-history fetcher into `backtest_history.py`, and the
+  read-side query API into `backtest_queries.py` as a `BacktestQueryMixin`)
 - Configuration complexity across multiple sources
 - Missing implementations for 2FA, candle aggregation, realtime service
 

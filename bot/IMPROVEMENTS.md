@@ -524,26 +524,35 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Impact**: Testability, maintenance, parallel development
     - **Effort**: 2-3 weeks
     - **Priority**: HIGH
-    - **Status**: IN PROGRESS — Phase 1 delivered. Extracted the response/serialization DTOs
-      (`_BacktestRunStatus`, `_BacktestTrade`, `_BacktestRunDetails`, `_BacktestRunList`) and the
-      `_linregress_slope` helper into a focused `src/infrastructure/use_cases/backtest_models.py`
-      (145 lines). `service_backtest.py` re-imports all five symbols so every existing bare-name
-      reference (`_BacktestRunDetails(**run_data)`, `_BacktestTrade(**trade)`, etc.) resolves to the
-      **same class/function objects** (verified by identity assertions). Removed the now-unused
-      `pydantic.BaseModel` and `scipy.stats.linregress` imports from the service. `service_backtest.py`
-      shrank **4,443 → 4,324 physical lines** (−119, ~2.7%). Zero behavioral change: pure type/helper
-      move with no exception handlers relocated (broad-catch ratchet held at **315**). Verified via
-      `tests/test_exceptions_hierarchy.py` (28 cases — `BacktestEnqueueError` identity preserved), the
+    - **Status**: IN PROGRESS — Phases 1 + 2 delivered (cumulative **4,443 → 4,115 physical lines**,
+      −328, ~7.4%; extracted modules total ~390 lines).
+      - **Phase 1**: Extracted the response/serialization DTOs (`_BacktestRunStatus`,
+        `_BacktestTrade`, `_BacktestRunDetails`, `_BacktestRunList`) + `_linregress_slope` into
+        `src/infrastructure/use_cases/backtest_models.py`; the service re-imports all five so bare-name
+        references resolve to the **same objects** (4,443 → 4,324).
+      - **Phase 2**: Extracted the pair-prioritization engine (`_prioritize_pairs*`,
+        `_pair_cointegration_score`, `_compute_market_volatility`, `_extract_market_liquidity`) and
+        shared calc helpers (`_safe_float`, `_align_series`, `_normalize_pair_selection_mode`) into
+        `src/infrastructure/use_cases/backtest_pair_selection.py` as module-level functions. The six
+        internal-only methods were **removed** from `BacktestService`; four externally-called symbols
+        (`_prioritize_pairs`, `_safe_float`, `_align_series`, `_normalize_pair_selection_mode`) remain
+        as thin **delegating** methods so no production call site changes. Resolved the `cls._clamp`
+        cross-dependency with a local `_clamp01` (both call sites bound p-values to [0,1]). Dropped
+        the now-unused `statsmodels` and `_linregress_slope` imports from the service (4,324 → 4,115).
+        Zero behavioral change; the lone `except Exception` in `_pair_cointegration_score` relocated
+        with it, so the broad-catch ratchet held at **315**.
+      Verified via `tests/test_exceptions_hierarchy.py` (28 cases), the
       `tests/test_exception_handling_ratchet.py` gate, `tests/test_backtest_api_contract.py`,
-      `tests/test_backtest_routes.py`, and the full backtest test sweep (**179 passed, 11 skipped,
-      0 failed**). `openapi.json` unchanged (private DTOs, no API surface). Black + flake8 hard gate
-      clean. Follows the proven monolith-breakup pattern (move to leaf module → re-import preserving
-      identity → verify via tests, not by reading `app.routes`).
+      `tests/test_backtest_routes.py`, `test_backtest_service.py` (its two direct
+      `_prioritize_pairs_by_liquidity` unit tests redirected to the module via a new
+      `_load_pair_selection()` helper), and the full backtest sweep (**179 passed, 11 skipped,
+      0 failed**). `openapi.json` unchanged (private internal symbols). Black + flake8 hard gate
+      clean. Follows the proven monolith-breakup pattern (move to leaf module → re-import/delegate
+      preserving call sites → verify via tests).
     - **Delivery checkpoints**:
         - [x] Phase 1 — response/serialization DTOs + `_linregress_slope` → `backtest_models.py`
-        - [ ] Phase 2 — pair selection / scoring analytics (`_prioritize_pairs*`,
-          `_pair_cointegration_score`, `_align_series`, `_build_market_pairs`, `_compute_market_*`)
-          as module-level functions; resolve the shared `cls._clamp` cross-dependency
+        - [x] Phase 2 — pair-prioritization engine + shared calc helpers → `backtest_pair_selection.py`
+          (6 internal methods removed from class; 4 delegators retained; `cls._clamp` → local `_clamp01`)
         - [ ] Phase 3 — market-history fetcher + retry/telemetry (`_fetch_market_history`,
           `_history_*` helpers) behind a small `BacktestHistoryFetcher` class
         - [ ] Phase 4 — read-side / reporting API (`get_backtest_*`, `compare_backtests`,
@@ -748,7 +757,8 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 - ✅ **Break up monolithic files** - API server decomposition COMPLETED (6,093→1,740 lines; Phases 1–6 delivered,
   including monitoring + Celery admin + strategies + arbitrage + lifecycle + bot records + bot realtime + backtests,
   plus shared `responses.py`/`endpoint_timing.py`); the backtest-service decomposition is in progress
-  (Phase 1 done: 4,443→4,324 lines + extracted `backtest_models.py` — see action-plan item)
+  (Phases 1–2 done: 4,443→4,115 lines + extracted `backtest_models.py` /
+  `backtest_pair_selection.py` — see action-plan item)
 - **Implement distributed state management** for horizontal scaling
 - ✅ **Replace sys.exit () calls** with proper exception handling (COMPLETED)
 - ✅ **Implement token revocation** - Complete logout/logout-all functionality (COMPLETED)
@@ -923,8 +933,9 @@ The original Week-1 items are retained as an implementation record; completed wo
 
 - `src/api/server.py`: reduced to a 1,740-line assembly/runtime module after Phases 1–6 (down from 6,093)
 - `src/api/v1/backtests.py`: 2,377 lines across 30 HTTP operations, 2 WebSocket adapters, and shared route support
-- `src/infrastructure/use_cases/service_backtest.py`: 4,324 lines (was 4,443; Phase 1 extracted the
-  response/serialization DTOs + `_linregress_slope` into `backtest_models.py`)
+- `src/infrastructure/use_cases/service_backtest.py`: 4,115 lines (was 4,443; Phases 1–2 extracted
+  the response/serialization DTOs + `_linregress_slope` into `backtest_models.py` and the
+  pair-prioritization engine into `backtest_pair_selection.py`)
 - Configuration complexity across multiple sources
 - Missing implementations for 2FA, candle aggregation, realtime service
 

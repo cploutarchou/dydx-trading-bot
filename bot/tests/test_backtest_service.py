@@ -33,6 +33,18 @@ def _load_modules():
     return models_module.BacktestConfigRequest, service_module
 
 
+def _load_pair_selection():
+    """Load the extracted pair-selection module (Phase 2 decomposition).
+
+    The prioritization logic now lives in
+    :mod:`src.infrastructure.use_cases.backtest_pair_selection`; ``BacktestService``
+    keeps only a thin delegating ``_prioritize_pairs``.
+    """
+    return importlib.import_module(
+        "src.infrastructure.use_cases.backtest_pair_selection"
+    )
+
+
 def _request(**trading_parameters):
     BacktestConfigRequest, _ = _load_modules()
     return BacktestConfigRequest(
@@ -1133,8 +1145,7 @@ def test_build_market_pairs_with_four_markets_returns_all_six_combinations():
 
 
 def test_prioritize_pairs_by_liquidity_prefers_highest_combined_volume():
-    _, service_module = _load_modules()
-    BacktestService = service_module.BacktestService
+    pair_selection = _load_pair_selection()
 
     pairs = [
         ("BTC-USD", "SOL-USD"),
@@ -1148,7 +1159,7 @@ def test_prioritize_pairs_by_liquidity_prefers_highest_combined_volume():
         "AVAX-USD": {"volume24H": "100"},
     }
 
-    ranked = BacktestService._prioritize_pairs_by_liquidity(pairs, market_map)
+    ranked = pair_selection._prioritize_pairs_by_liquidity(pairs, market_map)
     assert ranked == [
         ("BTC-USD", "ETH-USD"),  # 1900
         ("BTC-USD", "SOL-USD"),  # 1300
@@ -1157,8 +1168,7 @@ def test_prioritize_pairs_by_liquidity_prefers_highest_combined_volume():
 
 
 def test_prioritize_pairs_by_liquidity_is_stable_for_ties():
-    _, service_module = _load_modules()
-    BacktestService = service_module.BacktestService
+    pair_selection = _load_pair_selection()
 
     pairs = [
         ("BTC-USD", "SOL-USD"),
@@ -1172,7 +1182,7 @@ def test_prioritize_pairs_by_liquidity_is_stable_for_ties():
     }
 
     # both sum to 1200 -> preserve input order
-    ranked = BacktestService._prioritize_pairs_by_liquidity(pairs, market_map)
+    ranked = pair_selection._prioritize_pairs_by_liquidity(pairs, market_map)
     assert ranked == pairs
 
 

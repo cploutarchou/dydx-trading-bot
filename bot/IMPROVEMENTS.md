@@ -26,11 +26,11 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 ### Codebase Scale (Detailed Analysis)
 
-- **~35,113 lines** of production Python code across 80 files under `src/`
-- **Largest modules**: `src/api/server.py` (4,329 lines), `src/infrastructure/use_cases/service_backtest.py` (4,443
-  lines)
-- **Test suite**: 71 test files with 465 test functions
-- **Critical complexity**: 315 broad exception handlers at the current ratcheted baseline, multiple monolithic files
+- **~35,539 lines** of production Python code across 82 files under `src/`
+- **Largest modules**: `src/infrastructure/use_cases/service_backtest.py` (4,443 lines) and
+  `src/api/v1/backtests.py` (2,377 lines)
+- **Test suite**: 73 test files with 482 test functions
+- **Critical complexity**: 311 broad exception handlers at the current ratcheted baseline, multiple monolithic files
 - **Architecture patterns**: Process-local state management, synchronous I/O in async contexts
 
 ---
@@ -41,11 +41,11 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 #### **Critical Issues**
 
-- **Monolithic API Server**: `src/api/server.py` still contains **4,329 lines** (down from the 6,093-line extraction
-  baseline) with excessive complexity and mixed responsibilities (routing, business logic, lifecycle management,
-  and backtest orchestration)
-    - **Impact**: Difficult to test, maintain, and extend
-    - **Location**: `src/api/server.py:1-4329`
+- **Monolithic API Server** (RESOLVED): `src/api/server.py` now contains **1,740 lines** (down from the 6,093-line
+  extraction baseline), with monitoring, administration, strategy, arbitrage, bot, and backtest routes moved to
+  focused modules
+    - **Previous impact**: Difficult to test, maintain, and extend
+    - **Location**: `src/api/server.py:1-1740`
 
 - **Large Backtest Service**: `src/infrastructure/use_cases/service_backtest.py` contains **4,443 lines** of backtest
   orchestration logic
@@ -135,9 +135,13 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Impact**: Type-related bugs, poor IDE support
     - **Files**: Missing mypy.ini or pyproject.toml type checking
 
-- **No Security Scanning**: No bandit or security vulnerability scanning in CI
-    - **Impact**: Security vulnerabilities reach production
-    - **Files**: CI configuration, missing security tools
+- **No Security Scanning** (RESOLVED): `bandit==1.9.4` now runs in CI via the non-blocking
+  `bot-security` job of `.github/workflows/bot-quality.yml` (`bandit -r src -c pyproject.toml -ll`,
+  medium+high severity), with `[tool.bandit]` config in `pyproject.toml` and a summary posted to the
+  GitHub job summary — reporting-only baseline (3 medium, 0 high) mirroring the mypy phase-1 pattern;
+  path to a blocking gate documented in the config
+    - **Previous impact**: Security vulnerabilities reach production
+    - **Files**: `.github/workflows/bot-quality.yml`, `pyproject.toml`, `requirements.txt`
 
 ---
 
@@ -250,7 +254,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Missing Security Tests**: No authentication bypass testing
     - **Limited Performance Tests**: No load testing or scalability validation
     - **Impact**: Production surprises, reliability issues
-    - **Files**: `tests/test_*.py` (71 test files, 465 test functions)
+    - **Files**: `tests/test_*.py` (73 test files, 482 test functions)
 
 #### **Moderate Issues**
 
@@ -472,18 +476,18 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 #### **Critical Architecture Improvements**
 
-- [ ] **Break up monolithic API server** - Split `src/api/server.py` (6,093-line baseline; currently 4,329 lines) into
+- [x] **Break up monolithic API server** - Split `src/api/server.py` (6,093-line baseline; currently 1,740 lines) into
   focused modules
     - **Files**: Extract WebSocket, monitoring, routing into separate modules
     - **Impact**: Maintainability, testability, reduced complexity
     - **Effort**: 2-3 weeks
     - **Priority**: HIGH
-    - **Status**: IN PROGRESS — Phases 1–4 and Phase 5a–5b delivered. Extracted shared helper modules out of the
+    - **Status**: COMPLETED — Phases 1–6 delivered. Extracted shared helper modules out of the
       monolith
       (`src/api/responses.py`: `api_response`, `trace_id_ctx`, `INTERNAL_ERROR_MESSAGE`; and
       `src/api/endpoint_timing.py`: `_log_endpoint_timing`, `_endpoint_perf_headers`,
       `_payload_size_bytes` — server.py re-imports all, preserving identity and every call site)
-      and **six `APIRouter` route modules**: `src/api/v1/monitoring.py` (6 monitoring endpoints),
+      and **eight `APIRouter` route modules**: `src/api/v1/monitoring.py` (6 monitoring endpoints),
       `src/api/v1/celery_admin.py` (7 admin-only Celery inspection endpoints), and
       `src/api/v1/strategies.py` (8 strategy CRUD endpoints + `StrategyRequest` /
       `StrategyVersionRevertRequest` / `InMemoryStrategyStore` moved with them; `list_public_strategies`
@@ -492,29 +496,118 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
       `src/api/v1/bot_lifecycle.py` (8 authenticated manager-backed lifecycle CRUD/control and quick-deploy
       operations, with the canonical manager and create-rate limiter injected by `server.py`), and
       `src/api/v1/bot_records.py` (4 authenticated database-backed history/jobs/trades/statistics operations with
-      guarded session cleanup). `server.py` shrank **6,093 → 4,329 physical lines** (**1,764 removed, ~29.0%**).
-      These extractions preserve auth, response envelopes, request-model/signature identity, exact generated OpenAPI,
-      and `/api/v1/capabilities` discovery; the capability walker now includes FastAPI 0.138.1 lazy
+      guarded session cleanup), and `src/api/v1/bot_realtime.py` (6 authenticated realtime position, market-data,
+      statistics, alert, and history queries plus 3 authenticated bot/strategy WebSocket adapters, with canonical
+      manager, unit-of-work, and authentication providers injected by `server.py`), and
+      `src/api/v1/backtests.py` (30 authenticated HTTP operations + 2 authenticated WebSocket adapters, together with
+      backtest request models, endpoint cache, strategy-resolution metrics, admission checks, and request-scoped
+      service cleanup). `server.py` retains compatibility re-exports and injects its canonical limiter/auth namespace,
+      preserving existing Python callers and monkeypatch-based tests. `server.py` shrank **6,093 → 1,740 physical
+      lines** (**4,353 removed, ~71.4%**).
+      These extractions preserve auth, response envelopes, request-model/signature identity, exact generated OpenAPI
+      for the extracted HTTP contracts, and `/api/v1/capabilities` discovery; the capability walker now includes
+      FastAPI 0.138.1 lazy
       `_IncludedRouter` routes. Verified via `tests/test_monitoring_routes.py`,
       `tests/test_celery_admin_routes.py`, `tests/test_strategies_routes.py`, and the 11-case
-      `tests/test_arbitrage_routes.py` suite, the 9-case `tests/test_bot_lifecycle_routes.py` suite, and the 12-case
-      `tests/test_bot_record_routes.py` suite.
+      `tests/test_arbitrage_routes.py` suite, the 9-case `tests/test_bot_lifecycle_routes.py` suite, the 12-case
+      `tests/test_bot_record_routes.py` suite, the 20-case `tests/test_bot_realtime_routes.py` suite, and the 18-case
+      `tests/test_backtest_routes.py` suite. Phase 6 also preserves the complete generated OpenAPI document exactly.
     - **Delivery checkpoints**:
         - [x] Phase 1 — shared response/timing helpers + monitoring router
         - [x] Phase 2 — Celery admin router
         - [x] Phase 3 — strategy router/models/store
         - [x] Phase 4 — arbitrage router/settings model + capability preservation
-        - [ ] Phase 5 — bot lifecycle/realtime route extraction
+        - [x] Phase 5 — bot lifecycle/realtime route extraction
             - [x] Phase 5a — manager-backed lifecycle CRUD/control + quick deploy (8 operations)
             - [x] Phase 5b — bot history/jobs/trades/stats HTTP routes
-            - [ ] Phase 5c — remaining realtime bot HTTP + WebSocket adapters
-        - [ ] Phase 6 — backtest route extraction (most intertwined; keep last)
+            - [x] Phase 5c — remaining realtime bot HTTP + WebSocket adapters
+        - [x] Phase 6 — backtest route extraction (30 HTTP operations + 2 WebSocket adapters)
 
-- [ ] **Break up backtest service** - Split `src/infrastructure/use_cases/service_backtest.py` (4,443 lines)
+- [x] **Break up backtest service** - Split `src/infrastructure/use_cases/service_backtest.py` (4,443-line baseline)
     - **Files**: Extract orchestration, execution, reporting into focused modules
     - **Impact**: Testability, maintenance, parallel development
     - **Effort**: 2-3 weeks
     - **Priority**: HIGH
+    - **Status**: COMPLETED (Phases 1–5a). Cumulative **4,443 → 2,959 physical lines** (−1,484,
+      ~33.4%); 5 focused, tested modules total ~1,684 lines (`backtest_models`,
+      `backtest_pair_selection`, `backtest_history`, `backtest_queries`, `backtest_controls`). The
+      full public API (11 reads + 7 controls) is cleanly split into two mixins (`BacktestQueryMixin`,
+      `BacktestControlMixin`); the remaining ~2,959 lines are the cohesive orchestration core
+      (`_execute_backtest`, `_simulate_pair`, `create_and_run_backtest`) + private control-codec
+      helpers (~50 call sites) — deliberately left in place as the high-risk/low-reward tail
+      (Phase 5b/5c deferred; see checkpoints).
+      - **Phase 1**: Extracted the response/serialization DTOs (`_BacktestRunStatus`,
+        `_BacktestTrade`, `_BacktestRunDetails`, `_BacktestRunList`) + `_linregress_slope` into
+        `src/infrastructure/use_cases/backtest_models.py`; the service re-imports all five so bare-name
+        references resolve to the **same objects** (4,443 → 4,324).
+      - **Phase 2**: Extracted the pair-prioritization engine (`_prioritize_pairs*`,
+        `_pair_cointegration_score`, `_compute_market_volatility`, `_extract_market_liquidity`) and
+        shared calc helpers (`_safe_float`, `_align_series`, `_normalize_pair_selection_mode`) into
+        `src/infrastructure/use_cases/backtest_pair_selection.py` as module-level functions. The six
+        internal-only methods were **removed** from `BacktestService`; four externally-called symbols
+        (`_prioritize_pairs`, `_safe_float`, `_align_series`, `_normalize_pair_selection_mode`) remain
+        as thin **delegating** methods so no production call site changes. Resolved the `cls._clamp`
+        cross-dependency with a local `_clamp01` (both call sites bound p-values to [0,1]). Dropped
+        the now-unused `statsmodels` and `_linregress_slope` imports from the service (4,324 → 4,115).
+        Zero behavioral change; the lone `except Exception` in `_pair_cointegration_score` relocated
+        with it, so the broad-catch ratchet held at **315**.
+      - **Phase 3**: Extracted the market-history fetcher (`_fetch_market_history`, ~205 lines) +
+        retry/telemetry helpers (`_history_retry_delay_seconds`, `_history_fetch_summary`,
+        `_extract_retry_after_seconds`) + the 6 `_HISTORY_*` constants + history-only date helpers
+        (`_resolution_to_minutes`, `_to_iso`) into `src/infrastructure/use_cases/backtest_history.py`
+        as a module-level async function + pure helpers. Five shared helpers stayed as thin
+        delegators (`_remaining_seconds`, `_describe_exception`, `_env_positive_int/_float`,
+        `_normalize_resolution`) since `_execute_backtest`/heartbeat use them too; 3 call sites in
+        `_execute_backtest` repointed to `_history._fetch_market_history(...)`;
+        `_attach_history_fetch_summary` kept on the service (couples to the task-context codec —
+        Phase 5) and now calls `_history._history_fetch_summary(...)`. Dropped the now-unused `httpx`
+        import (4,115 → 3,719). Zero behavioral change — moved methods used only narrow
+        `except (asyncio.TimeoutError, httpx.HTTPError)` / `(TypeError, ValueError)`, so the ratchet
+        held at **315**.
+      - **Phase 4**: Extracted the 11 read-side / reporting methods (`get_backtest_details`,
+        `get_backtest_status`, `get_backtest_trades`, `get_summary_stats`, `get_runtime_health`,
+        `get_backtest_analytics`, `get_advanced_performance_metrics`, `get_live_progress`,
+        `compare_backtests`, `get_comprehensive_analytics`, `get_position_snapshots`) into
+        `src/infrastructure/use_cases/backtest_queries.py` as a **`BacktestQueryMixin`** — the first
+        phase to use a mixin rather than module functions, because these are *public* methods the
+        router calls as `service.get_X(...)`. `BacktestService(BacktestQueryMixin)` inherits them, so
+        the public API is unchanged with zero router/test edits. The 7 control/mutation methods
+        (pause/resume/restart/cancel/delete/retry/repair) **stayed** on `BacktestService` (they
+        couple to the runtime-control codec — Phase 5). Dropped 4 now-unused imports (`random`,
+        `date`, `_BacktestRunStatus`, `_BacktestTrade`) (3,719 → 3,133). Two `except Exception`
+        blocks (in `get_backtest_trades` + `get_runtime_health`) moved with the methods → ratchet
+        held at **315**.
+      - **Phase 5a**: Extracted the 7 public control/mutation methods (`pause_backtest`,
+        `resume_backtest`, `restart_backtest`, `repair_backtest_request`, `retry_backtest`,
+        `cancel_backtest`, `delete_backtest`) into `src/infrastructure/use_cases/backtest_controls.py`
+        as a **second mixin** (`BacktestControlMixin`) — `BacktestService(BacktestQueryMixin,
+        BacktestControlMixin)` now subclasses both. Same pattern as Phase 4 (public methods → mixin
+        preserves `service.X(...)`). The private control-codec helpers (`_set_runtime_control` etc.,
+        ~50 call sites) and the `BacktestRunStore` state refactor are **deferred** (highest coupling,
+        the shared "nervous system" — moving them adds many delegators for little architectural gain).
+        No broad catches moved; no unused imports (3,133 → 2,959).
+      Verified via `tests/test_exceptions_hierarchy.py` (28 cases), the
+      `tests/test_exception_handling_ratchet.py` gate, `tests/test_backtest_api_contract.py`,
+      `tests/test_backtest_routes.py`, `test_backtest_service.py` (its two direct
+      `_prioritize_pairs_by_liquidity` unit tests redirected to the module via a new
+      `_load_pair_selection()` helper), and the full backtest sweep (**179 passed, 11 skipped,
+      0 failed**). `openapi.json` unchanged (private internal symbols). Black + flake8 hard gate
+      clean. Follows the proven monolith-breakup pattern (move to leaf module → re-import/delegate
+      preserving call sites → verify via tests).
+    - **Delivery checkpoints**:
+        - [x] Phase 1 — response/serialization DTOs + `_linregress_slope` → `backtest_models.py`
+        - [x] Phase 2 — pair-prioritization engine + shared calc helpers → `backtest_pair_selection.py`
+          (6 internal methods removed from class; 4 delegators retained; `cls._clamp` → local `_clamp01`)
+        - [x] Phase 3 — market-history fetcher + retry/telemetry → `backtest_history.py`
+          (5 delegators retained; 6 history methods removed from class; 3 `_execute_backtest` call
+          sites repointed; `_attach_history_fetch_summary` kept for task-context coupling)
+        - [x] Phase 4 — read-side / reporting API → `backtest_queries.py` as a `BacktestQueryMixin`
+          (11 public read methods; `BacktestService` subclasses it; 7 control methods stayed)
+        - [x] Phase 5a — control/mutation methods → `backtest_controls.py` as `BacktestControlMixin`
+          (7 public methods; `BacktestService` subclasses both mixins)
+        - [ ] Phase 5b/5c (deferred) — private control-codec helpers (`_set_runtime_control` etc.) +
+          `BacktestRunStore` / `WorkerBackendProbe` state refactor (highest coupling, ~50 call sites,
+          diminishing returns; the orchestration core + codec form the cohesive remaining service)
 
 - [ ] **Implement distributed state management** for horizontal scaling
     - **Files**: Replace process-local WebSocket connections, strategy storage, and rate limiting with Redis-backed
@@ -554,10 +647,15 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
       **intentionally left unchanged** — its broad catches are correct instrument-and-re-raise
       (`provider_errors_total` metric) or best-effort 404 fallbacks; narrowing them would reduce
       observability/resilience. Installed a **ratchet guard** (`tests/test_exception_handling_ratchet.py`)
-      that fails the build if the broad-catch count grows past the baseline (currently **315**, down
-      from 324) — it makes the remaining reduction enforceable and incremental. **Phase 2 (tracked
-      by the ratchet):** continue module-by-module — `service_backtest.py` (20), `event_bus_nats.py`
-      (19), `nats_backtest_consumer.py` (15), remaining `server.py` pure-500 residue, trading modules.
+      that fails the build if the broad-catch count grows past the baseline (**311** as of 2026-08-03,
+      down from 324 at Phase 1's start) — it makes the remaining reduction enforceable and incremental.
+      **Phase 2 (underway):** removed 4 redundant route-level `except Exception → return api_response(500)`
+      catch-alls in `src/api/v1/backtests.py` (covered by the global handler; 315→311). Assessment of the
+      remaining concentrations: most are **legitimate** best-effort error-isolation in infrastructure
+      (`event_bus_nats.py` NATS connect/subscribe/NAK, `nats_backtest_consumer.py`, `account_manager.py`
+      404 fallbacks, `dataframe_utils.py` memory cleanup) where narrowing risks crashing the path on a
+      missed failure mode — left in place by design. The reducible residue is route pure-500 catch-alls
+      (de-indent removals) and a few instrument-and-reraise sites; further tightening is incremental.
       NOTE: `GracefulShutdownException` was intentionally NOT moved — it is structurally entangled
       with `BotInstance` in `src/main_instance.py` (its class body interrupts `BotInstance`); left in
       place to avoid breaking the runtime entrypoint.
@@ -579,10 +677,24 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Impact**: Ability to resume interrupted backtests
     - **Effort**: 2 weeks
 
-- [ ] **Implement configuration validation** at startup
+- [x] **Implement configuration validation** at startup
     - **Files**: `src/shared/env_loader.py`, create configuration schemas
     - **Impact**: Clear error messages for configuration issues
     - **Effort**: 3-5 days
+    - **Status**: COMPLETED — added `src/shared/config_validation.py` with
+      `validate_startup_config()`, called from the canonical API launcher
+      (`src/api/start_api.py main()`). Collects ALL problems (doesn't fail-fast) and
+      raises a single enumerated `ConfigurationError` in production (or when
+      `STARTUP_CONFIG_VALIDATION=strict`), warns in development, and is bypassable via
+      `STARTUP_CONFIG_VALIDATION=skip`. Checks: auth tokens required in prod when auth
+      isn't bypassed (complements the existing `API_BYPASS_AUTH`-in-prod guard), Celery
+      broker when `BACKTEST_WORKER_BACKEND=celery`, dYdX signing material for live
+      mainnet trading (`BOT_PLACE_TRADES=true` + `IS_TESTNET=false`), integer port
+      format/range, and an all-default-DB-in-prod heuristic. Env-var based
+      (post-`load_repo_env` surface) — does not duplicate structured-config parsing or
+      attempt live connections. Coverage in `tests/test_config_validation.py` (20
+      cases). Import-safe (validation runs in `main()`, not at module import), so tests
+      are unaffected.
 
 #### **Test Infrastructure**
 
@@ -625,7 +737,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
       observed and are out of scope for this item.
 
 - [ ] **Improve test coverage** for critical monolithic files
-    - **Files**: Add tests for `src/api/server.py` (4,329 lines) and `src/infrastructure/use_cases/service_backtest.py`
+    - **Files**: Add tests for `src/api/server.py` (1,740 lines) and `src/infrastructure/use_cases/service_backtest.py`
       (4,443 lines)
     - **Impact**: Better coverage of core functionality
     - **Effort**: 2-3 weeks
@@ -710,14 +822,17 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 ### **High Priority / High Impact** (Week 1-2)
 
-- **Break up monolithic files** - API server (4,329 lines) and backtest service (4,443 lines) — API server Phases 1–4
-  and Phase 5a–5b delivered (monitoring + Celery admin + strategies + arbitrage + lifecycle + bot records extracted,
-  shared `responses.py`/`endpoint_timing.py`, 6,093→4,329); overall task remains in progress
+- ✅ **Break up monolithic files** - API server decomposition COMPLETED (6,093→1,740 lines; Phases 1–6 delivered,
+  including monitoring + Celery admin + strategies + arbitrage + lifecycle + bot records + bot realtime + backtests,
+  plus shared `responses.py`/`endpoint_timing.py`); the backtest-service decomposition is in progress
+  (Phases 1–5a done: 4,443→2,959 lines + extracted `backtest_models.py` /
+  `backtest_pair_selection.py` / `backtest_history.py` / `backtest_queries.py` /
+  `backtest_controls.py` — see action-plan item)
 - **Implement distributed state management** for horizontal scaling
 - ✅ **Replace sys.exit () calls** with proper exception handling (COMPLETED)
 - ✅ **Implement token revocation** - Complete logout/logout-all functionality (COMPLETED)
 - **Add multi-worker tests** for process-local state issues
-- ✅ **Refactor broad exception handling** - Replace 306+ `except Exception` patterns (Phase 1 COMPLETED — hierarchy + global 500 handler + ratchet at 315; see action-plan item)
+- ✅ **Refactor broad exception handling** - Replace 306+ `except Exception` patterns (Phase 1 COMPLETED — hierarchy + global 500 handler + ratchet; Phase 2 underway: 315→311; see action-plan item)
 
 ### **High Priority / Medium Impact** (Week 2-4)
 
@@ -736,7 +851,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 ### **Medium Priority / Medium Impact** (Month 2-3)
 
-- Configuration validation
+- ✅ Configuration validation (COMPLETED — `validate_startup_config()` in `start_api.py`)
 - Backtest checkpointing
 - Memory management improvements
 - Audit trail enhancement
@@ -749,7 +864,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 - Advanced risk management
 - Horizontal scaling architecture
 - Chaos engineering practices
-- Security vulnerability scanning with bandit
+- ✅ Security vulnerability scanning with bandit (COMPLETED — non-blocking `bot-security` CI job)
 - Automated API documentation generation
 - Dependency vulnerability scanning
 
@@ -796,8 +911,8 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 ### **Code Quality Metrics**
 
-- **File Size Reduction**: No single file exceeds 2,000 lines (target: finish decomposing the current 4,329-line API
-  server and 4,443-line backtest service)
+- **File Size Reduction**: No single file exceeds 2,000 lines (API server target achieved at 1,740 lines; continue
+  decomposing the 4,443-line backtest service and 2,377-line backtest route module)
 - **Exception Handling**: Reduce broad `except Exception` patterns by 95% (from 306 to <15 instances)
 - **Test Coverage**: Target 85%+ coverage for critical paths
 - **Code Complexity**: Reduce cyclomatic complexity by 20%
@@ -860,7 +975,7 @@ The original Week-1 items are retained as an implementation record; completed wo
 
 ### **Week 2: Architecture Foundation**
 
-1. 🟡 **Break up the API server** — IN PROGRESS (Phases 1–4 and Phase 5a–5b delivered; Phase 5c and Phase 6 remain)
+1. ✅ **Break up the API server** — COMPLETED (Phases 1–6 delivered; 6,093→1,740 lines)
 2. ⬜ **Implement distributed state management planning** - Design Redis-backed strategy storage
 3. ⬜ **Add multi-worker test infrastructure** - Begin testing process-local state issues
 
@@ -879,14 +994,18 @@ The original Week-1 items are retained as an implementation record; completed wo
 ### **Architecture Strengths**
 
 - Strong foundational architecture with good safety mechanisms
-- Comprehensive test coverage for core contracts (465 test functions)
+- Comprehensive test coverage for core contracts (482 test functions)
 - Production-grade deployment with CI/CD pipelines
 - Well-documented operational procedures
 
 ### **Technical Debt Hotspots**
 
-- `src/api/server.py`: 4,329 lines with mixed responsibilities (down from 6,093 after Phases 1–4 and Phase 5a–5b)
-- `src/infrastructure/use_cases/service_backtest.py`: 4,443 lines of complexity
+- `src/api/server.py`: reduced to a 1,740-line assembly/runtime module after Phases 1–6 (down from 6,093)
+- `src/api/v1/backtests.py`: 2,377 lines across 30 HTTP operations, 2 WebSocket adapters, and shared route support
+- `src/infrastructure/use_cases/service_backtest.py`: 2,959 lines (was 4,443; Phases 1–5a extracted
+  the DTOs into `backtest_models.py`, pair-prioritization into `backtest_pair_selection.py`,
+  market-history into `backtest_history.py`, the read-side API into `backtest_queries.py`, and the
+  control API into `backtest_controls.py` — both as mixins; remaining is the orchestration core)
 - Configuration complexity across multiple sources
 - Missing implementations for 2FA, candle aggregation, realtime service
 

@@ -9,6 +9,7 @@ import os
 
 import uvicorn
 
+from src.shared.config_validation import validate_startup_config
 from src.shared.env_loader import load_repo_env
 
 # Entry-point safety: load env before importing server/config modules.
@@ -20,6 +21,12 @@ def _env_bool(name: str, default: str = "false") -> bool:
 
 
 def main() -> None:
+    # Fail fast with a clear, enumerated error if required config is missing/malformed
+    # (DB, auth tokens, Celery broker, live-trading creds, port formats). No-op/strict
+    # is env-aware (raises in production, warns in development); bypass with
+    # STARTUP_CONFIG_VALIDATION=skip. See src/shared/config_validation.py.
+    validate_startup_config()
+
     host = os.getenv("BOT_API_HOST", "0.0.0.0")
     port = int(os.getenv("BOT_API_PORT", "8889"))
     reload_enabled = _env_bool("BOT_API_RELOAD")

@@ -30,7 +30,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 - **Largest modules**: `src/infrastructure/use_cases/service_backtest.py` (4,443 lines) and
   `src/api/v1/backtests.py` (2,377 lines)
 - **Test suite**: 73 test files with 482 test functions
-- **Critical complexity**: 315 broad exception handlers at the current ratcheted baseline, multiple monolithic files
+- **Critical complexity**: 311 broad exception handlers at the current ratcheted baseline, multiple monolithic files
 - **Architecture patterns**: Process-local state management, synchronous I/O in async contexts
 
 ---
@@ -647,10 +647,15 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
       **intentionally left unchanged** — its broad catches are correct instrument-and-re-raise
       (`provider_errors_total` metric) or best-effort 404 fallbacks; narrowing them would reduce
       observability/resilience. Installed a **ratchet guard** (`tests/test_exception_handling_ratchet.py`)
-      that fails the build if the broad-catch count grows past the baseline (currently **315**, down
-      from 324) — it makes the remaining reduction enforceable and incremental. **Phase 2 (tracked
-      by the ratchet):** continue module-by-module — `service_backtest.py` (20), `event_bus_nats.py`
-      (19), `nats_backtest_consumer.py` (15), remaining `server.py` pure-500 residue, trading modules.
+      that fails the build if the broad-catch count grows past the baseline (**311** as of 2026-08-03,
+      down from 324 at Phase 1's start) — it makes the remaining reduction enforceable and incremental.
+      **Phase 2 (underway):** removed 4 redundant route-level `except Exception → return api_response(500)`
+      catch-alls in `src/api/v1/backtests.py` (covered by the global handler; 315→311). Assessment of the
+      remaining concentrations: most are **legitimate** best-effort error-isolation in infrastructure
+      (`event_bus_nats.py` NATS connect/subscribe/NAK, `nats_backtest_consumer.py`, `account_manager.py`
+      404 fallbacks, `dataframe_utils.py` memory cleanup) where narrowing risks crashing the path on a
+      missed failure mode — left in place by design. The reducible residue is route pure-500 catch-alls
+      (de-indent removals) and a few instrument-and-reraise sites; further tightening is incremental.
       NOTE: `GracefulShutdownException` was intentionally NOT moved — it is structurally entangled
       with `BotInstance` in `src/main_instance.py` (its class body interrupts `BotInstance`); left in
       place to avoid breaking the runtime entrypoint.
@@ -813,7 +818,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 - ✅ **Replace sys.exit () calls** with proper exception handling (COMPLETED)
 - ✅ **Implement token revocation** - Complete logout/logout-all functionality (COMPLETED)
 - **Add multi-worker tests** for process-local state issues
-- ✅ **Refactor broad exception handling** - Replace 306+ `except Exception` patterns (Phase 1 COMPLETED — hierarchy + global 500 handler + ratchet at 315; see action-plan item)
+- ✅ **Refactor broad exception handling** - Replace 306+ `except Exception` patterns (Phase 1 COMPLETED — hierarchy + global 500 handler + ratchet; Phase 2 underway: 315→311; see action-plan item)
 
 ### **High Priority / Medium Impact** (Week 2-4)
 

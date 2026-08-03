@@ -1290,11 +1290,6 @@ async def create_backtest(
             data={"error": error_code},
             status_code=status_code,
         )
-    except Exception as e:
-        logger.error(f"Error creating backtest: {e}")
-        return api_response(
-            success=False, message="Internal server error", status_code=500
-        )
 
 
 @router.post("/api/v1/backtests/run")
@@ -1944,23 +1939,16 @@ async def delete_backtest(
 ):
     """Delete backtest run and all associated data"""
     del current_user
-    try:
-        with _compat("backtest_service_scope", backtest_service_scope)() as service:
-            success = service.delete_backtest(run_id)
-        if not success:
-            return api_response(
-                success=False, message=f"Backtest '{run_id}' not found", status_code=404
-            )
-
+    with _compat("backtest_service_scope", backtest_service_scope)() as service:
+        success = service.delete_backtest(run_id)
+    if not success:
         return api_response(
-            success=True, message=f"Backtest '{run_id}' deleted successfully"
+            success=False, message=f"Backtest '{run_id}' not found", status_code=404
         )
 
-    except Exception as e:
-        logger.error(f"Error deleting backtest: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    return api_response(
+        success=True, message=f"Backtest '{run_id}' deleted successfully"
+    )
 
 
 @router.get("/api/v1/backtests/stats/summary")
@@ -1970,20 +1958,13 @@ async def get_backtest_summary_stats(
 ):
     """Get backtest system summary statistics"""
     del current_user
-    try:
-        stats = _get_backtest_summary_stats_sync(days)
+    stats = _get_backtest_summary_stats_sync(days)
 
-        return api_response(
-            success=True,
-            data=stats,
-            message=f"Retrieved backtest statistics for last {days} days",
-        )
-
-    except Exception as e:
-        logger.error(f"Error getting backtest stats: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    return api_response(
+        success=True,
+        data=stats,
+        message=f"Retrieved backtest statistics for last {days} days",
+    )
 
 
 @router.get("/api/v1/backtests/{run_id}/analytics")
@@ -2269,26 +2250,19 @@ async def get_live_progress(
 ):
     """Get real-time backtest progress with current positions"""
     del current_user
-    try:
-        progress = _get_live_progress_sync(run_id)
-        if not progress:
-            return api_response(
-                success=False,
-                message=f"Backtest run '{run_id}' not found",
-                status_code=404,
-            )
-
+    progress = _get_live_progress_sync(run_id)
+    if not progress:
         return api_response(
-            success=True,
-            data=progress,
-            message=f"Retrieved live progress for backtest '{run_id}'",
+            success=False,
+            message=f"Backtest run '{run_id}' not found",
+            status_code=404,
         )
 
-    except Exception as e:
-        logger.error(f"Error getting live progress: {e}")
-        return api_response(
-            success=False, message=f"Internal server error: {str(e)}", status_code=500
-        )
+    return api_response(
+        success=True,
+        data=progress,
+        message=f"Retrieved live progress for backtest '{run_id}'",
+    )
 
 
 __all__ = [

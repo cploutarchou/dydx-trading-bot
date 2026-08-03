@@ -44,6 +44,12 @@ py -3.12 -m venv .venv
   `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE`
 - config source: root `run.json`
 - preferred DB mode: `BOT_DB_CUTOVER_MODE=dedicated`
+- startup config validation: the canonical API launcher (`src/api/start_api.py`) runs
+  `validate_startup_config()`, which raises a single enumerated `ConfigurationError` in
+  production (or when `STARTUP_CONFIG_VALIDATION=strict`) if required config is
+  missing/malformed — auth tokens (prod), Celery broker (celery backend), live-mainnet
+  dYdX signing material, port formats, all-default-DB heuristic. Warns in development.
+  Bypass with `STARTUP_CONFIG_VALIDATION=skip` (emergency escape hatch).
 
 PostgreSQL remains the active/default bot and backtest persistence path. Legacy PostgreSQL backtest fields such as
 `request_json`, `trades_json`, `position_snapshots_json`, and `daily_pnl_json` remain in the schema for compatibility

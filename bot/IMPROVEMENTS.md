@@ -677,10 +677,24 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Impact**: Ability to resume interrupted backtests
     - **Effort**: 2 weeks
 
-- [ ] **Implement configuration validation** at startup
+- [x] **Implement configuration validation** at startup
     - **Files**: `src/shared/env_loader.py`, create configuration schemas
     - **Impact**: Clear error messages for configuration issues
     - **Effort**: 3-5 days
+    - **Status**: COMPLETED — added `src/shared/config_validation.py` with
+      `validate_startup_config()`, called from the canonical API launcher
+      (`src/api/start_api.py main()`). Collects ALL problems (doesn't fail-fast) and
+      raises a single enumerated `ConfigurationError` in production (or when
+      `STARTUP_CONFIG_VALIDATION=strict`), warns in development, and is bypassable via
+      `STARTUP_CONFIG_VALIDATION=skip`. Checks: auth tokens required in prod when auth
+      isn't bypassed (complements the existing `API_BYPASS_AUTH`-in-prod guard), Celery
+      broker when `BACKTEST_WORKER_BACKEND=celery`, dYdX signing material for live
+      mainnet trading (`BOT_PLACE_TRADES=true` + `IS_TESTNET=false`), integer port
+      format/range, and an all-default-DB-in-prod heuristic. Env-var based
+      (post-`load_repo_env` surface) — does not duplicate structured-config parsing or
+      attempt live connections. Coverage in `tests/test_config_validation.py` (20
+      cases). Import-safe (validation runs in `main()`, not at module import), so tests
+      are unaffected.
 
 #### **Test Infrastructure**
 
@@ -837,7 +851,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 ### **Medium Priority / Medium Impact** (Month 2-3)
 
-- Configuration validation
+- ✅ Configuration validation (COMPLETED — `validate_startup_config()` in `start_api.py`)
 - Backtest checkpointing
 - Memory management improvements
 - Audit trail enhancement

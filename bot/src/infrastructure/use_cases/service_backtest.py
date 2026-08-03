@@ -20,12 +20,6 @@ from uuid import uuid4
 import httpx
 import numpy as np
 
-try:  # pragma: no cover - optional at runtime, exercised in integration tests
-    from statsmodels.tsa.stattools import adfuller, coint
-except Exception:  # pragma: no cover
-    adfuller = None
-    coint = None
-
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.use_cases.async_job_manager import async_job_manager
@@ -44,17 +38,22 @@ _BACKEND_PROBE_EXECUTOR = ThreadPoolExecutor(
 # paths keep resolving to the same class.
 from src.exceptions import BacktestEnqueueError  # noqa: E402
 
-# Backtest response/serialization DTOs and the linregress slope helper live in a
-# focused module (:mod:`src.infrastructure.use_cases.backtest_models`); re-imported
-# here so existing bare-name references (e.g. ``_BacktestRunDetails(**run_data)``)
-# resolve to the same class/function objects. Part of the backtest-service
-# decomposition (Phase 1).
+# Backtest response/serialization DTOs live in a focused module
+# (:mod:`src.infrastructure.use_cases.backtest_models`); re-imported here so existing
+# bare-name references (e.g. ``_BacktestRunDetails(**run_data)``) resolve to the same
+# class objects. Part of the backtest-service decomposition (Phase 1).
 from src.infrastructure.use_cases.backtest_models import (  # noqa: E402
     _BacktestRunDetails,
     _BacktestRunList,
     _BacktestRunStatus,
     _BacktestTrade,
-    _linregress_slope,
+)
+
+# Pair-prioritization / scoring engine (Phase 2). The implementation lives in
+# :mod:`src.infrastructure.use_cases.backtest_pair_selection`; the thin delegating
+# methods below preserve the existing ``cls.``/``self.`` call sites unchanged.
+from src.infrastructure.use_cases import (  # noqa: E402
+    backtest_pair_selection as _pair_selection,
 )
 
 
@@ -2263,10 +2262,7 @@ class BacktestService:
         market_1: Dict[str, float],
         market_2: Dict[str, float],
     ) -> tuple[list[str], np.ndarray, np.ndarray]:
-        common = sorted(set(market_1.keys()) & set(market_2.keys()))
-        p1 = np.array([market_1[k] for k in common], dtype=np.float64)
-        p2 = np.array([market_2[k] for k in common], dtype=np.float64)
-        return common, p1, p2
+        return _pair_selection._align_series(market_1, market_2)
 
     @staticmethod
     def _compute_sharpe(daily_pnl: List[float], initial_balance: float) -> float:
@@ -2340,209 +2336,12 @@ class BacktestService:
 
     @staticmethod
     def _safe_float(value: Any, default: float = 0.0) -> float:
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return default
+        # Implementation in :mod:`backtest_pair_selection` (Phase 2 extraction).
+        return _pair_selection._safe_float(value, default)
 
     @staticmethod
     def _normalize_pair_selection_mode(mode: Any) -> str:
-        raw = str(mode or "liquidity").strip().lower()
-        aliases = {
-            "liquidity": "liquidity",
-            "volume": "liquidity",
-            "volatility": "volatility",
-            "cointegration": "cointegration",
-            "input": "input",
-            "none": "input",
-            "order": "input",
-            "original": "input",
-        }
-        return aliases.get(raw, "liquidity")
-
-    @classmethod
-    def _extract_market_liquidity(cls, market_payload: Any) -> float:
-        """Return a best-effort liquidity score from market metadata."""
-        if not isinstance(market_payload, dict):
-            return 0.0
-
-        # dYdX payload fields can vary by endpoint/version; prefer 24h volumes when present.
-        candidates = [
-            market_payload.get("volume24H"),
-            market_payload.get("volume24h"),
-            market_payload.get("volume"),
-            market_payload.get("baseVolume"),
-            market_payload.get("baseVolume24H"),
-            market_payload.get("notionalVolume24H"),
-            market_payload.get("notional24H"),
-            market_payload.get("turnover24H"),
-        ]
-
-        best = 0.0
-        for raw in candidates:
-            best = max(best, cls._safe_float(raw, 0.0))
-        return best
-
-    @classmethod
-    def _prioritize_pairs_by_liquidity(
-        cls,
-        pair_markets: List[tuple[str, str]],
-        market_map: Dict[str, Any],
-    ) -> List[tuple[str, str]]:
-        """Sort pairs by combined market liquidity descending, preserving stable order for ties."""
-        if not pair_markets or not market_map:
-            return pair_markets
-
-        def score(pair: tuple[str, str]) -> float:
-            a, b = pair
-            a_info = market_map.get(a, {})
-            b_info = market_map.get(b, {})
-            return cls._extract_market_liquidity(
-                a_info
-            ) + cls._extract_market_liquidity(b_info)
-
-        # Python sort is stable, so equal scores preserve original pair order.
-        return sorted(pair_markets, key=score, reverse=True)
-
-    @classmethod
-    def _compute_market_volatility(cls, market_history: Dict[str, float]) -> float:
-        if not isinstance(market_history, dict) or len(market_history) < 3:
-            return 0.0
-        prices = np.array(list(market_history.values()), dtype=np.float64)
-        if len(prices) < 3:
-            return 0.0
-        returns = np.diff(prices) / np.maximum(prices[:-1], 1e-12)
-        if len(returns) == 0:
-            return 0.0
-        return float(np.nanstd(returns))
-
-    @classmethod
-    def _prioritize_pairs_by_volatility(
-        cls,
-        pair_markets: List[tuple[str, str]],
-        history_by_market: Dict[str, Dict[str, float]],
-    ) -> List[tuple[str, str]]:
-        if not pair_markets or not history_by_market:
-            return pair_markets
-
-        vol_cache: Dict[str, float] = {
-            market: cls._compute_market_volatility(hist)
-            for market, hist in history_by_market.items()
-        }
-
-        def score(pair: tuple[str, str]) -> float:
-            a, b = pair
-            return vol_cache.get(a, 0.0) + vol_cache.get(b, 0.0)
-
-        return sorted(pair_markets, key=score, reverse=True)
-
-    @classmethod
-    def _pair_cointegration_score(
-        cls,
-        market_a: str,
-        market_b: str,
-        history_by_market: Dict[str, Dict[str, float]],
-    ) -> float:
-        h1 = history_by_market.get(market_a, {})
-        h2 = history_by_market.get(market_b, {})
-        timestamps, p1, p2 = cls._align_series(h1, h2)
-        if len(timestamps) < 48:
-            return -1e9
-
-        # Statsmodels path: strict ranking using cointegration + stationarity tests.
-        if coint is not None and adfuller is not None:
-            try:
-                if np.min(p1) <= 0 or np.min(p2) <= 0:
-                    return -1e9
-
-                log_p1 = np.log(p1)
-                log_p2 = np.log(p2)
-
-                coint_stat, coint_pvalue, _ = coint(log_p1, log_p2)
-
-                # Estimate hedge ratio on log prices and test spread stationarity.
-                hedge_ratio = _linregress_slope(log_p2, log_p1)
-                spread = log_p1 - (hedge_ratio * log_p2)
-
-                adf_stat, adf_pvalue, *_ = adfuller(spread, autolag="AIC")
-
-                # Half-life estimate from OU approximation: dS_t = k*S_{t-1}+e_t.
-                lagged = spread[:-1]
-                delta = np.diff(spread)
-                if len(lagged) < 3 or np.std(lagged) <= 1e-12:
-                    return -1e9
-
-                kappa = _linregress_slope(lagged, delta)
-                if kappa >= 0:
-                    half_life = float("inf")
-                else:
-                    half_life = -math.log(2.0) / kappa
-
-                # Return-correlation as a secondary quality signal.
-                r1 = np.diff(log_p1)
-                r2 = np.diff(log_p2)
-                corr = float(np.corrcoef(r1, r2)[0, 1]) if len(r1) > 1 else 0.0
-                if math.isnan(corr):
-                    corr = 0.0
-
-                # Strict penalty: deprioritize pairs that fail significance thresholds.
-                if coint_pvalue > 0.10 or adf_pvalue > 0.10:
-                    return -100.0 - float(coint_pvalue) - float(adf_pvalue)
-
-                coint_score = 1.0 - cls._clamp(float(coint_pvalue), 0.0, 1.0)
-                adf_score = 1.0 - cls._clamp(float(adf_pvalue), 0.0, 1.0)
-                half_life_score = (
-                    0.0
-                    if not np.isfinite(half_life)
-                    else 1.0 / (1.0 + max(0.0, half_life))
-                )
-                corr_score = abs(corr)
-
-                # Weighted blend (tests dominate, dynamics refine ties).
-                score = (2.5 * coint_score) + (2.5 * adf_score) + (0.75 * corr_score)
-                score += 0.5 * half_life_score
-
-                # Small tie-breaker with test statistics where more negative is better.
-                score += 0.01 * abs(float(coint_stat))
-                score += 0.01 * abs(float(adf_stat))
-                return float(score)
-            except Exception:
-                # Fall through to heuristic fallback if statistical path fails.
-                pass
-
-        # Fallback heuristic when strict tests are unavailable.
-        var_b = float(np.var(p2))
-        if var_b <= 1e-12:
-            return -1e9
-        hedge_ratio = float(np.cov(p1, p2)[0, 1] / var_b)
-        spread = p1 - (hedge_ratio * p2)
-
-        spread_std = float(np.std(spread))
-        if spread_std <= 1e-12:
-            return -1e9
-
-        diff_std = float(np.std(np.diff(spread))) if len(spread) > 1 else 0.0
-        corr = float(np.corrcoef(p1, p2)[0, 1]) if len(p1) > 1 else 0.0
-        if math.isnan(corr):
-            corr = 0.0
-
-        # Heuristic: prefer high absolute correlation and faster spread dynamics.
-        mean_reversion_component = min(1.0, diff_std / max(spread_std, 1e-12))
-        return abs(corr) + mean_reversion_component
-
-    @classmethod
-    def _prioritize_pairs_by_cointegration(
-        cls,
-        pair_markets: List[tuple[str, str]],
-        history_by_market: Dict[str, Dict[str, float]],
-    ) -> List[tuple[str, str]]:
-        if not pair_markets or not history_by_market:
-            return pair_markets
-
-        def score(pair: tuple[str, str]) -> float:
-            return cls._pair_cointegration_score(pair[0], pair[1], history_by_market)
-
-        return sorted(pair_markets, key=score, reverse=True)
+        return _pair_selection._normalize_pair_selection_mode(mode)
 
     @classmethod
     def _prioritize_pairs(
@@ -2552,16 +2351,9 @@ class BacktestService:
         market_map: Dict[str, Any],
         history_by_market: Dict[str, Dict[str, float]],
     ) -> List[tuple[str, str]]:
-        normalized_mode = cls._normalize_pair_selection_mode(mode)
-        if normalized_mode == "input":
-            return pair_markets
-        if normalized_mode == "volatility":
-            return cls._prioritize_pairs_by_volatility(pair_markets, history_by_market)
-        if normalized_mode == "cointegration":
-            return cls._prioritize_pairs_by_cointegration(
-                pair_markets, history_by_market
-            )
-        return cls._prioritize_pairs_by_liquidity(pair_markets, market_map)
+        return _pair_selection._prioritize_pairs(
+            pair_markets, mode, market_map, history_by_market
+        )
 
     async def _simulate_pair(
         self,

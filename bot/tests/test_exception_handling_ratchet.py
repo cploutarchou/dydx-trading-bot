@@ -22,7 +22,13 @@ from pathlib import Path
 
 # Current count of broad catches in src/. Lower this when you narrow/remove one.
 # Do NOT raise it without explicit justification (a new genuinely-broad best-effort catch).
-BROAD_CATCH_BASELINE = 315
+# 315 -> 311 (2026-08-03, ratchet Phase 2): removed 4 redundant route-level
+# `except Exception -> return api_response(500)` catch-alls in src/api/v1/backtests.py
+# (create/stats/delete/live-progress) that are fully covered by the global
+# @app.exception_handler(Exception) — api_response forces INTERNAL_ERROR_MESSAGE for
+# any 500, and the global handler logs via logger.exception, so removal is
+# response+logging neutral. (Skipped routes that return custom data/error codes.)
+BROAD_CATCH_BASELINE = 311
 
 # Matches "except Exception", "except Exception as e", "except Exception:" and bare "except:".
 _BROAD_CATCH_RE = re.compile(r"\bexcept\s+(Exception|BaseException)\b|^\s*except\s*:")

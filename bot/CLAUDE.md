@@ -98,6 +98,9 @@ BOT_DATABASE_URL, DATABASE_URL, BOT_DB_*, DB_*, POSTGRES_*
 CELERY_BROKER_URL, CELERY_RESULT_BACKEND, REDIS_URL, VALKEY_URL
 CELERY_QUEUES=backtests,default,high_priority,scheduled
 
+# Market data cache (shared L2 Redis/Valkey; no-ops when Redis is absent)
+MARKET_DATA_CACHE_ENABLED=true, MARKET_DATA_CACHE_REDIS_URL, MARKET_DATA_CACHE_SOCKET_TIMEOUT_SECONDS
+
 # Backtest configuration
 BACKTEST_WORKER_BACKEND=celery|asyncio
 BACKTEST_CELERY_QUEUE=backtests

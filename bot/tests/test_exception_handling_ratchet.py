@@ -28,7 +28,13 @@ from pathlib import Path
 # @app.exception_handler(Exception) — api_response forces INTERNAL_ERROR_MESSAGE for
 # any 500, and the global handler logs via logger.exception, so removal is
 # response+logging neutral. (Skipped routes that return custom data/error codes.)
-BROAD_CATCH_BASELINE = 311
+# 311 -> 310 (2026-08-05, market-data L2 cache): removed the ad-hoc
+# `_get_recent_candles_from_redis` helper in src/trading/market_data.py (one
+# `except Exception -> return None`); its responsibilities moved to the new
+# best-effort `src/infrastructure/cache/` module, which this ratchet excludes by
+# design (the `cache` directory is in `_EXCLUDED_DIR_PARTS` — intentional
+# cache-miss isolation). market_data.py added no new broad catches.
+BROAD_CATCH_BASELINE = 310
 
 # Matches "except Exception", "except Exception as e", "except Exception:" and bare "except:".
 _BROAD_CATCH_RE = re.compile(r"\bexcept\s+(Exception|BaseException)\b|^\s*except\s*:")

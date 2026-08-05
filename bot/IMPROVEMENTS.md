@@ -179,9 +179,10 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 #### **Low Priority**
 
-- **Caching Strategy**: No caching layer for frequently accessed market data
-    - **Impact**: Repeated expensive calculations and API calls
-    - **Files**: `src/trading/market_data.py`, `src/trading/realtime_data_service.py`
+- **Caching Strategy** (RESOLVED): A Redis/Valkey-backed shared (L2) cache now serves frequently
+  accessed market data
+    - **Previous impact**: Repeated expensive calculations and API calls
+    - **Files**: `src/infrastructure/cache/market_cache.py`, `src/trading/market_data.py`
 
 ---
 
@@ -660,10 +661,30 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
       with `BotInstance` in `src/main_instance.py` (its class body interrupts `BotInstance`); left in
       place to avoid breaking the runtime entrypoint.
 
-- [ ] **Add caching layer** for frequently accessed market data
+- [x] **Add caching layer** for frequently accessed market data
     - **Files**: Create `src/infrastructure/cache/`, implement Redis-backed cache
     - **Impact**: Reduced API calls, improved performance
     - **Effort**: 1 week
+    - **Status**: COMPLETED — added `src/infrastructure/cache/` (a `MarketDataCache` ABC +
+      `RedisMarketDataCache` + `NoopMarketDataCache`, following the storage-adapter conventions)
+      backed by a single persistent `redis.asyncio` client, and wired it as the **shared L2**
+      layer in `src/trading/market_data.py`. `get_candles_recent` and `get_markets` now follow
+      L1 (in-process TTL) → L2 (Redis/Valkey) → dYdX API with **read-through writes**, so the
+      runtime populates the shared cache for sibling workers/restarts even when the Celery Beat
+      producer (`market_sync_tasks.py`) is off. The candles L2 reuses the producer's exact key
+      `market:candles:{market}:{resolution}`, so the two interoperate. The cache is an
+      optimization only — every Redis failure degrades to a cache miss and never breaks a
+      market-data call; disabled via `MARKET_DATA_CACHE_ENABLED=false` (default true) and it
+      no-ops when Redis is absent. **Bug fixed along the way:** the previous ad-hoc Redis lookup
+      returned the raw response dict on a hit, which broke `_as_numeric_series` downstream; the
+      L2 path now deserializes to a `pd.Series` consistently. Env vars: `MARKET_DATA_CACHE_ENABLED`,
+      `MARKET_DATA_CACHE_REDIS_URL`, `MARKET_DATA_CACHE_SOCKET_TIMEOUT_SECONDS` (TTLs reuse the
+      existing `MARKETS_CACHE_TTL_SECONDS` / `CANDLES_RECENT_CACHE_TTL_SECONDS`). Coverage in
+      `tests/test_market_data_cache.py` (cache-module unit tests with an injected fake async
+      client + regression tests for the dict→Series fix and read-through writes); an autouse
+      fixture in `tests/conftest.py` keeps the L2 inert by default so the suite stays
+      deterministic. Removed one broad `except Exception` (the ad-hoc helper) → broad-catch
+      ratchet tightened 311→310.
 
 #### **Reliability Enhancements**
 
@@ -844,7 +865,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 ### **Medium Priority / High Impact** (Month 2)
 
-- Caching layer implementation
+- ✅ Caching layer implementation (COMPLETED — `src/infrastructure/cache/` shared L2 market-data cache; see action-plan item)
 - Circuit breaker implementation
 - Performance regression testing
 - Test isolation improvements

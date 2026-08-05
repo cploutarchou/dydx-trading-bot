@@ -16,6 +16,7 @@ from src.constants import (
     MARKETS_CACHE_TTL_SECONDS,
     RESOLUTION,
 )
+from src.infrastructure.cache import get_market_data_cache
 from src.shared.dataframe_utils import (
     cleanup_dataframe,
     optimize_dataframe_memory,
@@ -24,7 +25,6 @@ from src.shared.dataframe_utils import (
     unregister_dataframe,
 )
 from src.shared.notifications import send_error_notification as _send_error_notification
-from src.shared.redis_env import redis_url
 from src.shared.utils import get_ISO_times
 from src.trading.arbitrage_observability import increment_metric
 
@@ -101,29 +101,16 @@ async def _throttle_api_call() -> None:
         await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
 
 
-def _get_recent_candles_from_redis(market: str, resolution: str):
-    """Best-effort shared-cache lookup for recent candles.
+def _closes_to_series(response: dict) -> pd.Series:
+    """Build a reversed-close ``pd.Series`` from a raw dYdX candle response.
 
-    Returns parsed payload or ``None`` when unavailable.
+    Shared by the live API path and the L2 cache-hit path so both return the
+    same type (the previous Redis-hit path returned the raw dict, which broke
+    ``_as_numeric_series`` downstream).
     """
-    try:
-        import json as _json
-
-        import redis as _redis
-
-        _rc = _redis.from_url(
-            redis_url(prefer_celery_broker=True),
-            decode_responses=True,
-            socket_connect_timeout=1,
-            socket_timeout=1,
-        )
-        _redis_val = _rc.get(f"market:candles:{market}:{resolution}")
-        _rc.close()
-        if isinstance(_redis_val, (str, bytes, bytearray)) and _redis_val:
-            return _json.loads(_redis_val)
-    except Exception:
-        return None
-    return None
+    close_prices = [candle["close"] for candle in response["candles"]]
+    close_prices.reverse()
+    return pd.Series(close_prices, dtype=float)
 
 
 # ── Circuit breaker (pybreaker) ───────────────────────────────────────────────
@@ -270,17 +257,25 @@ async def get_candles_recent(client, market, resolution=None):
             return cached["data"]
     increment_metric("cache_misses_total")
 
-    # Check shared Redis cache (written by the Celery Beat market sync task)
+    # Check the shared L2 cache (Redis/Valkey). The Celery Beat market-sync
+    # task populates this, and the runtime also writes back below (read-through).
     if cache_enabled:
-        _redis_data = _get_recent_candles_from_redis(market, effective_resolution)
-        if _redis_data is not None:
-            _candles_recent_cache[cache_key] = {
-                "data": _redis_data,
-                "expires": now + CANDLES_RECENT_CACHE_TTL_SECONDS,
-            }
-            increment_metric("cache_hits_total")
-            increment_metric("exchange_api_calls_saved_total")
-            return _redis_data
+        _shared = await get_market_data_cache().get_candles(
+            market, effective_resolution
+        )
+        if _shared is not None:
+            try:
+                _shared_series = _closes_to_series(_shared)
+            except (KeyError, TypeError, ValueError):
+                _shared_series = None
+            if _shared_series is not None:
+                _candles_recent_cache[cache_key] = {
+                    "data": _shared_series,
+                    "expires": now + CANDLES_RECENT_CACHE_TTL_SECONDS,
+                }
+                increment_metric("cache_hits_total")
+                increment_metric("exchange_api_calls_saved_total")
+                return _shared_series
 
     # Protect API rate limits
     await _throttle_api_call()
@@ -316,13 +311,9 @@ async def get_candles_recent(client, market, resolution=None):
         _latency_ms = (time.monotonic() - _fetch_start) * 1000.0
         _fetch_logger.debug("candle_fetch_ok latency_ms={:.1f}", _latency_ms)
 
-    close_prices = []
-    for candle in response["candles"]:
-        close_prices.append(candle["close"])
-    close_prices.reverse()
-    result = pd.Series(close_prices, dtype=float)
+    result = _closes_to_series(response)
 
-    # Store in cache with improved cleanup
+    # Store in L1 (in-process) and L2 (shared) caches with bounded cleanup.
     if cache_enabled:
         _candles_recent_cache[cache_key] = {
             "data": result,
@@ -333,6 +324,11 @@ async def get_candles_recent(client, market, resolution=None):
             cleanup_cache_entries(
                 _candles_recent_cache, max_size=200, max_age_minutes=30
             )
+        # Read-through write: populate the shared cache for other workers even
+        # when the Celery Beat market-sync producer is not running.
+        await get_market_data_cache().set_candles(
+            market, effective_resolution, response, CANDLES_RECENT_CACHE_TTL_SECONDS
+        )
 
     return result
 
@@ -405,7 +401,7 @@ async def get_candles_historical(client, market, resolution=None):
 
 
 async def get_markets(client):
-    """Get list of all perpetual markets, with a 60-second in-process cache."""
+    """Get list of all perpetual markets, with a 60-second L1 + shared L2 cache."""
     global _markets_cache
     now = time.monotonic()
     if (
@@ -418,6 +414,19 @@ async def get_markets(client):
         return _markets_cache["data"]
     increment_metric("cache_misses_total")
 
+    # Shared L2 cache (Redis/Valkey) keeps the markets list consistent across
+    # workers/replicas and avoids redundant exchange calls after a restart.
+    if MARKETS_CACHE_TTL_SECONDS > 0:
+        _shared = await get_market_data_cache().get_markets()
+        if _shared is not None:
+            _markets_cache = {
+                "data": _shared,
+                "expires": now + MARKETS_CACHE_TTL_SECONDS,
+            }
+            increment_metric("cache_hits_total")
+            increment_metric("exchange_api_calls_saved_total")
+            return _shared
+
     try:
         increment_metric("exchange_api_calls_total")
         result = await asyncio.wait_for(
@@ -429,6 +438,8 @@ async def get_markets(client):
         raise
     if MARKETS_CACHE_TTL_SECONDS > 0:
         _markets_cache = {"data": result, "expires": now + MARKETS_CACHE_TTL_SECONDS}
+        # Read-through write so sibling workers and restarts hit the shared cache.
+        await get_market_data_cache().set_markets(result, MARKETS_CACHE_TTL_SECONDS)
     return result
 
 

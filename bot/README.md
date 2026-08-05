@@ -112,6 +112,10 @@ Useful environment variables:
 - `BACKTEST_CELERY_TASK_SOFT_TIME_LIMIT` and `BACKTEST_CELERY_TASK_TIME_LIMIT`
 - `BACKTEST_TASK_LOCK_TTL_SECONDS` or `BACKTEST_LOCK_REDIS_URL` for duplicate-run locking
 - `MARKET_SYNC_ENABLED=true` only when running Celery Beat for scheduled market candle sync
+- `MARKET_DATA_CACHE_ENABLED=true` (default) enables the shared Redis/Valkey L2 cache for markets and recent
+  candles (read-through write; no-ops when Redis is absent). Override the URL with `MARKET_DATA_CACHE_REDIS_URL`
+  (defaults to the Celery broker / `REDIS_URL` / `VALKEY_URL`) and bound command latency with
+  `MARKET_DATA_CACHE_SOCKET_TIMEOUT_SECONDS=1.0`
 - `NATS_URL` and `NATS_MONITORING_URL` for the optional command/event bus contract
 - `BACKTEST_ARTIFACT_STORAGE_ENABLED=false` keeps artifact persistence on the local fallback path
 - `BACKTEST_CLICKHOUSE_WRITES_ENABLED=false` keeps analytical writes disabled by default

@@ -2,6 +2,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 
 def _ensure_path(path: Path) -> None:
     resolved = str(path.resolve())
@@ -14,6 +16,27 @@ BOT_ROOT = REPO_ROOT / "bot"
 
 _ensure_path(REPO_ROOT)
 _ensure_path(BOT_ROOT)
+
+
+# ============================================================================
+# Market-data shared (L2) cache isolation
+# ============================================================================
+#
+# The Redis/Valkey-backed L2 cache in ``src/infrastructure/cache`` is shared
+# state. Tests must stay deterministic regardless of Redis/Valkey contents, so
+# the L2 is kept inert (Noop) by default. Tests that exercise the cache override
+# ``src.trading.market_data.get_market_data_cache`` directly with their own
+# double (their ``monkeypatch.setattr`` runs after this fixture's setup and so
+# takes precedence within the same function-scoped monkeypatch).
+@pytest.fixture(autouse=True)
+def _isolate_shared_market_data_cache(monkeypatch):
+    from src.infrastructure.cache import NoopMarketDataCache, reset_market_data_cache
+    from src.trading import market_data
+
+    reset_market_data_cache()
+    monkeypatch.setattr(
+        market_data, "get_market_data_cache", lambda: NoopMarketDataCache()
+    )
 
 
 # ============================================================================

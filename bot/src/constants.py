@@ -131,5 +131,18 @@ CANDLES_RECENT_CACHE_TTL_SECONDS: float = float(
     _os.getenv("CANDLES_RECENT_CACHE_TTL_SECONDS", "30")
 )
 
+# Shared (L2) Redis market-data cache. Even when enabled, runtime Redis failures
+# degrade per-command to a cache miss (never break a market-data call). The
+# shared candles key (`market:candles:{market}:{resolution}`) interoperate with
+# the Celery Beat producer in `market_sync_tasks.py`.
+MARKET_DATA_CACHE_ENABLED: bool = _env_flag("MARKET_DATA_CACHE_ENABLED", True)
+# Optional explicit Redis URL; falls back to the Celery broker / REDIS_URL /
+# VALKEY_URL resolution in `src/shared/redis_env.py` when unset.
+MARKET_DATA_CACHE_REDIS_URL: str = _os.getenv("MARKET_DATA_CACHE_REDIS_URL", "")
+# Per-command socket timeout (seconds) so a down Redis cannot stall market data.
+MARKET_DATA_CACHE_SOCKET_TIMEOUT_SECONDS: float = float(
+    _os.getenv("MARKET_DATA_CACHE_SOCKET_TIMEOUT_SECONDS", "1.0")
+)
+
 # Max concurrent dYdX candle fetches when building the price matrix.
 CANDLE_FETCH_CONCURRENCY: int = int(_os.getenv("CANDLE_FETCH_CONCURRENCY", "10"))

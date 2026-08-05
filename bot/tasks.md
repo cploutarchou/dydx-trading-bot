@@ -1,5 +1,34 @@
 # Tasks Log
 
+## 2026-08-05
+
+- Implemented the shared (L2) market-data caching layer (Medium-priority item from `IMPROVEMENTS.md`):
+    - Added `src/infrastructure/cache/market_cache.py` (`MarketDataCache` ABC + `RedisMarketDataCache` +
+      `NoopMarketDataCache`) following the storage-adapter conventions, backed by a single persistent
+      `redis.asyncio` client built lazily (cheap; never raises on construct). The cache is an optimization only —
+      every Redis failure degrades to a cache miss and never breaks a market-data call.
+    - Wired it as the **shared L2** layer in `src/trading/market_data.py`: `get_candles_recent` and `get_markets`
+      now follow L1 (in-process TTL) → L2 (Redis/Valkey) → dYdX API with **read-through writes**, so the runtime
+      populates the shared cache for sibling workers/restarts even when the Celery Beat producer is off. The candles
+      L2 reuses the producer's exact key `market:candles:{market}:{resolution}` (interoperable with
+      `market_sync_tasks.py`); `get_markets` gains cross-worker sharing it lacked before.
+    - **Bug fixed:** the previous ad-hoc `_get_recent_candles_from_redis` returned the raw response dict on a hit,
+      which broke `_as_numeric_series` (`pd.Series(dict)`) downstream — dormant only because `MARKET_SYNC_ENABLED`
+      defaults false. The L2 path now deserializes to a `pd.Series` consistently via a shared `_closes_to_series`
+      helper.
+    - Env vars in `src/constants.py`: `MARKET_DATA_CACHE_ENABLED` (default true), `MARKET_DATA_CACHE_REDIS_URL`
+      (defaults to Celery broker / `REDIS_URL` / `VALKEY_URL`), `MARKET_DATA_CACHE_SOCKET_TIMEOUT_SECONDS` (1.0);
+      TTLs reuse the existing `MARKETS_CACHE_TTL_SECONDS` / `CANDLES_RECENT_CACHE_TTL_SECONDS`.
+    - Tests: cache-module unit tests (injected fake async Redis client: key naming, JSON round-trip, TTL passthrough,
+      error swallowing, `health()`, `aclose()`, Noop, factory) + regression tests for the dict→Series fix and
+      read-through writes in `tests/test_market_data_cache.py`; an autouse fixture in `tests/conftest.py` keeps the
+      L2 inert by default so the suite stays deterministic.
+    - Validation: `bot/.venv/bin/python -m pytest bot/tests/test_market_data_cache.py bot/tests/test_exception_handling_ratchet.py bot/tests/test_market_sync_tasks.py -q` -> `27 passed`; end-to-end check against live Valkey confirmed an L2 hit returns a `pd.Series` and saves the exchange call. `black --check` + `flake8 --select=E9,F63,F7,F82` clean across `src` and `tests`.
+    - Removed one broad `except Exception` (the ad-hoc helper) → broad-catch ratchet tightened `BROAD_CATCH_BASELINE`
+      311→310 with a justification comment in `tests/test_exception_handling_ratchet.py`.
+    - Updated `README.md`, `CLAUDE.md`, and `IMPROVEMENTS.md` (marked the action item complete). `openapi.json`
+      unchanged (no API routes added — the cache is internal). `../docs/OPERATIONS.md` not present in the tree.
+
 ## 2026-07-21
 
 - Implemented at-rest credential encryption for `bot_instances.config` (CRITICAL security item from `IMPROVEMENTS.md`):

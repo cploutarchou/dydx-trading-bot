@@ -4,7 +4,6 @@ import asyncio
 import importlib.util
 import os
 import time
-from typing import Any
 
 import pandas as pd
 from loguru import logger
@@ -16,6 +15,7 @@ from src.constants import (
     MARKETS_CACHE_TTL_SECONDS,
     RESOLUTION,
 )
+from src.infrastructure import resilience
 from src.infrastructure.cache import get_market_data_cache
 from src.shared.dataframe_utils import (
     cleanup_dataframe,
@@ -24,7 +24,6 @@ from src.shared.dataframe_utils import (
     register_dataframe,
     unregister_dataframe,
 )
-from src.shared.notifications import send_error_notification as _send_error_notification
 from src.shared.utils import get_ISO_times
 from src.trading.arbitrage_observability import increment_metric
 
@@ -113,71 +112,13 @@ def _closes_to_series(response: dict) -> pd.Series:
     return pd.Series(close_prices, dtype=float)
 
 
-# ── Circuit breaker (pybreaker) ───────────────────────────────────────────────
-# Opens after DYDX_CIRCUIT_FAIL_MAX consecutive failures within
-# DYDX_CIRCUIT_RESET_TIMEOUT seconds; transitions to half-open after the reset
-# timeout, then closes on the first success.  Falls back to a no-op wrapper
-# when pybreaker is not installed.
-_CIRCUIT_FAIL_MAX = int(os.getenv("DYDX_CIRCUIT_FAIL_MAX", "3"))
-_CIRCUIT_RESET_TIMEOUT = int(os.getenv("DYDX_CIRCUIT_RESET_TIMEOUT", "30"))
-_dydx_circuit_breaker: Any = None
-
-
-def _notify_circuit_breaker_open(fail_counter: int) -> None:
-    """Best-effort operator alert when the dYdX circuit transitions to OPEN."""
-    try:
-        _send_error_notification(
-            "dYdX circuit breaker open",
-            (
-                "dYdX API circuit opened after "
-                f"{fail_counter} consecutive failures. "
-                "Market data calls are temporarily paused until half-open recovery."
-            ),
-            is_critical=True,
-            category="dydx_circuit_open",
-        )
-    except Exception as exc:
-        logger.warning("dydx_circuit_breaker_notify_failed error={!r}", exc)
-
-
-if importlib.util.find_spec("pybreaker") is not None:
-    try:
-        import pybreaker as _pybreaker  # type: ignore[import]
-
-        class _CircuitBreakerListener(_pybreaker.CircuitBreakerListener):  # type: ignore[misc]
-            def state_change(self, cb, old_state, new_state):  # type: ignore[override]
-                if new_state.name == "open":
-                    logger.critical(
-                        "dydx_circuit_breaker_open fail_max={} recent_failures={}",
-                        _CIRCUIT_FAIL_MAX,
-                        cb.fail_counter,
-                    )
-                    _notify_circuit_breaker_open(int(cb.fail_counter))
-                elif new_state.name == "closed":
-                    logger.info("dydx_circuit_breaker_closed")
-                elif new_state.name == "half-open":
-                    logger.info("dydx_circuit_breaker_half_open")
-
-        _dydx_circuit_breaker = _pybreaker.CircuitBreaker(
-            fail_max=_CIRCUIT_FAIL_MAX,
-            reset_timeout=_CIRCUIT_RESET_TIMEOUT,
-            listeners=[_CircuitBreakerListener()],
-            name="dydx_api",
-        )
-    except Exception:
-        _dydx_circuit_breaker = None
-
-
-async def _circuit_call(coro_factory):
-    """Run *coro_factory()* guarded by the dYdX circuit breaker.
-
-    Falls back to direct execution when pybreaker is not installed.
-    Raises ``pybreaker.CircuitBreakerError`` when the circuit is open so callers
-    can return cached data instead of failing.
-    """
-    if _dydx_circuit_breaker is None:
-        return await coro_factory()
-    return await _dydx_circuit_breaker.call_async(coro_factory)
+# ── Circuit breaker ───────────────────────────────────────────────────────────
+# dYdX market-data calls are guarded by the centralized resilience framework
+# (`src.infrastructure.resilience`) via the named "dydx_indexer" breaker. It
+# honors the legacy DYDX_CIRCUIT_FAIL_MAX / DYDX_CIRCUIT_RESET_TIMEOUT env vars
+# (with DYDX_INDEXER_CIRCUIT_* as new aliases) and excludes client HTTP errors
+# (e.g. 404) from tripping. Operator alerts on OPEN transitions are wired in the
+# framework. See `resilience.call_async(...)` / `resilience.breaker_states()`.
 
 
 def normalize_resolution(resolution):
@@ -290,13 +231,14 @@ async def get_candles_recent(client, market, resolution=None):
         kind="recent",
     )
     try:
-        response = await _circuit_call(
+        response = await resilience.call_async(
+            "dydx_indexer",
             lambda: asyncio.wait_for(
                 client.indexer.markets.get_perpetual_market_candles(
                     market=market, resolution=effective_resolution
                 ),
                 timeout=15.0,
-            )
+            ),
         )
     except Exception as _exc:
         increment_metric("provider_errors_total")
@@ -363,7 +305,8 @@ async def get_candles_historical(client, market, resolution=None):
             kind="historical",
         )
         try:
-            response = await _circuit_call(
+            response = await resilience.call_async(
+                "dydx_indexer",
                 lambda: asyncio.wait_for(
                     client.indexer.markets.get_perpetual_market_candles(
                         market=market,
@@ -373,7 +316,7 @@ async def get_candles_historical(client, market, resolution=None):
                         limit=100,
                     ),
                     timeout=15.0,
-                )
+                ),
             )
         except Exception as _exc:
             _latency_ms = (time.monotonic() - _fetch_start) * 1000.0

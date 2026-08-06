@@ -34,7 +34,17 @@ from pathlib import Path
 # best-effort `src/infrastructure/cache/` module, which this ratchet excludes by
 # design (the `cache` directory is in `_EXCLUDED_DIR_PARTS` — intentional
 # cache-miss isolation). market_data.py added no new broad catches.
-BROAD_CATCH_BASELINE = 310
+# 310 -> 309 (2026-08-06, circuit-breaker framework): migrated the ad-hoc
+# `_dydx_circuit_breaker` out of src/trading/market_data.py — removed two broad
+# catches there (the `_notify_circuit_breaker_open` notifier guard and the
+# pybreaker-construction fallback) — into the new centralized
+# src/infrastructure/resilience/ module, which adds back ONE intentional
+# best-effort notifier-isolation catch in `_fire_breaker_open_alert` (so a faulty
+# open-notifier can never corrupt the breaker state machine). Net -1. The
+# `resilience` directory is deliberately NOT excluded from this ratchet: it owns
+# its one legitimate catch. market_data now guards calls via
+# `resilience.call_async("dydx_indexer", ...)`.
+BROAD_CATCH_BASELINE = 309
 
 # Matches "except Exception", "except Exception as e", "except Exception:" and bare "except:".
 _BROAD_CATCH_RE = re.compile(r"\bexcept\s+(Exception|BaseException)\b|^\s*except\s*:")

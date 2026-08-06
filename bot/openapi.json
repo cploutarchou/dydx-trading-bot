@@ -5177,6 +5177,41 @@
         ],
         "x-response-envelope": "StandardApiResponse"
       }
+    },
+    "/api/v1/monitoring/ws-broadcast": {
+      "get": {
+        "summary": "Get Ws Broadcast Health",
+        "description": "Get health of the cross-worker WebSocket broadcast bus. Reports whether the Redis pub/sub bus is enabled, its backend (redis / noop), reachability (healthy), the worker's subscriber identity (worker_id), and whether the listener task is running (listening). When the bus is disabled (the default, WS_BROADCAST_ENABLED=false) this returns the noop shape. See src/infrastructure/broadcast.",
+        "operationId": "get_ws_broadcast_health_api_v1_monitoring_ws_broadcast_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-response-envelope": "StandardApiResponse"
+      }
     }
   },
   "components": {

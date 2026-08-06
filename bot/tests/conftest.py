@@ -61,6 +61,38 @@ def _isolate_circuit_breakers(monkeypatch):
 
 
 # ============================================================================
+# Cross-worker WebSocket broadcast bus isolation
+# ============================================================================
+#
+# The Redis pub/sub bus in ``src/infrastructure/broadcast`` fans WebSocket
+# broadcasts across Uvicorn workers. Tests must stay deterministic regardless of
+# Redis/Valkey state, so the bus is kept inert (Noop) by default — every
+# ``broadcast_to_bot`` then behaves exactly as it did before the bus existed
+# (local-only delivery). The accessor is patched at the *importer*
+# (``src.api.websocket_server``), mirroring the market-data cache fixture above;
+# a test's own function-scoped monkeypatch runs after this setup and so takes
+# precedence when it wants to exercise a real/double bus.
+@pytest.fixture(autouse=True)
+def _isolate_broadcast_bus(monkeypatch):
+    from src.infrastructure.broadcast import NoopBroadcastBus, reset_broadcast_bus
+
+    monkeypatch.setenv("WS_BROADCAST_ENABLED", "false")
+    reset_broadcast_bus()
+    try:
+        from src.api import websocket_server
+    except ImportError:  # pragma: no cover - FastAPI/pydantic absent in stripped envs
+        # The bus is already Noop via the disabled flag + reset above; this guard
+        # only affects stripped local envs (no pydantic_core) so non-FastAPI tests
+        # can still run. CI has FastAPI, so the patch applies there. ``ImportError``
+        # is intentionally narrow so a genuine regression in websocket_server.py
+        # surfaces instead of being silently swallowed.
+        return
+    monkeypatch.setattr(
+        websocket_server, "get_broadcast_bus", lambda: NoopBroadcastBus()
+    )
+
+
+# ============================================================================
 # PostgreSQL database helper functions
 # ============================================================================
 

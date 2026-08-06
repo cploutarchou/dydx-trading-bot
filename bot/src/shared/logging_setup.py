@@ -15,6 +15,7 @@ from src.constants import (
     LOKI_PUSH_URL,
     LOKI_USERNAME,
 )
+from src.infrastructure import resilience
 
 REQUESTS_AVAILABLE = importlib.util.find_spec("requests") is not None
 _LOGGING_CONFIGURED = False
@@ -154,7 +155,9 @@ def send_to_loki_directly(
     try:
         import requests
 
-        response = requests.post(
+        response = resilience.call(
+            "loki",
+            requests.post,
             url,
             json=payload,
             auth=(username, password) if username or password else None,

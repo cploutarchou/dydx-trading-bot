@@ -12,6 +12,8 @@ import requests
 from loguru import logger
 
 from src.constants import DYDX_ADDRESS, TELEGRAM_CHAT_ID, TELEGRAM_TOKEN
+from src.exceptions import CircuitBreakerOpenError
+from src.infrastructure import resilience
 
 
 class TelegramMessenger:
@@ -147,7 +149,9 @@ class TelegramMessenger:
         attempts = max(1, int(os.getenv("TELEGRAM_SEND_RETRIES", "3") or "3"))
         for attempt in range(1, attempts + 1):
             try:
-                response = requests.post(url, json=data, timeout=15)
+                response = resilience.call(
+                    "telegram", requests.post, url, json=data, timeout=15
+                )
 
                 if response.status_code == 200:
                     return True
@@ -200,6 +204,11 @@ class TelegramMessenger:
                 logger.error(
                     "Telegram API error {}: {}", response.status_code, response.text
                 )
+                return False
+
+            except CircuitBreakerOpenError:
+                # Sustained Telegram outage (breaker open): stop retrying at once.
+                logger.info("Telegram circuit open; skipping send attempt")
                 return False
 
             except requests.exceptions.RequestException as e:

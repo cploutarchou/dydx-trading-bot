@@ -688,10 +688,35 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 #### **Reliability Enhancements**
 
-- [ ] **Implement circuit breaker pattern** for external service calls
+- [x] **Implement circuit breaker pattern** for external service calls
     - **Files**: Create `src/infrastructure/resilience/`, add to trading modules
     - **Impact**: Graceful degradation during service issues
     - **Effort**: 1-2 weeks
+    - **Status**: COMPLETED — added `src/infrastructure/resilience/` (named-breaker registry
+      + `call`/`call_async` entry points + graceful no-op fallback when pybreaker is absent
+      or a breaker is disabled + operator alerting on OPEN transitions + `breaker_states()`
+      accessor). Backed by the already-pinned `pybreaker>=1.2,<2.0`. Migrated the ad-hoc
+      `_dydx_circuit_breaker` out of `src/trading/market_data.py` into the framework's
+      `dydx_indexer` breaker; protected the four dYdX-indexer read helpers in
+      `src/trading/account_manager.py` (404-safe via a predicate that excludes 4xx-except-429
+      so fresh-account 404s never trip the circuit while transport errors / 5xx / 429 do);
+      and wrapped the Telegram (`src/shared/notifications.py`) and Loki
+      (`src/shared/logging_setup.py`) fire-and-forget sinks. Open breakers raise a typed
+      `CircuitBreakerOpenError(ExternalServiceError)` carrying the service name. Added
+      `GET /api/v1/monitoring/circuit-breakers` for operator visibility (openapi.json synced).
+      The dYdX indexer breaker preserves the legacy `DYDX_CIRCUIT_FAIL_MAX` /
+      `DYDX_CIRCUIT_RESET_TIMEOUT` env vars (new aliases `DYDX_INDEXER_CIRCUIT_*`); new
+      `<SERVICE>_CIRCUIT_ENABLED` / `_FAIL_MAX` / `_RESET_TIMEOUT` for each service. An
+      autouse test fixture (`tests/conftest.py`) keeps breakers inert by default so the suite
+      stays deterministic. Broad-catch ratchet tightened 310→309 (removed two market_data
+      catches, added one intentional best-effort notifier-isolation catch in the framework).
+      Coverage in `tests/test_circuit_breaker.py` (14 cases) + rewritten
+      `tests/test_market_data_circuit_notifications.py`. **Deferred** (documented): dYdX node
+      mutations (`place_order`/`cancel_order`/`latest_block_height`) — trading-safety review
+      needed; NATS message processing — fights NAK/retry/dead-letter; ClickHouse/MinIO and
+      Redis cache — already degrade to no-op/best-effort. NOTE: only transport-level failures
+      trip the Telegram/Loki breakers (HTTP non-200 responses are handled by their existing
+      retry/status logic); the dYdX indexer breaker trips on transport + 5xx + 429.
 
 - [ ] **Add backtest checkpointing** for long-running tasks
     - **Files**: `src/infrastructure/workers/backtest_tasks.py`
@@ -866,7 +891,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 ### **Medium Priority / High Impact** (Month 2)
 
 - ✅ Caching layer implementation (COMPLETED — `src/infrastructure/cache/` shared L2 market-data cache; see action-plan item)
-- Circuit breaker implementation
+- ✅ Circuit breaker implementation (COMPLETED — `src/infrastructure/resilience/` named-breaker framework; see action-plan item)
 - Performance regression testing
 - Test isolation improvements
 

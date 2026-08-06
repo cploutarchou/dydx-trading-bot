@@ -1,5 +1,49 @@
 # Tasks Log
 
+## 2026-08-06
+
+- Implemented the centralized circuit-breaker framework (Medium-priority Reliability item from `IMPROVEMENTS.md`):
+    - Added `src/infrastructure/resilience/` (`breakers.py` + `__init__.py`): a registry of named breakers
+      (`dydx_indexer`, `telegram`, `loki`) backed by the already-pinned `pybreaker>=1.2,<2.0`, with async
+      `call_async()` + sync `call()` entry points, a graceful no-op fallback when pybreaker is absent or a breaker is
+      disabled, operator alerting (Telegram) on OPEN transitions via a swappable notifier, and a `breaker_states()`
+      accessor. Open breakers raise a new typed `CircuitBreakerOpenError(ExternalServiceError)` carrying the service
+      name (added to `src/exceptions.py`; ripple-free — no existing `pybreaker.CircuitBreakerError` catch sites).
+      Mirrors the `cache/` storage-adapter conventions (lazy registry, `reset_breakers()`, enabled flag).
+    - The dYdX indexer breaker uses a predicate exclude so client HTTP errors (4xx except 429 — e.g. a 404 for a
+      fresh account) do NOT trip the circuit, while transport errors / timeouts / 429 / 5xx DO. This preserves the
+      404-fallback semantics in `account_manager.get_open_positions`/`is_open_positions` exactly.
+    - Migrated the ad-hoc `_dydx_circuit_breaker` out of `src/trading/market_data.py` into the framework's
+      `dydx_indexer` breaker (the two `_circuit_call(...)` sites now use `resilience.call_async("dydx_indexer", ...)`);
+      preserved the legacy `DYDX_CIRCUIT_FAIL_MAX`/`DYDX_CIRCUIT_RESET_TIMEOUT` env vars and the operator alert text.
+    - Protected the four dYdX-indexer read helpers in `src/trading/account_manager.py`
+      (`_get_subaccount_with_metrics`, `_get_perpetual_markets_with_metrics`, `_get_order_with_metrics`,
+      `_get_subaccount_orders_with_metrics`) — TIER-1 unprotected reads; node mutations (place/cancel order) left
+      unwrapped pending a dedicated trading-safety review. Wrapped the Telegram (`src/shared/notifications.py`) and
+      Loki (`src/shared/logging_setup.py`) fire-and-forget sinks (open Telegram breaker short-circuits the retry loop).
+    - Added `GET /api/v1/monitoring/circuit-breakers` (auth required; mirrors the existing monitoring router) and
+      synced `openapi.json` (one path added, +35 lines). `/ready` semantics intentionally untouched.
+    - Tests: `tests/test_circuit_breaker.py` (14 cases — open/half-open recovery, 404-excluded vs 5xx/429-trip,
+      sync path, named-breaker isolation, disabled/pybreaker-absent noop, legacy + alias env vars, states shape,
+      alert hook fires + swallows failing notifier). Rewrote `tests/test_market_data_circuit_notifications.py` for
+      the framework. Added an autouse `_isolate_circuit_breakers` fixture in `tests/conftest.py` that keeps breakers
+      inert (disabled) by default so the existing suite stays deterministic and sees raw provider behavior unchanged.
+    - Broad-catch ratchet tightened `BROAD_CATCH_BASELINE` 310→309: removed two `market_data` catches (the notifier
+      guard + pybreaker-construction fallback); added one intentional best-effort notifier-isolation catch in
+      `_fire_breaker_open_alert`. `resilience/` is deliberately NOT excluded from the ratchet — it owns its one
+      legitimate catch.
+    - Validation: `bot/.venv/bin/python -m pytest bot/tests/test_circuit_breaker.py
+      bot/tests/test_market_data_circuit_notifications.py bot/tests/test_exception_handling_ratchet.py
+      bot/tests/test_trading_network_errors.py bot/tests/test_account_manager_metrics.py
+      bot/tests/test_account_manager_order_lookup.py bot/tests/test_account_manager_abort_cleanup.py
+      bot/tests/test_market_data_cache.py bot/tests/test_notifications.py -q` → all green. `black --check` +
+      `flake8 --select=E9,F63,F7,F82` clean. (Pre-existing venv gaps unrelated to this change: `pydantic_core` and
+      `ed25519_blake2b` are missing, so tests importing FastAPI or the dYdX signing chain can't be exercised here.)
+    - Updated `README.md`, `CLAUDE.md`, `IMPROVEMENTS.md` (marked the action item + priority-matrix entry complete).
+      `../docs/OPERATIONS.md` not present in the tree.
+    - **Deferred** (documented in IMPROVEMENTS.md): dYdX node mutations, NATS message processing, ClickHouse/MinIO,
+      Redis cache — each already has graceful degradation or needs a dedicated safety review.
+
 ## 2026-08-05
 
 - Implemented the shared (L2) market-data caching layer (Medium-priority item from `IMPROVEMENTS.md`):

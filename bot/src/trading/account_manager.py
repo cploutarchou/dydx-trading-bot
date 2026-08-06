@@ -11,6 +11,7 @@ from loguru import logger
 from v4_proto.dydxprotocol.clob.order_pb2 import Order
 
 from src.constants import DYDX_ADDRESS, DYDX_API_THROTTLE_SECONDS, SUBACCOUNT_NUMBER
+from src.infrastructure import resilience
 from src.shared.utils import format_number
 from src.trading.arbitrage_observability import increment_metric
 from src.trading.arbitrage_runtime_config import is_arbitrage_improvements_enabled
@@ -44,8 +45,11 @@ async def _get_subaccount_with_metrics(client, address: str) -> dict[str, Any]:
     """Fetch subaccount payload and track API/provider metrics."""
     increment_metric("exchange_api_calls_total")
     try:
-        return await client.indexer_account.account.get_subaccount(
-            address, _resolve_subaccount_number()
+        return await resilience.call_async(
+            "dydx_indexer",
+            lambda: client.indexer_account.account.get_subaccount(
+                address, _resolve_subaccount_number()
+            ),
         )
     except Exception:
         increment_metric("provider_errors_total")
@@ -56,7 +60,10 @@ async def _get_perpetual_markets_with_metrics(client, ticker: str) -> dict[str, 
     """Fetch perpetual market metadata directly from provider with metrics."""
     increment_metric("exchange_api_calls_total")
     try:
-        return await client.indexer.markets.get_perpetual_markets(ticker)
+        return await resilience.call_async(
+            "dydx_indexer",
+            lambda: client.indexer.markets.get_perpetual_markets(ticker),
+        )
     except Exception:
         increment_metric("provider_errors_total")
         raise
@@ -66,7 +73,10 @@ async def _get_order_with_metrics(client, order_id: str) -> dict[str, Any]:
     """Fetch order payload and track API/provider metrics."""
     increment_metric("exchange_api_calls_total")
     try:
-        return await client.indexer_account.account.get_order(order_id)
+        return await resilience.call_async(
+            "dydx_indexer",
+            lambda: client.indexer_account.account.get_order(order_id),
+        )
     except Exception:
         increment_metric("provider_errors_total")
         raise
@@ -76,8 +86,11 @@ async def _get_subaccount_orders_with_metrics(client, *args, **kwargs) -> Any:
     """Fetch subaccount orders and track API/provider metrics."""
     increment_metric("exchange_api_calls_total")
     try:
-        return await client.indexer_account.account.get_subaccount_orders(
-            *args, **kwargs
+        return await resilience.call_async(
+            "dydx_indexer",
+            lambda: client.indexer_account.account.get_subaccount_orders(
+                *args, **kwargs
+            ),
         )
     except Exception:
         increment_metric("provider_errors_total")

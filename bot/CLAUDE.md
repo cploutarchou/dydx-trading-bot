@@ -30,6 +30,9 @@ src/
 │   ├── database.py        # PostgreSQL ORM & migrations
 │   ├── persistence/       # Repository pattern (bot, strategy, backtest, jobs)
 │   ├── storage/           # ClickHouse/MinIO adapters (optional)
+│   ├── cache/             # Shared (L2) market-data cache (Redis/Valkey; optional)
+│   ├── broadcast/         # Cross-worker WebSocket broadcast bus (Redis pub/sub; optional)
+│   ├── resilience/        # Circuit breakers for external service calls (pybreaker)
 │   ├── workers/           # Celery tasks (backtests, market sync, monitoring)
 │   ├── use_cases/         # Business logic orchestrators
 │   └── event_bus*.py      # NATS/event publishing (optional)
@@ -100,6 +103,13 @@ CELERY_QUEUES=backtests,default,high_priority,scheduled
 
 # Market data cache (shared L2 Redis/Valkey; no-ops when Redis is absent)
 MARKET_DATA_CACHE_ENABLED=true, MARKET_DATA_CACHE_REDIS_URL, MARKET_DATA_CACHE_SOCKET_TIMEOUT_SECONDS
+
+# Cross-worker WebSocket broadcast bus (Redis pub/sub; no-ops / local-only when disabled or Redis absent)
+WS_BROADCAST_ENABLED=false, WS_BROADCAST_REDIS_URL, WS_BROADCAST_SOCKET_TIMEOUT_SECONDS
+
+# Circuit breakers (per service; no-ops when disabled or pybreaker absent).
+# <SERVICE> = DYDX_INDEXER (also honors legacy DYDX_CIRCUIT_*), TELEGRAM, LOKI
+<SERVICE>_CIRCUIT_ENABLED=true, <SERVICE>_CIRCUIT_FAIL_MAX, <SERVICE>_CIRCUIT_RESET_TIMEOUT
 
 # Backtest configuration
 BACKTEST_WORKER_BACKEND=celery|asyncio

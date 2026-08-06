@@ -79,6 +79,7 @@ from src.api.websocket_server import (  # noqa: E402
     broadcast_strategy_status,
     manager,
 )
+from src.infrastructure.broadcast import get_broadcast_bus  # noqa: E402
 
 # Import database utilities
 from src.infrastructure.database import DatabaseConfig, db  # noqa: E402
@@ -695,6 +696,12 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     db.create_all_tables()
     db.ensure_schema_compatibility()
     db.verify_required_tables()
+    # Start the cross-worker WebSocket broadcast subscriber early (no-op unless
+    # WS_BROADCAST_ENABLED=true), BEFORE any broadcast producer below (backtest
+    # auto-recovery, bot-manager status events) runs. start() is non-raising and
+    # non-blocking: it spawns the listener, which reconnects with backoff if
+    # Redis is not yet up.
+    await get_broadcast_bus().start(manager.deliver_local_broadcast)
     try:
         with backtest_service_scope() as service:
             backtest_recovery = await service.auto_recover_interrupted_runs(
@@ -737,6 +744,10 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     try:
         yield
     finally:
+        # Stop the broadcast bus FIRST so in-flight fan-out drains before the
+        # bot manager / job manager that produce those broadcasts tear down.
+        await get_broadcast_bus().stop()
+        await get_broadcast_bus().aclose()
         if bot_manager_monitor_task is not None:
             bot_manager_monitor_task.cancel()
             try:

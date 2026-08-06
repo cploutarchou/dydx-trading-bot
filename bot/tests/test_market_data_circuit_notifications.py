@@ -1,7 +1,23 @@
-from src.trading import market_data
+"""Operator-alert behavior for the circuit breaker that guards dYdX market data.
+
+The ad-hoc breaker wiring (and its ``_notify_circuit_breaker_open`` /
+``_send_error_notification`` helpers) previously lived in
+``src/trading/market_data.py``. It has migrated to the centralized framework in
+``src/infrastructure/resilience``; these tests now pin the operator-facing alert
+contract (title / category / severity / fail-count wording) and the best-effort
+swallowing of notifier failures at that new home.
+"""
+
+from __future__ import annotations
+
+import src.infrastructure.resilience as resilience
+from src.infrastructure.resilience.breakers import (
+    _default_breaker_open_notifier,
+    _fire_breaker_open_alert,
+)
 
 
-def test_notify_circuit_breaker_open_sends_critical_telegram(monkeypatch):
+def test_default_notifier_sends_critical_dydx_alert(monkeypatch):
     calls = []
 
     def _fake_send_error_notification(
@@ -17,11 +33,15 @@ def test_notify_circuit_breaker_open_sends_critical_telegram(monkeypatch):
         )
         return True
 
+    # The default notifier imports send_error_notification lazily from the
+    # notifications module; patch it there.
+    import src.shared.notifications as notifications_mod
+
     monkeypatch.setattr(
-        market_data, "_send_error_notification", _fake_send_error_notification
+        notifications_mod, "send_error_notification", _fake_send_error_notification
     )
 
-    market_data._notify_circuit_breaker_open(4)
+    _default_breaker_open_notifier("dydx_indexer", 4)
 
     assert len(calls) == 1
     assert calls[0]["error_type"] == "dYdX circuit breaker open"
@@ -30,11 +50,15 @@ def test_notify_circuit_breaker_open_sends_critical_telegram(monkeypatch):
     assert calls[0]["category"] == "dydx_circuit_open"
 
 
-def test_notify_circuit_breaker_open_swallow_notifier_errors(monkeypatch):
-    def _failing_notifier(*_args, **_kwargs):
-        raise RuntimeError("telegram transport unavailable")
+def test_failing_open_notifier_is_swallowed():
+    """A raising open-notifier must never escape the breaker state machine."""
 
-    monkeypatch.setattr(market_data, "_send_error_notification", _failing_notifier)
+    def _failing_notifier(_service, _count):
+        raise RuntimeError("notifier transport unavailable")
 
-    # Must not raise (best-effort alerting)
-    market_data._notify_circuit_breaker_open(3)
+    resilience.set_breaker_open_notifier(_failing_notifier)
+    try:
+        # Must not raise (best-effort alert isolation).
+        _fire_breaker_open_alert("dydx_indexer", 3)
+    finally:
+        resilience.set_breaker_open_notifier(None)

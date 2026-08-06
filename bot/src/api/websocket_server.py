@@ -19,6 +19,7 @@ from src.api.realtime_serializers import (
     serialize_realtime_position,
     serialize_stats_risk_fields,
 )
+from src.infrastructure.broadcast import get_broadcast_bus
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
@@ -362,8 +363,14 @@ class ConnectionManager:
             )
             return connection, False
 
-    async def broadcast_to_bot(self, bot_instance_id: str, message: Dict):
-        """Broadcast message to all clients connected to a bot"""
+    async def _deliver_local(self, bot_instance_id: str, message: Dict):
+        """Fan a message out to THIS worker's connections on a channel.
+
+        Shared by :meth:`broadcast_to_bot` (the producer entry point) and
+        :meth:`deliver_local_broadcast` (the cross-worker bus subscriber
+        callback). Deliberately does NOT publish to the broadcast bus — the
+        subscriber must use ``deliver_local_broadcast`` to avoid a fan-out loop.
+        """
         if bot_instance_id not in self.active_connections:
             return
 
@@ -382,6 +389,28 @@ class ConnectionManager:
         # Clean up disconnected clients
         for connection in disconnected:
             self._drop_connection(connection)
+
+    async def broadcast_to_bot(self, bot_instance_id: str, message: Dict):
+        """Broadcast message to all clients connected to a bot.
+
+        Delivers locally to this worker's connections, then best-effort publishes
+        to the cross-worker broadcast bus so other Uvicorn workers fan it out to
+        their own connections. When the bus is Noop (default / Redis unavailable
+        / tests) this is identical to local-only delivery.
+        """
+        await self._deliver_local(bot_instance_id, message)
+        # ``publish`` is non-raising by contract, so fan-out can never break a
+        # broadcast and no try/except is needed here (see broadcast/bus.py).
+        await get_broadcast_bus().publish(bot_instance_id, message)
+
+    async def deliver_local_broadcast(self, channel_id: str, message: Dict) -> None:
+        """Deliver a received cross-worker broadcast to this worker's clients.
+
+        Entry point for the broadcast-bus subscriber. Unlike
+        :meth:`broadcast_to_bot` it does NOT re-publish to the bus, which would
+        loop the message back to every worker.
+        """
+        await self._deliver_local(channel_id, message)
 
     async def send_personal_message(
         self,

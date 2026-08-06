@@ -149,11 +149,14 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 #### **Critical Issues**
 
-- **Process-Local State Limitations**: Cannot scale horizontally due to in-memory state management
-    - **WebSocket Connections**: `src/api/websocket_server.py` - Process-local only, multiple Uvicorn workers have
-      separate registries
-    - **Strategy Storage**: In-memory strategies disappear on restart and diverge across workers/replicas
-    - **Rate Limiting**: Rate-limit fallback buckets are process-local in `src/api/server.py`
+- **Process-Local State Limitations** (WebSocket fan-out: Phase 1 RESOLVED): Cannot scale horizontally due to in-memory state management
+    - **WebSocket Connections**: `src/api/websocket_server.py` was process-local only — multiple Uvicorn workers had
+      separate registries; Phase 1 added a Redis pub/sub broadcast bus (`src/infrastructure/broadcast/bus.py`) so
+      `broadcast_to_bot` fans out across workers (OFF by default via `WS_BROADCAST_ENABLED`; Phase 2 will enable it)
+    - **Strategy Storage**: ~~In-memory strategies disappear on restart~~ — already PostgreSQL-backed
+      (`InMemoryStrategyStore` is a misnomer; strategies survive restarts and stay consistent across workers)
+    - **Rate Limiting**: ~~Process-local fallback buckets~~ — already Redis-backed
+      (`_RedisSlidingWindowRateLimiter` with an in-memory fallback)
     - **Impact**: Single point of failure, cannot scale horizontally, inconsistent state across workers
 
 - **Database Connection Pool Management**: Potential connection exhaustion under high load
@@ -610,12 +613,40 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
           `BacktestRunStore` / `WorkerBackendProbe` state refactor (highest coupling, ~50 call sites,
           diminishing returns; the orchestration core + codec form the cohesive remaining service)
 
-- [ ] **Implement distributed state management** for horizontal scaling
-    - **Files**: Replace process-local WebSocket connections, strategy storage, and rate limiting with Redis-backed
-      implementations
+- [x] **Implement distributed state management** for horizontal scaling
+    - **Files**: `src/infrastructure/broadcast/bus.py` (new), `src/api/websocket_server.py`, `src/api/server.py`,
+      `src/api/v1/monitoring.py`, `src/constants.py`, `tests/test_broadcast_bus.py`
     - **Impact**: Enable horizontal scaling, improve reliability
-    - **Effort**: 3-4 weeks
+    - **Effort**: 3-4 weeks (Phase 1 delivered)
     - **Priority**: HIGH
+    - **Status**: COMPLETED (Phase 1; Phase 2 deferred). Exploration corrected the
+      premise — two of the three "process-local" areas were already solved:
+      **strategy storage** (`InMemoryStrategyStore`, `src/api/v1/strategies.py:93`, is a misnomer — it is a thin
+      wrapper over PostgreSQL via `StrategyRepository`, `src/infrastructure/persistence/repository.py:934`, with
+      soft-deletes + versioning, so strategies already survive restarts and stay consistent across workers) and
+      **rate limiting** (already Redis-backed: `_RedisSlidingWindowRateLimiter`, `src/api/server.py:204`, uses Redis
+      sorted sets with an in-memory fallback). The ONE genuinely process-local area was the **WebSocket registry**
+      (`manager = ConnectionManager()`, `src/api/websocket_server.py:421`) — a module singleton with no
+      cross-worker fan-out. **Phase 1** added a Redis pub/sub broadcast bus
+      (`src/infrastructure/broadcast/bus.py`: `BroadcastBus` ABC + `RedisBroadcastBus` + `NoopBroadcastBus`,
+      mirroring the `market_cache.py` conventions — lazy client, non-raising `publish`, reconnect-with-backoff
+      listener that filters `type=="message"` and skips self-origin, `health()`/`aclose()`, factory +
+      `get_/reset_broadcast_bus` singleton). `broadcast_to_bot` was refactored into `_deliver_local` (local fan-out)
+      + a best-effort `get_broadcast_bus().publish(...)`; each worker's lifespan-started subscriber fans received
+      messages to its own local connections via the new `deliver_local_broadcast` (origin-tagged self-skip prevents
+      loops). It is **OFF by default** (`WS_BROADCAST_ENABLED=false`) so single-worker deployments and tests behave
+      identically to today, and a Redis outage degrades to local-only delivery (never breaks a broadcast). No new
+      broad catches in `websocket_server.py` (the bus guarantees `publish` never raises); the `broadcast/` directory
+      is excluded from the broad-catch ratchet like `cache/`. Operator visibility via `GET /api/v1/monitoring/ws-broadcast`.
+      Coverage in `tests/test_broadcast_bus.py` (16 cases) + the monitoring route test (8-route auth gate). Broad-catch
+      ratchet held at **309**; `redis>=5.0,<7` pinned in `requirements.txt`.
+    - **Delivery checkpoints**:
+        - [x] Phase 1 — broadcast bus infra + `ConnectionManager` wiring + lifespan hooks + `/ws-broadcast` health
+          + tests, behind `WS_BROADCAST_ENABLED` (OFF / inert-by-default)
+        - [ ] Phase 2 (deferred) — flip the default ON after multi-worker load testing; add publish/receive/drop
+          metrics + a bounded dispatch semaphore under burst; coalesce per-symbol market broadcasts
+          (`realtime_data_service` emits one `broadcast_market_update` per symbol per tick → N Redis publishes when
+          enabled) before wiring that service; consider sharding pub/sub channels by topic
 
 #### **Architecture Improvements**
 
@@ -688,10 +719,35 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 #### **Reliability Enhancements**
 
-- [ ] **Implement circuit breaker pattern** for external service calls
+- [x] **Implement circuit breaker pattern** for external service calls
     - **Files**: Create `src/infrastructure/resilience/`, add to trading modules
     - **Impact**: Graceful degradation during service issues
     - **Effort**: 1-2 weeks
+    - **Status**: COMPLETED — added `src/infrastructure/resilience/` (named-breaker registry
+      + `call`/`call_async` entry points + graceful no-op fallback when pybreaker is absent
+      or a breaker is disabled + operator alerting on OPEN transitions + `breaker_states()`
+      accessor). Backed by the already-pinned `pybreaker>=1.2,<2.0`. Migrated the ad-hoc
+      `_dydx_circuit_breaker` out of `src/trading/market_data.py` into the framework's
+      `dydx_indexer` breaker; protected the four dYdX-indexer read helpers in
+      `src/trading/account_manager.py` (404-safe via a predicate that excludes 4xx-except-429
+      so fresh-account 404s never trip the circuit while transport errors / 5xx / 429 do);
+      and wrapped the Telegram (`src/shared/notifications.py`) and Loki
+      (`src/shared/logging_setup.py`) fire-and-forget sinks. Open breakers raise a typed
+      `CircuitBreakerOpenError(ExternalServiceError)` carrying the service name. Added
+      `GET /api/v1/monitoring/circuit-breakers` for operator visibility (openapi.json synced).
+      The dYdX indexer breaker preserves the legacy `DYDX_CIRCUIT_FAIL_MAX` /
+      `DYDX_CIRCUIT_RESET_TIMEOUT` env vars (new aliases `DYDX_INDEXER_CIRCUIT_*`); new
+      `<SERVICE>_CIRCUIT_ENABLED` / `_FAIL_MAX` / `_RESET_TIMEOUT` for each service. An
+      autouse test fixture (`tests/conftest.py`) keeps breakers inert by default so the suite
+      stays deterministic. Broad-catch ratchet tightened 310→309 (removed two market_data
+      catches, added one intentional best-effort notifier-isolation catch in the framework).
+      Coverage in `tests/test_circuit_breaker.py` (14 cases) + rewritten
+      `tests/test_market_data_circuit_notifications.py`. **Deferred** (documented): dYdX node
+      mutations (`place_order`/`cancel_order`/`latest_block_height`) — trading-safety review
+      needed; NATS message processing — fights NAK/retry/dead-letter; ClickHouse/MinIO and
+      Redis cache — already degrade to no-op/best-effort. NOTE: only transport-level failures
+      trip the Telegram/Loki breakers (HTTP non-200 responses are handled by their existing
+      retry/status logic); the dYdX indexer breaker trips on transport + 5xx + 429.
 
 - [ ] **Add backtest checkpointing** for long-running tasks
     - **Files**: `src/infrastructure/workers/backtest_tasks.py`
@@ -849,7 +905,9 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
   (Phases 1–5a done: 4,443→2,959 lines + extracted `backtest_models.py` /
   `backtest_pair_selection.py` / `backtest_history.py` / `backtest_queries.py` /
   `backtest_controls.py` — see action-plan item)
-- **Implement distributed state management** for horizontal scaling
+- ✅ **Implement distributed state management** for horizontal scaling (Phase 1 COMPLETED — Redis pub/sub WebSocket
+  broadcast bus, OFF by default; strategy storage was already Postgres-backed and rate limiting already Redis-backed,
+  so only the WebSocket registry needed work — see action-plan item)
 - ✅ **Replace sys.exit () calls** with proper exception handling (COMPLETED)
 - ✅ **Implement token revocation** - Complete logout/logout-all functionality (COMPLETED)
 - **Add multi-worker tests** for process-local state issues
@@ -866,7 +924,7 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 ### **Medium Priority / High Impact** (Month 2)
 
 - ✅ Caching layer implementation (COMPLETED — `src/infrastructure/cache/` shared L2 market-data cache; see action-plan item)
-- Circuit breaker implementation
+- ✅ Circuit breaker implementation (COMPLETED — `src/infrastructure/resilience/` named-breaker framework; see action-plan item)
 - Performance regression testing
 - Test isolation improvements
 
@@ -997,7 +1055,9 @@ The original Week-1 items are retained as an implementation record; completed wo
 ### **Week 2: Architecture Foundation**
 
 1. ✅ **Break up the API server** — COMPLETED (Phases 1–6 delivered; 6,093→1,740 lines)
-2. ⬜ **Implement distributed state management planning** - Design Redis-backed strategy storage
+2. ✅ **Implement distributed state management** — Phase 1 delivered (Redis pub/sub WebSocket broadcast bus behind
+   `WS_BROADCAST_ENABLED`, OFF by default; strategy storage was already Postgres-backed, rate limiting already
+   Redis-backed). Phase 2 (flip default ON after multi-worker load testing) deferred.
 3. ⬜ **Add multi-worker test infrastructure** - Begin testing process-local state issues
 
 ---
@@ -1009,7 +1069,7 @@ The original Week-1 items are retained as an implementation record; completed wo
 1. ✅ **Authentication bypass vulnerabilities** in expensive backtest operations — RESOLVED
 2. ✅ **Credentials stored in plain text** in database configuration — RESOLVED
 3. ✅ **Position tracking errors** due to missing fill confirmation — RESOLVED
-4. ⬜ **Process-local state limitations** preventing horizontal scaling — OPEN
+4. 🟡 **Process-local state limitations** preventing horizontal scaling — Phase 1 DELIVERED (Redis pub/sub WebSocket broadcast bus, OFF by default); strategy-storage and rate-limiting concerns were stale (already Postgres- and Redis-backed respectively)
 5. 🟡 **Broad exception handlers** masking real issues — PHASE 1 DELIVERED; ratcheted reduction remains in progress
 
 ### **Architecture Strengths**

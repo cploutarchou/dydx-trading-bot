@@ -76,6 +76,23 @@ class ExchangeError(ExternalServiceError):
     """dYdX exchange client failures (network, API, signing)."""
 
 
+class CircuitBreakerOpenError(ExternalServiceError):
+    """Raised when a named circuit breaker rejects a call because it is OPEN.
+
+    Carries the originating ``service`` name (e.g. ``"dydx_indexer"``) so callers
+    can degrade per-dependency — e.g. serve cached market data, skip a
+    best-effort notification, or surface a typed error instead of hanging on a
+    downed dependency. This is a control-flow signal for graceful degradation
+    during a sustained external-service outage, NOT a transient error to blindly
+    retry through (the breaker is already rate-limiting attempts on our behalf).
+    See :mod:`src.infrastructure.resilience`.
+    """
+
+    def __init__(self, message: str = "", *, service: str | None = None) -> None:
+        super().__init__(message)
+        self.service = service
+
+
 # --------------------------------------------------------------------------- #
 # Domain
 # --------------------------------------------------------------------------- #
@@ -127,6 +144,7 @@ __all__ = [
     "BacktestError",
     "BotError",
     "CacheServiceError",
+    "CircuitBreakerOpenError",
     "ConfigurationError",
     "CredentialDecryptionError",
     "CredentialEncryptionError",

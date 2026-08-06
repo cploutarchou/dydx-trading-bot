@@ -128,3 +128,47 @@ async def get_database_diagnostics(
         data=diagnostics,
         message="Database diagnostics retrieved",
     )
+
+
+@router.get("/circuit-breakers")
+async def get_circuit_breaker_states(
+    current_user=Depends(get_current_active_user),
+):
+    """Get live circuit-breaker states for all registered external services.
+
+    Reports the state (closed/open/half-open), failure counters, and thresholds
+    for every named breaker (``dydx_indexer``, ``telegram``, ``loki``) in
+    ``src/infrastructure/resilience``. Pure in-memory read — no external I/O.
+    """
+    _ = current_user
+    from src.infrastructure import resilience
+
+    states = resilience.breaker_states()
+    return api_response(
+        success=True,
+        data={"breakers": states, "count": len(states)},
+        message="Circuit breaker states retrieved",
+    )
+
+
+@router.get("/ws-broadcast")
+async def get_ws_broadcast_health(
+    current_user=Depends(get_current_active_user),
+):
+    """Get health of the cross-worker WebSocket broadcast bus.
+
+    Reports whether the Redis pub/sub bus is enabled, its backend (``redis`` /
+    ``noop``), reachability (``healthy``), the worker's subscriber identity
+    (``worker_id``), and whether the listener task is running (``listening``).
+    When the bus is disabled (the default, ``WS_BROADCAST_ENABLED=false``) this
+    returns the noop shape. See ``src/infrastructure/broadcast``.
+    """
+    _ = current_user
+    from src.infrastructure.broadcast import get_broadcast_bus
+
+    health = await get_broadcast_bus().health()
+    return api_response(
+        success=True,
+        data=health,
+        message="WebSocket broadcast bus health retrieved",
+    )

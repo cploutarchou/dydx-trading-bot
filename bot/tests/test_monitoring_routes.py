@@ -22,6 +22,8 @@ _MONITORING_PATHS = [
     "/api/v1/monitoring/database/pool",
     "/api/v1/monitoring/database/pool/health",
     "/api/v1/monitoring/database/diagnostics",
+    "/api/v1/monitoring/circuit-breakers",
+    "/api/v1/monitoring/ws-broadcast",
 ]
 
 
@@ -42,9 +44,9 @@ def test_response_helpers_reexport_identity():
 # --------------------------------------------------------------------------- #
 
 
-def test_monitoring_router_has_six_routes_all_with_auth():
+def test_monitoring_router_has_eight_routes_all_with_auth():
     routes = [r for r in monitoring_router.routes if isinstance(r, APIRoute)]
-    assert len(routes) == 6
+    assert len(routes) == 8
     for route in routes:
         deps = [d.call for d in route.dependant.dependencies]
         assert (

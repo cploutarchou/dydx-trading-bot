@@ -144,5 +144,22 @@ MARKET_DATA_CACHE_SOCKET_TIMEOUT_SECONDS: float = float(
     _os.getenv("MARKET_DATA_CACHE_SOCKET_TIMEOUT_SECONDS", "1.0")
 )
 
+# Cross-worker WebSocket broadcast bus (Redis pub/sub). The ``ConnectionManager``
+# in ``src/api/websocket_server.py`` is process-local, so a broadcast on one
+# Uvicorn worker never reaches clients connected to another. When enabled, every
+# ``broadcast_to_bot`` additionally publishes to a shared pub/sub channel and
+# each worker's subscriber fans the message out to its own local connections
+# (see ``src/infrastructure/broadcast``). Default OFF: single-worker deployments
+# and tests behave identically to today, and a Redis outage degrades to
+# local-only delivery (never breaks a broadcast).
+WS_BROADCAST_ENABLED: bool = _env_flag("WS_BROADCAST_ENABLED", False)
+# Optional explicit Redis URL; falls back to the Celery broker / REDIS_URL /
+# VALKEY_URL resolution in `src/shared/redis_env.py` when unset.
+WS_BROADCAST_REDIS_URL: str = _os.getenv("WS_BROADCAST_REDIS_URL", "")
+# Per-command socket timeout (seconds) so a down Redis cannot stall a broadcast.
+WS_BROADCAST_SOCKET_TIMEOUT_SECONDS: float = float(
+    _os.getenv("WS_BROADCAST_SOCKET_TIMEOUT_SECONDS", "1.0")
+)
+
 # Max concurrent dYdX candle fetches when building the price matrix.
 CANDLE_FETCH_CONCURRENCY: int = int(_os.getenv("CANDLE_FETCH_CONCURRENCY", "10"))

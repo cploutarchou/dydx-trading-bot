@@ -44,13 +44,25 @@ from pathlib import Path
 # `resilience` directory is deliberately NOT excluded from this ratchet: it owns
 # its one legitimate catch. market_data now guards calls via
 # `resilience.call_async("dydx_indexer", ...)`.
+# 309 (unchanged, 2026-08-06, cross-worker WebSocket broadcast bus): added
+# src/infrastructure/broadcast/bus.py — a Redis pub/sub bus for cross-worker
+# fan-out. Like src/infrastructure/cache, it is best-effort optional
+# infrastructure where every command must degrade to a no-op on Redis failure,
+# so it carries several intentional isolation `except Exception` blocks. The
+# `broadcast` directory is therefore excluded from this ratchet (added to
+# `_EXCLUDED_DIR_PARTS`) — same precedent as `cache`. websocket_server.py's
+# refactor (broadcast_to_bot -> _deliver_local + publish) added NO new broad
+# catches: the bus guarantees publish() never raises, so the producer needs no
+# try/except. Net 0.
 BROAD_CATCH_BASELINE = 309
 
 # Matches "except Exception", "except Exception as e", "except Exception:" and bare "except:".
 _BROAD_CATCH_RE = re.compile(r"\bexcept\s+(Exception|BaseException)\b|^\s*except\s*:")
 
-# Directories under src/ that are generated/migrations and must not count.
-_EXCLUDED_DIR_PARTS = {"__pycache__", "migrations", "cache", "generated"}
+# Directories under src/ that are generated/migrations or best-effort optional
+# infrastructure (cache / broadcast) whose intentional isolation catches must not
+# count toward the broad-catch total.
+_EXCLUDED_DIR_PARTS = {"__pycache__", "migrations", "cache", "generated", "broadcast"}
 
 
 def _src_root() -> Path:

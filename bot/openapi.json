@@ -5142,6 +5142,41 @@
         },
         "x-response-envelope": "StandardApiResponse"
       }
+    },
+    "/api/v1/monitoring/circuit-breakers": {
+      "get": {
+        "summary": "Get Circuit Breaker States",
+        "description": "Get live circuit-breaker states for all registered external services (dydx_indexer, telegram, loki). Reports state (closed/open/half-open), failure counters, and thresholds from src/infrastructure/resilience. Pure in-memory read.",
+        "operationId": "get_circuit_breaker_states_api_v1_monitoring_circuit_breakers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-response-envelope": "StandardApiResponse"
+      }
     }
   },
   "components": {

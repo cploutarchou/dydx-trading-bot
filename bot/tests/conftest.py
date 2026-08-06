@@ -40,6 +40,27 @@ def _isolate_shared_market_data_cache(monkeypatch):
 
 
 # ============================================================================
+# Circuit-breaker isolation
+# ============================================================================
+#
+# The centralized breakers in ``src/infrastructure/resilience`` hold shared,
+# stateful singletons. Left active across the suite, a failure-simulating test
+# would trip a breaker and leave it OPEN for unrelated tests (cascading
+# ``CircuitBreakerOpenError``). Defaulting them to disabled also keeps existing
+# call-site tests deterministic: they see raw provider behavior exactly as
+# before the breakers existed. Tests that exercise a breaker re-enable it with
+# ``monkeypatch.setenv("<SERVICE>_CIRCUIT_ENABLED", "true")`` +
+# ``resilience.reset_breakers()``.
+@pytest.fixture(autouse=True)
+def _isolate_circuit_breakers(monkeypatch):
+    from src.infrastructure import resilience
+
+    resilience.reset_breakers()
+    for service in ("DYDX_INDEXER", "TELEGRAM", "LOKI"):
+        monkeypatch.setenv(f"{service}_CIRCUIT_ENABLED", "false")
+
+
+# ============================================================================
 # PostgreSQL database helper functions
 # ============================================================================
 

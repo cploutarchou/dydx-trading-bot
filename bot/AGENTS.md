@@ -94,7 +94,9 @@ Repository-level guidance for coding agents working on this project.
 **Important workflow**: When using Celery for backtest execution, start `make local-worker` BEFORE `make local-api` so
 the API startup probes detect the Celery backend. If worker comes online later, restart the API. For legacy
 `/api/backtest/jobs` requests, also ensure `BACKTEST_TASK_ALWAYS_EAGER=false` so tasks execute asynchronously instead of
-inline.
+inline. If the API does start first, new backtests auto-reprobe and promote from `asyncio` to `celery` once workers
+become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown via
+`BACKTEST_WORKER_BACKEND_REPROBE_COOLDOWN_SECONDS`).
 
 **Testing and validation:**
 
@@ -106,6 +108,12 @@ inline.
   reconciliation
 - `make simulate-production-profile` — Run baseline vs production-profile simulation via backtest API
   (`scripts/simulate_production_profile.py --skip-auth`)
+
+**Credential encryption:**
+
+- `make credentials-keygen` — Generate a 32-byte key for sealing `bot_instances` credentials
+- `make encrypt-bot-credentials ARGS=--dry-run` / `make encrypt-bot-credentials` — Backfill-encrypt existing
+  `bot_instances` credentials (idempotent; preview first)
 
 **Docker orchestration:**
 
@@ -160,6 +168,42 @@ inline.
   `src/infrastructure/storage/minio_artifact_store.py`
 - Storage abstraction layers: `src/infrastructure/storage/analytics.py` and `src/infrastructure/storage/artifacts.py`
 
+## Resilience, Cache, and Broadcast Infrastructure
+
+**Circuit breakers** (`src/infrastructure/resilience/breakers.py`, backed by pinned `pybreaker`):
+
+- Named breakers guard external calls so sustained outages fail fast: `dydx_indexer` (dYdX market data + indexer
+  account/order reads), `telegram`, `loki`. An open breaker raises typed `CircuitBreakerOpenError`.
+- Per service `<SERVICE>` ∈ {`DYDX_INDEXER`, `TELEGRAM`, `LOKI`}: `<SERVICE>_CIRCUIT_ENABLED=true` (default),
+  `<SERVICE>_CIRCUIT_FAIL_MAX` (dYdX default 3, others 5), `<SERVICE>_CIRCUIT_RESET_TIMEOUT` seconds (dYdX default 30,
+  others 60). The `dydx_indexer` breaker also honors legacy `DYDX_CIRCUIT_FAIL_MAX` / `DYDX_CIRCUIT_RESET_TIMEOUT`.
+- The `dydx_indexer` breaker excludes 4xx-except-429 from tripping (preserves 404-fallback semantics for fresh
+  accounts); transport errors, timeouts, 429, and 5xx trip it.
+- Live states: `GET /api/v1/monitoring/circuit-breakers` (auth required).
+
+**Shared market-data L2 cache** (`src/infrastructure/cache/market_cache.py`):
+
+- Redis/Valkey read-through cache for markets and recent candles; `MARKET_DATA_CACHE_ENABLED=true` (default), no-ops
+  when Redis is absent. Override with `MARKET_DATA_CACHE_REDIS_URL` (defaults to Celery broker / `REDIS_URL` /
+  `VALKEY_URL`) and `MARKET_DATA_CACHE_SOCKET_TIMEOUT_SECONDS=1.0`.
+
+**Cross-worker WebSocket broadcast bus** (`src/infrastructure/broadcast/bus.py`, `redis.asyncio` pub/sub):
+
+- `ConnectionManager` is process-local; the bus fans `broadcast_to_bot` out across Uvicorn workers via a shared
+  `ws:broadcast` channel. `WS_BROADCAST_ENABLED=false` (default) keeps single-worker/local behavior identical; a Redis
+  outage degrades to local-only delivery (never breaks a broadcast). Override with `WS_BROADCAST_REDIS_URL` and
+  `WS_BROADCAST_SOCKET_TIMEOUT_SECONDS=1.0`.
+- Health: `GET /api/v1/monitoring/ws-broadcast` (auth required).
+
+**Monitoring routes** (`src/api/v1/monitoring.py`, mounted under `/api/v1/monitoring`, auth required): DataFrame
+memory/cleanup, database pool metrics/health/history/diagnostics, `/circuit-breakers`, `/ws-broadcast`. Responses use
+the shared `api_response` envelope from `src/api/responses.py`.
+
+**Test isolation**: autouse fixtures in `tests/conftest.py` keep these subsystems inert by default —
+`_isolate_circuit_breakers` (disables all breakers), `_isolate_shared_market_data_cache` (Noop L2 cache),
+`_isolate_broadcast_bus` (Noop bus). Tests exercising the real subsystem re-enable via `monkeypatch.setenv(...)` +
+module `reset_*()` helpers.
+
 ## Required checks for bot-runtime changes
 
 - Verify startup/import works in configured interpreter.
@@ -194,23 +238,18 @@ inline.
   ClickHouse.
 - Run `tests/test_nats_consumer*.py` when touching NATS JetStream consumer infrastructure, idempotency checking, or
   message handling.
+- Run `tests/test_circuit_breaker.py` and `tests/test_market_data_circuit_notifications.py` when touching circuit
+  breakers or external-service call paths (`src/infrastructure/resilience/`, dYdX indexer, Telegram, Loki).
+- Run `tests/test_broadcast_bus.py` when touching cross-worker WebSocket broadcast (`src/infrastructure/broadcast/`).
+- Run `tests/test_credentials_cipher.py` when touching credential sealing/encryption (`src/shared/credentials_cipher.py`
+  or `bot_instances` config persistence).
+- Run `tests/test_monitoring_routes.py` when touching `src/api/v1/monitoring.py` endpoints.
+- Keep `tests/test_exception_handling_ratchet.py` green: it fails the build if broad `except Exception` / bare `except:`
+  sites in `src/` grow past the recorded baseline; tighten the baseline when removing broad catches.
 - Run `make test-execution-safety` when touching order execution, emergency cleanup, or position-reconciliation safety
   paths.
-- Run `make preflight-testnet` (and `make preflight-testnet-strict` for release-oriented changes) for
-  runtime/safety-impacting edits.
-- When touching database runtime selection/cutover logic, run `tests/test_database_config_runtime.py` and verify
-  `BOT_DB_CUTOVER_MODE=dedicated` behavior remains valid.
-- Document failure-mode impact and rollback plan.
 
-## Key documentation map
-
-- `README.md`
-- `openapi.json`
-- `../docs/OPERATIONS.md`
-- `.github/copilot-instructions.md`
-- `tasks.md`
-
-## Latest bot context (2026-06)
+## Latest bot context (2026-08)
 
 - Keep `src/api/server.py` as canonical API entrypoint and `src/api/start_api.py` as canonical launcher.
 - Preserve backend-facing normalized status/progress fields (and compatibility aliases) used by delegated
@@ -226,8 +265,14 @@ inline.
 - **Backtest logging**: Long-running backtests capture per-job logs to `bot_states/backtest_<run_id>.log`; retrieve via
   `GET /api/v1/backtests/{run_id}/logs` endpoint; progress reporting is throttled to reduce DB IO pressure.
 - **Runtime config**: Bot instances load config from `bot_instances.config` only (DB-first approach); deprecated
-  `bot_states/config_*.yaml` files are no longer read; use `scripts/migrate_yaml_configs_to_db.py` for one-time
-  migration if needed.
+  `bot_states/config_*.yaml` files are no longer read (the one-time `scripts/migrate_yaml_configs_to_db.py` migration
+  helper has been removed after the cutover).
+- **Credential encryption at rest**: `bot_instances.config` credentials are sealed with AES-256-GCM via
+  `src/shared/credentials_cipher.py` using a dedicated key (`BOT_CREDENTIALS_ENCRYPTION_KEY` /
+  `BOT_CREDENTIALS_ENCRYPTION_KEY_FILE`); `config_meta.schema_version` is `2` and legacy v1 plaintext rows are re-sealed
+  lazily on write. Without a key, storage falls back to plaintext with a one-time warning; set
+  `BOT_CREDENTIALS_ENCRYPTION_REQUIRED=true` to fail writes instead (production). Provision with
+  `make credentials-keygen`; backfill with `make encrypt-bot-credentials` (`ARGS=--dry-run` to preview).
 - **Startup recovery**: Stale backtests and orphaned live bots are reconciled to failed state by default; use
   `BACKTEST_AUTO_RECOVERY_MODE=restart` and `BOT_AUTO_RECOVER_LIVE_*` flags to enable auto-recovery.
 - **New infrastructure components**: `src/infrastructure/event_bus.py` (event publishing/subscription),

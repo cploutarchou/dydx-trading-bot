@@ -7,7 +7,9 @@ Repository-level guidance for coding agents working on this project.
 1. Read `../.github/copilot-instructions.md`
 2. Read `.github/copilot-instructions.md`
 3. Choose task-specific instruction files (see below)
-4. Prefer `.github/agents/senior-python-defi-runtime.agent.md` for bot implementation work
+4. Prefer `.github/agents/senior-python-defi-runtime.agent.md` for bot implementation work; use
+   `.github/agents/senior-bot-project-manager.agent.md` for cross-domain project management (development, trading,
+   infrastructure, security, operations)
 
 ## Task-specific instruction files
 
@@ -49,8 +51,10 @@ Repository-level guidance for coding agents working on this project.
 1. **Environment load order**
     - Entry points must call `load_repo_env(__file__)` before importing config/constants (see `src/api/server.py`,
       `src/api/start_api.py`, `main.py`, `src/main_instance.py`,
-      `src/bot_instance_manager.py`).
+      `src/bot_instance_manager.py`, `worker_entrypoint.py`).
     - Runtime config is structured (`run.json` or `config/profiles/*`), not `bot/.env`.
+    - Structured config may be encrypted (`*.config.enc.json`); `load_repo_env` requires the AES-256-GCM key file
+      (`.configkey.bin` at the monorepo root, or `APP_CONFIG_KEY_FILE`). Provision it with `make config-keygen`.
 2. **No direct process management outside manager layer**
     - Manage worker lifecycle through `src/bot_instance_manager.py`.
 3. **Async correctness**
@@ -80,6 +84,13 @@ Repository-level guidance for coding agents working on this project.
     - Launch long-running/background tasks via `src/infrastructure/use_cases/async_job_manager.py` so task
       failures/progress persist to job state and are visible to operators.
 
+12. **Domain model ownership**
+    - Canonical SQLAlchemy models live in `internal/domain/` (`models.py`, `models_realtime.py`) and are imported by
+      `src/api/server.py`, `src/bot_instance_manager.py`, and `migrations/env.py`; do not create parallel model
+      definitions elsewhere.
+    - `internal/repository/repository_realtime.py` is a compatibility shim re-exporting the canonical repositories
+      from `src/infrastructure/persistence/repository_realtime.py`; extend the canonical module, not the shim.
+
 ## Local Development Commands
 
 **API and runtime (use `.venv` interpreter):**
@@ -108,12 +119,18 @@ become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown 
   reconciliation
 - `make simulate-production-profile` — Run baseline vs production-profile simulation via backtest API
   (`scripts/simulate_production_profile.py --skip-auth`)
+- `make test-cov` / `make test-cov-html` — Run tests with coverage (terminal report / HTML report at
+  `htmlcov/index.html`)
+- `make install-hooks` / `make hooks-run` / `make hooks-update` — Git pre-commit hooks (config at monorepo root
+  `../.pre-commit-config.yaml`; requires `.venv` active at commit time)
 
 **Credential encryption:**
 
 - `make credentials-keygen` — Generate a 32-byte key for sealing `bot_instances` credentials
 - `make encrypt-bot-credentials ARGS=--dry-run` / `make encrypt-bot-credentials` — Backfill-encrypt existing
   `bot_instances` credentials (idempotent; preview first)
+- `make config-keygen` — Generate the 32-byte key (`.configkey.bin`) for encrypted structured config files
+  (`*.config.enc.json`); required by `load_repo_env` when config is encrypted
 
 **Docker orchestration:**
 
@@ -122,6 +139,10 @@ become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown 
 - `make dev-detached` — Start development environment in background
 - `make health` — Check health of all running services
 - `make info` — Show project information and current status
+- Day-to-day operations: `make start` / `stop` / `restart` / `status` / `logs` (`logs-api`, `logs-db`, `logs-nginx`),
+  `make db-shell` / `db-backup` / `db-reset` (destructive), `make shell` (`shell-nginx`, `shell-db`)
+- Build/deploy: `make build` (`build-dev`, `build-prod`, `build-no-cache`), `make prod`, `make deploy`,
+  `make quick-start` (init-env + init-ssl + build + dev-detached)
 
 ## Celery and Backtest Patterns
 
@@ -279,22 +300,15 @@ module `reset_*()` helpers.
   `src/infrastructure/cache_lock.py` (distributed locking); use these for coordination rather than ad-hoc locking.
 - **New trading components**: `src/trading/arbitrage_observability.py` (decision audit trail),
   `src/trading/pair_priority.py` (pair ranking engine), `src/trading/realtime_data_service.py` (real-time feed
-  integration), `src/trading/trade_persistence.py` (live trade records).
-- **2FA auth routes**: `src/api/v1/auth/password_2fa.py` exposes `POST /auth/setup` and `POST /auth/verify`; follow
-  existing `api_response(...)` envelope and auth-bypass guard patterns.
-- **Strategy resolution metrics**: Operator-facing endpoints for resolution drift monitoring —
-  `GET /api/v1/runtime/strategy-resolution-metrics`, `GET /api/v1/runtime/strategy-resolution-metrics/prom`
-  (Prometheus), `POST /api/v1/admin/runtime/strategy-resolution-metrics/reset`. Tune with
-  `STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE`, `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_THRESHOLD`,
-  `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_MIN_RUNS`.
-- **Backtest sync-health and repair**: `GET /api/v1/backtests/sync-health` monitors strategy-resolution drift;
-  `POST /api/v1/admin/backtests/{run_id}/repair-request` (with `?dry_run=true` to preview) allows admin repair of
-  misaligned backtest requests.
-- **Worker metrics infrastructure**: `src/infrastructure/storage/worker_metrics_writer.py` persists worker task
-  duration, success/failure, retry count, and throughput to ClickHouse `worker_metrics` table (when
-  `BACKTEST_CLICKHOUSE_WRITES_ENABLED=true`); Celery metrics wired via `celery_metrics.py`, NATS worker metrics via
-  `nats_worker_metrics.py`; both record all task lifecycle signals and no-op when ClickHouse is disabled.
-- **NATS consumer (Phase 4)**: `src/infrastructure/event_bus_nats.py` and
-  `src/infrastructure/workers/nats_backtest_consumer.py` implement dual-write JetStream consumer foundation with
-  idempotency checking via PostgreSQL task tables, explicit ack after state update, and retry/ack/dead-letter handling;
-  backend and bot use singular canonical subject form (e.g., `backtest.command.start`).
+  integration), `src/trading/trade_persistence.py` (live trade records),
+  `src/trading/analysis/cointegration.py` (cointegration analysis for pairs trading),
+  `src/trading/arbitrage_runtime_config.py` (runtime-overridable arbitrage feature flags; env vars are startup
+  defaults, backend/admin settings may override at runtime), `src/trading/bot_agents_state.py` (concurrency-safe
+  per-instance tracked-position state; DB primary, JSON file fallback).
+- **Architecture reference docs**: `flows/` contains a dated (2026-06-21) source-code map of the system —
+  `project-structure.md`, `services-inventory.md`, `current-business-flows.md`, `api-flows.md`,
+  `background-tasks.md`, `data-flows.md`, `integrations.md`, `risks-and-gaps.md`. Consult these for architecture
+  questions; treat claims marked **UNKNOWN / NEEDS VALIDATION** accordingly.
+- **Worker container entrypoint**: `worker_entrypoint.py` is the container entrypoint for background workers; it
+  calls `load_repo_env(__file__)` first, sanitizes node URL env vars, and launches Celery with queue/autoscale
+  settings (`CELERY_QUEUES` default `backtests,default,high_priority,scheduled`).

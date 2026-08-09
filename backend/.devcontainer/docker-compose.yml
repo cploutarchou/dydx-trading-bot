@@ -1,0 +1,79 @@
+﻿---
+# Backend devcontainer compose: the `backend` dev container only.
+#
+# Infrastructure (PostgreSQL, Valkey, NATS, ClickHouse, MinIO) is NOT defined
+# here. It runs once on the shared external `dydx-infra` network, created by
+# `make infra-up` at the repo root (see ../../docker-compose.infra.yml). This
+# devcontainer joins that network as a client and reaches infra by service
+# name (postgresql, valkey, nats, clickhouse, minio), exactly like the
+# production stack. Running infra once avoids duplicate-service conflicts when
+# several project devcontainers are open at the same time.
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      # Mount the whole monorepo: backend/config/structured_root.go locates the
+      # repo root via .github + AGENTS.md + run.json / config/profiles.
+      - ../..:/workspaces/dydx-trading-bot:cached
+      # Go module/build caches survive container rebuilds.
+      - backend_go_pkg:/go/pkg
+      - backend_go_build:/home/vscode/.cache/go-build
+    command: sleep infinity
+    environment:
+      # --- Service discovery: infra is reached by service name on dydx-infra ---
+      DB_TYPE: postgres
+      DB_HOST: postgresql
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:-dydx_bot}
+      DB_USER: ${POSTGRES_USER:-dydx_bot}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
+      POSTGRES_HOST: postgresql
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-dydx_bot}
+      POSTGRES_USER: ${POSTGRES_USER:-dydx_bot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
+      DATABASE_URL: postgres://${POSTGRES_USER:-dydx_bot}:${POSTGRES_PASSWORD:-change-me-db-password}@postgresql:5432/${POSTGRES_DB:-dydx_bot}?sslmode=disable
+      DB_AUTO_MIGRATE: "true"
+      REDIS_ENABLED: "true"
+      REDIS_HOST: valkey
+      REDIS_PORT: "6379"
+      REDIS_URL: redis://valkey:6379/0
+      VALKEY_HOST: valkey
+      VALKEY_URL: redis://valkey:6379/0
+      NATS_ENABLED: "true"
+      NATS_URL: nats://nats:4222
+      NATS_MONITORING_URL: http://nats:8222
+      NATS_STREAM_PREFIX: bot
+      # Bot API delegation target. On the shared `dydx-infra` network the bot
+      # devcontainer is reachable as `bot`; override with BOT_API_URL when the
+      # bot runs elsewhere (e.g. http://host.docker.internal:8889 for a
+      # host-side `make local-api`).
+      BOT_API_URL: ${BOT_API_URL:-http://bot:8889}
+      BOT_API_TOKEN: ${BOT_API_TOKEN:-local-dev-token}
+      # Server
+      API_PORT: "8888"
+      API_HOST: 0.0.0.0
+      APP_CONFIG_ENV: development
+    networks:
+      - dydx-infra
+    # Reach services running on the Docker host (e.g. bot API via `make local-api`).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+networks:
+  dydx-infra:
+    # Shared external network owned by `make infra-up` at the repo root. All
+    # project devcontainers join it so they can reach each other and the infra
+    # by service name:
+    #   postgresql / valkey / nats / clickhouse / minio  (infra)
+    #   backend  -> http://backend:8888   (this Go API)
+    #   bot      -> http://bot:8889       (Python bot API)
+    #   frontend -> http://frontend:5173  (Vite dev server)
+    external: true
+    name: dydx-infra
+volumes:
+  backend_go_pkg:
+    driver: local
+  backend_go_build:
+    driver: local

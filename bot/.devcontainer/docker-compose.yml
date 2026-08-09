@@ -1,0 +1,74 @@
+﻿---
+# Bot devcontainer compose: the `bot` dev container only.
+#
+# Infrastructure (PostgreSQL, Valkey, NATS, ClickHouse, MinIO) is NOT defined
+# here. It runs once on the shared external `dydx-infra` network, created by
+# `make infra-up` at the repo root (see ../../docker-compose.infra.yml). This
+# devcontainer joins that network as a client and reaches infra by service
+# name (postgresql, valkey, nats, clickhouse, minio), exactly like the
+# production stack. Running infra once avoids duplicate-service conflicts when
+# several project devcontainers are open at the same time.
+services:
+  bot:
+    build:
+      # Monorepo root (two levels up from this file); the Dockerfile is the
+      # shared repo-root one (Python 3.12 + make/psql/redis-cli/jq/curl).
+      context: ../..
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      # Mount the whole monorepo: bot/src/shared/env_loader.py locates the
+      # repo root via .github + AGENTS.md + run.json / config/profiles.
+      - ../..:/workspaces/dydx-trading-bot:cached
+    command: sleep infinity
+    environment:
+      # --- Service discovery: infra is reached by service name on dydx-infra ---
+      DB_HOST: postgresql
+      POSTGRES_HOST: postgresql
+      DATABASE_URL: postgres://dydx_bot:change-me-db-password@postgresql:5432/dydx_bot?sslmode=disable
+      BOT_DB_CUTOVER_MODE: dedicated
+      BOT_DATABASE_URL: postgresql+psycopg2://dydx_bot:change-me-db-password@postgresql:5432/dydx_bot_runtime?sslmode=disable
+      BOT_DB_HOST: postgresql
+      BOT_DB_PORT: "5432"
+      BOT_DB_NAME: dydx_bot_runtime
+      BOT_DB_USER: dydx_bot
+      BOT_DB_PASSWORD: change-me-db-password
+      REDIS_HOST: valkey
+      VALKEY_HOST: valkey
+      REDIS_URL: redis://valkey:6379/0
+      VALKEY_URL: redis://valkey:6379/0
+      CELERY_BROKER_URL: redis://valkey:6379/1
+      CELERY_RESULT_BACKEND: redis://valkey:6379/2
+      NATS_URL: nats://nats:4222
+      NATS_MONITORING_URL: http://nats:8222
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_URL: http://clickhouse:8123
+      MINIO_ENDPOINT: minio:9000
+      MINIO_CONSOLE_URL: http://minio:9001
+      S3_ENDPOINT: http://minio:9000
+      # --- Dev ergonomics ---
+      # Local-only auth bypass (allowed because ENVIRONMENT=development).
+      API_BYPASS_AUTH: "true"
+      # Keep optional analytics/artifact adapters off by default; flip to true
+      # here when you want to exercise ClickHouse/MinIO paths.
+      BACKTEST_CLICKHOUSE_WRITES_ENABLED: "false"
+      BACKTEST_MINIO_ARTIFACTS_ENABLED: "false"
+      BACKTEST_ARTIFACT_STORAGE_ENABLED: "false"
+      # Service token for backend -> bot delegation (matches the placeholder
+      # in config/profiles/example.config.json; override for real use).
+      BOT_API_TOKEN: change-me-bot-service-token
+    networks:
+      - dydx-infra
+    # Reach services running on the Docker host, if any.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+networks:
+  dydx-infra:
+    # Shared external network owned by `make infra-up` at the repo root. All
+    # project devcontainers join it so they can reach each other and the infra
+    # by service name:
+    #   postgresql / valkey / nats / clickhouse / minio  (infra)
+    #   backend  -> http://backend:8888   (Go API)
+    #   bot      -> http://bot:8889       (this Python bot API)
+    #   frontend -> http://frontend:5173  (Vite dev server)
+    external: true
+    name: dydx-infra

@@ -1,0 +1,197 @@
+---
+# Devcontainer compose: the `bot` dev container plus the shared local
+# infrastructure (PostgreSQL, Valkey, NATS, ClickHouse, MinIO) from the
+# repo-root docker-compose.infra.yml, all on the same `dydx-infra` network.
+#
+# The infra services keep their published localhost ports, so anything running
+# on the Docker host (backend, frontend) can still reach them exactly as with
+# `make infra-up`.
+
+services:
+  bot:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      # Mount the whole monorepo: bot/src/shared/env_loader.py locates the
+      # repo root via .github + AGENTS.md + run.json / config/profiles.
+      - ..:/workspaces/dydx-trading-bot:cached
+    command: sleep infinity
+    environment:
+      # --- Service discovery: infra is reached by compose service name ---
+      DB_HOST: postgresql
+      POSTGRES_HOST: postgresql
+      DATABASE_URL: postgres://dydx_bot:change-me-db-password@postgresql:5432/dydx_bot?sslmode=disable
+      BOT_DB_CUTOVER_MODE: dedicated
+      BOT_DATABASE_URL: postgresql+psycopg2://dydx_bot:change-me-db-password@postgresql:5432/dydx_bot_runtime?sslmode=disable
+      BOT_DB_HOST: postgresql
+      BOT_DB_PORT: "5432"
+      BOT_DB_NAME: dydx_bot_runtime
+      BOT_DB_USER: dydx_bot
+      BOT_DB_PASSWORD: change-me-db-password
+      REDIS_HOST: valkey
+      VALKEY_HOST: valkey
+      REDIS_URL: redis://valkey:6379/0
+      VALKEY_URL: redis://valkey:6379/0
+      CELERY_BROKER_URL: redis://valkey:6379/1
+      CELERY_RESULT_BACKEND: redis://valkey:6379/2
+      NATS_URL: nats://nats:4222
+      NATS_MONITORING_URL: http://nats:8222
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_URL: http://clickhouse:8123
+      MINIO_ENDPOINT: minio:9000
+      MINIO_CONSOLE_URL: http://minio:9001
+      S3_ENDPOINT: http://minio:9000
+      # --- Dev ergonomics ---
+      # Local-only auth bypass (allowed because ENVIRONMENT=development).
+      API_BYPASS_AUTH: "true"
+      # Keep optional analytics/artifact adapters off by default; flip to true
+      # here when you want to exercise ClickHouse/MinIO paths.
+      BACKTEST_CLICKHOUSE_WRITES_ENABLED: "false"
+      BACKTEST_MINIO_ARTIFACTS_ENABLED: "false"
+      BACKTEST_ARTIFACT_STORAGE_ENABLED: "false"
+      # Service token for backend -> bot delegation (matches the placeholder
+      # in config/profiles/example.config.json; override for real use).
+      BOT_API_TOKEN: change-me-bot-service-token
+    networks:
+      - dydx-infra
+
+  # ---------------------------------------------------------------------------
+  # Shared infrastructure (mirrors ../docker-compose.infra.yml, minus the
+  # localhost port bindings that are irrelevant inside the devcontainer).
+  # ---------------------------------------------------------------------------
+
+  postgresql:
+    image: postgres:15.18-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dydx_bot}
+      POSTGRES_USER: ${POSTGRES_USER:-dydx_bot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dydx-infra
+
+  postgresql-bot-db-init:
+    image: postgres:15.18-bookworm
+    restart: "no"
+    environment:
+      PGHOST: postgresql
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-dydx_bot}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
+      BOT_POSTGRES_DB: ${BOT_POSTGRES_DB:-dydx_bot_runtime}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        if ! psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$${BOT_POSTGRES_DB}'" | grep -q 1; then
+          createdb "$${BOT_POSTGRES_DB}"
+        fi
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    networks:
+      - dydx-infra
+
+  valkey:
+    image: valkey/valkey:7.2-alpine
+    restart: unless-stopped
+    command:
+      - valkey-server
+      - --appendonly
+      - "yes"
+      - --save
+      - "60"
+      - "1"
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dydx-infra
+
+  nats:
+    image: nats:2.10-alpine
+    restart: unless-stopped
+    command:
+      - -js
+      - -m
+      - "8222"
+      - -sd
+      - /data
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dydx-infra
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.1-alpine
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DATABASE:-dydx_analytics}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-clickhouse}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dydx-infra
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-change-me-minio-access-key}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-change-me-minio-secret-key}
+    command:
+      - server
+      - /data
+      - --console-address
+      - :9001
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dydx-infra
+
+networks:
+  dydx-infra:
+    driver: bridge
+    # Project-scoped (no fixed `name:`) so the devcontainer stack does not
+    # fight the host-side `make infra-up` network, which owns `dydx-infra`.
+
+volumes:
+  postgresql_data:
+    driver: local
+  valkey_data:
+    driver: local
+  nats_data:
+    driver: local
+  clickhouse_data:
+    driver: local
+  minio_data:
+    driver: local

@@ -1,0 +1,56 @@
+{
+	"name": "dYdX Backend (Go)",
+
+	// Self-contained compose: the `backend` dev container plus the shared infra
+	// services (PostgreSQL, Valkey, NATS, ClickHouse, MinIO), mirroring the
+	// repo-root .devcontainer stack.
+	"dockerComposeFile": "docker-compose.yml",
+
+	"service": "backend",
+	"workspaceFolder": "/workspaces/dydx-trading-bot/backend",
+	"remoteUser": "vscode",
+
+	// Ensure the shared infra network exists before compose starts (host-side).
+	// Point at a script so JetBrains picks the right host shell (.sh on Linux/macOS, .cmd on Windows).
+	"initializeCommand": ".devcontainer/ensure-network",
+
+	"features": {
+		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+	},
+
+	// Download Go modules and install the pinned dev tools from
+	// backend/Makefile (golangci-lint, air, golang-migrate, mockgen).
+	"postCreateCommand": "go mod download && make install-tools",
+
+	// Wait for PostgreSQL and Valkey before running server/migration targets.
+	"postStartCommand": "for hp in postgresql:5432 valkey:6379; do h=${hp%:*}; p=${hp#*:}; (echo > /dev/tcp/$h/$p) >/dev/null 2>&1 && echo \"$hp reachable\" || echo \"WARN: $hp not reachable\"; done",
+
+	"forwardPorts": [8888, 5432, 6379, 4222, 8222],
+	"portsAttributes": {
+		"8888": { "label": "Backend API", "onAutoForward": "notify" },
+		"5432": { "label": "PostgreSQL", "onAutoForward": "silent" },
+		"6379": { "label": "Valkey (Redis)", "onAutoForward": "silent" },
+		"4222": { "label": "NATS JetStream", "onAutoForward": "silent" },
+		"8222": { "label": "NATS Monitoring", "onAutoForward": "silent" }
+	},
+
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"golang.go",
+				"ms-azuretools.vscode-docker"
+			],
+			"settings": {
+				"go.useLanguageServer": true,
+				"go.lintTool": "golangci-lint",
+				"go.lintFlags": ["--fast"],
+				"go.testFlags": ["-v"],
+				"[go]": {
+					"editor.defaultFormatter": "golang.go",
+					"editor.formatOnSave": true,
+					"editor.codeActionsOnSave": { "source.organizeImports": "explicit" }
+				}
+			}
+		}
+	}
+}

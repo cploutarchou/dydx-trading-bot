@@ -1,0 +1,53 @@
+{
+	"name": "dYdX Trading Bot",
+	"dockerComposeFile": "docker-compose.yml",
+	"service": "bot",
+	"workspaceFolder": "/workspaces/dydx-trading-bot",
+	"remoteUser": "vscode",
+
+	"features": {
+		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+	},
+
+	// Create the bot virtualenv and install pinned dependencies. The project
+	// Makefile enforces the .venv interpreter for all local targets.
+	"postCreateCommand": "cd bot && python -m venv .venv && .venv/bin/pip install --upgrade pip setuptools wheel && .venv/bin/pip install -r requirements.txt",
+
+	// Wait for PostgreSQL and Valkey before running API/worker targets.
+	"postStartCommand": "cd bot && .venv/bin/python -c \"import socket,sys;\\nfor host,port in (('postgresql',5432),('valkey',6379)):\\n    s=socket.socket(); s.settimeout(30)\\n    try: s.connect((host,port)); print(f'{host}:{port} reachable')\\n    except OSError as e: print(f'WARN: {host}:{port} not reachable: {e}')\\n    finally: s.close()\"",
+
+	"forwardPorts": [8889, 5555, 5432, 6379, 4222, 8222, 8123, 9010, 9011],
+	"portsAttributes": {
+		"8889": { "label": "Bot API", "onAutoForward": "notify" },
+		"5555": { "label": "Celery Flower", "onAutoForward": "silent" },
+		"5432": { "label": "PostgreSQL", "onAutoForward": "silent" },
+		"6379": { "label": "Valkey (Redis)", "onAutoForward": "silent" },
+		"4222": { "label": "NATS JetStream", "onAutoForward": "silent" },
+		"8222": { "label": "NATS Monitoring", "onAutoForward": "silent" },
+		"8123": { "label": "ClickHouse HTTP", "onAutoForward": "silent" },
+		"9010": { "label": "MinIO API", "onAutoForward": "silent" },
+		"9011": { "label": "MinIO Console", "onAutoForward": "silent" }
+	},
+
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-python.python",
+				"ms-python.vscode-pylance",
+				"ms-python.black-formatter",
+				"ms-azuretools.vscode-docker"
+			],
+			"settings": {
+				"python.defaultInterpreterPath": "/workspaces/dydx-trading-bot/bot/.venv/bin/python",
+				"python.testing.pytestEnabled": true,
+				"python.testing.pytestArgs": ["bot/tests"],
+				"python.testing.cwd": "/workspaces/dydx-trading-bot/bot",
+				"[python]": {
+					"editor.defaultFormatter": "ms-python.black-formatter",
+					"editor.formatOnSave": true
+				}
+			}
+		}
+	}
+}
+

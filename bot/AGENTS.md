@@ -7,7 +7,9 @@ Repository-level guidance for coding agents working on this project.
 1. Read `../.github/copilot-instructions.md`
 2. Read `.github/copilot-instructions.md`
 3. Choose task-specific instruction files (see below)
-4. Prefer `.github/agents/senior-python-defi-runtime.agent.md` for bot implementation work
+4. Prefer `.github/agents/senior-python-defi-runtime.agent.md` for bot implementation work; use
+   `.github/agents/senior-bot-project-manager.agent.md` for cross-domain project management (development, trading,
+   infrastructure, security, operations)
 
 ## Task-specific instruction files
 
@@ -49,8 +51,10 @@ Repository-level guidance for coding agents working on this project.
 1. **Environment load order**
     - Entry points must call `load_repo_env(__file__)` before importing config/constants (see `src/api/server.py`,
       `src/api/start_api.py`, `main.py`, `src/main_instance.py`,
-      `src/bot_instance_manager.py`).
+      `src/bot_instance_manager.py`, `worker_entrypoint.py`).
     - Runtime config is structured (`run.json` or `config/profiles/*`), not `bot/.env`.
+    - Structured config may be encrypted (`*.config.enc.json`); `load_repo_env` requires the AES-256-GCM key file
+      (`.configkey.bin` at the monorepo root, or `APP_CONFIG_KEY_FILE`). Provision it with `make config-keygen`.
 2. **No direct process management outside manager layer**
     - Manage worker lifecycle through `src/bot_instance_manager.py`.
 3. **Async correctness**
@@ -80,6 +84,13 @@ Repository-level guidance for coding agents working on this project.
     - Launch long-running/background tasks via `src/infrastructure/use_cases/async_job_manager.py` so task
       failures/progress persist to job state and are visible to operators.
 
+12. **Domain model ownership**
+    - Canonical SQLAlchemy models live in `internal/domain/` (`models.py`, `models_realtime.py`) and are imported by
+      `src/api/server.py`, `src/bot_instance_manager.py`, and `migrations/env.py`; do not create parallel model
+      definitions elsewhere.
+    - `internal/repository/repository_realtime.py` is a compatibility shim re-exporting the canonical repositories
+      from `src/infrastructure/persistence/repository_realtime.py`; extend the canonical module, not the shim.
+
 ## Local Development Commands
 
 **API and runtime (use `.venv` interpreter):**
@@ -94,7 +105,9 @@ Repository-level guidance for coding agents working on this project.
 **Important workflow**: When using Celery for backtest execution, start `make local-worker` BEFORE `make local-api` so
 the API startup probes detect the Celery backend. If worker comes online later, restart the API. For legacy
 `/api/backtest/jobs` requests, also ensure `BACKTEST_TASK_ALWAYS_EAGER=false` so tasks execute asynchronously instead of
-inline.
+inline. If the API does start first, new backtests auto-reprobe and promote from `asyncio` to `celery` once workers
+become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown via
+`BACKTEST_WORKER_BACKEND_REPROBE_COOLDOWN_SECONDS`).
 
 **Testing and validation:**
 
@@ -106,6 +119,18 @@ inline.
   reconciliation
 - `make simulate-production-profile` — Run baseline vs production-profile simulation via backtest API
   (`scripts/simulate_production_profile.py --skip-auth`)
+- `make test-cov` / `make test-cov-html` — Run tests with coverage (terminal report / HTML report at
+  `htmlcov/index.html`)
+- `make install-hooks` / `make hooks-run` / `make hooks-update` — Git pre-commit hooks (config at monorepo root
+  `../.pre-commit-config.yaml`; requires `.venv` active at commit time)
+
+**Credential encryption:**
+
+- `make credentials-keygen` — Generate a 32-byte key for sealing `bot_instances` credentials
+- `make encrypt-bot-credentials ARGS=--dry-run` / `make encrypt-bot-credentials` — Backfill-encrypt existing
+  `bot_instances` credentials (idempotent; preview first)
+- `make config-keygen` — Generate the 32-byte key (`.configkey.bin`) for encrypted structured config files
+  (`*.config.enc.json`); required by `load_repo_env` when config is encrypted
 
 **Docker orchestration:**
 
@@ -114,6 +139,10 @@ inline.
 - `make dev-detached` — Start development environment in background
 - `make health` — Check health of all running services
 - `make info` — Show project information and current status
+- Day-to-day operations: `make start` / `stop` / `restart` / `status` / `logs` (`logs-api`, `logs-db`, `logs-nginx`),
+  `make db-shell` / `db-backup` / `db-reset` (destructive), `make shell` (`shell-nginx`, `shell-db`)
+- Build/deploy: `make build` (`build-dev`, `build-prod`, `build-no-cache`), `make prod`, `make deploy`,
+  `make quick-start` (init-env + init-ssl + build + dev-detached)
 
 ## Celery and Backtest Patterns
 
@@ -160,6 +189,42 @@ inline.
   `src/infrastructure/storage/minio_artifact_store.py`
 - Storage abstraction layers: `src/infrastructure/storage/analytics.py` and `src/infrastructure/storage/artifacts.py`
 
+## Resilience, Cache, and Broadcast Infrastructure
+
+**Circuit breakers** (`src/infrastructure/resilience/breakers.py`, backed by pinned `pybreaker`):
+
+- Named breakers guard external calls so sustained outages fail fast: `dydx_indexer` (dYdX market data + indexer
+  account/order reads), `telegram`, `loki`. An open breaker raises typed `CircuitBreakerOpenError`.
+- Per service `<SERVICE>` ∈ {`DYDX_INDEXER`, `TELEGRAM`, `LOKI`}: `<SERVICE>_CIRCUIT_ENABLED=true` (default),
+  `<SERVICE>_CIRCUIT_FAIL_MAX` (dYdX default 3, others 5), `<SERVICE>_CIRCUIT_RESET_TIMEOUT` seconds (dYdX default 30,
+  others 60). The `dydx_indexer` breaker also honors legacy `DYDX_CIRCUIT_FAIL_MAX` / `DYDX_CIRCUIT_RESET_TIMEOUT`.
+- The `dydx_indexer` breaker excludes 4xx-except-429 from tripping (preserves 404-fallback semantics for fresh
+  accounts); transport errors, timeouts, 429, and 5xx trip it.
+- Live states: `GET /api/v1/monitoring/circuit-breakers` (auth required).
+
+**Shared market-data L2 cache** (`src/infrastructure/cache/market_cache.py`):
+
+- Redis/Valkey read-through cache for markets and recent candles; `MARKET_DATA_CACHE_ENABLED=true` (default), no-ops
+  when Redis is absent. Override with `MARKET_DATA_CACHE_REDIS_URL` (defaults to Celery broker / `REDIS_URL` /
+  `VALKEY_URL`) and `MARKET_DATA_CACHE_SOCKET_TIMEOUT_SECONDS=1.0`.
+
+**Cross-worker WebSocket broadcast bus** (`src/infrastructure/broadcast/bus.py`, `redis.asyncio` pub/sub):
+
+- `ConnectionManager` is process-local; the bus fans `broadcast_to_bot` out across Uvicorn workers via a shared
+  `ws:broadcast` channel. `WS_BROADCAST_ENABLED=false` (default) keeps single-worker/local behavior identical; a Redis
+  outage degrades to local-only delivery (never breaks a broadcast). Override with `WS_BROADCAST_REDIS_URL` and
+  `WS_BROADCAST_SOCKET_TIMEOUT_SECONDS=1.0`.
+- Health: `GET /api/v1/monitoring/ws-broadcast` (auth required).
+
+**Monitoring routes** (`src/api/v1/monitoring.py`, mounted under `/api/v1/monitoring`, auth required): DataFrame
+memory/cleanup, database pool metrics/health/history/diagnostics, `/circuit-breakers`, `/ws-broadcast`. Responses use
+the shared `api_response` envelope from `src/api/responses.py`.
+
+**Test isolation**: autouse fixtures in `tests/conftest.py` keep these subsystems inert by default —
+`_isolate_circuit_breakers` (disables all breakers), `_isolate_shared_market_data_cache` (Noop L2 cache),
+`_isolate_broadcast_bus` (Noop bus). Tests exercising the real subsystem re-enable via `monkeypatch.setenv(...)` +
+module `reset_*()` helpers.
+
 ## Required checks for bot-runtime changes
 
 - Verify startup/import works in configured interpreter.
@@ -194,23 +259,18 @@ inline.
   ClickHouse.
 - Run `tests/test_nats_consumer*.py` when touching NATS JetStream consumer infrastructure, idempotency checking, or
   message handling.
+- Run `tests/test_circuit_breaker.py` and `tests/test_market_data_circuit_notifications.py` when touching circuit
+  breakers or external-service call paths (`src/infrastructure/resilience/`, dYdX indexer, Telegram, Loki).
+- Run `tests/test_broadcast_bus.py` when touching cross-worker WebSocket broadcast (`src/infrastructure/broadcast/`).
+- Run `tests/test_credentials_cipher.py` when touching credential sealing/encryption (`src/shared/credentials_cipher.py`
+  or `bot_instances` config persistence).
+- Run `tests/test_monitoring_routes.py` when touching `src/api/v1/monitoring.py` endpoints.
+- Keep `tests/test_exception_handling_ratchet.py` green: it fails the build if broad `except Exception` / bare `except:`
+  sites in `src/` grow past the recorded baseline; tighten the baseline when removing broad catches.
 - Run `make test-execution-safety` when touching order execution, emergency cleanup, or position-reconciliation safety
   paths.
-- Run `make preflight-testnet` (and `make preflight-testnet-strict` for release-oriented changes) for
-  runtime/safety-impacting edits.
-- When touching database runtime selection/cutover logic, run `tests/test_database_config_runtime.py` and verify
-  `BOT_DB_CUTOVER_MODE=dedicated` behavior remains valid.
-- Document failure-mode impact and rollback plan.
 
-## Key documentation map
-
-- `README.md`
-- `openapi.json`
-- `../docs/OPERATIONS.md`
-- `.github/copilot-instructions.md`
-- `tasks.md`
-
-## Latest bot context (2026-06)
+## Latest bot context (2026-08)
 
 - Keep `src/api/server.py` as canonical API entrypoint and `src/api/start_api.py` as canonical launcher.
 - Preserve backend-facing normalized status/progress fields (and compatibility aliases) used by delegated
@@ -226,30 +286,29 @@ inline.
 - **Backtest logging**: Long-running backtests capture per-job logs to `bot_states/backtest_<run_id>.log`; retrieve via
   `GET /api/v1/backtests/{run_id}/logs` endpoint; progress reporting is throttled to reduce DB IO pressure.
 - **Runtime config**: Bot instances load config from `bot_instances.config` only (DB-first approach); deprecated
-  `bot_states/config_*.yaml` files are no longer read; use `scripts/migrate_yaml_configs_to_db.py` for one-time
-  migration if needed.
+  `bot_states/config_*.yaml` files are no longer read (the one-time `scripts/migrate_yaml_configs_to_db.py` migration
+  helper has been removed after the cutover).
+- **Credential encryption at rest**: `bot_instances.config` credentials are sealed with AES-256-GCM via
+  `src/shared/credentials_cipher.py` using a dedicated key (`BOT_CREDENTIALS_ENCRYPTION_KEY` /
+  `BOT_CREDENTIALS_ENCRYPTION_KEY_FILE`); `config_meta.schema_version` is `2` and legacy v1 plaintext rows are re-sealed
+  lazily on write. Without a key, storage falls back to plaintext with a one-time warning; set
+  `BOT_CREDENTIALS_ENCRYPTION_REQUIRED=true` to fail writes instead (production). Provision with
+  `make credentials-keygen`; backfill with `make encrypt-bot-credentials` (`ARGS=--dry-run` to preview).
 - **Startup recovery**: Stale backtests and orphaned live bots are reconciled to failed state by default; use
   `BACKTEST_AUTO_RECOVERY_MODE=restart` and `BOT_AUTO_RECOVER_LIVE_*` flags to enable auto-recovery.
 - **New infrastructure components**: `src/infrastructure/event_bus.py` (event publishing/subscription),
   `src/infrastructure/cache_lock.py` (distributed locking); use these for coordination rather than ad-hoc locking.
 - **New trading components**: `src/trading/arbitrage_observability.py` (decision audit trail),
   `src/trading/pair_priority.py` (pair ranking engine), `src/trading/realtime_data_service.py` (real-time feed
-  integration), `src/trading/trade_persistence.py` (live trade records).
-- **2FA auth routes**: `src/api/v1/auth/password_2fa.py` exposes `POST /auth/setup` and `POST /auth/verify`; follow
-  existing `api_response(...)` envelope and auth-bypass guard patterns.
-- **Strategy resolution metrics**: Operator-facing endpoints for resolution drift monitoring —
-  `GET /api/v1/runtime/strategy-resolution-metrics`, `GET /api/v1/runtime/strategy-resolution-metrics/prom`
-  (Prometheus), `POST /api/v1/admin/runtime/strategy-resolution-metrics/reset`. Tune with
-  `STRATEGY_RESOLUTION_ALERT_WINDOW_SIZE`, `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_THRESHOLD`,
-  `STRATEGY_RESOLUTION_REQUEST_RATIO_ALERT_MIN_RUNS`.
-- **Backtest sync-health and repair**: `GET /api/v1/backtests/sync-health` monitors strategy-resolution drift;
-  `POST /api/v1/admin/backtests/{run_id}/repair-request` (with `?dry_run=true` to preview) allows admin repair of
-  misaligned backtest requests.
-- **Worker metrics infrastructure**: `src/infrastructure/storage/worker_metrics_writer.py` persists worker task
-  duration, success/failure, retry count, and throughput to ClickHouse `worker_metrics` table (when
-  `BACKTEST_CLICKHOUSE_WRITES_ENABLED=true`); Celery metrics wired via `celery_metrics.py`, NATS worker metrics via
-  `nats_worker_metrics.py`; both record all task lifecycle signals and no-op when ClickHouse is disabled.
-- **NATS consumer (Phase 4)**: `src/infrastructure/event_bus_nats.py` and
-  `src/infrastructure/workers/nats_backtest_consumer.py` implement dual-write JetStream consumer foundation with
-  idempotency checking via PostgreSQL task tables, explicit ack after state update, and retry/ack/dead-letter handling;
-  backend and bot use singular canonical subject form (e.g., `backtest.command.start`).
+  integration), `src/trading/trade_persistence.py` (live trade records),
+  `src/trading/analysis/cointegration.py` (cointegration analysis for pairs trading),
+  `src/trading/arbitrage_runtime_config.py` (runtime-overridable arbitrage feature flags; env vars are startup
+  defaults, backend/admin settings may override at runtime), `src/trading/bot_agents_state.py` (concurrency-safe
+  per-instance tracked-position state; DB primary, JSON file fallback).
+- **Architecture reference docs**: `flows/` contains a dated (2026-06-21) source-code map of the system —
+  `project-structure.md`, `services-inventory.md`, `current-business-flows.md`, `api-flows.md`,
+  `background-tasks.md`, `data-flows.md`, `integrations.md`, `risks-and-gaps.md`. Consult these for architecture
+  questions; treat claims marked **UNKNOWN / NEEDS VALIDATION** accordingly.
+- **Worker container entrypoint**: `worker_entrypoint.py` is the container entrypoint for background workers; it
+  calls `load_repo_env(__file__)` first, sanitizes node URL env vars, and launches Celery with queue/autoscale
+  settings (`CELERY_QUEUES` default `backtests,default,high_priority,scheduled`).

@@ -1,0 +1,68 @@
+{
+	"name": "dYdX Bot (Python)",
+
+	// Self-contained compose: the `bot` dev container plus the shared infra
+	// services (PostgreSQL, Valkey, NATS, ClickHouse, MinIO), mirroring the
+	// repo-root .devcontainer stack. The `bot` image is built from the
+	// repo-root .devcontainer/Dockerfile (Python 3.12, matches
+	// bot/pyproject.toml requires-python ">=3.12,<3.13").
+	"dockerComposeFile": "docker-compose.yml",
+	"service": "bot",
+	"workspaceFolder": "/workspaces/dydx-trading-bot/bot",
+	"remoteUser": "vscode",
+
+	// Ensure the shared infra network exists before compose starts (host-side).
+	// Point at a script so JetBrains picks the right host shell (.sh on Linux/macOS, .cmd on Windows).
+	"initializeCommand": ".devcontainer/ensure-network",
+
+	"features": {
+		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+	},
+
+	// Create the bot virtualenv and install pinned dependencies. The project
+	// Makefile enforces the .venv interpreter for all local targets.
+	"postCreateCommand": "python -m venv .venv && .venv/bin/pip install --upgrade pip setuptools wheel && .venv/bin/pip install -r requirements.txt",
+
+	// Wait for PostgreSQL and Valkey before running API/worker targets.
+	"postStartCommand": ".venv/bin/python -c \"import socket;\\nfor host,port in (('postgresql',5432),('valkey',6379)):\\n    s=socket.socket(); s.settimeout(30)\\n    try: s.connect((host,port)); print(f'{host}:{port} reachable')\\n    except OSError as e: print(f'WARN: {host}:{port} not reachable: {e}')\\n    finally: s.close()\"",
+
+	"forwardPorts": [8889, 5555, 5432, 6379, 4222, 8222, 8123, 9010, 9011],
+	"portsAttributes": {
+		"8889": { "label": "Bot API", "onAutoForward": "notify" },
+		"5555": { "label": "Celery Flower", "onAutoForward": "silent" },
+		"5432": { "label": "PostgreSQL", "onAutoForward": "silent" },
+		"6379": { "label": "Valkey (Redis)", "onAutoForward": "silent" },
+		"4222": { "label": "NATS JetStream", "onAutoForward": "silent" },
+		"8222": { "label": "NATS Monitoring", "onAutoForward": "silent" },
+		"8123": { "label": "ClickHouse HTTP", "onAutoForward": "silent" },
+		"9010": { "label": "MinIO API", "onAutoForward": "silent" },
+		"9011": { "label": "MinIO Console", "onAutoForward": "silent" }
+	},
+
+	"customizations": {
+		"jetbrains": {
+			"settings": {
+				"com.intellij.database:app:DatabaseSettings.enable-local-filter-by-default": false,
+				"com.intellij:app:HttpConfigurable.use_proxy_pac": true
+			}
+		},
+		"vscode": {
+			"extensions": [
+				"ms-python.python",
+				"ms-python.vscode-pylance",
+				"ms-python.black-formatter",
+				"ms-azuretools.vscode-docker"
+			],
+			"settings": {
+				"python.defaultInterpreterPath": "/workspaces/dydx-trading-bot/bot/.venv/bin/python",
+				"python.testing.pytestEnabled": true,
+				"python.testing.pytestArgs": ["tests"],
+				"python.testing.cwd": "/workspaces/dydx-trading-bot/bot",
+				"[python]": {
+					"editor.defaultFormatter": "ms-python.black-formatter",
+					"editor.formatOnSave": true
+				}
+			}
+		}
+	}
+}

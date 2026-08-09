@@ -1,0 +1,51 @@
+{
+	"name": "dYdX Frontend (Vite/React)",
+
+	// Compose-based so the container joins the shared `dydx-infra` network and
+	// the Vite dev server can proxy /api and /ws to the backend devcontainer
+	// (http://backend:8888). Node 20 matches docker/Dockerfile.frontend
+	// (`node:20-alpine`).
+	"dockerComposeFile": "docker-compose.yml",
+	"service": "frontend",
+	"workspaceFolder": "/workspaces/dydx-trading-bot/frontend",
+	"remoteUser": "node",
+
+	// Ensure the shared infra network exists before compose starts (host-side).
+	// Point at a script so JetBrains picks the right host shell (.sh on Linux/macOS, .cmd on Windows).
+	"initializeCommand": ".devcontainer/ensure-network",
+
+	"features": {
+		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+	},
+
+	// The monorepo mount is defined by the compose volume (../.. ->
+	// /workspaces/dydx-trading-bot); no separate workspaceMount here.
+
+	// Install pinned dependencies (package-lock.json). .npmrc sets
+	// legacy-peer-deps=true, which npm ci honors automatically.
+	"postCreateCommand": "npm ci",
+
+	"forwardPorts": [5173, 5174, 5175],
+	"portsAttributes": {
+		"5173": { "label": "Vite Dev (client)", "onAutoForward": "notify" },
+		"5174": { "label": "Vite Dev (backoffice)", "onAutoForward": "silent" },
+		"5175": { "label": "Vite Dev (IB portal)", "onAutoForward": "silent" }
+	},
+
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"dbaeumer.vscode-eslint",
+				"esbenp.prettier-vscode",
+				"bradlc.vscode-tailwindcss",
+				"ms-azuretools.vscode-docker"
+			],
+			"settings": {
+				"editor.defaultFormatter": "esbenp.prettier-vscode",
+				"editor.formatOnSave": true,
+				"eslint.validate": ["javascript", "javascriptreact", "typescript", "typescriptreact"],
+				"typescript.tsdk": "node_modules/typescript/lib"
+			}
+		}
+	}
+}

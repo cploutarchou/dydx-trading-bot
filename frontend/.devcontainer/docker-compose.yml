@@ -1,0 +1,38 @@
+---
+# Frontend devcontainer compose: the `frontend` dev container on the shared
+# `dydx-infra` network so the Vite dev server can proxy /api and /ws to the
+# backend devcontainer by service name (http://backend:8888).
+
+services:
+  frontend:
+    image: mcr.microsoft.com/devcontainers/javascript-node:1-20-bookworm
+    volumes:
+      # Mount the whole monorepo so repo-root config (run.json,
+      # config/profiles) and sibling projects are visible, mirroring the other
+      # devcontainers.
+      - ../..:/workspaces/dydx-trading-bot:cached
+    command: sleep infinity
+    environment:
+      # Vite dev server proxies /api and /ws to this target (see
+      # frontend/vite.config.ts). On the shared network the backend
+      # devcontainer is reachable as `backend`.
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://backend:8888}
+      VITE_API_URL: ${VITE_API_URL:-http://backend:8888}
+      VITE_AUTH_BASE_URL: ${VITE_AUTH_BASE_URL:-http://backend:8888}
+    networks:
+      - dydx-infra
+    # Reach services running on the Docker host (e.g. a host-side backend).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+networks:
+  dydx-infra:
+    # Shared external network (created by `make infra-up` at the repo root, or
+    # auto-created on first use). All project devcontainers join this network
+    # so they can reach each other by service name:
+    #   backend  -> http://backend:8888   (Go API)
+    #   bot      -> http://bot:8889       (Python bot API)
+    #   frontend -> http://frontend:5173  (Vite dev server)
+    external: true
+    name: dydx-infra
+

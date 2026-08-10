@@ -8,7 +8,8 @@ FROM mcr.microsoft.com/devcontainers/python:1-3.12-bookworm
 #   postgresql-client - pg_isready / psql against the `postgresql` service
 #   redis-tools       - redis-cli against the `valkey` service (Redis-compatible)
 #   jq / curl         - `make health` and API smoke checks
-RUN apt-get update \
+RUN rm -f /etc/apt/sources.list.d/yarn.list /etc/apt/sources.list.d/yarn*.list \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         make \
         postgresql-client \

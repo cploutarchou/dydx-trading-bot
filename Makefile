@@ -435,6 +435,8 @@ infra-up: ## Start shared infra only (PostgreSQL, Valkey, NATS, ClickHouse, MinI
 			echo "   Use make dev-infra (docker-run based local infra) as fallback."; \
 			exit 1; \
 		fi; \
+		set -e; \
+		docker network inspect dydx-infra >/dev/null 2>&1 || docker network create dydx-infra >/dev/null; \
 		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE) up -d --remove-orphans; \
 		echo ""; \
 		echo "[OK] Infrastructure started:"; \

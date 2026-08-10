@@ -152,8 +152,8 @@ services:
 
 networks:
   dydx-infra:
-    driver: bridge
     name: dydx-infra
+    external: true
 
 volumes:
   postgresql_data:

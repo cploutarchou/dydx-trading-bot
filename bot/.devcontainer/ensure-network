@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+# Extension-less entrypoint referenced by devcontainer.json initializeCommand.
+# VS Code Dev Containers CLI executes this literal path via /bin/sh -c;
+# JetBrains resolves ensure-network.sh / ensure-network.cmd per host OS.
+# Ensure the shared infra network exists (Linux/macOS host).
+# Idempotent: succeeds whether or not the network already exists.
+docker network create dydx-infra 2>/dev/null || true

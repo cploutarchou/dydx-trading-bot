@@ -19,6 +19,9 @@ services:
       # Mount the whole monorepo: bot/src/shared/env_loader.py locates the
       # repo root via .github + AGENTS.md + run.json / config/profiles.
       - ../..:/workspaces/dydx-trading-bot:cached
+      # Allow the vscode user to authenticate Git-over-SSH operations while
+      # preventing the container from modifying host keys or known_hosts.
+      - ${HOME}/.ssh:/home/vscode/.ssh:ro
     command: sleep infinity
     environment:
       # --- Service discovery: infra is reached by service name on dydx-infra ---

@@ -21,10 +21,10 @@
 
 	// Create the bot virtualenv and install pinned dependencies. The project
 	// Makefile enforces the .venv interpreter for all local targets.
-	"postCreateCommand": "python -m venv .venv && .venv/bin/pip install --upgrade pip setuptools wheel && .venv/bin/pip install -r requirements.txt",
+	"postCreateCommand": "python -m venv --clear .venv && .venv/bin/pip install --upgrade pip setuptools wheel && .venv/bin/pip install -r requirements.txt",
 
 	// Wait for PostgreSQL and Valkey before running API/worker targets.
-	"postStartCommand": ".venv/bin/python -c \"import socket;\\nfor host,port in (('postgresql',5432),('valkey',6379)):\\n    s=socket.socket(); s.settimeout(30)\\n    try: s.connect((host,port)); print(f'{host}:{port} reachable')\\n    except OSError as e: print(f'WARN: {host}:{port} not reachable: {e}')\\n    finally: s.close()\"",
+	"postStartCommand": ".venv/bin/python .devcontainer/check-infra.py",
 
 	"forwardPorts": [8889, 5555, 5432, 6379, 4222, 8222, 8123, 9010, 9011],
 	"portsAttributes": {

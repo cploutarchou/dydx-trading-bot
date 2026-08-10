@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/ --collect-only -q)",
+      "Bash(.venv/bin/python -m pytest tests/ --collect-only -q)",
+      "Bash(python -m pytest tests/test_auth_api_contract.py -v --tb=short)",
+      "Bash(.venv/bin/python -m pytest tests/test_auth_api_contract.py -v --tb=short)",
+      "Bash(.venv/bin/python -m pytest tests/test_backtest_api_contract.py -v --tb=short)",
+      "Bash(.venv/bin/python *)",
+      "Bash(PYTHONPATH=/home/chris/workspace/dydx-trading-bot/bot .venv/bin/python *)",
+      "Bash(awk -F: '$1 > 500 && $1 < 620')",
+      "Bash(awk 'NR<=558 && /^class /{c=$0; n=NR} END{print n\": \"c}' src/main_instance.py)",
+      "Bash(grep -iE 'sqlalchemy|exceptions|src\\\\.|OSError|os$')",
+      "Bash(.venv/bin/black --check src/exceptions.py src/api/server.py src/bot_instance_manager.py src/infrastructure/database.py src/infrastructure/use_cases/service_backtest.py src/shared/credentials_cipher.py tests/test_exceptions_hierarchy.py tests/test_exception_handling_ratchet.py)",
+      "Bash(.venv/bin/black src/api/server.py src/infrastructure/database.py src/shared/credentials_cipher.py tests/test_exceptions_hierarchy.py)",
+      "Bash(API_BYPASS_AUTH=true APP_CONFIG_ENV=development .venv/bin/python -c ' *)",
+      "Bash(grep -nE '^# ={5,}' src/api/server.py)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "pycharm"
+  ]
+}

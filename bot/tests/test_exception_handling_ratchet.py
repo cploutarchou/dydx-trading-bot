@@ -54,7 +54,17 @@ from pathlib import Path
 # refactor (broadcast_to_bot -> _deliver_local + publish) added NO new broad
 # catches: the bus guarantees publish() never raises, so the producer needs no
 # try/except. Net 0.
-BROAD_CATCH_BASELINE = 309
+# 309 -> 297 (2026-08-11, dead-code-paths resolution, IMPROVEMENTS.md item #1):
+# deleted the uncalled src/trading/realtime_data_service.py (11 best-effort
+# `except Exception` blocks across its _monitor_bot / _update_* / _check_alerts
+# / add_position_* paths — the service had no production caller, so none ever
+# ran) and removed the post-backtest candle-aggregation call block in
+# src/infrastructure/workers/backtest_tasks.py (1 `except Exception: pass`
+# guarding aggregate_backtest_candles.delay, itself a no-op "skipped" stub that
+# is now deleted along with its Celery registration). Net -12. The other parts
+# of the resolution — mounting the 2FA router, repointing the repository_realtime
+# shim import to the canonical path — introduced no broad catches.
+BROAD_CATCH_BASELINE = 297
 
 # Matches "except Exception", "except Exception as e", "except Exception:" and bare "except:".
 _BROAD_CATCH_RE = re.compile(r"\bexcept\s+(Exception|BaseException)\b|^\s*except\s*:")

@@ -569,15 +569,6 @@ def run_backtest_task(
                 task_id,
                 run_id,
             )
-            # Kick off async candle aggregation so chart renders are served from Redis
-            try:
-                from src.infrastructure.workers.candle_aggregate_tasks import (
-                    aggregate_backtest_candles,
-                )
-
-                aggregate_backtest_candles.delay(run_id)
-            except Exception:  # noqa: BLE001
-                pass  # Non-fatal: chart will fall back to the database
             return {"run_id": run_id, "status": "completed"}
     except SoftTimeLimitExceeded:
         message = "Backtest Celery task exceeded soft time limit"

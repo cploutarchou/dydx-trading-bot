@@ -66,7 +66,6 @@ celery_app = Celery(
     backend=os.getenv("CELERY_RESULT_BACKEND") or _redis_url(1),
     include=[
         "src.infrastructure.workers.backtest_tasks",
-        "src.infrastructure.workers.candle_aggregate_tasks",
         "src.infrastructure.workers.market_sync_tasks",
     ],
 )
@@ -79,7 +78,6 @@ celery_app.conf.update(
     task_queues=tuple(Queue(name) for name in _QUEUES),
     task_routes={
         "backtests.run": {"queue": os.getenv("BACKTEST_CELERY_QUEUE", "backtests")},
-        "backtests.aggregate_candles": {"queue": "default"},
         "bot.sync_market_candles": {"queue": "scheduled"},
     },
     task_acks_late=True,

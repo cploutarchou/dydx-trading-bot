@@ -4,7 +4,7 @@
 
 The canonical app defines 81 HTTP operations and five WebSocket operations in [
 `src/api/server.py`](../src/api/server.py). The five auth operations are mounted under two prefixes, producing ten
-additional HTTP paths. The unmounted 2FA router defines two more operations that are not reachable.
+additional HTTP paths. The 2FA router is mounted at `/api/v1/auth/2fa` (`/setup`, `/verify`), adding two auth-gated operations (2026-08-11).
 
 ```mermaid
 sequenceDiagram
@@ -59,8 +59,9 @@ The router is mounted twice, so every row exists under both `/auth` and `/api/v1
 | POST `/logout`     | `logout`      | Public | Returns message only; no revocation            |
 | POST `/logout-all` | `logout_all`  | Public | Compatibility response only; no revocation     |
 
-2FA `/setup` and `/verify` are defined in [`password_2fa.py`](../src/api/v1/auth/password_2fa.py) but that router is not
-included: **unreachable in the current app**.
+2FA `/setup` and `/verify` are defined in [`password_2fa.py`](../src/api/v1/auth/password_2fa.py) and mounted at
+`/api/v1/auth/2fa` via `app.include_router` in [`server.py`](../src/api/server.py): **reachable, auth-gated** (2026-08-11).
+Login does not yet enforce 2FA state.
 
 ## Bot lifecycle and business history routes
 

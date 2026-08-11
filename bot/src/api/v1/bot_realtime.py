@@ -20,6 +20,7 @@ from src.api.websocket_server import (
     manager,
 )
 from src.infrastructure.database import db
+from src.infrastructure.db_offload import run_db
 from src.infrastructure.domain.models.auth_models import User
 from src.infrastructure.persistence.repository import UnitOfWork
 from src.infrastructure.persistence.repository_realtime import UnitOfWorkRealtime
@@ -104,12 +105,8 @@ def _resolve_realtime_bot_id(session: Any, bot_instance_id: str) -> Optional[int
 router = APIRouter()
 
 
-@router.get("/api/v1/bots/{bot_instance_id}/positions/current")
-async def get_current_positions(
-    bot_instance_id: str,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get all currently open positions for a bot"""
+def _get_current_positions_sync(bot_instance_id: str):
+    """Load open positions off the event loop; owns its own DB session."""
     session = None
     try:
         session = db.get_session()
@@ -136,7 +133,20 @@ async def get_current_positions(
                 "count": len(positions),
             },
         )
+    finally:
+        if session is not None:
+            session.close()
 
+
+@router.get("/api/v1/bots/{bot_instance_id}/positions/current")
+async def get_current_positions(
+    bot_instance_id: str,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get all currently open positions for a bot"""
+    del current_user
+    try:
+        return await run_db(_get_current_positions_sync, bot_instance_id)
     except Exception as exc:
         logger.error(f"Error getting positions: {exc}")
         return api_response(
@@ -144,18 +154,10 @@ async def get_current_positions(
             message=f"Error: {str(exc)}",
             status_code=500,
         )
-    finally:
-        if session is not None:
-            session.close()
 
 
-@router.get("/api/v1/bots/{bot_instance_id}/positions/{position_id}")
-async def get_position(
-    bot_instance_id: str,
-    position_id: str,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get specific position details"""
+def _get_position_sync(bot_instance_id: str, position_id: str):
+    """Load a single position off the event loop; owns its own DB session."""
     session = None
     try:
         session = db.get_session()
@@ -226,7 +228,21 @@ async def get_position(
                 ),
             },
         )
+    finally:
+        if session is not None:
+            session.close()
 
+
+@router.get("/api/v1/bots/{bot_instance_id}/positions/{position_id}")
+async def get_position(
+    bot_instance_id: str,
+    position_id: str,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get specific position details"""
+    del current_user
+    try:
+        return await run_db(_get_position_sync, bot_instance_id, position_id)
     except Exception as exc:
         logger.error(f"Error getting position: {exc}")
         return api_response(
@@ -234,17 +250,10 @@ async def get_position(
             message=f"Error: {str(exc)}",
             status_code=500,
         )
-    finally:
-        if session is not None:
-            session.close()
 
 
-@router.get("/api/v1/bots/{bot_instance_id}/market-data")
-async def get_market_data(
-    bot_instance_id: str,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get latest market data for all symbols tracked by bot"""
+def _get_market_data_sync(bot_instance_id: str):
+    """Load market data off the event loop; owns its own DB session."""
     session = None
     try:
         session = db.get_session()
@@ -291,7 +300,20 @@ async def get_market_data(
                 "count": len(market_data),
             },
         )
+    finally:
+        if session is not None:
+            session.close()
 
+
+@router.get("/api/v1/bots/{bot_instance_id}/market-data")
+async def get_market_data(
+    bot_instance_id: str,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get latest market data for all symbols tracked by bot"""
+    del current_user
+    try:
+        return await run_db(_get_market_data_sync, bot_instance_id)
     except Exception as exc:
         logger.error(f"Error getting market data: {exc}")
         return api_response(
@@ -299,17 +321,10 @@ async def get_market_data(
             message=f"Error: {str(exc)}",
             status_code=500,
         )
-    finally:
-        if session is not None:
-            session.close()
 
 
-@router.get("/api/v1/bots/{bot_instance_id}/realtime-stats")
-async def get_realtime_stats(
-    bot_instance_id: str,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get real-time bot statistics"""
+def _get_realtime_stats_sync(bot_instance_id: str):
+    """Load realtime stats off the event loop; owns its own DB session."""
     session = None
     try:
         session = db.get_session()
@@ -383,7 +398,20 @@ async def get_realtime_stats(
                 },
             },
         )
+    finally:
+        if session is not None:
+            session.close()
 
+
+@router.get("/api/v1/bots/{bot_instance_id}/realtime-stats")
+async def get_realtime_stats(
+    bot_instance_id: str,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get real-time bot statistics"""
+    del current_user
+    try:
+        return await run_db(_get_realtime_stats_sync, bot_instance_id)
     except Exception as exc:
         logger.error(f"Error getting stats: {exc}")
         return api_response(
@@ -391,18 +419,10 @@ async def get_realtime_stats(
             message=f"Error: {str(exc)}",
             status_code=500,
         )
-    finally:
-        if session is not None:
-            session.close()
 
 
-@router.get("/api/v1/bots/{bot_instance_id}/alerts")
-async def get_alerts(
-    bot_instance_id: str,
-    limit: int = 50,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get recent alerts for a bot"""
+def _get_alerts_sync(bot_instance_id: str, limit: int):
+    """Load recent alerts off the event loop; owns its own DB session."""
     session = None
     try:
         session = db.get_session()
@@ -444,7 +464,21 @@ async def get_alerts(
                 "count": len(alerts),
             },
         )
+    finally:
+        if session is not None:
+            session.close()
 
+
+@router.get("/api/v1/bots/{bot_instance_id}/alerts")
+async def get_alerts(
+    bot_instance_id: str,
+    limit: int = 50,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get recent alerts for a bot"""
+    del current_user
+    try:
+        return await run_db(_get_alerts_sync, bot_instance_id, limit)
     except Exception as exc:
         logger.error(f"Error getting alerts: {exc}")
         return api_response(
@@ -452,19 +486,10 @@ async def get_alerts(
             message=f"Error: {str(exc)}",
             status_code=500,
         )
-    finally:
-        if session is not None:
-            session.close()
 
 
-@router.get("/api/v1/bots/{bot_instance_id}/position-history/{position_id}")
-async def get_position_history(
-    bot_instance_id: str,
-    position_id: str,
-    hours: int = 24,
-    current_user: User = Depends(get_current_active_user),
-):
-    """Get historical P&L snapshots for a position"""
+def _get_position_history_sync(bot_instance_id: str, position_id: str, hours: int):
+    """Load position history off the event loop; owns its own DB session."""
     session = None
     try:
         session = db.get_session()
@@ -516,7 +541,24 @@ async def get_position_history(
                 "count": len(snapshots),
             },
         )
+    finally:
+        if session is not None:
+            session.close()
 
+
+@router.get("/api/v1/bots/{bot_instance_id}/position-history/{position_id}")
+async def get_position_history(
+    bot_instance_id: str,
+    position_id: str,
+    hours: int = 24,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get historical P&L snapshots for a position"""
+    del current_user
+    try:
+        return await run_db(
+            _get_position_history_sync, bot_instance_id, position_id, hours
+        )
     except Exception as exc:
         logger.error(f"Error getting position history: {exc}")
         return api_response(
@@ -524,9 +566,6 @@ async def get_position_history(
             message=f"Error: {str(exc)}",
             status_code=500,
         )
-    finally:
-        if session is not None:
-            session.close()
 
 
 async def _authorize_websocket_connection(websocket: WebSocket) -> bool:

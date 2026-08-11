@@ -65,9 +65,10 @@ and PostgreSQL are external infrastructure, not embedded services.
    persist progress/results ([
    `BacktestService.create_and_run_backtest`](../src/infrastructure/use_cases/service_backtest.py), [
    `run_backtest_task`](../src/infrastructure/workers/backtest_tasks.py)).
-6. Realtime HTTP/WebSocket reads come from realtime tables. A monitoring service exists but is not wired into an
-   entrypoint ([`src/trading/realtime_data_service.py`](../src/trading/realtime_data_service.py), [
-   `src/api/websocket_server.py`](../src/api/websocket_server.py)).
+6. Realtime HTTP/WebSocket reads come from realtime tables. A monitoring service formerly existed but was dead code
+   (no production caller) and was **removed (2026-08-11)**; realtime reads are served by
+   [`src/api/websocket_server.py`](../src/api/websocket_server.py) and the realtime routes via the canonical
+   `UnitOfWorkRealtime`.
 
 ## Validation Notes
 

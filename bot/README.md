@@ -15,7 +15,7 @@ The bot service is the Python runtime that manages bot instances, live strategy 
 
 - canonical API app (ASGI): [src/api/server.py](/home/chris/workspace/dydx-trading-bot/bot/src/api/server.py)
 - canonical API launcher: [src/api/start_api.py](/home/chris/workspace/dydx-trading-bot/bot/src/api/start_api.py)
-- prefer running the canonical launcher directly: `python src/api/start_api.py`
+- prefer running the canonical launcher directly: `python -m src.api.start_api`
 - instance manager (process lifecycle
   owner): [src/bot_instance_manager.py](/home/chris/workspace/dydx-trading-bot/bot/src/bot_instance_manager.py)
 - instance worker runtime: [src/main_instance.py](/home/chris/workspace/dydx-trading-bot/bot/src/main_instance.py)
@@ -44,6 +44,8 @@ py -3.12 -m venv .venv
   `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE`
 - config source: root `run.json`
 - preferred DB mode: `BOT_DB_CUTOVER_MODE=dedicated`
+- connection-pool monitoring resolves the effective overflow limit from the configured `DB_MAX_OVERFLOW` and
+  SQLAlchemy's public/private runtime values, using the largest valid value for both metrics and diagnostics
 - startup config validation: the canonical API launcher (`src/api/start_api.py`) runs
   `validate_startup_config()`, which raises a single enumerated `ConfigurationError` in
   production (or when `STARTUP_CONFIG_VALIDATION=strict`) if required config is
@@ -59,7 +61,6 @@ artifact sidecars while the alternative storage adapters stay feature-gated.
 ## Commands
 
 ```bash
-make local-worker
 make local-flower
 make local-api
 make local-bot
@@ -71,16 +72,25 @@ make preflight-testnet
 for runtime verification. Use `make dev-api` or set `BOT_API_RELOAD=true` only when file-watch reload behavior is
 needed.
 
-Strategy backtests use Celery by default. Start `make local-worker` before `make local-api` so backtests have an active
-consumer as soon as the API accepts requests. If the worker comes up later, already-queued runs remain pending until a
-worker consumes the `backtests` queue. Broker/dispatch failures are persisted as failed runs instead of falling back to
-API-process execution. Legacy `/api/backtest/jobs` requests also need `BACKTEST_TASK_ALWAYS_EAGER=false`; otherwise they
-execute inline and will not appear in Flower.
+Devcontainers set `APP_CONFIG_PRESERVE_PROCESS_ENV=true` so Docker service-discovery aliases such as `postgresql` and
+`valkey` take precedence over host-oriented `localhost` values. The structured development profile still supplies all
+settings not explicitly injected by the container; outside devcontainers the profile remains authoritative by default.
 
-When the API starts before Celery workers are reachable, new backtests can auto-reprobe and promote from `asyncio`
+Strategy backtests use Celery by default. `make local-api`, `make dev-api`, and `make local-bot` now idempotently start
+the shared infrastructure plus a dedicated Docker Celery worker before the Python process. The worker is supervised
+with `restart: unless-stopped`, so it remains available across API reloads and restarts. Manage it from the repository
+root with `make celery-worker-up`, `make celery-worker-logs`, and `make celery-worker-down`.
+
+`make local-worker` remains available as a foreground debugging alternative. Stop the supervised worker first with
+`make -C .. celery-worker-down` to avoid duplicate consumers. Broker/dispatch failures are persisted as failed runs
+instead of falling back to API-process execution. Legacy `/api/backtest/jobs` requests also need
+`BACKTEST_TASK_ALWAYS_EAGER=false`; otherwise they execute inline and will not appear in Flower.
+
+If the API is started outside the supported Make targets before Celery workers are reachable, new backtests can
+auto-reprobe and promote from `asyncio`
 to `celery` once workers become available (enabled by default via
 `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown controlled by
-`BACKTEST_WORKER_BACKEND_REPROBE_COOLDOWN_SECONDS`). Starting worker first is still preferred for predictable startup.
+`BACKTEST_WORKER_BACKEND_REPROBE_COOLDOWN_SECONDS`).
 
 ### Celery Backtest Workers
 
@@ -96,7 +106,8 @@ Required local services:
 - optional but supported local integrations: NATS JetStream (`localhost:4222`), ClickHouse HTTP (`localhost:8123`),
   MinIO (`localhost:9010`)
 - API: `make local-api`
-- worker: `make local-worker`
+- supervised worker: `make -C .. celery-worker-up`
+- foreground debug worker: `make local-worker` (after stopping the supervised worker)
 - optional Flower: `make local-flower`
 
 Useful environment variables:

@@ -24,14 +24,38 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 - **Strategy Execution**: Cointegration-based arbitrage strategies with statistical arbitrage logic
 - **Monitoring & Observability**: Comprehensive logging, metrics collection, and alerting system
 
-### Codebase Scale (Detailed Analysis)
+### Codebase Scale (measured 2026-08-11)
 
-- **~35,539 lines** of production Python code across 82 files under `src/`
-- **Largest modules**: `src/infrastructure/use_cases/service_backtest.py` (4,443 lines) and
-  `src/api/v1/backtests.py` (2,377 lines)
-- **Test suite**: 73 test files with 482 test functions
-- **Critical complexity**: 311 broad exception handlers at the current ratcheted baseline, multiple monolithic files
-- **Architecture patterns**: Process-local state management, synchronous I/O in async contexts
+- **~37,224 lines** of production Python code across 94 files under `src/`
+- **Largest modules**: `src/infrastructure/use_cases/service_backtest.py` (2,959 lines),
+  `src/api/v1/backtests.py` (2,351 lines), `src/bot_instance_manager.py` (1,935 lines),
+  `src/api/server.py` (1,751 lines)
+- **Test suite**: 78 test files with 641 test functions
+- **Broad exception handlers**: **309** at the enforced ratchet baseline
+  (`tests/test_exception_handling_ratchet.py`, passing) — the raw `grep` count over all of `src`
+  is higher because the ratchet excludes the deliberately best-effort `cache/`, `broadcast/`, and
+  `resilience/` adapters
+- **Architecture patterns**: process-local runtime state, synchronous SQLAlchemy in async contexts
+
+---
+
+## ✅ What Is Actually Still Open (reviewed 2026-08-11)
+
+Most of this document is a record of completed work. Everything still pending, in the order worth doing:
+
+| # | Item | Why it matters | Effort |
+| --- | --- | --- | --- |
+| 1 | **Resolve dead code paths** (2FA router unmounted, candle aggregation stub, realtime service uncalled, duplicated `repository_realtime`) | Three features read as implemented but never execute | 1-2 days |
+| 2 | **Multi-worker tests** | Gates everything below it; the only way the split-registry class of bug gets caught | 2-3 weeks |
+| 3 | **Broadcast bus Phase 2** — flip `WS_BROADCAST_ENABLED` on, add metrics + broadcast coalescing | Phase 1 shipped inert; multi-worker deployments still have split websocket registries | 1-2 weeks |
+| 4 | **Move blocking DB calls off the event loop** | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | ongoing |
+| 5 | **Integration tests** (Redis / Celery / dYdX) | Compose infra already exists; mostly markers + a CI job | 2-3 weeks |
+| 6 | **Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`) | Two cheap CI gates; coverage reports today with nothing enforcing them | 1-2 days |
+| 7 | **Portfolio-level risk controls** | Per-instance limits can each pass while the account is over-exposed | 4-6 weeks |
+| 8 | **Backtest checkpointing** (optional) | Compute-cost optimization only; auto-recovery already handles correctness | 2 weeks |
+
+Items removed from this plan during the same review — and why — are listed in
+[Removed From This Plan](#-removed-from-this-plan-2026-08-11-review).
 
 ---
 
@@ -47,10 +71,11 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Previous impact**: Difficult to test, maintain, and extend
     - **Location**: `src/api/server.py:1-1740`
 
-- **Large Backtest Service**: `src/infrastructure/use_cases/service_backtest.py` contains **4,443 lines** of backtest
-  orchestration logic
-    - **Impact**: Maintenance nightmare, difficult to test individual components
-    - **Location**: `src/infrastructure/use_cases/service_backtest.py:1-4443`
+- **Large Backtest Service** (RESOLVED to target): `src/infrastructure/use_cases/service_backtest.py` is now
+  **2,959 lines** (down from 4,443) after Phases 1–5a extracted five focused modules; what remains is the
+  cohesive orchestration core plus the runtime-control codec. Further splitting was assessed and closed as
+  net-negative (see the action-plan item)
+    - **Location**: `src/infrastructure/use_cases/service_backtest.py:1-2959`
 
 - **Process Exit Anti-Patterns** (RESOLVED): Library/runtime termination paths now raise typed exceptions; process-exit
   decisions remain at entrypoint boundaries
@@ -62,41 +87,16 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Impact**: Runtime configuration errors, deployment complexity
     - **Files**: `config/config.py` (691 lines), `src/constants.py`, `src/shared/env_loader.py`
 
-- **Excessive Broad Exception Handling**: **306 instances** of `except Exception` and `except:` patterns found
-  throughout codebase
-    - **Impact**: Swallows important errors, makes debugging difficult
-    - **Examples**:
-        - `src/api/auth_utils.py` - `except Exception as exc:  # noqa: BLE001`
-        - `src/infrastructure/persistence/repository_backtest.py` - Multiple exception suppressions
-        - `src/infrastructure/storage/minio_artifact_store.py` - Broad exception handling
-
-#### **Moderate Issues**
-
-- **Error Handling Inconsistency**: Mix of exception types and error handling patterns across modules
-    - **Examples**: Some modules raise custom exceptions, others return error tuples
-    - **Impact**: Unpredictable error propagation and debugging difficulty
-    - **Files**: `src/trading/*.py`, `src/infrastructure/*.py`
-
-- **Code Duplication**: Repeated patterns for database operations, API responses, and logging
-    - **Examples**: Similar repository patterns across different domain models
-    - **Impact**: Maintenance overhead and potential inconsistencies
-    - **Files**: `src/infrastructure/persistence/*.py`
-
-#### **Low Priority**
-
-- **Documentation Gaps**: Some complex algorithms lack comprehensive inline documentation
-    - **Examples**: Statistical arbitrage logic, cointegration calculations
-    - **Impact**: Onboarding complexity for new developers
-    - **Files**: `src/trading/arbitrage_*.py`
-
-- **Outdated Documentation**: Some documented features not implemented (2FA, logout)
-    - **Examples**: API documentation mentions features that are stubs
-    - **Impact**: User confusion, support overhead
-    - **Files**: `README.md`, API documentation
-
-- **Missing API Documentation Generation**: No automated API documentation from code
-    - **Impact**: Documentation drift from actual implementation
-    - **Files**: Missing API documentation automation
+- **Broad Exception Handling** (CONTAINED, not eliminated): **309** `except Exception` / bare `except:` sites at the
+  enforced ratchet baseline, down from 324. A build gate (`tests/test_exception_handling_ratchet.py`) fails on any
+  increase, so the number can only go down
+    - **Assessment**: the remaining concentrations were reviewed and most are *intentional* best-effort isolation
+      in infrastructure (`event_bus_nats.py` NATS connect/subscribe/NAK, `nats_backtest_consumer.py`,
+      `account_manager.py` 404 fallbacks, `dataframe_utils.py` memory cleanup) where narrowing risks crashing the
+      path on a missed failure mode. The reducible residue is route-level pure-500 catch-alls and a few
+      instrument-and-reraise sites
+    - **Next step**: opportunistic — lower the baseline whenever a module is touched for other reasons; no
+      dedicated campaign warranted
 
 ---
 
@@ -124,10 +124,6 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Files**: Missing `.pre-commit-config.yaml`
 
 #### **Moderate Issues**
-
-- **Pylint Configuration Too Permissive**: Disables `duplicate-code`, `invalid-name`, `line-too-long`
-    - **Impact**: Poor code quality not caught in reviews
-    - **Files**: `.pylintrc`
 
 - **No Type Checking** (RESOLVED — phase 1): mypy is configured in `pyproject.toml` (`[tool.mypy]`) and runs in CI via
   the **non-blocking** `bot-typecheck` job (`.github/workflows/bot-quality.yml`); reports a ~189-error baseline to the
@@ -159,26 +155,25 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
       (`_RedisSlidingWindowRateLimiter` with an in-memory fallback)
     - **Impact**: Single point of failure, cannot scale horizontally, inconsistent state across workers
 
-- **Database Connection Pool Management**: Potential connection exhaustion under high load
-    - **Symptoms**: Long-running backtests holding connections, connection pool limits
-    - **Impact**: System instability during concurrent operations
-    - **Files**: `src/infrastructure/database.py`, `src/infrastructure/persistence/*.py`
-
-- **Synchronous I/O in Async Context**: Event-loop stalls under load
-    - **Synchronous SQLAlchemy operations** throughout async handlers
-    - **Telegram/Loki HTTP calls** in async services
-    - **Impact**: Performance degradation, event-loop blocking
-    - **Files**: Multiple async handlers and services
+- **Synchronous I/O in Async Context**: the largest unaddressed performance risk. The service uses **zero**
+  `create_async_engine` / `AsyncSession` — every database call inside an `async def` handler is a blocking
+  synchronous SQLAlchemy call, so any slow query stalls the whole event loop (and with it every websocket
+  broadcast and in-flight trading request on that worker)
+    - **Also**: Telegram/Loki HTTP calls in async services (now circuit-broken, but still blocking)
+    - **Impact**: Event-loop stalls under load; the practical ceiling on per-worker concurrency
+    - **Files**: `src/infrastructure/database.py`, `src/infrastructure/persistence/*.py`, async route handlers
+    - **Realistic first step**: push the hot synchronous DB paths through `run_in_threadpool` /
+      `asyncio.to_thread` rather than attempting a full async-SQLAlchemy migration
 
 #### **Moderate Issues**
 
-- **Memory Management for Large Datasets**: Pandas DataFrames not properly cleaned up after operations
-    - **Impact**: Memory leaks during long-running backtests
-    - **Files**: `src/trading/market_data.py`, backtest processing modules
+- **Database Connection Pool Management**: potential connection exhaustion when long-running backtests hold
+  sessions. Monitoring/alerting is in place (`ConnectionPoolMonitor`); the underlying holding pattern is not fixed
+    - **Files**: `src/infrastructure/database.py`, `src/infrastructure/persistence/*.py`
 
-- **WebSocket Message Throttling**: Missing rate limiting on WebSocket broadcasts
-    - **Impact**: Potential client overload during high-frequency updates
-    - **Files**: `src/api/websocket_server.py`
+- **WebSocket Message Throttling**: no rate limiting/coalescing on broadcasts. Matters more once the cross-worker
+  broadcast bus is enabled (`realtime_data_service` emits one broadcast per symbol per tick → N Redis publishes)
+    - **Files**: `src/api/websocket_server.py` — tracked with the broadcast-bus Phase 2 item
 
 #### **Low Priority**
 
@@ -216,21 +211,12 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 #### **Moderate Issues**
 
-- **Authentication Token Rotation**: Manual process for service token rotation
-    - **Current**: `BOT_API_TOKEN`, `BOT_API_TOKEN_PREVIOUS`, `BOT_API_TOKENS`
-    - **Risk**: Authentication gaps during rotation periods
-    - **Files**: `src/middleware/auth_middleware.py`
-
-- **Dependency Vulnerabilities**: Some dependencies may have known security issues
-    - **Examples**: Older versions of FastAPI dependencies
-    - **Risk**: Potential security exploits
-    - **Files**: `requirements.txt`
-
-#### **Low Priority**
-
-- **Audit Trail Completeness**: Some trading decisions lack comprehensive audit logging
-    - **Impact**: Difficult forensic analysis after incidents
-    - **Files**: `src/trading/arbitrage_observability.py`
+- **No Dependency Vulnerability Scanning**: `bandit` scans *our code* only — nothing scans the dependency tree.
+  No `pip-audit` step and no Dependabot config exist in the repo. For a service that holds exchange signing keys
+  this is the cheapest remaining security win
+    - **Fix**: add a `pip-audit -r bot/requirements.txt` step to `bot-quality.yml` (non-blocking first, mirroring
+      the mypy/bandit phase-1 pattern) and/or a `.github/dependabot.yml`
+    - **Files**: `requirements.txt`, `.github/workflows/bot-quality.yml`
 
 ---
 
@@ -238,12 +224,20 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 #### **Critical Issues**
 
-- **Missing Flow Implementations**: Several critical features are partially implemented or stubbed
-    - **Realtime Service Not Wired**: `src/trading/realtime_data_service.py` has no caller
-    - **Candle Aggregation Stub**: `src/infrastructure/workers/candle_aggregate_tasks.py` returns "skipped"
-    - **No 2FA Implementation**: Router exists but isn't mounted or enforced
-    - **Missing Position History**: Snapshot flow incomplete
-    - **Impact**: Incomplete feature set, wasted development effort
+- **Dead / Stubbed Code Paths**: code that exists but nothing executes — each is either "wire it" or "delete it",
+  and leaving them ambiguous is what costs time
+    - **Realtime Service Not Wired**: `src/trading/realtime_data_service.py` has no production caller (only
+      `tests/test_realtime_market_sync_cache.py` imports it). Note it also imports
+      `internal.repository.repository_realtime` while the rest of the service imports
+      `src.infrastructure.persistence.repository_realtime` — two copies of the same module
+    - **Candle Aggregation Stub**: `src/infrastructure/workers/candle_aggregate_tasks.py:21` returns
+      `{"status": "skipped"}` — the task is scheduled but does nothing
+    - **2FA Router Not Mounted**: `src/api/v1/auth/password_2fa.py` exists but no module imports it and
+      `server.py` never mounts it. Decide: mount + enforce, or delete the file and the README claim
+    - **Impact**: dead code reads as working functionality; wasted development effort
+    - ~~**Missing Position History**~~ — RESOLVED: `PositionSnapshotsRepository` writes on
+      opened/mark-to-market/closed (`repository_realtime.py`) and
+      `GET /api/v1/bots/{id}/position-history/{position_id}` serves it (`bot_realtime.py:460`)
 
 - **Process Isolation Issues** (Position Confirmation RESOLVED): State consistency problems between processes
     - **Position Confirmation**: `src/trading/position_manager.py` now gates `persist_live_trade_closed` on
@@ -252,31 +246,13 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
       and never overrides an still-open position (pinned by `tests/test_position_exit_confirmation_hardening.py`).
     - **Impact**: Financial risk, incorrect position tracking
 
-- **Test Coverage Gaps**: Insufficient coverage for edge cases and distributed scenarios
-    - **No Multi-Worker Tests**: Process-local state issues not caught in testing
-    - **Missing Integration Tests**: No live exchange, Redis/Celery topology testing
-    - **Missing Security Tests**: No authentication bypass testing
-    - **Limited Performance Tests**: No load testing or scalability validation
-    - **Impact**: Production surprises, reliability issues
-    - **Files**: `tests/test_*.py` (73 test files, 482 test functions)
-
-#### **Moderate Issues**
-
-- **Component Coupling**: Tight coupling between trading logic and infrastructure concerns
-    - **Examples**: Trading code directly accessing database, API details
-    - **Impact**: Difficult to test trading logic in isolation
-    - **Files**: `src/trading/*.py`, `src/infrastructure/*.py`
-
-- **Error Recovery Mechanisms**: Insufficient retry logic and circuit breaker patterns
-    - **Current**: Basic retry logic in some modules, inconsistent implementation
-    - **Impact**: System instability during transient failures
-    - **Files**: `src/infrastructure/workers/*.py`, trading modules
-
-#### **Low Priority**
-
-- **Configuration Validation**: No runtime validation of configuration completeness
-    - **Impact**: Cryptic errors when configuration is missing/invalid
-    - **Files**: `src/shared/env_loader.py`, configuration modules
+- **Test Coverage Gaps**: the suite (78 files, 641 test functions) covers contracts well but not topology
+    - **No Multi-Worker Tests**: process-local state issues are invisible to the current suite — and this is what
+      blocks turning `WS_BROADCAST_ENABLED` on
+    - **Missing Integration Tests**: nothing exercises real Redis/Celery/dYdX-indexer topology
+    - ~~Missing Security Tests~~ — RESOLVED (`tests/test_security_auth_bypass.py`, 20 cases)
+    - **Impact**: production surprises in exactly the areas unit tests can't reach
+    - **Files**: `tests/test_*.py`
 
 ---
 
@@ -609,9 +585,11 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
           (11 public read methods; `BacktestService` subclasses it; 7 control methods stayed)
         - [x] Phase 5a — control/mutation methods → `backtest_controls.py` as `BacktestControlMixin`
           (7 public methods; `BacktestService` subclasses both mixins)
-        - [ ] Phase 5b/5c (deferred) — private control-codec helpers (`_set_runtime_control` etc.) +
-          `BacktestRunStore` / `WorkerBackendProbe` state refactor (highest coupling, ~50 call sites,
-          diminishing returns; the orchestration core + codec form the cohesive remaining service)
+        - **Phases 5b/5c — CLOSED, will not be done.** The remaining candidates (private control-codec helpers
+          such as `_set_runtime_control`, plus the `BacktestRunStore` / `WorkerBackendProbe` state refactor) have
+          ~50 call sites and the highest coupling in the module; extracting them buys line-count, not
+          testability, and would add a wall of delegators. At 2,959 lines the file is under the 2,000-line goal
+          only if you count the extracted modules separately — accepted as the cohesive orchestration core.
 
 - [x] **Implement distributed state management** for horizontal scaling
     - **Files**: `src/infrastructure/broadcast/bus.py` (new), `src/api/websocket_server.py`, `src/api/server.py`,
@@ -643,10 +621,13 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Delivery checkpoints**:
         - [x] Phase 1 — broadcast bus infra + `ConnectionManager` wiring + lifespan hooks + `/ws-broadcast` health
           + tests, behind `WS_BROADCAST_ENABLED` (OFF / inert-by-default)
-        - [ ] Phase 2 (deferred) — flip the default ON after multi-worker load testing; add publish/receive/drop
-          metrics + a bounded dispatch semaphore under burst; coalesce per-symbol market broadcasts
-          (`realtime_data_service` emits one `broadcast_market_update` per symbol per tick → N Redis publishes when
-          enabled) before wiring that service; consider sharding pub/sub channels by topic
+        - [ ] **Phase 2 — KEEP (highest-value open item).** Until this lands, all of Phase 1 is inert code:
+          `WS_BROADCAST_ENABLED=false` means multi-worker deployments still have split websocket registries.
+          Work: flip the default ON after multi-worker load testing; add publish/receive/drop metrics + a bounded
+          dispatch semaphore under burst; coalesce per-symbol market broadcasts (`realtime_data_service` emits one
+          `broadcast_market_update` per symbol per tick → N Redis publishes when enabled) before wiring that
+          service; consider sharding pub/sub channels by topic.
+          **Blocked on**: multi-worker tests (below).
 
 #### **Architecture Improvements**
 
@@ -749,10 +730,23 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
       trip the Telegram/Loki breakers (HTTP non-200 responses are handled by their existing
       retry/status logic); the dYdX indexer breaker trips on transport + 5xx + 429.
 
-- [ ] **Add backtest checkpointing** for long-running tasks
+- [ ] **Resolve the dead code paths** — mount or delete (CHEAP, do it first)
+    - **Files**: `src/api/v1/auth/password_2fa.py`, `src/infrastructure/workers/candle_aggregate_tasks.py`,
+      `src/trading/realtime_data_service.py`, `internal/repository/repository_realtime.py`
+    - **Impact**: three features currently read as implemented but never execute; a duplicated
+      `repository_realtime` module means two import paths for the same domain
+    - **Decision needed per path**: the 2FA router is unmounted (no module imports it), the candle-aggregation
+      task returns `{"status": "skipped"}`, and the realtime data service has no production caller
+    - **Effort**: 1-2 days to delete, longer if any are to be wired
+    - **Priority**: MEDIUM — smallest effort-to-clarity ratio in this document
+
+- [ ] **Add backtest checkpointing** for long-running tasks (LOW — optional)
     - **Files**: `src/infrastructure/workers/backtest_tasks.py`
-    - **Impact**: Ability to resume interrupted backtests
+    - **Impact**: resume interrupted backtests instead of restarting them
     - **Effort**: 2 weeks
+    - **Note**: partially mitigated already — `BACKTEST_AUTO_RECOVERY_MODE=fail-safe|restart` handles
+      interrupted runs, and `async_job_manager` tracks progress checkpoints for stall detection. This item is a
+      compute-cost optimization, not a correctness fix. Drop it if long backtests aren't hurting in practice.
 
 - [x] **Implement configuration validation** at startup
     - **Files**: `src/shared/env_loader.py`, create configuration schemas
@@ -779,13 +773,16 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
     - **Files**: Create distributed state tests, multi-instance tests
     - **Impact**: Catch horizontal scaling issues before production
     - **Effort**: 2-3 weeks
-    - **Priority**: HIGH
+    - **Priority**: HIGH — this is the gate on the broadcast-bus Phase 2 flip; do it first
+    - **Concrete scope**: two Uvicorn workers + Redis, assert a `broadcast_to_bot` on worker A reaches a
+      websocket client attached to worker B with `WS_BROADCAST_ENABLED=true`, and that it does not loop back
 
 - [ ] **Add integration tests** for external services (Redis, Celery, dYdX)
     - **Files**: Create live integration test suite
     - **Impact**: Validate real-world compatibility, catch integration issues
     - **Effort**: 2-3 weeks
-    - **Priority**: HIGH
+    - **Priority**: HIGH — the docker-compose infra already exists (`docker-compose.infra.yml`), so this is
+      mostly wiring markers + a CI job, not new infrastructure
 
 - [x] **Add security tests** for authentication bypass scenarios
     - **Files**: Create security test suite, penetration tests
@@ -813,77 +810,31 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
       `test_token_revocation.py` (an async `logout` "coroutine never awaited" test bug) were
       observed and are out of scope for this item.
 
-- [ ] **Improve test coverage** for critical monolithic files
-    - **Files**: Add tests for `src/api/server.py` (1,740 lines) and `src/infrastructure/use_cases/service_backtest.py`
-      (4,443 lines)
-    - **Impact**: Better coverage of core functionality
-    - **Effort**: 2-3 weeks
-    - **Priority**: HIGH
-
-- [ ] **Improve test isolation** with better mocking and fixtures
-    - **Files**: Test configuration, conftest.py improvements
-    - **Impact**: More reliable test suite
-    - **Effort**: 1-2 weeks
-
-- [ ] **Add performance regression tests** for critical paths
-    - **Files**: Create performance test suite
-    - **Impact**: Detect performance degradation early
-    - **Effort**: 1 week
+- [ ] **Set a coverage floor** now that reporting exists
+    - **Files**: `.github/workflows/bot-quality.yml`, `pyproject.toml`
+    - **Impact**: coverage reporting has been live for a while with no gate, so it can silently regress. Read the
+      current `coverage.xml`, add `--cov-fail-under=<current-1>` and ratchet it up like the broad-catch baseline
+    - **Hotspots to target first**: `src/infrastructure/use_cases/service_backtest.py` (2,959 lines, the
+      orchestration core that was deliberately left unsplit), `src/bot_instance_manager.py` (1,935),
+      `src/api/v1/backtests.py` (2,351)
+    - **Effort**: 1 day for the gate; coverage work is ongoing
+    - **Priority**: MEDIUM
 
 ---
 
-### **Phase 3: Future Scaling (Long-term Architectural Goals)**
+### **Phase 3: Open Longer-Term Items**
 
-#### **Scalability Architecture**
-
-- [ ] **Implement horizontal scaling** for trading bot instances
-    - **Files**: Architecture redesign, state management improvements
-    - **Impact**: Support for more concurrent trading strategies
-    - **Effort**: 4-6 weeks
-
-- [ ] **Add rate limiting and throttling** for API endpoints
-    - **Files**: API middleware, rate limiting implementation
-    - **Impact**: Prevent system overload during high demand
-    - **Effort**: 2-3 weeks
-
-- [ ] **Implement distributed tracing** for request correlation
-    - **Files**: Add OpenTelemetry integration, distributed logging
-    - **Impact**: Better debugging of distributed issues
-    - **Effort**: 2-3 weeks
-
-#### **Advanced Features**
-
-- [ ] **Add strategy backtesting parallelization** support
-    - **Files**: Backtest engine improvements, task distribution
-    - **Impact**: Faster strategy development cycle
-    - **Effort**: 3-4 weeks
+Everything that was previously parked here as speculative (ML pipeline, chaos engineering, blue-green
+deployments, distributed tracing, monolith-level horizontal scaling, backtest parallelization, a separate
+monitoring dashboard) has been **removed** — see "Removed from this plan" at the end for the reasoning. What
+remains:
 
 - [ ] **Implement advanced risk management** with portfolio-level controls
     - **Files**: Risk control engine improvements, portfolio analytics
-    - **Impact**: Better capital protection, risk management
+    - **Impact**: cross-instance capital protection — today risk controls are per-instance, so N instances can
+      each stay inside their limits while the account as a whole is over-exposed
     - **Effort**: 4-6 weeks
-
-- [ ] **Add machine learning pipeline** for strategy optimization
-    - **Files**: ML infrastructure, feature engineering, model training
-    - **Impact**: Automated strategy improvement
-    - **Effort**: 8-12 weeks
-
-#### **Operational Excellence**
-
-- [ ] **Implement comprehensive monitoring dashboard** with alerting
-    - **Files**: Metrics collection, dashboard configuration, alerting rules
-    - **Impact**: Better operational visibility
-    - **Effort**: 2-3 weeks
-
-- [ ] **Add automated deployment pipeline** with blue-green deployments
-    - **Files**: CI/CD improvements, deployment automation
-    - **Impact**: Safer deployments, faster iteration
-    - **Effort**: 3-4 weeks
-
-- [ ] **Implement chaos engineering** practices for resilience testing
-    - **Files**: Fault injection tests, resilience validation
-    - **Impact**: Improved system resilience
-    - **Effort**: 2-3 weeks
+    - **Priority**: the only genuinely financial-risk item left open; see `docs/bot-risk-control-matrix.md`
 
 ---
 
@@ -899,19 +850,19 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 ### **High Priority / High Impact** (Week 1-2)
 
-- ✅ **Break up monolithic files** - API server decomposition COMPLETED (6,093→1,740 lines; Phases 1–6 delivered,
-  including monitoring + Celery admin + strategies + arbitrage + lifecycle + bot records + bot realtime + backtests,
-  plus shared `responses.py`/`endpoint_timing.py`); the backtest-service decomposition is in progress
-  (Phases 1–5a done: 4,443→2,959 lines + extracted `backtest_models.py` /
-  `backtest_pair_selection.py` / `backtest_history.py` / `backtest_queries.py` /
-  `backtest_controls.py` — see action-plan item)
+- ✅ **Break up monolithic files** - COMPLETED. API server 6,093→1,751 lines (Phases 1–6: monitoring, Celery
+  admin, strategies, arbitrage, lifecycle, bot records, bot realtime, backtests, plus shared
+  `responses.py`/`endpoint_timing.py`). Backtest service 4,443→2,959 lines (Phases 1–5a: `backtest_models.py`,
+  `backtest_pair_selection.py`, `backtest_history.py`, `backtest_queries.py`, `backtest_controls.py`);
+  further decomposition assessed and **closed** as net-negative — see action-plan item
 - ✅ **Implement distributed state management** for horizontal scaling (Phase 1 COMPLETED — Redis pub/sub WebSocket
   broadcast bus, OFF by default; strategy storage was already Postgres-backed and rate limiting already Redis-backed,
   so only the WebSocket registry needed work — see action-plan item)
 - ✅ **Replace sys.exit () calls** with proper exception handling (COMPLETED)
 - ✅ **Implement token revocation** - Complete logout/logout-all functionality (COMPLETED)
 - **Add multi-worker tests** for process-local state issues
-- ✅ **Refactor broad exception handling** - Replace 306+ `except Exception` patterns (Phase 1 COMPLETED — hierarchy + global 500 handler + ratchet; Phase 2 underway: 315→311; see action-plan item)
+- ✅ **Refactor broad exception handling** - CONTAINED (typed hierarchy + global 500 handler + enforced ratchet,
+  324→309). Remaining catches were reviewed and are mostly intentional; no further campaign planned
 
 ### **High Priority / Medium Impact** (Week 2-4)
 
@@ -921,39 +872,61 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 - ✅ **Extract WebSocket management** from API server (COMPLETED — `websocket_server.py`)
 - ✅ **Implement consistent error handling** with custom exception hierarchy (Phase 1 — `src/exceptions.py` + global 500 envelope handler)
 
-### **Medium Priority / High Impact** (Month 2)
+### **Medium Priority** (Month 2+)
 
-- ✅ Caching layer implementation (COMPLETED — `src/infrastructure/cache/` shared L2 market-data cache; see action-plan item)
-- ✅ Circuit breaker implementation (COMPLETED — `src/infrastructure/resilience/` named-breaker framework; see action-plan item)
-- Performance regression testing
-- Test isolation improvements
-
-### **Medium Priority / Medium Impact** (Month 2-3)
-
+- ✅ Caching layer implementation (COMPLETED — `src/infrastructure/cache/` shared L2 market-data cache)
+- ✅ Circuit breaker implementation (COMPLETED — `src/infrastructure/resilience/` named-breaker framework)
 - ✅ Configuration validation (COMPLETED — `validate_startup_config()` in `start_api.py`)
-- Backtest checkpointing
-- Memory management improvements
-- Audit trail enhancement
-- Pre-commit hooks implementation
-- Type checking with mypy
+- ✅ Pre-commit hooks (COMPLETED — `.pre-commit-config.yaml` at the monorepo root, scoped to `bot/`)
+- ✅ Type checking with mypy (COMPLETED phase 1 — non-blocking `bot-typecheck` job, 189-error baseline)
+- ✅ Security scanning with bandit (COMPLETED — non-blocking `bot-security` CI job)
+- ✅ DataFrame memory cleanup (COMPLETED)
+- **Coverage floor** (`--cov-fail-under`) — reporting exists, gate does not
+- **Dependency vulnerability scanning** (`pip-audit` / Dependabot) — nothing scans the dependency tree today
+- **Move blocking DB calls off the event loop** — the largest unaddressed performance item
 
-### **Lower Priority** (Phase 3+)
+### **Lower Priority**
 
-- ML pipeline development
-- Advanced risk management
-- Horizontal scaling architecture
-- Chaos engineering practices
-- ✅ Security vulnerability scanning with bandit (COMPLETED — non-blocking `bot-security` CI job)
-- Automated API documentation generation
-- Dependency vulnerability scanning
+- Backtest checkpointing (optional — auto-recovery already covers correctness)
+- Advanced portfolio-level risk management
 
-### **Lower Priority** (Phase 3+)
+---
 
-- ML pipeline development
-- Advanced risk management
-- Horizontal scaling architecture
-- Chaos engineering practices
-- Distributed tracing
+## 🗑️ Removed From This Plan (2026-08-11 review)
+
+Pruned during a validation pass against the actual codebase. Two categories:
+
+**Already done — the entry was stale:**
+
+| Removed entry | Why |
+| --- | --- |
+| Add rate limiting and throttling for API endpoints | Implemented: `_RedisSlidingWindowRateLimiter` (`src/api/server.py:205`) with an in-memory fallback, applied to backtest submission and instance creation |
+| Missing Position History / snapshot flow incomplete | Implemented end-to-end: `PositionSnapshotsRepository` writes on opened/mark-to-market/closed; served by `GET /api/v1/bots/{id}/position-history/{position_id}` |
+| Memory management for large datasets | Superseded by the completed DataFrame cleanup work |
+| Error recovery mechanisms / retry + circuit breakers | Superseded by `src/infrastructure/resilience/` |
+| Configuration validation (low-priority duplicate) | Superseded by `validate_startup_config()` |
+| Missing API documentation generation | `openapi.json` is generated and kept in sync by an existing engineering rule |
+| Pre-commit hooks, mypy (listed as pending in the matrix) | Both completed; the matrix entries contradicted the action plan |
+
+**Not important enough to track — removed rather than carried forever:**
+
+| Removed entry | Why |
+| --- | --- |
+| Machine learning pipeline for strategy optimization | 8-12 weeks of speculative work with no current driver; unrelated to the health of this service |
+| Chaos engineering practices | Disproportionate for a single-service trading bot; the failure modes it would find are already handled by circuit breakers and fail-safe recovery |
+| Blue-green deployment pipeline | A stateful trading process can't be blue-green'd safely anyway; container image builds already exist in CI |
+| Distributed tracing (OpenTelemetry) | `trace_id` already propagates through the `api_response` envelope and logs; full tracing is overkill for one service |
+| Horizontal scaling for bot instances (Phase 3) | Duplicated the distributed-state item; the real work is the broadcast-bus Phase 2 flip |
+| Comprehensive monitoring dashboard | The data is already exposed (`/api/v1/monitoring/*`, circuit-breakers, pool, ws-broadcast); rendering it is a frontend concern, out of scope for the bot service |
+| Strategy backtesting parallelization | A product feature, not technical debt; Celery already runs backtests concurrently |
+| Performance regression test suite | Generic aspiration with no baseline harness; the concrete performance problem (blocking DB calls in async handlers) is tracked directly instead |
+| Test isolation improvements | Vague, no observed flakiness; `conftest.py` already has autouse fixtures keeping the cache and breakers inert |
+| Pylint config too permissive | Obsolete: Black owns line length, flake8 + mypy + bandit cover the rest, and `duplicate-code` is noisy on repository patterns |
+| Authentication token rotation (manual) | Working as designed — the `BOT_API_TOKEN_PREVIOUS` / `BOT_API_TOKENS` overlap window is the rotation mechanism |
+| Audit trail completeness | No concrete gap identified; arbitrage observability already logs decisions |
+| Component coupling / code duplication / error-handling inconsistency | Generic architectural grumbles with no actionable scope or owner |
+| Documentation gaps / outdated documentation | Too vague to action; the one real instance (2FA claimed but not mounted) is tracked as a dead-code decision |
+| Backtest-service Phases 5b/5c | Assessed and closed: ~50 call sites, highest coupling, buys line-count rather than testability |
 
 ---
 
@@ -990,13 +963,12 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 
 ### **Code Quality Metrics**
 
-- **File Size Reduction**: No single file exceeds 2,000 lines (API server target achieved at 1,740 lines; continue
-  decomposing the 4,443-line backtest service and 2,377-line backtest route module)
-- **Exception Handling**: Reduce broad `except Exception` patterns by 95% (from 306 to <15 instances)
-- **Test Coverage**: Target 85%+ coverage for critical paths
-- **Code Complexity**: Reduce cyclomatic complexity by 20%
-- **Code Duplication**: Eliminate 80% of duplicated code patterns
-- **Documentation**: Achieve 100% documentation coverage for public APIs
+- **File Size**: no single file exceeds 3,000 lines (met: largest is `service_backtest.py` at 2,959). The original
+  2,000-line target was retired — the three files above it are cohesive cores, not monoliths
+- **Exception Handling**: the ratchet baseline (309) never increases and drops opportunistically. The old
+  "reduce by 95% to <15" target was removed: the code review found most remaining catches are intentional
+  best-effort isolation, so that target would mean making the system *less* resilient
+- **Test Coverage**: establish a `--cov-fail-under` floor from the current measured value, then ratchet up
 
 ### **Performance Metrics**
 
@@ -1011,16 +983,15 @@ on the dYdX exchange. The project implements a **microservices architecture** wi
 - **System Uptime**: 99.9%+ uptime for trading operations
 - **Error Rate**: < 0.1% error rate for API endpoints
 - **Test Success Rate**: 98%+ test pass rate in CI/CD pipeline
-- **Deployment Success**: 95%+ successful deployment rate
 - **State Consistency**: 0% position tracking errors due to process-local state issues
 
 ### **CI/CD Quality Metrics**
 
-- **Code Coverage**: Target 85%+ coverage with automated reporting
-- **Build Success Rate**: 95%+ successful CI builds
-- **Code Quality Enforcement**: 100% of code passes Black, flake8, and pylint checks
-- **Security Scanning**: 0 high-severity security vulnerabilities in dependencies
-- **Type Checking**: 100% of code passes mypy strict type checking
+- **Code Quality Enforcement**: Black `--check` + flake8 hard gate pass on every build (live in `bot-lint`)
+- **Security Scanning**: 0 high-severity bandit findings (current baseline: 3 medium, 0 high)
+- **Type Checking**: mypy error count never exceeds the 189-error baseline, and drops module-by-module toward a
+  blocking gate. (The old "100% mypy strict" target was removed — it is not reachable from a 189-error baseline
+  and made the metric useless as a signal.)
 
 ---
 
@@ -1070,25 +1041,30 @@ The original Week-1 items are retained as an implementation record; completed wo
 2. ✅ **Credentials stored in plain text** in database configuration — RESOLVED
 3. ✅ **Position tracking errors** due to missing fill confirmation — RESOLVED
 4. 🟡 **Process-local state limitations** preventing horizontal scaling — Phase 1 DELIVERED (Redis pub/sub WebSocket broadcast bus, OFF by default); strategy-storage and rate-limiting concerns were stale (already Postgres- and Redis-backed respectively)
-5. 🟡 **Broad exception handlers** masking real issues — PHASE 1 DELIVERED; ratcheted reduction remains in progress
+5. ✅ **Broad exception handlers** masking real issues — CONTAINED: typed hierarchy + global 500 handler + an
+   enforced ratchet (324→309) that can only go down. The residue was reviewed and is mostly intentional
+   best-effort isolation, so this is closed rather than "in progress"
+6. 🔴 **Synchronous DB I/O in async handlers** — the one significant performance risk still fully open; not
+   previously called out as a headline finding
 
 ### **Architecture Strengths**
 
 - Strong foundational architecture with good safety mechanisms
-- Comprehensive test coverage for core contracts (482 test functions)
+- Comprehensive test coverage for core contracts (641 test functions across 78 files)
 - Production-grade deployment with CI/CD pipelines
 - Well-documented operational procedures
 
-### **Technical Debt Hotspots**
+### **Technical Debt Hotspots** (measured 2026-08-11)
 
-- `src/api/server.py`: reduced to a 1,740-line assembly/runtime module after Phases 1–6 (down from 6,093)
-- `src/api/v1/backtests.py`: 2,377 lines across 30 HTTP operations, 2 WebSocket adapters, and shared route support
-- `src/infrastructure/use_cases/service_backtest.py`: 2,959 lines (was 4,443; Phases 1–5a extracted
-  the DTOs into `backtest_models.py`, pair-prioritization into `backtest_pair_selection.py`,
-  market-history into `backtest_history.py`, the read-side API into `backtest_queries.py`, and the
-  control API into `backtest_controls.py` — both as mixins; remaining is the orchestration core)
+- `src/infrastructure/use_cases/service_backtest.py`: 2,959 lines (was 4,443) — the orchestration core; further
+  decomposition assessed and closed
+- `src/api/v1/backtests.py`: 2,351 lines across 30 HTTP operations, 2 WebSocket adapters, shared route support
+- `src/bot_instance_manager.py`: 1,935 lines — not previously listed, now the second-largest module
+- `src/api/server.py`: 1,751 lines of assembly/runtime after Phases 1–6 (down from 6,093)
+- Blocking synchronous SQLAlchemy inside async handlers (no `AsyncSession` anywhere in `src/`)
 - Configuration complexity across multiple sources
-- Missing implementations for 2FA, candle aggregation, realtime service
+- Dead code paths: 2FA router (unmounted), candle aggregation (stub), realtime data service (no caller), plus a
+  duplicated `repository_realtime` module under both `internal/` and `src/infrastructure/persistence/`
 
 ---
 

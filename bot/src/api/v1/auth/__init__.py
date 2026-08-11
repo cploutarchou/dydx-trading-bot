@@ -3,12 +3,16 @@
 from datetime import datetime, timezone
 from typing import Optional, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
 from src.api.auth_utils import JWTUtils, PasswordUtils, SecurityUtils, TokenBlacklist
+from src.api.v1.auth.totp_state import (
+    is_two_factor_enabled,
+    verify_totp_for_user,
+)
 from src.infrastructure.database import db
 from src.infrastructure.domain.models.auth_models import User
 from src.middleware.auth_middleware import (
@@ -22,10 +26,26 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 
 class LoginRequest(BaseModel):
-    """JSON login payload expected by the frontend."""
+    """JSON login payload expected by the frontend.
+
+    ``totp_code`` is required only when the user has TOTP 2FA enabled; it is
+    omitted otherwise. Constraints mirror ``Verify2FARequest`` so malformed codes
+    are rejected (422) at the API boundary before the handler runs, and ``None``
+    bypasses the constraints for non-2FA logins.
+    """
 
     username: str
     password: str
+    totp_code: Optional[str] = Field(
+        default=None,
+        min_length=6,
+        max_length=15,
+        pattern=r"^[\d ]+$",
+        description=(
+            "6- or 8-digit TOTP code; required only when 2FA is enabled. "
+            "Optional internal spaces are stripped before verification."
+        ),
+    )
 
 
 class RegisterRequest(BaseModel):
@@ -103,6 +123,7 @@ def _authenticate_user(
     username: str,
     password: str,
     session: Session,
+    totp_code: Optional[str] = None,
 ) -> dict:
     if is_auth_bypass_enabled():
         return _build_token_response(username)
@@ -121,6 +142,22 @@ def _authenticate_user(
             detail="Invalid username or password",
         )
 
+    # 2FA enforcement: a user with TOTP enabled must supply a valid code. This
+    # runs *after* the password check so a wrong password still returns the
+    # generic "Invalid username or password" (fail closed; no enumeration).
+    user_id = int(getattr(user, "id", 0) or 0)
+    if is_two_factor_enabled(session, user_id):
+        if not (totp_code or "").strip():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="2FA code required",
+            )
+        if not verify_totp_for_user(session, user_id, totp_code):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid 2FA token",
+            )
+
     return _build_token_response(
         _username_value(user),
         int(getattr(user, "token_version", 0) or 0),
@@ -131,9 +168,17 @@ def _authenticate_user(
 async def token_login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: Session = Depends(db.get_session),
+    totp_code: Optional[str] = Form(default=None),
 ):
-    """Login endpoint"""
-    return _authenticate_user(form_data.username, form_data.password, session)
+    """OAuth2 login endpoint (also used by the Swagger UI Authorize dialog).
+
+    ``totp_code`` is an additional optional form field; users with 2FA enabled
+    must supply it. The standard Swagger Authorize dialog cannot send it, so
+    2FA-enabled accounts cannot log in via the Swagger UI — by design.
+    """
+    return _authenticate_user(
+        form_data.username, form_data.password, session, totp_code=totp_code
+    )
 
 
 @router.post("/login")
@@ -142,7 +187,9 @@ async def login(
     session: Session = Depends(db.get_session),
 ):
     """Frontend-compatible JSON login endpoint."""
-    return _authenticate_user(payload.username, payload.password, session)
+    return _authenticate_user(
+        payload.username, payload.password, session, totp_code=payload.totp_code
+    )
 
 
 @router.post("/register")

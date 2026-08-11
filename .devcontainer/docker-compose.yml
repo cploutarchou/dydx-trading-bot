@@ -18,6 +18,9 @@ services:
       - ..:/workspaces/dydx-trading-bot:cached
     command: sleep infinity
     environment:
+      # Keep container service-discovery aliases below while loading every
+      # other setting from the canonical structured development profile.
+      APP_CONFIG_PRESERVE_PROCESS_ENV: "true"
       # --- Service discovery: infra is reached by compose service name ---
       DB_HOST: postgresql
       POSTGRES_HOST: postgresql

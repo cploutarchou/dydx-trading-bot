@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Ensure the shared infra network exists (Linux/macOS host).
-# Idempotent: succeeds whether or not the network already exists.
-docker network create dydx-infra 2>/dev/null || true
-
+# Bootstrap shared infra and the supervised Celery worker (Linux/macOS host).
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
+exec make -C "$REPO_ROOT" bot-runtime-up

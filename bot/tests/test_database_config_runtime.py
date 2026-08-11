@@ -1,7 +1,66 @@
+from types import SimpleNamespace
+
 import pytest
 
 from conftest import assert_db_type_supported
-from src.infrastructure.database import DatabaseConfig
+from src.infrastructure.database import (
+    ConnectionPoolMonitor,
+    DatabaseConfig,
+    DatabaseManager,
+    _resolve_pool_max_overflow,
+)
+
+
+def _fake_pool(**overflow_attributes):
+    return SimpleNamespace(
+        size=lambda: 30,
+        checkedout=lambda: 12,
+        overflow=lambda: 2,
+        **overflow_attributes,
+    )
+
+
+@pytest.mark.parametrize(
+    ("pool", "configured_max_overflow", "expected"),
+    [
+        (_fake_pool(_max_overflow=60), 100, 100),
+        (_fake_pool(max_overflow=lambda: 120, _max_overflow=60), 100, 120),
+        (_fake_pool(max_overflow=80, _max_overflow=90), 70, 90),
+        (_fake_pool(max_overflow="invalid", _max_overflow=-1), 0, 0),
+    ],
+)
+def test_pool_max_overflow_resolver_uses_largest_valid_value(
+    pool, configured_max_overflow, expected
+):
+    assert _resolve_pool_max_overflow(pool, configured_max_overflow) == expected
+
+
+def test_connection_pool_monitor_uses_resolved_max_overflow():
+    monitor = ConnectionPoolMonitor(configured_max_overflow=100)
+    monitor._pool = _fake_pool(max_overflow=lambda: 80, _max_overflow=60)
+
+    monitor._collect_metrics()
+
+    metrics = monitor.get_current_metrics()
+    assert metrics["max_overflow"] == 100
+    assert metrics["max_size"] == 130
+    assert metrics["utilization_percentage"] == 9.23
+
+
+def test_database_diagnostics_uses_resolved_max_overflow():
+    manager = object.__new__(DatabaseManager)
+    manager.config = SimpleNamespace(
+        max_overflow=100,
+        to_diagnostics=lambda: {},
+    )
+    manager._engine = SimpleNamespace(
+        pool=_fake_pool(max_overflow=lambda: 120, _max_overflow=60)
+    )
+    manager._pool_monitor = None
+
+    diagnostics = manager.get_diagnostics()
+
+    assert diagnostics["pool_info"]["max_overflow"] == 120
 
 
 def test_alembic_config_resolves_from_bot_root(monkeypatch):

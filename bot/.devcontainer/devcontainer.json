@@ -11,7 +11,8 @@
 	"workspaceFolder": "/workspaces/dydx-trading-bot/bot",
 	"remoteUser": "vscode",
 
-	// Ensure the shared infra network exists before compose starts (host-side).
+	// Ensure shared infra and the supervised Celery worker are healthy before
+	// compose starts (host-side).
 	// Point at a script so JetBrains picks the right host shell (.sh on Linux/macOS, .cmd on Windows).
 	"initializeCommand": ".devcontainer/ensure-network",
 
@@ -23,7 +24,7 @@
 	// Makefile enforces the .venv interpreter for all local targets.
 	"postCreateCommand": "python -m venv --clear .venv && .venv/bin/pip install --upgrade pip setuptools wheel && .venv/bin/pip install -r requirements.txt",
 
-	// Wait for PostgreSQL and Valkey before running API/worker targets.
+	// Recheck PostgreSQL and Valkey after the development container starts.
 	"postStartCommand": ".venv/bin/python .devcontainer/check-infra.py",
 
 	"forwardPorts": [8889, 5555, 5432, 6379, 4222, 8222, 8123, 9010, 9011],

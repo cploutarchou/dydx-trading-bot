@@ -86,10 +86,15 @@ Then start the service you are actively developing:
 - frontend: `cd frontend && npm install && npm run dev`
 - backend: `cd backend && make run`
 - bot API: `cd bot && make local-api`
-- bot worker: `cd bot && make local-worker`
+
+The bot API and bot runtime Make targets idempotently start the shared infrastructure and a supervised Celery worker
+before starting Python. The worker uses Docker's `restart: unless-stopped` policy and is kept separate from the API
+process, so API reloads and exits do not interrupt queued jobs. You can also manage it explicitly with
+`make celery-worker-up`, `make celery-worker-logs`, and `make celery-worker-down` from the repository root.
 
 When finished:
 
+- stop the supervised bot worker: `make celery-worker-down`
 - stop infra: `make infra-down`
 
 #### Full integration stack (frontend + backend + bot + infra)

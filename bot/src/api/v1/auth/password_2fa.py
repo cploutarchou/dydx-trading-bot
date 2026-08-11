@@ -10,6 +10,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from src.api.auth_utils import TwoFactorUtils
+from src.api.v1.auth.totp_state import (
+    get_totp_enabled_record,
+    get_totp_secret_record,
+)
 from src.infrastructure.database import db
 from src.infrastructure.domain.models.auth_models import User, UserToken
 from src.middleware.auth_middleware import get_current_active_user
@@ -45,32 +49,6 @@ def _token_value(record: UserToken) -> str:
     return str(cast(object, record.token))
 
 
-def _get_totp_secret_record(session: Session, user_id: int):
-    return (
-        session.query(UserToken)
-        .filter(
-            UserToken.user_id == user_id,
-            UserToken.token_type == "totp_secret",
-            UserToken.is_revoked.is_(False),
-        )
-        .order_by(UserToken.created_at.desc())
-        .first()
-    )
-
-
-def _get_enabled_record(session: Session, user_id: int):
-    return (
-        session.query(UserToken)
-        .filter(
-            UserToken.user_id == user_id,
-            UserToken.token_type == "totp_enabled",
-            UserToken.is_revoked.is_(False),
-        )
-        .order_by(UserToken.created_at.desc())
-        .first()
-    )
-
-
 @router.post("/setup")
 async def setup_2fa(
     current_user: User = Depends(get_current_active_user),
@@ -80,7 +58,7 @@ async def setup_2fa(
     user_id = _user_id_value(current_user)
     username = _username_value(current_user)
 
-    secret_record = _get_totp_secret_record(session, user_id)
+    secret_record = get_totp_secret_record(session, user_id)
     if secret_record:
         secret = _token_value(secret_record)
     else:
@@ -98,7 +76,7 @@ async def setup_2fa(
 
     qr_code = TwoFactorUtils.generate_qr_code(secret, username)
     otpauth_uri = TwoFactorUtils.generate_totp_uri(secret, username)
-    is_enabled = _get_enabled_record(session, user_id) is not None
+    is_enabled = get_totp_enabled_record(session, user_id) is not None
 
     return {
         "message": "2FA setup ready",
@@ -118,7 +96,7 @@ async def verify_2fa(
     """Verify TOTP token and mark 2FA as enabled for user."""
     user_id = _user_id_value(current_user)
 
-    secret_record = _get_totp_secret_record(session, user_id)
+    secret_record = get_totp_secret_record(session, user_id)
     if not secret_record:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -139,7 +117,7 @@ async def verify_2fa(
             detail="Invalid 2FA token",
         )
 
-    enabled_record = _get_enabled_record(session, user_id)
+    enabled_record = get_totp_enabled_record(session, user_id)
     if not enabled_record:
         expires_at = utc_now() + timedelta(days=3650)
         enabled_record = UserToken(

@@ -47,6 +47,9 @@ load_repo_env(__file__)
 
 # Import authentication modules
 from src.api.v1.auth import router as auth_router  # noqa: E402
+from src.api.v1.auth.password_2fa import (  # noqa: E402
+    router as password_2fa_router,
+)
 
 # Import bot models and manager
 from src.infrastructure.domain.bot_api_models import (  # noqa: E402
@@ -843,6 +846,11 @@ app.include_router(
     auth_router,
     prefix="/api/v1/auth",
     tags=["Authentication"],
+)
+app.include_router(
+    password_2fa_router,
+    prefix="/api/v1/auth/2fa",
+    tags=["Authentication", "2FA"],
 )
 
 # Include extracted route modules (monolith breakup). Monitoring is first; its

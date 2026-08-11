@@ -308,3 +308,50 @@ def test_admin_route_returns_401_without_credentials(monkeypatch):
         "/api/v1/admin/runtime/strategy-resolution-metrics/reset", json={}
     )
     assert response.status_code == 401
+
+
+def test_2fa_routes_are_mounted_and_auth_gated(monkeypatch):
+    """The 2FA router must be reachable and both endpoints must require auth.
+
+    Regression for the 'router exists but is never mounted' dead-code path
+    (IMPROVEMENTS.md item #1). An unauthenticated request must hit the auth
+    dependency (401), not a 404 'route not found'.
+    """
+    monkeypatch.delenv("API_BYPASS_AUTH", raising=False)
+    client = TestClient(server.app)
+
+    response = client.post("/api/v1/auth/2fa/setup")
+    assert (
+        response.status_code == 401
+    ), f"setup without credentials returned {response.status_code}, expected 401"
+
+    response = client.post("/api/v1/auth/2fa/verify", json={"token": "123456"})
+    assert (
+        response.status_code == 401
+    ), f"verify without credentials returned {response.status_code}, expected 401"
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        "abc",  # non-numeric
+        "12345",  # too short (< 6)
+        "1234567890123456",  # too long (> 15)
+        "",  # empty
+    ],
+)
+def test_2fa_verify_rejects_malformed_token_at_boundary(monkeypatch, token):
+    """Malformed TOTP tokens are rejected with 422 at the API boundary.
+
+    Auth is bypassed so the request reaches Pydantic validation (the field is
+    ``min_length=6, max_length=15, pattern=^[\\d ]+$``). The field intentionally
+    admits 6-15 digit/space strings; the handler's exact ``{6, 8}`` length check
+    is the defense-in-depth that rejects e.g. a 7- or 9-digit code (400).
+    """
+    monkeypatch.setenv("API_BYPASS_AUTH", "true")
+    monkeypatch.setenv("APP_CONFIG_ENV", "development")
+    client = TestClient(server.app)
+    response = client.post("/api/v1/auth/2fa/verify", json={"token": token})
+    assert (
+        response.status_code == 422
+    ), f"verify token={token!r} returned {response.status_code}, expected 422"

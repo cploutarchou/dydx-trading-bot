@@ -6,7 +6,7 @@ from datetime import timedelta
 from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from src.api.auth_utils import TwoFactorUtils
@@ -21,7 +21,16 @@ router = APIRouter()
 class Verify2FARequest(BaseModel):
     """Payload for verifying a TOTP token."""
 
-    token: str
+    token: str = Field(
+        ...,
+        min_length=6,
+        max_length=15,
+        pattern=r"^[\d ]+$",
+        description=(
+            "6- or 8-digit TOTP code; optional internal spaces are stripped "
+            "before verification."
+        ),
+    )
 
 
 def _user_id_value(user: User) -> int:

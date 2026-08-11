@@ -12,7 +12,7 @@
           "Authentication"
         ],
         "summary": "Token Login",
-        "description": "Login endpoint",
+        "description": "OAuth2 login endpoint (also used by the Swagger UI Authorize dialog).\n\n``totp_code`` is an additional optional form field; users with 2FA enabled\nmust supply it. The standard Swagger Authorize dialog cannot send it, so\n2FA-enabled accounts cannot log in via the Swagger UI \u2014 by design.",
         "operationId": "token_login_auth_token_post",
         "requestBody": {
           "content": {
@@ -182,7 +182,7 @@
           "Authentication"
         ],
         "summary": "Token Login",
-        "description": "Login endpoint",
+        "description": "OAuth2 login endpoint (also used by the Swagger UI Authorize dialog).\n\n``totp_code`` is an additional optional form field; users with 2FA enabled\nmust supply it. The standard Swagger Authorize dialog cannot send it, so\n2FA-enabled accounts cannot log in via the Swagger UI \u2014 by design.",
         "operationId": "token_login_api_v1_auth_token_post",
         "requestBody": {
           "content": {
@@ -6414,6 +6414,17 @@
       },
       "Body_token_login_api_v1_auth_token_post": {
         "properties": {
+          "totp_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Totp Code"
+          },
           "grant_type": {
             "anyOf": [
               {
@@ -6473,6 +6484,17 @@
       },
       "Body_token_login_auth_token_post": {
         "properties": {
+          "totp_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Totp Code"
+          },
           "grant_type": {
             "anyOf": [
               {
@@ -6796,6 +6818,21 @@
           "password": {
             "type": "string",
             "title": "Password"
+          },
+          "totp_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 15,
+                "minLength": 6,
+                "pattern": "^[\\d ]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Totp Code",
+            "description": "6- or 8-digit TOTP code; required only when 2FA is enabled. Optional internal spaces are stripped before verification."
           }
         },
         "type": "object",
@@ -6804,7 +6841,7 @@
           "password"
         ],
         "title": "LoginRequest",
-        "description": "JSON login payload expected by the frontend."
+        "description": "JSON login payload expected by the frontend.\n\n``totp_code`` is required only when the user has TOTP 2FA enabled; it is\nomitted otherwise. Constraints mirror ``Verify2FARequest`` so malformed codes\nare rejected (422) at the API boundary before the handler runs, and ``None``\nbypasses the constraints for non-2FA logins."
       },
       "RegisterRequest": {
         "properties": {

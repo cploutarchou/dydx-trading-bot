@@ -1,5 +1,27 @@
 # Tasks Log
 
+## 2026-08-12
+
+- Enforced TOTP 2FA at login (resolves the 2FA login-enforcement follow-up noted on 2026-08-11 — the
+  router mount made setup/verify reachable but login never checked 2FA state):
+    - `_authenticate_user` (shared by `/auth/login` and the OAuth2 `/token`, the latter used by the
+      Swagger UI Authorize dialog) now gates on a non-revoked `totp_enabled` row: a 2FA-enabled user
+      must send `totp_code`, validated after the password check (fail closed; no enumeration).
+      `API_BYPASS_AUTH` skips the check (dev/test).
+    - Extracted the TOTP DB-state queries into a new shared module `src/api/v1/auth/totp_state.py`
+      (`get_totp_secret_record`, `get_totp_enabled_record`, `is_two_factor_enabled`,
+      `verify_totp_for_user`); `password_2fa.py` imports them (setup/verify behavior unchanged).
+    - `LoginRequest` gained optional `totp_code` (`min_length=6, max_length=15, pattern=^[\d ]+$`,
+      mirroring `Verify2FARequest` → malformed codes 422 at the boundary); `/token` gained an
+      additional `Form(default=None)` field.
+    - Coverage in `tests/test_auth_2fa_login.py` (11 cases: non-2FA unchanged, missing/wrong/correct
+      code, wrong-length, space normalization, wrong-password fail-closed, bypass skip, two 422
+      boundary cases, OAuth2 `/token` enforcement). `openapi.json` regenerated.
+    - Non-2FA logins unchanged (field optional, no migration, no `bot_states` touch).
+    - Verification: `compileall` clean; `black --check` clean on touched files; flake8 hard gate clean;
+      broad-catch ratchet green at 297 (no new `except Exception`); 11 new + 31 auth/security/service-
+      token/ratchet + 73 openapi-comparison + 17 token-revocation/bypass-guard tests pass.
+
 ## 2026-08-11
 
 - Resolved the dead code paths (IMPROVEMENTS.md item #1 — "smallest effort-to-clarity ratio"):

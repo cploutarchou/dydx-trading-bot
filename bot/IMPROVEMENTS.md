@@ -239,7 +239,8 @@ Items removed from this plan during the same review — and why — are listed i
       removed (chart path already fell back to the DB).
     - ~~**2FA Router Not Mounted**~~ — RESOLVED (mounted): `src/api/v1/auth/password_2fa.py` is now
       included via `app.include_router(..., prefix="/api/v1/auth/2fa")` in `server.py`; both endpoints
-      are auth-gated. Login does not yet *enforce* 2FA state — separate follow-up.
+      are auth-gated. Login now *enforces* 2FA state — a user with TOTP enabled must supply a valid
+      code at `/auth/login` and `/token` (landed 2026-08-12; see the action-plan item).
     - ~~**Duplicated `repository_realtime`**~~ — RESOLVED (shim removed): the
       `internal/repository/repository_realtime.py` compatibility shim was deleted; the sole importer
       (`websocket_server.py`) now imports from the canonical `src.infrastructure.persistence.repository_realtime`.
@@ -754,7 +755,18 @@ Items removed from this plan during the same review — and why — are listed i
       (`min_length=6, max_length=15, pattern=^[\d ]+$`, preserving the handler's space-stripping);
       `openapi.json` regenerated (+2 operations, +`Verify2FARequest` schema; regeneration also
       corrected pre-existing drift — missing `tags` arrays on 20 monitoring/celery/strategies routes).
-      Note: login does not yet *enforce* 2FA state — that is a separate, larger change.
+      Note: login now *enforces* 2FA state — see the follow-up below (DONE 2026-08-12).
+      **Follow-up — 2FA login enforcement (DONE 2026-08-12):** `_authenticate_user` (shared by
+      `/auth/login` and the OAuth2 `/token`) now gates on a non-revoked `totp_enabled` row: a
+      2FA-enabled user must send `totp_code`, validated via the shared
+      `src/api/v1/auth/totp_state.py` helpers (`is_two_factor_enabled`, `verify_totp_for_user`) over
+      `TwoFactorUtils.verify_totp_token`. The check runs *after* the password check (fail closed; no
+      user enumeration), and `API_BYPASS_AUTH` skips it (dev/test). `totp_code` is optional on
+      `LoginRequest` (constraints mirror `Verify2FARequest` → malformed codes 422 at the boundary) and
+      an additional `Form(None)` on `/token`. Extracted the TOTP DB-state queries into `totp_state.py`
+      so login and setup/verify share one implementation (`password_2fa.py` imports them — no behavior
+      change). Coverage in `tests/test_auth_2fa_login.py` (11 cases); `openapi.json` regenerated.
+      Non-2FA logins unchanged (backward compatible); no DB migration.
       (2) **`realtime_data_service.py` DELETED** (488 lines) along with its only importer
       `tests/test_realtime_market_sync_cache.py` — it had no production caller (its broadcast
       helpers `broadcast_position_update`/`broadcast_stats_update`/`broadcast_market_update`

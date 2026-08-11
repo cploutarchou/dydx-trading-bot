@@ -91,6 +91,17 @@ Repository-level guidance for coding agents working on this project.
     - Canonical realtime repositories live in `src/infrastructure/persistence/repository_realtime.py`; import from
       that path directly (the former `internal/repository/repository_realtime.py` compatibility shim was removed).
 
+13. **Offload blocking DB work in async handlers**
+    - Inside `async def` route handlers, never run blocking sync SQLAlchemy (`session.query/execute/commit/add`) on
+      the event loop — it stalls every in-flight request and WebSocket broadcast on that worker. Move it to a worker
+      thread via `run_db` (`src/infrastructure/db_offload.py`, a wrapper over
+      `starlette.concurrency.run_in_threadpool`).
+    - The offloaded callable MUST own its full `Session` lifecycle (open via `db.get_session()`, use, close in
+      `finally`) so no `Session` crosses the thread boundary (sync sessions are not thread-safe). Return DTOs/dicts
+      across the seam — never live ORM objects that could lazy-load back on the loop.
+    - Reference conversions: backtest reads via the `_*_sync` seam (`src/api/v1/backtests.py`) and realtime reads
+      via session-owning closures (`src/api/v1/bot_realtime.py`).
+
 ## Local Development Commands
 
 **API and runtime (use `.venv` interpreter):**

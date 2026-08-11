@@ -14,7 +14,8 @@
       "Bash(.venv/bin/black --check src/exceptions.py src/api/server.py src/bot_instance_manager.py src/infrastructure/database.py src/infrastructure/use_cases/service_backtest.py src/shared/credentials_cipher.py tests/test_exceptions_hierarchy.py tests/test_exception_handling_ratchet.py)",
       "Bash(.venv/bin/black src/api/server.py src/infrastructure/database.py src/shared/credentials_cipher.py tests/test_exceptions_hierarchy.py)",
       "Bash(API_BYPASS_AUTH=true APP_CONFIG_ENV=development .venv/bin/python -c ' *)",
-      "Bash(grep -nE '^# ={5,}' src/api/server.py)"
+      "Bash(grep -nE '^# ={5,}' src/api/server.py)",
+      "Bash(grep -n \"^#\\\\{1,3\\\\} \" IMPROVEMENTS.md)"
     ]
   },
   "enableAllProjectMcpServers": true,

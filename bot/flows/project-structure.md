@@ -13,7 +13,7 @@ bot/
 │   │   ├── start_api.py            # canonical Uvicorn launcher
 │   │   ├── websocket_server.py     # in-process WebSocket connections/broadcasts
 │   │   ├── auth_utils.py           # passwords, JWT, TOTP, Redis token blacklist helper
-│   │   └── v1/auth/                # login/register plus currently-unmounted 2FA router
+│   │   └── v1/auth/                # login/register plus 2FA router (mounted at /api/v1/auth/2fa)
 │   ├── bot_instance_manager.py     # lifecycle owner and subprocess supervisor
 │   ├── main_instance.py            # DB-configured per-instance trading worker
 │   ├── trading/                    # dYdX adapter, analysis, entry/exit and persistence

@@ -1,5 +1,38 @@
 # Tasks Log
 
+## 2026-08-11
+
+- Resolved the dead code paths (IMPROVEMENTS.md item #1 — "smallest effort-to-clarity ratio"):
+    - **2FA router mounted** at `/api/v1/auth/2fa` (`/setup`, `/verify`) via `app.include_router` in
+      `src/api/server.py`; both endpoints were already auth-gated (`get_current_active_user`). Added
+      boundary validation to `Verify2FARequest` (`min_length=6, max_length=15, pattern=^[\d ]+$`) that
+      preserves the handler's space-stripping. Login does not yet *enforce* 2FA state — separate follow-up.
+    - **Deleted `src/trading/realtime_data_service.py`** (488 lines) + its only importer
+      `tests/test_realtime_market_sync_cache.py`. It had no production caller; its broadcast helpers
+      (`broadcast_position_update`/`broadcast_stats_update`/`broadcast_market_update`) were called by
+      nobody, so the realtime WS fan-out it implied never fired.
+    - **Deleted the candle-aggregation stub** (`src/infrastructure/workers/candle_aggregate_tasks.py`,
+      returned `{"status": "skipped"}`) + its post-backtest call site in `backtest_tasks.py` + its Celery
+      registration in `celery_app.py` (`include` + `task_routes`). Chart reads already fell back to the DB.
+    - **Deleted the `internal/repository/repository_realtime.py` compatibility shim** (19-line re-export);
+      repointed `src/api/websocket_server.py` to the canonical `src.infrastructure.persistence.repository_realtime`.
+      `internal/domain/` (canonical ORM models) untouched.
+    - **Broad-catch ratchet** lowered `BROAD_CATCH_BASELINE` **309 → 297** (−12: 11 in the deleted realtime
+      service + 1 at the candle call site) with a justification entry in `tests/test_exception_handling_ratchet.py`.
+    - **Docs synced** (Rule 7): `AGENTS.md` (Rule 12, scheduled-workers, trading-components) and the
+      `flows/*.md` snapshot (risks-and-gaps, services-inventory, api-flows, data-flows, background-tasks,
+      project-structure, README). `openapi.json` regenerated (+2 operations, +`Verify2FARequest` schema;
+      regeneration also corrected pre-existing drift — missing `tags` arrays on 20 monitoring/celery/
+      strategies routes).
+    - **Tests**: added 2FA reachability + boundary-validation cases to `tests/test_security_auth_bypass.py`
+      (mounted+auth-gated → 401; malformed token → 422). Verification: `compileall` clean; `black --check`
+      clean on all touched files; flake8 hard gate clean; ratchet green at 297; ~330 tests pass across
+      security, openapi-comparison, backtest, websocket, exceptions/config/credentials/async_job/circuit/
+      cache/broadcast, backtest-service/market-sync/celery-metrics. (`make test` full run could not
+      complete in this WSL env — the suite hangs on an unrelated first test; an environment issue, not a
+      regression. The committed `bot/.venv` had dangling python symlinks from its devcontainer origin and
+      was repointed at `/usr/bin/python3.12` to restore the installed deps.)
+
 ## 2026-08-10
 
 - Made service-first bot startup self-bootstrapping and worker-safe:

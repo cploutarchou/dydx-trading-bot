@@ -379,13 +379,105 @@
           "2FA"
         ],
         "summary": "Verify 2Fa",
-        "description": "Verify TOTP token and mark 2FA as enabled for user.",
+        "description": "Verify TOTP token and mark 2FA as enabled for the user.\n\nOn the enable transition (first successful verify), a set of single-use\nbackup codes is issued and returned in plain form **exactly once**.",
         "operationId": "verify_2fa_api_v1_auth_2fa_verify_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/Verify2FARequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/2fa/backup-codes/regenerate": {
+      "post": {
+        "tags": [
+          "Authentication",
+          "2FA"
+        ],
+        "summary": "Regenerate Backup Codes",
+        "description": "Regenerate backup codes. Requires a valid TOTP code (device present).\n\nInvalidates all previously-issued backup codes and returns a new set in plain\nform **exactly once**.",
+        "operationId": "regenerate_backup_codes_api_v1_auth_2fa_backup_codes_regenerate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Verify2FARequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/2fa/disable": {
+      "post": {
+        "tags": [
+          "Authentication",
+          "2FA"
+        ],
+        "summary": "Disable 2Fa",
+        "description": "Disable 2FA. Requires a valid TOTP code **or** an unused backup code.\n\nNever accepts password-only, so 2FA cannot be bypassed via password\ncompromise. Revokes the enabled flag, the TOTP secret, and all backup codes;\nre-setup after disable creates fresh rows.",
+        "operationId": "disable_2fa_api_v1_auth_2fa_disable_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecondFactorRequest"
               }
             }
           },
@@ -6823,16 +6915,16 @@
             "anyOf": [
               {
                 "type": "string",
-                "maxLength": 15,
+                "maxLength": 32,
                 "minLength": 6,
-                "pattern": "^[\\d ]+$"
+                "pattern": "^[A-Za-z0-9 ]+$"
               },
               {
                 "type": "null"
               }
             ],
             "title": "Totp Code",
-            "description": "6- or 8-digit TOTP code; required only when 2FA is enabled. Optional internal spaces are stripped before verification."
+            "description": "A TOTP code or a single-use backup code; required only when 2FA is enabled. Optional internal spaces are stripped before verification."
           }
         },
         "type": "object",
@@ -6841,7 +6933,7 @@
           "password"
         ],
         "title": "LoginRequest",
-        "description": "JSON login payload expected by the frontend.\n\n``totp_code`` is required only when the user has TOTP 2FA enabled; it is\nomitted otherwise. Constraints mirror ``Verify2FARequest`` so malformed codes\nare rejected (422) at the API boundary before the handler runs, and ``None``\nbypasses the constraints for non-2FA logins."
+        "description": "JSON login payload expected by the frontend.\n\n``totp_code`` is required only when the user has 2FA enabled; it accepts a\nTOTP code or a single-use backup code. It is omitted otherwise. The field is\nvalidated (422) at the API boundary; ``None`` bypasses the constraints for\nnon-2FA logins."
       },
       "RegisterRequest": {
         "properties": {
@@ -6900,6 +6992,24 @@
         ],
         "title": "RuntimePreflightRequest",
         "description": "Preflight payload for environment-specific runtime readiness checks."
+      },
+      "SecondFactorRequest": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 6,
+            "pattern": "^[A-Za-z0-9 ]+$",
+            "title": "Token",
+            "description": "A 6/8-digit TOTP code or a backup code (case-insensitive). Optional internal spaces are stripped before verification."
+          }
+        },
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "title": "SecondFactorRequest",
+        "description": "A second-factor token: either a TOTP code or a single-use backup code."
       },
       "StrategyRequest": {
         "properties": {
@@ -7361,7 +7471,7 @@
           "token"
         ],
         "title": "Verify2FARequest",
-        "description": "Payload for verifying a TOTP token."
+        "description": "Payload for verifying a TOTP token (setup/regenerate \u2014 TOTP only)."
       },
       "StandardApiResponse": {
         "type": "object",

@@ -767,6 +767,23 @@ Items removed from this plan during the same review — and why — are listed i
       so login and setup/verify share one implementation (`password_2fa.py` imports them — no behavior
       change). Coverage in `tests/test_auth_2fa_login.py` (11 cases); `openapi.json` regenerated.
       Non-2FA logins unchanged (backward compatible); no DB migration.
+      **Follow-up #2 — 2FA recovery: backup codes + self-service disable (DONE 2026-08-12):**
+      closes the lockout risk the enforcement introduced. (a) **Backup codes** — `POST /2fa/verify`
+      now issues 10 single-use codes (16-hex / **64-bit**, up from the dead 32-bit
+      `generate_backup_codes`) on the enable transition, stored **hashed** (SHA-256) as
+      `totp_backup` `user_tokens` rows, returned in plain form exactly once; `POST /2fa/backup-codes/
+      regenerate` (TOTP-gated) reissues them. They are consumed at login: `LoginRequest.totp_code`
+      now accepts a TOTP code **or** a backup code (pattern broadened `^[\d ]+$`→`^[A-Za-z0-9 ]+$`,
+      max 32) via `verify_login_second_factor` (TOTP first, then `consume_backup_code`). (b) **Disable**
+      — `POST /2fa/disable` (`SecondFactorRequest`) requires a valid TOTP code **or** an unused backup
+      code (never password-only → 2FA not bypassable via password compromise); on success
+      `disable_two_factor` revokes the enabled/secret/backup rows. Re-enable after disable **un-revokes**
+      the existing `totp_enabled` row (its `token` is unique/deterministic — inserting a duplicate
+      would hit `IntegrityError`); re-setup creates a fresh secret. New helpers in `totp_state.py`
+      (`issue_backup_codes`, `consume_backup_code`, `verify_login_second_factor`, `disable_two_factor`).
+      Coverage in `tests/test_auth_2fa_recovery.py` (13 cases, real in-memory SQLite) +
+      `tests/test_auth_2fa_login.py`; `openapi.json` regenerated (+2 operations, +`SecondFactorRequest`).
+      No DB migration; TOTP-only logins unchanged.
       (2) **`realtime_data_service.py` DELETED** (488 lines) along with its only importer
       `tests/test_realtime_market_sync_cache.py` — it had no production caller (its broadcast
       helpers `broadcast_position_update`/`broadcast_stats_update`/`broadcast_market_update`

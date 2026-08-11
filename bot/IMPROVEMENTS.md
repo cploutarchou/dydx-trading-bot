@@ -45,14 +45,17 @@ Most of this document is a record of completed work. Everything still pending, i
 
 | # | Item | Why it matters | Effort |
 | --- | --- | --- | --- |
-| 1 | **Resolve dead code paths** (2FA router unmounted, candle aggregation stub, realtime service uncalled, duplicated `repository_realtime`) | Three features read as implemented but never execute | 1-2 days |
-| 2 | **Multi-worker tests** | Gates everything below it; the only way the split-registry class of bug gets caught | 2-3 weeks |
-| 3 | **Broadcast bus Phase 2** — flip `WS_BROADCAST_ENABLED` on, add metrics + broadcast coalescing | Phase 1 shipped inert; multi-worker deployments still have split websocket registries | 1-2 weeks |
-| 4 | **Move blocking DB calls off the event loop** | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | ongoing |
-| 5 | **Integration tests** (Redis / Celery / dYdX) | Compose infra already exists; mostly markers + a CI job | 2-3 weeks |
-| 6 | **Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`) | Two cheap CI gates; coverage reports today with nothing enforcing them | 1-2 days |
-| 7 | **Portfolio-level risk controls** | Per-instance limits can each pass while the account is over-exposed | 4-6 weeks |
-| 8 | **Backtest checkpointing** (optional) | Compute-cost optimization only; auto-recovery already handles correctness | 2 weeks |
+| 1 | **Multi-worker tests** | Gates everything below it; the only way the split-registry class of bug gets caught | 2-3 weeks |
+| 2 | **Broadcast bus Phase 2** — flip `WS_BROADCAST_ENABLED` on, add metrics + broadcast coalescing | Phase 1 shipped inert; multi-worker deployments still have split websocket registries | 1-2 weeks |
+| 3 | **Move blocking DB calls off the event loop** | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | ongoing — slice 1 done 2026-08-12 (`run_db` helper + backtest/realtime reads offloaded) |
+| 4 | **Integration tests** (Redis / Celery / dYdX) | Compose infra already exists; mostly markers + a CI job | 2-3 weeks |
+| 5 | **Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`) | Two cheap CI gates; coverage reports today with nothing enforcing them | 1-2 days |
+| 6 | **Portfolio-level risk controls** | Per-instance limits can each pass while the account is over-exposed | 4-6 weeks |
+| 7 | **Backtest checkpointing** (optional) | Compute-cost optimization only; auto-recovery already handles correctness | 2 weeks |
+
+> **Resolved 2026-08-11:** the former row 1 ("Resolve dead code paths") is done — 2FA router
+> mounted, `realtime_data_service.py` + candle-aggregation stub + `repository_realtime` shim
+> deleted, docs synced. See the action-plan item for details.
 
 Items removed from this plan during the same review — and why — are listed in
 [Removed From This Plan](#-removed-from-this-plan-2026-08-11-review).
@@ -164,6 +167,20 @@ Items removed from this plan during the same review — and why — are listed i
     - **Files**: `src/infrastructure/database.py`, `src/infrastructure/persistence/*.py`, async route handlers
     - **Realistic first step**: push the hot synchronous DB paths through `run_in_threadpool` /
       `asyncio.to_thread` rather than attempting a full async-SQLAlchemy migration
+    - **Status: UNDERWAY (2026-08-12).** Established the canonical offload seam
+      `src/infrastructure/db_offload.py` (`run_db` over `starlette.concurrency.run_in_threadpool`) and
+      converted the two hottest HTTP read families: **backtest reads** (the `_*_sync` seam in
+      `backtests.py` — list/details/status/trades/analytics/snapshots/summary/compare/runtime-health/
+      advanced-metrics/live-progress, ~12 sites) and **realtime reads** (the 6 `bot_realtime.py` handlers,
+      refactored into session-owning sync closures). Pattern: the offloaded callable owns its full
+      `Session` lifecycle (open `db.get_session()` → close in `finally`) and returns DTOs/dicts, so no
+      session crosses the thread boundary and no detached lazy-load reaches the loop. Behavior-preserving
+      (`test_backtest_api_contract.py`, `test_bot_realtime_routes.py` incl. the `fake_session.closes == 6`
+      guard, and `tests/test_db_offload.py` all green; ratchet held at 297). **Remaining (follow-on
+      slices):** WebSocket `send_initial_state` + sibling WS sends (`websocket_server.py`), backtest
+      mutations (pause/resume/cancel/delete/repair/retry), and the `bot_records` / `bot_lifecycle` /
+      `strategies` families — same pattern, mechanical. Also flagged (not fixed): no `pool_pre_ping`
+      (stale-idle connection risk), and auth handlers leak `Depends(db.get_session)` sessions.
 
 #### **Moderate Issues**
 
@@ -224,17 +241,24 @@ Items removed from this plan during the same review — and why — are listed i
 
 #### **Critical Issues**
 
-- **Dead / Stubbed Code Paths**: code that exists but nothing executes — each is either "wire it" or "delete it",
-  and leaving them ambiguous is what costs time
-    - **Realtime Service Not Wired**: `src/trading/realtime_data_service.py` has no production caller (only
-      `tests/test_realtime_market_sync_cache.py` imports it). Note it also imports
-      `internal.repository.repository_realtime` while the rest of the service imports
-      `src.infrastructure.persistence.repository_realtime` — two copies of the same module
-    - **Candle Aggregation Stub**: `src/infrastructure/workers/candle_aggregate_tasks.py:21` returns
-      `{"status": "skipped"}` — the task is scheduled but does nothing
-    - **2FA Router Not Mounted**: `src/api/v1/auth/password_2fa.py` exists but no module imports it and
-      `server.py` never mounts it. Decide: mount + enforce, or delete the file and the README claim
-    - **Impact**: dead code reads as working functionality; wasted development effort
+- **Dead / Stubbed Code Paths** (RESOLVED 2026-08-11): code that existed but nothing executed — each is now
+  resolved toward clarity (wire or delete)
+    - ~~**Realtime Service Not Wired**~~ — RESOLVED (deleted): `src/trading/realtime_data_service.py`
+      (488 lines) had no production caller; removed along with its only importer
+      `tests/test_realtime_market_sync_cache.py`. Its broadcast helpers were called by nobody, so the
+      realtime WS fan-out it implied never fired. Re-implement intentionally if periodic realtime WS
+      updates are wanted.
+    - ~~**Candle Aggregation Stub**~~ — RESOLVED (deleted): `candle_aggregate_tasks.py` returned
+      `{"status": "skipped"}`; the task, its post-backtest call site, and its Celery registration were
+      removed (chart path already fell back to the DB).
+    - ~~**2FA Router Not Mounted**~~ — RESOLVED (mounted): `src/api/v1/auth/password_2fa.py` is now
+      included via `app.include_router(..., prefix="/api/v1/auth/2fa")` in `server.py`; both endpoints
+      are auth-gated. Login now *enforces* 2FA state — a user with TOTP enabled must supply a valid
+      code at `/auth/login` and `/token` (landed 2026-08-12; see the action-plan item).
+    - ~~**Duplicated `repository_realtime`**~~ — RESOLVED (shim removed): the
+      `internal/repository/repository_realtime.py` compatibility shim was deleted; the sole importer
+      (`websocket_server.py`) now imports from the canonical `src.infrastructure.persistence.repository_realtime`.
+    - **Impact**: dead code reads as working functionality; wasted development effort — now eliminated.
     - ~~**Missing Position History**~~ — RESOLVED: `PositionSnapshotsRepository` writes on
       opened/mark-to-market/closed (`repository_realtime.py`) and
       `GET /api/v1/bots/{id}/position-history/{position_id}` serves it (`bot_realtime.py:460`)
@@ -730,7 +754,7 @@ Items removed from this plan during the same review — and why — are listed i
       trip the Telegram/Loki breakers (HTTP non-200 responses are handled by their existing
       retry/status logic); the dYdX indexer breaker trips on transport + 5xx + 429.
 
-- [ ] **Resolve the dead code paths** — mount or delete (CHEAP, do it first)
+- [x] **Resolve the dead code paths** — mount or delete (CHEAP, do it first)
     - **Files**: `src/api/v1/auth/password_2fa.py`, `src/infrastructure/workers/candle_aggregate_tasks.py`,
       `src/trading/realtime_data_service.py`, `internal/repository/repository_realtime.py`
     - **Impact**: three features currently read as implemented but never execute; a duplicated
@@ -739,6 +763,68 @@ Items removed from this plan during the same review — and why — are listed i
       task returns `{"status": "skipped"}`, and the realtime data service has no production caller
     - **Effort**: 1-2 days to delete, longer if any are to be wired
     - **Priority**: MEDIUM — smallest effort-to-clarity ratio in this document
+    - **Status**: COMPLETED (2026-08-11). All four paths resolved toward clarity:
+      (1) **2FA router MOUNTED** at `/api/v1/auth/2fa` (`/setup`, `/verify`), both already
+      auth-gated via `get_current_active_user`; added boundary validation to `Verify2FARequest`
+      (`min_length=6, max_length=15, pattern=^[\d ]+$`, preserving the handler's space-stripping);
+      `openapi.json` regenerated (+2 operations, +`Verify2FARequest` schema; regeneration also
+      corrected pre-existing drift — missing `tags` arrays on 20 monitoring/celery/strategies routes).
+      Note: login now *enforces* 2FA state — see the follow-up below (DONE 2026-08-12).
+      **Follow-up — 2FA login enforcement (DONE 2026-08-12):** `_authenticate_user` (shared by
+      `/auth/login` and the OAuth2 `/token`) now gates on a non-revoked `totp_enabled` row: a
+      2FA-enabled user must send `totp_code`, validated via the shared
+      `src/api/v1/auth/totp_state.py` helpers (`is_two_factor_enabled`, `verify_totp_for_user`) over
+      `TwoFactorUtils.verify_totp_token`. The check runs *after* the password check (fail closed; no
+      user enumeration), and `API_BYPASS_AUTH` skips it (dev/test). `totp_code` is optional on
+      `LoginRequest` (constraints mirror `Verify2FARequest` → malformed codes 422 at the boundary) and
+      an additional `Form(None)` on `/token`. Extracted the TOTP DB-state queries into `totp_state.py`
+      so login and setup/verify share one implementation (`password_2fa.py` imports them — no behavior
+      change). Coverage in `tests/test_auth_2fa_login.py` (11 cases); `openapi.json` regenerated.
+      Non-2FA logins unchanged (backward compatible); no DB migration.
+      **Follow-up #2 — 2FA recovery: backup codes + self-service disable (DONE 2026-08-12):**
+      closes the lockout risk the enforcement introduced. (a) **Backup codes** — `POST /2fa/verify`
+      now issues 10 single-use codes (16-hex / **64-bit**, up from the dead 32-bit
+      `generate_backup_codes`) on the enable transition, stored **hashed** (SHA-256) as
+      `totp_backup` `user_tokens` rows, returned in plain form exactly once; `POST /2fa/backup-codes/
+      regenerate` (TOTP-gated) reissues them. They are consumed at login: `LoginRequest.totp_code`
+      now accepts a TOTP code **or** a backup code (pattern broadened `^[\d ]+$`→`^[A-Za-z0-9 ]+$`,
+      max 32) via `verify_login_second_factor` (TOTP first, then `consume_backup_code`). (b) **Disable**
+      — `POST /2fa/disable` (`SecondFactorRequest`) requires a valid TOTP code **or** an unused backup
+      code (never password-only → 2FA not bypassable via password compromise); on success
+      `disable_two_factor` revokes the enabled/secret/backup rows. Re-enable after disable **un-revokes**
+      the existing `totp_enabled` row (its `token` is unique/deterministic — inserting a duplicate
+      would hit `IntegrityError`); re-setup creates a fresh secret. New helpers in `totp_state.py`
+      (`issue_backup_codes`, `consume_backup_code`, `verify_login_second_factor`, `disable_two_factor`).
+      Coverage in `tests/test_auth_2fa_recovery.py` (13 cases, real in-memory SQLite) +
+      `tests/test_auth_2fa_login.py`; `openapi.json` regenerated (+2 operations, +`SecondFactorRequest`).
+      No DB migration; TOTP-only logins unchanged.
+      (2) **`realtime_data_service.py` DELETED** (488 lines) along with its only importer
+      `tests/test_realtime_market_sync_cache.py` — it had no production caller (its broadcast
+      helpers `broadcast_position_update`/`broadcast_stats_update`/`broadcast_market_update`
+      were called by nobody, so the realtime WS fan-out it implied never fired). Re-implement
+      intentionally if periodic realtime WS updates are wanted (overlaps the blocking-DB-off-
+      event-loop and broadcast-bus Phase 2 items).
+      (3) **Candle-aggregation stub DELETED** — removed `candle_aggregate_tasks.py`, its
+      post-backtest call site in `backtest_tasks.py`, and its Celery registration in
+      `celery_app.py` (`include` + `task_routes`). The chart path already fell back to the DB.
+      (4) **Repository shim DELETED** — removed `internal/repository/repository_realtime.py`
+      (19-line re-export); repointed `src/api/websocket_server.py` to the canonical
+      `src.infrastructure.persistence.repository_realtime` import. `internal/domain/` (canonical
+      ORM models) untouched.
+      **Broad-catch ratchet**: the deletions removed 12 `except Exception` blocks (11 in the
+      realtime service + 1 at the candle call site) → baseline lowered **309 → 297** with a
+      justification entry in `tests/test_exception_handling_ratchet.py`.
+      **Docs synced**: `AGENTS.md` (Rule 12, scheduled-workers, trading-components) and the
+      `flows/*.md` snapshot (risks-and-gaps, services-inventory, api-flows, data-flows,
+      background-tasks, project-structure, README).
+      **Verification**: `compileall` clean; `black --check` clean on all 6 touched files
+      (5 unrelated pre-existing-drift files noted); flake8 hard gate
+      (`--select=E9,F63,F7,F82`) clean; ratchet green at 297; `test_security_auth_bypass.py`
+      (25, incl. 2 new 2FA reachability + 4 boundary-validation cases) pass; openapi-comparison
+      suites (`test_bot_realtime/record/lifecycle_routes`, `test_strategies/arbitrage_routes`,
+      `test_monitoring/celery_admin_routes`, `test_auth_api_contract`) — 83 pass; backtest
+      routes/contract + websocket — 86 pass; exceptions/config/credentials/async_job/circuit/
+      cache/broadcast — 137 pass; backtest-service/market-sync/celery-metrics — 50 pass.
 
 - [ ] **Add backtest checkpointing** for long-running tasks (LOW — optional)
     - **Files**: `src/infrastructure/workers/backtest_tasks.py`
@@ -883,7 +969,8 @@ remains:
 - ✅ DataFrame memory cleanup (COMPLETED)
 - **Coverage floor** (`--cov-fail-under`) — reporting exists, gate does not
 - **Dependency vulnerability scanning** (`pip-audit` / Dependabot) — nothing scans the dependency tree today
-- **Move blocking DB calls off the event loop** — the largest unaddressed performance item
+- **Move blocking DB calls off the event loop** — the largest unaddressed performance item;
+  **slice 1 landed 2026-08-12** (`run_db` offload helper + backtest + realtime read families converted; WS / mutations / remaining families follow)
 
 ### **Lower Priority**
 
@@ -1063,8 +1150,9 @@ The original Week-1 items are retained as an implementation record; completed wo
 - `src/api/server.py`: 1,751 lines of assembly/runtime after Phases 1–6 (down from 6,093)
 - Blocking synchronous SQLAlchemy inside async handlers (no `AsyncSession` anywhere in `src/`)
 - Configuration complexity across multiple sources
-- Dead code paths: 2FA router (unmounted), candle aggregation (stub), realtime data service (no caller), plus a
-  duplicated `repository_realtime` module under both `internal/` and `src/infrastructure/persistence/`
+- ~~Dead code paths~~ — RESOLVED (2026-08-11): 2FA router mounted at `/api/v1/auth/2fa`; candle
+  aggregation stub, `realtime_data_service.py`, and the `internal/repository/repository_realtime.py`
+  shim all deleted (canonical import path now used everywhere). See the action-plan item.
 
 ---
 

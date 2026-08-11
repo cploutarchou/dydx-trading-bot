@@ -24,6 +24,7 @@ from src.api.responses import api_response
 from src.api.v1.strategies import InMemoryStrategyStore
 from src.api.websocket_server import WebSocketServer, manager
 from src.infrastructure.database import db
+from src.infrastructure.db_offload import run_db
 from src.infrastructure.domain.models.auth_models import User
 from src.infrastructure.domain.models_backtest import (
     BacktestConfigRequest,
@@ -1384,8 +1385,12 @@ async def list_backtests(
     """List backtest runs with filtering"""
     del current_user
     try:
-        result = _compat("_list_backtests_sync", _list_backtests_sync)(
-            limit, offset, status, days
+        result = await run_db(
+            _compat("_list_backtests_sync", _list_backtests_sync),
+            limit,
+            offset,
+            status,
+            days,
         )
         payload = result.model_dump()
         payload["backtests"] = payload.get("runs", [])
@@ -1530,7 +1535,7 @@ async def get_backtest_details(
 ):
     """Get detailed backtest results"""
     del current_user
-    result = _get_backtest_details_sync(run_id)
+    result = await run_db(_get_backtest_details_sync, run_id)
     if not result:
         return api_response(
             success=False,
@@ -1552,7 +1557,7 @@ async def get_backtest_status(
 ):
     """Get current backtest status and progress"""
     del current_user
-    result = _get_backtest_status_sync(run_id)
+    result = await run_db(_get_backtest_status_sync, run_id)
     if not result:
         return api_response(
             success=False,
@@ -1610,7 +1615,7 @@ async def get_backtest_websocket_metrics(
 ):
     """Get per-run websocket send-failure metrics for reconnect-thrashing alerting."""
     del current_user
-    status = _get_backtest_status_sync(run_id)
+    status = await run_db(_get_backtest_status_sync, run_id)
     if status is None:
         return api_response(
             success=False,
@@ -1680,7 +1685,8 @@ async def get_backtest_trades(
         trades_payload = _cache_get(cache_key)
         cache_hit = trades_payload is not None
         if not cache_hit:
-            trades = _get_backtest_trades_sync(
+            trades = await run_db(
+                _get_backtest_trades_sync,
                 run_id,
                 limit,
                 offset,
@@ -1958,7 +1964,7 @@ async def get_backtest_summary_stats(
 ):
     """Get backtest system summary statistics"""
     del current_user
-    stats = _get_backtest_summary_stats_sync(days)
+    stats = await run_db(_get_backtest_summary_stats_sync, days)
 
     return api_response(
         success=True,
@@ -1980,7 +1986,7 @@ async def get_backtest_analytics(
         analytics = _cache_get(cache_key)
         cache_hit = analytics is not None
         if not cache_hit:
-            analytics = _get_backtest_analytics_sync(run_id)
+            analytics = await run_db(_get_backtest_analytics_sync, run_id)
             if analytics:
                 _cache_set(cache_key, analytics)
         if not analytics:
@@ -2044,7 +2050,7 @@ async def get_backtest_analytics_summary(
             full_cache_key = f"backtest:analytics:full:{run_id}"
             analytics = _cache_get(full_cache_key)
             if analytics is None:
-                analytics = _get_backtest_analytics_sync(run_id)
+                analytics = await run_db(_get_backtest_analytics_sync, run_id)
                 if analytics:
                     _cache_set(full_cache_key, analytics)
 
@@ -2092,7 +2098,8 @@ async def get_position_snapshots(
     """Get position snapshots for real-time backtest tracking"""
     del current_user
     try:
-        snapshots = _get_position_snapshots_sync(
+        snapshots = await run_db(
+            _get_position_snapshots_sync,
             run_id,
             limit,
             offset,
@@ -2129,7 +2136,7 @@ async def compare_backtests(
         run_ids = request.run_ids
         metrics = request.metrics or (["total_return_pct", "sharpe_ratio", "win_rate"])
 
-        comparison = _compare_backtests_sync(run_ids, metrics)
+        comparison = await run_db(_compare_backtests_sync, run_ids, metrics)
 
         return api_response(
             success=True,
@@ -2163,7 +2170,7 @@ async def backtest_sync_health(
                 message="Backtest sync health metrics retrieved",
             )
 
-        runtime_health = _get_backtest_runtime_health_sync()
+        runtime_health = await run_db(_get_backtest_runtime_health_sync)
         return api_response(
             success=True,
             data={
@@ -2219,7 +2226,8 @@ async def get_advanced_performance_metrics(
     """Get advanced performance metrics with market benchmarking"""
     del current_user
     try:
-        metrics = _get_advanced_performance_metrics_sync(
+        metrics = await run_db(
+            _get_advanced_performance_metrics_sync,
             run_id,
             benchmark,
         )
@@ -2250,7 +2258,7 @@ async def get_live_progress(
 ):
     """Get real-time backtest progress with current positions"""
     del current_user
-    progress = _get_live_progress_sync(run_id)
+    progress = await run_db(_get_live_progress_sync, run_id)
     if not progress:
         return api_response(
             success=False,

@@ -13,7 +13,6 @@ from fastapi import WebSocket, WebSocketDisconnect
 from loguru import logger
 from starlette.concurrency import run_in_threadpool
 
-from internal.repository.repository_realtime import UnitOfWorkRealtime
 from src.api.realtime_serializers import (
     serialize_market_core,
     serialize_realtime_position,
@@ -23,6 +22,7 @@ from src.infrastructure.broadcast import get_broadcast_bus
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
+from src.infrastructure.persistence.repository_realtime import UnitOfWorkRealtime
 from src.shared.time_utils import utc_now_iso
 
 

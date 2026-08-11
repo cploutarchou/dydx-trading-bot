@@ -88,8 +88,19 @@ Repository-level guidance for coding agents working on this project.
     - Canonical SQLAlchemy models live in `internal/domain/` (`models.py`, `models_realtime.py`) and are imported by
       `src/api/server.py`, `src/bot_instance_manager.py`, and `migrations/env.py`; do not create parallel model
       definitions elsewhere.
-    - `internal/repository/repository_realtime.py` is a compatibility shim re-exporting the canonical repositories
-      from `src/infrastructure/persistence/repository_realtime.py`; extend the canonical module, not the shim.
+    - Canonical realtime repositories live in `src/infrastructure/persistence/repository_realtime.py`; import from
+      that path directly (the former `internal/repository/repository_realtime.py` compatibility shim was removed).
+
+13. **Offload blocking DB work in async handlers**
+    - Inside `async def` route handlers, never run blocking sync SQLAlchemy (`session.query/execute/commit/add`) on
+      the event loop — it stalls every in-flight request and WebSocket broadcast on that worker. Move it to a worker
+      thread via `run_db` (`src/infrastructure/db_offload.py`, a wrapper over
+      `starlette.concurrency.run_in_threadpool`).
+    - The offloaded callable MUST own its full `Session` lifecycle (open via `db.get_session()`, use, close in
+      `finally`) so no `Session` crosses the thread boundary (sync sessions are not thread-safe). Return DTOs/dicts
+      across the seam — never live ORM objects that could lazy-load back on the loop.
+    - Reference conversions: backtest reads via the `_*_sync` seam (`src/api/v1/backtests.py`) and realtime reads
+      via session-owning closures (`src/api/v1/bot_realtime.py`).
 
 ## Local Development Commands
 
@@ -169,7 +180,6 @@ become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown 
   and `redis://localhost:6379/2` for results when `CELERY_*` is unset)
 - Flower connects to the same broker/backend and displays worker status only after worker is online
 - Additional scheduled workers: `src/infrastructure/workers/market_sync_tasks.py` (market data sync),
-  `src/infrastructure/workers/candle_aggregate_tasks.py` (OHLCV aggregation),
   `src/infrastructure/workers/celery_monitor.py` (Celery health monitoring)
 - Worker metrics recording: `src/infrastructure/workers/celery_metrics.py` (Celery task metrics),
   `src/infrastructure/workers/nats_worker_metrics.py` (NATS worker metrics); both record task duration, success/failure,
@@ -299,8 +309,7 @@ module `reset_*()` helpers.
 - **New infrastructure components**: `src/infrastructure/event_bus.py` (event publishing/subscription),
   `src/infrastructure/cache_lock.py` (distributed locking); use these for coordination rather than ad-hoc locking.
 - **New trading components**: `src/trading/arbitrage_observability.py` (decision audit trail),
-  `src/trading/pair_priority.py` (pair ranking engine), `src/trading/realtime_data_service.py` (real-time feed
-  integration), `src/trading/trade_persistence.py` (live trade records),
+  `src/trading/pair_priority.py` (pair ranking engine), `src/trading/trade_persistence.py` (live trade records),
   `src/trading/analysis/cointegration.py` (cointegration analysis for pairs trading),
   `src/trading/arbitrage_runtime_config.py` (runtime-overridable arbitrage feature flags; env vars are startup
   defaults, backend/admin settings may override at runtime), `src/trading/bot_agents_state.py` (concurrency-safe

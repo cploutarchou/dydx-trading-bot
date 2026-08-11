@@ -1,5 +1,98 @@
 # Tasks Log
 
+## 2026-08-12
+
+- Enforced TOTP 2FA at login (resolves the 2FA login-enforcement follow-up noted on 2026-08-11 — the
+  router mount made setup/verify reachable but login never checked 2FA state):
+    - `_authenticate_user` (shared by `/auth/login` and the OAuth2 `/token`, the latter used by the
+      Swagger UI Authorize dialog) now gates on a non-revoked `totp_enabled` row: a 2FA-enabled user
+      must send `totp_code`, validated after the password check (fail closed; no enumeration).
+      `API_BYPASS_AUTH` skips the check (dev/test).
+    - Extracted the TOTP DB-state queries into a new shared module `src/api/v1/auth/totp_state.py`
+      (`get_totp_secret_record`, `get_totp_enabled_record`, `is_two_factor_enabled`,
+      `verify_totp_for_user`); `password_2fa.py` imports them (setup/verify behavior unchanged).
+    - `LoginRequest` gained optional `totp_code` (`min_length=6, max_length=15, pattern=^[\d ]+$`,
+      mirroring `Verify2FARequest` → malformed codes 422 at the boundary); `/token` gained an
+      additional `Form(default=None)` field.
+    - Coverage in `tests/test_auth_2fa_login.py` (11 cases: non-2FA unchanged, missing/wrong/correct
+      code, wrong-length, space normalization, wrong-password fail-closed, bypass skip, two 422
+      boundary cases, OAuth2 `/token` enforcement). `openapi.json` regenerated.
+    - Non-2FA logins unchanged (field optional, no migration, no `bot_states` touch).
+    - Verification: `compileall` clean; `black --check` clean on touched files; flake8 hard gate clean;
+      broad-catch ratchet green at 297 (no new `except Exception`); 11 new + 31 auth/security/service-
+      token/ratchet + 73 openapi-comparison + 17 token-revocation/bypass-guard tests pass.
+- Added 2FA recovery (backup codes + self-service disable) — closes the lockout risk the login
+  enforcement introduced:
+    - **Backup codes**: `POST /api/v1/auth/2fa/verify` now issues 10 single-use codes (16-hex / 64-bit
+      — `generate_backup_codes` hardened from the dead 32-bit version) on the enable transition, stored
+      hashed (SHA-256) as `totp_backup` rows, returned plain once; `POST /2fa/backup-codes/regenerate`
+      (TOTP-gated) reissues them. Consumed at login via `verify_login_second_factor` (TOTP first, then
+      `consume_backup_code`); `LoginRequest.totp_code` broadened to admit hex backup codes.
+    - **Disable**: `POST /api/v1/auth/2fa/disable` (`SecondFactorRequest`) requires a valid TOTP code
+      OR an unused backup code (never password-only); `disable_two_factor` revokes enabled/secret/
+      backup rows. Re-enable un-revokes the existing `totp_enabled` row (unique deterministic token) to
+      avoid `IntegrityError` on disable→re-enable.
+    - New shared helpers in `src/api/v1/auth/totp_state.py` (`issue_backup_codes`,
+      `consume_backup_code`, `verify_login_second_factor`, `disable_two_factor`); `password_2fa.py`
+      gained `/backup-codes/regenerate`, `/disable`, `SecondFactorRequest`, and a `_verify_current_totp`
+      helper.
+    - Verification: `compileall` clean; `black --check` clean; flake8 hard gate clean; ratchet green
+      at 297; 13 new recovery tests (real in-memory SQLite) + updated login boundary test + 72
+      auth/security/ratchet + 73 openapi-comparison pass; `openapi.json` regenerated
+      (+`/disable`, +`/backup-codes/regenerate`, +`SecondFactorRequest`).
+- Moved blocking DB calls off the event loop — campaign slice 1 (IMPROVEMENTS.md item #3; status UNDERWAY):
+    - Added the canonical offload seam `src/infrastructure/db_offload.py` (`run_db` over
+      `starlette.concurrency.run_in_threadpool`). Invariant: the callable owns its full `Session` lifecycle
+      (open `db.get_session()` → close in `finally`) so no session crosses the thread boundary; DTOs/dicts only
+      across the seam.
+    - **Backtest reads** (`src/api/v1/backtests.py`): wrapped the ~12 read-side `_*_sync(...)` call sites in
+      `await run_db(...)` (list/details/status/trades/analytics/snapshots/summary/compare/runtime-health/advanced-
+      metrics/live-progress). The `_*_sync` helpers already own the session via `_run_with_backtest_service`, so
+      this is a one-line wrap per handler; caches/timing stay on the loop.
+    - **Realtime reads** (`src/api/v1/bot_realtime.py`): refactored the 6 read handlers (positions/current,
+      positions/{id}, market-data, realtime-stats, alerts, position-history) into session-owning sync closures
+      (`_get_*_sync`) offloaded via `run_db`; the async handler now only handles the 500 envelope.
+    - Left untouched (deferred follow-on slices): WS `send_initial_state` + sibling sends, backtest mutations,
+      `bot_records`/`bot_lifecycle`/`strategies` families. Flagged (not fixed): no `pool_pre_ping`; auth handlers
+      leak `Depends(db.get_session)` sessions.
+    - Verification: `compileall`/`black --check`/flake8 hard gate clean; broad-catch ratchet held at 297; 163
+      tests pass (`test_db_offload.py` 4 new; backtest contract/routes/service/route-auth; realtime routes incl.
+      the `fake_session.closes == 6` session-cleanup guard; ratchet; openapi-comparison). `openapi.json`
+      unchanged (bodies-only — no route/signature changes). AGENTS.md rule 13 documents the offload convention.
+
+## 2026-08-11
+
+- Resolved the dead code paths (IMPROVEMENTS.md item #1 — "smallest effort-to-clarity ratio"):
+    - **2FA router mounted** at `/api/v1/auth/2fa` (`/setup`, `/verify`) via `app.include_router` in
+      `src/api/server.py`; both endpoints were already auth-gated (`get_current_active_user`). Added
+      boundary validation to `Verify2FARequest` (`min_length=6, max_length=15, pattern=^[\d ]+$`) that
+      preserves the handler's space-stripping. Login does not yet *enforce* 2FA state — separate follow-up.
+    - **Deleted `src/trading/realtime_data_service.py`** (488 lines) + its only importer
+      `tests/test_realtime_market_sync_cache.py`. It had no production caller; its broadcast helpers
+      (`broadcast_position_update`/`broadcast_stats_update`/`broadcast_market_update`) were called by
+      nobody, so the realtime WS fan-out it implied never fired.
+    - **Deleted the candle-aggregation stub** (`src/infrastructure/workers/candle_aggregate_tasks.py`,
+      returned `{"status": "skipped"}`) + its post-backtest call site in `backtest_tasks.py` + its Celery
+      registration in `celery_app.py` (`include` + `task_routes`). Chart reads already fell back to the DB.
+    - **Deleted the `internal/repository/repository_realtime.py` compatibility shim** (19-line re-export);
+      repointed `src/api/websocket_server.py` to the canonical `src.infrastructure.persistence.repository_realtime`.
+      `internal/domain/` (canonical ORM models) untouched.
+    - **Broad-catch ratchet** lowered `BROAD_CATCH_BASELINE` **309 → 297** (−12: 11 in the deleted realtime
+      service + 1 at the candle call site) with a justification entry in `tests/test_exception_handling_ratchet.py`.
+    - **Docs synced** (Rule 7): `AGENTS.md` (Rule 12, scheduled-workers, trading-components) and the
+      `flows/*.md` snapshot (risks-and-gaps, services-inventory, api-flows, data-flows, background-tasks,
+      project-structure, README). `openapi.json` regenerated (+2 operations, +`Verify2FARequest` schema;
+      regeneration also corrected pre-existing drift — missing `tags` arrays on 20 monitoring/celery/
+      strategies routes).
+    - **Tests**: added 2FA reachability + boundary-validation cases to `tests/test_security_auth_bypass.py`
+      (mounted+auth-gated → 401; malformed token → 422). Verification: `compileall` clean; `black --check`
+      clean on all touched files; flake8 hard gate clean; ratchet green at 297; ~330 tests pass across
+      security, openapi-comparison, backtest, websocket, exceptions/config/credentials/async_job/circuit/
+      cache/broadcast, backtest-service/market-sync/celery-metrics. (`make test` full run could not
+      complete in this WSL env — the suite hangs on an unrelated first test; an environment issue, not a
+      regression. The committed `bot/.venv` had dangling python symlinks from its devcontainer origin and
+      was repointed at `/usr/bin/python3.12` to restore the installed deps.)
+
 ## 2026-08-10
 
 - Made service-first bot startup self-bootstrapping and worker-safe:

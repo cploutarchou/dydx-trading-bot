@@ -4,7 +4,7 @@
 
 The canonical app defines 81 HTTP operations and five WebSocket operations in [
 `src/api/server.py`](../src/api/server.py). The five auth operations are mounted under two prefixes, producing ten
-additional HTTP paths. The 2FA router is mounted at `/api/v1/auth/2fa` (`/setup`, `/verify`), adding two auth-gated operations (2026-08-11).
+additional HTTP paths. The 2FA router is mounted at `/api/v1/auth/2fa` (`/setup`, `/verify`, `/backup-codes/regenerate`, `/disable`), adding four auth-gated operations (2026-08-11; recovery endpoints + login enforcement 2026-08-12).
 
 ```mermaid
 sequenceDiagram
@@ -61,7 +61,7 @@ The router is mounted twice, so every row exists under both `/auth` and `/api/v1
 
 2FA `/setup` and `/verify` are defined in [`password_2fa.py`](../src/api/v1/auth/password_2fa.py) and mounted at
 `/api/v1/auth/2fa` via `app.include_router` in [`server.py`](../src/api/server.py): **reachable, auth-gated** (2026-08-11).
-Login enforces 2FA state: a user with TOTP enabled must send `totp_code` at `/auth/login` and `/token` (2026-08-12).
+Login enforces 2FA state: a user with 2FA enabled must send `totp_code` (a TOTP code **or** a single-use backup code) at `/auth/login` and `/token`. Recovery: `/2fa/verify` issues backup codes on enable, `/2fa/backup-codes/regenerate` reissues them, and `/2fa/disable` turns 2FA off (requires a TOTP code or a backup code — never password-only). (2026-08-12.)
 
 ## Bot lifecycle and business history routes
 

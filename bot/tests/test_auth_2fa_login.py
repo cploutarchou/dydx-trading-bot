@@ -276,14 +276,18 @@ def test_auth_bypass_skips_2fa_check(monkeypatch):
 # Boundary validation at the API layer
 # --------------------------------------------------------------------------- #
 def test_login_totp_code_pattern_rejected_at_boundary(monkeypatch):
-    """A non-numeric totp_code is rejected with 422 before the handler runs."""
+    """A totp_code with non-alphanumeric chars is 422'd before the handler runs.
+
+    (Hex backup codes are now valid, so the check uses a value the broadened
+    ``^[A-Za-z0-9 ]+$`` pattern still rejects.)
+    """
     monkeypatch.setenv("API_BYPASS_AUTH", "true")
     monkeypatch.setenv("APP_CONFIG_ENV", "development")
     client = TestClient(server.app)
 
     response = client.post(
         "/api/v1/auth/login",
-        json={"username": "alice", "password": "pw", "totp_code": "abcdef"},
+        json={"username": "alice", "password": "pw", "totp_code": "abc!def"},
     )
 
     assert response.status_code == 422

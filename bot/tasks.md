@@ -21,6 +21,25 @@
     - Verification: `compileall` clean; `black --check` clean on touched files; flake8 hard gate clean;
       broad-catch ratchet green at 297 (no new `except Exception`); 11 new + 31 auth/security/service-
       token/ratchet + 73 openapi-comparison + 17 token-revocation/bypass-guard tests pass.
+- Added 2FA recovery (backup codes + self-service disable) — closes the lockout risk the login
+  enforcement introduced:
+    - **Backup codes**: `POST /api/v1/auth/2fa/verify` now issues 10 single-use codes (16-hex / 64-bit
+      — `generate_backup_codes` hardened from the dead 32-bit version) on the enable transition, stored
+      hashed (SHA-256) as `totp_backup` rows, returned plain once; `POST /2fa/backup-codes/regenerate`
+      (TOTP-gated) reissues them. Consumed at login via `verify_login_second_factor` (TOTP first, then
+      `consume_backup_code`); `LoginRequest.totp_code` broadened to admit hex backup codes.
+    - **Disable**: `POST /api/v1/auth/2fa/disable` (`SecondFactorRequest`) requires a valid TOTP code
+      OR an unused backup code (never password-only); `disable_two_factor` revokes enabled/secret/
+      backup rows. Re-enable un-revokes the existing `totp_enabled` row (unique deterministic token) to
+      avoid `IntegrityError` on disable→re-enable.
+    - New shared helpers in `src/api/v1/auth/totp_state.py` (`issue_backup_codes`,
+      `consume_backup_code`, `verify_login_second_factor`, `disable_two_factor`); `password_2fa.py`
+      gained `/backup-codes/regenerate`, `/disable`, `SecondFactorRequest`, and a `_verify_current_totp`
+      helper.
+    - Verification: `compileall` clean; `black --check` clean; flake8 hard gate clean; ratchet green
+      at 297; 13 new recovery tests (real in-memory SQLite) + updated login boundary test + 72
+      auth/security/ratchet + 73 openapi-comparison pass; `openapi.json` regenerated
+      (+`/disable`, +`/backup-codes/regenerate`, +`SecondFactorRequest`).
 
 ## 2026-08-11
 

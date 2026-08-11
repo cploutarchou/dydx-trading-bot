@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from src.api.auth_utils import JWTUtils, PasswordUtils, SecurityUtils, TokenBlacklist
 from src.api.v1.auth.totp_state import (
     is_two_factor_enabled,
-    verify_totp_for_user,
+    verify_login_second_factor,
 )
 from src.infrastructure.database import db
 from src.infrastructure.domain.models.auth_models import User
@@ -28,10 +28,10 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 class LoginRequest(BaseModel):
     """JSON login payload expected by the frontend.
 
-    ``totp_code`` is required only when the user has TOTP 2FA enabled; it is
-    omitted otherwise. Constraints mirror ``Verify2FARequest`` so malformed codes
-    are rejected (422) at the API boundary before the handler runs, and ``None``
-    bypasses the constraints for non-2FA logins.
+    ``totp_code`` is required only when the user has 2FA enabled; it accepts a
+    TOTP code or a single-use backup code. It is omitted otherwise. The field is
+    validated (422) at the API boundary; ``None`` bypasses the constraints for
+    non-2FA logins.
     """
 
     username: str
@@ -39,11 +39,11 @@ class LoginRequest(BaseModel):
     totp_code: Optional[str] = Field(
         default=None,
         min_length=6,
-        max_length=15,
-        pattern=r"^[\d ]+$",
+        max_length=32,
+        pattern=r"^[A-Za-z0-9 ]+$",
         description=(
-            "6- or 8-digit TOTP code; required only when 2FA is enabled. "
-            "Optional internal spaces are stripped before verification."
+            "A TOTP code or a single-use backup code; required only when 2FA is "
+            "enabled. Optional internal spaces are stripped before verification."
         ),
     )
 
@@ -144,7 +144,9 @@ def _authenticate_user(
 
     # 2FA enforcement: a user with TOTP enabled must supply a valid code. This
     # runs *after* the password check so a wrong password still returns the
-    # generic "Invalid username or password" (fail closed; no enumeration).
+    # generic "Invalid username or password" (fail closed; no enumeration). The
+    # code is accepted as either a TOTP code or a single-use backup code (the
+    # backup is consumed on success — the lost-device recovery path).
     user_id = int(getattr(user, "id", 0) or 0)
     if is_two_factor_enabled(session, user_id):
         if not (totp_code or "").strip():
@@ -152,7 +154,7 @@ def _authenticate_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="2FA code required",
             )
-        if not verify_totp_for_user(session, user_id, totp_code):
+        if not verify_login_second_factor(session, user_id, totp_code):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid 2FA token",

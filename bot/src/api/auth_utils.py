@@ -76,8 +76,14 @@ class PasswordUtils:
 
     @staticmethod
     def generate_backup_codes(count: int = 10) -> List[str]:
-        """Generate backup codes for 2FA"""
-        return [secrets.token_hex(4).upper() for _ in range(count)]
+        """Generate high-entropy single-use backup codes for 2FA.
+
+        Each code is 16 lowercase hex chars (64 bits) — strong enough to resist
+        online guessing at login even though login has no rate limiting. Codes are
+        stored hashed (see ``totp_state``); the plain form is shown to the user
+        exactly once.
+        """
+        return [secrets.token_hex(8) for _ in range(count)]
 
 
 class JWTUtils:

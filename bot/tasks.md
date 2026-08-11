@@ -40,6 +40,25 @@
       at 297; 13 new recovery tests (real in-memory SQLite) + updated login boundary test + 72
       auth/security/ratchet + 73 openapi-comparison pass; `openapi.json` regenerated
       (+`/disable`, +`/backup-codes/regenerate`, +`SecondFactorRequest`).
+- Moved blocking DB calls off the event loop — campaign slice 1 (IMPROVEMENTS.md item #3; status UNDERWAY):
+    - Added the canonical offload seam `src/infrastructure/db_offload.py` (`run_db` over
+      `starlette.concurrency.run_in_threadpool`). Invariant: the callable owns its full `Session` lifecycle
+      (open `db.get_session()` → close in `finally`) so no session crosses the thread boundary; DTOs/dicts only
+      across the seam.
+    - **Backtest reads** (`src/api/v1/backtests.py`): wrapped the ~12 read-side `_*_sync(...)` call sites in
+      `await run_db(...)` (list/details/status/trades/analytics/snapshots/summary/compare/runtime-health/advanced-
+      metrics/live-progress). The `_*_sync` helpers already own the session via `_run_with_backtest_service`, so
+      this is a one-line wrap per handler; caches/timing stay on the loop.
+    - **Realtime reads** (`src/api/v1/bot_realtime.py`): refactored the 6 read handlers (positions/current,
+      positions/{id}, market-data, realtime-stats, alerts, position-history) into session-owning sync closures
+      (`_get_*_sync`) offloaded via `run_db`; the async handler now only handles the 500 envelope.
+    - Left untouched (deferred follow-on slices): WS `send_initial_state` + sibling sends, backtest mutations,
+      `bot_records`/`bot_lifecycle`/`strategies` families. Flagged (not fixed): no `pool_pre_ping`; auth handlers
+      leak `Depends(db.get_session)` sessions.
+    - Verification: `compileall`/`black --check`/flake8 hard gate clean; broad-catch ratchet held at 297; 163
+      tests pass (`test_db_offload.py` 4 new; backtest contract/routes/service/route-auth; realtime routes incl.
+      the `fake_session.closes == 6` session-cleanup guard; ratchet; openapi-comparison). `openapi.json`
+      unchanged (bodies-only — no route/signature changes). AGENTS.md rule 13 documents the offload convention.
 
 ## 2026-08-11
 

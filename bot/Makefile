@@ -188,6 +188,14 @@ ensure-venv: ## Ensure local virtual environment exists
 		exit 1; \
 	fi
 
+.PHONY: ensure-local-infra
+ensure-local-infra: ## Ensure shared local infrastructure is running
+	@$(MAKE) -C .. infra-up
+
+.PHONY: ensure-local-runtime
+ensure-local-runtime: ## Ensure shared local infrastructure and supervised Celery worker are running
+	@$(MAKE) -C .. bot-runtime-up
+
 # =============================================================================
 # BUILD COMMANDS
 # =============================================================================
@@ -222,28 +230,29 @@ dev: ## Start development environment (with hot reload)
 	@docker-compose -f $(COMPOSE_FILE) --env-file $(ENV_FILE) up --build
 
 .PHONY: dev-api
-dev-api: ensure-venv ## Start bot API server locally with Python (port 8889)
+dev-api: ensure-venv ensure-local-runtime ## Start bot API server locally with Python (port 8889)
 	@echo "$(CYAN)🚀 Starting bot API server on http://0.0.0.0:8889$(RESET)"
 	$(call run-venv-python,-m uvicorn src.api.server:app --host 0.0.0.0 --port 8889 --reload)
 
 .PHONY: local-api
-local-api: ensure-venv ## Start canonical local API server (port 8889)
+local-api: ensure-venv ensure-local-runtime ## Start canonical local API server (port 8889)
 	@echo "$(CYAN)🚀 Starting local API server on http://0.0.0.0:8889$(RESET)"
-	$(call run-venv-python-env,BOT_API_RELOAD=false,src/api/start_api.py)
+	$(call run-venv-python-env,BOT_API_RELOAD=false,-m src.api.start_api)
 
 .PHONY: local-api-reload
-local-api-reload: ensure-venv ## Start local API server with hot reload (dev/debug only)
+local-api-reload: ensure-venv ensure-local-runtime ## Start local API server with hot reload (dev/debug only)
 	@echo "$(CYAN)🚀 Starting local API server with reload on http://0.0.0.0:8889$(RESET)"
-	$(call run-venv-python-env,BOT_API_RELOAD=true,src/api/start_api.py)
+	$(call run-venv-python-env,BOT_API_RELOAD=true,-m src.api.start_api)
 
 .PHONY: local-bot
-local-bot: ensure-venv ## Start trading bot runtime locally
+local-bot: ensure-venv ensure-local-runtime ## Start trading bot runtime locally
 	@echo "$(CYAN)🚀 Starting local trading bot runtime$(RESET)"
 	$(call run-venv-python,main.py)
 
 .PHONY: local-worker
-local-worker: ensure-venv ## Start Celery worker locally for backtests/runtime jobs
+local-worker: ensure-venv ensure-local-infra ## Start a foreground Celery worker for debugging
 	@echo "$(CYAN)👷 Starting local Celery worker for strategy backtests$(RESET)"
+	@echo "$(YELLOW)⚠ Stop the supervised worker first with 'make -C .. celery-worker-down' to avoid duplicate consumers.$(RESET)"
 	# On macOS, use spawn instead of fork to avoid Objective-C runtime crashes
 	MP_START_METHOD=$${MP_START_METHOD:-spawn} CELERY_BROKER_URL=$${CELERY_BROKER_URL:-$${REDIS_URL:-$${VALKEY_URL:-redis://localhost:6379/1}}} CELERY_RESULT_BACKEND=$${CELERY_RESULT_BACKEND:-$${REDIS_RESULT_BACKEND_URL:-$${VALKEY_RESULT_BACKEND_URL:-redis://localhost:6379/2}}} CELERY_QUEUES=$${CELERY_QUEUES:-backtests,default,high_priority,scheduled} PYTHON_MULTIPROCESSING_START_METHOD=$${MP_START_METHOD:-spawn} $(VENV_PYTHON) -m celery -A src.infrastructure.workers.celery_app:celery_app worker -l info -Q $${CELERY_QUEUES:-backtests,default,high_priority,scheduled} -E
 

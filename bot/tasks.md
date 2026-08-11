@@ -1,5 +1,24 @@
 # Tasks Log
 
+## 2026-08-10
+
+- Made service-first bot startup self-bootstrapping and worker-safe:
+    - Added `docker-compose.bot-worker.yml` for a dedicated Celery worker on the shared `dydx-infra` network with a
+      healthcheck and Docker `restart: unless-stopped` supervision.
+    - Added root `bot-runtime-up` / `celery-worker-up` / `celery-worker-down` / `celery-worker-logs` targets; root and
+      bot-local API/runtime targets now ensure infrastructure and a healthy worker before starting Python.
+    - Updated the bot devcontainer initialize hook to boot infrastructure and the worker before the development
+      container is created.
+    - Fixed the canonical local API target to launch `src.api.start_api` as a module and added an explicit
+      `APP_CONFIG_PRESERVE_PROCESS_ENV` devcontainer mode so profile loading retains Docker service-discovery aliases.
+    - Kept live trading-instance recovery under `BotInstanceManager` and its existing mainnet opt-in guard; this
+      change supervises the Celery job worker only.
+- Fixed SQLAlchemy `QueuePool` overflow monitoring compatibility:
+    - Pool metrics and diagnostics now resolve the largest valid overflow limit from configured, public, and private
+      runtime values without adding or shadowing attributes on SQLAlchemy's pool object.
+    - Periodic metrics expose the resolved `max_overflow` and no longer fail on SQLAlchemy releases that only provide
+      the internal `_max_overflow` value.
+
 ## 2026-08-06
 
 - Implemented the centralized circuit-breaker framework (Medium-priority Reliability item from `IMPROVEMENTS.md`):

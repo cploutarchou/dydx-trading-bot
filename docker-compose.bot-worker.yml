@@ -1,0 +1,104 @@
+---
+# Supervised Celery worker for service-first local development.
+# Infrastructure is owned by docker-compose.infra.yml; this compose project
+# joins its external network and can therefore be started independently.
+
+name: dydx-bot-runtime
+
+services:
+  bot-worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    image: dydx-trading-bot/bot-worker:dev
+    container_name: dydx-bot-worker
+    restart: unless-stopped
+    environment:
+      # Database
+      BOT_DB_CUTOVER_MODE: dedicated
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-dydx_bot}:${POSTGRES_PASSWORD:-change-me-db-password}@postgresql:5432/${POSTGRES_DB:-dydx_bot}?sslmode=disable
+      POSTGRES_HOST: postgresql
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-dydx_bot}
+      POSTGRES_USER: ${POSTGRES_USER:-dydx_bot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
+      DB_TYPE: postgres
+      DB_HOST: postgresql
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-dydx_bot}
+      DB_USER: ${POSTGRES_USER:-dydx_bot}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
+      BOT_DB_TYPE: postgres
+      BOT_DB_HOST: postgresql
+      BOT_DB_PORT: 5432
+      BOT_DB_NAME: ${BOT_POSTGRES_DB:-dydx_bot_runtime}
+      BOT_DB_USER: ${POSTGRES_USER:-dydx_bot}
+      BOT_DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
+      BOT_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-dydx_bot}:${POSTGRES_PASSWORD:-change-me-db-password}@postgresql:5432/${BOT_POSTGRES_DB:-dydx_bot_runtime}?sslmode=disable
+
+      # Shared local infrastructure
+      REDIS_ENABLED: "true"
+      REDIS_HOST: valkey
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      REDIS_URL: redis://valkey:6379/0
+      VALKEY_HOST: valkey
+      VALKEY_PORT: 6379
+      VALKEY_URL: redis://valkey:6379/0
+      NATS_ENABLED: "true"
+      BOT_COMMAND_BUS_ENABLED: "false"
+      NATS_URL: nats://nats:4222
+      NATS_MONITORING_URL: http://nats:8222
+      NATS_STREAM_PREFIX: bot
+
+      # Optional backtest storage provided by the shared infra stack
+      BACKTEST_ARTIFACT_STORAGE_ENABLED: "true"
+      BACKTEST_CLICKHOUSE_WRITES_ENABLED: "true"
+      CLICKHOUSE_ENABLED: "true"
+      BACKTEST_CLICKHOUSE_BATCH_SIZE: "1000"
+      BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS: "5"
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-dydx_analytics}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-clickhouse}
+      CLICKHOUSE_SECURE: "false"
+      BACKTEST_MINIO_ARTIFACTS_ENABLED: "true"
+      BACKTEST_MINIO_STRICT: "true"
+      MINIO_ENABLED: "true"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_CONSOLE_URL: http://minio:9001
+      MINIO_BUCKET: backtests
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-change-me-minio-access-key}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-change-me-minio-secret-key}
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-change-me-minio-access-key}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-change-me-minio-secret-key}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_FORCE_PATH_STYLE: "true"
+
+      # Worker
+      APP_CONFIG_ENV: development
+      BOT_API_TOKEN: ${BOT_API_TOKEN:-local-dev-token}
+      WORKER_MODE: celery
+      CELERY_BROKER_URL: redis://valkey:6379/1
+      CELERY_RESULT_BACKEND: redis://valkey:6379/2
+      CELERY_QUEUES: ${CELERY_QUEUES:-backtests,default,high_priority,scheduled}
+      CELERY_CONCURRENCY: ${CELERY_CONCURRENCY:-1}
+      CELERY_WORKER_MAX_TASKS_PER_CHILD: ${CELERY_WORKER_MAX_TASKS_PER_CHILD:-100}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - celery -A src.infrastructure.workers.celery_app:celery_app inspect ping --destination celery@$$HOSTNAME --timeout 5 2>/dev/null | grep -q pong
+      interval: 10s
+      timeout: 8s
+      retries: 12
+      start_period: 20s
+    networks:
+      - dydx-infra
+
+networks:
+  dydx-infra:
+    external: true
+    name: dydx-infra

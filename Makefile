@@ -1,4 +1,4 @@
-.PHONY: help completion-powershell install-completion-powershell windows-check dev prod setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run config edit-config dev-config prod-config config-keygen config-key-rotate install-config-key show-config-token encrypt-dev-config decrypt-dev-config encrypt-prod-config decrypt-prod-config install-security-tools env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down infra-up infra-down infra-logs infra-ps dev-infra dev-infra-down stack-env stack-env-check stack-up-dev stack-up-prod stack-up-integration stack-down stack-logs stack-ps docs-governance images-build images-build-latest images-push images-push-latest images-print infra-up-arm64 infra-down-arm64 infra-logs-arm64 infra-ps-arm64 stack-up-dev-arm64 stack-up-prod-arm64 stack-up-integration-arm64 stack-down-arm64 stack-logs-arm64 stack-ps-arm64 images-build-arm64 images-build-latest-arm64 images-push-arm64 images-push-latest-arm64
+.PHONY: help completion-powershell install-completion-powershell windows-check dev prod setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run celery-worker celery-worker-up celery-worker-down celery-worker-logs bot-runtime-up config edit-config dev-config prod-config config-keygen config-key-rotate install-config-key show-config-token encrypt-dev-config decrypt-dev-config encrypt-prod-config decrypt-prod-config install-security-tools env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down infra-up infra-down infra-logs infra-ps dev-infra dev-infra-down stack-env stack-env-check stack-up-dev stack-up-prod stack-up-integration stack-down stack-logs stack-ps docs-governance images-build images-build-latest images-push images-push-latest images-print infra-up-arm64 infra-down-arm64 infra-logs-arm64 infra-ps-arm64 stack-up-dev-arm64 stack-up-prod-arm64 stack-up-integration-arm64 stack-down-arm64 stack-logs-arm64 stack-ps-arm64 images-build-arm64 images-build-latest-arm64 images-push-arm64 images-push-latest-arm64
 
 # Windows GNU Make defaults to cmd.exe, but this Makefile intentionally uses
 # POSIX recipes. Keep PowerShell as the interactive terminal and run recipes in
@@ -21,6 +21,7 @@ STACK_COMPOSE_FILE ?= docker-compose.stack.yml
 STACK_COMPOSE_FILE_ARM64 ?= docker-compose.stack.arm64.yml
 INFRA_COMPOSE_FILE ?= docker-compose.infra.yml
 INFRA_COMPOSE_FILE_ARM64 ?= docker-compose.infra.arm64.yml
+BOT_WORKER_COMPOSE_FILE ?= docker-compose.bot-worker.yml
 IMAGE_REGISTRY ?= ghcr.io/cploutarchou/dydx-trading-bot
 IMAGE_TAG ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo latest)
 
@@ -141,19 +142,18 @@ clean: ## Remove build artifacts and cache files
 # BOT COMMANDS
 # ============================================================================
 
-run: ## Run bot in foreground
+run: bot-runtime-up ## Run bot in foreground (starts infra and supervised worker first)
 	.venv/bin/python bot/main.py
 
 backend-run: api-run ## Start bot API server (alias for api-run)
 
-api-run: ## Start bot API server on port 8889
+api-run: bot-runtime-up ## Start bot API server on port 8889 (starts infra and supervised worker first)
 	.venv/bin/python -m uvicorn bot.src.api.server:app --reload --host 0.0.0.0 --port 8889
 
-worker-run: ## Deprecated alias (kept for compatibility)
-	@echo "[WARNING] 'make worker-run' is deprecated; use 'make api-run' instead."
-	@$(MAKE) api-run
+worker-run: celery-worker-up ## Deprecated alias for the supervised Celery worker
+	@echo "[WARNING] 'make worker-run' is deprecated; use 'make celery-worker-up' instead."
 
-celery-worker: ## Start Celery worker for durable backtests
+celery-worker: infra-up ## Start a foreground Celery worker for debugging
 	# On macOS, use spawn instead of fork to avoid Objective-C runtime crashes
 	cd bot && MP_START_METHOD=$${MP_START_METHOD:-spawn} PYTHON_MULTIPROCESSING_START_METHOD=$${MP_START_METHOD:-spawn} .venv/bin/celery -A src.infrastructure.workers.celery_app:celery_app worker --loglevel=$${CELERY_LOG_LEVEL:-INFO} --queues=$${CELERY_QUEUES:-backtests,default,high_priority,scheduled} --concurrency=$${CELERY_CONCURRENCY:-1}
 
@@ -180,7 +180,7 @@ celery-revoke: ## Revoke a Celery task: make celery-revoke TASK_ID=<task-id> TER
 		cd bot && .venv/bin/celery -A src.infrastructure.workers.celery_app:celery_app control revoke $(TASK_ID); \
 	fi
 
-start: ## Start bot in background
+start: bot-runtime-up ## Start bot in background (starts infra and supervised worker first)
 	@if [ ! -f scripts/manage_bot.sh ]; then \
 		echo "[ERROR] scripts/manage_bot.sh not found"; \
 		exit 1; \
@@ -196,7 +196,7 @@ stop: ## Stop background bot
 	bash scripts/manage_bot.sh stop
 	@echo "[OK] Bot stopped"
 
-restart: ## Restart background bot
+restart: bot-runtime-up ## Restart background bot (ensures infra and worker first)
 	@if [ ! -f scripts/manage_bot.sh ]; then \
 		echo "[ERROR] scripts/manage_bot.sh not found"; \
 		exit 1; \
@@ -436,8 +436,37 @@ infra-up: ## Start shared infra only (PostgreSQL, Valkey, NATS, ClickHouse, MinI
 			exit 1; \
 		fi; \
 		set -e; \
-		docker network inspect dydx-infra >/dev/null 2>&1 || docker network create dydx-infra >/dev/null; \
-		APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE) up -d --remove-orphans; \
+		infra_ready=true; \
+		for container in dydx-postgresql dydx-valkey dydx-nats dydx-clickhouse dydx-minio; do \
+			container_status=$$(docker inspect -f '{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$$container" 2>/dev/null || true); \
+			if [ "$$container_status" != "running/healthy" ]; then infra_ready=false; break; fi; \
+		done; \
+		if $$infra_ready; then \
+			echo "[OK] Infrastructure is already healthy"; \
+		else \
+			docker network inspect dydx-infra >/dev/null 2>&1 || docker network create dydx-infra >/dev/null; \
+			APP_CONFIG_ENV=$(MODE) docker compose -f $(INFRA_COMPOSE_FILE) up -d --remove-orphans; \
+			init_exit=$$(docker wait dydx-trading-bot-postgresql-bot-db-init-1); \
+			if [ "$$init_exit" != "0" ]; then \
+				echo "[ERROR] Bot runtime database initialization failed with exit code $$init_exit"; \
+				exit 1; \
+			fi; \
+			attempt=0; \
+			until [ "$$attempt" -ge 60 ]; do \
+				infra_ready=true; \
+				for container in dydx-postgresql dydx-valkey dydx-nats dydx-clickhouse dydx-minio; do \
+					container_status=$$(docker inspect -f '{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$$container" 2>/dev/null || true); \
+					if [ "$$container_status" != "running/healthy" ]; then infra_ready=false; break; fi; \
+				done; \
+				if $$infra_ready; then break; fi; \
+				sleep 1; \
+				attempt=$$((attempt + 1)); \
+			done; \
+			if ! $$infra_ready; then \
+				echo "[ERROR] Infrastructure did not become healthy within 60 seconds"; \
+				exit 1; \
+			fi; \
+		fi; \
 		echo ""; \
 		echo "[OK] Infrastructure started:"; \
 		echo "   PostgreSQL:       localhost:5432"; \
@@ -452,6 +481,41 @@ infra-up: ## Start shared infra only (PostgreSQL, Valkey, NATS, ClickHouse, MinI
 		echo "[WARNING] Docker daemon unavailable; cannot start infra"; \
 		exit 0; \
 	fi
+
+celery-worker-up: infra-up ## Start the supervised local Celery worker and wait until it is healthy
+	@if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then \
+		echo "[ERROR] Docker daemon unavailable; cannot supervise the Celery worker"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(BOT_WORKER_COMPOSE_FILE)" ]; then \
+		echo "[ERROR] Missing $(BOT_WORKER_COMPOSE_FILE)."; \
+		exit 1; \
+	fi
+	@worker_status=$$(docker inspect -f '{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}/{{.HostConfig.RestartPolicy.Name}}' dydx-bot-worker 2>/dev/null || true); \
+	if [ "$$worker_status" = "running/healthy/unless-stopped" ]; then \
+		echo "[OK] Supervised Celery worker is already healthy"; \
+	else \
+		APP_CONFIG_ENV=$(MODE) docker compose -f $(BOT_WORKER_COMPOSE_FILE) up -d --build --remove-orphans --wait --wait-timeout 120; \
+	fi
+	@echo "[OK] Supervised Celery worker is healthy (restart policy: unless-stopped)"
+
+bot-runtime-up: celery-worker-up ## Ensure infrastructure and the supervised Celery worker are running
+
+celery-worker-down: ## Stop and remove the supervised local Celery worker
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+		if [ ! -f "$(BOT_WORKER_COMPOSE_FILE)" ]; then \
+			echo "[ERROR] Missing $(BOT_WORKER_COMPOSE_FILE)."; \
+			exit 1; \
+		fi; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f $(BOT_WORKER_COMPOSE_FILE) down --remove-orphans; \
+		echo "[OK] Supervised Celery worker stopped"; \
+	else \
+		echo "[WARNING] Docker daemon unavailable; cannot stop the Celery worker"; \
+		exit 0; \
+	fi
+
+celery-worker-logs: ## Follow logs for the supervised local Celery worker
+	@APP_CONFIG_ENV=$(MODE) docker compose -f $(BOT_WORKER_COMPOSE_FILE) logs -f --tail=100 bot-worker
 
 infra-down: ## Stop shared infra only (PostgreSQL, Valkey, NATS, ClickHouse, MinIO)
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \

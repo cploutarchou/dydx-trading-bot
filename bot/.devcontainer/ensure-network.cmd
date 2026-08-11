@@ -1,6 +1,4 @@
 @echo off
-REM Ensure the shared infra network exists (Windows host).
-REM Idempotent: succeeds whether or not the network already exists.
-docker network create dydx-infra 2>NUL
-exit /b 0
-
+REM Bootstrap shared infra and the supervised Celery worker (Windows host).
+make -C "%~dp0..\.." bot-runtime-up
+exit /b %ERRORLEVEL%

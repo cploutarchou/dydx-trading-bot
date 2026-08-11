@@ -4,50 +4,127 @@
 	"service": "bot",
 	"workspaceFolder": "/workspaces/dydx-trading-bot",
 	"remoteUser": "vscode",
-
 	"features": {
-		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+		"ghcr.io/devcontainers/features/node:1": {
+			"version": "lts",
+			"nodeGypDependencies": false
+		}
 	},
-
-	// Create the bot virtualenv and install pinned dependencies. The project
-	// Makefile enforces the .venv interpreter for all local targets.
-	"postCreateCommand": "cd bot && python -m venv .venv && .venv/bin/pip install --upgrade pip setuptools wheel && .venv/bin/pip install -r requirements.txt",
-
-	// Wait for PostgreSQL and Valkey before running API/worker targets.
-	"postStartCommand": "cd bot && .venv/bin/python -c \"import socket,sys;\\nfor host,port in (('postgresql',5432),('valkey',6379)):\\n    s=socket.socket(); s.settimeout(30)\\n    try: s.connect((host,port)); print(f'{host}:{port} reachable')\\n    except OSError as e: print(f'WARN: {host}:{port} not reachable: {e}')\\n    finally: s.close()\"",
-
-	"forwardPorts": [8889, 5555, 5432, 6379, 4222, 8222, 8123, 9010, 9011],
+	"remoteEnv": {
+		"ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}",
+		"ANTHROPIC_AUTH_TOKEN": "${localEnv:ANTHROPIC_AUTH_TOKEN}"
+	},
+	"postCreateCommand": "bash .devcontainer/claude/install-claude.sh && cd bot && python -m venv .venv && .venv/bin/pip install --upgrade pip setuptools wheel && .venv/bin/pip install -r requirements.txt",
+	"postStartCommand": "bash /workspaces/dydx-trading-bot/.devcontainer/claude/install-claude.sh && cd bot && .venv/bin/python -c \"import socket;\\nfor host,port in (('postgresql',5432),('valkey',6379)):\\n    s=socket.socket(); s.settimeout(30)\\n    try:\\n        s.connect((host,port)); print(f'{host}:{port} reachable')\\n    except OSError as e:\\n        print(f'WARN: {host}:{port} not reachable: {e}')\\n    finally:\\n        s.close()\"",
+	"forwardPorts": [
+		8889,
+		5555,
+		5432,
+		6379,
+		4222,
+		8222,
+		8123,
+		9010,
+		9011
+	],
 	"portsAttributes": {
-		"8889": { "label": "Bot API", "onAutoForward": "notify" },
-		"5555": { "label": "Celery Flower", "onAutoForward": "silent" },
-		"5432": { "label": "PostgreSQL", "onAutoForward": "silent" },
-		"6379": { "label": "Valkey (Redis)", "onAutoForward": "silent" },
-		"4222": { "label": "NATS JetStream", "onAutoForward": "silent" },
-		"8222": { "label": "NATS Monitoring", "onAutoForward": "silent" },
-		"8123": { "label": "ClickHouse HTTP", "onAutoForward": "silent" },
-		"9010": { "label": "MinIO API", "onAutoForward": "silent" },
-		"9011": { "label": "MinIO Console", "onAutoForward": "silent" }
+		"8889": {
+			"label": "Bot API",
+			"onAutoForward": "notify"
+		},
+		"5555": {
+			"label": "Celery Flower",
+			"onAutoForward": "silent"
+		},
+		"5432": {
+			"label": "PostgreSQL",
+			"onAutoForward": "silent"
+		},
+		"6379": {
+			"label": "Valkey (Redis)",
+			"onAutoForward": "silent"
+		},
+		"4222": {
+			"label": "NATS JetStream",
+			"onAutoForward": "silent"
+		},
+		"8222": {
+			"label": "NATS Monitoring",
+			"onAutoForward": "silent"
+		},
+		"8123": {
+			"label": "ClickHouse HTTP",
+			"onAutoForward": "silent"
+		},
+		"9010": {
+			"label": "MinIO API",
+			"onAutoForward": "silent"
+		},
+		"9011": {
+			"label": "MinIO Console",
+			"onAutoForward": "silent"
+		}
 	},
-
 	"customizations": {
 		"vscode": {
 			"extensions": [
 				"ms-python.python",
 				"ms-python.vscode-pylance",
 				"ms-python.black-formatter",
-				"ms-azuretools.vscode-docker"
+				"ms-python.isort",
+				"ms-python.mypy-type-checker",
+				"ms-python.debugpy",
+				"charliermarsh.ruff",
+				"ms-azuretools.vscode-docker",
+				"ms-azuretools.vscode-containers",
+				"tamasfe.even-better-toml",
+				"redhat.vscode-yaml",
+				"github.vscode-pull-request-github",
+				"eamodio.gitlens",
+				"usernamehw.errorlens",
+				"anthropic.claude-code"
 			],
 			"settings": {
 				"python.defaultInterpreterPath": "/workspaces/dydx-trading-bot/bot/.venv/bin/python",
+				"python.terminal.activateEnvironment": true,
 				"python.testing.pytestEnabled": true,
-				"python.testing.pytestArgs": ["bot/tests"],
+				"python.testing.unittestEnabled": false,
+				"python.testing.pytestArgs": [
+					"bot/tests"
+				],
 				"python.testing.cwd": "/workspaces/dydx-trading-bot/bot",
+				"python.analysis.typeCheckingMode": "basic",
+				"python.analysis.diagnosticMode": "workspace",
+				"python.analysis.autoImportCompletions": true,
+				"python.analysis.extraPaths": [
+					"/workspaces/dydx-trading-bot/bot"
+				],
 				"[python]": {
 					"editor.defaultFormatter": "ms-python.black-formatter",
-					"editor.formatOnSave": true
+					"editor.formatOnSave": true,
+					"editor.codeActionsOnSave": {
+						"source.organizeImports": "explicit"
+					}
+				},
+				"files.exclude": {
+					"**/__pycache__": true,
+					"**/.pytest_cache": true,
+					"**/.mypy_cache": true
+				},
+				"search.exclude": {
+					"**/.venv": true,
+					"**/__pycache__": true,
+					"**/.pytest_cache": true,
+					"**/.mypy_cache": true
+				},
+				"files.watcherExclude": {
+					"**/.venv/**": true,
+					"**/__pycache__/**": true,
+					"**/.pytest_cache/**": true,
+					"**/.mypy_cache/**": true
 				}
 			}
 		}
 	}
 }
-

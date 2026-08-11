@@ -44,6 +44,32 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import QueuePool, Pool
 
 
+def _resolve_pool_max_overflow(pool: Pool, configured_max_overflow: int = 0) -> int:
+    """Return the largest valid configured or runtime pool overflow limit.
+
+    SQLAlchemy's ``QueuePool`` stores this setting as ``_max_overflow`` in
+    current releases. Some pool implementations or compatibility shims may
+    expose ``max_overflow`` as either a value or a zero-argument method, so
+    inspect both forms without mutating the pool object.
+    """
+    candidates: list[int] = []
+    for raw_value in (
+        configured_max_overflow,
+        getattr(pool, "max_overflow", None),
+        getattr(pool, "_max_overflow", None),
+    ):
+        if callable(raw_value):
+            raw_value = raw_value()
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            continue
+        if value >= 0:
+            candidates.append(value)
+
+    return max(candidates, default=0)
+
+
 class ConnectionPoolMonitor:
     """Monitor and alert on database connection pool health."""
 
@@ -54,6 +80,7 @@ class ConnectionPoolMonitor:
         alert_threshold_failure_rate: float = 0.1,
         monitoring_interval_seconds: int = 30,
         metrics_window_size: int = 100,
+        configured_max_overflow: int = 0,
     ):
         """
         Initialize connection pool monitor.
@@ -64,12 +91,14 @@ class ConnectionPoolMonitor:
             alert_threshold_failure_rate: Alert when connection failure rate exceeds this (0.0-1.0)
             monitoring_interval_seconds: How often to collect pool metrics
             metrics_window_size: Number of recent metrics samples to keep for analysis
+            configured_max_overflow: Overflow limit supplied when creating the engine
         """
         self.alert_threshold_percentage = alert_threshold_percentage
         self.alert_threshold_wait_time = alert_threshold_wait_time
         self.alert_threshold_failure_rate = alert_threshold_failure_rate
         self.monitoring_interval_seconds = monitoring_interval_seconds
         self.metrics_window_size = metrics_window_size
+        self.configured_max_overflow = max(0, int(configured_max_overflow))
 
         # Thread-safe metrics storage
         self._lock = threading.Lock()
@@ -139,24 +168,32 @@ class ConnectionPoolMonitor:
 
             with self._lock:
                 # SQLAlchemy pool metrics
-                self._current_pool_size = pool.size()
-                self._current_pool_checked_out = pool.checkedout()
-                self._current_pool_overflow = pool.overflow()
-                self._current_pool_available = pool.size() - pool.checkedout()
+                pool_size = pool.size()
+                checked_out = pool.checkedout()
+                overflow = pool.overflow()
+                max_overflow = _resolve_pool_max_overflow(
+                    pool, self.configured_max_overflow
+                )
+
+                self._current_pool_size = pool_size
+                self._current_pool_checked_out = checked_out
+                self._current_pool_overflow = overflow
+                self._current_pool_available = pool_size - checked_out
 
                 # Calculate pool utilization
-                max_pool_size = pool.size() + pool.max_overflow()
+                max_pool_size = pool_size + max_overflow
                 pool_utilization = 0.0
                 if max_pool_size > 0:
-                    pool_utilization = (pool.checkedout() / max_pool_size) * 100
+                    pool_utilization = (checked_out / max_pool_size) * 100
 
                 # Store metrics
                 metric = {
                     "timestamp": datetime.utcnow(),
-                    "pool_size": pool.size(),
-                    "checked_out": pool.checkedout(),
-                    "overflow": pool.overflow(),
-                    "available": pool.size() - pool.checkedout(),
+                    "pool_size": pool_size,
+                    "checked_out": checked_out,
+                    "overflow": overflow,
+                    "available": pool_size - checked_out,
+                    "max_overflow": max_overflow,
                     "max_size": max_pool_size,
                     "utilization_percentage": pool_utilization,
                 }
@@ -279,6 +316,7 @@ class ConnectionPoolMonitor:
                 "checked_out": latest["checked_out"],
                 "available": latest["available"],
                 "overflow": latest["overflow"],
+                "max_overflow": latest["max_overflow"],
                 "max_size": latest["max_size"],
                 "utilization_percentage": round(latest["utilization_percentage"], 2),
                 "avg_utilization_percentage": round(avg_utilization, 2),
@@ -823,6 +861,7 @@ class DatabaseManager:
         self._pool_monitor = ConnectionPoolMonitor(
             alert_threshold_percentage=float(alert_threshold),
             monitoring_interval_seconds=int(monitoring_interval),
+            configured_max_overflow=config.max_overflow,
         )
 
         self._session_factory = sessionmaker(
@@ -1199,7 +1238,10 @@ class DatabaseManager:
                 "size": pool.size(),
                 "checked_out": pool.checkedout(),
                 "overflow": pool.overflow(),
-                "max_overflow": pool.max_overflow,
+                "max_overflow": _resolve_pool_max_overflow(
+                    pool,
+                    getattr(self.config, "max_overflow", 0),
+                ),
             }
         except Exception as e:
             diagnostics["pool_info"] = {"error": f"Failed to get pool info: {e}"}

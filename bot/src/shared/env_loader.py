@@ -50,6 +50,15 @@ def _resolve_environment() -> str:
     return "development"
 
 
+def _preserve_process_env() -> bool:
+    return os.getenv("APP_CONFIG_PRESERVE_PROCESS_ENV", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _resolve_key_file(repo_root: Path) -> Path:
     explicit = os.getenv("APP_CONFIG_KEY_FILE", "").strip()
     if explicit:
@@ -187,9 +196,10 @@ def load_repo_env(anchor: PathLike, override: bool = True) -> Path:
     environment = _resolve_environment()
     profile_path = _resolve_profile_file(repo_root, environment)
     config = _load_json(profile_path, repo_root)
+    override_profile_values = override and not _preserve_process_env()
 
     for key, value in _flatten_env(config).items():
-        if override or key not in os.environ or os.environ[key] == "":
+        if override_profile_values or key not in os.environ or os.environ[key] == "":
             os.environ[key] = value
 
     os.environ.setdefault("APP_CONFIG_ENV", environment)

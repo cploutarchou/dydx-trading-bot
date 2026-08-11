@@ -24,6 +24,9 @@ services:
       - ${HOME}/.ssh:/home/vscode/.ssh:ro
     command: sleep infinity
     environment:
+      # Keep container service-discovery aliases below while loading every
+      # other setting from the canonical structured development profile.
+      APP_CONFIG_PRESERVE_PROCESS_ENV: "true"
       # --- Service discovery: infra is reached by service name on dydx-infra ---
       DB_HOST: postgresql
       POSTGRES_HOST: postgresql

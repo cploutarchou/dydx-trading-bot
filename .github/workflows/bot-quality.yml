@@ -279,6 +279,95 @@ jobs:
                   fi
 
     # ---------------------------------------------------------------------------
+    # Multi-worker broadcast integration test — real Postgres + Valkey topology
+    # ---------------------------------------------------------------------------
+    # Runs the opt-in harness (tests/test_multi_worker_broadcast.py, the same
+    # suite as `make test-multiworker`) against service containers: it boots the
+    # canonical API as TWO real worker processes sharing one Redis/Valkey and an
+    # ephemeral PostgreSQL database with WS_BROADCAST_ENABLED=true, and asserts
+    # that a broadcast on worker A reaches a WebSocket client on worker B exactly
+    # once with no loop-back. This is the coverage that gates flipping the
+    # broadcast bus default ON (Phase 2) and it has already caught a real
+    # listener-flap bug in the Phase 1 bus.
+    # Phase 1: NON-BLOCKING (continue-on-error + not in quality-gate.needs) so
+    # stability on shared runners is proven before it gates merges. To promote:
+    # drop continue-on-error and add `bot-multiworker` to quality-gate.needs.
+    bot-multiworker:
+        name: Bot multi-worker broadcast test
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        services:
+            postgres:
+                # Same image/credentials as docker-compose.infra.yml defaults so
+                # the harness's POSTGRES_* probes match local runs exactly.
+                image: postgres:15.18-bookworm
+                env:
+                    POSTGRES_USER: dydx_bot
+                    POSTGRES_PASSWORD: change-me-db-password
+                    POSTGRES_DB: dydx_bot
+                ports:
+                    - 127.0.0.1:5432:5432
+                options: >-
+                    --health-cmd "pg_isready -U dydx_bot -d dydx_bot"
+                    --health-interval 5s
+                    --health-timeout 5s
+                    --health-retries 20
+            valkey:
+                image: valkey/valkey:7.2-alpine
+                ports:
+                    - 127.0.0.1:6379:6379
+                options: >-
+                    --health-cmd "valkey-cli ping"
+                    --health-interval 5s
+                    --health-timeout 5s
+                    --health-retries 20
+        env:
+            MULTIWORKER_TEST: "1"
+            MULTIWORKER_REDIS_URL: redis://127.0.0.1:6379/0
+            POSTGRES_HOST: 127.0.0.1
+            POSTGRES_PORT: "5432"
+            POSTGRES_USER: dydx_bot
+            POSTGRES_PASSWORD: change-me-db-password
+        defaults:
+            run:
+                working-directory: bot
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.12"
+                  cache: pip
+                  cache-dependency-path: bot/requirements.txt
+
+            - name: Install dependencies
+              run: pip install -r requirements.txt
+
+            - name: Run multi-worker broadcast test
+              # -s so the harness's worker log tails (printed on failure) and
+              # skip reasons surface in the CI log.
+              continue-on-error: true # phase 1: prove runner stability before gating
+              run: |
+                  set -o pipefail
+                  python -m pytest tests/test_multi_worker_broadcast.py -vv -s --tb=short 2>&1 | tee multiworker-output.txt
+
+            - name: Publish multi-worker summary
+              if: always()
+              run: |
+                  echo "### 🔗 Multi-worker broadcast test (phase 1, non-blocking)" >> "$GITHUB_STEP_SUMMARY"
+                  echo "" >> "$GITHUB_STEP_SUMMARY"
+                  echo "Two real API workers + Redis + ephemeral Postgres (\`tests/test_multi_worker_broadcast.py\`). Promote to a gate once stable (see workflow comments)." >> "$GITHUB_STEP_SUMMARY"
+                  echo "" >> "$GITHUB_STEP_SUMMARY"
+                  if [ -f multiworker-output.txt ]; then
+                      echo '```' >> "$GITHUB_STEP_SUMMARY"
+                      tail -6 multiworker-output.txt >> "$GITHUB_STEP_SUMMARY"
+                      echo '```' >> "$GITHUB_STEP_SUMMARY"
+                  fi
+
+    # ---------------------------------------------------------------------------
     # K8s plaintext secret scanner
     # ---------------------------------------------------------------------------
     k8s-secret-scan:

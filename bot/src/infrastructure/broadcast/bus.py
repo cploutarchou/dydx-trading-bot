@@ -144,11 +144,19 @@ class RedisBroadcastBus(BroadcastBus):
         # ``client`` is an injection seam for tests; production leaves it None
         # and the real client is built on first use.
         self._client: Any | None = client
+        # Separate connection for the pub/sub listener. It must NOT inherit the
+        # command ``socket_timeout``: an idle ``listen()`` read blocks forever
+        # by design, whereas a finite timeout makes every idle second raise
+        # TimeoutError, tearing the subscription down and resubscribing in a
+        # loop — silently dropping messages published between resubscribes.
+        self._listener_client: Any | None = None
+        self._listener_build_error: str | None = None
         self._build_error: str | None = None
         self._pubsub: Any | None = None
         self._task: asyncio.Task[None] | None = None
         self._stopped = False
         self._dispatch: Dispatch | None = None
+        self._subscribed = False
 
     # ── internal helpers ────────────────────────────────────────────────────
     def _ensure_client(self) -> Any | None:
@@ -176,6 +184,30 @@ class RedisBroadcastBus(BroadcastBus):
             self._client = None
         return self._client
 
+    def _ensure_listener_client(self) -> Any | None:
+        """Return the pub/sub listener client (no read timeout, see __init__)."""
+        if self._client is not None:
+            # Test-injected client: use it for the listener as well.
+            return self._client
+        if self._listener_client is not None:
+            return self._listener_client
+        try:  # pragma: no cover - optional dependency / config path
+            import redis.asyncio as aioredis  # type: ignore[import]
+        except Exception as exc:  # noqa: BLE001 - optional dep, degrade to noop
+            self._listener_build_error = f"redis.asyncio unavailable: {exc!r}"
+            return None
+        try:  # pragma: no cover - connection is deferred to first subscribe
+            self._listener_client = aioredis.from_url(
+                self._url,
+                decode_responses=True,
+                socket_timeout=None,
+                socket_connect_timeout=self._connect_timeout,
+            )
+        except Exception as exc:  # noqa: BLE001 - bad URL/env, degrade to noop
+            self._listener_build_error = f"redis client build failed: {exc!r}"
+            self._listener_client = None
+        return self._listener_client
+
     def _on_listener_done(self, task: asyncio.Task[None]) -> None:
         """Log unexpected listener termination (clean cancel is silent)."""
         if task.cancelled():
@@ -192,7 +224,7 @@ class RedisBroadcastBus(BroadcastBus):
         """Subscribe and dispatch until ``stop()``; reconnect on failure."""
         backoff = 1.0
         while not self._stopped:
-            client = self._ensure_client()
+            client = self._ensure_listener_client()
             if client is None:
                 logger.debug(
                     "broadcast_bus_no_client_retry worker_id={} backoff={}",
@@ -207,6 +239,7 @@ class RedisBroadcastBus(BroadcastBus):
             self._pubsub = pubsub
             try:
                 await pubsub.subscribe(self._channel)
+                self._subscribed = True
                 backoff = 1.0
                 async for msg in pubsub.listen():
                     if self._stopped:
@@ -243,6 +276,7 @@ class RedisBroadcastBus(BroadcastBus):
                     exc,
                 )
             finally:
+                self._subscribed = False
                 if self._pubsub is not None:
                     try:  # pragma: no cover - shutdown path
                         await self._pubsub.aclose()
@@ -321,48 +355,41 @@ class RedisBroadcastBus(BroadcastBus):
     async def health(self) -> dict[str, Any]:
         client = self._ensure_client()
         listening = self._task is not None and not self._task.done()
+        base = {
+            "enabled": True,
+            "backend": "redis",
+            "worker_id": self._worker_id,
+            "listening": listening,
+            "subscribed": self._subscribed,
+        }
         if client is None:
             return {
-                "enabled": True,
-                "backend": "redis",
+                **base,
                 "healthy": False,
                 "error": self._build_error or "client not built",
-                "worker_id": self._worker_id,
-                "listening": listening,
             }
         try:  # pragma: no cover - requires a live Redis to exercise the command
             await client.ping()
-            return {
-                "enabled": True,
-                "backend": "redis",
-                "healthy": True,
-                "error": None,
-                "worker_id": self._worker_id,
-                "listening": listening,
-            }
+            return {**base, "healthy": True, "error": None}
         except Exception as exc:  # noqa: BLE001 - report unhealthy, do not raise
-            return {
-                "enabled": True,
-                "backend": "redis",
-                "healthy": False,
-                "error": str(exc),
-                "worker_id": self._worker_id,
-                "listening": listening,
-            }
+            return {**base, "healthy": False, "error": str(exc)}
 
     async def aclose(self) -> None:
-        # Ensure no listener is mid-flight before tearing down the client it
+        # Ensure no listener is mid-flight before tearing down the clients it
         # uses (stop() is idempotent, so this is a no-op after a normal
         # stop()->aclose() shutdown sequence).
         await self.stop()
         client = self._client
         self._client = None
-        if client is None:
-            return
-        try:  # pragma: no cover - shutdown path
-            await client.aclose()
-        except Exception:  # noqa: BLE001 - best-effort shutdown
-            return
+        listener_client = self._listener_client
+        self._listener_client = None
+        for candidate in (client, listener_client):
+            if candidate is None:
+                continue
+            try:  # pragma: no cover - shutdown path
+                await candidate.aclose()
+            except Exception:  # noqa: BLE001 - best-effort shutdown
+                continue
 
 
 def _build_broadcast_bus() -> BroadcastBus:

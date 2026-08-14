@@ -11,13 +11,32 @@ Responses use the shared ``api_response`` envelope from :mod:`src.api.responses`
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 
 from src.api.responses import api_response
 from src.infrastructure.database import db
 from src.middleware.auth_middleware import get_current_active_user
+from src.shared.time_utils import utc_now_iso
 
 router = APIRouter(prefix="/api/v1/monitoring", tags=["Monitoring"])
+
+
+class WsBroadcastPublishRequest(BaseModel):
+    """Diagnostic broadcast request for the cross-worker WS bus smoke test."""
+
+    channel: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9._-]+$",
+        description=(
+            "Target broadcast channel (a bot instance id, 'backtest-<run_id>', "
+            "or 'strategies')."
+        ),
+    )
 
 
 @router.get("/dataframe/memory")
@@ -171,4 +190,44 @@ async def get_ws_broadcast_health(
         success=True,
         data=health,
         message="WebSocket broadcast bus health retrieved",
+    )
+
+
+@router.post("/ws-broadcast/publish")
+async def publish_ws_broadcast_test(
+    request: WsBroadcastPublishRequest,
+    current_user=Depends(get_current_active_user),
+):
+    """Publish a diagnostic broadcast to a channel via ``broadcast_to_bot``.
+
+    Operator smoke test for the cross-worker bus: emits a fixed, server-built
+    ``broadcast_test`` message (callers cannot inject arbitrary payloads) through
+    the same path the runtime uses — local delivery on this worker, then a
+    best-effort fan-out publish so other workers deliver to their own clients.
+    Use it to verify that a client attached to a *different* worker receives the
+    message exactly once (``test_id`` correlates the copies) after
+    ``WS_BROADCAST_ENABLED=true`` is enabled. Complements the read-only
+    ``GET /api/v1/monitoring/ws-broadcast`` health probe.
+    """
+    _ = current_user
+    from src.api.websocket_server import manager as ws_manager
+    from src.infrastructure.broadcast import get_broadcast_bus
+
+    test_id = uuid4().hex
+    message = {
+        "type": "broadcast_test",
+        "timestamp": utc_now_iso(),
+        "bot_instance_id": request.channel,
+        "data": {"test_id": test_id},
+    }
+    await ws_manager.broadcast_to_bot(request.channel, message)
+    bus_health = await get_broadcast_bus().health()
+    return api_response(
+        success=True,
+        data={
+            "channel": request.channel,
+            "test_id": test_id,
+            "bus": bus_health,
+        },
+        message="Diagnostic broadcast published",
     )

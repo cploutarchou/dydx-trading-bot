@@ -2,6 +2,29 @@
 
 ## 2026-08-15
 
+- Blocking-DB-offload **slice 4: the remaining route families** — item #3's route work is now COMPLETE:
+    - `src/api/v1/bot_records.py`: all 4 handlers (history/jobs/trades/stats) load + serialize through
+      session-owning sync closures via `run_db`; 404-on-unknown-bot, 500 envelopes, and message text are
+      byte-identical, and the `fake_session.closes` count guards in `tests/test_bot_record_routes.py`
+      still pin the session lifecycle.
+    - `src/api/v1/strategies.py`: all 8 routes now `await run_in_threadpool(...)` the (already
+      session-owning, dict-returning) `InMemoryStrategyStore` calls — the store itself was already
+      seam-correct, only the route-level sync invocation blocked the loop.
+    - `src/api/v1/bot_lifecycle.py`: create-route DB persistence extracted into
+      `_persist_created_bot_config` (raises on failure after `Session.close()` releases the pending
+      transaction, so the route's existing error path still unwinds the runtime instance via
+      `bot_manager.delete_instance`; the bot_created event-log warning catch moved with it, keeping the
+      broad-catch ratchet flat); delete-route cleanup extracted into best-effort
+      `_delete_bot_db_record`; all 8 `_persist_bot_status_and_event` call sites now await through
+      `run_db` (manager interactions were already async and are untouched).
+    - Validation: `test_bot_record_routes.py` + `test_bot_lifecycle_routes.py` +
+      `test_strategies_routes.py` + ratchet (31 passed, incl. the DB-failure-cleanup and
+      session-close-count guards); full suite **750 passed / 12 skipped / 0 failed**, coverage floor
+      held (65.29% ≥ 64%); black + compileall clean.
+    - IMPROVEMENTS.md (item #3 → route families complete; table + matrix) and AGENTS.md rule 13
+      reference list updated. Remaining flagged smalls from item #3: engine `pool_pre_ping` and the
+      auth `Depends(db.get_session)` session leak.
+
 - Blocking-DB-offload **slice 3: backtest mutations** (IMPROVEMENTS.md open item #3):
     - `cancel` / `pause` / `resume` / `delete` routes in `src/api/v1/backtests.py` no longer run their sync
       service calls on the event loop — new `_cancel/_pause/_resume/_delete_backtest_sync` helpers run via

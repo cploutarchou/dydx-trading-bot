@@ -102,7 +102,11 @@ Repository-level guidance for coding agents working on this project.
     - Reference conversions: backtest reads via the `_*_sync` seam (`src/api/v1/backtests.py`), backtest
       mutations via `_cancel/_pause/_resume/_delete_backtest_sync` + the async control builders awaited
       through `_maybe_awaitable` (keeps sync monkeypatch doubles working), realtime reads
-      via session-owning closures (`src/api/v1/bot_realtime.py`), and the WebSocket sender family
+      via session-owning closures (`src/api/v1/bot_realtime.py`), bot-record reads via
+      session-owning closures (`src/api/v1/bot_records.py`), strategy-store calls via
+      `run_in_threadpool` at the route (`src/api/v1/strategies.py`), bot-lifecycle persistence
+      (`_persist_created_bot_config` / `_delete_bot_db_record` / `_persist_bot_status_and_event`) via
+      `run_db` (`src/api/v1/bot_lifecycle.py`), and the WebSocket sender family
       (`send_initial_state` / `send_positions` / `send_stats` / `send_market_data` in
       `src/api/websocket_server.py`) via local `run_in_threadpool(closure)` loaders that serialize to plain
       dicts inside the thread.

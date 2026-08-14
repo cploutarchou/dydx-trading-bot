@@ -1,14 +1,21 @@
-"""Database-backed bot history, job, trade, and statistics API routes."""
+"""Database-backed bot history, job, trade, and statistics API routes.
+
+All four handlers offload their synchronous SQLAlchemy work (queries + ORM
+serialization) to a worker thread via ``run_db``; the offloaded closures own
+their full ``Session`` lifecycle and return plain dicts (see
+``src/infrastructure/db_offload.py`` for the seam contract).
+"""
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends
 from loguru import logger
 
 from src.api.responses import api_response
 from src.infrastructure.database import db
+from src.infrastructure.db_offload import run_db
 from src.infrastructure.domain.models.auth_models import User
 from src.infrastructure.persistence.repository import UnitOfWork
 from src.middleware.auth_middleware import get_current_active_user
@@ -23,26 +30,16 @@ async def get_bot_history(
     current_user: User = Depends(get_current_active_user),
 ):
     """Get bot event history"""
-    session = None
-    try:
+
+    def _load_history() -> Optional[Dict[str, Any]]:
         session = db.get_session()
-        uow = UnitOfWork(session)
-
-        # Get bot first to verify it exists
-        bot = uow.bots.get_by_instance_id(instance_id)
-        if not bot:
-            return api_response(
-                success=False,
-                message=f"Bot instance '{instance_id}' not found",
-                status_code=404,
-            )
-
-        # Get events
-        events = uow.events.get_bot_events(int(bot.id), days=days)  # type: ignore[arg-type]
-
-        return api_response(
-            success=True,
-            data={
+        try:
+            uow = UnitOfWork(session)
+            bot = uow.bots.get_by_instance_id(instance_id)
+            if not bot:
+                return None
+            events = uow.events.get_bot_events(int(bot.id), days=days)  # type: ignore[arg-type]
+            return {
                 "instance_id": instance_id,
                 "total_events": len(events),
                 "days_requested": days,
@@ -56,8 +53,22 @@ async def get_bot_history(
                     }
                     for event in events
                 ],
-            },
-            message=f"Retrieved {len(events)} events for bot '{instance_id}'",
+            }
+        finally:
+            session.close()
+
+    try:
+        data = await run_db(_load_history)
+        if data is None:
+            return api_response(
+                success=False,
+                message=f"Bot instance '{instance_id}' not found",
+                status_code=404,
+            )
+        return api_response(
+            success=True,
+            data=data,
+            message=f"Retrieved {data['total_events']} events for bot '{instance_id}'",
         )
 
     except Exception as exc:
@@ -67,9 +78,6 @@ async def get_bot_history(
             message=f"Internal server error: {str(exc)}",
             status_code=500,
         )
-    finally:
-        if session is not None:
-            session.close()
 
 
 @router.get("/api/v1/bots/{instance_id}/jobs")
@@ -79,41 +87,33 @@ async def get_bot_jobs(
     current_user: User = Depends(get_current_active_user),
 ):
     """Get bot job history"""
-    session = None
-    try:
+
+    def _load_jobs() -> Optional[Dict[str, Any]]:
         session = db.get_session()
-        uow = UnitOfWork(session)
+        try:
+            uow = UnitOfWork(session)
+            bot = uow.bots.get_by_instance_id(instance_id)
+            if not bot:
+                return None
+            jobs = uow.jobs.get_job_history(int(bot.id), days=days)  # type: ignore[arg-type]
 
-        # Get bot first
-        bot = uow.bots.get_by_instance_id(instance_id)
-        if not bot:
-            return api_response(
-                success=False,
-                message=f"Bot instance '{instance_id}' not found",
-                status_code=404,
+            def _job_status_value(job) -> str:
+                return str(getattr(job.status, "value", job.status)).lower()
+
+            completed_jobs = len(
+                [j for j in jobs if _job_status_value(j) == "completed"]
             )
+            failed_jobs = len([j for j in jobs if _job_status_value(j) == "failed"])
+            cancelled_jobs = len(
+                [j for j in jobs if _job_status_value(j) == "cancelled"]
+            )
+            pending_jobs = len([j for j in jobs if _job_status_value(j) == "pending"])
+            running_jobs = len([j for j in jobs if _job_status_value(j) == "running"])
 
-        # Get jobs
-        jobs = uow.jobs.get_job_history(int(bot.id), days=days)  # type: ignore[arg-type]
-
-        # Calculate job statistics
-        total_jobs = len(jobs)
-
-        def _job_status_value(job) -> str:
-            return str(getattr(job.status, "value", job.status)).lower()
-
-        completed_jobs = len([j for j in jobs if _job_status_value(j) == "completed"])
-        failed_jobs = len([j for j in jobs if _job_status_value(j) == "failed"])
-        cancelled_jobs = len([j for j in jobs if _job_status_value(j) == "cancelled"])
-        pending_jobs = len([j for j in jobs if _job_status_value(j) == "pending"])
-        running_jobs = len([j for j in jobs if _job_status_value(j) == "running"])
-
-        return api_response(
-            success=True,
-            data={
+            return {
                 "instance_id": instance_id,
                 "statistics": {
-                    "total_jobs": total_jobs,
+                    "total_jobs": len(jobs),
                     "completed": completed_jobs,
                     "failed": failed_jobs,
                     "cancelled": cancelled_jobs,
@@ -153,8 +153,22 @@ async def get_bot_jobs(
                     }
                     for job in jobs
                 ],
-            },
-            message=f"Retrieved {total_jobs} jobs for bot '{instance_id}'",
+            }
+        finally:
+            session.close()
+
+    try:
+        data = await run_db(_load_jobs)
+        if data is None:
+            return api_response(
+                success=False,
+                message=f"Bot instance '{instance_id}' not found",
+                status_code=404,
+            )
+        return api_response(
+            success=True,
+            data=data,
+            message=f"Retrieved {data['statistics']['total_jobs']} jobs for bot '{instance_id}'",
         )
 
     except Exception as exc:
@@ -164,9 +178,6 @@ async def get_bot_jobs(
             message=f"Internal server error: {str(exc)}",
             status_code=500,
         )
-    finally:
-        if session is not None:
-            session.close()
 
 
 @router.get("/api/v1/bots/{instance_id}/trades")
@@ -176,30 +187,23 @@ async def get_bot_trades(
     current_user: User = Depends(get_current_active_user),
 ):
     """Get bot trades"""
-    session = None
-    try:
+
+    def _load_trades() -> Optional[Dict[str, Any]]:
         session = db.get_session()
-        uow = UnitOfWork(session)
+        try:
+            uow = UnitOfWork(session)
+            bot = uow.bots.get_by_instance_id(instance_id)
+            if not bot:
+                return None
+            trades = uow.trades.get_bot_trades(int(bot.id))  # type: ignore[arg-type]
 
-        # Get bot first
-        bot = uow.bots.get_by_instance_id(instance_id)
-        if not bot:
-            return api_response(
-                success=False,
-                message=f"Bot instance '{instance_id}' not found",
-                status_code=404,
-            )
+            # Filter by status if requested
+            if status:
+                trades = [
+                    trade for trade in trades if str(trade.status) == status.upper()
+                ]
 
-        # Get trades
-        trades = uow.trades.get_bot_trades(int(bot.id))  # type: ignore[arg-type]
-
-        # Filter by status if requested
-        if status:
-            trades = [trade for trade in trades if str(trade.status) == status.upper()]
-
-        return api_response(
-            success=True,
-            data={
+            return {
                 "instance_id": instance_id,
                 "total_trades": len(trades),
                 "filter_status": status,
@@ -267,8 +271,22 @@ async def get_bot_trades(
                     }
                     for trade in trades
                 ],
-            },
-            message=f"Retrieved {len(trades)} trades for bot '{instance_id}'",
+            }
+        finally:
+            session.close()
+
+    try:
+        data = await run_db(_load_trades)
+        if data is None:
+            return api_response(
+                success=False,
+                message=f"Bot instance '{instance_id}' not found",
+                status_code=404,
+            )
+        return api_response(
+            success=True,
+            data=data,
+            message=f"Retrieved {data['total_trades']} trades for bot '{instance_id}'",
         )
 
     except Exception as exc:
@@ -278,9 +296,6 @@ async def get_bot_trades(
             message=f"Internal server error: {str(exc)}",
             status_code=500,
         )
-    finally:
-        if session is not None:
-            session.close()
 
 
 @router.get("/api/v1/bots/{instance_id}/stats")
@@ -289,29 +304,17 @@ async def get_bot_stats(
     current_user: User = Depends(get_current_active_user),
 ):
     """Get bot statistics"""
-    session = None
-    try:
+
+    def _load_stats() -> Optional[Dict[str, Any]]:
         session = db.get_session()
-        uow = UnitOfWork(session)
-
-        # Get bot first
-        bot = uow.bots.get_by_instance_id(instance_id)
-        if not bot:
-            return api_response(
-                success=False,
-                message=f"Bot instance '{instance_id}' not found",
-                status_code=404,
-            )
-
-        # Get bot statistics
-        bot_stats = uow.bots.get_statistics(instance_id)
-
-        # Get trade statistics
-        trade_stats = uow.trades.get_trade_statistics(int(bot.id))  # type: ignore[arg-type]
-
-        return api_response(
-            success=True,
-            data={
+        try:
+            uow = UnitOfWork(session)
+            bot = uow.bots.get_by_instance_id(instance_id)
+            if not bot:
+                return None
+            bot_stats = uow.bots.get_statistics(instance_id)
+            trade_stats = uow.trades.get_trade_statistics(int(bot.id))  # type: ignore[arg-type]
+            return {
                 "instance_id": instance_id,
                 "bot_statistics": {
                     "total_trades": bot_stats.get("total_trades", 0),
@@ -336,7 +339,21 @@ async def get_bot_stats(
                         "average_duration_seconds", 0
                     ),
                 },
-            },
+            }
+        finally:
+            session.close()
+
+    try:
+        data = await run_db(_load_stats)
+        if data is None:
+            return api_response(
+                success=False,
+                message=f"Bot instance '{instance_id}' not found",
+                status_code=404,
+            )
+        return api_response(
+            success=True,
+            data=data,
             message=f"Retrieved statistics for bot '{instance_id}'",
         )
 
@@ -347,9 +364,6 @@ async def get_bot_stats(
             message=f"Internal server error: {str(exc)}",
             status_code=500,
         )
-    finally:
-        if session is not None:
-            session.close()
 
 
 __all__ = [

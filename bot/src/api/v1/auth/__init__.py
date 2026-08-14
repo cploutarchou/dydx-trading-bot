@@ -13,7 +13,7 @@ from src.api.v1.auth.totp_state import (
     is_two_factor_enabled,
     verify_login_second_factor,
 )
-from src.infrastructure.database import db
+from src.infrastructure.database import get_session
 from src.infrastructure.domain.models.auth_models import User
 from src.middleware.auth_middleware import (
     get_current_active_user,
@@ -169,7 +169,7 @@ def _authenticate_user(
 @router.post("/token")
 async def token_login(
     form_data: OAuth2PasswordRequestForm = Depends(),
-    session: Session = Depends(db.get_session),
+    session: Session = Depends(get_session),
     totp_code: Optional[str] = Form(default=None),
 ):
     """OAuth2 login endpoint (also used by the Swagger UI Authorize dialog).
@@ -186,7 +186,7 @@ async def token_login(
 @router.post("/login")
 async def login(
     payload: LoginRequest,
-    session: Session = Depends(db.get_session),
+    session: Session = Depends(get_session),
 ):
     """Frontend-compatible JSON login endpoint."""
     return _authenticate_user(
@@ -197,7 +197,7 @@ async def login(
 @router.post("/register")
 async def register(
     payload: RegisterRequest,
-    session: Session = Depends(db.get_session),
+    session: Session = Depends(get_session),
 ):
     """Register endpoint."""
     username = SecurityUtils.sanitize_input(payload.username, max_length=50)
@@ -294,7 +294,7 @@ async def logout(
 async def logout_all(
     request: Request,
     current_user: User = Depends(get_current_active_user),
-    session: Session = Depends(db.get_session),
+    session: Session = Depends(get_session),
 ):
     """Revoke every outstanding token for the current user.
 

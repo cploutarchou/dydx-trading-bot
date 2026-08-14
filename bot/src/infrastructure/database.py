@@ -462,6 +462,11 @@ class DatabaseConfig:
             configured_overflow = max(0, max_connections - self.pool_size)
         self.max_overflow = configured_overflow
         self.pool_recycle = self._env_int("DB_POOL_RECYCLE", 3600)
+        # Pre-check pooled connections on checkout so a stale/idle connection
+        # (killed by the server, firewall, or after a DB restart) is transparently
+        # re-established instead of surfacing as a random "server closed the
+        # connection" error. Costs one lightweight roundtrip per checkout.
+        self.pool_pre_ping = self._env_bool("DB_POOL_PRE_PING", default=True)
         self.ssl_mode = self._env_bool("SSL_MODE", default=False)
 
     @staticmethod
@@ -670,6 +675,8 @@ class DatabaseConfig:
             "pool_size": self.pool_size,
             "max_overflow": self.max_overflow,
             "max_connections": self.pool_size + self.max_overflow,
+            "pool_recycle": self.pool_recycle,
+            "pool_pre_ping": self.pool_pre_ping,
             "ssl_enabled": self.ssl_mode,
             "echo_sql": self.echo_sql,
             "shared_target_detected": self._shared_target is not None,
@@ -780,6 +787,7 @@ class DatabaseConfig:
             "pool_size": self.pool_size,
             "max_overflow": self.max_overflow,
             "pool_recycle": self.pool_recycle,
+            "pool_pre_ping": self.pool_pre_ping,
             "pool_timeout": self.timeout_seconds,
             "connect_args": connect_args,
         }

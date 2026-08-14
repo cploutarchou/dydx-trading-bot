@@ -939,13 +939,12 @@ Items removed from this plan during the same review — and why — are listed i
       the *actual* subscription state. Reproduced pre-fix with a two-bus live-Valkey script; pinned post-fix by
       the multi-worker test itself (unit fakes can't catch socket-level timeouts — exactly the "unit tests can't
       reach" class this item exists for).
-      **Also surfaced (NOT fixed — needs a migrations follow-up):** on a *fresh* database built purely by Alembic
-      migrations, two Postgres enums reject the ORM's labels — `positionstatusenum` rejects `'OPEN'` (breaks
-      websocket `send_initial_state` position queries) and `jobstatusenum` rejects `'PENDING'` (breaks
-      `async_job_manager` job persistence). Databases created historically via `create_all_tables` don't hit this;
-      it only bites fresh-from-migration deployments and the harness's ephemeral DB (worked around by using a
-      `backtest-*` channel whose initial frame avoids the positions query). Fix belongs in the migration-safety
-      process (enum label alignment), not this item.
+      **Also surfaced — FIXED 2026-08-15 (migration `0006_reconcile_enum_labels`):** on a *fresh* database
+      built purely by Alembic migrations, the Postgres status enums rejected the ORM's labels
+      (`positionstatusenum` vs `'OPEN'`, `jobstatusenum` vs `'PENDING'`, and the bot/trade/alert enums
+      likewise) because migrations created the types with lowercase Python-enum *values* while SQLAlchemy
+      binds the uppercase *names*. The reconciliation migration adds the NAME labels (expand-only) and
+      flips rows; legacy `create_all_tables` databases are no-ops. See the Technical Debt Hotspots entry.
       **Remaining for this item:** a CI job (service containers for Postgres + Redis, then
       `MULTIWORKER_TEST=1 pytest tests/test_multi_worker_broadcast.py`), and optional multi-replica
       (docker-level) + burst/load coverage ahead of the Phase 2 flip.
@@ -1266,10 +1265,18 @@ The original Week-1 items are retained as an implementation record; completed wo
 - `src/api/v1/backtests.py`: 2,351 lines across 30 HTTP operations, 2 WebSocket adapters, shared route support
 - `src/bot_instance_manager.py`: 1,935 lines — not previously listed, now the second-largest module
 - `src/api/server.py`: 1,751 lines of assembly/runtime after Phases 1–6 (down from 6,093)
-- **Fresh-database enum drift (found 2026-08-14 by the multi-worker harness)**: schemas built purely by Alembic
-  migrations define Postgres enum labels the ORM rejects (`positionstatusenum` vs `'OPEN'`,
-  `jobstatusenum` vs `'PENDING'`); historical `create_all_tables` databases are unaffected. Needs an enum-label
-  alignment change under the migration-safety process.
+- ~~**Fresh-database enum drift (found 2026-08-14 by the multi-worker harness)**~~ — RESOLVED
+  (2026-08-15): schemas built purely by Alembic migrations defined Postgres enum labels the ORM rejects
+  (`positionstatusenum` vs `'OPEN'`, `jobstatusenum` vs `'PENDING'`, and the bot/trade/alert enums
+  likewise). Root cause: migrations created the types with the Python enum *values* (lowercase) while
+  SQLAlchemy's `Enum(PyEnum)` binds the *names* (uppercase) — legacy `create_all_tables` databases carry
+  name-style labels, which is why only fresh deployments broke. Fix: migration
+  `0006_reconcile_enum_labels` (expand-only `ADD VALUE IF NOT EXISTS` of the NAME labels + row flip +
+  dynamic column discovery; downgrade flips back; lowercase labels remain because PostgreSQL cannot drop
+  enum values). Verified on a fresh migrations-only DB (the previously failing Job insert with `PENDING`,
+  Bot write with `RUNNING`, and `status='OPEN'` filter all succeed; downgrade/re-upgrade round-trips), and
+  a real worker boot on a fresh DB no longer logs `job_persistence_failed`. Legacy create_all-built
+  databases are no-ops for every statement in the migration.
 - Blocking synchronous SQLAlchemy inside async handlers (no `AsyncSession` anywhere in `src/`)
 - Configuration complexity across multiple sources
 - ~~Dead code paths~~ — RESOLVED (2026-08-11): 2FA router mounted at `/api/v1/auth/2fa`; candle

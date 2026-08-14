@@ -2,6 +2,26 @@
 
 ## 2026-08-15
 
+- Fixed the **fresh-database enum drift** (Technical Debt Hotspots entry, surfaced 2026-08-14 by the
+  multi-worker harness) with migration `migrations/postgres/0006_reconcile_enum_labels.py`:
+    - Root cause: the consolidated chain (`0001_pg_initial`) creates the five status enums
+      (`botstatusenum`, `jobstatusenum`, `tradestatusenum`, `positionstatusenum`, `alertseverityenum`)
+      with the Python enums' lowercase *values*, while SQLAlchemy's `Enum(PyEnum)` binds the uppercase
+      *names* — so fresh-from-migration deployments rejected `'OPEN'`/`'PENDING'`/`'RUNNING'` (breaking
+      websocket initial-state position queries, `async_job_manager` persistence, and bot lifecycle
+      writes), while legacy `create_all_tables` databases (name-style labels) worked.
+    - Fix (migration-safety pattern, expand/contract): `ALTER TYPE ... ADD VALUE IF NOT EXISTS` for the
+      NAME labels inside `autocommit_block()` (PG forbids ADD VALUE in a transaction that later uses the
+      type), then row flips value→NAME with columns discovered dynamically from `information_schema` by
+      `udt_name`. Idempotent; legacy DBs are no-ops; lowercase labels permanently remain (PG cannot drop
+      enum values — documented). Downgrade flips rows back and re-adds lowercase labels for legacy DBs.
+    - Verification (per the migration checklist): fresh migrations-only ephemeral DB → the exact
+      previously-failing operations now succeed (Job insert with `JobStatusEnum.PENDING`, Bot write with
+      `BotStatusEnum.RUNNING`, `WHERE status='OPEN'` filter); `downgrade -1` + `upgrade head` round-trips;
+      a real API worker boot on a fresh DB no longer logs `job_persistence_failed` /
+      `InvalidTextRepresentation`; full suite 750 passed / 13 skipped, coverage floor held; black clean.
+    - IMPROVEMENTS.md synced (debt hotspot → RESOLVED; multi-worker item note updated).
+
 - Closed IMPROVEMENTS.md open item #4 — **integration tests for external services (Redis, Celery, dYdX)**:
     - New opt-in harness `tests/test_integration_external_services.py` (`INTEGRATION_TEST=1` /
       `make test-integration`; module-level skip otherwise), following the MULTIWORKER_TEST convention:

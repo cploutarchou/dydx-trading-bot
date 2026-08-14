@@ -66,8 +66,15 @@ make local-api
 make local-bot
 make test
 make test-multiworker
+make test-integration
 make preflight-testnet
 ```
+
+`make test-integration` runs the opt-in external-service integration tests
+(`tests/test_integration_external_services.py`): a real Redis/Valkey market-data-cache roundtrip, real
+broadcast-bus pub/sub, a real Celery worker subprocess (control ping + task registration), and the live public dYdX
+v4 indexer markets contract — against scratch Redis DBs so the dev cache/broker are never touched. It skips
+automatically when not opted in (`INTEGRATION_TEST=1`); the indexer test skips when offline.
 
 `make test-multiworker` runs the opt-in multi-worker integration test for the cross-worker WebSocket broadcast bus
 (`tests/test_multi_worker_broadcast.py`): it starts the shared infrastructure, boots two real API worker processes

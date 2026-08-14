@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 import threading
 import time
@@ -1416,16 +1417,25 @@ async def list_interrupted_backtests(
 ):
     """Ops visibility for interrupted/orphaned persisted backtest runs."""
     del current_user
-    return _compat(
-        "_list_interrupted_backtests_response", _list_interrupted_backtests_response
-    )(limit=limit)
+    return await _maybe_awaitable(
+        _compat(
+            "_list_interrupted_backtests_response", _list_interrupted_backtests_response
+        )(limit=limit)
+    )
 
 
-def _list_interrupted_backtests_response(limit: int):
+async def _list_interrupted_backtests_response(limit: int):
     """Shared response builder for interrupted backtest visibility routes."""
     try:
-        with _compat("backtest_service_scope", backtest_service_scope)() as service:
-            report = service.list_interrupted_runs_for_ops(limit=limit)
+        report = dict(
+            await run_db(
+                _compat(
+                    "_list_interrupted_runs_for_ops_sync",
+                    _list_interrupted_runs_for_ops_sync,
+                ),
+                limit,
+            )
+        )
         report["count"] = int(report.get("orphaned_count", 0)) + int(
             report.get("interrupted_count", 0)
         )
@@ -1448,16 +1458,24 @@ async def reconcile_interrupted_backtests(
 ):
     """Explicitly reconcile persisted orphaned in-progress runs."""
     del current_user
-    return _compat(
-        "_reconcile_interrupted_backtests_response",
-        _reconcile_interrupted_backtests_response,
-    )(dry_run=dry_run)
+    return await _maybe_awaitable(
+        _compat(
+            "_reconcile_interrupted_backtests_response",
+            _reconcile_interrupted_backtests_response,
+        )(dry_run=dry_run)
+    )
 
 
-def _reconcile_interrupted_backtests_response(dry_run: bool):
+async def _reconcile_interrupted_backtests_response(dry_run: bool):
     """Shared response builder for interrupted backtest reconcile routes."""
-    with _compat("backtest_service_scope", backtest_service_scope)() as service:
-        report = service.reconcile_interrupted_runs(dry_run=dry_run)
+    report = dict(
+        await run_db(
+            _compat(
+                "_reconcile_interrupted_runs_sync", _reconcile_interrupted_runs_sync
+            ),
+            dry_run,
+        )
+    )
     report["count"] = int(report.get("candidate_count", 0))
     message = (
         "Dry-run completed for interrupted backtest reconciliation"
@@ -1471,10 +1489,55 @@ def _reconcile_interrupted_backtests_response(dry_run: bool):
     )
 
 
-def _repair_backtest_request_response(run_id: str, dry_run: bool):
+def _cancel_backtest_sync(run_id: str):
+    return _run_with_backtest_service(lambda service: service.cancel_backtest(run_id))
+
+
+def _pause_backtest_sync(run_id: str):
+    return _run_with_backtest_service(lambda service: service.pause_backtest(run_id))
+
+
+def _resume_backtest_sync(run_id: str):
+    return _run_with_backtest_service(lambda service: service.resume_backtest(run_id))
+
+
+def _delete_backtest_sync(run_id: str):
+    return _run_with_backtest_service(lambda service: service.delete_backtest(run_id))
+
+
+def _repair_backtest_request_sync(run_id: str, dry_run: bool):
+    return _run_with_backtest_service(
+        lambda service: service.repair_backtest_request(run_id, dry_run=dry_run)
+    )
+
+
+def _list_interrupted_runs_for_ops_sync(limit: int):
+    return _run_with_backtest_service(
+        lambda service: service.list_interrupted_runs_for_ops(limit=limit)
+    )
+
+
+def _reconcile_interrupted_runs_sync(dry_run: bool):
+    return _run_with_backtest_service(
+        lambda service: service.reconcile_interrupted_runs(dry_run=dry_run)
+    )
+
+
+async def _maybe_awaitable(value):
+    """Await builder results when the (patchable) builder is async; pass through
+    sync results so monkeypatched sync doubles keep working."""
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
+async def _repair_backtest_request_response(run_id: str, dry_run: bool):
     """Shared response builder for request repair routes."""
-    with _compat("backtest_service_scope", backtest_service_scope)() as service:
-        report = service.repair_backtest_request(run_id, dry_run=dry_run)
+    report = await run_db(
+        _compat("_repair_backtest_request_sync", _repair_backtest_request_sync),
+        run_id,
+        dry_run,
+    )
     if report is None:
         return api_response(
             success=False,
@@ -1497,9 +1560,11 @@ async def list_interrupted_backtests_admin(
 ):
     """Admin-scoped alias for interrupted/orphaned persisted backtest visibility."""
     _ = current_user
-    return _compat(
-        "_list_interrupted_backtests_response", _list_interrupted_backtests_response
-    )(limit=limit)
+    return await _maybe_awaitable(
+        _compat(
+            "_list_interrupted_backtests_response", _list_interrupted_backtests_response
+        )(limit=limit)
+    )
 
 
 @router.post("/api/v1/admin/backtests/interrupted/reconcile")
@@ -1509,10 +1574,12 @@ async def reconcile_interrupted_backtests_admin(
 ):
     """Admin-scoped alias for explicit interrupted backtest reconciliation."""
     _ = current_user
-    return _compat(
-        "_reconcile_interrupted_backtests_response",
-        _reconcile_interrupted_backtests_response,
-    )(dry_run=dry_run)
+    return await _maybe_awaitable(
+        _compat(
+            "_reconcile_interrupted_backtests_response",
+            _reconcile_interrupted_backtests_response,
+        )(dry_run=dry_run)
+    )
 
 
 @router.post("/api/v1/admin/backtests/{run_id}/repair-request")
@@ -1523,9 +1590,11 @@ async def repair_backtest_request_admin(
 ):
     """Admin-scoped repair for legacy backtests missing request payloads."""
     _ = current_user
-    return _compat(
-        "_repair_backtest_request_response", _repair_backtest_request_response
-    )(run_id=run_id, dry_run=dry_run)
+    return await _maybe_awaitable(
+        _compat("_repair_backtest_request_response", _repair_backtest_request_response)(
+            run_id=run_id, dry_run=dry_run
+        )
+    )
 
 
 @router.get("/api/v1/backtests/{run_id}", response_model=BacktestDetailResponse)
@@ -1782,8 +1851,9 @@ async def cancel_backtest(
 ):
     """Cancel running backtest"""
     del current_user
-    with _compat("backtest_service_scope", backtest_service_scope)() as service:
-        success = service.cancel_backtest(run_id)
+    success = await run_db(
+        _compat("_cancel_backtest_sync", _cancel_backtest_sync), run_id
+    )
     if not success:
         return api_response(
             success=False,
@@ -1803,8 +1873,7 @@ async def pause_backtest(
 ):
     """Request a cooperative pause for a running backtest."""
     del current_user
-    with _compat("backtest_service_scope", backtest_service_scope)() as service:
-        result = service.pause_backtest(run_id)
+    result = await run_db(_compat("_pause_backtest_sync", _pause_backtest_sync), run_id)
     if not result:
         return api_response(
             success=False,
@@ -1826,8 +1895,9 @@ async def resume_backtest(
 ):
     """Resume a paused backtest."""
     del current_user
-    with _compat("backtest_service_scope", backtest_service_scope)() as service:
-        result = service.resume_backtest(run_id)
+    result = await run_db(
+        _compat("_resume_backtest_sync", _resume_backtest_sync), run_id
+    )
     if not result:
         return api_response(
             success=False,
@@ -1850,24 +1920,26 @@ async def restart_backtest(
     """Cancel the current run if needed and start a fresh run from the same request."""
     del current_user
     try:
+        status = await run_db(
+            _compat("_get_backtest_status_sync", _get_backtest_status_sync), run_id
+        )
+        if status is None:
+            return api_response(
+                success=False,
+                message=f"Backtest '{run_id}' not found",
+                status_code=404,
+            )
+        if not bool(getattr(status, "request_available", False)):
+            return api_response(
+                success=False,
+                message=(
+                    f"Backtest '{run_id}' original request payload is unavailable; "
+                    "repair the request payload before restart"
+                ),
+                data={"error": "missing_original_request_payload"},
+                status_code=409,
+            )
         with _compat("backtest_service_scope", backtest_service_scope)() as service:
-            status = service.get_backtest_status(run_id)
-            if status is None:
-                return api_response(
-                    success=False,
-                    message=f"Backtest '{run_id}' not found",
-                    status_code=404,
-                )
-            if not bool(getattr(status, "request_available", False)):
-                return api_response(
-                    success=False,
-                    message=(
-                        f"Backtest '{run_id}' original request payload is unavailable; "
-                        "repair the request payload before restart"
-                    ),
-                    data={"error": "missing_original_request_payload"},
-                    status_code=409,
-                )
             result = await service.restart_backtest(
                 run_id, _broadcast_backtest_progress
             )
@@ -1899,24 +1971,26 @@ async def retry_backtest(
     """Start a fresh run from the same request payload."""
     del current_user
     try:
+        status = await run_db(
+            _compat("_get_backtest_status_sync", _get_backtest_status_sync), run_id
+        )
+        if status is None:
+            return api_response(
+                success=False,
+                message=f"Backtest '{run_id}' not found",
+                status_code=404,
+            )
+        if not bool(getattr(status, "request_available", False)):
+            return api_response(
+                success=False,
+                message=(
+                    f"Backtest '{run_id}' original request payload is unavailable; "
+                    "repair the request payload before retry"
+                ),
+                data={"error": "missing_original_request_payload"},
+                status_code=409,
+            )
         with _compat("backtest_service_scope", backtest_service_scope)() as service:
-            status = service.get_backtest_status(run_id)
-            if status is None:
-                return api_response(
-                    success=False,
-                    message=f"Backtest '{run_id}' not found",
-                    status_code=404,
-                )
-            if not bool(getattr(status, "request_available", False)):
-                return api_response(
-                    success=False,
-                    message=(
-                        f"Backtest '{run_id}' original request payload is unavailable; "
-                        "repair the request payload before retry"
-                    ),
-                    data={"error": "missing_original_request_payload"},
-                    status_code=409,
-                )
             result = await service.retry_backtest(run_id, _broadcast_backtest_progress)
         if not result:
             return api_response(
@@ -1945,8 +2019,9 @@ async def delete_backtest(
 ):
     """Delete backtest run and all associated data"""
     del current_user
-    with _compat("backtest_service_scope", backtest_service_scope)() as service:
-        success = service.delete_backtest(run_id)
+    success = await run_db(
+        _compat("_delete_backtest_sync", _delete_backtest_sync), run_id
+    )
     if not success:
         return api_response(
             success=False, message=f"Backtest '{run_id}' not found", status_code=404

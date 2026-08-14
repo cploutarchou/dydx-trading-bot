@@ -2,6 +2,23 @@
 
 ## 2026-08-15
 
+- Blocking-DB-offload **slice 5: the flagged smalls — item #3 CLOSED**:
+    - **Engine `pool_pre_ping` (default ON)**: `DatabaseConfig` gained `pool_pre_ping` (`DB_POOL_PRE_PING`,
+      default true) wired into `get_engine_kwargs()` and `to_diagnostics()` — pooled connections are
+      pre-checked on checkout so stale/idle connections (server restart, firewall idle-kill) are transparently
+      re-established instead of surfacing as random "server closed the connection" errors. Verified: default
+      builds `pool_pre_ping=True`; `DB_POOL_PRE_PING=false` overrides.
+    - **Auth session leak fixed**: the 8 `Depends(db.get_session)` sites in `src/api/v1/auth/__init__.py` (4)
+      and `src/api/v1/auth/password_2fa.py` (4) used the raw session-factory *method*, which FastAPI treats as
+      a plain dependency and never closes — one leaked session per auth request. They now use the module-level
+      yield-dependency `get_session()` (open → yield → close), the same one `get_current_active_user` already
+      used; unused `db` imports removed.
+    - Validation: auth suites (`test_auth_2fa_recovery` / `test_auth_2fa_login` / `test_auth_api_contract` /
+      `test_auth_middleware_service_token` — 28 passed), `test_security_auth_bypass` + ratchet (27 passed),
+      black clean; full suite **750 passed / 12 skipped / 0 failed**, coverage floor held (65.28% ≥ 64%).
+    - IMPROVEMENTS.md: item #3 marked RESOLVED everywhere (table row, item status, matrix, key-findings #6).
+      With slices 1–5 done, no synchronous SQLAlchemy remains on the event loop in `src/api/**` handlers.
+
 - Blocking-DB-offload **slice 4: the remaining route families** — item #3's route work is now COMPLETE:
     - `src/api/v1/bot_records.py`: all 4 handlers (history/jobs/trades/stats) load + serialize through
       session-owning sync closures via `run_db`; 404-on-unknown-bot, 500 envelopes, and message text are

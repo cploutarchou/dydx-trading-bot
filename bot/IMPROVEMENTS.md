@@ -47,7 +47,7 @@ Most of this document is a record of completed work. Everything still pending, i
 | --- | --- | --- | --- |
 | 1 | **Multi-worker tests** — core harness delivered 2026-08-14 + CI job (`bot-multiworker`, non-blocking phase 1) 2026-08-15; it already caught and fixed a real bus bug. Remaining: promote the CI job to blocking once stable, and multi-replica/load coverage | Gates everything below it; the only way the split-registry class of bug gets caught | days |
 | 2 | **Broadcast bus Phase 2** — flip `WS_BROADCAST_ENABLED` on, add metrics + broadcast coalescing | Phase 1 shipped inert; multi-worker deployments still have split websocket registries | 1-2 weeks |
-| 3 | **Move blocking DB calls off the event loop** | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | route families COMPLETE 2026-08-15 (slices 1–4: `run_db` seam + backtest/realtime reads, WebSocket senders, backtest mutations, `bot_records`/`bot_lifecycle`/`strategies`); remaining flagged smalls: `pool_pre_ping`, auth-dependency session leaks |
+| 3 | ~~**Move blocking DB calls off the event loop**~~ **RESOLVED 2026-08-15** — slices 1–5: `run_db` seam + backtest/realtime reads, WebSocket senders, backtest mutations, `bot_records`/`bot_lifecycle`/`strategies`, `pool_pre_ping` (default ON) + auth yield-dependency session fix | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | done |
 | 4 | **Integration tests** (Redis / Celery / dYdX) | Compose infra already exists; mostly markers + a CI job | 2-3 weeks |
 | 5 | ~~**Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`)~~ **RESOLVED 2026-08-15** — floor set at 64% (measured 65.08%, blocking), `bot-deps-audit` pip-audit CI job + Dependabot shipped; first audit already removed an unused `aiohttp` pin carrying 3 open advisories | Two cheap CI gates; coverage reports today with nothing enforcing them | done |
 | 6 | **Portfolio-level risk controls** | Per-instance limits can each pass while the account is over-exposed | 4-6 weeks |
@@ -204,8 +204,17 @@ Items removed from this plan during the same review — and why — are listed i
       await through `run_db` (the manager calls were already async). Every module-level monkeypatch seam
       preserved (`test_bot_record_routes`, `test_bot_lifecycle_routes`, `test_strategies_routes`,
       ratchet — 31 green; full suite 750 passed, coverage floor held at 65.29%).
-      **Remaining (flagged smalls, not route families):** no `pool_pre_ping` (stale-idle connection
-      risk), and auth handlers leak `Depends(db.get_session)` sessions.
+      **Slice 5 (2026-08-15): the flagged smalls — ITEM COMPLETE.**
+      (a) Engine `pool_pre_ping` is now ON by default (`DB_POOL_PRE_PING`, override to `false` only for
+      latency-critical hot paths after measuring): pooled connections are pre-checked on checkout so a
+      stale/idle connection is transparently re-established instead of surfacing as a random
+      "server closed the connection" error; exposed in `to_diagnostics()`. (b) The auth session leak is
+      fixed: the 8 `Depends(db.get_session)` sites in `src/api/v1/auth/__init__.py` +
+      `password_2fa.py` used the raw session-factory method, which FastAPI never closes — they now use
+      the module-level yield-dependency `get_session()` (open → yield → close), the same one
+      `auth_middleware.get_current_user` already used.
+      With that, every async route family, the WebSocket senders, and the engine-level resilience flag
+      are done: no synchronous SQLAlchemy remains on the event loop in `src/api/**` handlers.
 
 #### **Moderate Issues**
 
@@ -1052,11 +1061,9 @@ remains:
 - ✅ **Dependency vulnerability scanning** (`pip-audit` / Dependabot) — COMPLETED (2026-08-15): non-blocking
   `bot-deps-audit` CI job + `.github/dependabot.yml`; first audit removed an unused `aiohttp` pin with 3 open
   advisories (one accepted no-fix `ecdsa` finding via `python-jose` remains, documented)
-- **Move blocking DB calls off the event loop** — the largest unaddressed performance item;
-  **slice 1 landed 2026-08-12** (`run_db` offload helper + backtest + realtime read families converted),
-  **slices 2–4 landed 2026-08-15** (WebSocket sender family; backtest mutations; `bot_records` /
-  `bot_lifecycle` / `strategies`) — the route-family work is complete; remaining flagged smalls:
-  `pool_pre_ping`, auth-dependency session leaks
+- ✅ **Move blocking DB calls off the event loop** — COMPLETED 2026-08-15 (slices 1–5; `run_db` seam +
+  backtest/realtime reads, WebSocket senders, backtest mutations, `bot_records`/`bot_lifecycle`/
+  `strategies`, `pool_pre_ping` default ON, auth yield-dependency session fix)
 
 ### **Lower Priority**
 
@@ -1221,8 +1228,9 @@ The original Week-1 items are retained as an implementation record; completed wo
 5. ✅ **Broad exception handlers** masking real issues — CONTAINED: typed hierarchy + global 500 handler + an
    enforced ratchet (324→309) that can only go down. The residue was reviewed and is mostly intentional
    best-effort isolation, so this is closed rather than "in progress"
-6. 🔴 **Synchronous DB I/O in async handlers** — the one significant performance risk still fully open; not
-   previously called out as a headline finding
+6. ✅ **Synchronous DB I/O in async handlers** — RESOLVED (2026-08-15): all async route families, the
+   WebSocket senders, and the engine-level flags converted to the `run_db`/`run_in_threadpool` offload seam
+   (slices 1–5); no synchronous SQLAlchemy remains on the event loop in `src/api/**` handlers
 
 ### **Architecture Strengths**
 

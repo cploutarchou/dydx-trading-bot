@@ -1,5 +1,23 @@
 # Tasks Log
 
+## 2026-08-15
+
+- Wired the multi-worker broadcast harness into CI (completes the CI-wiring follow-up of the 2026-08-14 item):
+    - New `bot-multiworker` job in `../.github/workflows/bot-quality.yml` — Postgres 15.18-bookworm + Valkey
+      7.2-alpine **service containers** (image/credentials mirror the `docker-compose.infra.yml` defaults so the
+      harness's `POSTGRES_*` probes match local runs), health-checked, with `MULTIWORKER_TEST=1`,
+      `MULTIWORKER_REDIS_URL`, and explicit `POSTGRES_*` job env; runs
+      `pytest tests/test_multi_worker_broadcast.py -vv -s --tb=short` and posts a step summary;
+      `timeout-minutes: 15`.
+    - Follows the repo's phase-1 gating convention (mypy/bandit precedent): `continue-on-error` on the test step
+      and intentionally NOT in `quality-gate.needs` until stability on shared runners is proven; the promotion
+      path (drop `continue-on-error`, add to `needs`) is documented in the job's comment block.
+    - Validated locally: workflow YAML parses (job/services/env/steps verified), and the exact job command with
+      the exact job env passed against live infra (2 passed) — env plumbing (`MULTIWORKER_REDIS_URL`,
+      `POSTGRES_HOST/PORT/USER/PASSWORD` → harness probes → ephemeral DB creation) exercised end-to-end.
+    - IMPROVEMENTS.md synced: CI-job sub-checkbox checked, open-items table and the Phase 2 "blocked on" note
+      updated (remaining: promote job to blocking once stable + burst/load coverage).
+
 ## 2026-08-14
 
 - Delivered the multi-worker test harness (IMPROVEMENTS.md open item #1, the gate on the broadcast-bus Phase 2 flip):

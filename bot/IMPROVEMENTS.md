@@ -48,7 +48,7 @@ Most of this document is a record of completed work. Everything still pending, i
 | 1 | **Multi-worker tests** — core harness delivered 2026-08-14 + CI job (`bot-multiworker`, non-blocking phase 1) 2026-08-15; it already caught and fixed a real bus bug. Remaining: promote the CI job to blocking once stable, and multi-replica/load coverage | Gates everything below it; the only way the split-registry class of bug gets caught | days |
 | 2 | **Broadcast bus Phase 2** — flip `WS_BROADCAST_ENABLED` on, add metrics + broadcast coalescing | Phase 1 shipped inert; multi-worker deployments still have split websocket registries | 1-2 weeks |
 | 3 | ~~**Move blocking DB calls off the event loop**~~ **RESOLVED 2026-08-15** — slices 1–5: `run_db` seam + backtest/realtime reads, WebSocket senders, backtest mutations, `bot_records`/`bot_lifecycle`/`strategies`, `pool_pre_ping` (default ON) + auth yield-dependency session fix | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | done |
-| 4 | **Integration tests** (Redis / Celery / dYdX) | Compose infra already exists; mostly markers + a CI job | 2-3 weeks |
+| 4 | ~~**Integration tests** (Redis / Celery / dYdX)~~ **RESOLVED 2026-08-15** — opt-in harness (`tests/test_integration_external_services.py`, `make test-integration`): real cache roundtrip, real bus pub/sub, real Celery worker ping+registration, live indexer contract; non-blocking `bot-integration` CI job with a Valkey service container | Compose infra already exists; mostly markers + a CI job | done |
 | 5 | ~~**Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`)~~ **RESOLVED 2026-08-15** — floor set at 64% (measured 65.08%, blocking), `bot-deps-audit` pip-audit CI job + Dependabot shipped; first audit already removed an unused `aiohttp` pin carrying 3 open advisories | Two cheap CI gates; coverage reports today with nothing enforcing them | done |
 | 6 | **Portfolio-level risk controls** | Per-instance limits can each pass while the account is over-exposed | 4-6 weeks |
 | 7 | **Backtest checkpointing** (optional) | Compute-cost optimization only; auto-recovery already handles correctness | 2 weeks |
@@ -311,7 +311,10 @@ Items removed from this plan during the same review — and why — are listed i
     - ~~**No Multi-Worker Tests**~~ — RESOLVED (2026-08-14): `tests/test_multi_worker_broadcast.py` (opt-in via
       `make test-multiworker`) covers the two-real-workers topology, caught and fixed a real listener-flap bus bug;
       CI wiring for it remains open
-    - **Missing Integration Tests**: nothing exercises real Redis/Celery/dYdX-indexer topology
+    - ~~**Missing Integration Tests**~~ — RESOLVED (2026-08-15):
+      `tests/test_integration_external_services.py` (opt-in via `make test-integration`) exercises real
+      Redis/Celery/dYdX-indexer topology; multi-worker topology covered by
+      `tests/test_multi_worker_broadcast.py`
     - ~~Missing Security Tests~~ — RESOLVED (`tests/test_security_auth_bypass.py`, 20 cases)
     - **Impact**: production surprises in exactly the areas unit tests can't reach
     - **Files**: `tests/test_*.py`
@@ -947,12 +950,27 @@ Items removed from this plan during the same review — and why — are listed i
       `MULTIWORKER_TEST=1 pytest tests/test_multi_worker_broadcast.py`), and optional multi-replica
       (docker-level) + burst/load coverage ahead of the Phase 2 flip.
 
-- [ ] **Add integration tests** for external services (Redis, Celery, dYdX)
-    - **Files**: Create live integration test suite
+- [x] **Add integration tests** for external services (Redis, Celery, dYdX) — DONE 2026-08-15
+    - **Files**: `tests/test_integration_external_services.py`, `Makefile` (`test-integration`),
+      `.github/workflows/bot-quality.yml` (`bot-integration` job)
     - **Impact**: Validate real-world compatibility, catch integration issues
-    - **Effort**: 2-3 weeks
+    - **Effort**: 2-3 weeks (delivered in the established opt-in pattern in one slice)
     - **Priority**: HIGH — the docker-compose infra already exists (`docker-compose.infra.yml`), so this is
       mostly wiring markers + a CI job, not new infrastructure
+    - **Status: COMPLETED.** Opt-in harness (`INTEGRATION_TEST=1` / `make test-integration`, module-level
+      skip otherwise) covering: (1) the real `RedisMarketDataCache` roundtrip (markets + candles, health)
+      against a dedicated scratch DB (`redis://localhost:6379/15` via `INTEGRATION_REDIS_URL` — never the
+      dev cache; flushed before/after); (2) the real `RedisBroadcastBus` pub/sub — cross-instance delivery
+      plus self-origin suppression over live sockets (complements the unit fakes and the two-real-workers
+      multi-worker harness); (3) a REAL Celery worker subprocess (solo pool, scratch broker
+      `redis://localhost:6379/14` via `INTEGRATION_CELERY_BROKER_URL`, metadata-only structured profile so
+      no repo config leaks) that must answer `control.ping` and register the core tasks
+      (`backtests.run`, `bot.sync_market_candles`) — the registration contract the API startup probe and
+      Flower rely on; (4) the live public dYdX v4 indexer markets contract (BTC-USD ACTIVE + oracle price;
+      skips, not fails, when offline; override via `DYDX_INTEGRATION_INDEXER_URL`). CI: non-blocking
+      phase-1 `bot-integration` job (Valkey service container + live indexer; promote the same way as
+      `bot-multiworker` once consistently green). Validated live: 5/5 passed; full default suite
+      unaffected (module skips; 750 passed / 13 skipped / coverage floor held).
 
 - [x] **Add security tests** for authentication bypass scenarios
     - **Files**: Create security test suite, penetration tests
@@ -1041,7 +1059,9 @@ remains:
 
 ### **High Priority / Medium Impact** (Week 2-4)
 
-- **Add integration tests** for external services (Redis, Celery, dYdX)
+- ✅ **Add integration tests** for external services (Redis, Celery, dYdX) — COMPLETED (2026-08-15):
+  opt-in harness + `make test-integration` + non-blocking `bot-integration` CI job (real cache roundtrip,
+  real bus pub/sub, real Celery worker ping/registration, live indexer contract)
 - ✅ **Implement input validation** on all trading API endpoints (COMPLETED)
 - ✅ **Add connection pool monitoring** and alerting (COMPLETED)
 - ✅ **Extract WebSocket management** from API server (COMPLETED — `websocket_server.py`)

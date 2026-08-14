@@ -2,6 +2,32 @@
 
 ## 2026-08-15
 
+- Closed IMPROVEMENTS.md open item #4 — **integration tests for external services (Redis, Celery, dYdX)**:
+    - New opt-in harness `tests/test_integration_external_services.py` (`INTEGRATION_TEST=1` /
+      `make test-integration`; module-level skip otherwise), following the MULTIWORKER_TEST convention:
+        1. **Redis/Valkey cache**: real `RedisMarketDataCache` roundtrip (markets + candles, health,
+           overwrite-wins) against dedicated scratch DB 15 (`INTEGRATION_REDIS_URL`), flushed before/after —
+           the dev cache is never touched.
+        2. **Broadcast bus**: two real `RedisBroadcastBus` instances over live sockets — cross-instance
+           pub/sub delivery AND self-origin suppression (also waits for the truthful `subscribed` health
+           flag before publishing).
+        3. **Celery**: a real worker subprocess (solo pool, `--without-gossip/--without-mingle`, scratch
+           broker/result DB 14 via `INTEGRATION_CELERY_BROKER_URL`, metadata-only structured profile) that
+           must answer `control.ping` and register the core tasks (`backtests.run`,
+           `bot.sync_market_candles`); the test process's own `celery_app` client env is pinned/ restored
+           around the import so `load_repo_env` cannot redirect it to the dev broker.
+        4. **dYdX indexer**: live public v4 markets contract (BTC-USD ACTIVE + oracle price;
+           `DYDX_INTEGRATION_INDEXER_URL` override; skips — not fails — when offline).
+    - CI: non-blocking phase-1 `bot-integration` job in `../.github/workflows/bot-quality.yml` (Valkey
+      service container, `INTEGRATION_TEST=1`, step summary, `timeout-minutes: 15`); promote the same way
+      as `bot-multiworker` once consistently green.
+    - Validation: live run **5/5 passed** (incl. via `make test-integration` end-to-end); default suite
+      unaffected (module skips: 750 passed / 13 skipped, coverage floor held 65.28% ≥ 64%); workflow YAML
+      parsed and verified; two first-draft assertion bugs fixed against observed reality (custom Celery
+      task names; indexer market field names).
+    - IMPROVEMENTS.md: item #4 marked RESOLVED (table row, action item, coverage-gaps section, matrix);
+      AGENTS.md (testing commands + required checks) and README (commands) synced.
+
 - Blocking-DB-offload **slice 5: the flagged smalls — item #3 CLOSED**:
     - **Engine `pool_pre_ping` (default ON)**: `DatabaseConfig` gained `pool_pre_ping` (`DB_POOL_PRE_PING`,
       default true) wired into `get_engine_kwargs()` and `to_diagnostics()` — pooled connections are

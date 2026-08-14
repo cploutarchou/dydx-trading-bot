@@ -136,6 +136,11 @@ become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown 
   starts shared infra (`make -C .. infra-up`), boots two real API worker processes against one Redis/Valkey and an
   ephemeral PostgreSQL database with `WS_BROADCAST_ENABLED=true`, and asserts cross-worker WebSocket delivery with no
   loop-back. Skips automatically unless `MULTIWORKER_TEST=1` is set (directly or via this target).
+- `make test-integration` — Run the opt-in external-service integration tests
+  (`tests/test_integration_external_services.py`): real Redis/Valkey market-data-cache roundtrip + broadcast-bus
+  pub/sub (scratch DBs 14/15), a real Celery worker subprocess (control ping + task registration), and the live
+  public dYdX v4 indexer markets contract (skips when offline). Skips automatically unless `INTEGRATION_TEST=1` is
+  set (directly or via this target).
 - `make test-auth` — Test authentication system (runs `test_api_database_integration.py` in Docker)
 - `make preflight-testnet` — Run testnet preflight checks with production-like simulation
 - `make preflight-testnet-strict` — Run strict preflight (warnings fail; required for release)
@@ -295,6 +300,10 @@ module `reset_*()` helpers.
 - Run `tests/test_broadcast_bus.py` when touching cross-worker WebSocket broadcast (`src/infrastructure/broadcast/`);
   for changes to the bus listener/publish path also run the opt-in `tests/test_multi_worker_broadcast.py`
   (`make test-multiworker`, needs local Redis + PostgreSQL infra).
+- Run the opt-in `tests/test_integration_external_services.py` (`make test-integration`, needs local
+  Redis/Valkey + outbound network) when touching the shared market-data cache, the broadcast bus's real
+  pub/sub path, Celery worker wiring (`celery_app.py` task registration/broker config), or the dYdX
+  indexer contract.
 - Run `tests/test_credentials_cipher.py` when touching credential sealing/encryption (`src/shared/credentials_cipher.py`
   or `bot_instances` config persistence).
 - Run `tests/test_monitoring_routes.py` when touching `src/api/v1/monitoring.py` endpoints.

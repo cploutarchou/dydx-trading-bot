@@ -2,6 +2,27 @@
 
 ## 2026-08-15
 
+- Blocking-DB-offload **slice 3: backtest mutations** (IMPROVEMENTS.md open item #3):
+    - `cancel` / `pause` / `resume` / `delete` routes in `src/api/v1/backtests.py` no longer run their sync
+      service calls on the event loop — new `_cancel/_pause/_resume/_delete_backtest_sync` helpers run via
+      the established `run_db` seam (`_run_with_backtest_service` owns the service/session lifecycle and
+      resolves `get_backtest_service` through `_compat` at call time, so every test patch seam survives).
+    - `restart` / `retry` offload their sync status precheck through the existing
+      `_get_backtest_status_sync` seam; the async `restart_backtest`/`retry_backtest` service calls stay on
+      the loop, now with the service scope opened *after* the precheck (no session held across the read).
+    - The three shared control builders — `_repair_backtest_request_response`,
+      `_list_interrupted_backtests_response`, `_reconcile_interrupted_backtests_response` — became async
+      with their service work offloaded (`_repair_backtest_request_sync` /
+      `_list_interrupted_runs_for_ops_sync` / `_reconcile_interrupted_runs_sync`); their five route call
+      sites await results through a new `_maybe_awaitable(...)` helper so monkeypatched sync builder
+      doubles (`test_backtest_route_auth` patches one with a sync lambda) keep working unchanged.
+    - Validation: `test_backtest_routes.py` + `test_backtest_api_contract.py` + `test_backtest_route_auth.py`
+      + ratchet (66 passed); full suite **750 passed / 12 skipped / 0 failed**, coverage floor held
+      (65.22% ≥ 64%); black clean.
+    - IMPROVEMENTS.md + AGENTS.md rule 13 reference list synced. Remaining slices: `bot_records` /
+      `bot_lifecycle` / `strategies` families; flagged smalls: `pool_pre_ping`, auth-dependency session
+      leaks.
+
 - Blocking-DB-offload **slice 2: the WebSocket sender family** (IMPROVEMENTS.md open item #3, the doc's named
   next slice):
     - `send_initial_state`, `send_positions`, `send_stats`, and `send_market_data` in

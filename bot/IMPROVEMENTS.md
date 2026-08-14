@@ -47,7 +47,7 @@ Most of this document is a record of completed work. Everything still pending, i
 | --- | --- | --- | --- |
 | 1 | **Multi-worker tests** — core harness delivered 2026-08-14 + CI job (`bot-multiworker`, non-blocking phase 1) 2026-08-15; it already caught and fixed a real bus bug. Remaining: promote the CI job to blocking once stable, and multi-replica/load coverage | Gates everything below it; the only way the split-registry class of bug gets caught | days |
 | 2 | **Broadcast bus Phase 2** — flip `WS_BROADCAST_ENABLED` on, add metrics + broadcast coalescing | Phase 1 shipped inert; multi-worker deployments still have split websocket registries | 1-2 weeks |
-| 3 | **Move blocking DB calls off the event loop** | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | ongoing — slice 1 done 2026-08-12 (`run_db` + backtest/realtime reads), slice 2 done 2026-08-15 (WebSocket sender family); mutations + `bot_records`/`bot_lifecycle`/`strategies` remain |
+| 3 | **Move blocking DB calls off the event loop** | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | ongoing — slice 1 done 2026-08-12 (`run_db` + backtest/realtime reads), slices 2–3 done 2026-08-15 (WebSocket sender family; backtest mutations incl. repair/interrupted-reconcile); `bot_records`/`bot_lifecycle`/`strategies` remain |
 | 4 | **Integration tests** (Redis / Celery / dYdX) | Compose infra already exists; mostly markers + a CI job | 2-3 weeks |
 | 5 | ~~**Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`)~~ **RESOLVED 2026-08-15** — floor set at 64% (measured 65.08%, blocking), `bot-deps-audit` pip-audit CI job + Dependabot shipped; first audit already removed an unused `aiohttp` pin carrying 3 open advisories | Two cheap CI gates; coverage reports today with nothing enforcing them | done |
 | 6 | **Portfolio-level risk controls** | Per-instance limits can each pass while the account is over-exposed | 4-6 weeks |
@@ -184,10 +184,18 @@ Items removed from this plan during the same review — and why — are listed i
       plain dicts — message shapes, unknown-bot variants, error logging, and return values unchanged
       (`tests/test_websocket_server.py`, `tests/test_bot_realtime_routes.py`, ratchet green; live
       multi-worker harness re-verified).
-      **Remaining (follow-on slices):** backtest mutations (pause/resume/cancel/delete/repair/retry), and
-      the `bot_records` / `bot_lifecycle` / `strategies` families — same pattern, mechanical. Also flagged
-      (not fixed): no `pool_pre_ping` (stale-idle connection risk), and auth handlers leak
-      `Depends(db.get_session)` sessions.
+      **Slice 3 (2026-08-15): backtest mutations** — `cancel`/`pause`/`resume`/`delete` routes now run
+      through `_cancel/_pause/_resume/_delete_backtest_sync` + `run_db`; `restart`/`retry` offload their
+      sync status precheck via the existing `_get_backtest_status_sync` seam (the async service call stays
+      on the loop); and the three shared control builders (`_repair_backtest_request_response`,
+      `_list_interrupted_backtests_response`, `_reconcile_interrupted_backtests_response`) became async
+      with their service work offloaded — their routes await via `_maybe_awaitable(...)` so tests that
+      monkeypatch the builders with sync doubles keep working. All `_compat`/`get_backtest_service`
+      patch seams preserved (`test_backtest_routes`, `test_backtest_api_contract`,
+      `test_backtest_route_auth`, ratchet — 66 green; full suite 750 passed, coverage floor held).
+      **Remaining (follow-on slices):** the `bot_records` / `bot_lifecycle` / `strategies` families —
+      same pattern, mechanical. Also flagged (not fixed): no `pool_pre_ping` (stale-idle connection
+      risk), and auth handlers leak `Depends(db.get_session)` sessions.
 
 #### **Moderate Issues**
 
@@ -1036,8 +1044,9 @@ remains:
   advisories (one accepted no-fix `ecdsa` finding via `python-jose` remains, documented)
 - **Move blocking DB calls off the event loop** — the largest unaddressed performance item;
   **slice 1 landed 2026-08-12** (`run_db` offload helper + backtest + realtime read families converted),
-  **slice 2 landed 2026-08-15** (WebSocket sender family in `websocket_server.py`); mutations /
-  `bot_records` / `bot_lifecycle` / `strategies` families follow
+  **slices 2–3 landed 2026-08-15** (WebSocket sender family in `websocket_server.py`; backtest mutations
+  incl. repair/interrupted-reconcile in `backtests.py`); `bot_records` / `bot_lifecycle` / `strategies`
+  families follow
 
 ### **Lower Priority**
 

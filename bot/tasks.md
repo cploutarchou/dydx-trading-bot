@@ -1,5 +1,40 @@
 # Tasks Log
 
+## 2026-08-14
+
+- Delivered the multi-worker test harness (IMPROVEMENTS.md open item #1, the gate on the broadcast-bus Phase 2 flip):
+    - `tests/test_multi_worker_broadcast.py` — opt-in (`MULTIWORKER_TEST=1` / `make test-multiworker`) integration
+      test that boots the canonical API as two real `start_api.py` worker processes against one Redis/Valkey and an
+      ephemeral PostgreSQL DB (`dydx_bot_mwtest_<pid>`, created/dropped per run), with `WS_BROADCAST_ENABLED=true`,
+      auth bypassed in a test environment, and a metadata-only structured profile so no repo profile values leak in.
+      Workers start staggered to avoid Alembic DDL races on the empty schema. Asserts distinct bus worker identities,
+      healthy+subscribed listeners, and the headline property: a `broadcast_to_bot` on worker A reaches a WebSocket
+      client on worker B exactly once, the local client on A gets exactly one copy, both directions work, and a quiet
+      window proves no loop-back echo. Auto-skips (module level) when not opted in or when Redis/Postgres are absent,
+      with actionable skip messages.
+    - New operator smoke-test endpoint `POST /api/v1/monitoring/ws-broadcast/publish` (auth required): emits a fixed
+      server-built `broadcast_test` message through `broadcast_to_bot` to a validated channel and returns the
+      correlatable `test_id` plus bus health — the deterministic in-worker trigger the harness (and operators
+      post-Phase-2-flip) need. `openapi.json` regenerated (+1 operation, +`WsBroadcastPublishRequest`);
+      `tests/test_monitoring_routes.py` extended (9-route shape incl. POST, happy path, 422 boundary, 401).
+    - **Fixed a real Phase-1 bus bug found by the harness**: the pub/sub listener inherited the 1.0 s command
+      `socket_timeout`, so idle `listen()` raised `TimeoutError` every second and the subscription flapped
+      (resubscribe loop), silently dropping messages published between resubscribes while `health()` still said
+      healthy+listening. The subscriber now uses a dedicated no-read-timeout connection (publish/health commands
+      keep the bounded timeout), and `health()` reports a new `subscribed` field with the actual subscription state.
+      Reproduced with a live-Valkey two-bus script; `tests/test_broadcast_bus.py` still green (17 cases).
+    - **Found (not fixed — migration follow-up)**: on a fresh database built purely by Alembic migrations, Postgres
+      enums reject the ORM's labels (`positionstatusenum` vs `'OPEN'`, `jobstatusenum` vs `'PENDING'`), breaking
+      websocket initial-state position queries and `async_job_manager` persistence. Only bites fresh-from-migration
+      schemas (historical `create_all_tables` databases are unaffected); the harness works around it via a
+      `backtest-*` channel. Needs an enum-label alignment change under the migration-safety process.
+    - Makefile: new `test-multiworker` target (`ensure-venv` → `make -C .. infra-up` → opt-in pytest run).
+      Docs synced: `README.md` (commands), `AGENTS.md` (testing commands, required checks, broadcast section),
+      `IMPROVEMENTS.md` (item #1 + Phase 2 checkpoint), this log. Validation: monitoring/broadcast-bus/realtime
+      openapi-comparison suites green, broad-catch ratchet green, black clean, multi-worker suite passed twice
+      end-to-end against live infra. Note: local `.venv` was missing pinned `pytest-asyncio==1.3.0`; installed to
+      restore the async-marked tests.
+
 ## 2026-08-12
 
 - Enforced TOTP 2FA at login (resolves the 2FA login-enforcement follow-up noted on 2026-08-11 — the

@@ -7,7 +7,7 @@ import asyncio
 import json
 import os
 import time
-from typing import Any, Dict, Optional, Set, cast
+from typing import Any, Dict, List, Optional, Set, cast
 
 from fastapi import WebSocket, WebSocketDisconnect
 from loguru import logger
@@ -661,18 +661,69 @@ class WebSocketServer:
     @staticmethod
     async def send_initial_state(websocket: WebSocket, bot_instance_id: str) -> bool:
         """Send current bot state when client connects"""
-        session = None
         try:
             if WebSocketServer._is_backtest_channel(bot_instance_id):
                 return await WebSocketServer.send_backtest_status(
                     websocket, WebSocketServer._backtest_run_id(bot_instance_id)
                 )
 
-            session = db.get_session()
-            uow = UnitOfWorkRealtime(session)
+            def _load_snapshot() -> Optional[Dict]:
+                """Load + serialize the realtime snapshot off the event loop.
 
-            bot_id = WebSocketServer._resolve_realtime_bot_id(session, bot_instance_id)
-            if bot_id is None:
+                Owns its full Session lifecycle and returns plain dicts (no ORM
+                objects cross the thread boundary — see db_offload conventions).
+                """
+                session = db.get_session()
+                try:
+                    uow = UnitOfWorkRealtime(session)
+                    bot_id = WebSocketServer._resolve_realtime_bot_id(
+                        session, bot_instance_id
+                    )
+                    if bot_id is None:
+                        return None
+                    positions = uow.positions.get_open_positions(bot_id)
+                    market_data = uow.market_data.get_all_market_data(bot_id)
+                    stats = uow.stats.get_stats(bot_id)
+                    return {
+                        "positions": [
+                            serialize_realtime_position(p) for p in positions
+                        ],
+                        "market_data": [
+                            serialize_market_core(m, include_volatility=True)
+                            for m in market_data
+                        ],
+                        "stats": {
+                            "total_open_positions": (
+                                stats.total_open_positions if stats else 0
+                            ),
+                            "total_unrealized_pnl": (
+                                float(stats.total_unrealized_pnl) if stats else 0
+                            ),
+                            "total_unrealized_pnl_pct": (
+                                float(stats.total_unrealized_pnl_pct) if stats else 0
+                            ),
+                            "daily_pnl": float(stats.daily_pnl) if stats else 0,
+                            "daily_pnl_pct": (
+                                float(stats.daily_pnl_pct) if stats else 0
+                            ),
+                            "daily_trades_opened": (
+                                stats.daily_trades_opened if stats else 0
+                            ),
+                            "daily_trades_closed": (
+                                stats.daily_trades_closed if stats else 0
+                            ),
+                            "daily_win_rate": (
+                                serialize_stats_risk_fields(stats)["daily_win_rate"]
+                                if stats
+                                else 0
+                            ),
+                        },
+                    }
+                finally:
+                    session.close()
+
+            snapshot = await run_in_threadpool(_load_snapshot)
+            if snapshot is None:
                 sent = await manager.send_personal_message(
                     {
                         "type": "initial_state",
@@ -683,47 +734,11 @@ class WebSocketServer:
                     websocket,
                 )
                 return sent
-            # Get open positions
-            positions = uow.positions.get_open_positions(bot_id)
-            # Get market data
-            market_data = uow.market_data.get_all_market_data(bot_id)
-            # Get stats
-            stats = uow.stats.get_stats(bot_id)
 
             message = {
                 "type": "initial_state",
                 "timestamp": utc_now_iso(),
-                "data": {
-                    "positions": [serialize_realtime_position(p) for p in positions],
-                    "market_data": [
-                        serialize_market_core(m, include_volatility=True)
-                        for m in market_data
-                    ],
-                    "stats": {
-                        "total_open_positions": (
-                            stats.total_open_positions if stats else 0
-                        ),
-                        "total_unrealized_pnl": (
-                            float(stats.total_unrealized_pnl) if stats else 0
-                        ),
-                        "total_unrealized_pnl_pct": (
-                            float(stats.total_unrealized_pnl_pct) if stats else 0
-                        ),
-                        "daily_pnl": float(stats.daily_pnl) if stats else 0,
-                        "daily_pnl_pct": float(stats.daily_pnl_pct) if stats else 0,
-                        "daily_trades_opened": (
-                            stats.daily_trades_opened if stats else 0
-                        ),
-                        "daily_trades_closed": (
-                            stats.daily_trades_closed if stats else 0
-                        ),
-                        "daily_win_rate": (
-                            serialize_stats_risk_fields(stats)["daily_win_rate"]
-                            if stats
-                            else 0
-                        ),
-                    },
-                },
+                "data": snapshot,
             }
 
             return await manager.send_personal_message(message, websocket)
@@ -736,9 +751,6 @@ class WebSocketServer:
                 e,
             )
             return False
-        finally:
-            if session is not None:
-                session.close()
 
     @staticmethod
     async def handle_message(websocket: WebSocket, bot_instance_id: str, message: Dict):
@@ -780,137 +792,149 @@ class WebSocketServer:
     @staticmethod
     async def send_positions(websocket: WebSocket, bot_instance_id: str):
         """Send all positions to client"""
-        session = None
         try:
-            session = db.get_session()
-            uow = UnitOfWorkRealtime(session)
 
-            bot_id = WebSocketServer._resolve_realtime_bot_id(session, bot_instance_id)
-            if bot_id is None:
+            def _load_positions() -> Optional[List[Dict]]:
+                """Load + serialize open positions off the event loop."""
+                session = db.get_session()
+                try:
+                    uow = UnitOfWorkRealtime(session)
+                    bot_id = WebSocketServer._resolve_realtime_bot_id(
+                        session, bot_instance_id
+                    )
+                    if bot_id is None:
+                        return None
+                    return [
+                        {
+                            "position_id": p.position_id,
+                            "pair1": p.pair1,
+                            "pair2": p.pair2,
+                            "unrealized_pnl": float(p.unrealized_pnl),
+                            "unrealized_pnl_pct": float(p.unrealized_pnl_pct),
+                        }
+                        for p in uow.positions.get_open_positions(bot_id)
+                    ]
+                finally:
+                    session.close()
+
+            positions = await run_in_threadpool(_load_positions)
+            if positions is None:
                 await manager.send_personal_message(
                     {"type": "positions_list", "timestamp": utc_now_iso(), "data": []},
                     websocket,
                 )
                 return
-            positions = uow.positions.get_open_positions(bot_id)
 
             message = {
                 "type": "positions_list",
                 "timestamp": utc_now_iso(),
-                "data": [
-                    {
-                        "position_id": p.position_id,
-                        "pair1": p.pair1,
-                        "pair2": p.pair2,
-                        "unrealized_pnl": float(p.unrealized_pnl),
-                        "unrealized_pnl_pct": float(p.unrealized_pnl_pct),
-                    }
-                    for p in positions
-                ],
+                "data": positions,
             }
 
             await manager.send_personal_message(message, websocket)
 
         except Exception as e:
             logger.error(f"Error sending positions: {e}")
-        finally:
-            if session is not None:
-                session.close()
 
     @staticmethod
     async def send_stats(websocket: WebSocket, bot_instance_id: str):
         """Send statistics to client"""
-        session = None
         try:
-            session = db.get_session()
-            uow = UnitOfWorkRealtime(session)
 
-            bot_id = WebSocketServer._resolve_realtime_bot_id(session, bot_instance_id)
-            if bot_id is None:
+            def _load_stats() -> Optional[Dict]:
+                """Load + serialize realtime stats off the event loop."""
+                session = db.get_session()
+                try:
+                    uow = UnitOfWorkRealtime(session)
+                    bot_id = WebSocketServer._resolve_realtime_bot_id(
+                        session, bot_instance_id
+                    )
+                    if bot_id is None:
+                        return None
+                    stats = uow.stats.get_stats(bot_id)
+                    if not stats:
+                        return {}
+                    return {
+                        "total_open_positions": stats.total_open_positions,
+                        "total_unrealized_pnl": float(stats.total_unrealized_pnl),
+                        "total_unrealized_pnl_pct": float(
+                            stats.total_unrealized_pnl_pct
+                        ),
+                        "daily_pnl": float(stats.daily_pnl),
+                        "daily_pnl_pct": float(stats.daily_pnl_pct),
+                        "daily_trades_opened": stats.daily_trades_opened,
+                        "daily_trades_closed": stats.daily_trades_closed,
+                        **serialize_stats_risk_fields(stats),
+                    }
+                finally:
+                    session.close()
+
+            stats_data = await run_in_threadpool(_load_stats)
+            if stats_data is None:
                 await manager.send_personal_message(
                     {"type": "stats", "timestamp": utc_now_iso(), "data": {}},
                     websocket,
                 )
                 return
-            stats = uow.stats.get_stats(bot_id)
 
             message = {
                 "type": "stats",
                 "timestamp": utc_now_iso(),
-                "data": (
-                    {
-                        "total_open_positions": (
-                            stats.total_open_positions if stats else 0
-                        ),
-                        "total_unrealized_pnl": (
-                            float(stats.total_unrealized_pnl) if stats else 0
-                        ),
-                        "total_unrealized_pnl_pct": (
-                            float(stats.total_unrealized_pnl_pct) if stats else 0
-                        ),
-                        "daily_pnl": float(stats.daily_pnl) if stats else 0,
-                        "daily_pnl_pct": float(stats.daily_pnl_pct) if stats else 0,
-                        "daily_trades_opened": (
-                            stats.daily_trades_opened if stats else 0
-                        ),
-                        "daily_trades_closed": (
-                            stats.daily_trades_closed if stats else 0
-                        ),
-                        **(serialize_stats_risk_fields(stats) if stats else {}),
-                    }
-                    if stats
-                    else {}
-                ),
+                "data": stats_data,
             }
 
             await manager.send_personal_message(message, websocket)
 
         except Exception as e:
             logger.error(f"Error sending stats: {e}")
-        finally:
-            if session is not None:
-                session.close()
 
     @staticmethod
     async def send_market_data(websocket: WebSocket, bot_instance_id: str):
         """Send market data to client"""
-        session = None
         try:
-            session = db.get_session()
-            uow = UnitOfWorkRealtime(session)
 
-            bot_id = WebSocketServer._resolve_realtime_bot_id(session, bot_instance_id)
-            if bot_id is None:
+            def _load_market_data() -> Optional[List[Dict]]:
+                """Load + serialize market data off the event loop."""
+                session = db.get_session()
+                try:
+                    uow = UnitOfWorkRealtime(session)
+                    bot_id = WebSocketServer._resolve_realtime_bot_id(
+                        session, bot_instance_id
+                    )
+                    if bot_id is None:
+                        return None
+                    return [
+                        {
+                            **serialize_market_core(m, include_volatility=False),
+                            "rsi": float(m.rsi) if m.rsi else None,
+                            "macd": float(m.macd) if m.macd else None,
+                            "funding_rate": (
+                                float(m.funding_rate) if m.funding_rate else None
+                            ),
+                        }
+                        for m in uow.market_data.get_all_market_data(bot_id)
+                    ]
+                finally:
+                    session.close()
+
+            market_data = await run_in_threadpool(_load_market_data)
+            if market_data is None:
                 await manager.send_personal_message(
                     {"type": "market_data", "timestamp": utc_now_iso(), "data": []},
                     websocket,
                 )
                 return
-            market_data = uow.market_data.get_all_market_data(bot_id)
 
             message = {
                 "type": "market_data",
                 "timestamp": utc_now_iso(),
-                "data": [
-                    {
-                        **serialize_market_core(m, include_volatility=False),
-                        "rsi": float(m.rsi) if m.rsi else None,
-                        "macd": float(m.macd) if m.macd else None,
-                        "funding_rate": (
-                            float(m.funding_rate) if m.funding_rate else None
-                        ),
-                    }
-                    for m in market_data
-                ],
+                "data": market_data,
             }
 
             await manager.send_personal_message(message, websocket)
 
         except Exception as e:
             logger.error(f"Error sending market data: {e}")
-        finally:
-            if session is not None:
-                session.close()
 
     @staticmethod
     async def send_backtest_status(websocket: WebSocket, run_id: str) -> bool:

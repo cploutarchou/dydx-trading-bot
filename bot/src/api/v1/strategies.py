@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
 
 from src.api.responses import api_response
 from src.infrastructure.database import db
@@ -183,7 +184,8 @@ async def list_strategies(
 ):
     """List stored strategies for the UI."""
     del current_user
-    data = InMemoryStrategyStore.list(skip=skip, limit=limit)
+    # The store is sync/session-owning; run it off the event loop.
+    data = await run_in_threadpool(InMemoryStrategyStore.list, skip=skip, limit=limit)
     return api_response(
         success=True,
         data=data,
@@ -194,7 +196,7 @@ async def list_strategies(
 @router.get("/public")
 async def list_public_strategies():
     """List public strategies (no auth — public catalog)."""
-    data = InMemoryStrategyStore.list_public()
+    data = await run_in_threadpool(InMemoryStrategyStore.list_public)
     return api_response(
         success=True,
         data=data,
@@ -209,7 +211,9 @@ async def create_strategy(
 ):
     """Create a strategy."""
     del current_user
-    strategy = InMemoryStrategyStore.create(request.model_dump())
+    strategy = await run_in_threadpool(
+        InMemoryStrategyStore.create, request.model_dump()
+    )
     return api_response(
         success=True,
         data=strategy,
@@ -224,7 +228,7 @@ async def get_strategy(
 ):
     """Get one strategy."""
     del current_user
-    strategy = InMemoryStrategyStore.get(strategy_id)
+    strategy = await run_in_threadpool(InMemoryStrategyStore.get, strategy_id)
     if not strategy:
         return api_response(
             success=False,
@@ -242,7 +246,9 @@ async def update_strategy(
 ):
     """Update one strategy."""
     del current_user
-    strategy = InMemoryStrategyStore.update(strategy_id, request.model_dump())
+    strategy = await run_in_threadpool(
+        InMemoryStrategyStore.update, strategy_id, request.model_dump()
+    )
     if not strategy:
         return api_response(
             success=False,
@@ -259,7 +265,7 @@ async def delete_strategy(
 ):
     """Delete one strategy."""
     del current_user
-    if not InMemoryStrategyStore.delete(strategy_id):
+    if not await run_in_threadpool(InMemoryStrategyStore.delete, strategy_id):
         return api_response(
             success=False,
             message=f"Strategy '{strategy_id}' not found",
@@ -275,9 +281,10 @@ async def get_strategy_versions(
 ):
     """Get in-memory version history for a strategy."""
     del current_user
+    versions = await run_in_threadpool(InMemoryStrategyStore.versions, strategy_id)
     return api_response(
         success=True,
-        data={"versions": InMemoryStrategyStore.versions(strategy_id)},
+        data={"versions": versions},
         message="Strategy version history retrieved",
     )
 
@@ -291,7 +298,9 @@ async def revert_strategy_version(
 ):
     """Revert a strategy to a prior stored version."""
     del request, current_user
-    strategy = InMemoryStrategyStore.revert(strategy_id, version_id)
+    strategy = await run_in_threadpool(
+        InMemoryStrategyStore.revert, strategy_id, version_id
+    )
     if not strategy:
         return api_response(
             success=False,

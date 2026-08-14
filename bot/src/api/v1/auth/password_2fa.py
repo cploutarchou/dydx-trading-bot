@@ -17,7 +17,7 @@ from src.api.v1.auth.totp_state import (
     issue_backup_codes,
     verify_login_second_factor,
 )
-from src.infrastructure.database import db
+from src.infrastructure.database import get_session
 from src.infrastructure.domain.models.auth_models import User, UserToken
 from src.middleware.auth_middleware import get_current_active_user
 from src.shared.time_utils import utc_now
@@ -97,7 +97,7 @@ def _verify_current_totp(session: Session, user_id: int, raw_token: str) -> None
 @router.post("/setup")
 async def setup_2fa(
     current_user: User = Depends(get_current_active_user),
-    session: Session = Depends(db.get_session),
+    session: Session = Depends(get_session),
 ):
     """Setup TOTP 2FA and return QR provisioning metadata."""
     user_id = _user_id_value(current_user)
@@ -136,7 +136,7 @@ async def setup_2fa(
 async def verify_2fa(
     payload: Verify2FARequest,
     current_user: User = Depends(get_current_active_user),
-    session: Session = Depends(db.get_session),
+    session: Session = Depends(get_session),
 ):
     """Verify TOTP token and mark 2FA as enabled for the user.
 
@@ -186,7 +186,7 @@ async def verify_2fa(
 async def regenerate_backup_codes(
     payload: Verify2FARequest,
     current_user: User = Depends(get_current_active_user),
-    session: Session = Depends(db.get_session),
+    session: Session = Depends(get_session),
 ):
     """Regenerate backup codes. Requires a valid TOTP code (device present).
 
@@ -210,7 +210,7 @@ async def regenerate_backup_codes(
 async def disable_2fa(
     payload: SecondFactorRequest,
     current_user: User = Depends(get_current_active_user),
-    session: Session = Depends(db.get_session),
+    session: Session = Depends(get_session),
 ):
     """Disable 2FA. Requires a valid TOTP code **or** an unused backup code.
 

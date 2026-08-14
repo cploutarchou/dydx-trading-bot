@@ -836,6 +836,64 @@
         "x-response-envelope": "StandardApiResponse"
       }
     },
+    "/api/v1/monitoring/ws-broadcast/publish": {
+      "post": {
+        "tags": [
+          "Monitoring"
+        ],
+        "summary": "Publish Ws Broadcast Test",
+        "description": "Publish a diagnostic broadcast to a channel via ``broadcast_to_bot``.\n\nOperator smoke test for the cross-worker bus: emits a fixed, server-built\n``broadcast_test`` message (callers cannot inject arbitrary payloads) through\nthe same path the runtime uses \u2014 local delivery on this worker, then a\nbest-effort fan-out publish so other workers deliver to their own clients.\nUse it to verify that a client attached to a *different* worker receives the\nmessage exactly once (``test_id`` correlates the copies) after\n``WS_BROADCAST_ENABLED=true`` is enabled. Complements the read-only\n``GET /api/v1/monitoring/ws-broadcast`` health probe.",
+        "operationId": "publish_ws_broadcast_test_api_v1_monitoring_ws_broadcast_publish_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WsBroadcastPublishRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
     "/api/v1/celery/tasks": {
       "get": {
         "tags": [
@@ -7472,6 +7530,24 @@
         ],
         "title": "Verify2FARequest",
         "description": "Payload for verifying a TOTP token (setup/regenerate \u2014 TOTP only)."
+      },
+      "WsBroadcastPublishRequest": {
+        "properties": {
+          "channel": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._-]+$",
+            "title": "Channel",
+            "description": "Target broadcast channel (a bot instance id, 'backtest-<run_id>', or 'strategies')."
+          }
+        },
+        "type": "object",
+        "required": [
+          "channel"
+        ],
+        "title": "WsBroadcastPublishRequest",
+        "description": "Diagnostic broadcast request for the cross-worker WS bus smoke test."
       },
       "StandardApiResponse": {
         "type": "object",

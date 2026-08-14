@@ -123,6 +123,10 @@ become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown 
 **Testing and validation:**
 
 - `make test` — Run full pytest suite
+- `make test-multiworker` — Run the opt-in multi-worker broadcast integration test (`tests/test_multi_worker_broadcast.py`):
+  starts shared infra (`make -C .. infra-up`), boots two real API worker processes against one Redis/Valkey and an
+  ephemeral PostgreSQL database with `WS_BROADCAST_ENABLED=true`, and asserts cross-worker WebSocket delivery with no
+  loop-back. Skips automatically unless `MULTIWORKER_TEST=1` is set (directly or via this target).
 - `make test-auth` — Test authentication system (runs `test_api_database_integration.py` in Docker)
 - `make preflight-testnet` — Run testnet preflight checks with production-like simulation
 - `make preflight-testnet-strict` — Run strict preflight (warnings fail; required for release)
@@ -224,10 +228,18 @@ become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown 
   `ws:broadcast` channel. `WS_BROADCAST_ENABLED=false` (default) keeps single-worker/local behavior identical; a Redis
   outage degrades to local-only delivery (never breaks a broadcast). Override with `WS_BROADCAST_REDIS_URL` and
   `WS_BROADCAST_SOCKET_TIMEOUT_SECONDS=1.0`.
-- Health: `GET /api/v1/monitoring/ws-broadcast` (auth required).
+- The subscriber uses a **dedicated connection with no read timeout** — an idle `listen()` blocks forever by design;
+  inheriting the command `socket_timeout` makes the listener flap (resubscribe loop) and silently drop messages.
+  `WS_BROADCAST_SOCKET_TIMEOUT_SECONDS` applies to publish/health commands only.
+- Health: `GET /api/v1/monitoring/ws-broadcast` (auth required) — includes `subscribed`, the *actual* subscription
+  state (a running listener task can briefly be between subscriptions).
+- Operator smoke test: `POST /api/v1/monitoring/ws-broadcast/publish` (auth required) emits a fixed server-built
+  `broadcast_test` message via `broadcast_to_bot` to a validated channel; correlate copies across workers by `test_id`.
+- Multi-worker verification: `make test-multiworker` (opt-in; see Testing below).
 
 **Monitoring routes** (`src/api/v1/monitoring.py`, mounted under `/api/v1/monitoring`, auth required): DataFrame
-memory/cleanup, database pool metrics/health/history/diagnostics, `/circuit-breakers`, `/ws-broadcast`. Responses use
+memory/cleanup, database pool metrics/health/history/diagnostics, `/circuit-breakers`, `/ws-broadcast` (health) and
+`/ws-broadcast/publish` (diagnostic broadcast). Responses use
 the shared `api_response` envelope from `src/api/responses.py`.
 
 **Test isolation**: autouse fixtures in `tests/conftest.py` keep these subsystems inert by default —
@@ -271,7 +283,9 @@ module `reset_*()` helpers.
   message handling.
 - Run `tests/test_circuit_breaker.py` and `tests/test_market_data_circuit_notifications.py` when touching circuit
   breakers or external-service call paths (`src/infrastructure/resilience/`, dYdX indexer, Telegram, Loki).
-- Run `tests/test_broadcast_bus.py` when touching cross-worker WebSocket broadcast (`src/infrastructure/broadcast/`).
+- Run `tests/test_broadcast_bus.py` when touching cross-worker WebSocket broadcast (`src/infrastructure/broadcast/`);
+  for changes to the bus listener/publish path also run the opt-in `tests/test_multi_worker_broadcast.py`
+  (`make test-multiworker`, needs local Redis + PostgreSQL infra).
 - Run `tests/test_credentials_cipher.py` when touching credential sealing/encryption (`src/shared/credentials_cipher.py`
   or `bot_instances` config persistence).
 - Run `tests/test_monitoring_routes.py` when touching `src/api/v1/monitoring.py` endpoints.

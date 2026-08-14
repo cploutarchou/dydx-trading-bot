@@ -45,7 +45,7 @@ Most of this document is a record of completed work. Everything still pending, i
 
 | # | Item | Why it matters | Effort |
 | --- | --- | --- | --- |
-| 1 | **Multi-worker tests** — core harness delivered 2026-08-14 (see below); it already caught and fixed a real bus bug. Remaining: CI wiring (a job with `MULTIWORKER_TEST=1` + service containers) and multi-replica/load coverage | Gates everything below it; the only way the split-registry class of bug gets caught | ~1 week remaining |
+| 1 | **Multi-worker tests** — core harness delivered 2026-08-14 + CI job (`bot-multiworker`, non-blocking phase 1) 2026-08-15; it already caught and fixed a real bus bug. Remaining: promote the CI job to blocking once stable, and multi-replica/load coverage | Gates everything below it; the only way the split-registry class of bug gets caught | days |
 | 2 | **Broadcast bus Phase 2** — flip `WS_BROADCAST_ENABLED` on, add metrics + broadcast coalescing | Phase 1 shipped inert; multi-worker deployments still have split websocket registries | 1-2 weeks |
 | 3 | **Move blocking DB calls off the event loop** | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | ongoing — slice 1 done 2026-08-12 (`run_db` helper + backtest/realtime reads offloaded) |
 | 4 | **Integration tests** (Redis / Celery / dYdX) | Compose infra already exists; mostly markers + a CI job | 2-3 weeks |
@@ -652,10 +652,11 @@ Items removed from this plan during the same review — and why — are listed i
           dispatch semaphore under burst; coalesce per-symbol market broadcasts (`realtime_data_service` emits one
           `broadcast_market_update` per symbol per tick → N Redis publishes when enabled) before wiring that
           service; consider sharding pub/sub channels by topic.
-          **Blocked on**: multi-worker tests (below) — the core harness landed 2026-08-14 and already fixed a real
-          listener-flap bug in this bus (see the multi-worker action-plan item); CI wiring + load testing remain
-          before the flip. Operator tooling for the flip landed with the harness: `GET /api/v1/monitoring/
-          ws-broadcast` now reports `subscribed` (true subscription state) and
+          **Blocked on**: multi-worker tests (below) — the core harness landed 2026-08-14 (and already fixed a
+          real listener-flap bug in this bus) plus its CI job on 2026-08-15 (`bot-multiworker`, non-blocking
+          phase 1 in `.github/workflows/bot-quality.yml`); promote that job to a gate once stable and finish
+          burst/load testing before the flip. Operator tooling for the flip landed with the harness:
+          `GET /api/v1/monitoring/ws-broadcast` now reports `subscribed` (true subscription state) and
           `POST /api/v1/monitoring/ws-broadcast/publish` smoke-tests end-to-end fan-out.
 
 #### **Architecture Improvements**
@@ -867,8 +868,13 @@ Items removed from this plan during the same review — and why — are listed i
     - **Effort**: 2-3 weeks (core harness delivered 2026-08-14; CI wiring + multi-replica/load coverage remain)
     - **Priority**: HIGH — this is the gate on the broadcast-bus Phase 2 flip; do it first
     - **Remaining follow-ups (tracked, not part of the delivered core):**
-        - [ ] CI job for the harness (service containers for Postgres + Redis, then
-          `MULTIWORKER_TEST=1 pytest tests/test_multi_worker_broadcast.py`)
+        - [x] CI job for the harness — DONE 2026-08-15: `bot-multiworker` job in
+          `.github/workflows/bot-quality.yml` (Postgres 15.18 + Valkey 7.2 service containers using the
+          docker-compose.infra.yml defaults, `MULTIWORKER_TEST=1` + explicit `MULTIWORKER_REDIS_URL` /
+          `POSTGRES_*` env, step summary, `timeout-minutes: 15`). Phase-1 **non-blocking**
+          (`continue-on-error`, not in `quality-gate.needs`) to prove stability on shared runners first —
+          promote by dropping `continue-on-error` and adding `bot-multiworker` to `quality-gate.needs`.
+          The exact job command was validated locally against live infra (2 passed).
         - [ ] Multi-replica (docker-level) + burst/load coverage ahead of the Phase 2 flip
     - **Concrete scope**: two Uvicorn workers + Redis, assert a `broadcast_to_bot` on worker A reaches a
       websocket client attached to worker B with `WS_BROADCAST_ENABLED=true`, and that it does not loop back

@@ -2,6 +2,25 @@
 
 ## 2026-08-15
 
+- Blocking-DB-offload **slice 2: the WebSocket sender family** (IMPROVEMENTS.md open item #3, the doc's named
+  next slice):
+    - `send_initial_state`, `send_positions`, `send_stats`, and `send_market_data` in
+      `src/api/websocket_server.py` no longer run synchronous SQLAlchemy on the event loop — every WS connect
+      and every `request_positions`/`request_stats`/`request_market_data` message used to stall all in-flight
+      requests and broadcasts on that worker for the duration of the queries.
+    - Each sender now loads + serializes through a session-owning sync closure executed via
+      `run_in_threadpool` (the pattern `send_backtest_status` already established in-module; per AGENTS.md
+      rule 13 the closure owns its full `Session` lifecycle — `db.get_session()` → `finally: close()` — and
+      returns plain dicts/lists so no ORM object crosses the thread boundary; ORM-attribute serialization
+      happens inside the thread). Message shapes, unknown-bot empty variants, error logging, return values,
+      and the module-level test seams (`db`, `UnitOfWork`, `UnitOfWorkRealtime`) are unchanged.
+    - Validation: `tests/test_websocket_server.py` + `tests/test_bot_realtime_routes.py` (incl. the
+      `fake_session.closes == 6` guard) + the broad-catch ratchet — 28 passed; black clean; live multi-worker
+      harness re-run green (2 passed) against real Postgres/Valkey.
+    - IMPROVEMENTS.md synced (item #3 status → slices 1–2, open-items table, matrix); AGENTS.md rule 13
+      reference-conversions list extended with the WS family. Remaining slices: backtest mutations and the
+      `bot_records` / `bot_lifecycle` / `strategies` families.
+
 - Closed IMPROVEMENTS.md open item #5 — **coverage floor + dependency vulnerability scanning** (both halves done):
     - **Coverage floor (blocking)**: measured 65.08% line coverage (15,178 stmts / 4,760 missed; branch 3852/812)
       using the exact `bot-tests` CI invocation (same `--ignore`s, same env unsets) on a fully green suite —

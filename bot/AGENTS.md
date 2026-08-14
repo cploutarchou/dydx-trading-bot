@@ -99,8 +99,11 @@ Repository-level guidance for coding agents working on this project.
     - The offloaded callable MUST own its full `Session` lifecycle (open via `db.get_session()`, use, close in
       `finally`) so no `Session` crosses the thread boundary (sync sessions are not thread-safe). Return DTOs/dicts
       across the seam — never live ORM objects that could lazy-load back on the loop.
-    - Reference conversions: backtest reads via the `_*_sync` seam (`src/api/v1/backtests.py`) and realtime reads
-      via session-owning closures (`src/api/v1/bot_realtime.py`).
+    - Reference conversions: backtest reads via the `_*_sync` seam (`src/api/v1/backtests.py`), realtime reads
+      via session-owning closures (`src/api/v1/bot_realtime.py`), and the WebSocket sender family
+      (`send_initial_state` / `send_positions` / `send_stats` / `send_market_data` in
+      `src/api/websocket_server.py`) via local `run_in_threadpool(closure)` loaders that serialize to plain
+      dicts inside the thread.
 
 ## Local Development Commands
 

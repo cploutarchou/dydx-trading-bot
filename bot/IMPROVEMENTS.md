@@ -45,7 +45,7 @@ Most of this document is a record of completed work. Everything still pending, i
 
 | # | Item | Why it matters | Effort |
 | --- | --- | --- | --- |
-| 1 | **Multi-worker tests** | Gates everything below it; the only way the split-registry class of bug gets caught | 2-3 weeks |
+| 1 | **Multi-worker tests** — core harness delivered 2026-08-14 (see below); it already caught and fixed a real bus bug. Remaining: CI wiring (a job with `MULTIWORKER_TEST=1` + service containers) and multi-replica/load coverage | Gates everything below it; the only way the split-registry class of bug gets caught | ~1 week remaining |
 | 2 | **Broadcast bus Phase 2** — flip `WS_BROADCAST_ENABLED` on, add metrics + broadcast coalescing | Phase 1 shipped inert; multi-worker deployments still have split websocket registries | 1-2 weeks |
 | 3 | **Move blocking DB calls off the event loop** | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | ongoing — slice 1 done 2026-08-12 (`run_db` helper + backtest/realtime reads offloaded) |
 | 4 | **Integration tests** (Redis / Celery / dYdX) | Compose infra already exists; mostly markers + a CI job | 2-3 weeks |
@@ -271,8 +271,9 @@ Items removed from this plan during the same review — and why — are listed i
     - **Impact**: Financial risk, incorrect position tracking
 
 - **Test Coverage Gaps**: the suite (78 files, 641 test functions) covers contracts well but not topology
-    - **No Multi-Worker Tests**: process-local state issues are invisible to the current suite — and this is what
-      blocks turning `WS_BROADCAST_ENABLED` on
+    - ~~**No Multi-Worker Tests**~~ — RESOLVED (2026-08-14): `tests/test_multi_worker_broadcast.py` (opt-in via
+      `make test-multiworker`) covers the two-real-workers topology, caught and fixed a real listener-flap bus bug;
+      CI wiring for it remains open
     - **Missing Integration Tests**: nothing exercises real Redis/Celery/dYdX-indexer topology
     - ~~Missing Security Tests~~ — RESOLVED (`tests/test_security_auth_bypass.py`, 20 cases)
     - **Impact**: production surprises in exactly the areas unit tests can't reach
@@ -651,7 +652,11 @@ Items removed from this plan during the same review — and why — are listed i
           dispatch semaphore under burst; coalesce per-symbol market broadcasts (`realtime_data_service` emits one
           `broadcast_market_update` per symbol per tick → N Redis publishes when enabled) before wiring that
           service; consider sharding pub/sub channels by topic.
-          **Blocked on**: multi-worker tests (below).
+          **Blocked on**: multi-worker tests (below) — the core harness landed 2026-08-14 and already fixed a real
+          listener-flap bug in this bus (see the multi-worker action-plan item); CI wiring + load testing remain
+          before the flip. Operator tooling for the flip landed with the harness: `GET /api/v1/monitoring/
+          ws-broadcast` now reports `subscribed` (true subscription state) and
+          `POST /api/v1/monitoring/ws-broadcast/publish` smoke-tests end-to-end fan-out.
 
 #### **Architecture Improvements**
 
@@ -855,13 +860,49 @@ Items removed from this plan during the same review — and why — are listed i
 
 #### **Test Infrastructure**
 
-- [ ] **Add multi-worker tests** for process-local state issues
-    - **Files**: Create distributed state tests, multi-instance tests
+- [x] **Add multi-worker tests** for process-local state issues (CORE DELIVERED 2026-08-14)
+    - **Files**: `tests/test_multi_worker_broadcast.py` (delivered), `Makefile` (`test-multiworker`),
+      `src/api/v1/monitoring.py` (publish smoke-test endpoint), `src/infrastructure/broadcast/bus.py` (listener fix)
     - **Impact**: Catch horizontal scaling issues before production
-    - **Effort**: 2-3 weeks
+    - **Effort**: 2-3 weeks (core harness delivered 2026-08-14; CI wiring + multi-replica/load coverage remain)
     - **Priority**: HIGH — this is the gate on the broadcast-bus Phase 2 flip; do it first
+    - **Remaining follow-ups (tracked, not part of the delivered core):**
+        - [ ] CI job for the harness (service containers for Postgres + Redis, then
+          `MULTIWORKER_TEST=1 pytest tests/test_multi_worker_broadcast.py`)
+        - [ ] Multi-replica (docker-level) + burst/load coverage ahead of the Phase 2 flip
     - **Concrete scope**: two Uvicorn workers + Redis, assert a `broadcast_to_bot` on worker A reaches a
       websocket client attached to worker B with `WS_BROADCAST_ENABLED=true`, and that it does not loop back
+    - **Status: CORE HARNESS DELIVERED (2026-08-14).**
+      `tests/test_multi_worker_broadcast.py` (opt-in via `MULTIWORKER_TEST=1` / `make test-multiworker`, which
+      starts the shared infra first) boots the canonical API as **two real `start_api.py` worker processes**
+      sharing one Redis/Valkey and one **ephemeral PostgreSQL database** (created/dropped per run, so the dev DB
+      is never touched), with `WS_BROADCAST_ENABLED=true` and a metadata-only structured profile
+      (`APP_RUN_CONFIG_FILE` + `APP_CONFIG_PRESERVE_PROCESS_ENV=1`) so no repo profile values leak in. Workers
+      start staggered (A migrates the empty schema; B joins after A is `/ready`) to avoid Alembic DDL races.
+      Asserts: (1) both workers report a healthy, listening, **distinctly-identified** Redis bus; (2) the headline
+      property — a publish on worker A (via the new operator smoke-test endpoint
+      `POST /api/v1/monitoring/ws-broadcast/publish`, validated channel, fixed server-built `broadcast_test`
+      payload) is received **exactly once** by a WebSocket client on worker B and exactly once by the local client
+      on A, in both directions, with a quiet window proving no loop-back echo.
+      **The harness immediately caught a real Phase-1 bus bug (now fixed):** the pub/sub listener inherited the
+      1.0 s command `socket_timeout`, so an idle `listen()` raised `TimeoutError` every second, tearing the
+      subscription down and resubscribing in a loop — messages published between resubscribes were silently
+      dropped while `health()` still reported `healthy: true, listening: true` (the ping uses a different
+      connection). Fix: the subscriber now uses a dedicated **no-read-timeout** connection (idle blocking reads
+      are correct for pub/sub; `stop()` cancels the task), and `health()` gained a `subscribed` field reporting
+      the *actual* subscription state. Reproduced pre-fix with a two-bus live-Valkey script; pinned post-fix by
+      the multi-worker test itself (unit fakes can't catch socket-level timeouts — exactly the "unit tests can't
+      reach" class this item exists for).
+      **Also surfaced (NOT fixed — needs a migrations follow-up):** on a *fresh* database built purely by Alembic
+      migrations, two Postgres enums reject the ORM's labels — `positionstatusenum` rejects `'OPEN'` (breaks
+      websocket `send_initial_state` position queries) and `jobstatusenum` rejects `'PENDING'` (breaks
+      `async_job_manager` job persistence). Databases created historically via `create_all_tables` don't hit this;
+      it only bites fresh-from-migration deployments and the harness's ephemeral DB (worked around by using a
+      `backtest-*` channel whose initial frame avoids the positions query). Fix belongs in the migration-safety
+      process (enum label alignment), not this item.
+      **Remaining for this item:** a CI job (service containers for Postgres + Redis, then
+      `MULTIWORKER_TEST=1 pytest tests/test_multi_worker_broadcast.py`), and optional multi-replica
+      (docker-level) + burst/load coverage ahead of the Phase 2 flip.
 
 - [ ] **Add integration tests** for external services (Redis, Celery, dYdX)
     - **Files**: Create live integration test suite
@@ -946,7 +987,8 @@ remains:
   so only the WebSocket registry needed work — see action-plan item)
 - ✅ **Replace sys.exit () calls** with proper exception handling (COMPLETED)
 - ✅ **Implement token revocation** - Complete logout/logout-all functionality (COMPLETED)
-- **Add multi-worker tests** for process-local state issues
+- ✅ **Add multi-worker tests** for process-local state issues (CORE DELIVERED 2026-08-14 — two-real-workers
+  harness via `make test-multiworker`; caught + fixed a real bus listener-flap bug; CI wiring remains)
 - ✅ **Refactor broad exception handling** - CONTAINED (typed hierarchy + global 500 handler + enforced ratchet,
   324→309). Remaining catches were reviewed and are mostly intentional; no further campaign planned
 
@@ -1116,7 +1158,8 @@ The original Week-1 items are retained as an implementation record; completed wo
 2. ✅ **Implement distributed state management** — Phase 1 delivered (Redis pub/sub WebSocket broadcast bus behind
    `WS_BROADCAST_ENABLED`, OFF by default; strategy storage was already Postgres-backed, rate limiting already
    Redis-backed). Phase 2 (flip default ON after multi-worker load testing) deferred.
-3. ⬜ **Add multi-worker test infrastructure** - Begin testing process-local state issues
+3. ✅ **Add multi-worker test infrastructure** - Begin testing process-local state issues (DELIVERED 2026-08-14:
+   `tests/test_multi_worker_broadcast.py` + `make test-multiworker`; already caught and fixed a real bus bug)
 
 ---
 
@@ -1148,6 +1191,10 @@ The original Week-1 items are retained as an implementation record; completed wo
 - `src/api/v1/backtests.py`: 2,351 lines across 30 HTTP operations, 2 WebSocket adapters, shared route support
 - `src/bot_instance_manager.py`: 1,935 lines — not previously listed, now the second-largest module
 - `src/api/server.py`: 1,751 lines of assembly/runtime after Phases 1–6 (down from 6,093)
+- **Fresh-database enum drift (found 2026-08-14 by the multi-worker harness)**: schemas built purely by Alembic
+  migrations define Postgres enum labels the ORM rejects (`positionstatusenum` vs `'OPEN'`,
+  `jobstatusenum` vs `'PENDING'`); historical `create_all_tables` databases are unaffected. Needs an enum-label
+  alignment change under the migration-safety process.
 - Blocking synchronous SQLAlchemy inside async handlers (no `AsyncSession` anywhere in `src/`)
 - Configuration complexity across multiple sources
 - ~~Dead code paths~~ — RESOLVED (2026-08-11): 2FA router mounted at `/api/v1/auth/2fa`; candle

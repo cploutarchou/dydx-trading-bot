@@ -47,7 +47,7 @@ Most of this document is a record of completed work. Everything still pending, i
 | --- | --- | --- | --- |
 | 1 | **Multi-worker tests** — core harness delivered 2026-08-14 + CI job (`bot-multiworker`, non-blocking phase 1) 2026-08-15; it already caught and fixed a real bus bug. Remaining: promote the CI job to blocking once stable, and multi-replica/load coverage | Gates everything below it; the only way the split-registry class of bug gets caught | days |
 | 2 | **Broadcast bus Phase 2** — flip `WS_BROADCAST_ENABLED` on, add metrics + broadcast coalescing | Phase 1 shipped inert; multi-worker deployments still have split websocket registries | 1-2 weeks |
-| 3 | **Move blocking DB calls off the event loop** | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | ongoing — slice 1 done 2026-08-12 (`run_db` helper + backtest/realtime reads offloaded) |
+| 3 | **Move blocking DB calls off the event loop** | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | ongoing — slice 1 done 2026-08-12 (`run_db` + backtest/realtime reads), slice 2 done 2026-08-15 (WebSocket sender family); mutations + `bot_records`/`bot_lifecycle`/`strategies` remain |
 | 4 | **Integration tests** (Redis / Celery / dYdX) | Compose infra already exists; mostly markers + a CI job | 2-3 weeks |
 | 5 | ~~**Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`)~~ **RESOLVED 2026-08-15** — floor set at 64% (measured 65.08%, blocking), `bot-deps-audit` pip-audit CI job + Dependabot shipped; first audit already removed an unused `aiohttp` pin carrying 3 open advisories | Two cheap CI gates; coverage reports today with nothing enforcing them | done |
 | 6 | **Portfolio-level risk controls** | Per-instance limits can each pass while the account is over-exposed | 4-6 weeks |
@@ -162,12 +162,12 @@ Items removed from this plan during the same review — and why — are listed i
   `create_async_engine` / `AsyncSession` — every database call inside an `async def` handler is a blocking
   synchronous SQLAlchemy call, so any slow query stalls the whole event loop (and with it every websocket
   broadcast and in-flight trading request on that worker)
-    - **Also**: Telegram/Loki HTTP calls in async services (now circuit-broken, but still blocking)
-    - **Impact**: Event-loop stalls under load; the practical ceiling on per-worker concurrency
-    - **Files**: `src/infrastructure/database.py`, `src/infrastructure/persistence/*.py`, async route handlers
-    - **Realistic first step**: push the hot synchronous DB paths through `run_in_threadpool` /
-      `asyncio.to_thread` rather than attempting a full async-SQLAlchemy migration
-    - **Status: UNDERWAY (2026-08-12).** Established the canonical offload seam
+  - **Also**: Telegram/Loki HTTP calls in async services (now circuit-broken, but still blocking)
+  - **Impact**: Event-loop stalls under load; the practical ceiling on per-worker concurrency
+  - **Files**: `src/infrastructure/database.py`, `src/infrastructure/persistence/*.py`, async route handlers
+  - **Realistic first step**: push the hot synchronous DB paths through `run_in_threadpool` /
+    `asyncio.to_thread` rather than attempting a full async-SQLAlchemy migration
+  - **Status: UNDERWAY (slices 1–2 delivered).** Established the canonical offload seam
       `src/infrastructure/db_offload.py` (`run_db` over `starlette.concurrency.run_in_threadpool`) and
       converted the two hottest HTTP read families: **backtest reads** (the `_*_sync` seam in
       `backtests.py` — list/details/status/trades/analytics/snapshots/summary/compare/runtime-health/
@@ -176,11 +176,18 @@ Items removed from this plan during the same review — and why — are listed i
       `Session` lifecycle (open `db.get_session()` → close in `finally`) and returns DTOs/dicts, so no
       session crosses the thread boundary and no detached lazy-load reaches the loop. Behavior-preserving
       (`test_backtest_api_contract.py`, `test_bot_realtime_routes.py` incl. the `fake_session.closes == 6`
-      guard, and `tests/test_db_offload.py` all green; ratchet held at 297). **Remaining (follow-on
-      slices):** WebSocket `send_initial_state` + sibling WS sends (`websocket_server.py`), backtest
-      mutations (pause/resume/cancel/delete/repair/retry), and the `bot_records` / `bot_lifecycle` /
-      `strategies` families — same pattern, mechanical. Also flagged (not fixed): no `pool_pre_ping`
-      (stale-idle connection risk), and auth handlers leak `Depends(db.get_session)` sessions.
+      guard, and `tests/test_db_offload.py` all green; ratchet held at 297).
+      **Slice 2 (2026-08-15): the WebSocket sender family** — `send_initial_state`, `send_positions`,
+      `send_stats`, and `send_market_data` in `src/api/websocket_server.py` no longer run synchronous
+      SQLAlchemy on the event loop: each now loads + serializes through a session-owning sync closure via
+      `run_in_threadpool` (the pattern `send_backtest_status` already established in-module), returning
+      plain dicts — message shapes, unknown-bot variants, error logging, and return values unchanged
+      (`tests/test_websocket_server.py`, `tests/test_bot_realtime_routes.py`, ratchet green; live
+      multi-worker harness re-verified).
+      **Remaining (follow-on slices):** backtest mutations (pause/resume/cancel/delete/repair/retry), and
+      the `bot_records` / `bot_lifecycle` / `strategies` families — same pattern, mechanical. Also flagged
+      (not fixed): no `pool_pre_ping` (stale-idle connection risk), and auth handlers leak
+      `Depends(db.get_session)` sessions.
 
 #### **Moderate Issues**
 
@@ -1028,7 +1035,9 @@ remains:
   `bot-deps-audit` CI job + `.github/dependabot.yml`; first audit removed an unused `aiohttp` pin with 3 open
   advisories (one accepted no-fix `ecdsa` finding via `python-jose` remains, documented)
 - **Move blocking DB calls off the event loop** — the largest unaddressed performance item;
-  **slice 1 landed 2026-08-12** (`run_db` offload helper + backtest + realtime read families converted; WS / mutations / remaining families follow)
+  **slice 1 landed 2026-08-12** (`run_db` offload helper + backtest + realtime read families converted),
+  **slice 2 landed 2026-08-15** (WebSocket sender family in `websocket_server.py`); mutations /
+  `bot_records` / `bot_lifecycle` / `strategies` families follow
 
 ### **Lower Priority**
 

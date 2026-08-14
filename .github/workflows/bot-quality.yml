@@ -95,6 +95,7 @@ jobs:
                     --ignore=tests/test_api_database_integration.py \
                     --ignore=tests/test_comprehensive.py \
                     --cov=src \
+                    --cov-fail-under=64 \
                     --cov-report=term \
                     --cov-report=xml:coverage.xml \
                     --cov-report=html:htmlcov \
@@ -102,7 +103,10 @@ jobs:
                   # Summarise results for the step summary
                   tail -3 pytest-output.txt >> "$GITHUB_STEP_SUMMARY"
 
-            # Coverage is reporting-only (does not fail the build). pytest-cov and
+            # Coverage FLOOR (blocking): --cov-fail-under=64, set 2026-08-15 from a
+            # measured 65.0% line coverage (exact CI invocation, local infra) minus
+            # a 1-point ratchet margin. Ratchet it upward as coverage improves;
+            # never lower it without a documented justification. pytest-cov and
             # coverage are pulled in via requirements.txt; config lives in
             # bot/pyproject.toml ([tool.coverage.*]); source root is src.
             - name: Publish coverage summary
@@ -275,6 +279,60 @@ jobs:
                   if [ -f bandit-output.txt ]; then
                       echo '```' >> "$GITHUB_STEP_SUMMARY"
                       tail -20 bandit-output.txt >> "$GITHUB_STEP_SUMMARY"
+                      echo '```' >> "$GITHUB_STEP_SUMMARY"
+                  fi
+
+    # ---------------------------------------------------------------------------
+    # Dependency vulnerability scan (pip-audit) — phase 1: NON-BLOCKING
+    # ---------------------------------------------------------------------------
+    # bandit scans our code; pip-audit scans the DEPENDENCY TREE against the
+    # PyPI advisory database — for a service that holds exchange signing keys,
+    # the dependency surface is part of the attack surface. Audits the resolved
+    # bot/requirements.txt in an isolated environment (no full install needed).
+    # Phase 1 non-blocking (mirrors bot-security/bandit): findings are reported
+    # to the job summary without gating. Known accepted finding: the transitive
+    # `ecdsa` advisory via python-jose has no fix release (upstream is dormant);
+    # promote this job to a gate once triage policy for such cases is decided.
+    # (2026-08-15: the unused aiohttp pin was removed, clearing its 3 open
+    # advisories at the root.)
+    bot-deps-audit:
+        name: Bot dependency audit (pip-audit)
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: bot
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.12"
+                  cache: pip
+                  cache-dependency-path: bot/requirements.txt
+
+            - name: Install pip-audit
+              # Only the scanner; the audit itself resolves requirements.txt in
+              # isolation. Pinned to match bot/requirements.txt.
+              run: pip install pip-audit==2.10.1
+
+            - name: Audit dependencies
+              continue-on-error: true # phase 1: reporting-only, does not gate
+              run: |
+                  set -o pipefail
+                  pip-audit -r requirements.txt --progress-spinner off 2>&1 | tee deps-audit-output.txt
+
+            - name: Publish dependency audit summary
+              if: always()
+              run: |
+                  echo "### 📦 Dependency audit (pip-audit — phase 1, non-blocking)" >> "$GITHUB_STEP_SUMMARY"
+                  echo "" >> "$GITHUB_STEP_SUMMARY"
+                  echo "Resolved bot/requirements.txt tree vs the PyPI advisory DB. Reporting-only; promote to a gate after triage policy is decided (see workflow comments)." >> "$GITHUB_STEP_SUMMARY"
+                  echo "" >> "$GITHUB_STEP_SUMMARY"
+                  if [ -f deps-audit-output.txt ]; then
+                      echo '```' >> "$GITHUB_STEP_SUMMARY"
+                      tail -20 deps-audit-output.txt >> "$GITHUB_STEP_SUMMARY"
                       echo '```' >> "$GITHUB_STEP_SUMMARY"
                   fi
 

@@ -34,6 +34,11 @@ def test_load_repo_env_overrides_process_env_by_default(
 ) -> None:
     anchor = _write_test_runtime_config(tmp_path)
     monkeypatch.setenv("BOT_DATABASE_URL", "process-db")
+    # These tests drive profile resolution via the anchor's own run.json, so an
+    # explicitly configured run/config file (CI sets APP_RUN_CONFIG_FILE at the
+    # job level) must not hijack the resolution order.
+    monkeypatch.delenv("APP_RUN_CONFIG_FILE", raising=False)
+    monkeypatch.delenv("APP_CONFIG_FILE", raising=False)
     monkeypatch.delenv("APP_CONFIG_PRESERVE_PROCESS_ENV", raising=False)
 
     load_repo_env(anchor)
@@ -48,6 +53,8 @@ def test_load_repo_env_can_preserve_devcontainer_process_env(
     anchor = _write_test_runtime_config(tmp_path)
     monkeypatch.setenv("APP_CONFIG_PRESERVE_PROCESS_ENV", "true")
     monkeypatch.setenv("BOT_DATABASE_URL", "process-db")
+    monkeypatch.delenv("APP_RUN_CONFIG_FILE", raising=False)
+    monkeypatch.delenv("APP_CONFIG_FILE", raising=False)
 
     load_repo_env(anchor)
 

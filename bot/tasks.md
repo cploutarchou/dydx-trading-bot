@@ -2,6 +2,33 @@
 
 ## 2026-08-15
 
+- Closed IMPROVEMENTS.md open item #5 — **coverage floor + dependency vulnerability scanning** (both halves done):
+    - **Coverage floor (blocking)**: measured 65.08% line coverage (15,178 stmts / 4,760 missed; branch 3852/812)
+      using the exact `bot-tests` CI invocation (same `--ignore`s, same env unsets) on a fully green suite —
+      750 passed / 12 skipped / 0 failed — then added `--cov-fail-under=64` (prescribed current−1 ratchet margin)
+      to the `bot-tests` pytest step in `../.github/workflows/bot-quality.yml`. Verified end-to-end locally:
+      `Required test coverage of 64% reached. Total coverage: 65.08%`. Ratchet upward as coverage improves.
+    - **pip-audit CI job**: new non-blocking `bot-deps-audit` job (phase-1, mirrors bandit/mypy: `continue-on-error`
+      + job-summary reporting + documented promotion path) running `pip-audit -r requirements.txt`;
+      `pip-audit==2.10.1` pinned in `requirements.txt`.
+    - **Dependabot**: new `../.github/dependabot.yml` — pip (`/bot`, weekly, dev-tooling grouped; runtime deps
+      individually reviewable since pins are deliberate), github-actions (`/`), docker (`/docker`).
+    - **First audit paid off immediately**: `pip-audit` flagged 4 findings — the **unused `aiohttp==3.14.1` pin
+      carried 3 open PYSEC advisories** (fixes in 3.14.2/3.14.3); nothing in the repo imports aiohttp and nothing
+      installed requires it (dydx client uses httpx, Flower uses tornado) → **removed the pin** (root-cause fix,
+      not a bump) and uninstalled locally; the full suite is green without it (750 passed). Remaining accepted
+      finding: transitive `ecdsa 0.19.2` via `python-jose` (no fix release; upstream dormant) — documented in the
+      job comment + metrics; JWT usage is internal-service only.
+    - **Drive-by test-isolation fix**: `tests/test_env_loader.py` profile-resolution tests failed whenever
+      `APP_RUN_CONFIG_FILE` was set — which the CI job env does — because an explicit run-config file hijacks
+      `load_repo_env` resolution; the tests now `monkeypatch.delenv` the explicit-config overrides they don't test.
+    - **Local venv realignment (drift)**: installed the pinned-but-missing `pytest-cov==7.1.0`,
+      `coverage==7.15.2`, and `nats-py` to `requirements.txt` state; the 2 pre-existing
+      `test_nats_consumer.py` failures were `NATS_AVAILABLE=False` venv drift, not regressions (31/31 green after
+      install). Full suite: **750 passed, 12 skipped, 0 failed**.
+    - IMPROVEMENTS.md synced: item #5 row resolved, security "No Dependency Vulnerability Scanning" section
+      resolved, "Set a coverage floor" action item checked, matrix + metrics updated.
+
 - Wired the multi-worker broadcast harness into CI (completes the CI-wiring follow-up of the 2026-08-14 item):
     - New `bot-multiworker` job in `../.github/workflows/bot-quality.yml` — Postgres 15.18-bookworm + Valkey
       7.2-alpine **service containers** (image/credentials mirror the `docker-compose.infra.yml` defaults so the

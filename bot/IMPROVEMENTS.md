@@ -49,7 +49,7 @@ Most of this document is a record of completed work. Everything still pending, i
 | 2 | **Broadcast bus Phase 2** — flip `WS_BROADCAST_ENABLED` on, add metrics + broadcast coalescing | Phase 1 shipped inert; multi-worker deployments still have split websocket registries | 1-2 weeks |
 | 3 | **Move blocking DB calls off the event loop** | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | ongoing — slice 1 done 2026-08-12 (`run_db` helper + backtest/realtime reads offloaded) |
 | 4 | **Integration tests** (Redis / Celery / dYdX) | Compose infra already exists; mostly markers + a CI job | 2-3 weeks |
-| 5 | **Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`) | Two cheap CI gates; coverage reports today with nothing enforcing them | 1-2 days |
+| 5 | ~~**Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`)~~ **RESOLVED 2026-08-15** — floor set at 64% (measured 65.08%, blocking), `bot-deps-audit` pip-audit CI job + Dependabot shipped; first audit already removed an unused `aiohttp` pin carrying 3 open advisories | Two cheap CI gates; coverage reports today with nothing enforcing them | done |
 | 6 | **Portfolio-level risk controls** | Per-instance limits can each pass while the account is over-exposed | 4-6 weeks |
 | 7 | **Backtest checkpointing** (optional) | Compute-cost optimization only; auto-recovery already handles correctness | 2 weeks |
 
@@ -228,12 +228,15 @@ Items removed from this plan during the same review — and why — are listed i
 
 #### **Moderate Issues**
 
-- **No Dependency Vulnerability Scanning**: `bandit` scans *our code* only — nothing scans the dependency tree.
-  No `pip-audit` step and no Dependabot config exist in the repo. For a service that holds exchange signing keys
-  this is the cheapest remaining security win
-    - **Fix**: add a `pip-audit -r bot/requirements.txt` step to `bot-quality.yml` (non-blocking first, mirroring
-      the mypy/bandit phase-1 pattern) and/or a `.github/dependabot.yml`
-    - **Files**: `requirements.txt`, `.github/workflows/bot-quality.yml`
+- ~~**No Dependency Vulnerability Scanning**: `bandit` scans *our code* only — nothing scans the dependency tree.~~
+  **RESOLVED (2026-08-15):** `bot-deps-audit` job in `.github/workflows/bot-quality.yml` runs
+  `pip-audit -r bot/requirements.txt` (phase-1 non-blocking, mirroring bandit/mypy, with a job summary), plus a
+  `.github/dependabot.yml` (pip + github-actions + docker ecosystems, weekly) opens proactive bump PRs. The first
+  audit immediately paid off: the **unused `aiohttp==3.14.1` pin was removed** (nothing imported it; nothing
+  required it — it carried 3 open PYSEC advisories with fixes), leaving one accepted finding: the transitive
+  `ecdsa` advisory via `python-jose` has no fix release (upstream dormant; JWT usage is internal-service only).
+  `pip-audit==2.10.1` is pinned in `requirements.txt` alongside bandit/mypy.
+    - **Files**: `requirements.txt`, `.github/workflows/bot-quality.yml`, `.github/dependabot.yml`
 
 ---
 
@@ -943,13 +946,17 @@ Items removed from this plan during the same review — and why — are listed i
       `test_token_revocation.py` (an async `logout` "coroutine never awaited" test bug) were
       observed and are out of scope for this item.
 
-- [ ] **Set a coverage floor** now that reporting exists
-    - **Files**: `.github/workflows/bot-quality.yml`, `pyproject.toml`
-    - **Impact**: coverage reporting has been live for a while with no gate, so it can silently regress. Read the
-      current `coverage.xml`, add `--cov-fail-under=<current-1>` and ratchet it up like the broad-catch baseline
-    - **Hotspots to target first**: `src/infrastructure/use_cases/service_backtest.py` (2,959 lines, the
-      orchestration core that was deliberately left unsplit), `src/bot_instance_manager.py` (1,935),
-      `src/api/v1/backtests.py` (2,351)
+- [x] **Set a coverage floor** now that reporting exists — DONE 2026-08-15
+    - **Files**: `.github/workflows/bot-quality.yml`
+    - **Status: COMPLETED.** Measured 65.08% line coverage (15,178 statements, 4,760 missed; branch 3852/812)
+      using the *exact* CI invocation (same ignores, same env unsets, aligned venv) on a fully green suite
+      (750 passed / 12 skipped / 0 failed), then added a **blocking** `--cov-fail-under=64` to the `bot-tests`
+      pytest invocation — the prescribed `current−1` ratchet margin, mirroring the broad-catch ratchet
+      (ratchet up as coverage improves; never lower without documented justification). Verified locally:
+      the full run reports `Required test coverage of 64% reached. Total coverage: 65.08%`.
+    - **Hotspots to target first (for raising the floor)**: `src/infrastructure/use_cases/service_backtest.py`
+      (2,959 lines, the orchestration core that was deliberately left unsplit), `src/bot_instance_manager.py`
+      (1,935), `src/api/v1/backtests.py` (2,351)
     - **Effort**: 1 day for the gate; coverage work is ongoing
     - **Priority**: MEDIUM
 
@@ -1015,8 +1022,11 @@ remains:
 - ✅ Type checking with mypy (COMPLETED phase 1 — non-blocking `bot-typecheck` job, 189-error baseline)
 - ✅ Security scanning with bandit (COMPLETED — non-blocking `bot-security` CI job)
 - ✅ DataFrame memory cleanup (COMPLETED)
-- **Coverage floor** (`--cov-fail-under`) — reporting exists, gate does not
-- **Dependency vulnerability scanning** (`pip-audit` / Dependabot) — nothing scans the dependency tree today
+- ✅ **Coverage floor** (`--cov-fail-under`) — COMPLETED (2026-08-15): blocking floor of 64% in the `bot-tests`
+  CI job (measured 65.08%); ratchet up as coverage improves
+- ✅ **Dependency vulnerability scanning** (`pip-audit` / Dependabot) — COMPLETED (2026-08-15): non-blocking
+  `bot-deps-audit` CI job + `.github/dependabot.yml`; first audit removed an unused `aiohttp` pin with 3 open
+  advisories (one accepted no-fix `ecdsa` finding via `python-jose` remains, documented)
 - **Move blocking DB calls off the event loop** — the largest unaddressed performance item;
   **slice 1 landed 2026-08-12** (`run_db` offload helper + backtest + realtime read families converted; WS / mutations / remaining families follow)
 
@@ -1103,7 +1113,8 @@ Pruned during a validation pass against the actual codebase. Two categories:
 - **Exception Handling**: the ratchet baseline (309) never increases and drops opportunistically. The old
   "reduce by 95% to <15" target was removed: the code review found most remaining catches are intentional
   best-effort isolation, so that target would mean making the system *less* resilient
-- **Test Coverage**: establish a `--cov-fail-under` floor from the current measured value, then ratchet up
+- **Test Coverage**: floor established 2026-08-15 at 64% (`--cov-fail-under` in the `bot-tests` CI job, blocking;
+  measured 65.08%) — ratchet up as coverage improves, never lower without documented justification
 
 ### **Performance Metrics**
 
@@ -1124,6 +1135,8 @@ Pruned during a validation pass against the actual codebase. Two categories:
 
 - **Code Quality Enforcement**: Black `--check` + flake8 hard gate pass on every build (live in `bot-lint`)
 - **Security Scanning**: 0 high-severity bandit findings (current baseline: 3 medium, 0 high)
+- **Dependency Scanning**: `pip-audit` reports the resolved `requirements.txt` tree per build (non-blocking
+  `bot-deps-audit` job, phase 1); known accepted finding: 1 no-fix `ecdsa` advisory via `python-jose`
 - **Type Checking**: mypy error count never exceeds the 189-error baseline, and drops module-by-module toward a
   blocking gate. (The old "100% mypy strict" target was removed — it is not reachable from a 189-error baseline
   and made the metric useless as a signal.)

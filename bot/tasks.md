@@ -2,6 +2,28 @@
 
 ## 2026-08-15
 
+- Broadcast-bus **Phase 2 mechanics** (IMPROVEMENTS.md open item #2 — the buildable half; the default flip stays
+  explicitly gated on CI stability observation + staging load test):
+    - **Operational metrics on the bus** (`src/infrastructure/broadcast/bus.py`): counters for
+      `published / publish_errors / received / self_suppressed / decode_errors / dispatched / dispatch_errors /
+      dispatch_timeouts / reconnects`, surfaced as `health()["metrics"]` via `GET /api/v1/monitoring/ws-broadcast`
+      (event-loop-only mutation, no locking needed).
+    - **Bounded dispatch** (`WS_BROADCAST_DISPATCH_TIMEOUT_SECONDS`, default 5 s, new constant): each
+      `deliver_local_broadcast` runs under `asyncio.wait_for` — a stuck WebSocket consumer is cancelled, counted
+      as a `dispatch_timeout`, and logged at WARNING instead of stalling the listener forever; dispatch stays
+      sequential so the per-channel ordering contract is preserved (concurrent dispatch was rejected because it
+      would reorder within a channel).
+    - **Burst coverage**: new `test_broadcast_bus_burst_delivery_preserves_per_channel_order` in the integration
+      harness — 300 messages across 3 channels through a real Valkey, asserting full delivery, per-channel
+      ordering, and balanced metrics on both bus instances; plus three unit tests covering every counter and the
+      timeout path (fake-driven).
+    - Validation: bus unit suite 20/20; integration harness 6/6 live (a mid-session Redis outage exercised the
+      actionable-skip path; infra restarted); multi-worker harness 2/2 against real workers; full gate
+      **753 passed / 13 skipped**, coverage floor held (65.30% ≥ 64%); black clean.
+    - Docs synced: AGENTS.md broadcast section (dispatch bound + metrics keys), IMPROVEMENTS.md Phase 2
+      checkpoint (mechanics done; flip still gated — note that per-symbol coalescing has no current producer
+      since `realtime_data_service` was deleted).
+
 - Fixed the **fresh-database enum drift** (Technical Debt Hotspots entry, surfaced 2026-08-14 by the
   multi-worker harness) with migration `migrations/postgres/0006_reconcile_enum_labels.py`:
     - Root cause: the consolidated chain (`0001_pg_initial`) creates the five status enums

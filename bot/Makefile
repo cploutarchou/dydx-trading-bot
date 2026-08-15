@@ -284,6 +284,18 @@ test-cov-html: ensure-venv ## Run tests with coverage and write HTML report (htm
 	$(call run-venv-python-env,PYTHONPATH=$(CURDIR),-m pytest tests/ --cov=src --cov-report=html --cov-report=term-missing)
 	@echo "$(GREEN)📄 HTML report written to htmlcov/index.html$(RESET)"
 
+.PHONY: test-multiworker
+test-multiworker: ensure-venv ## Run multi-worker broadcast-bus integration test (starts shared infra first)
+	@echo "$(CYAN)🧪 Running multi-worker broadcast integration test...$(RESET)"
+	@$(MAKE) -C .. infra-up
+	$(call run-venv-python-env,PYTHONPATH=$(CURDIR) MULTIWORKER_TEST=1,-m pytest tests/test_multi_worker_broadcast.py -s -vv)
+
+.PHONY: test-integration
+test-integration: ensure-venv ## Run external-service integration tests (Redis/Celery/dYdX; starts infra first)
+	@echo "$(CYAN)🧪 Running external-service integration tests...$(RESET)"
+	@$(MAKE) -C .. infra-up
+	$(call run-venv-python-env,PYTHONPATH=$(CURDIR) INTEGRATION_TEST=1,-m pytest tests/test_integration_external_services.py -s -vv)
+
 .PHONY: install-hooks
 install-hooks: ensure-venv ## Install git pre-commit hooks (run once after clone)
 	@echo "$(CYAN)🪝 Installing pre-commit hooks...$(RESET)"

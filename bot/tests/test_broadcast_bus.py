@@ -306,6 +306,81 @@ def test_listener_survives_dispatch_failure():
     assert len(calls) == 2
 
 
+# ── Operational metrics ────────────────────────────────────────────────────────
+
+
+def test_listener_metrics_count_the_full_path():
+    fake = _FakeRedis()
+    delivered, bus = _run_listener(
+        fake,
+        "me",
+        [
+            _msg("other", "bot-1", {"hi": 1}),  # delivered
+            _msg("me", "bot-2", {"hi": 2}),  # self-suppressed
+            {"type": "message", "data": "not-json"},  # decode error
+            {"type": "message", "data": json.dumps([1, 2])},  # decode error
+            {"type": "message", "data": json.dumps({"channel": "c"})},  # no message
+        ],
+    )
+    assert delivered == [("bot-1", {"hi": 1})]
+    m = bus._metrics
+    assert m["received"] == 5
+    assert m["dispatched"] == 1
+    assert m["self_suppressed"] == 1
+    assert m["decode_errors"] == 2
+    assert m["dispatch_errors"] == 0
+    assert m["dispatch_timeouts"] == 0
+
+
+def test_publish_metrics_count_success_and_error():
+    ok = _FakeRedis()
+    ok_bus = RedisBroadcastBus(url="redis://localhost:6379/0", worker_id="w", client=ok)
+    asyncio.run(ok_bus.publish("c", {"x": 1}))
+    assert ok_bus._metrics["published"] == 1
+    assert ok_bus._metrics["publish_errors"] == 0
+
+    sick = _FakeRedis(fail_publish=True)
+    sick_bus = RedisBroadcastBus(
+        url="redis://localhost:6379/0", worker_id="w", client=sick
+    )
+    asyncio.run(sick_bus.publish("c", {"x": 1}))
+    assert sick_bus._metrics["published"] == 0
+    assert sick_bus._metrics["publish_errors"] == 1
+
+
+def test_dispatch_timeout_is_counted_and_listener_continues():
+    fake = _FakeRedis()
+
+    async def _scenario():
+        bus = RedisBroadcastBus(
+            url="redis://localhost:6379/0",
+            worker_id="me",
+            client=fake,
+            dispatch_timeout=0.05,
+        )
+        delivered = []
+
+        async def dispatch(channel, message):
+            if message.get("slow"):
+                await asyncio.sleep(1.0)  # exceeds the 0.05s bound
+            delivered.append((channel, message))
+
+        await bus.start(dispatch)
+        await _settle()
+        fake.push_message(_msg("other", "c", {"slow": True}))
+        fake.push_message(_msg("other", "c", {"slow": False}))
+        # Long enough for the timeout to fire, short enough to stay snappy.
+        await asyncio.sleep(0.2)
+        await bus.stop()
+        return delivered, bus
+
+    delivered, bus = asyncio.run(_scenario())
+    # The stuck dispatch was cancelled+counted; the next message still delivered.
+    assert delivered == [("c", {"slow": False})]
+    assert bus._metrics["dispatch_timeouts"] == 1
+    assert bus._metrics["dispatched"] == 1
+
+
 def test_stop_closes_pubsub_and_is_idempotent():
     fake = _FakeRedis()
 

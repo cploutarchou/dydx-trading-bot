@@ -11,13 +11,32 @@ Responses use the shared ``api_response`` envelope from :mod:`src.api.responses`
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 
 from src.api.responses import api_response
 from src.infrastructure.database import db
 from src.middleware.auth_middleware import get_current_active_user
+from src.shared.time_utils import utc_now_iso
 
 router = APIRouter(prefix="/api/v1/monitoring", tags=["Monitoring"])
+
+
+class WsBroadcastPublishRequest(BaseModel):
+    """Diagnostic broadcast request for the cross-worker WS bus smoke test."""
+
+    channel: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9._-]+$",
+        description=(
+            "Target broadcast channel (a bot instance id, 'backtest-<run_id>', "
+            "or 'strategies')."
+        ),
+    )
 
 
 @router.get("/dataframe/memory")
@@ -171,4 +190,110 @@ async def get_ws_broadcast_health(
         success=True,
         data=health,
         message="WebSocket broadcast bus health retrieved",
+    )
+
+
+@router.get("/portfolio-risk")
+async def get_portfolio_risk_status(
+    current_user=Depends(get_current_active_user),
+):
+    """Live configuration and recent denials for the account-level entry guard.
+
+    Reports whether the portfolio guard is enabled and its limits (see
+    ``src/trading/portfolio_risk.py`` and ``docs/bot-risk-control-matrix.md``),
+    plus the last 24h of ``trade_entry_rejected_portfolio_risk`` audit events
+    across all bot instances — the operator surface for Phase A burn-in.
+    """
+    _ = current_user
+    from datetime import timedelta
+
+    from internal.domain.models import Bot, Event
+    from src.infrastructure.db_offload import run_db
+    from src.shared.time_utils import utc_now
+    from src.trading.portfolio_risk import portfolio_risk_config
+
+    def _load_recent_denials() -> list[dict]:
+        """Session-owning closure (run off the event loop; plain dicts out)."""
+        session = db.get_session()
+        try:
+            cutoff = utc_now() - timedelta(hours=24)
+            rows = (
+                session.query(Event, Bot.instance_id)
+                .join(Bot, Event.bot_instance_id == Bot.id)
+                .filter(
+                    Event.event_type == "trade_entry_rejected_portfolio_risk",
+                    Event.created_at >= cutoff,
+                )
+                .order_by(Event.created_at.desc())
+                .limit(50)
+                .all()
+            )
+            return [
+                {
+                    "instance_id": instance_id,
+                    "created_at": event.created_at.isoformat(),
+                    "severity": event.severity,
+                    "message": event.message,
+                    "reasons": (event.details or {}).get("reasons"),
+                    "equity": (event.details or {}).get("equity"),
+                    "free_collateral": (event.details or {}).get("free_collateral"),
+                    "open_markets": (event.details or {}).get("open_markets"),
+                    "market_1": (event.details or {}).get("market_1"),
+                    "market_2": (event.details or {}).get("market_2"),
+                }
+                for event, instance_id in rows
+            ]
+        finally:
+            session.close()
+
+    config = portfolio_risk_config()
+    denials = await run_db(_load_recent_denials)
+    return api_response(
+        success=True,
+        data={
+            "config": config,
+            "recent_denials_24h": denials,
+            "count": len(denials),
+        },
+        message="Portfolio risk status retrieved",
+    )
+
+
+@router.post("/ws-broadcast/publish")
+async def publish_ws_broadcast_test(
+    request: WsBroadcastPublishRequest,
+    current_user=Depends(get_current_active_user),
+):
+    """Publish a diagnostic broadcast to a channel via ``broadcast_to_bot``.
+
+    Operator smoke test for the cross-worker bus: emits a fixed, server-built
+    ``broadcast_test`` message (callers cannot inject arbitrary payloads) through
+    the same path the runtime uses — local delivery on this worker, then a
+    best-effort fan-out publish so other workers deliver to their own clients.
+    Use it to verify that a client attached to a *different* worker receives the
+    message exactly once (``test_id`` correlates the copies) after
+    ``WS_BROADCAST_ENABLED=true`` is enabled. Complements the read-only
+    ``GET /api/v1/monitoring/ws-broadcast`` health probe.
+    """
+    _ = current_user
+    from src.api.websocket_server import manager as ws_manager
+    from src.infrastructure.broadcast import get_broadcast_bus
+
+    test_id = uuid4().hex
+    message = {
+        "type": "broadcast_test",
+        "timestamp": utc_now_iso(),
+        "bot_instance_id": request.channel,
+        "data": {"test_id": test_id},
+    }
+    await ws_manager.broadcast_to_bot(request.channel, message)
+    bus_health = await get_broadcast_bus().health()
+    return api_response(
+        success=True,
+        data={
+            "channel": request.channel,
+            "test_id": test_id,
+            "bus": bus_health,
+        },
+        message="Diagnostic broadcast published",
     )

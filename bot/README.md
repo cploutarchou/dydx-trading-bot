@@ -65,8 +65,24 @@ make local-flower
 make local-api
 make local-bot
 make test
+make test-multiworker
+make test-integration
 make preflight-testnet
 ```
+
+`make test-integration` runs the opt-in external-service integration tests
+(`tests/test_integration_external_services.py`): a real Redis/Valkey market-data-cache roundtrip, real
+broadcast-bus pub/sub, a real Celery worker subprocess (control ping + task registration), and the live public dYdX
+v4 indexer markets contract — against scratch Redis DBs so the dev cache/broker are never touched. It skips
+automatically when not opted in (`INTEGRATION_TEST=1`); the indexer test skips when offline.
+
+`make test-multiworker` runs the opt-in multi-worker integration test for the cross-worker WebSocket broadcast bus
+(`tests/test_multi_worker_broadcast.py`): it starts the shared infrastructure, boots two real API worker processes
+against one Redis/Valkey and an ephemeral PostgreSQL database, and asserts that a `broadcast_to_bot` on worker A
+reaches a WebSocket client attached to worker B exactly once with no loop-back. It skips automatically (both in this
+target and when the suite runs without `MULTIWORKER_TEST=1`) when not opted in. The companion operator smoke test is
+`POST /api/v1/monitoring/ws-broadcast/publish` (auth required), which emits a server-built `broadcast_test` message
+through the same path the runtime uses.
 
 `make local-api` starts the canonical API without uvicorn hot reload by default, which gives cleaner shutdown semantics
 for runtime verification. Use `make dev-api` or set `BOT_API_RELOAD=true` only when file-watch reload behavior is

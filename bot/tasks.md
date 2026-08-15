@@ -1,5 +1,301 @@
 # Tasks Log
 
+## 2026-08-15
+
+- Portfolio-level risk controls **slice 3 — account-wide drawdown policy** (IMPROVEMENTS.md open item #6):
+    - `PortfolioRiskLimits` gained `max_drawdown_pct` (`BOT_PORTFOLIO_MAX_DRAWDOWN_PCT`, default 0 = off);
+      the pure evaluator takes `peak_equity` and denies at/after the cap (`portfolio_max_drawdown`). The
+      per-instance config field `max_drawdown_pct` stays REJECTED — this is the ACCOUNT-level control.
+    - New `RedisPeakEquityStore` in `src/trading/portfolio_risk.py`: ratcheted all-time peak per wallet
+      address (`bot:portfolio:peak_equity:<address>`, monotonic `max(stored, observed)` — concurrent
+      writers race benignly; lazy `redis.asyncio` client via the standard `redis_url` resolution;
+      non-raising with narrow catches `RedisError/OSError/ValueError/TypeError` so the ratchet stays
+      flat and Redis is never a trading dependency). `resolve_client_address_or_none` added to
+      account_manager (non-raising, tolerates wallet-less clients).
+    - Failure semantics documented and pinned: Redis unavailable ⇒ peak None ⇒ the drawdown check skips
+      itself (fail-open for THIS check only) while the exchange-read controls (markets / utilization /
+      collateral floor) still fail closed.
+    - `tests/conftest.py` gained an autouse `_isolate_portfolio_peak_store` fixture (inert store by
+      default, mirroring the broadcast-bus isolation pattern).
+    - Validation: 6 new cases in `tests/test_portfolio_risk.py` (pure at-cap/ratchet/peak-missing, store
+      ratchet-up-only + never-raises with a fake client, wrapper observe→deny integration) — 19/19;
+      mandated suites + ratchet green; full gate **773 passed / 13 skipped**, coverage 65.57% ≥ 64%;
+      live Valkey sanity confirmed the ratchet (1000 → holds on dip → 1200, persisted).
+    - Docs: risk-matrix Phase A section extended with the drawdown slice; IMPROVEMENTS.md item #6
+      records slice 3 + remaining (Phase B burn-in/flip, multi-account aggregation).
+
+- Portfolio-level risk controls **slice 2 — operator visibility** (IMPROVEMENTS.md open item #6):
+    - New `GET /api/v1/monitoring/portfolio-risk` (auth required, standard `api_response` envelope):
+      reports the guard's live configuration (`portfolio_risk_config()` — enabled flag + the three limits)
+      plus the last 24h of `trade_entry_rejected_portfolio_risk` audit events across ALL instances (joined
+      to `bot_instances` for the string instance id; instance, reasons, equity, free collateral, open
+      markets, pair), loaded through a session-owning sync closure via `run_db` per AGENTS rule 13 —
+      the burn-in surface for the Phase A default flip.
+    - `portfolio_risk.py` gained the `portfolio_risk_config()` accessor; `openapi.json` regenerated (+1
+      operation); monitoring router now 10 routes.
+    - Validation: `tests/test_monitoring_routes.py` (10-route shape incl. the new GET in the auth + envelope
+      loops, and a dedicated config/denial-serialization test with a fake query chain asserting the
+      session-close lifecycle) + `tests/test_portfolio_risk.py` — 22 passed; full gate
+      **767 passed / 13 skipped**, coverage floor held (65.50% ≥ 64%); black clean.
+    - Docs: risk matrix gained the operator-visibility note; AGENTS.md monitoring-routes line updated;
+      IMPROVEMENTS.md item #6 records slice 2 + remaining slices (Phase B flip after burn-in, drawdown
+      policy, multi-account aggregation).
+
+- Portfolio-level risk controls **slice 1 — Phase A entry guard** (IMPROVEMENTS.md open item #6, the last big
+  financial-risk item):
+    - Exploration established the real topology first: every worker trades subaccount 0 of its wallet with
+      env-global limit constants (per-instance DB `trading_params` numerics are advisory at runtime), nothing
+      prevents N instances sharing one subaccount concurrently, and `max_positions` counts only the instance's
+      own tracked state — the exact cross-instance over-exposure hole. Conclusion: the SHARED SUBACCOUNT
+      (equity / freeCollateral / openPerpetualPositions) is the authoritative portfolio view; every worker
+      already reads it inside `open_positions`, so no cross-process state is needed.
+    - New `src/trading/portfolio_risk.py`: pure deterministic decision core (`evaluate_portfolio_entry` —
+      aggregate open-market cap, margin-utilization cap `(equity − free)/equity`, projected free-collateral
+      floor after ~2 × `usd_per_trade` incremental notional; at-limit = full; fail-closed
+      `portfolio_data_unavailable` on malformed data), a circuit-broken snapshot loader, and
+      `check_portfolio_entry_guard` wired into `position_manager.open_positions` directly after the
+      per-instance `max_positions` check — mirroring the existing rejection pattern exactly
+      (`record_rejection` + warning log + `trade_entry_rejected_portfolio_risk` audit event + `break`).
+      Transport errors propagate like the neighboring collateral guards (no new broad catches; ratchet held).
+    - **Phase A is opt-in**: `BOT_PORTFOLIO_RISK_ENABLED=false` default (enforce-only-proven-controls
+      philosophy; same rollout pattern as the broadcast bus), limits `BOT_PORTFOLIO_MAX_OPEN_MARKETS=20`,
+      `BOT_PORTFOLIO_MAX_MARGIN_UTILIZATION_PCT=60.0`, `BOT_PORTFOLIO_MIN_FREE_COLLATERAL_USD=0` (off).
+    - Validation: `tests/test_portfolio_risk.py` 13/13 (pure core incl. boundary equality + fail-closed,
+      wrapper short-circuit/deny/transport-propagation, and the wiring test on the entry-backoff harness
+      proving a denial → rejection + audit event + zero orders); mandated suites green
+      (`entry_backoff`/`exit_safety`/`live_risk_controls`/`live_trade_persistence`); full gate
+      **766 passed / 13 skipped**, coverage 65.46% ≥ 64%; black clean.
+    - Docs: `docs/bot-risk-control-matrix.md` gained the Phase A account-level section; AGENTS.md trading
+      components + required checks updated; IMPROVEMENTS.md item #6 records slice 1 + remaining slices
+      (Phase B burn-in + default flip, operator visibility endpoint, account-wide drawdown policy — which
+      could move the REJECTED `max_drawdown_pct` to ENFORCED — and multi-account aggregation).
+
+- Broadcast-bus **Phase 2 mechanics** (IMPROVEMENTS.md open item #2 — the buildable half; the default flip stays
+  explicitly gated on CI stability observation + staging load test):
+    - **Operational metrics on the bus** (`src/infrastructure/broadcast/bus.py`): counters for
+      `published / publish_errors / received / self_suppressed / decode_errors / dispatched / dispatch_errors /
+      dispatch_timeouts / reconnects`, surfaced as `health()["metrics"]` via `GET /api/v1/monitoring/ws-broadcast`
+      (event-loop-only mutation, no locking needed).
+    - **Bounded dispatch** (`WS_BROADCAST_DISPATCH_TIMEOUT_SECONDS`, default 5 s, new constant): each
+      `deliver_local_broadcast` runs under `asyncio.wait_for` — a stuck WebSocket consumer is cancelled, counted
+      as a `dispatch_timeout`, and logged at WARNING instead of stalling the listener forever; dispatch stays
+      sequential so the per-channel ordering contract is preserved (concurrent dispatch was rejected because it
+      would reorder within a channel).
+    - **Burst coverage**: new `test_broadcast_bus_burst_delivery_preserves_per_channel_order` in the integration
+      harness — 300 messages across 3 channels through a real Valkey, asserting full delivery, per-channel
+      ordering, and balanced metrics on both bus instances; plus three unit tests covering every counter and the
+      timeout path (fake-driven).
+    - Validation: bus unit suite 20/20; integration harness 6/6 live (a mid-session Redis outage exercised the
+      actionable-skip path; infra restarted); multi-worker harness 2/2 against real workers; full gate
+      **753 passed / 13 skipped**, coverage floor held (65.30% ≥ 64%); black clean.
+    - Docs synced: AGENTS.md broadcast section (dispatch bound + metrics keys), IMPROVEMENTS.md Phase 2
+      checkpoint (mechanics done; flip still gated — note that per-symbol coalescing has no current producer
+      since `realtime_data_service` was deleted).
+
+- Fixed the **fresh-database enum drift** (Technical Debt Hotspots entry, surfaced 2026-08-14 by the
+  multi-worker harness) with migration `migrations/postgres/0006_reconcile_enum_labels.py`:
+    - Root cause: the consolidated chain (`0001_pg_initial`) creates the five status enums
+      (`botstatusenum`, `jobstatusenum`, `tradestatusenum`, `positionstatusenum`, `alertseverityenum`)
+      with the Python enums' lowercase *values*, while SQLAlchemy's `Enum(PyEnum)` binds the uppercase
+      *names* — so fresh-from-migration deployments rejected `'OPEN'`/`'PENDING'`/`'RUNNING'` (breaking
+      websocket initial-state position queries, `async_job_manager` persistence, and bot lifecycle
+      writes), while legacy `create_all_tables` databases (name-style labels) worked.
+    - Fix (migration-safety pattern, expand/contract): `ALTER TYPE ... ADD VALUE IF NOT EXISTS` for the
+      NAME labels inside `autocommit_block()` (PG forbids ADD VALUE in a transaction that later uses the
+      type), then row flips value→NAME with columns discovered dynamically from `information_schema` by
+      `udt_name`. Idempotent; legacy DBs are no-ops; lowercase labels permanently remain (PG cannot drop
+      enum values — documented). Downgrade flips rows back and re-adds lowercase labels for legacy DBs.
+    - Verification (per the migration checklist): fresh migrations-only ephemeral DB → the exact
+      previously-failing operations now succeed (Job insert with `JobStatusEnum.PENDING`, Bot write with
+      `BotStatusEnum.RUNNING`, `WHERE status='OPEN'` filter); `downgrade -1` + `upgrade head` round-trips;
+      a real API worker boot on a fresh DB no longer logs `job_persistence_failed` /
+      `InvalidTextRepresentation`; full suite 750 passed / 13 skipped, coverage floor held; black clean.
+    - IMPROVEMENTS.md synced (debt hotspot → RESOLVED; multi-worker item note updated).
+
+- Closed IMPROVEMENTS.md open item #4 — **integration tests for external services (Redis, Celery, dYdX)**:
+    - New opt-in harness `tests/test_integration_external_services.py` (`INTEGRATION_TEST=1` /
+      `make test-integration`; module-level skip otherwise), following the MULTIWORKER_TEST convention:
+        1. **Redis/Valkey cache**: real `RedisMarketDataCache` roundtrip (markets + candles, health,
+           overwrite-wins) against dedicated scratch DB 15 (`INTEGRATION_REDIS_URL`), flushed before/after —
+           the dev cache is never touched.
+        2. **Broadcast bus**: two real `RedisBroadcastBus` instances over live sockets — cross-instance
+           pub/sub delivery AND self-origin suppression (also waits for the truthful `subscribed` health
+           flag before publishing).
+        3. **Celery**: a real worker subprocess (solo pool, `--without-gossip/--without-mingle`, scratch
+           broker/result DB 14 via `INTEGRATION_CELERY_BROKER_URL`, metadata-only structured profile) that
+           must answer `control.ping` and register the core tasks (`backtests.run`,
+           `bot.sync_market_candles`); the test process's own `celery_app` client env is pinned/ restored
+           around the import so `load_repo_env` cannot redirect it to the dev broker.
+        4. **dYdX indexer**: live public v4 markets contract (BTC-USD ACTIVE + oracle price;
+           `DYDX_INTEGRATION_INDEXER_URL` override; skips — not fails — when offline).
+    - CI: non-blocking phase-1 `bot-integration` job in `../.github/workflows/bot-quality.yml` (Valkey
+      service container, `INTEGRATION_TEST=1`, step summary, `timeout-minutes: 15`); promote the same way
+      as `bot-multiworker` once consistently green.
+    - Validation: live run **5/5 passed** (incl. via `make test-integration` end-to-end); default suite
+      unaffected (module skips: 750 passed / 13 skipped, coverage floor held 65.28% ≥ 64%); workflow YAML
+      parsed and verified; two first-draft assertion bugs fixed against observed reality (custom Celery
+      task names; indexer market field names).
+    - IMPROVEMENTS.md: item #4 marked RESOLVED (table row, action item, coverage-gaps section, matrix);
+      AGENTS.md (testing commands + required checks) and README (commands) synced.
+
+- Blocking-DB-offload **slice 5: the flagged smalls — item #3 CLOSED**:
+    - **Engine `pool_pre_ping` (default ON)**: `DatabaseConfig` gained `pool_pre_ping` (`DB_POOL_PRE_PING`,
+      default true) wired into `get_engine_kwargs()` and `to_diagnostics()` — pooled connections are
+      pre-checked on checkout so stale/idle connections (server restart, firewall idle-kill) are transparently
+      re-established instead of surfacing as random "server closed the connection" errors. Verified: default
+      builds `pool_pre_ping=True`; `DB_POOL_PRE_PING=false` overrides.
+    - **Auth session leak fixed**: the 8 `Depends(db.get_session)` sites in `src/api/v1/auth/__init__.py` (4)
+      and `src/api/v1/auth/password_2fa.py` (4) used the raw session-factory *method*, which FastAPI treats as
+      a plain dependency and never closes — one leaked session per auth request. They now use the module-level
+      yield-dependency `get_session()` (open → yield → close), the same one `get_current_active_user` already
+      used; unused `db` imports removed.
+    - Validation: auth suites (`test_auth_2fa_recovery` / `test_auth_2fa_login` / `test_auth_api_contract` /
+      `test_auth_middleware_service_token` — 28 passed), `test_security_auth_bypass` + ratchet (27 passed),
+      black clean; full suite **750 passed / 12 skipped / 0 failed**, coverage floor held (65.28% ≥ 64%).
+    - IMPROVEMENTS.md: item #3 marked RESOLVED everywhere (table row, item status, matrix, key-findings #6).
+      With slices 1–5 done, no synchronous SQLAlchemy remains on the event loop in `src/api/**` handlers.
+
+- Blocking-DB-offload **slice 4: the remaining route families** — item #3's route work is now COMPLETE:
+    - `src/api/v1/bot_records.py`: all 4 handlers (history/jobs/trades/stats) load + serialize through
+      session-owning sync closures via `run_db`; 404-on-unknown-bot, 500 envelopes, and message text are
+      byte-identical, and the `fake_session.closes` count guards in `tests/test_bot_record_routes.py`
+      still pin the session lifecycle.
+    - `src/api/v1/strategies.py`: all 8 routes now `await run_in_threadpool(...)` the (already
+      session-owning, dict-returning) `InMemoryStrategyStore` calls — the store itself was already
+      seam-correct, only the route-level sync invocation blocked the loop.
+    - `src/api/v1/bot_lifecycle.py`: create-route DB persistence extracted into
+      `_persist_created_bot_config` (raises on failure after `Session.close()` releases the pending
+      transaction, so the route's existing error path still unwinds the runtime instance via
+      `bot_manager.delete_instance`; the bot_created event-log warning catch moved with it, keeping the
+      broad-catch ratchet flat); delete-route cleanup extracted into best-effort
+      `_delete_bot_db_record`; all 8 `_persist_bot_status_and_event` call sites now await through
+      `run_db` (manager interactions were already async and are untouched).
+    - Validation: `test_bot_record_routes.py` + `test_bot_lifecycle_routes.py` +
+      `test_strategies_routes.py` + ratchet (31 passed, incl. the DB-failure-cleanup and
+      session-close-count guards); full suite **750 passed / 12 skipped / 0 failed**, coverage floor
+      held (65.29% ≥ 64%); black + compileall clean.
+    - IMPROVEMENTS.md (item #3 → route families complete; table + matrix) and AGENTS.md rule 13
+      reference list updated. Remaining flagged smalls from item #3: engine `pool_pre_ping` and the
+      auth `Depends(db.get_session)` session leak.
+
+- Blocking-DB-offload **slice 3: backtest mutations** (IMPROVEMENTS.md open item #3):
+    - `cancel` / `pause` / `resume` / `delete` routes in `src/api/v1/backtests.py` no longer run their sync
+      service calls on the event loop — new `_cancel/_pause/_resume/_delete_backtest_sync` helpers run via
+      the established `run_db` seam (`_run_with_backtest_service` owns the service/session lifecycle and
+      resolves `get_backtest_service` through `_compat` at call time, so every test patch seam survives).
+    - `restart` / `retry` offload their sync status precheck through the existing
+      `_get_backtest_status_sync` seam; the async `restart_backtest`/`retry_backtest` service calls stay on
+      the loop, now with the service scope opened *after* the precheck (no session held across the read).
+    - The three shared control builders — `_repair_backtest_request_response`,
+      `_list_interrupted_backtests_response`, `_reconcile_interrupted_backtests_response` — became async
+      with their service work offloaded (`_repair_backtest_request_sync` /
+      `_list_interrupted_runs_for_ops_sync` / `_reconcile_interrupted_runs_sync`); their five route call
+      sites await results through a new `_maybe_awaitable(...)` helper so monkeypatched sync builder
+      doubles (`test_backtest_route_auth` patches one with a sync lambda) keep working unchanged.
+    - Validation: `test_backtest_routes.py` + `test_backtest_api_contract.py` + `test_backtest_route_auth.py`
+      + ratchet (66 passed); full suite **750 passed / 12 skipped / 0 failed**, coverage floor held
+      (65.22% ≥ 64%); black clean.
+    - IMPROVEMENTS.md + AGENTS.md rule 13 reference list synced. Remaining slices: `bot_records` /
+      `bot_lifecycle` / `strategies` families; flagged smalls: `pool_pre_ping`, auth-dependency session
+      leaks.
+
+- Blocking-DB-offload **slice 2: the WebSocket sender family** (IMPROVEMENTS.md open item #3, the doc's named
+  next slice):
+    - `send_initial_state`, `send_positions`, `send_stats`, and `send_market_data` in
+      `src/api/websocket_server.py` no longer run synchronous SQLAlchemy on the event loop — every WS connect
+      and every `request_positions`/`request_stats`/`request_market_data` message used to stall all in-flight
+      requests and broadcasts on that worker for the duration of the queries.
+    - Each sender now loads + serializes through a session-owning sync closure executed via
+      `run_in_threadpool` (the pattern `send_backtest_status` already established in-module; per AGENTS.md
+      rule 13 the closure owns its full `Session` lifecycle — `db.get_session()` → `finally: close()` — and
+      returns plain dicts/lists so no ORM object crosses the thread boundary; ORM-attribute serialization
+      happens inside the thread). Message shapes, unknown-bot empty variants, error logging, return values,
+      and the module-level test seams (`db`, `UnitOfWork`, `UnitOfWorkRealtime`) are unchanged.
+    - Validation: `tests/test_websocket_server.py` + `tests/test_bot_realtime_routes.py` (incl. the
+      `fake_session.closes == 6` guard) + the broad-catch ratchet — 28 passed; black clean; live multi-worker
+      harness re-run green (2 passed) against real Postgres/Valkey.
+    - IMPROVEMENTS.md synced (item #3 status → slices 1–2, open-items table, matrix); AGENTS.md rule 13
+      reference-conversions list extended with the WS family. Remaining slices: backtest mutations and the
+      `bot_records` / `bot_lifecycle` / `strategies` families.
+
+- Closed IMPROVEMENTS.md open item #5 — **coverage floor + dependency vulnerability scanning** (both halves done):
+    - **Coverage floor (blocking)**: measured 65.08% line coverage (15,178 stmts / 4,760 missed; branch 3852/812)
+      using the exact `bot-tests` CI invocation (same `--ignore`s, same env unsets) on a fully green suite —
+      750 passed / 12 skipped / 0 failed — then added `--cov-fail-under=64` (prescribed current−1 ratchet margin)
+      to the `bot-tests` pytest step in `../.github/workflows/bot-quality.yml`. Verified end-to-end locally:
+      `Required test coverage of 64% reached. Total coverage: 65.08%`. Ratchet upward as coverage improves.
+    - **pip-audit CI job**: new non-blocking `bot-deps-audit` job (phase-1, mirrors bandit/mypy: `continue-on-error`
+      + job-summary reporting + documented promotion path) running `pip-audit -r requirements.txt`;
+      `pip-audit==2.10.1` pinned in `requirements.txt`.
+    - **Dependabot**: new `../.github/dependabot.yml` — pip (`/bot`, weekly, dev-tooling grouped; runtime deps
+      individually reviewable since pins are deliberate), github-actions (`/`), docker (`/docker`).
+    - **First audit paid off immediately**: `pip-audit` flagged 4 findings — the **unused `aiohttp==3.14.1` pin
+      carried 3 open PYSEC advisories** (fixes in 3.14.2/3.14.3); nothing in the repo imports aiohttp and nothing
+      installed requires it (dydx client uses httpx, Flower uses tornado) → **removed the pin** (root-cause fix,
+      not a bump) and uninstalled locally; the full suite is green without it (750 passed). Remaining accepted
+      finding: transitive `ecdsa 0.19.2` via `python-jose` (no fix release; upstream dormant) — documented in the
+      job comment + metrics; JWT usage is internal-service only.
+    - **Drive-by test-isolation fix**: `tests/test_env_loader.py` profile-resolution tests failed whenever
+      `APP_RUN_CONFIG_FILE` was set — which the CI job env does — because an explicit run-config file hijacks
+      `load_repo_env` resolution; the tests now `monkeypatch.delenv` the explicit-config overrides they don't test.
+    - **Local venv realignment (drift)**: installed the pinned-but-missing `pytest-cov==7.1.0`,
+      `coverage==7.15.2`, and `nats-py` to `requirements.txt` state; the 2 pre-existing
+      `test_nats_consumer.py` failures were `NATS_AVAILABLE=False` venv drift, not regressions (31/31 green after
+      install). Full suite: **750 passed, 12 skipped, 0 failed**.
+    - IMPROVEMENTS.md synced: item #5 row resolved, security "No Dependency Vulnerability Scanning" section
+      resolved, "Set a coverage floor" action item checked, matrix + metrics updated.
+
+- Wired the multi-worker broadcast harness into CI (completes the CI-wiring follow-up of the 2026-08-14 item):
+    - New `bot-multiworker` job in `../.github/workflows/bot-quality.yml` — Postgres 15.18-bookworm + Valkey
+      7.2-alpine **service containers** (image/credentials mirror the `docker-compose.infra.yml` defaults so the
+      harness's `POSTGRES_*` probes match local runs), health-checked, with `MULTIWORKER_TEST=1`,
+      `MULTIWORKER_REDIS_URL`, and explicit `POSTGRES_*` job env; runs
+      `pytest tests/test_multi_worker_broadcast.py -vv -s --tb=short` and posts a step summary;
+      `timeout-minutes: 15`.
+    - Follows the repo's phase-1 gating convention (mypy/bandit precedent): `continue-on-error` on the test step
+      and intentionally NOT in `quality-gate.needs` until stability on shared runners is proven; the promotion
+      path (drop `continue-on-error`, add to `needs`) is documented in the job's comment block.
+    - Validated locally: workflow YAML parses (job/services/env/steps verified), and the exact job command with
+      the exact job env passed against live infra (2 passed) — env plumbing (`MULTIWORKER_REDIS_URL`,
+      `POSTGRES_HOST/PORT/USER/PASSWORD` → harness probes → ephemeral DB creation) exercised end-to-end.
+    - IMPROVEMENTS.md synced: CI-job sub-checkbox checked, open-items table and the Phase 2 "blocked on" note
+      updated (remaining: promote job to blocking once stable + burst/load coverage).
+
+## 2026-08-14
+
+- Delivered the multi-worker test harness (IMPROVEMENTS.md open item #1, the gate on the broadcast-bus Phase 2 flip):
+    - `tests/test_multi_worker_broadcast.py` — opt-in (`MULTIWORKER_TEST=1` / `make test-multiworker`) integration
+      test that boots the canonical API as two real `start_api.py` worker processes against one Redis/Valkey and an
+      ephemeral PostgreSQL DB (`dydx_bot_mwtest_<pid>`, created/dropped per run), with `WS_BROADCAST_ENABLED=true`,
+      auth bypassed in a test environment, and a metadata-only structured profile so no repo profile values leak in.
+      Workers start staggered to avoid Alembic DDL races on the empty schema. Asserts distinct bus worker identities,
+      healthy+subscribed listeners, and the headline property: a `broadcast_to_bot` on worker A reaches a WebSocket
+      client on worker B exactly once, the local client on A gets exactly one copy, both directions work, and a quiet
+      window proves no loop-back echo. Auto-skips (module level) when not opted in or when Redis/Postgres are absent,
+      with actionable skip messages.
+    - New operator smoke-test endpoint `POST /api/v1/monitoring/ws-broadcast/publish` (auth required): emits a fixed
+      server-built `broadcast_test` message through `broadcast_to_bot` to a validated channel and returns the
+      correlatable `test_id` plus bus health — the deterministic in-worker trigger the harness (and operators
+      post-Phase-2-flip) need. `openapi.json` regenerated (+1 operation, +`WsBroadcastPublishRequest`);
+      `tests/test_monitoring_routes.py` extended (9-route shape incl. POST, happy path, 422 boundary, 401).
+    - **Fixed a real Phase-1 bus bug found by the harness**: the pub/sub listener inherited the 1.0 s command
+      `socket_timeout`, so idle `listen()` raised `TimeoutError` every second and the subscription flapped
+      (resubscribe loop), silently dropping messages published between resubscribes while `health()` still said
+      healthy+listening. The subscriber now uses a dedicated no-read-timeout connection (publish/health commands
+      keep the bounded timeout), and `health()` reports a new `subscribed` field with the actual subscription state.
+      Reproduced with a live-Valkey two-bus script; `tests/test_broadcast_bus.py` still green (17 cases).
+    - **Found (not fixed — migration follow-up)**: on a fresh database built purely by Alembic migrations, Postgres
+      enums reject the ORM's labels (`positionstatusenum` vs `'OPEN'`, `jobstatusenum` vs `'PENDING'`), breaking
+      websocket initial-state position queries and `async_job_manager` persistence. Only bites fresh-from-migration
+      schemas (historical `create_all_tables` databases are unaffected); the harness works around it via a
+      `backtest-*` channel. Needs an enum-label alignment change under the migration-safety process.
+    - Makefile: new `test-multiworker` target (`ensure-venv` → `make -C .. infra-up` → opt-in pytest run).
+      Docs synced: `README.md` (commands), `AGENTS.md` (testing commands, required checks, broadcast section),
+      `IMPROVEMENTS.md` (item #1 + Phase 2 checkpoint), this log. Validation: monitoring/broadcast-bus/realtime
+      openapi-comparison suites green, broad-catch ratchet green, black clean, multi-worker suite passed twice
+      end-to-end against live infra. Note: local `.venv` was missing pinned `pytest-asyncio==1.3.0`; installed to
+      restore the async-marked tests.
+
 ## 2026-08-12
 
 - Enforced TOTP 2FA at login (resolves the 2FA login-enforcement follow-up noted on 2026-08-11 — the

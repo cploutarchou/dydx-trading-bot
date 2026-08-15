@@ -99,8 +99,17 @@ Repository-level guidance for coding agents working on this project.
     - The offloaded callable MUST own its full `Session` lifecycle (open via `db.get_session()`, use, close in
       `finally`) so no `Session` crosses the thread boundary (sync sessions are not thread-safe). Return DTOs/dicts
       across the seam — never live ORM objects that could lazy-load back on the loop.
-    - Reference conversions: backtest reads via the `_*_sync` seam (`src/api/v1/backtests.py`) and realtime reads
-      via session-owning closures (`src/api/v1/bot_realtime.py`).
+    - Reference conversions: backtest reads via the `_*_sync` seam (`src/api/v1/backtests.py`), backtest
+      mutations via `_cancel/_pause/_resume/_delete_backtest_sync` + the async control builders awaited
+      through `_maybe_awaitable` (keeps sync monkeypatch doubles working), realtime reads
+      via session-owning closures (`src/api/v1/bot_realtime.py`), bot-record reads via
+      session-owning closures (`src/api/v1/bot_records.py`), strategy-store calls via
+      `run_in_threadpool` at the route (`src/api/v1/strategies.py`), bot-lifecycle persistence
+      (`_persist_created_bot_config` / `_delete_bot_db_record` / `_persist_bot_status_and_event`) via
+      `run_db` (`src/api/v1/bot_lifecycle.py`), and the WebSocket sender family
+      (`send_initial_state` / `send_positions` / `send_stats` / `send_market_data` in
+      `src/api/websocket_server.py`) via local `run_in_threadpool(closure)` loaders that serialize to plain
+      dicts inside the thread.
 
 ## Local Development Commands
 
@@ -123,6 +132,15 @@ become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown 
 **Testing and validation:**
 
 - `make test` — Run full pytest suite
+- `make test-multiworker` — Run the opt-in multi-worker broadcast integration test (`tests/test_multi_worker_broadcast.py`):
+  starts shared infra (`make -C .. infra-up`), boots two real API worker processes against one Redis/Valkey and an
+  ephemeral PostgreSQL database with `WS_BROADCAST_ENABLED=true`, and asserts cross-worker WebSocket delivery with no
+  loop-back. Skips automatically unless `MULTIWORKER_TEST=1` is set (directly or via this target).
+- `make test-integration` — Run the opt-in external-service integration tests
+  (`tests/test_integration_external_services.py`): real Redis/Valkey market-data-cache roundtrip + broadcast-bus
+  pub/sub (scratch DBs 14/15), a real Celery worker subprocess (control ping + task registration), and the live
+  public dYdX v4 indexer markets contract (skips when offline). Skips automatically unless `INTEGRATION_TEST=1` is
+  set (directly or via this target).
 - `make test-auth` — Test authentication system (runs `test_api_database_integration.py` in Docker)
 - `make preflight-testnet` — Run testnet preflight checks with production-like simulation
 - `make preflight-testnet-strict` — Run strict preflight (warnings fail; required for release)
@@ -224,10 +242,23 @@ become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown 
   `ws:broadcast` channel. `WS_BROADCAST_ENABLED=false` (default) keeps single-worker/local behavior identical; a Redis
   outage degrades to local-only delivery (never breaks a broadcast). Override with `WS_BROADCAST_REDIS_URL` and
   `WS_BROADCAST_SOCKET_TIMEOUT_SECONDS=1.0`.
-- Health: `GET /api/v1/monitoring/ws-broadcast` (auth required).
+- The subscriber uses a **dedicated connection with no read timeout** — an idle `listen()` blocks forever by design;
+  inheriting the command `socket_timeout` makes the listener flap (resubscribe loop) and silently drop messages.
+  `WS_BROADCAST_SOCKET_TIMEOUT_SECONDS` applies to publish/health commands only.
+- Each dispatch is bounded by `WS_BROADCAST_DISPATCH_TIMEOUT_SECONDS` (default 5 s): a stuck WebSocket consumer is
+  cancelled and counted instead of stalling the listener; per-channel ordering is preserved (dispatch stays
+  sequential).
+- Health: `GET /api/v1/monitoring/ws-broadcast` (auth required) — includes `subscribed` (the *actual* subscription
+  state; a running listener task can briefly be between subscriptions) and `metrics` (published / publish_errors /
+  received / self_suppressed / decode_errors / dispatched / dispatch_errors / dispatch_timeouts / reconnects).
+- Operator smoke test: `POST /api/v1/monitoring/ws-broadcast/publish` (auth required) emits a fixed server-built
+  `broadcast_test` message via `broadcast_to_bot` to a validated channel; correlate copies across workers by `test_id`.
+- Multi-worker verification: `make test-multiworker` (opt-in; see Testing below).
 
 **Monitoring routes** (`src/api/v1/monitoring.py`, mounted under `/api/v1/monitoring`, auth required): DataFrame
-memory/cleanup, database pool metrics/health/history/diagnostics, `/circuit-breakers`, `/ws-broadcast`. Responses use
+memory/cleanup, database pool metrics/health/history/diagnostics, `/circuit-breakers`, `/ws-broadcast` (health),
+`/ws-broadcast/publish` (diagnostic broadcast), and `/portfolio-risk` (account-level guard config + last-24h
+denial audit events). Responses use
 the shared `api_response` envelope from `src/api/responses.py`.
 
 **Test isolation**: autouse fixtures in `tests/conftest.py` keep these subsystems inert by default —
@@ -255,6 +286,8 @@ module `reset_*()` helpers.
   or candle aggregation.
 - Run `tests/test_position_manager_exit_safety.py` and `tests/test_position_manager_entry_backoff.py` when touching
   position entry/exit logic or backoff behavior.
+- Run `tests/test_portfolio_risk.py` when touching account-level risk controls
+  (`src/trading/portfolio_risk.py` or the portfolio guard wiring in `position_manager.open_positions`).
 - Run `tests/test_storage_adapters.py` when touching ClickHouse or MinIO storage integration.
 - Run `tests/test_arbitrage_observability.py` and `tests/test_arbitrage_cycle_cache.py` when touching arbitrage decision
   logic or pair caching.
@@ -271,7 +304,13 @@ module `reset_*()` helpers.
   message handling.
 - Run `tests/test_circuit_breaker.py` and `tests/test_market_data_circuit_notifications.py` when touching circuit
   breakers or external-service call paths (`src/infrastructure/resilience/`, dYdX indexer, Telegram, Loki).
-- Run `tests/test_broadcast_bus.py` when touching cross-worker WebSocket broadcast (`src/infrastructure/broadcast/`).
+- Run `tests/test_broadcast_bus.py` when touching cross-worker WebSocket broadcast (`src/infrastructure/broadcast/`);
+  for changes to the bus listener/publish path also run the opt-in `tests/test_multi_worker_broadcast.py`
+  (`make test-multiworker`, needs local Redis + PostgreSQL infra).
+- Run the opt-in `tests/test_integration_external_services.py` (`make test-integration`, needs local
+  Redis/Valkey + outbound network) when touching the shared market-data cache, the broadcast bus's real
+  pub/sub path, Celery worker wiring (`celery_app.py` task registration/broker config), or the dYdX
+  indexer contract.
 - Run `tests/test_credentials_cipher.py` when touching credential sealing/encryption (`src/shared/credentials_cipher.py`
   or `bot_instances` config persistence).
 - Run `tests/test_monitoring_routes.py` when touching `src/api/v1/monitoring.py` endpoints.
@@ -313,7 +352,10 @@ module `reset_*()` helpers.
   `src/trading/analysis/cointegration.py` (cointegration analysis for pairs trading),
   `src/trading/arbitrage_runtime_config.py` (runtime-overridable arbitrage feature flags; env vars are startup
   defaults, backend/admin settings may override at runtime), `src/trading/bot_agents_state.py` (concurrency-safe
-  per-instance tracked-position state; DB primary, JSON file fallback).
+  per-instance tracked-position state; DB primary, JSON file fallback),
+  `src/trading/portfolio_risk.py` (account-level entry guard on the SHARED subaccount — aggregate open-market
+  cap, margin-utilization cap, projected free-collateral floor; Phase A opt-in via
+  `BOT_PORTFOLIO_RISK_ENABLED`, default off; see `docs/bot-risk-control-matrix.md`).
 - **Architecture reference docs**: `flows/` contains a dated (2026-06-21) source-code map of the system —
   `project-structure.md`, `services-inventory.md`, `current-business-flows.md`, `api-flows.md`,
   `background-tasks.md`, `data-flows.md`, `integrations.md`, `risks-and-gaps.md`. Consult these for architecture

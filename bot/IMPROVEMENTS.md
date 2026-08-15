@@ -45,11 +45,11 @@ Most of this document is a record of completed work. Everything still pending, i
 
 | # | Item | Why it matters | Effort |
 | --- | --- | --- | --- |
-| 1 | **Multi-worker tests** | Gates everything below it; the only way the split-registry class of bug gets caught | 2-3 weeks |
+| 1 | **Multi-worker tests** — core harness delivered 2026-08-14 + CI job (`bot-multiworker`, non-blocking phase 1) 2026-08-15; it already caught and fixed a real bus bug. Remaining: promote the CI job to blocking once stable, and multi-replica/load coverage | Gates everything below it; the only way the split-registry class of bug gets caught | days |
 | 2 | **Broadcast bus Phase 2** — flip `WS_BROADCAST_ENABLED` on, add metrics + broadcast coalescing | Phase 1 shipped inert; multi-worker deployments still have split websocket registries | 1-2 weeks |
-| 3 | **Move blocking DB calls off the event loop** | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | ongoing — slice 1 done 2026-08-12 (`run_db` helper + backtest/realtime reads offloaded) |
-| 4 | **Integration tests** (Redis / Celery / dYdX) | Compose infra already exists; mostly markers + a CI job | 2-3 weeks |
-| 5 | **Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`) | Two cheap CI gates; coverage reports today with nothing enforcing them | 1-2 days |
+| 3 | ~~**Move blocking DB calls off the event loop**~~ **RESOLVED 2026-08-15** — slices 1–5: `run_db` seam + backtest/realtime reads, WebSocket senders, backtest mutations, `bot_records`/`bot_lifecycle`/`strategies`, `pool_pre_ping` (default ON) + auth yield-dependency session fix | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | done |
+| 4 | ~~**Integration tests** (Redis / Celery / dYdX)~~ **RESOLVED 2026-08-15** — opt-in harness (`tests/test_integration_external_services.py`, `make test-integration`): real cache roundtrip, real bus pub/sub, real Celery worker ping+registration, live indexer contract; non-blocking `bot-integration` CI job with a Valkey service container | Compose infra already exists; mostly markers + a CI job | done |
+| 5 | ~~**Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`)~~ **RESOLVED 2026-08-15** — floor set at 64% (measured 65.08%, blocking), `bot-deps-audit` pip-audit CI job + Dependabot shipped; first audit already removed an unused `aiohttp` pin carrying 3 open advisories | Two cheap CI gates; coverage reports today with nothing enforcing them | done |
 | 6 | **Portfolio-level risk controls** | Per-instance limits can each pass while the account is over-exposed | 4-6 weeks |
 | 7 | **Backtest checkpointing** (optional) | Compute-cost optimization only; auto-recovery already handles correctness | 2 weeks |
 
@@ -162,12 +162,12 @@ Items removed from this plan during the same review — and why — are listed i
   `create_async_engine` / `AsyncSession` — every database call inside an `async def` handler is a blocking
   synchronous SQLAlchemy call, so any slow query stalls the whole event loop (and with it every websocket
   broadcast and in-flight trading request on that worker)
-    - **Also**: Telegram/Loki HTTP calls in async services (now circuit-broken, but still blocking)
-    - **Impact**: Event-loop stalls under load; the practical ceiling on per-worker concurrency
-    - **Files**: `src/infrastructure/database.py`, `src/infrastructure/persistence/*.py`, async route handlers
-    - **Realistic first step**: push the hot synchronous DB paths through `run_in_threadpool` /
-      `asyncio.to_thread` rather than attempting a full async-SQLAlchemy migration
-    - **Status: UNDERWAY (2026-08-12).** Established the canonical offload seam
+  - **Also**: Telegram/Loki HTTP calls in async services (now circuit-broken, but still blocking)
+  - **Impact**: Event-loop stalls under load; the practical ceiling on per-worker concurrency
+  - **Files**: `src/infrastructure/database.py`, `src/infrastructure/persistence/*.py`, async route handlers
+  - **Realistic first step**: push the hot synchronous DB paths through `run_in_threadpool` /
+    `asyncio.to_thread` rather than attempting a full async-SQLAlchemy migration
+  - **Status: UNDERWAY (slices 1–2 delivered).** Established the canonical offload seam
       `src/infrastructure/db_offload.py` (`run_db` over `starlette.concurrency.run_in_threadpool`) and
       converted the two hottest HTTP read families: **backtest reads** (the `_*_sync` seam in
       `backtests.py` — list/details/status/trades/analytics/snapshots/summary/compare/runtime-health/
@@ -176,11 +176,45 @@ Items removed from this plan during the same review — and why — are listed i
       `Session` lifecycle (open `db.get_session()` → close in `finally`) and returns DTOs/dicts, so no
       session crosses the thread boundary and no detached lazy-load reaches the loop. Behavior-preserving
       (`test_backtest_api_contract.py`, `test_bot_realtime_routes.py` incl. the `fake_session.closes == 6`
-      guard, and `tests/test_db_offload.py` all green; ratchet held at 297). **Remaining (follow-on
-      slices):** WebSocket `send_initial_state` + sibling WS sends (`websocket_server.py`), backtest
-      mutations (pause/resume/cancel/delete/repair/retry), and the `bot_records` / `bot_lifecycle` /
-      `strategies` families — same pattern, mechanical. Also flagged (not fixed): no `pool_pre_ping`
-      (stale-idle connection risk), and auth handlers leak `Depends(db.get_session)` sessions.
+      guard, and `tests/test_db_offload.py` all green; ratchet held at 297).
+      **Slice 2 (2026-08-15): the WebSocket sender family** — `send_initial_state`, `send_positions`,
+      `send_stats`, and `send_market_data` in `src/api/websocket_server.py` no longer run synchronous
+      SQLAlchemy on the event loop: each now loads + serializes through a session-owning sync closure via
+      `run_in_threadpool` (the pattern `send_backtest_status` already established in-module), returning
+      plain dicts — message shapes, unknown-bot variants, error logging, and return values unchanged
+      (`tests/test_websocket_server.py`, `tests/test_bot_realtime_routes.py`, ratchet green; live
+      multi-worker harness re-verified).
+      **Slice 3 (2026-08-15): backtest mutations** — `cancel`/`pause`/`resume`/`delete` routes now run
+      through `_cancel/_pause/_resume/_delete_backtest_sync` + `run_db`; `restart`/`retry` offload their
+      sync status precheck via the existing `_get_backtest_status_sync` seam (the async service call stays
+      on the loop); and the three shared control builders (`_repair_backtest_request_response`,
+      `_list_interrupted_backtests_response`, `_reconcile_interrupted_backtests_response`) became async
+      with their service work offloaded — their routes await via `_maybe_awaitable(...)` so tests that
+      monkeypatch the builders with sync doubles keep working. All `_compat`/`get_backtest_service`
+      patch seams preserved (`test_backtest_routes`, `test_backtest_api_contract`,
+      `test_backtest_route_auth`, ratchet — 66 green; full suite 750 passed, coverage floor held).
+      **Slice 4 (2026-08-15): the remaining route families — item's route work COMPLETE.**
+      `bot_records.py`: all 4 handlers (history/jobs/trades/stats) now load + serialize through
+      session-owning closures via `run_db` (the `fake_session.closes` guards pin the lifecycle).
+      `strategies.py`: all 8 routes run the (already session-owning, dict-returning) store calls via
+      `run_in_threadpool`. `bot_lifecycle.py`: the create route's DB persistence block became the
+      `_persist_created_bot_config` helper (raises on failure so the route unwinds the runtime instance;
+      the event-log warning catch moved with it, keeping the broad-catch count flat), the delete route's
+      cleanup block became `_delete_bot_db_record`, and all 8 `_persist_bot_status_and_event` call sites
+      await through `run_db` (the manager calls were already async). Every module-level monkeypatch seam
+      preserved (`test_bot_record_routes`, `test_bot_lifecycle_routes`, `test_strategies_routes`,
+      ratchet — 31 green; full suite 750 passed, coverage floor held at 65.29%).
+      **Slice 5 (2026-08-15): the flagged smalls — ITEM COMPLETE.**
+      (a) Engine `pool_pre_ping` is now ON by default (`DB_POOL_PRE_PING`, override to `false` only for
+      latency-critical hot paths after measuring): pooled connections are pre-checked on checkout so a
+      stale/idle connection is transparently re-established instead of surfacing as a random
+      "server closed the connection" error; exposed in `to_diagnostics()`. (b) The auth session leak is
+      fixed: the 8 `Depends(db.get_session)` sites in `src/api/v1/auth/__init__.py` +
+      `password_2fa.py` used the raw session-factory method, which FastAPI never closes — they now use
+      the module-level yield-dependency `get_session()` (open → yield → close), the same one
+      `auth_middleware.get_current_user` already used.
+      With that, every async route family, the WebSocket senders, and the engine-level resilience flag
+      are done: no synchronous SQLAlchemy remains on the event loop in `src/api/**` handlers.
 
 #### **Moderate Issues**
 
@@ -228,12 +262,15 @@ Items removed from this plan during the same review — and why — are listed i
 
 #### **Moderate Issues**
 
-- **No Dependency Vulnerability Scanning**: `bandit` scans *our code* only — nothing scans the dependency tree.
-  No `pip-audit` step and no Dependabot config exist in the repo. For a service that holds exchange signing keys
-  this is the cheapest remaining security win
-    - **Fix**: add a `pip-audit -r bot/requirements.txt` step to `bot-quality.yml` (non-blocking first, mirroring
-      the mypy/bandit phase-1 pattern) and/or a `.github/dependabot.yml`
-    - **Files**: `requirements.txt`, `.github/workflows/bot-quality.yml`
+- ~~**No Dependency Vulnerability Scanning**: `bandit` scans *our code* only — nothing scans the dependency tree.~~
+  **RESOLVED (2026-08-15):** `bot-deps-audit` job in `.github/workflows/bot-quality.yml` runs
+  `pip-audit -r bot/requirements.txt` (phase-1 non-blocking, mirroring bandit/mypy, with a job summary), plus a
+  `.github/dependabot.yml` (pip + github-actions + docker ecosystems, weekly) opens proactive bump PRs. The first
+  audit immediately paid off: the **unused `aiohttp==3.14.1` pin was removed** (nothing imported it; nothing
+  required it — it carried 3 open PYSEC advisories with fixes), leaving one accepted finding: the transitive
+  `ecdsa` advisory via `python-jose` has no fix release (upstream dormant; JWT usage is internal-service only).
+  `pip-audit==2.10.1` is pinned in `requirements.txt` alongside bandit/mypy.
+    - **Files**: `requirements.txt`, `.github/workflows/bot-quality.yml`, `.github/dependabot.yml`
 
 ---
 
@@ -271,9 +308,13 @@ Items removed from this plan during the same review — and why — are listed i
     - **Impact**: Financial risk, incorrect position tracking
 
 - **Test Coverage Gaps**: the suite (78 files, 641 test functions) covers contracts well but not topology
-    - **No Multi-Worker Tests**: process-local state issues are invisible to the current suite — and this is what
-      blocks turning `WS_BROADCAST_ENABLED` on
-    - **Missing Integration Tests**: nothing exercises real Redis/Celery/dYdX-indexer topology
+    - ~~**No Multi-Worker Tests**~~ — RESOLVED (2026-08-14): `tests/test_multi_worker_broadcast.py` (opt-in via
+      `make test-multiworker`) covers the two-real-workers topology, caught and fixed a real listener-flap bus bug;
+      CI wiring for it remains open
+    - ~~**Missing Integration Tests**~~ — RESOLVED (2026-08-15):
+      `tests/test_integration_external_services.py` (opt-in via `make test-integration`) exercises real
+      Redis/Celery/dYdX-indexer topology; multi-worker topology covered by
+      `tests/test_multi_worker_broadcast.py`
     - ~~Missing Security Tests~~ — RESOLVED (`tests/test_security_auth_bypass.py`, 20 cases)
     - **Impact**: production surprises in exactly the areas unit tests can't reach
     - **Files**: `tests/test_*.py`
@@ -651,7 +692,25 @@ Items removed from this plan during the same review — and why — are listed i
           dispatch semaphore under burst; coalesce per-symbol market broadcasts (`realtime_data_service` emits one
           `broadcast_market_update` per symbol per tick → N Redis publishes when enabled) before wiring that
           service; consider sharding pub/sub channels by topic.
-          **Blocked on**: multi-worker tests (below).
+          **Progress (2026-08-15) — the mechanics are DONE**: the bus now carries operational metrics
+          (`published / publish_errors / received / self_suppressed / decode_errors / dispatched /
+          dispatch_errors / dispatch_timeouts / reconnects`) surfaced via `GET /api/v1/monitoring/ws-broadcast`
+          (`health["metrics"]`); each dispatch is bounded by `WS_BROADCAST_DISPATCH_TIMEOUT_SECONDS` (default 5 s)
+          so a stuck WebSocket consumer is cancelled+counted instead of stalling the listener (sequential dispatch
+          preserves the per-channel ordering contract); and burst coverage exists —
+          `test_broadcast_bus_burst_delivery_preserves_per_channel_order` (300 messages across 3 channels through
+          a real Valkey: full delivery, per-channel order, metrics balanced) plus unit coverage of every counter
+          and the timeout path. **Remaining for the flip**: observe `bot-multiworker` green consistently in real
+          CI runs (then promote it to a gate), a staging load test, and per-symbol coalescing IF a realtime
+          market-data producer is ever re-introduced (the original consumer, `realtime_data_service`, was deleted
+          — see the dead-code item — so coalescing has no current producer to serve). The flip itself is a
+          deployment-behavior change and stays explicitly gated on those.
+          **Blocked on**: multi-worker tests (below) — the core harness landed 2026-08-14 (and already fixed a
+          real listener-flap bug in this bus) plus its CI job on 2026-08-15 (`bot-multiworker`, non-blocking
+          phase 1 in `.github/workflows/bot-quality.yml`); promote that job to a gate once stable. Operator
+          tooling for the flip landed with the harness: `GET /api/v1/monitoring/ws-broadcast` reports `subscribed`
+          (true subscription state) + `metrics`, and `POST /api/v1/monitoring/ws-broadcast/publish` smoke-tests
+          end-to-end fan-out.
 
 #### **Architecture Improvements**
 
@@ -855,20 +914,75 @@ Items removed from this plan during the same review — and why — are listed i
 
 #### **Test Infrastructure**
 
-- [ ] **Add multi-worker tests** for process-local state issues
-    - **Files**: Create distributed state tests, multi-instance tests
+- [x] **Add multi-worker tests** for process-local state issues (CORE DELIVERED 2026-08-14)
+    - **Files**: `tests/test_multi_worker_broadcast.py` (delivered), `Makefile` (`test-multiworker`),
+      `src/api/v1/monitoring.py` (publish smoke-test endpoint), `src/infrastructure/broadcast/bus.py` (listener fix)
     - **Impact**: Catch horizontal scaling issues before production
-    - **Effort**: 2-3 weeks
+    - **Effort**: 2-3 weeks (core harness delivered 2026-08-14; CI wiring + multi-replica/load coverage remain)
     - **Priority**: HIGH — this is the gate on the broadcast-bus Phase 2 flip; do it first
+    - **Remaining follow-ups (tracked, not part of the delivered core):**
+        - [x] CI job for the harness — DONE 2026-08-15: `bot-multiworker` job in
+          `.github/workflows/bot-quality.yml` (Postgres 15.18 + Valkey 7.2 service containers using the
+          docker-compose.infra.yml defaults, `MULTIWORKER_TEST=1` + explicit `MULTIWORKER_REDIS_URL` /
+          `POSTGRES_*` env, step summary, `timeout-minutes: 15`). Phase-1 **non-blocking**
+          (`continue-on-error`, not in `quality-gate.needs`) to prove stability on shared runners first —
+          promote by dropping `continue-on-error` and adding `bot-multiworker` to `quality-gate.needs`.
+          The exact job command was validated locally against live infra (2 passed).
+        - [ ] Multi-replica (docker-level) + burst/load coverage ahead of the Phase 2 flip
     - **Concrete scope**: two Uvicorn workers + Redis, assert a `broadcast_to_bot` on worker A reaches a
       websocket client attached to worker B with `WS_BROADCAST_ENABLED=true`, and that it does not loop back
+    - **Status: CORE HARNESS DELIVERED (2026-08-14).**
+      `tests/test_multi_worker_broadcast.py` (opt-in via `MULTIWORKER_TEST=1` / `make test-multiworker`, which
+      starts the shared infra first) boots the canonical API as **two real `start_api.py` worker processes**
+      sharing one Redis/Valkey and one **ephemeral PostgreSQL database** (created/dropped per run, so the dev DB
+      is never touched), with `WS_BROADCAST_ENABLED=true` and a metadata-only structured profile
+      (`APP_RUN_CONFIG_FILE` + `APP_CONFIG_PRESERVE_PROCESS_ENV=1`) so no repo profile values leak in. Workers
+      start staggered (A migrates the empty schema; B joins after A is `/ready`) to avoid Alembic DDL races.
+      Asserts: (1) both workers report a healthy, listening, **distinctly-identified** Redis bus; (2) the headline
+      property — a publish on worker A (via the new operator smoke-test endpoint
+      `POST /api/v1/monitoring/ws-broadcast/publish`, validated channel, fixed server-built `broadcast_test`
+      payload) is received **exactly once** by a WebSocket client on worker B and exactly once by the local client
+      on A, in both directions, with a quiet window proving no loop-back echo.
+      **The harness immediately caught a real Phase-1 bus bug (now fixed):** the pub/sub listener inherited the
+      1.0 s command `socket_timeout`, so an idle `listen()` raised `TimeoutError` every second, tearing the
+      subscription down and resubscribing in a loop — messages published between resubscribes were silently
+      dropped while `health()` still reported `healthy: true, listening: true` (the ping uses a different
+      connection). Fix: the subscriber now uses a dedicated **no-read-timeout** connection (idle blocking reads
+      are correct for pub/sub; `stop()` cancels the task), and `health()` gained a `subscribed` field reporting
+      the *actual* subscription state. Reproduced pre-fix with a two-bus live-Valkey script; pinned post-fix by
+      the multi-worker test itself (unit fakes can't catch socket-level timeouts — exactly the "unit tests can't
+      reach" class this item exists for).
+      **Also surfaced — FIXED 2026-08-15 (migration `0006_reconcile_enum_labels`):** on a *fresh* database
+      built purely by Alembic migrations, the Postgres status enums rejected the ORM's labels
+      (`positionstatusenum` vs `'OPEN'`, `jobstatusenum` vs `'PENDING'`, and the bot/trade/alert enums
+      likewise) because migrations created the types with lowercase Python-enum *values* while SQLAlchemy
+      binds the uppercase *names*. The reconciliation migration adds the NAME labels (expand-only) and
+      flips rows; legacy `create_all_tables` databases are no-ops. See the Technical Debt Hotspots entry.
+      **Remaining for this item:** a CI job (service containers for Postgres + Redis, then
+      `MULTIWORKER_TEST=1 pytest tests/test_multi_worker_broadcast.py`), and optional multi-replica
+      (docker-level) + burst/load coverage ahead of the Phase 2 flip.
 
-- [ ] **Add integration tests** for external services (Redis, Celery, dYdX)
-    - **Files**: Create live integration test suite
+- [x] **Add integration tests** for external services (Redis, Celery, dYdX) — DONE 2026-08-15
+    - **Files**: `tests/test_integration_external_services.py`, `Makefile` (`test-integration`),
+      `.github/workflows/bot-quality.yml` (`bot-integration` job)
     - **Impact**: Validate real-world compatibility, catch integration issues
-    - **Effort**: 2-3 weeks
+    - **Effort**: 2-3 weeks (delivered in the established opt-in pattern in one slice)
     - **Priority**: HIGH — the docker-compose infra already exists (`docker-compose.infra.yml`), so this is
       mostly wiring markers + a CI job, not new infrastructure
+    - **Status: COMPLETED.** Opt-in harness (`INTEGRATION_TEST=1` / `make test-integration`, module-level
+      skip otherwise) covering: (1) the real `RedisMarketDataCache` roundtrip (markets + candles, health)
+      against a dedicated scratch DB (`redis://localhost:6379/15` via `INTEGRATION_REDIS_URL` — never the
+      dev cache; flushed before/after); (2) the real `RedisBroadcastBus` pub/sub — cross-instance delivery
+      plus self-origin suppression over live sockets (complements the unit fakes and the two-real-workers
+      multi-worker harness); (3) a REAL Celery worker subprocess (solo pool, scratch broker
+      `redis://localhost:6379/14` via `INTEGRATION_CELERY_BROKER_URL`, metadata-only structured profile so
+      no repo config leaks) that must answer `control.ping` and register the core tasks
+      (`backtests.run`, `bot.sync_market_candles`) — the registration contract the API startup probe and
+      Flower rely on; (4) the live public dYdX v4 indexer markets contract (BTC-USD ACTIVE + oracle price;
+      skips, not fails, when offline; override via `DYDX_INTEGRATION_INDEXER_URL`). CI: non-blocking
+      phase-1 `bot-integration` job (Valkey service container + live indexer; promote the same way as
+      `bot-multiworker` once consistently green). Validated live: 5/5 passed; full default suite
+      unaffected (module skips; 750 passed / 13 skipped / coverage floor held).
 
 - [x] **Add security tests** for authentication bypass scenarios
     - **Files**: Create security test suite, penetration tests
@@ -896,13 +1010,17 @@ Items removed from this plan during the same review — and why — are listed i
       `test_token_revocation.py` (an async `logout` "coroutine never awaited" test bug) were
       observed and are out of scope for this item.
 
-- [ ] **Set a coverage floor** now that reporting exists
-    - **Files**: `.github/workflows/bot-quality.yml`, `pyproject.toml`
-    - **Impact**: coverage reporting has been live for a while with no gate, so it can silently regress. Read the
-      current `coverage.xml`, add `--cov-fail-under=<current-1>` and ratchet it up like the broad-catch baseline
-    - **Hotspots to target first**: `src/infrastructure/use_cases/service_backtest.py` (2,959 lines, the
-      orchestration core that was deliberately left unsplit), `src/bot_instance_manager.py` (1,935),
-      `src/api/v1/backtests.py` (2,351)
+- [x] **Set a coverage floor** now that reporting exists — DONE 2026-08-15
+    - **Files**: `.github/workflows/bot-quality.yml`
+    - **Status: COMPLETED.** Measured 65.08% line coverage (15,178 statements, 4,760 missed; branch 3852/812)
+      using the *exact* CI invocation (same ignores, same env unsets, aligned venv) on a fully green suite
+      (750 passed / 12 skipped / 0 failed), then added a **blocking** `--cov-fail-under=64` to the `bot-tests`
+      pytest invocation — the prescribed `current−1` ratchet margin, mirroring the broad-catch ratchet
+      (ratchet up as coverage improves; never lower without documented justification). Verified locally:
+      the full run reports `Required test coverage of 64% reached. Total coverage: 65.08%`.
+    - **Hotspots to target first (for raising the floor)**: `src/infrastructure/use_cases/service_backtest.py`
+      (2,959 lines, the orchestration core that was deliberately left unsplit), `src/bot_instance_manager.py`
+      (1,935), `src/api/v1/backtests.py` (2,351)
     - **Effort**: 1 day for the gate; coverage work is ongoing
     - **Priority**: MEDIUM
 
@@ -921,6 +1039,44 @@ remains:
       each stay inside their limits while the account as a whole is over-exposed
     - **Effort**: 4-6 weeks
     - **Priority**: the only genuinely financial-risk item left open; see `docs/bot-risk-control-matrix.md`
+    - **Status: SLICE 1 DELIVERED (2026-08-15) — Phase A entry guard.** Exploration first established the real
+      topology: every worker trades subaccount 0 of its wallet with env-global limits (per-instance DB
+      `trading_params` numerics are advisory at runtime), and N instances CAN share one subaccount
+      concurrently — so the SHARED SUBACCOUNT is the portfolio. New `src/trading/portfolio_risk.py`: a
+      pure, deterministic decision core (`evaluate_portfolio_entry`: aggregate open-market cap, margin
+      utilization cap, projected free-collateral floor; at-limit = full; fail-closed on
+      missing/malformed account data) + a circuit-broken snapshot loader + `check_portfolio_entry_guard`
+      wired into `position_manager.open_positions` right after the per-instance `max_positions` check.
+      Every denial is rejection-counted, warning-logged, and persisted as a
+      `trade_entry_rejected_portfolio_risk` audit event; transport errors propagate exactly like the
+      neighboring collateral guards (no new broad catches; ratchet held). **Phase A is opt-in**
+      (`BOT_PORTFOLIO_RISK_ENABLED=false` default) with three env limits — mirroring the
+      enforce-only-proven-controls philosophy; defaults 20 open markets / 60% margin utilization /
+      floor off. Coverage: `tests/test_portfolio_risk.py` (13 cases incl. the wiring test proving a
+      denial builds zero orders); mandated suites green (`entry_backoff`, `exit_safety`,
+      `live_risk_controls`, `live_trade_persistence`); full gate 766 passed / coverage 65.46%.
+      `docs/bot-risk-control-matrix.md` gained the Phase A section. **Slice 2 (2026-08-15): operator
+      visibility** — `GET /api/v1/monitoring/portfolio-risk` (auth required) reports the guard's live
+      config (enabled + the three limits via `portfolio_risk_config()`) plus the last 24h of
+      `trade_entry_rejected_portfolio_risk` audit events across all instances (instance, reasons,
+      equity, free collateral, open markets — loaded through a session-owning `run_db` closure per
+      rule 13); `openapi.json` regenerated; coverage in `tests/test_monitoring_routes.py` (10-route
+      shape + config/denial serialization + session-close guard) — 22 monitoring/portfolio tests
+      green, full gate 767 passed. **Slice 3 (2026-08-15): account-wide drawdown** —
+      `BOT_PORTFOLIO_MAX_DRAWDOWN_PCT` (default 0 = off) denies entries at/after the cap from a
+      ratcheted all-time peak equity, stored per wallet address in Redis
+      (`bot:portfolio:peak_equity:<address>`, monotonic `max(stored, observed)` so concurrent workers
+      race benignly; `RedisPeakEquityStore` is non-raising — Redis unavailable ⇒ the drawdown check
+      skips itself while the exchange-read controls still fail closed, keeping trading decoupled from
+      Redis availability). Distinguished from the still-REJECTED per-instance `max_drawdown_pct`
+      (bot-level semantics). New public `resolve_client_address_or_none` in account_manager; autouse
+      conftest isolation keeps the store inert in tests. Coverage: 6 new cases (pure at-cap/ratchet/
+      peak-missing, store ratchet + never-raises with a fake client, wrapper observe→deny integration)
+      + live Valkey sanity (1000 → holds on dip → 1200, persisted); full gate **773 passed / 13
+      skipped**, coverage 65.57%. **Remaining slices:** Phase B (burn-in on testnet via the
+      visibility endpoint, then flip the default ON) and multi-account aggregation (enumerate
+      distinct credentials across `bot_instances`; today the guard is per-process, each instance
+      guarding its own subaccount).
 
 ---
 
@@ -946,13 +1102,16 @@ remains:
   so only the WebSocket registry needed work — see action-plan item)
 - ✅ **Replace sys.exit () calls** with proper exception handling (COMPLETED)
 - ✅ **Implement token revocation** - Complete logout/logout-all functionality (COMPLETED)
-- **Add multi-worker tests** for process-local state issues
+- ✅ **Add multi-worker tests** for process-local state issues (CORE DELIVERED 2026-08-14 — two-real-workers
+  harness via `make test-multiworker`; caught + fixed a real bus listener-flap bug; CI wiring remains)
 - ✅ **Refactor broad exception handling** - CONTAINED (typed hierarchy + global 500 handler + enforced ratchet,
   324→309). Remaining catches were reviewed and are mostly intentional; no further campaign planned
 
 ### **High Priority / Medium Impact** (Week 2-4)
 
-- **Add integration tests** for external services (Redis, Celery, dYdX)
+- ✅ **Add integration tests** for external services (Redis, Celery, dYdX) — COMPLETED (2026-08-15):
+  opt-in harness + `make test-integration` + non-blocking `bot-integration` CI job (real cache roundtrip,
+  real bus pub/sub, real Celery worker ping/registration, live indexer contract)
 - ✅ **Implement input validation** on all trading API endpoints (COMPLETED)
 - ✅ **Add connection pool monitoring** and alerting (COMPLETED)
 - ✅ **Extract WebSocket management** from API server (COMPLETED — `websocket_server.py`)
@@ -967,10 +1126,14 @@ remains:
 - ✅ Type checking with mypy (COMPLETED phase 1 — non-blocking `bot-typecheck` job, 189-error baseline)
 - ✅ Security scanning with bandit (COMPLETED — non-blocking `bot-security` CI job)
 - ✅ DataFrame memory cleanup (COMPLETED)
-- **Coverage floor** (`--cov-fail-under`) — reporting exists, gate does not
-- **Dependency vulnerability scanning** (`pip-audit` / Dependabot) — nothing scans the dependency tree today
-- **Move blocking DB calls off the event loop** — the largest unaddressed performance item;
-  **slice 1 landed 2026-08-12** (`run_db` offload helper + backtest + realtime read families converted; WS / mutations / remaining families follow)
+- ✅ **Coverage floor** (`--cov-fail-under`) — COMPLETED (2026-08-15): blocking floor of 64% in the `bot-tests`
+  CI job (measured 65.08%); ratchet up as coverage improves
+- ✅ **Dependency vulnerability scanning** (`pip-audit` / Dependabot) — COMPLETED (2026-08-15): non-blocking
+  `bot-deps-audit` CI job + `.github/dependabot.yml`; first audit removed an unused `aiohttp` pin with 3 open
+  advisories (one accepted no-fix `ecdsa` finding via `python-jose` remains, documented)
+- ✅ **Move blocking DB calls off the event loop** — COMPLETED 2026-08-15 (slices 1–5; `run_db` seam +
+  backtest/realtime reads, WebSocket senders, backtest mutations, `bot_records`/`bot_lifecycle`/
+  `strategies`, `pool_pre_ping` default ON, auth yield-dependency session fix)
 
 ### **Lower Priority**
 
@@ -1055,7 +1218,8 @@ Pruned during a validation pass against the actual codebase. Two categories:
 - **Exception Handling**: the ratchet baseline (309) never increases and drops opportunistically. The old
   "reduce by 95% to <15" target was removed: the code review found most remaining catches are intentional
   best-effort isolation, so that target would mean making the system *less* resilient
-- **Test Coverage**: establish a `--cov-fail-under` floor from the current measured value, then ratchet up
+- **Test Coverage**: floor established 2026-08-15 at 64% (`--cov-fail-under` in the `bot-tests` CI job, blocking;
+  measured 65.08%) — ratchet up as coverage improves, never lower without documented justification
 
 ### **Performance Metrics**
 
@@ -1076,6 +1240,8 @@ Pruned during a validation pass against the actual codebase. Two categories:
 
 - **Code Quality Enforcement**: Black `--check` + flake8 hard gate pass on every build (live in `bot-lint`)
 - **Security Scanning**: 0 high-severity bandit findings (current baseline: 3 medium, 0 high)
+- **Dependency Scanning**: `pip-audit` reports the resolved `requirements.txt` tree per build (non-blocking
+  `bot-deps-audit` job, phase 1); known accepted finding: 1 no-fix `ecdsa` advisory via `python-jose`
 - **Type Checking**: mypy error count never exceeds the 189-error baseline, and drops module-by-module toward a
   blocking gate. (The old "100% mypy strict" target was removed — it is not reachable from a 189-error baseline
   and made the metric useless as a signal.)
@@ -1116,7 +1282,8 @@ The original Week-1 items are retained as an implementation record; completed wo
 2. ✅ **Implement distributed state management** — Phase 1 delivered (Redis pub/sub WebSocket broadcast bus behind
    `WS_BROADCAST_ENABLED`, OFF by default; strategy storage was already Postgres-backed, rate limiting already
    Redis-backed). Phase 2 (flip default ON after multi-worker load testing) deferred.
-3. ⬜ **Add multi-worker test infrastructure** - Begin testing process-local state issues
+3. ✅ **Add multi-worker test infrastructure** - Begin testing process-local state issues (DELIVERED 2026-08-14:
+   `tests/test_multi_worker_broadcast.py` + `make test-multiworker`; already caught and fixed a real bus bug)
 
 ---
 
@@ -1131,8 +1298,9 @@ The original Week-1 items are retained as an implementation record; completed wo
 5. ✅ **Broad exception handlers** masking real issues — CONTAINED: typed hierarchy + global 500 handler + an
    enforced ratchet (324→309) that can only go down. The residue was reviewed and is mostly intentional
    best-effort isolation, so this is closed rather than "in progress"
-6. 🔴 **Synchronous DB I/O in async handlers** — the one significant performance risk still fully open; not
-   previously called out as a headline finding
+6. ✅ **Synchronous DB I/O in async handlers** — RESOLVED (2026-08-15): all async route families, the
+   WebSocket senders, and the engine-level flags converted to the `run_db`/`run_in_threadpool` offload seam
+   (slices 1–5); no synchronous SQLAlchemy remains on the event loop in `src/api/**` handlers
 
 ### **Architecture Strengths**
 
@@ -1148,6 +1316,18 @@ The original Week-1 items are retained as an implementation record; completed wo
 - `src/api/v1/backtests.py`: 2,351 lines across 30 HTTP operations, 2 WebSocket adapters, shared route support
 - `src/bot_instance_manager.py`: 1,935 lines — not previously listed, now the second-largest module
 - `src/api/server.py`: 1,751 lines of assembly/runtime after Phases 1–6 (down from 6,093)
+- ~~**Fresh-database enum drift (found 2026-08-14 by the multi-worker harness)**~~ — RESOLVED
+  (2026-08-15): schemas built purely by Alembic migrations defined Postgres enum labels the ORM rejects
+  (`positionstatusenum` vs `'OPEN'`, `jobstatusenum` vs `'PENDING'`, and the bot/trade/alert enums
+  likewise). Root cause: migrations created the types with the Python enum *values* (lowercase) while
+  SQLAlchemy's `Enum(PyEnum)` binds the *names* (uppercase) — legacy `create_all_tables` databases carry
+  name-style labels, which is why only fresh deployments broke. Fix: migration
+  `0006_reconcile_enum_labels` (expand-only `ADD VALUE IF NOT EXISTS` of the NAME labels + row flip +
+  dynamic column discovery; downgrade flips back; lowercase labels remain because PostgreSQL cannot drop
+  enum values). Verified on a fresh migrations-only DB (the previously failing Job insert with `PENDING`,
+  Bot write with `RUNNING`, and `status='OPEN'` filter all succeed; downgrade/re-upgrade round-trips), and
+  a real worker boot on a fresh DB no longer logs `job_persistence_failed`. Legacy create_all-built
+  databases are no-ops for every statement in the migration.
 - Blocking synchronous SQLAlchemy inside async handlers (no `AsyncSession` anywhere in `src/`)
 - Configuration complexity across multiple sources
 - ~~Dead code paths~~ — RESOLVED (2026-08-11): 2FA router mounted at `/api/v1/auth/2fa`; candle

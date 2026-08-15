@@ -1,0 +1,44 @@
+# Dependabot — dependency update PRs for the monorepo.
+# Complements the pip-audit dependency-vulnerability job in
+# .github/workflows/bot-quality.yml (which reports known advisories):
+# Dependabot proactively opens version-bump PRs so pins move before advisories
+# land. Bot pins are deliberate (see bot/requirements.txt comments), so PRs are
+# reviewed/merged by a human — no auto-merge configured.
+version: 2
+updates:
+    # Python dependencies for the bot service (trading bot, API, workers).
+    - package-ecosystem: pip
+      directory: /bot
+      schedule:
+          interval: weekly
+      open-pull-requests-limit: 5
+      groups:
+        # Batch low-risk dev-tooling bumps into one PR; runtime deps stay
+        # individually reviewable (they can change trading behavior).
+        python-dev-tools:
+          patterns:
+            - "black"
+            - "pre-commit"
+            - "mypy"
+            - "bandit"
+            - "pip-audit"
+            - "pytest"
+            - "pytest-asyncio"
+            - "pytest-cov"
+            - "coverage"
+            - "pandas-stubs"
+            - "types-*"
+
+    # GitHub Actions versions used by the workflows (actions/checkout etc.).
+    - package-ecosystem: github-actions
+      directory: /
+      schedule:
+          interval: weekly
+      open-pull-requests-limit: 5
+
+    # Docker images (bot worker/API Dockerfiles live in /docker).
+    - package-ecosystem: docker
+      directory: /docker
+      schedule:
+          interval: weekly
+      open-pull-requests-limit: 3

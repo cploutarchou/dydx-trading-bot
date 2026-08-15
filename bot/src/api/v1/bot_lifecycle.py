@@ -25,6 +25,7 @@ from loguru import logger
 from internal.domain.models import BotStatusEnum
 from src.api.responses import api_response
 from src.infrastructure.database import db
+from src.infrastructure.db_offload import run_db
 from src.infrastructure.domain.bot_api_models import (
     BotCredentials,
     BotInstanceConfig,
@@ -206,6 +207,89 @@ def _persist_bot_status_and_event(
             session.close()
 
 
+def _persist_created_bot_config(
+    *,
+    instance_id: str,
+    instance_name: str,
+    persisted_config: Dict[str, Any],
+    network: str,
+    strategy: str,
+    config_meta: Dict[str, Any],
+) -> None:
+    """Persist the DB-backed bot configuration row (sync; run off the event loop).
+
+    Owns its full ``Session`` lifecycle. Raises on failure (``Session.close()``
+    releases the pending transaction) so the caller can unwind the runtime
+    instance it already created.
+    """
+    session = db.get_session()
+    try:
+        uow = UnitOfWork(session)
+
+        bot_db = uow.bots.get_by_instance_id(instance_id)
+        stored_config = seal_config_secrets(
+            {**persisted_config, "config_meta": config_meta}
+        )
+        if bot_db is None:
+            bot_db = uow.bots.create_bot(
+                instance_id=instance_id,
+                network=network,
+                strategy=strategy,
+                config=stored_config,
+            )
+        else:
+            bot_db.config = stored_config
+            session.commit()
+
+        try:
+            uow.events.log_event(
+                int(bot_db.id),  # type: ignore[arg-type]
+                "bot_created",
+                "info",
+                f"Bot instance created via API: {instance_id}",
+                details={"instance_name": instance_name},
+            )
+        except Exception as event_error:
+            logger.warning(
+                "Failed to record bot_created event for '{}': {}",
+                instance_id,
+                event_error,
+            )
+        logger.info(f"Bot instance '{instance_id}' persisted to database")
+    finally:
+        session.close()
+
+
+def _delete_bot_db_record(instance_id: str) -> None:
+    """Delete the bot's DB row + audit event (sync; run off the event loop).
+
+    Best-effort like the inline block it replaces: failures are logged and
+    never fail the delete request. Owns its ``Session`` lifecycle.
+    """
+    session = None
+    try:
+        session = db.get_session()
+        uow = UnitOfWork(session)
+        bot = uow.bots.get_by_instance_id(instance_id)
+        if bot is not None:
+            uow.events.log_event(
+                int(bot.id),  # type: ignore[arg-type]
+                "bot_deleted",
+                "info",
+                "Bot instance deleted via API",
+            )
+        uow.bots.delete_bot(instance_id)
+    except Exception as db_error:
+        logger.warning(
+            f"Failed to delete bot instance '{instance_id}' from database: {db_error}"
+        )
+        if session is not None:
+            session.rollback()
+    finally:
+        if session is not None:
+            session.close()
+
+
 router = APIRouter()
 
 
@@ -240,59 +324,26 @@ async def create_bot_instance(
                     else {}
                 ),
             }
-            session = None
             try:
-                session = db.get_session()
-                uow = UnitOfWork(session)
-
-                bot_db = uow.bots.get_by_instance_id(config.instance_id)
-                config_meta = bot_manager._build_config_meta(persisted_config)
-                stored_config = seal_config_secrets(
-                    {**persisted_config, "config_meta": config_meta}
-                )
-                if bot_db is None:
-                    bot_db = uow.bots.create_bot(
-                        instance_id=config.instance_id,
-                        network=(
-                            "testnet"
-                            if (
-                                config.trading_params
-                                and config.trading_params.is_testnet
-                            )
-                            else "mainnet"
-                        ),
-                        strategy=(
-                            config.trading_params.strategy
-                            if config.trading_params
-                            else "default"
-                        ),
-                        config=stored_config,
-                    )
-                else:
-                    bot_db.config = stored_config
-                    session.commit()
-
-                try:
-                    uow.events.log_event(
-                        int(bot_db.id),  # type: ignore[arg-type]
-                        "bot_created",
-                        "info",
-                        f"Bot instance created via API: {config.instance_id}",
-                        details={"instance_name": config.instance_name},
-                    )
-                except Exception as event_error:
-                    logger.warning(
-                        "Failed to record bot_created event for '{}': {}",
-                        config.instance_id,
-                        event_error,
-                    )
-                logger.info(
-                    f"Bot instance '{config.instance_id}' persisted to database"
+                await run_db(
+                    _persist_created_bot_config,
+                    instance_id=config.instance_id,
+                    instance_name=config.instance_name,
+                    persisted_config=persisted_config,
+                    network=(
+                        "testnet"
+                        if (config.trading_params and config.trading_params.is_testnet)
+                        else "mainnet"
+                    ),
+                    strategy=(
+                        config.trading_params.strategy
+                        if config.trading_params
+                        else "default"
+                    ),
+                    config_meta=bot_manager._build_config_meta(persisted_config),
                 )
             except Exception as db_error:
                 logger.error(f"Failed to persist bot to database: {db_error}")
-                if session is not None:
-                    session.rollback()
                 try:
                     await bot_manager.delete_instance(config.instance_id)
                 except Exception as cleanup_error:
@@ -309,9 +360,6 @@ async def create_bot_instance(
                     ),
                     status_code=500,
                 )
-            finally:
-                if session is not None:
-                    session.close()
 
             _send_bot_lifecycle_notification(
                 "created",
@@ -425,35 +473,15 @@ async def delete_bot_instance(
         bot_manager = _get_bot_manager()
         if bot_manager is None:
             return _bot_manager_unavailable_response()
-        existing_config = _persist_bot_status_and_event(
+        existing_config = await run_db(
+            _persist_bot_status_and_event,
             instance_id,
             event_type=None,
         )
         result = await bot_manager.delete_instance(instance_id)
 
         if result.success:
-            session = None
-            try:
-                session = db.get_session()
-                uow = UnitOfWork(session)
-                bot = uow.bots.get_by_instance_id(instance_id)
-                if bot is not None:
-                    uow.events.log_event(
-                        int(bot.id),  # type: ignore[arg-type]
-                        "bot_deleted",
-                        "info",
-                        "Bot instance deleted via API",
-                    )
-                uow.bots.delete_bot(instance_id)
-            except Exception as db_error:
-                logger.warning(
-                    f"Failed to delete bot instance '{instance_id}' from database: {db_error}"
-                )
-                if session is not None:
-                    session.rollback()
-            finally:
-                if session is not None:
-                    session.close()
+            await run_db(_delete_bot_db_record, instance_id)
             _send_bot_lifecycle_notification(
                 "deleted",
                 instance_id,
@@ -509,7 +537,8 @@ async def start_bot_instance(
         result = await bot_manager.start_instance(instance_id)
 
         if result.success:
-            persisted_config = _persist_bot_status_and_event(
+            persisted_config = await run_db(
+                _persist_bot_status_and_event,
                 instance_id,
                 status=BotStatusEnum.RUNNING,
                 process_id=(result.data.get("process_id") if result.data else None),
@@ -538,7 +567,8 @@ async def start_bot_instance(
                 message=f"Bot instance '{instance_id}' started successfully",
             )
 
-        persisted_config = _persist_bot_status_and_event(
+        persisted_config = await run_db(
+            _persist_bot_status_and_event,
             instance_id,
             status=BotStatusEnum.ERROR,
             process_id=None,
@@ -584,7 +614,8 @@ async def stop_bot_instance(
         result = await bot_manager.stop_instance(instance_id, force=force)
 
         if result.success:
-            persisted_config = _persist_bot_status_and_event(
+            persisted_config = await run_db(
+                _persist_bot_status_and_event,
                 instance_id,
                 status=BotStatusEnum.STOPPED,
                 process_id=None,
@@ -612,7 +643,8 @@ async def stop_bot_instance(
                 message=f"Bot instance '{instance_id}' stopped successfully",
             )
 
-        persisted_config = _persist_bot_status_and_event(
+        persisted_config = await run_db(
+            _persist_bot_status_and_event,
             instance_id,
             status=BotStatusEnum.ERROR,
             process_id=None,
@@ -657,7 +689,8 @@ async def restart_bot_instance(
             return _bot_manager_unavailable_response()
         stop_result = await bot_manager.stop_instance(instance_id, force=False)
         if not stop_result.success:
-            persisted_config = _persist_bot_status_and_event(
+            persisted_config = await run_db(
+                _persist_bot_status_and_event,
                 instance_id,
                 status=BotStatusEnum.ERROR,
                 process_id=None,
@@ -694,7 +727,8 @@ async def restart_bot_instance(
         start_result = await bot_manager.start_instance(instance_id)
 
         if start_result.success:
-            persisted_config = _persist_bot_status_and_event(
+            persisted_config = await run_db(
+                _persist_bot_status_and_event,
                 instance_id,
                 status=BotStatusEnum.RUNNING,
                 process_id=(
@@ -729,7 +763,8 @@ async def restart_bot_instance(
                 message=f"Bot instance '{instance_id}' restarted successfully",
             )
 
-        persisted_config = _persist_bot_status_and_event(
+        persisted_config = await run_db(
+            _persist_bot_status_and_event,
             instance_id,
             status=BotStatusEnum.ERROR,
             process_id=None,

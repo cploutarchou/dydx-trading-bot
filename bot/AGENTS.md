@@ -256,8 +256,9 @@ become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown 
 - Multi-worker verification: `make test-multiworker` (opt-in; see Testing below).
 
 **Monitoring routes** (`src/api/v1/monitoring.py`, mounted under `/api/v1/monitoring`, auth required): DataFrame
-memory/cleanup, database pool metrics/health/history/diagnostics, `/circuit-breakers`, `/ws-broadcast` (health) and
-`/ws-broadcast/publish` (diagnostic broadcast). Responses use
+memory/cleanup, database pool metrics/health/history/diagnostics, `/circuit-breakers`, `/ws-broadcast` (health),
+`/ws-broadcast/publish` (diagnostic broadcast), and `/portfolio-risk` (account-level guard config + last-24h
+denial audit events). Responses use
 the shared `api_response` envelope from `src/api/responses.py`.
 
 **Test isolation**: autouse fixtures in `tests/conftest.py` keep these subsystems inert by default —
@@ -285,6 +286,8 @@ module `reset_*()` helpers.
   or candle aggregation.
 - Run `tests/test_position_manager_exit_safety.py` and `tests/test_position_manager_entry_backoff.py` when touching
   position entry/exit logic or backoff behavior.
+- Run `tests/test_portfolio_risk.py` when touching account-level risk controls
+  (`src/trading/portfolio_risk.py` or the portfolio guard wiring in `position_manager.open_positions`).
 - Run `tests/test_storage_adapters.py` when touching ClickHouse or MinIO storage integration.
 - Run `tests/test_arbitrage_observability.py` and `tests/test_arbitrage_cycle_cache.py` when touching arbitrage decision
   logic or pair caching.
@@ -349,7 +352,10 @@ module `reset_*()` helpers.
   `src/trading/analysis/cointegration.py` (cointegration analysis for pairs trading),
   `src/trading/arbitrage_runtime_config.py` (runtime-overridable arbitrage feature flags; env vars are startup
   defaults, backend/admin settings may override at runtime), `src/trading/bot_agents_state.py` (concurrency-safe
-  per-instance tracked-position state; DB primary, JSON file fallback).
+  per-instance tracked-position state; DB primary, JSON file fallback),
+  `src/trading/portfolio_risk.py` (account-level entry guard on the SHARED subaccount — aggregate open-market
+  cap, margin-utilization cap, projected free-collateral floor; Phase A opt-in via
+  `BOT_PORTFOLIO_RISK_ENABLED`, default off; see `docs/bot-risk-control-matrix.md`).
 - **Architecture reference docs**: `flows/` contains a dated (2026-06-21) source-code map of the system —
   `project-structure.md`, `services-inventory.md`, `current-business-flows.md`, `api-flows.md`,
   `background-tasks.md`, `data-flows.md`, `integrations.md`, `risks-and-gaps.md`. Consult these for architecture

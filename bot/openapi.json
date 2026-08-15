@@ -836,6 +836,44 @@
         "x-response-envelope": "StandardApiResponse"
       }
     },
+    "/api/v1/monitoring/portfolio-risk": {
+      "get": {
+        "tags": [
+          "Monitoring"
+        ],
+        "summary": "Get Portfolio Risk Status",
+        "description": "Live configuration and recent denials for the account-level entry guard.\n\nReports whether the portfolio guard is enabled and its limits (see\n``src/trading/portfolio_risk.py`` and ``docs/bot-risk-control-matrix.md``),\nplus the last 24h of ``trade_entry_rejected_portfolio_risk`` audit events\nacross all bot instances \u2014 the operator surface for Phase A burn-in.",
+        "operationId": "get_portfolio_risk_status_api_v1_monitoring_portfolio_risk_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
     "/api/v1/monitoring/ws-broadcast/publish": {
       "post": {
         "tags": [

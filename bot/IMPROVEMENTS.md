@@ -1039,6 +1039,33 @@ remains:
       each stay inside their limits while the account as a whole is over-exposed
     - **Effort**: 4-6 weeks
     - **Priority**: the only genuinely financial-risk item left open; see `docs/bot-risk-control-matrix.md`
+    - **Status: SLICE 1 DELIVERED (2026-08-15) — Phase A entry guard.** Exploration first established the real
+      topology: every worker trades subaccount 0 of its wallet with env-global limits (per-instance DB
+      `trading_params` numerics are advisory at runtime), and N instances CAN share one subaccount
+      concurrently — so the SHARED SUBACCOUNT is the portfolio. New `src/trading/portfolio_risk.py`: a
+      pure, deterministic decision core (`evaluate_portfolio_entry`: aggregate open-market cap, margin
+      utilization cap, projected free-collateral floor; at-limit = full; fail-closed on
+      missing/malformed account data) + a circuit-broken snapshot loader + `check_portfolio_entry_guard`
+      wired into `position_manager.open_positions` right after the per-instance `max_positions` check.
+      Every denial is rejection-counted, warning-logged, and persisted as a
+      `trade_entry_rejected_portfolio_risk` audit event; transport errors propagate exactly like the
+      neighboring collateral guards (no new broad catches; ratchet held). **Phase A is opt-in**
+      (`BOT_PORTFOLIO_RISK_ENABLED=false` default) with three env limits — mirroring the
+      enforce-only-proven-controls philosophy; defaults 20 open markets / 60% margin utilization /
+      floor off. Coverage: `tests/test_portfolio_risk.py` (13 cases incl. the wiring test proving a
+      denial builds zero orders); mandated suites green (`entry_backoff`, `exit_safety`,
+      `live_risk_controls`, `live_trade_persistence`); full gate 766 passed / coverage 65.46%.
+      `docs/bot-risk-control-matrix.md` gained the Phase A section. **Slice 2 (2026-08-15): operator
+      visibility** — `GET /api/v1/monitoring/portfolio-risk` (auth required) reports the guard's live
+      config (enabled + the three limits via `portfolio_risk_config()`) plus the last 24h of
+      `trade_entry_rejected_portfolio_risk` audit events across all instances (instance, reasons,
+      equity, free collateral, open markets — loaded through a session-owning `run_db` closure per
+      rule 13); `openapi.json` regenerated; coverage in `tests/test_monitoring_routes.py` (10-route
+      shape + config/denial serialization + session-close guard) — 22 monitoring/portfolio tests
+      green, full gate 767 passed. **Remaining slices:** Phase B (burn-in on testnet via the new
+      endpoint, then flip the default ON), account-wide drawdown policy (needs shared peak-equity
+      state in Redis/DB — the currently-REJECTED `max_drawdown_pct` could then move to ENFORCED),
+      and multi-account aggregation (enumerate distinct credentials across `bot_instances`).
 
 ---
 

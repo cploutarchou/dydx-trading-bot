@@ -193,6 +193,72 @@ async def get_ws_broadcast_health(
     )
 
 
+@router.get("/portfolio-risk")
+async def get_portfolio_risk_status(
+    current_user=Depends(get_current_active_user),
+):
+    """Live configuration and recent denials for the account-level entry guard.
+
+    Reports whether the portfolio guard is enabled and its limits (see
+    ``src/trading/portfolio_risk.py`` and ``docs/bot-risk-control-matrix.md``),
+    plus the last 24h of ``trade_entry_rejected_portfolio_risk`` audit events
+    across all bot instances — the operator surface for Phase A burn-in.
+    """
+    _ = current_user
+    from datetime import timedelta
+
+    from internal.domain.models import Bot, Event
+    from src.infrastructure.db_offload import run_db
+    from src.shared.time_utils import utc_now
+    from src.trading.portfolio_risk import portfolio_risk_config
+
+    def _load_recent_denials() -> list[dict]:
+        """Session-owning closure (run off the event loop; plain dicts out)."""
+        session = db.get_session()
+        try:
+            cutoff = utc_now() - timedelta(hours=24)
+            rows = (
+                session.query(Event, Bot.instance_id)
+                .join(Bot, Event.bot_instance_id == Bot.id)
+                .filter(
+                    Event.event_type == "trade_entry_rejected_portfolio_risk",
+                    Event.created_at >= cutoff,
+                )
+                .order_by(Event.created_at.desc())
+                .limit(50)
+                .all()
+            )
+            return [
+                {
+                    "instance_id": instance_id,
+                    "created_at": event.created_at.isoformat(),
+                    "severity": event.severity,
+                    "message": event.message,
+                    "reasons": (event.details or {}).get("reasons"),
+                    "equity": (event.details or {}).get("equity"),
+                    "free_collateral": (event.details or {}).get("free_collateral"),
+                    "open_markets": (event.details or {}).get("open_markets"),
+                    "market_1": (event.details or {}).get("market_1"),
+                    "market_2": (event.details or {}).get("market_2"),
+                }
+                for event, instance_id in rows
+            ]
+        finally:
+            session.close()
+
+    config = portfolio_risk_config()
+    denials = await run_db(_load_recent_denials)
+    return api_response(
+        success=True,
+        data={
+            "config": config,
+            "recent_denials_24h": denials,
+            "count": len(denials),
+        },
+        message="Portfolio risk status retrieved",
+    )
+
+
 @router.post("/ws-broadcast/publish")
 async def publish_ws_broadcast_test(
     request: WsBroadcastPublishRequest,

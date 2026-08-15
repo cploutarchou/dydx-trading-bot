@@ -24,6 +24,7 @@ _ALLOW_LIMITS = PortfolioRiskLimits(
     max_open_markets=20,
     max_margin_utilization_pct=60.0,
     min_free_collateral_usd=100.0,
+    max_drawdown_pct=0.0,
 )
 _HEALTHY = PortfolioSnapshot(
     equity=10_000.0, free_collateral=9_000.0, open_market_count=4
@@ -107,6 +108,7 @@ def test_zero_limits_disable_individual_checks():
         max_open_markets=0,
         max_margin_utilization_pct=0.0,
         min_free_collateral_usd=0.0,
+        max_drawdown_pct=0.0,
     )
     exhausted = PortfolioSnapshot(
         equity=1.0, free_collateral=0.0, open_market_count=999
@@ -268,6 +270,7 @@ def test_open_positions_rejects_when_portfolio_guard_denies(monkeypatch):
                 max_open_markets=20,
                 max_margin_utilization_pct=60.0,
                 min_free_collateral_usd=0.0,
+                max_drawdown_pct=0.0,
             ),
         )
 
@@ -347,3 +350,140 @@ def test_open_positions_rejects_when_portfolio_guard_denies(monkeypatch):
     assert events[0][1]["reasons"] == ["portfolio_max_open_markets"]
     assert events[0][1]["open_markets"] == 20
     assert events[0][1]["max_open_markets"] == 20
+
+
+# --------------------------------------------------------------------------- #
+# Account-wide drawdown (slice 3)
+# --------------------------------------------------------------------------- #
+
+
+def test_drawdown_at_cap_denies_entry():
+    limits = PortfolioRiskLimits(
+        max_open_markets=0,
+        max_margin_utilization_pct=0.0,
+        min_free_collateral_usd=0.0,
+        max_drawdown_pct=20.0,
+    )
+    # peak 1000 → equity 800 = exactly 20% drawdown (at-limit = full).
+    snapshot = PortfolioSnapshot(
+        equity=800.0, free_collateral=800.0, open_market_count=0
+    )
+    decision = evaluate_portfolio_entry(
+        snapshot, limits, incremental_notional_usd=1.0, peak_equity=1000.0
+    )
+    assert decision.allowed is False
+    assert "portfolio_max_drawdown" in decision.reasons
+
+
+def test_drawdown_below_peak_does_not_deny_and_new_high_ratchets():
+    limits = PortfolioRiskLimits(
+        max_open_markets=0,
+        max_margin_utilization_pct=0.0,
+        min_free_collateral_usd=0.0,
+        max_drawdown_pct=20.0,
+    )
+    # equity above the stored peak → drawdown is negative → allowed.
+    snapshot = PortfolioSnapshot(
+        equity=1_200.0, free_collateral=1_200.0, open_market_count=0
+    )
+    decision = evaluate_portfolio_entry(
+        snapshot, limits, incremental_notional_usd=1.0, peak_equity=1_000.0
+    )
+    assert decision.allowed is True
+
+
+def test_missing_peak_skips_drawdown_check():
+    """Redis unavailable → peak None → the drawdown check skips itself (the
+    exchange-read controls still fail closed independently)."""
+    limits = PortfolioRiskLimits(
+        max_open_markets=0,
+        max_margin_utilization_pct=0.0,
+        min_free_collateral_usd=0.0,
+        max_drawdown_pct=1.0,
+    )
+    snapshot = PortfolioSnapshot(equity=1.0, free_collateral=1.0, open_market_count=0)
+    decision = evaluate_portfolio_entry(
+        snapshot, limits, incremental_notional_usd=1.0, peak_equity=None
+    )
+    assert decision.allowed is True
+
+
+class _FakePeakRedis:
+    """In-memory stand-in for the async Redis client (get/set only)."""
+
+    def __init__(self, *, values=None, fail=False):
+        self.values = dict(values or {})
+        self.fail = fail
+        self.set_calls: list[tuple[str, str]] = []
+
+    async def get(self, key):
+        if self.fail:
+            raise OSError("redis down")
+        return self.values.get(key)
+
+    async def set(self, key, value):
+        if self.fail:
+            raise OSError("redis down")
+        self.set_calls.append((key, value))
+        self.values[key] = value
+
+
+def test_peak_store_ratchets_up_only():
+    from src.trading.portfolio_risk import RedisPeakEquityStore
+
+    fake = _FakePeakRedis(values={"bot:portfolio:peak_equity:addr-1": "1000.0"})
+    store = RedisPeakEquityStore(url="redis://localhost:6379/0", client=fake)
+
+    lower = asyncio.run(store.observe("addr-1", 900.0))
+    assert lower == 1000.0  # peak does not fall
+    assert fake.set_calls == []  # …and nothing is rewritten
+
+    higher = asyncio.run(store.observe("addr-1", 1_100.0))
+    assert higher == 1_100.0
+    assert fake.set_calls == [("bot:portfolio:peak_equity:addr-1", "1100.0")]
+
+    first = asyncio.run(store.observe("addr-2", 500.0))  # fresh address
+    assert first == 500.0
+
+
+def test_peak_store_never_raises():
+    from src.trading.portfolio_risk import RedisPeakEquityStore
+
+    store = RedisPeakEquityStore(
+        url="redis://localhost:6379/0", client=_FakePeakRedis(fail=True)
+    )
+    assert asyncio.run(store.observe("addr-1", 100.0)) is None
+
+
+def test_guard_observes_peak_and_denies_on_drawdown(monkeypatch):
+    """The wrapper folds the live equity into the peak store (keyed by the
+    resolved wallet address) and denies when the drawdown cap is exceeded."""
+    _patch_account(
+        monkeypatch,
+        equity="800",
+        free_collateral="780",
+        open_positions={},
+    )
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_RISK_ENABLED", True)
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_MAX_DRAWDOWN_PCT", 20.0)
+
+    observed: list[tuple[str, float]] = []
+
+    class _PeakStore:
+        async def observe(self, address, equity):
+            observed.append((address, equity))
+            return 1_000.0  # → 20% drawdown
+
+    monkeypatch.setattr(portfolio_risk, "get_peak_equity_store", lambda: _PeakStore())
+    monkeypatch.setattr(
+        portfolio_risk, "resolve_client_address_or_none", lambda _client: "addr-9"
+    )
+
+    decision = asyncio.run(
+        check_portfolio_entry_guard(
+            cast(Any, _FakeClient()), incremental_notional_usd=20.0
+        )
+    )
+    assert observed == [("addr-9", 800.0)]
+    assert decision.allowed is False
+    assert "portfolio_max_drawdown" in decision.reasons

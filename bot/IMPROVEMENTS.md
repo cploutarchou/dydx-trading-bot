@@ -692,12 +692,25 @@ Items removed from this plan during the same review — and why — are listed i
           dispatch semaphore under burst; coalesce per-symbol market broadcasts (`realtime_data_service` emits one
           `broadcast_market_update` per symbol per tick → N Redis publishes when enabled) before wiring that
           service; consider sharding pub/sub channels by topic.
+          **Progress (2026-08-15) — the mechanics are DONE**: the bus now carries operational metrics
+          (`published / publish_errors / received / self_suppressed / decode_errors / dispatched /
+          dispatch_errors / dispatch_timeouts / reconnects`) surfaced via `GET /api/v1/monitoring/ws-broadcast`
+          (`health["metrics"]`); each dispatch is bounded by `WS_BROADCAST_DISPATCH_TIMEOUT_SECONDS` (default 5 s)
+          so a stuck WebSocket consumer is cancelled+counted instead of stalling the listener (sequential dispatch
+          preserves the per-channel ordering contract); and burst coverage exists —
+          `test_broadcast_bus_burst_delivery_preserves_per_channel_order` (300 messages across 3 channels through
+          a real Valkey: full delivery, per-channel order, metrics balanced) plus unit coverage of every counter
+          and the timeout path. **Remaining for the flip**: observe `bot-multiworker` green consistently in real
+          CI runs (then promote it to a gate), a staging load test, and per-symbol coalescing IF a realtime
+          market-data producer is ever re-introduced (the original consumer, `realtime_data_service`, was deleted
+          — see the dead-code item — so coalescing has no current producer to serve). The flip itself is a
+          deployment-behavior change and stays explicitly gated on those.
           **Blocked on**: multi-worker tests (below) — the core harness landed 2026-08-14 (and already fixed a
           real listener-flap bug in this bus) plus its CI job on 2026-08-15 (`bot-multiworker`, non-blocking
-          phase 1 in `.github/workflows/bot-quality.yml`); promote that job to a gate once stable and finish
-          burst/load testing before the flip. Operator tooling for the flip landed with the harness:
-          `GET /api/v1/monitoring/ws-broadcast` now reports `subscribed` (true subscription state) and
-          `POST /api/v1/monitoring/ws-broadcast/publish` smoke-tests end-to-end fan-out.
+          phase 1 in `.github/workflows/bot-quality.yml`); promote that job to a gate once stable. Operator
+          tooling for the flip landed with the harness: `GET /api/v1/monitoring/ws-broadcast` reports `subscribed`
+          (true subscription state) + `metrics`, and `POST /api/v1/monitoring/ws-broadcast/publish` smoke-tests
+          end-to-end fan-out.
 
 #### **Architecture Improvements**
 

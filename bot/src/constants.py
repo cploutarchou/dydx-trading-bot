@@ -160,6 +160,12 @@ WS_BROADCAST_REDIS_URL: str = _os.getenv("WS_BROADCAST_REDIS_URL", "")
 WS_BROADCAST_SOCKET_TIMEOUT_SECONDS: float = float(
     _os.getenv("WS_BROADCAST_SOCKET_TIMEOUT_SECONDS", "1.0")
 )
+# Upper bound for one cross-worker dispatch (deliver_local_broadcast) before the
+# subscriber cancels it and counts a dispatch_timeout — bounds a stuck WebSocket
+# consumer from stalling the whole listener under a burst.
+WS_BROADCAST_DISPATCH_TIMEOUT_SECONDS: float = float(
+    _os.getenv("WS_BROADCAST_DISPATCH_TIMEOUT_SECONDS", "5.0")
+)
 
 # Max concurrent dYdX candle fetches when building the price matrix.
 CANDLE_FETCH_CONCURRENCY: int = int(_os.getenv("CANDLE_FETCH_CONCURRENCY", "10"))

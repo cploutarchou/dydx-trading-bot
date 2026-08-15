@@ -198,6 +198,65 @@ async def _wait_received(received: list) -> None:
     assert received, "no pub/sub message delivered within 5s"
 
 
+def test_broadcast_bus_burst_delivery_preserves_per_channel_order():
+    """Burst coverage for the Phase 2 flip: a rapid multi-channel burst (the
+    shape a per-symbol market-data producer would emit) is delivered in full,
+    per-channel order preserved (the bus's ordering contract), with metrics
+    accounting for every message."""
+    from src.infrastructure.broadcast import RedisBroadcastBus
+
+    url = _redis_url()
+    _probe_redis(url)
+    total = 300
+    channels = ("ch-alpha", "ch-beta", "ch-gamma")
+
+    async def _scenario() -> None:
+        bus_a = RedisBroadcastBus(url=url, socket_timeout=1.0, worker_id="burst-A")
+        bus_b = RedisBroadcastBus(url=url, socket_timeout=1.0, worker_id="burst-B")
+        received: list[tuple[str, dict]] = []
+
+        async def _dispatch(channel_id: str, message: dict) -> None:
+            received.append((channel_id, message))
+
+        try:
+            await bus_a.start(_dispatch)
+            for _ in range(50):
+                if (await bus_a.health()).get("subscribed"):
+                    break
+                await asyncio.sleep(0.1)
+            assert (await bus_a.health())["subscribed"] is True
+
+            for i in range(total):
+                await bus_b.publish(channels[i % len(channels)], {"seq": i})
+
+            deadline = time.monotonic() + 30.0
+            while len(received) < total and time.monotonic() < deadline:
+                await asyncio.sleep(0.05)
+            assert len(received) == total, f"delivered {len(received)}/{total}"
+
+            # Per-channel ordering is the bus contract (idempotent snapshots may
+            # interleave ACROSS channels, never WITHIN one).
+            for index, channel in enumerate(channels):
+                seqs = [m["seq"] for c, m in received if c == channel]
+                expected = list(range(index, total, len(channels)))
+                assert seqs == expected, f"{channel} order broken: {seqs[:10]}…"
+
+            metrics = (await bus_a.health())["metrics"]
+            assert metrics["received"] >= total
+            assert metrics["dispatched"] == total
+            assert metrics["dispatch_errors"] == 0
+            assert metrics["dispatch_timeouts"] == 0
+            assert metrics["decode_errors"] == 0
+            publisher_metrics = (await bus_b.health())["metrics"]
+            assert publisher_metrics["published"] == total
+            assert publisher_metrics["publish_errors"] == 0
+        finally:
+            await bus_a.aclose()
+            await bus_b.aclose()
+
+    asyncio.run(_scenario())
+
+
 # --------------------------------------------------------------------------- #
 # Celery — real worker subprocess over a real broker
 # --------------------------------------------------------------------------- #

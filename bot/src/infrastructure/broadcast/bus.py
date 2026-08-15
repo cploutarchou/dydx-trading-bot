@@ -45,6 +45,7 @@ from loguru import logger
 
 from src.constants import (
     WS_BROADCAST_ENABLED,
+    WS_BROADCAST_DISPATCH_TIMEOUT_SECONDS,
     WS_BROADCAST_REDIS_URL,
     WS_BROADCAST_SOCKET_TIMEOUT_SECONDS,
 )
@@ -130,6 +131,7 @@ class RedisBroadcastBus(BroadcastBus):
         url: str,
         socket_timeout: float = 1.0,
         connect_timeout: float = 1.0,
+        dispatch_timeout: float = 5.0,
         worker_id: str | None = None,
         channel: str = _CHANNEL,
         client: Any | None = None,
@@ -137,6 +139,7 @@ class RedisBroadcastBus(BroadcastBus):
         self._url = url
         self._socket_timeout = float(socket_timeout)
         self._connect_timeout = float(connect_timeout)
+        self._dispatch_timeout = float(dispatch_timeout)
         # Generated per-instance (not at module import) so forked children and
         # test doubles get distinct, injectable identities.
         self._worker_id = worker_id or uuid.uuid4().hex
@@ -157,6 +160,20 @@ class RedisBroadcastBus(BroadcastBus):
         self._stopped = False
         self._dispatch: Dispatch | None = None
         self._subscribed = False
+        # Operational counters surfaced via ``health()["metrics"]``. Mutated
+        # only from the event loop (listener task + publish callers), so no
+        # locking is needed.
+        self._metrics: dict[str, int] = {
+            "published": 0,
+            "publish_errors": 0,
+            "received": 0,
+            "self_suppressed": 0,
+            "decode_errors": 0,
+            "dispatched": 0,
+            "dispatch_errors": 0,
+            "dispatch_timeouts": 0,
+            "reconnects": 0,
+        }
 
     # ── internal helpers ────────────────────────────────────────────────────
     def _ensure_client(self) -> Any | None:
@@ -247,11 +264,14 @@ class RedisBroadcastBus(BroadcastBus):
                     if msg.get("type") != "message":
                         # Skip subscribe/ping acknowledgements emitted by redis-py.
                         continue
+                    self._metrics["received"] += 1
                     envelope = self._decode(msg.get("data"))
                     if envelope is None:
+                        self._metrics["decode_errors"] += 1
                         continue
                     if envelope.get("origin") == self._worker_id:
                         # We already delivered locally when we published; skip.
+                        self._metrics["self_suppressed"] += 1
                         continue
                     channel_id = envelope.get("channel")
                     message = envelope.get("message")
@@ -260,8 +280,26 @@ class RedisBroadcastBus(BroadcastBus):
                     if self._dispatch is None:
                         continue
                     try:
-                        await self._dispatch(channel_id, message)
+                        # Bound one stuck dispatch (a wedged WebSocket consumer)
+                        # so it cannot stall the listener forever under a burst;
+                        # per-channel ordering is preserved because dispatch
+                        # stays sequential.
+                        await asyncio.wait_for(
+                            self._dispatch(channel_id, message),
+                            timeout=self._dispatch_timeout,
+                        )
+                        self._metrics["dispatched"] += 1
+                    except asyncio.TimeoutError:
+                        self._metrics["dispatch_timeouts"] += 1
+                        logger.warning(
+                            "broadcast_bus_dispatch_timeout worker_id={} channel={} "
+                            "timeout={}s",
+                            self._worker_id,
+                            channel_id,
+                            self._dispatch_timeout,
+                        )
                     except Exception as exc:  # noqa: BLE001 - isolate one bad dispatch
+                        self._metrics["dispatch_errors"] += 1
                         logger.warning(
                             "broadcast_bus_dispatch_failed worker_id={} error={!r}",
                             self._worker_id,
@@ -289,6 +327,7 @@ class RedisBroadcastBus(BroadcastBus):
             # listen() exited without being stopped (raised OR returned on a
             # dropped subscription). Pause ONCE with exponential backoff before
             # reconnecting, so a flapping Redis cannot tight-loop.
+            self._metrics["reconnects"] += 1
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2.0, 30.0)
 
@@ -317,9 +356,11 @@ class RedisBroadcastBus(BroadcastBus):
                 }
             )
             await client.publish(self._channel, envelope)
+            self._metrics["published"] += 1
         except (
             Exception
         ) as exc:  # noqa: BLE001 - best-effort fan-out (serialize + send)
+            self._metrics["publish_errors"] += 1
             logger.debug(
                 "broadcast_bus_publish_failed worker_id={} channel={} error={!r}",
                 self._worker_id,
@@ -361,6 +402,7 @@ class RedisBroadcastBus(BroadcastBus):
             "worker_id": self._worker_id,
             "listening": listening,
             "subscribed": self._subscribed,
+            "metrics": dict(self._metrics),
         }
         if client is None:
             return {
@@ -402,6 +444,7 @@ def _build_broadcast_bus() -> BroadcastBus:
     return RedisBroadcastBus(
         url=url,
         socket_timeout=WS_BROADCAST_SOCKET_TIMEOUT_SECONDS,
+        dispatch_timeout=WS_BROADCAST_DISPATCH_TIMEOUT_SECONDS,
     )
 
 

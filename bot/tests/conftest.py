@@ -93,6 +93,34 @@ def _isolate_broadcast_bus(monkeypatch):
 
 
 # ============================================================================
+# Portfolio drawdown peak-equity store isolation
+# ============================================================================
+#
+# The Redis-backed peak-equity ratchet in ``src/trading/portfolio_risk.py`` is
+# shared state. Tests must stay deterministic regardless of Redis/Valkey
+# contents, so the store is kept inert (observe -> None, i.e. the drawdown
+# check skips itself) by default. Tests exercising the real store inject their
+# own double via ``monkeypatch.setattr(portfolio_risk, "get_peak_equity_store", ...)``
+# (their function-scoped monkeypatch runs after this fixture's setup and so
+# takes precedence).
+@pytest.fixture(autouse=True)
+def _isolate_portfolio_peak_store(monkeypatch):
+    from src.trading import portfolio_risk
+
+    class _InertPeakStore:
+        async def observe(self, address, equity):  # pragma: no cover - inert
+            del address, equity
+            return None
+
+    portfolio_risk.reset_peak_equity_store()
+    monkeypatch.setattr(
+        portfolio_risk,
+        "get_peak_equity_store",
+        lambda: _InertPeakStore(),
+    )
+
+
+# ============================================================================
 # PostgreSQL database helper functions
 # ============================================================================
 

@@ -40,3 +40,12 @@ denial rejects with an audit event and zero orders).
 **Operator visibility**: `GET /api/v1/monitoring/portfolio-risk` (auth required) reports the guard's live
 configuration plus the last 24h of denial audit events across all instances (instance, reasons, equity,
 free collateral, open markets) — the burn-in surface for Phase A.
+
+**Slice 3 — account-wide drawdown (2026-08-15)**: `BOT_PORTFOLIO_MAX_DRAWDOWN_PCT` (default `0` = off) denies
+new entries when equity has fallen at/after the cap from the ratcheted all-time peak. The peak is stored per
+wallet address in Redis/Valkey (`bot:portfolio:peak_equity:<address>`, key = `max(stored, observed)` so
+concurrent workers race benignly; reset with `redis-cli DEL`). Redis is auxiliary coordination here, NOT a
+trading dependency: if Redis is unavailable the drawdown check skips itself (peak=None) while the
+exchange-read controls (markets / utilization / collateral floor) still fail closed. NOTE: this is the
+ACCOUNT-level control — the per-instance config field `max_drawdown_pct` remains REJECTED (bot-level
+semantics, still unenforced by a per-bot drawdown monitor).

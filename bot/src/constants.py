@@ -182,6 +182,13 @@ BOT_PORTFOLIO_MAX_MARGIN_UTILIZATION_PCT: float = float(
 BOT_PORTFOLIO_MIN_FREE_COLLATERAL_USD: float = float(
     _os.getenv("BOT_PORTFOLIO_MIN_FREE_COLLATERAL_USD", "0.0")
 )
+# Account-level drawdown from the ratcheted all-time peak equity (Redis-backed
+# peak per wallet address). Denies new entries at/after the cap; 0 disables.
+# NOTE: this is the ACCOUNT-level control — the per-instance config field
+# `max_drawdown_pct` remains REJECTED (bot-level semantics, still unenforced).
+BOT_PORTFOLIO_MAX_DRAWDOWN_PCT: float = float(
+    _os.getenv("BOT_PORTFOLIO_MAX_DRAWDOWN_PCT", "0.0")
+)
 
 # Max concurrent dYdX candle fetches when building the price matrix.
 CANDLE_FETCH_CONCURRENCY: int = int(_os.getenv("CANDLE_FETCH_CONCURRENCY", "10"))

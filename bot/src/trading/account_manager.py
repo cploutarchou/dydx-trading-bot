@@ -36,6 +36,19 @@ def _resolve_client_address(client) -> str:
     return addr
 
 
+def resolve_client_address_or_none(client) -> Optional[str]:
+    """Non-raising variant of :func:`_resolve_client_address`.
+
+    Used by callers that can meaningfully degrade when no address is
+    resolvable (e.g. the portfolio drawdown peak store keys by address).
+    Tolerates clients without a ``wallet`` attribute (test doubles).
+    """
+    try:
+        return _resolve_client_address(client)
+    except (RuntimeError, AttributeError):
+        return None
+
+
 def _resolve_subaccount_number() -> int:
     """Resolve the configured dYdX subaccount number for this runtime."""
     return int(SUBACCOUNT_NUMBER)

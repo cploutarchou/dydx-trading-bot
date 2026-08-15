@@ -2,6 +2,28 @@
 
 ## 2026-08-15
 
+- Portfolio-level risk controls **slice 3 — account-wide drawdown policy** (IMPROVEMENTS.md open item #6):
+    - `PortfolioRiskLimits` gained `max_drawdown_pct` (`BOT_PORTFOLIO_MAX_DRAWDOWN_PCT`, default 0 = off);
+      the pure evaluator takes `peak_equity` and denies at/after the cap (`portfolio_max_drawdown`). The
+      per-instance config field `max_drawdown_pct` stays REJECTED — this is the ACCOUNT-level control.
+    - New `RedisPeakEquityStore` in `src/trading/portfolio_risk.py`: ratcheted all-time peak per wallet
+      address (`bot:portfolio:peak_equity:<address>`, monotonic `max(stored, observed)` — concurrent
+      writers race benignly; lazy `redis.asyncio` client via the standard `redis_url` resolution;
+      non-raising with narrow catches `RedisError/OSError/ValueError/TypeError` so the ratchet stays
+      flat and Redis is never a trading dependency). `resolve_client_address_or_none` added to
+      account_manager (non-raising, tolerates wallet-less clients).
+    - Failure semantics documented and pinned: Redis unavailable ⇒ peak None ⇒ the drawdown check skips
+      itself (fail-open for THIS check only) while the exchange-read controls (markets / utilization /
+      collateral floor) still fail closed.
+    - `tests/conftest.py` gained an autouse `_isolate_portfolio_peak_store` fixture (inert store by
+      default, mirroring the broadcast-bus isolation pattern).
+    - Validation: 6 new cases in `tests/test_portfolio_risk.py` (pure at-cap/ratchet/peak-missing, store
+      ratchet-up-only + never-raises with a fake client, wrapper observe→deny integration) — 19/19;
+      mandated suites + ratchet green; full gate **773 passed / 13 skipped**, coverage 65.57% ≥ 64%;
+      live Valkey sanity confirmed the ratchet (1000 → holds on dip → 1200, persisted).
+    - Docs: risk-matrix Phase A section extended with the drawdown slice; IMPROVEMENTS.md item #6
+      records slice 3 + remaining (Phase B burn-in/flip, multi-account aggregation).
+
 - Portfolio-level risk controls **slice 2 — operator visibility** (IMPROVEMENTS.md open item #6):
     - New `GET /api/v1/monitoring/portfolio-risk` (auth required, standard `api_response` envelope):
       reports the guard's live configuration (`portfolio_risk_config()` — enabled flag + the three limits)

@@ -1062,10 +1062,21 @@ remains:
       equity, free collateral, open markets — loaded through a session-owning `run_db` closure per
       rule 13); `openapi.json` regenerated; coverage in `tests/test_monitoring_routes.py` (10-route
       shape + config/denial serialization + session-close guard) — 22 monitoring/portfolio tests
-      green, full gate 767 passed. **Remaining slices:** Phase B (burn-in on testnet via the new
-      endpoint, then flip the default ON), account-wide drawdown policy (needs shared peak-equity
-      state in Redis/DB — the currently-REJECTED `max_drawdown_pct` could then move to ENFORCED),
-      and multi-account aggregation (enumerate distinct credentials across `bot_instances`).
+      green, full gate 767 passed. **Slice 3 (2026-08-15): account-wide drawdown** —
+      `BOT_PORTFOLIO_MAX_DRAWDOWN_PCT` (default 0 = off) denies entries at/after the cap from a
+      ratcheted all-time peak equity, stored per wallet address in Redis
+      (`bot:portfolio:peak_equity:<address>`, monotonic `max(stored, observed)` so concurrent workers
+      race benignly; `RedisPeakEquityStore` is non-raising — Redis unavailable ⇒ the drawdown check
+      skips itself while the exchange-read controls still fail closed, keeping trading decoupled from
+      Redis availability). Distinguished from the still-REJECTED per-instance `max_drawdown_pct`
+      (bot-level semantics). New public `resolve_client_address_or_none` in account_manager; autouse
+      conftest isolation keeps the store inert in tests. Coverage: 6 new cases (pure at-cap/ratchet/
+      peak-missing, store ratchet + never-raises with a fake client, wrapper observe→deny integration)
+      + live Valkey sanity (1000 → holds on dip → 1200, persisted); full gate **773 passed / 13
+      skipped**, coverage 65.57%. **Remaining slices:** Phase B (burn-in on testnet via the
+      visibility endpoint, then flip the default ON) and multi-account aggregation (enumerate
+      distinct credentials across `bot_instances`; today the guard is per-process, each instance
+      guarding its own subaccount).
 
 ---
 

@@ -24,6 +24,7 @@ _MONITORING_PATHS = [
     "/api/v1/monitoring/database/diagnostics",
     "/api/v1/monitoring/circuit-breakers",
     "/api/v1/monitoring/ws-broadcast",
+    "/api/v1/monitoring/portfolio-risk",
 ]
 
 # POST-only operation, verified separately from the GET loop above.
@@ -47,9 +48,9 @@ def test_response_helpers_reexport_identity():
 # --------------------------------------------------------------------------- #
 
 
-def test_monitoring_router_has_nine_routes_all_with_auth():
+def test_monitoring_router_has_ten_routes_all_with_auth():
     routes = [r for r in monitoring_router.routes if isinstance(r, APIRoute)]
-    assert len(routes) == 9
+    assert len(routes) == 10
     for route in routes:
         deps = [d.call for d in route.dependant.dependencies]
         assert (
@@ -85,6 +86,10 @@ def test_monitoring_routes_return_envelope_when_authenticated(monkeypatch):
     )
     monkeypatch.setattr(server.db, "get_pool_health_status", lambda: {"healthy": True})
     monkeypatch.setattr(server.db, "get_diagnostics", lambda: {"ok": True})
+    # The portfolio-risk path queries events through db.get_session(); give the
+    # loop a session-owning fake returning no rows (same seam the real closure
+    # uses — it closes the session in its finally).
+    monkeypatch.setattr(server.db, "get_session", lambda: _FakeEventSession([]))
 
     client = TestClient(server.app, raise_server_exceptions=False)
     for path in _MONITORING_PATHS:
@@ -206,3 +211,84 @@ def test_ws_broadcast_publish_requires_auth(monkeypatch):
 
     resp = client.post(_PUBLISH_PATH, json={"channel": "1"})
     assert resp.status_code == 401
+
+
+# --------------------------------------------------------------------------- #
+# Portfolio risk status endpoint
+# --------------------------------------------------------------------------- #
+
+
+class _QueryChain:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def join(self, *args, **kwargs):
+        return self
+
+    def filter(self, *args, **kwargs):
+        return self
+
+    def order_by(self, *args, **kwargs):
+        return self
+
+    def limit(self, *args, **kwargs):
+        return self
+
+    def all(self):
+        return self._rows
+
+
+class _FakeEventSession:
+    def __init__(self, rows):
+        self._rows = rows
+        self.closed = False
+
+    def query(self, *args, **kwargs):
+        return _QueryChain(self._rows)
+
+    def close(self):
+        self.closed = True
+
+
+def test_portfolio_risk_status_reports_config_and_denials(monkeypatch):
+    """The endpoint surfaces the guard's live config plus the last-24h denial
+    audit events, serialized to plain dicts inside the offloaded closure."""
+    from datetime import datetime
+
+    denial_row = (
+        SimpleNamespace(
+            created_at=datetime(2026, 8, 15, 1, 2, 3),
+            severity="warning",
+            message="Rejected entry for BTC-USD / ETH-USD: portfolio risk limits exceeded",
+            details={
+                "reasons": ["portfolio_max_open_markets"],
+                "equity": 100.0,
+                "free_collateral": 50.0,
+                "open_markets": 20,
+                "market_1": "BTC-USD",
+                "market_2": "ETH-USD",
+            },
+        ),
+        "bot-42",
+    )
+    fake_session = _FakeEventSession([denial_row])
+
+    _bypass_auth(monkeypatch)
+    monkeypatch.setattr(server.db, "get_session", lambda: fake_session)
+
+    client = TestClient(server.app, raise_server_exceptions=False)
+    resp = client.get("/api/v1/monitoring/portfolio-risk")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+
+    data = body["data"]
+    assert data["config"]["enabled"] is False  # Phase A default
+    assert data["config"]["limits"]["max_open_markets"] > 0
+    assert data["count"] == 1
+    denial = data["recent_denials_24h"][0]
+    assert denial["instance_id"] == "bot-42"
+    assert denial["reasons"] == ["portfolio_max_open_markets"]
+    assert denial["open_markets"] == 20
+    assert denial["created_at"] == "2026-08-15T01:02:03"
+    assert fake_session.closed is True  # closure owns the session lifecycle

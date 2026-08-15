@@ -167,5 +167,21 @@ WS_BROADCAST_DISPATCH_TIMEOUT_SECONDS: float = float(
     _os.getenv("WS_BROADCAST_DISPATCH_TIMEOUT_SECONDS", "5.0")
 )
 
+# Account-level (portfolio) risk controls — evaluate the SHARED dYdX subaccount
+# (equity / free collateral / open perpetual markets) before any new entry, so
+# N instances sharing one account cannot each stay inside their per-instance
+# limits while the account as a whole is over-exposed. Phase A: opt-in (default
+# off) until proven in production; any limit <= 0 disables that check.
+BOT_PORTFOLIO_RISK_ENABLED: bool = _env_flag("BOT_PORTFOLIO_RISK_ENABLED", False)
+BOT_PORTFOLIO_MAX_OPEN_MARKETS: int = int(
+    _os.getenv("BOT_PORTFOLIO_MAX_OPEN_MARKETS", "20")
+)
+BOT_PORTFOLIO_MAX_MARGIN_UTILIZATION_PCT: float = float(
+    _os.getenv("BOT_PORTFOLIO_MAX_MARGIN_UTILIZATION_PCT", "60.0")
+)
+BOT_PORTFOLIO_MIN_FREE_COLLATERAL_USD: float = float(
+    _os.getenv("BOT_PORTFOLIO_MIN_FREE_COLLATERAL_USD", "0.0")
+)
+
 # Max concurrent dYdX candle fetches when building the price matrix.
 CANDLE_FETCH_CONCURRENCY: int = int(_os.getenv("CANDLE_FETCH_CONCURRENCY", "10"))

@@ -53,6 +53,7 @@ from src.trading.bot_agents_state import (
 )
 from src.trading.market_data import get_candles_recent, get_markets
 from src.trading.pair_priority import PairPriorityScore, prioritize_pairs
+from src.trading.portfolio_risk import check_portfolio_entry_guard
 from src.trading.trade_persistence import (
     persist_live_trade_closed,
     persist_live_trade_opened,
@@ -775,6 +776,74 @@ async def open_positions(client) -> None:
                                 "market_2": quote_market,
                                 "tracked_positions": len(tracked_positions),
                                 "max_positions": MAX_POSITIONS,
+                            },
+                        )
+                        break
+
+                    # Account-level (portfolio) guard: the shared subaccount
+                    # already reflects every instance's fills, so this is the
+                    # authoritative aggregate view (no cross-process state).
+                    # Disabled by default (BOT_PORTFOLIO_RISK_ENABLED).
+                    portfolio_decision = await check_portfolio_entry_guard(
+                        client,
+                        incremental_notional_usd=USD_PER_TRADE * 2,
+                    )
+                    if not portfolio_decision.allowed:
+                        record_rejection(portfolio_decision.primary_reason)
+                        logger.warning(
+                            "scan_cycle={} opportunity_rejected pair={}/{} "
+                            "reason=portfolio_risk reasons={} equity={} "
+                            "free_collateral={} open_markets={}",
+                            scan_cycle_id,
+                            base_market,
+                            quote_market,
+                            list(portfolio_decision.reasons),
+                            (
+                                portfolio_decision.snapshot.equity
+                                if portfolio_decision.snapshot
+                                else None
+                            ),
+                            (
+                                portfolio_decision.snapshot.free_collateral
+                                if portfolio_decision.snapshot
+                                else None
+                            ),
+                            (
+                                portfolio_decision.snapshot.open_market_count
+                                if portfolio_decision.snapshot
+                                else None
+                            ),
+                        )
+                        persist_trade_activity_event(
+                            "trade_entry_rejected_portfolio_risk",
+                            (
+                                f"Rejected entry for {base_market} / {quote_market}: "
+                                f"portfolio risk limits exceeded "
+                                f"({', '.join(portfolio_decision.reasons)})"
+                            ),
+                            severity="warning",
+                            details={
+                                "market_1": base_market,
+                                "market_2": quote_market,
+                                "reasons": list(portfolio_decision.reasons),
+                                "equity": (
+                                    portfolio_decision.snapshot.equity
+                                    if portfolio_decision.snapshot
+                                    else None
+                                ),
+                                "free_collateral": (
+                                    portfolio_decision.snapshot.free_collateral
+                                    if portfolio_decision.snapshot
+                                    else None
+                                ),
+                                "open_markets": (
+                                    portfolio_decision.snapshot.open_market_count
+                                    if portfolio_decision.snapshot
+                                    else None
+                                ),
+                                "max_open_markets": (
+                                    portfolio_decision.limits.max_open_markets
+                                ),
                             },
                         )
                         break

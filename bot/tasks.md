@@ -2,6 +2,52 @@
 
 ## 2026-08-15
 
+- Portfolio-level risk controls **slice 2 — operator visibility** (IMPROVEMENTS.md open item #6):
+    - New `GET /api/v1/monitoring/portfolio-risk` (auth required, standard `api_response` envelope):
+      reports the guard's live configuration (`portfolio_risk_config()` — enabled flag + the three limits)
+      plus the last 24h of `trade_entry_rejected_portfolio_risk` audit events across ALL instances (joined
+      to `bot_instances` for the string instance id; instance, reasons, equity, free collateral, open
+      markets, pair), loaded through a session-owning sync closure via `run_db` per AGENTS rule 13 —
+      the burn-in surface for the Phase A default flip.
+    - `portfolio_risk.py` gained the `portfolio_risk_config()` accessor; `openapi.json` regenerated (+1
+      operation); monitoring router now 10 routes.
+    - Validation: `tests/test_monitoring_routes.py` (10-route shape incl. the new GET in the auth + envelope
+      loops, and a dedicated config/denial-serialization test with a fake query chain asserting the
+      session-close lifecycle) + `tests/test_portfolio_risk.py` — 22 passed; full gate
+      **767 passed / 13 skipped**, coverage floor held (65.50% ≥ 64%); black clean.
+    - Docs: risk matrix gained the operator-visibility note; AGENTS.md monitoring-routes line updated;
+      IMPROVEMENTS.md item #6 records slice 2 + remaining slices (Phase B flip after burn-in, drawdown
+      policy, multi-account aggregation).
+
+- Portfolio-level risk controls **slice 1 — Phase A entry guard** (IMPROVEMENTS.md open item #6, the last big
+  financial-risk item):
+    - Exploration established the real topology first: every worker trades subaccount 0 of its wallet with
+      env-global limit constants (per-instance DB `trading_params` numerics are advisory at runtime), nothing
+      prevents N instances sharing one subaccount concurrently, and `max_positions` counts only the instance's
+      own tracked state — the exact cross-instance over-exposure hole. Conclusion: the SHARED SUBACCOUNT
+      (equity / freeCollateral / openPerpetualPositions) is the authoritative portfolio view; every worker
+      already reads it inside `open_positions`, so no cross-process state is needed.
+    - New `src/trading/portfolio_risk.py`: pure deterministic decision core (`evaluate_portfolio_entry` —
+      aggregate open-market cap, margin-utilization cap `(equity − free)/equity`, projected free-collateral
+      floor after ~2 × `usd_per_trade` incremental notional; at-limit = full; fail-closed
+      `portfolio_data_unavailable` on malformed data), a circuit-broken snapshot loader, and
+      `check_portfolio_entry_guard` wired into `position_manager.open_positions` directly after the
+      per-instance `max_positions` check — mirroring the existing rejection pattern exactly
+      (`record_rejection` + warning log + `trade_entry_rejected_portfolio_risk` audit event + `break`).
+      Transport errors propagate like the neighboring collateral guards (no new broad catches; ratchet held).
+    - **Phase A is opt-in**: `BOT_PORTFOLIO_RISK_ENABLED=false` default (enforce-only-proven-controls
+      philosophy; same rollout pattern as the broadcast bus), limits `BOT_PORTFOLIO_MAX_OPEN_MARKETS=20`,
+      `BOT_PORTFOLIO_MAX_MARGIN_UTILIZATION_PCT=60.0`, `BOT_PORTFOLIO_MIN_FREE_COLLATERAL_USD=0` (off).
+    - Validation: `tests/test_portfolio_risk.py` 13/13 (pure core incl. boundary equality + fail-closed,
+      wrapper short-circuit/deny/transport-propagation, and the wiring test on the entry-backoff harness
+      proving a denial → rejection + audit event + zero orders); mandated suites green
+      (`entry_backoff`/`exit_safety`/`live_risk_controls`/`live_trade_persistence`); full gate
+      **766 passed / 13 skipped**, coverage 65.46% ≥ 64%; black clean.
+    - Docs: `docs/bot-risk-control-matrix.md` gained the Phase A account-level section; AGENTS.md trading
+      components + required checks updated; IMPROVEMENTS.md item #6 records slice 1 + remaining slices
+      (Phase B burn-in + default flip, operator visibility endpoint, account-wide drawdown policy — which
+      could move the REJECTED `max_drawdown_pct` to ENFORCED — and multi-account aggregation).
+
 - Broadcast-bus **Phase 2 mechanics** (IMPROVEMENTS.md open item #2 — the buildable half; the default flip stays
   explicitly gated on CI stability observation + staging load test):
     - **Operational metrics on the bus** (`src/infrastructure/broadcast/bus.py`): counters for

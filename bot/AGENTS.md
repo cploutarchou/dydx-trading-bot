@@ -245,8 +245,12 @@ become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown 
 - The subscriber uses a **dedicated connection with no read timeout** — an idle `listen()` blocks forever by design;
   inheriting the command `socket_timeout` makes the listener flap (resubscribe loop) and silently drop messages.
   `WS_BROADCAST_SOCKET_TIMEOUT_SECONDS` applies to publish/health commands only.
-- Health: `GET /api/v1/monitoring/ws-broadcast` (auth required) — includes `subscribed`, the *actual* subscription
-  state (a running listener task can briefly be between subscriptions).
+- Each dispatch is bounded by `WS_BROADCAST_DISPATCH_TIMEOUT_SECONDS` (default 5 s): a stuck WebSocket consumer is
+  cancelled and counted instead of stalling the listener; per-channel ordering is preserved (dispatch stays
+  sequential).
+- Health: `GET /api/v1/monitoring/ws-broadcast` (auth required) — includes `subscribed` (the *actual* subscription
+  state; a running listener task can briefly be between subscriptions) and `metrics` (published / publish_errors /
+  received / self_suppressed / decode_errors / dispatched / dispatch_errors / dispatch_timeouts / reconnects).
 - Operator smoke test: `POST /api/v1/monitoring/ws-broadcast/publish` (auth required) emits a fixed server-built
   `broadcast_test` message via `broadcast_to_bot` to a validated channel; correlate copies across workers by `test_id`.
 - Multi-worker verification: `make test-multiworker` (opt-in; see Testing below).

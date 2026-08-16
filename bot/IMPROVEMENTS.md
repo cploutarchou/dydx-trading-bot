@@ -45,7 +45,7 @@ Most of this document is a record of completed work. Everything still pending, i
 
 | # | Item | Why it matters | Effort |
 | --- | --- | --- | --- |
-| 1 | **Multi-worker tests** — core harness delivered 2026-08-14; CI job (`bot-multiworker`) landed 2026-08-15 and was **promoted to a blocking quality gate 2026-08-16** (green in every run since it landed, 5/5); burst/load coverage added to the harness the same day (see action-plan item). Remaining: nothing required for the Phase 2 flip decision except a staging load test if desired | Gates everything below it; the only way the split-registry class of bug gets caught | done (core + CI gate + burst/load) |
+| 1 | **Multi-worker tests** — core harness delivered 2026-08-14; CI job (`bot-multiworker`) landed 2026-08-15 and was **promoted to a blocking quality gate 2026-08-16** with burst/load coverage added the same day. The promotion exposed that the phase-1 job had *never actually run green* in CI (`continue-on-error` masked the failing pytest step — it errored on the missing `.configkey.bin` while decrypting the encrypted profile); both promoted jobs now carry a hermetic `APP_RUN_CONFIG_FILE` (mirroring `bot-tests`) and genuinely execute | Gates everything below it; the only way the split-registry class of bug gets caught | done (core + CI gate + burst/load) |
 | 2 | **Broadcast bus Phase 2** — flip `WS_BROADCAST_ENABLED` on. Mechanics + burst coverage (unit and two-real-worker topology) are DONE and now gated in CI; what remains is the deployment-behavior change itself (staging load test → flip default ON) | Phase 1 shipped inert; multi-worker deployments still have split websocket registries | 1-2 weeks |
 | 3 | ~~**Move blocking DB calls off the event loop**~~ **RESOLVED 2026-08-15** — slices 1–5: `run_db` seam + backtest/realtime reads, WebSocket senders, backtest mutations, `bot_records`/`bot_lifecycle`/`strategies`, `pool_pre_ping` (default ON) + auth yield-dependency session fix | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | done |
 | 4 | ~~**Integration tests** (Redis / Celery / dYdX)~~ **RESOLVED 2026-08-15** — opt-in harness (`tests/test_integration_external_services.py`, `make test-integration`): real cache roundtrip, real bus pub/sub, real Celery worker ping+registration, live indexer contract; non-blocking `bot-integration` CI job with a Valkey service container | Compose infra already exists; mostly markers + a CI job | done |
@@ -718,8 +718,12 @@ Items removed from this plan during the same review — and why — are listed i
           consumer, `realtime_data_service`, was deleted — see the dead-code item — so coalescing has no current
           producer to serve). The flip itself is a deployment-behavior change and stays explicitly gated on those.
           **Unblocked 2026-08-16**: the `bot-multiworker` CI job was promoted to a blocking quality gate
-          (green in every run since it landed, 5/5, now carrying the burst scenario), and `bot-integration`
-          was promoted alongside it (6/6 green; offline-safe because the indexer contract skips, not fails).
+          and `bot-integration` was promoted alongside it. The promotion exposed that the phase-1 jobs had
+          never actually run green in CI — `continue-on-error` marked the JOB success while the pytest step
+          errored on the missing `.configkey.bin` (the pytest process tried to decrypt the repo's encrypted
+          profile without the repo secret). Both jobs now write a hermetic `APP_RUN_CONFIG_FILE`
+          (`.ci-run.json`, mirroring `bot-tests`) so the suites genuinely execute against the service
+          containers; the offline indexer contract still skips rather than fails.
           **Blocked on**: multi-worker tests (below) — the core harness landed 2026-08-14 (and already fixed a
           real listener-flap bug in this bus) plus its CI job on 2026-08-15 (`bot-multiworker`, non-blocking
           phase 1 in `.github/workflows/bot-quality.yml`); promote that job to a gate once stable. Operator
@@ -942,10 +946,13 @@ Items removed from this plan during the same review — and why — are listed i
           `POSTGRES_*` env, step summary, `timeout-minutes: 15`). The exact job command was validated locally
           against live infra (2 passed).
           **Promoted to a BLOCKING gate 2026-08-16** (dropped `continue-on-error`, added to
-          `quality-gate.needs`): green in every CI run since it landed (5/5 across master pushes and
-          Dependabot PRs); `bot-integration` promoted alongside it (6/6 green; the dYdX indexer contract
-          skips offline, so the gate is offline-safe). Flakiness triage knob without un-promoting:
-          `MULTIWORKER_BURST_MESSAGES` (0 disables the burst scenario).
+          `quality-gate.needs`). The promotion exposed that the phase-1 job conclusion ("success") was
+          misleading: `continue-on-error` had been masking a pytest step that never actually passed in CI —
+          it errored at setup on the missing `.configkey.bin` (pytest's `load_repo_env` tried to decrypt the
+          encrypted profile; only `bot-tests` carried a hermetic `APP_RUN_CONFIG_FILE`). Both promoted jobs
+          now write their own `.ci-run.json` (same content as `bot-tests`) and genuinely run.
+          Flakiness triage knob without un-promoting: `MULTIWORKER_BURST_MESSAGES` (0 disables the burst
+          scenario).
         - [x] Multi-replica (docker-level) + burst/load coverage ahead of the Phase 2 flip — DONE
           2026-08-16: `test_burst_publish_cross_worker_delivery_under_load` (see the broadcast Phase 2
           item for the full assertion list; 3 passed / 25.7 s against live infra, remainder-path sizing

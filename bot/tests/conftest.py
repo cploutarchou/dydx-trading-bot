@@ -75,13 +75,22 @@ def _isolate_circuit_breakers(monkeypatch):
 @pytest.fixture(autouse=True)
 def _isolate_broadcast_bus(monkeypatch):
     from src.infrastructure.broadcast import NoopBroadcastBus, reset_broadcast_bus
+    from src.infrastructure.broadcast import bus as broadcast_bus_module
 
+    # Neutralize the factory decision itself, not just the env var:
+    # ``bus.py`` imports WS_BROADCAST_ENABLED from constants BY VALUE at import
+    # time, so patching the env after import has no effect on
+    # ``_build_broadcast_bus`` — which matters now the default is ON
+    # (Phase 2 flip). Patching the bus module's binding keeps every
+    # ``get_broadcast_bus()`` caller (websocket_server, monitoring routes)
+    # on the Noop bus for the duration of a test.
+    monkeypatch.setattr(broadcast_bus_module, "WS_BROADCAST_ENABLED", False)
     monkeypatch.setenv("WS_BROADCAST_ENABLED", "false")
     reset_broadcast_bus()
     try:
         from src.api import websocket_server
     except ImportError:  # pragma: no cover - FastAPI/pydantic absent in stripped envs
-        # The bus is already Noop via the disabled flag + reset above; this guard
+        # The bus is already Noop via the patched flag + reset above; this guard
         # only affects stripped local envs (no pydantic_core) so non-FastAPI tests
         # can still run. CI has FastAPI, so the patch applies there. ``ImportError``
         # is intentionally narrow so a genuine regression in websocket_server.py

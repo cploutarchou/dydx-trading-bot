@@ -154,11 +154,13 @@ Useful environment variables:
   `GET /api/v1/monitoring/circuit-breakers` (auth required).
 - **Cross-worker WebSocket broadcast** (`src/infrastructure/broadcast/`, backed by `redis.asyncio` pub/sub): the
   `ConnectionManager` is process-local, so without this a broadcast on one Uvicorn worker never reaches clients on
-  another. `WS_BROADCAST_ENABLED=false` (default) keeps behavior identical to single-worker/local; set `true` for
-  multi-worker/replica deployments so `broadcast_to_bot` fans out across workers via a shared `ws:broadcast` channel.
-  Override the URL with `WS_BROADCAST_REDIS_URL` (defaults to the Celery broker / `REDIS_URL` / `VALKEY_URL`) and
-  bound command latency with `WS_BROADCAST_SOCKET_TIMEOUT_SECONDS=1.0`. A Redis outage degrades to local-only
-  delivery (never breaks a broadcast). Health is visible at `GET /api/v1/monitoring/ws-broadcast` (auth required).
+  another. `WS_BROADCAST_ENABLED=true` (default since 2026-08-16) fans `broadcast_to_bot` out across workers via a
+  shared `ws:broadcast` channel; deployments without Redis degrade gracefully (Noop bus when unconfigured; a publish
+  failure circuit bounds the cost when unreachable — broadcasts always deliver locally first). Set `false` to restore
+  strictly local-only delivery. Override the URL with `WS_BROADCAST_REDIS_URL` (defaults to the Celery broker /
+  `REDIS_URL` / `VALKEY_URL`) and bound command latency with `WS_BROADCAST_SOCKET_TIMEOUT_SECONDS=1.0`. A Redis outage
+  degrades to local-only delivery (never breaks a broadcast). Health is visible at
+  `GET /api/v1/monitoring/ws-broadcast` (auth required).
 - `NATS_URL` and `NATS_MONITORING_URL` for the optional command/event bus contract
 - `BACKTEST_ARTIFACT_STORAGE_ENABLED=false` keeps artifact persistence on the local fallback path
 - `BACKTEST_CLICKHOUSE_WRITES_ENABLED=false` keeps analytical writes disabled by default

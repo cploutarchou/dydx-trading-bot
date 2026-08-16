@@ -8,7 +8,8 @@ description: Measure, raise, and target test coverage in the dYdX bot service �
 The bot enforces a blocking line-coverage floor in CI (`bot-tests` job of
 `../.github/workflows/bot-quality.yml`, `--cov=src --cov-fail-under=N`). The floor
 is a **ratchet**: it only goes up. History: 64 (2026-08-15, measured 65.08) →
-68 (2026-08-17, measured 69.27).
+68 (2026-08-17, measured 69.30, pure-module pass) → 70 (2026-08-17, measured 71.98,
+NATS consumer-service + Celery backtest-task suites).
 
 ## 1. Measure with the EXACT CI invocation
 
@@ -80,13 +81,24 @@ Watch for these when writing the tests (each was a real catch):
 - pandas 3: string columns infer the `str` dtype by default — build `object`
   columns with `dtype="object"` when testing object-dtype branches.
 - pydantic v2 models serialize via `.model_dump()`, not `.to_dict()`.
+- Enum lookups by MEMBER NAME vs VALUE: config vocabularies that mirror the wire
+  protocol (e.g. NATS `"workqueue"`) often do NOT match Python member names
+  (`WORK_QUEUE`) — construct enums by value, or provisioning paths crash with
+  KeyError that broad catches then mislabel (caught 2026-08-17: nats-py
+  `RetentionPolicy` broke all workqueue-stream creation).
+- Celery task tests: `monkeypatch` an `async` stub over `task.retry` and the prod
+  code does `raise self.retry(...)` — an async stub returns a coroutine and
+  `raise <coroutine>` is a TypeError; use a sync stub that raises `Retry`. Also
+  `self.request.delivery_info` exists but is None in pushed/eager request
+  contexts — `getattr(req, "delivery_info", {})` does NOT default; use `or {}`.
 
-## 4. Known remaining hotspots (measured 2026-08-17)
+## 4. Known remaining hotspots (measured 2026-08-17, after both passes)
 
-By missed statements: `infrastructure/event_bus_nats.py` (~276 miss, needs NATS
-fakes), `bot_instance_manager.py` (~309, subprocess lifecycle), `api/v1/backtests.py`
-(~261, route family), `workers/backtest_tasks.py` (~204, Celery tasks),
-`api/server.py` (~241, startup/lifespan), `infrastructure/database.py` (~222),
-`main_instance.py` (~158, worker entrypoint). The pure-module tail is largely
-exhausted; the next meaningful step function is route-level and worker-level
-integration seams.
+By missed statements: `bot_instance_manager.py` (~309, subprocess lifecycle),
+`api/v1/backtests.py` (~261, route family), `api/server.py` (~241, startup/lifespan),
+`infrastructure/database.py` (~222), `infrastructure/persistence/repository.py`
+(~219), `main_instance.py` (~158, worker entrypoint), `workers/celery_monitor.py`
+(~124), `shared/notifications.py` (~116). Both the pure-module tail AND the two
+worker-infrastructure modules (event_bus_nats 89.7%, backtest_tasks 91.6%) are now
+covered; the next step function is subprocess-manager and route-family seams
+(TestClient + module monkeypatch seams, per the existing route test files).

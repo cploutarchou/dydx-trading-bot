@@ -49,7 +49,7 @@ Most of this document is a record of completed work. Everything still pending, i
 | 2 | ~~**Broadcast bus Phase 2**~~ **RESOLVED 2026-08-16** — `WS_BROADCAST_ENABLED` default flipped ON after: publish failure circuit hardening (3 consecutive failures → 30 s pause, bounding Redis-unreachable latency on `broadcast_to_bot`'s awaited path), a 600-message soak across two real workers (exactly-once, per-channel order, zero errors/reconnects), and a live no-Redis degradation check (fast-fail + circuit opens in ~27 ms, health reports `publish_paused`/unhealthy, listener lifecycle clean). Docs + openapi synced; conftest isolation strengthened (bus-module constant patch) | Phase 1 shipped inert; multi-worker deployments still have split websocket registries | done |
 | 3 | ~~**Move blocking DB calls off the event loop**~~ **RESOLVED 2026-08-15** — slices 1–5: `run_db` seam + backtest/realtime reads, WebSocket senders, backtest mutations, `bot_records`/`bot_lifecycle`/`strategies`, `pool_pre_ping` (default ON) + auth yield-dependency session fix | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | done |
 | 4 | ~~**Integration tests** (Redis / Celery / dYdX)~~ **RESOLVED 2026-08-15** — opt-in harness (`tests/test_integration_external_services.py`, `make test-integration`): real cache roundtrip, real bus pub/sub, real Celery worker ping+registration, live indexer contract; non-blocking `bot-integration` CI job with a Valkey service container | Compose infra already exists; mostly markers + a CI job | done |
-| 5 | ~~**Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`)~~ **RESOLVED 2026-08-15; floor RATCHETED 2026-08-17** — floor 64 (measured 65.08%) at delivery; focused hotspot tests (+75 cases across five pure modules, catching two latent bugs on the way) lifted measured coverage to **69.27%** and the floor to **68** | Two cheap CI gates; coverage reports today with nothing enforcing them | done |
+| 5 | ~~**Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`)~~ **RESOLVED 2026-08-15; floor RATCHETED twice 2026-08-17** — floor 64 (measured 65.08%) at delivery; two focused hotspot passes (+75 then +58 cases, together catching four latent bugs) lifted measured coverage to **71.98%** and the floor to **70** | Two cheap CI gates; coverage reports today with nothing enforcing them | done |
 | 6 | ~~**Portfolio-level risk controls**~~ **RESOLVED 2026-08-17** — Phase A entry guard, operator visibility, account-wide drawdown, multi-account aggregation, the advanced concentration set (per-market notional cap, gross-notional leverage cap, correlation buckets, UTC-day loss limit — all individually off), and **Phase B**: a live burn-in harness (`scripts/portfolio_risk_burn_in.py`, `make portfolio-burn-in`, skill `portfolio-risk-burn-in`) produced 20/20 clean cycles against a real funded testnet subaccount (0 read errors, 0 data-unavailable, 0 decision changes; empty account fails closed for the designed reason) and `BOT_PORTFOLIO_RISK_ENABLED` was flipped **default ON** (`=false` restores the old behavior; the suite stays hermetic via a conftest constant patch like the bus flip) | Per-instance limits can each pass while the account is over-exposed | done |
 | 7 | ~~**Backtest checkpointing**~~ **RESOLVED 2026-08-16** — durable per-pair checkpoints (`backtests/<run_id>/checkpoint.json` in the artifact store) written at the heavy-progress cadence and on pause; Celery redelivery / transient retry / auto-recovery requeue / NATS redelivery all resume from the completed-pair prefix after payload-hash validation (fail-open); terminal completed/cancelled delete the checkpoint | Was compute-cost only: resumed runs skip re-fetch + re-simulation of completed pairs | done |
 
@@ -1125,11 +1125,28 @@ Items removed from this plan during the same review — and why — are listed i
       registry `threading.Lock`** — the same non-reentrant lock — a guaranteed deadlock on the DataFrame
       cleanup monitoring path (the new test hung at 0% CPU until the fix). Protocol + hotspot map saved as
       the `coverage-ratchet` skill (`.agents/skills/coverage-ratchet/`).
-    - **Hotspots to target next (for raising the floor)**: `src/infrastructure/event_bus_nats.py` (~276
-      missed; needs NATS fakes), `src/bot_instance_manager.py` (~309; subprocess lifecycle),
-      `src/api/v1/backtests.py` (~261; route family), `src/infrastructure/workers/backtest_tasks.py`
-      (~204; Celery tasks) — the pure-module tail is exhausted; the next step function is route/worker
-      integration seams
+    - **Ratchet pass 2 (2026-08-17): 68 → 70.** Targeted the two biggest worker-infrastructure
+      gaps with hand-rolled fakes (no live NATS/Redis/broker needed): `tests/test_nats_consumer_service.py`
+      (38 cases; `infrastructure/event_bus_nats.py` **35.3% → 89.7%** — connect/callbacks, stream +
+      consumer provisioning, the full message-processing loop incl. duplicate/NAK/dead-letter paths,
+      lifecycle, module singleton helpers) and `tests/test_backtest_tasks_helpers.py` (21 cases;
+      `workers/backtest_tasks.py` **23.6% → 91.6%** — lock TTL/retry policy helpers, transient-error
+      classification, redis lock + pub/sub plumbing, and seven `run_backtest_task` flows:
+      duplicate-lock skip, validation failures, happy path + progress callback, transient retry,
+      permanent failure, soft-time-limit, cancellation). Total coverage **69.30% → 71.98%**, suite
+      936 → **994 passed**, floor raised to measured −1 (**70**). **Two more latent bugs caught:**
+      (3) `_ensure_stream` looked up the nats-py enums by *member name* (`RetentionPolicy["WORKQUEUE"]`)
+      but the member is `WORK_QUEUE` — **creating any workqueue-retention stream (BOT_COMMANDS,
+      BACKTEST_COMMANDS) always failed with KeyError**, silently sinking NATS command-bus provisioning;
+      enums are now constructed by VALUE (the NATS server-JSON spellings, which is what the config
+      vocabulary mirrors). (4) `run_backtest_task`'s STARTED metadata read
+      `getattr(self.request, "delivery_info", {}).get(...)` — in eager/pushed request contexts
+      `delivery_info` exists but is `None`, defeating the `{}` default and crashing; now `or {}`.
+    - **Hotspots to target next (for raising the floor)**: `src/bot_instance_manager.py` (~309
+      missed; subprocess lifecycle), `src/api/v1/backtests.py` (~261; route family via TestClient +
+      module seams), `src/api/server.py` (~241; startup/lifespan), `src/infrastructure/database.py`
+      (~222), `src/infrastructure/persistence/repository.py` (~219), `src/main_instance.py` (~158),
+      `src/infrastructure/workers/celery_monitor.py` (~124), `src/shared/notifications.py` (~116)
     - **Effort**: 1 day for the gate; coverage work is ongoing
     - **Priority**: MEDIUM
 

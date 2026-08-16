@@ -33,13 +33,20 @@ try:
     import nats
     from nats.aio.client import Client as NatsClient
     from nats.aio.subscription import Subscription as NatsSubscription
+    from nats.js import api as nats_api
+    from nats.js.errors import NotFoundError as NatsNotFoundError
 
     NATS_AVAILABLE = True
 except ImportError:
     NATS_AVAILABLE = False
-    NatsClient = None
-    NatsSubscription = None
-    nats = None
+    NatsClient = None  # type: ignore[assignment,misc]
+    NatsSubscription = None  # type: ignore[assignment,misc]
+    nats = None  # type: ignore[assignment]
+    nats_api = None  # type: ignore[assignment]
+
+    class NatsNotFoundError(Exception):  # type: ignore[no-redef]  # pragma: no cover - nats-py not installed
+        """Placeholder so except clauses reference a valid name without nats-py."""
+
 
 # Type-only imports (the runtime import above is optional/guarded). JetStreamContext
 # lives in nats.js.client, NOT nats.aio.client — the annotations previously pointed
@@ -360,7 +367,7 @@ class NATSConsumerService:
                 self.max_reconnects if self.max_reconnects >= 0 else 60
             )
 
-            options = {
+            options: Dict[str, Any] = {
                 "servers": self.servers,
                 "connect_timeout": self.connect_timeout,
                 "reconnect_time_wait": self.reconnect_timeout,
@@ -447,7 +454,7 @@ class NATSConsumerService:
             stream_info = await self._jetstream.stream_info(stream_name)
             logger.info(f"Stream {stream_name} already exists")
             return
-        except nats.errors.StreamNotFoundError:
+        except NatsNotFoundError:
             logger.info(f"Stream {stream_name} not found, creating...")
         except Exception as e:
             logger.warning(f"Error checking stream {stream_name}: {e}")
@@ -458,14 +465,14 @@ class NATSConsumerService:
             await self._jetstream.add_stream(
                 name=stream_name,
                 subjects=stream_config.subjects,
-                retention=nats.api.RetentionPolicy[stream_config.retention.upper()],
+                retention=nats_api.RetentionPolicy[stream_config.retention.upper()],
                 max_bytes=stream_config.max_bytes,
                 max_age=stream_config.max_age,
                 max_msgs=stream_config.max_msgs,
                 max_msgs_per_subject=stream_config.max_msgs_per_subject,
                 max_consumers=stream_config.max_consumers,
-                discard=nats.api.DiscardPolicy[stream_config.discard.upper()],
-                storage=nats.api.StorageType[stream_config.storage.upper()],
+                discard=nats_api.DiscardPolicy[stream_config.discard.upper()],
+                storage=nats_api.StorageType[stream_config.storage.upper()],
                 replicas=stream_config.replicas,
                 duplicates=stream_config.duplicates_window,
             )
@@ -491,7 +498,7 @@ class NATSConsumerService:
                 f"Consumer {consumer_config.durable_name} already exists in stream {consumer_config.stream}"
             )
             return
-        except nats.errors.ConsumerNotFoundError:
+        except NatsNotFoundError:
             logger.info(
                 f"Consumer {consumer_config.durable_name} not found, creating..."
             )
@@ -547,10 +554,10 @@ class NATSConsumerService:
                 subject=consumer_config.subject_filter,
                 queue=consumer_config.queue_group,
                 durable=consumer_config.durable_name,
-                config=nats.api.ConsumerConfig(
-                    ack_policy=nats.api.AckExplicitPolicy,
+                config=nats_api.ConsumerConfig(
+                    ack_policy=nats_api.AckPolicy.EXPLICIT,
                     ack_wait=consumer_config.ack_wait_seconds,
-                    max_delivery_attempts=consumer_config.max_deliver,
+                    max_deliver=consumer_config.max_deliver,
                     max_ack_pending=consumer_config.max_ack_pending,
                 ),
             )
@@ -605,8 +612,8 @@ class NATSConsumerService:
 
                     logger.info(
                         f"Received message on {subject}: "
-                        f"msg_id={message.header.get('Msg-Id', 'unknown')}, "
-                        f"sequence={message.meta.sequence}"
+                        f"msg_id={(message.header or {}).get('Msg-Id', 'unknown')}, "
+                        f"sequence={message.metadata.sequence}"
                     )
 
                     # Extract envelope fields
@@ -788,9 +795,11 @@ class NATSConsumerService:
                 "idempotency_key": result.idempotency_key,
                 "consumer_name": result.consumer_name,
                 "error_message": result.error_message,
-                "delivery_count": message.meta.num_delivered,
+                "delivery_count": message.metadata.num_delivered,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "producer_service": message.header.get("Producer-Service", "unknown"),
+                "producer_service": (message.header or {}).get(
+                    "Producer-Service", "unknown"
+                ),
                 "original_payload": message.data.decode(),
             }
 
@@ -802,7 +811,7 @@ class NATSConsumerService:
                     "Msg-Id": result.message_id,
                     "Original-Subject": original_subject,
                     "Error": result.error_message or "unknown",
-                    "Delivery-Count": str(message.meta.num_delivered),
+                    "Delivery-Count": str(message.metadata.num_delivered),
                 },
             )
 

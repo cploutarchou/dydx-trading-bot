@@ -9,7 +9,7 @@ import os
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, cast
 from urllib.parse import urlsplit
 
 from sqlalchemy.exc import OperationalError, PendingRollbackError
@@ -772,6 +772,7 @@ class BacktestRepository:
         if self.session is None:
             return
 
+        session = self.session
         total_rows_written = sum(
             max(0, int(value or 0)) for value in analytics_rows_written.values()
         )
@@ -780,7 +781,7 @@ class BacktestRepository:
             for entry in artifact_entries:
                 bucket, object_key = self._split_artifact_reference(entry["reference"])
                 artifact_record = (
-                    self.session.query(ArtifactReference)
+                    session.query(ArtifactReference)
                     .filter(
                         ArtifactReference.bucket == bucket,
                         ArtifactReference.object_key == object_key,
@@ -791,7 +792,7 @@ class BacktestRepository:
                     artifact_record = ArtifactReference(
                         bucket=bucket, object_key=object_key
                     )
-                    self.session.add(artifact_record)
+                    session.add(artifact_record)
 
                 artifact_record.owner_type = "backtest_run"
                 artifact_record.owner_id = run_id
@@ -802,8 +803,8 @@ class BacktestRepository:
 
             record.artifact_refs = dict(artifact_refs)
             record.analytics_rows_written = total_rows_written
-            self.session.commit()
-            self.session.refresh(record)
+            session.commit()
+            session.refresh(record)
 
         self._retry_with_backoff(_persist_once, max_attempts=5)
 
@@ -816,7 +817,7 @@ class BacktestRepository:
 
         artifact_refs: Dict[str, str] = {}
         artifact_entries: list[dict[str, Any]] = []
-        artifact_payloads = {
+        artifact_payloads: Dict[str, Any] = {
             "request": payload.get("request") or {},
             "trades": self._materialize_rows(payload.get("trades")),
             "position_snapshots": self._materialize_rows(
@@ -888,7 +889,7 @@ class BacktestRepository:
             payload=payload,
         )
 
-        rows_by_table = {
+        rows_by_table: Dict[str, Sequence[Dict[str, Any]]] = {
             "backtest_trades": trade_rows,
             "backtest_position_snapshots": position_rows,
             "backtest_daily_pnl": daily_pnl_rows,
@@ -1171,12 +1172,15 @@ class BacktestRepository:
         incoming_request_payload: Any,
         created_at_provided: bool,
     ) -> Dict[str, Any]:
-        record = (
-            self.session.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
-        )
+        if self.session is None:
+            # Memory mode is handled by save_run(); this helper requires a live
+            # session (defensive — callers only reach here with one).
+            raise RuntimeError("BacktestRepository._save_run_once requires a session")
+        session = self.session
+        record = session.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
         if record is None:
             record = BacktestRun(run_id=run_id)
-            self.session.add(record)
+            session.add(record)
 
         record.name = str(payload.get("name") or "unnamed-backtest")
         record.status = str(payload.get("status") or "pending")
@@ -1219,8 +1223,8 @@ class BacktestRepository:
 
         self._upsert_request_snapshot(run_id, incoming_request_payload)
 
-        self.session.commit()
-        self.session.refresh(record)
+        session.commit()
+        session.refresh(record)
 
         sidecar_payload = dict(payload)
         sidecar_payload["created_at"] = self._serialize_dt(record.created_at)
@@ -1242,9 +1246,11 @@ class BacktestRepository:
             BacktestRepository._memory_runs[normalized_run_id] = record
             return True
 
+        session = self.session
+
         def _touch_once() -> bool:
             record: Any = (
-                self.session.query(BacktestRun)
+                session.query(BacktestRun)
                 .filter(BacktestRun.run_id == normalized_run_id)
                 .first()
             )
@@ -1253,7 +1259,7 @@ class BacktestRepository:
 
             parsed_updated_at = self._parse_dt(timestamp, default=self._now())
             record.updated_at = parsed_updated_at or self._now()
-            self.session.commit()
+            session.commit()
             return True
 
         try:
@@ -1265,8 +1271,8 @@ class BacktestRepository:
     def get_run(self, run_id: str) -> Optional[Dict[str, Any]]:
         normalized_run_id = str(run_id)
         if self.session is None:
-            record = BacktestRepository._memory_runs.get(normalized_run_id)
-            return dict(record) if record else None
+            cached = BacktestRepository._memory_runs.get(normalized_run_id)
+            return dict(cached) if cached else None
 
         record = (
             self.session.query(BacktestRun)
@@ -1278,10 +1284,10 @@ class BacktestRepository:
     def get_run_overview(self, run_id: str) -> Optional[Dict[str, Any]]:
         normalized_run_id = str(run_id)
         if self.session is None:
-            record = BacktestRepository._memory_runs.get(normalized_run_id)
-            if not record:
+            cached = BacktestRepository._memory_runs.get(normalized_run_id)
+            if not cached:
                 return None
-            payload = self._normalize_run_data(record)
+            payload = self._normalize_run_data(cached)
             return {
                 **payload,
                 # Internal overview consumers need runtime-control fields for
@@ -1389,7 +1395,7 @@ class BacktestRepository:
         if not run_id:
             return False
 
-        scalar_updates = {
+        scalar_updates: Dict[str, Any] = {
             "status": str(run_data.get("status") or "running"),
             "progress_pct": float(run_data.get("progress_pct", 0.0) or 0.0),
             "current_pair": run_data.get("current_pair"),
@@ -1424,20 +1430,23 @@ class BacktestRepository:
             record["updated_at"] = self._serialize_dt(record.get("updated_at"))
             return True
 
+        session = self.session
+
         def _update_once() -> bool:
+            # SQLAlchemy's Query.update key type is a column-key union that plain
+            # str keys satisfy at runtime; cast keeps the call typed without Any.
+            column_updates = cast(Dict[Any, Any], scalar_updates)
             updated = (
-                self.session.query(BacktestRun)
+                session.query(BacktestRun)
                 .filter(BacktestRun.run_id == run_id)
-                .update(scalar_updates, synchronize_session=False)
+                .update(column_updates, synchronize_session=False)
             )
             if "request" in run_data and isinstance(run_data.get("request"), dict):
-                self.session.query(BacktestRun).filter(
-                    BacktestRun.run_id == run_id
-                ).update(
+                session.query(BacktestRun).filter(BacktestRun.run_id == run_id).update(
                     {"request_json": dict(run_data.get("request") or {})},
                     synchronize_session=False,
                 )
-            self.session.commit()
+            session.commit()
             return bool(updated)
 
         try:

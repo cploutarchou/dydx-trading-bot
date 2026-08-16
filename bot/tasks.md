@@ -2,6 +2,42 @@
 
 ## 2026-08-16
 
+- **mypy baseline campaign complete — `bot-typecheck` promoted to a blocking CI gate.** Fresh baseline
+  measured at **234 errors in 26 files** (the documented 189 had grown as new code landed) → **0**.
+    - Root causes fixed: `Base = declarative_base()` → `class Base(DeclarativeBase)` in
+      `internal/domain/__init__.py` (unlocked native SQLAlchemy 2 typing for every model; runtime-
+      equivalent, full suite green); wrong `type[Model]` return annotations across
+      `persistence/repository.py` (the source of ~50 cascade errors); mixin host-contracts declared as
+      `if TYPE_CHECKING:` attribute blocks (`backtest_controls.py` / `backtest_queries.py` — mirrors
+      their existing docstring contracts); closure-unsafe `Optional[Session]` narrowing in
+      `repository_backtest.py` (bind narrowed locals after guards); optional-import fallback
+      assignments; lambda-default inference failures (`functools.partial` for checkpoint writers).
+    - **Six real latent bug families fixed** (all in paths unit tests fake out):
+      1. `nats.errors.StreamNotFoundError` / `nats.errors.ConsumerNotFoundError` don't exist in
+         installed nats-py — the `except` clauses would `AttributeError` at exception-match time,
+         aborting stream/consumer auto-creation → now `nats.js.errors.NotFoundError`.
+      2. `nats.api.*` module doesn't exist (`nats.js.api`) — `_ensure_stream`/`_ensure_consumer`
+         would crash on every call → aliased import.
+      3. `ConsumerConfig(max_delivery_attempts=…)` / `AckExplicitPolicy` — wrong kwarg and
+         nonexistent enum → `max_deliver` + `AckPolicy.EXPLICIT`.
+      4. `Msg.meta` → `Msg.metadata` (receipt logging + dead-letter payloads).
+      5. `Msg.header` is nullable → `(message.header or {}).get(...)` in logging/dead-letter.
+      6. `GET /api/v1/bots/{id}/trades` serialized `entry_cost`/`exit_proceeds`/`opened_at`/
+         `duration_seconds` — attributes that don't exist on the `Trade` model (route would 500 on
+         any real DB row; test fakes masked it) → now derived from real columns
+         (`_pair_notional` over prices×sizes, `created_at`, `closed_at−created_at`), test fakes
+         updated to the real shape.
+    - Interface cleanups: `AnalyticsWriter` ABC gained `enabled: bool` (Noop reports False) so
+      `WorkerMetricsWriter` accepts the protocol instead of the concrete ClickHouse class;
+      `_save_run_once` now raises if called without a session (memory path returns earlier);
+      `manage_trade_exits` gained explicit `return None`.
+    - CI promotion: `bot-typecheck` dropped `continue-on-error`, added to `quality-gate.needs`;
+      summary/header text updated; `pyproject.toml [tool.mypy]` header updated (phase-2 options
+      remain the documented next tightening step).
+    - Validation: full CI-mirror suite **846 passed / 13 skipped**, coverage floor held,
+      `black` clean, flake8 hard gate clean, `mypy src` → 0 errors, workflow YAML parses.
+    - Docs: `IMPROVEMENTS.md` (type-checking entries + success metrics), skill file gate list.
+
 - Advanced portfolio-level risk controls **complete** (the last unchecked IMPROVEMENTS.md line, folded
   into open item #6's scope):
     - Notional concentration caps: `BOT_PORTFOLIO_MAX_NOTIONAL_PER_MARKET_USD` (projected

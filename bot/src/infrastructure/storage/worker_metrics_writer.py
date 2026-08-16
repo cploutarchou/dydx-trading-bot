@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from src.infrastructure.storage.clickhouse_writer import ClickHouseAnalyticsWriter
+from src.infrastructure.storage.analytics import AnalyticsWriter
 
 
 class WorkerMetricsWriter:
@@ -20,7 +20,7 @@ class WorkerMetricsWriter:
 
     def __init__(
         self,
-        analytics_writer: ClickHouseAnalyticsWriter | None = None,
+        analytics_writer: AnalyticsWriter | None = None,
         batch_size: int = 100,
         flush_interval_seconds: float = 5.0,
     ):
@@ -34,13 +34,12 @@ class WorkerMetricsWriter:
 
         # Start background flush thread if batching is enabled
         self._stop_event = threading.Event()
+        self._flush_thread: threading.Thread | None = None
         if self._should_run_background_flusher():
             self._flush_thread = threading.Thread(
                 target=self._background_flusher, daemon=True
             )
             self._flush_thread.start()
-        else:
-            self._flush_thread = None
 
     def _should_run_background_flusher(self) -> bool:
         return self.flush_interval_seconds > 0
@@ -272,7 +271,7 @@ def get_worker_metrics_writer() -> WorkerMetricsWriter | None:
 
 
 def init_worker_metrics_writer(
-    analytics_writer: ClickHouseAnalyticsWriter | None = None,
+    analytics_writer: AnalyticsWriter | None = None,
 ) -> WorkerMetricsWriter:
     """Initialize the global worker metrics writer instance.
 

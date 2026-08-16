@@ -74,7 +74,7 @@ except Exception as bot_manager_import_error:  # pragma: no cover
     logger.warning(
         "Bot instance manager unavailable at startup: {}", bot_manager_import_error
     )
-    bot_manager = None
+    bot_manager = None  # type: ignore[assignment]
 
 from internal.domain.models import BacktestRun  # noqa: E402
 from src.api.websocket_server import (  # noqa: E402

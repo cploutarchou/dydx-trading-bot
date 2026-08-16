@@ -149,12 +149,13 @@ def _authenticate_user(
     # backup is consumed on success — the lost-device recovery path).
     user_id = int(getattr(user, "id", 0) or 0)
     if is_two_factor_enabled(session, user_id):
-        if not (totp_code or "").strip():
+        normalized_totp_code = (totp_code or "").strip()
+        if not normalized_totp_code:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="2FA code required",
             )
-        if not verify_login_second_factor(session, user_id, totp_code):
+        if not verify_login_second_factor(session, user_id, normalized_totp_code):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid 2FA token",

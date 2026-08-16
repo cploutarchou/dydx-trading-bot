@@ -48,12 +48,17 @@ env -u DB_TYPE -u BOT_DB_TYPE -u DATABASE_URL -u BOT_DATABASE_URL -u DB_HOST -u 
     --cov=src --cov-fail-under=64 -q
 ```
 
-Lint/format:
+Lint/format/typecheck:
 
 ```bash
 .venv/bin/python -m black src tests
 .venv/bin/python -m flake8 src tests --select=E9,F63,F7,F82
+.venv/bin/python -m mypy --no-color src   # blocking gate since 2026-08-16 — must be 0 errors
 ```
+
+mypy notes: `Base` is `class Base(DeclarativeBase)` (SQLAlchemy 2 native typing); optional-dependency
+fallback assignments need `# type: ignore[assignment,misc]`; mixins declare host contracts in
+`if TYPE_CHECKING:` blocks; `warn_unused_ignores` is OFF (phase-2), so stale ignores are not flagged.
 
 Ratchet: included in the suite (`tests/test_exception_handling_ratchet.py`); if it fails, narrow
 the new catches — do not raise the baseline.

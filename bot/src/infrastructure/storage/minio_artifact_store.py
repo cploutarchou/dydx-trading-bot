@@ -14,6 +14,17 @@ try:  # pragma: no cover - import is optional in test/dev environments
 except Exception:  # pragma: no cover - keep adapter functional without package
     Minio = None
 
+try:  # pragma: no cover - narrow error types for best-effort deletes
+    from minio.error import S3Error
+    from urllib3.exceptions import HTTPError as _Urllib3HTTPError
+
+    _DELETE_ERROR_TYPES: tuple[type[BaseException], ...] = (
+        S3Error,
+        _Urllib3HTTPError,
+    )
+except ImportError:  # pragma: no cover - minio absent ⇒ no client can be built
+    _DELETE_ERROR_TYPES = ()
+
 from .artifacts import ArtifactStore, LocalArtifactStore
 
 logger = logging.getLogger(__name__)
@@ -269,3 +280,32 @@ class MinIOArtifactStore(ArtifactStore):
                     )
 
         return self.fallback.exists(safe_key)
+
+    def delete(self, key: str) -> bool:
+        """Best-effort delete across MinIO and the local fallback."""
+        try:
+            safe_key = self._safe_key(key)
+        except ValueError:
+            return False
+
+        if self.enabled and self._client is not None:
+            try:
+                self._client.remove_object(self.bucket, safe_key)
+            except _DELETE_ERROR_TYPES as exc:
+                if self._is_not_found_error(exc):
+                    pass  # already gone on the remote — fall through to fallback
+                elif self.strict_mode:
+                    logger.error(
+                        "MinIO delete failed in strict mode key=%s error=%s",
+                        safe_key,
+                        exc,
+                    )
+                    return False
+                else:
+                    logger.warning(
+                        "MinIO delete failed key=%s error=%s",
+                        safe_key,
+                        exc,
+                    )
+
+        return self.fallback.delete(safe_key)

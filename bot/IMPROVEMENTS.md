@@ -45,8 +45,8 @@ Most of this document is a record of completed work. Everything still pending, i
 
 | # | Item | Why it matters | Effort |
 | --- | --- | --- | --- |
-| 1 | **Multi-worker tests** — core harness delivered 2026-08-14 + CI job (`bot-multiworker`, non-blocking phase 1) 2026-08-15; it already caught and fixed a real bus bug. Remaining: promote the CI job to blocking once stable, and multi-replica/load coverage | Gates everything below it; the only way the split-registry class of bug gets caught | days |
-| 2 | **Broadcast bus Phase 2** — flip `WS_BROADCAST_ENABLED` on, add metrics + broadcast coalescing | Phase 1 shipped inert; multi-worker deployments still have split websocket registries | 1-2 weeks |
+| 1 | **Multi-worker tests** — core harness delivered 2026-08-14; CI job (`bot-multiworker`) landed 2026-08-15 and was **promoted to a blocking quality gate 2026-08-16** (green in every run since it landed, 5/5); burst/load coverage added to the harness the same day (see action-plan item). Remaining: nothing required for the Phase 2 flip decision except a staging load test if desired | Gates everything below it; the only way the split-registry class of bug gets caught | done (core + CI gate + burst/load) |
+| 2 | **Broadcast bus Phase 2** — flip `WS_BROADCAST_ENABLED` on. Mechanics + burst coverage (unit and two-real-worker topology) are DONE and now gated in CI; what remains is the deployment-behavior change itself (staging load test → flip default ON) | Phase 1 shipped inert; multi-worker deployments still have split websocket registries | 1-2 weeks |
 | 3 | ~~**Move blocking DB calls off the event loop**~~ **RESOLVED 2026-08-15** — slices 1–5: `run_db` seam + backtest/realtime reads, WebSocket senders, backtest mutations, `bot_records`/`bot_lifecycle`/`strategies`, `pool_pre_ping` (default ON) + auth yield-dependency session fix | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | done |
 | 4 | ~~**Integration tests** (Redis / Celery / dYdX)~~ **RESOLVED 2026-08-15** — opt-in harness (`tests/test_integration_external_services.py`, `make test-integration`): real cache roundtrip, real bus pub/sub, real Celery worker ping+registration, live indexer contract; non-blocking `bot-integration` CI job with a Valkey service container | Compose infra already exists; mostly markers + a CI job | done |
 | 5 | ~~**Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`)~~ **RESOLVED 2026-08-15** — floor set at 64% (measured 65.08%, blocking), `bot-deps-audit` pip-audit CI job + Dependabot shipped; first audit already removed an unused `aiohttp` pin carrying 3 open advisories | Two cheap CI gates; coverage reports today with nothing enforcing them | done |
@@ -310,7 +310,8 @@ Items removed from this plan during the same review — and why — are listed i
 - **Test Coverage Gaps**: the suite (78 files, 641 test functions) covers contracts well but not topology
     - ~~**No Multi-Worker Tests**~~ — RESOLVED (2026-08-14): `tests/test_multi_worker_broadcast.py` (opt-in via
       `make test-multiworker`) covers the two-real-workers topology, caught and fixed a real listener-flap bus bug;
-      CI wiring for it remains open
+      CI wiring landed 2026-08-15 and was promoted to a blocking quality gate 2026-08-16 (with burst/load coverage
+      added the same day)
     - ~~**Missing Integration Tests**~~ — RESOLVED (2026-08-15):
       `tests/test_integration_external_services.py` (opt-in via `make test-integration`) exercises real
       Redis/Celery/dYdX-indexer topology; multi-worker topology covered by
@@ -428,6 +429,12 @@ Items removed from this plan during the same review — and why — are listed i
       `black --check`, the CI flake8 gate, `compileall`, and a unit-test smoke run. NOTE: the gate originally lived
       in the non-executed `bot/.github/workflows/ci.yml` (subdir workflows are ignored by GitHub); it is now enforced
       live in the `bot-lint` job of `.github/workflows/bot-quality.yml` (`black --check src tests` + flake8 hard gate).
+      **Drift cleanup 2026-08-16:** the gate had been failing every CI run since 2026-08-14 on 5 files with
+      pre-existing Black drift (`src/infrastructure/event_bus_nats.py`,
+      `src/infrastructure/persistence/repository.py`, `src/main_instance.py`,
+      `tests/test_token_revocation.py`, `tests/test_trading_network_errors.py`) — reformatted
+      (`black --check src tests` → 178 clean; flake8 hard gate clean; full suite 773 passed,
+      coverage 65.44% ≥ 64 floor), restoring green CI across the workflow.
 
 - [x] **Add code coverage reporting** to CI/CD pipeline
     - **Files**: Add pytest-cov, update CI configuration
@@ -700,11 +707,19 @@ Items removed from this plan during the same review — and why — are listed i
           preserves the per-channel ordering contract); and burst coverage exists —
           `test_broadcast_bus_burst_delivery_preserves_per_channel_order` (300 messages across 3 channels through
           a real Valkey: full delivery, per-channel order, metrics balanced) plus unit coverage of every counter
-          and the timeout path. **Remaining for the flip**: observe `bot-multiworker` green consistently in real
-          CI runs (then promote it to a gate), a staging load test, and per-symbol coalescing IF a realtime
-          market-data producer is ever re-introduced (the original consumer, `realtime_data_service`, was deleted
-          — see the dead-code item — so coalescing has no current producer to serve). The flip itself is a
-          deployment-behavior change and stays explicitly gated on those.
+          and the timeout path. **Burst coverage at the two-real-worker topology level landed 2026-08-16**:
+          `test_burst_publish_cross_worker_delivery_under_load` in `tests/test_multi_worker_broadcast.py`
+          (default 150 messages across 3 channels via `MULTIWORKER_BURST_MESSAGES`/`MULTIWORKER_BURST_CHANNELS`,
+          alternating publisher per channel so both A→B and B→A carry load, one client per channel per worker;
+          asserts exactly-once + per-channel publish order + quiet window + zero error counters and **zero
+          listener reconnects** — the flap bug class this harness already caught once). **Remaining for the
+          flip**: a staging load test and the deployment decision itself (flip `WS_BROADCAST_ENABLED` default
+          ON); per-symbol coalescing IF a realtime market-data producer is ever re-introduced (the original
+          consumer, `realtime_data_service`, was deleted — see the dead-code item — so coalescing has no current
+          producer to serve). The flip itself is a deployment-behavior change and stays explicitly gated on those.
+          **Unblocked 2026-08-16**: the `bot-multiworker` CI job was promoted to a blocking quality gate
+          (green in every run since it landed, 5/5, now carrying the burst scenario), and `bot-integration`
+          was promoted alongside it (6/6 green; offline-safe because the indexer contract skips, not fails).
           **Blocked on**: multi-worker tests (below) — the core harness landed 2026-08-14 (and already fixed a
           real listener-flap bug in this bus) plus its CI job on 2026-08-15 (`bot-multiworker`, non-blocking
           phase 1 in `.github/workflows/bot-quality.yml`); promote that job to a gate once stable. Operator
@@ -924,11 +939,19 @@ Items removed from this plan during the same review — and why — are listed i
         - [x] CI job for the harness — DONE 2026-08-15: `bot-multiworker` job in
           `.github/workflows/bot-quality.yml` (Postgres 15.18 + Valkey 7.2 service containers using the
           docker-compose.infra.yml defaults, `MULTIWORKER_TEST=1` + explicit `MULTIWORKER_REDIS_URL` /
-          `POSTGRES_*` env, step summary, `timeout-minutes: 15`). Phase-1 **non-blocking**
-          (`continue-on-error`, not in `quality-gate.needs`) to prove stability on shared runners first —
-          promote by dropping `continue-on-error` and adding `bot-multiworker` to `quality-gate.needs`.
-          The exact job command was validated locally against live infra (2 passed).
-        - [ ] Multi-replica (docker-level) + burst/load coverage ahead of the Phase 2 flip
+          `POSTGRES_*` env, step summary, `timeout-minutes: 15`). The exact job command was validated locally
+          against live infra (2 passed).
+          **Promoted to a BLOCKING gate 2026-08-16** (dropped `continue-on-error`, added to
+          `quality-gate.needs`): green in every CI run since it landed (5/5 across master pushes and
+          Dependabot PRs); `bot-integration` promoted alongside it (6/6 green; the dYdX indexer contract
+          skips offline, so the gate is offline-safe). Flakiness triage knob without un-promoting:
+          `MULTIWORKER_BURST_MESSAGES` (0 disables the burst scenario).
+        - [x] Multi-replica (docker-level) + burst/load coverage ahead of the Phase 2 flip — DONE
+          2026-08-16: `test_burst_publish_cross_worker_delivery_under_load` (see the broadcast Phase 2
+          item for the full assertion list; 3 passed / 25.7 s against live infra, remainder-path sizing
+          re-verified at 50/3). Docker-orchestrated replicas were deliberately NOT added: the harness
+          already boots two real independent worker processes (the same code path container replicas
+          would exercise) — full containers would add orchestration noise, not coverage.
     - **Concrete scope**: two Uvicorn workers + Redis, assert a `broadcast_to_bot` on worker A reaches a
       websocket client attached to worker B with `WS_BROADCAST_ENABLED=true`, and that it does not loop back
     - **Status: CORE HARNESS DELIVERED (2026-08-14).**
@@ -958,9 +981,10 @@ Items removed from this plan during the same review — and why — are listed i
       likewise) because migrations created the types with lowercase Python-enum *values* while SQLAlchemy
       binds the uppercase *names*. The reconciliation migration adds the NAME labels (expand-only) and
       flips rows; legacy `create_all_tables` databases are no-ops. See the Technical Debt Hotspots entry.
-      **Remaining for this item:** a CI job (service containers for Postgres + Redis, then
-      `MULTIWORKER_TEST=1 pytest tests/test_multi_worker_broadcast.py`), and optional multi-replica
-      (docker-level) + burst/load coverage ahead of the Phase 2 flip.
+      **Remaining for this item:** none — the CI job landed 2026-08-15, was promoted to a blocking
+      quality gate 2026-08-16 (with `bot-integration`), and the burst/load scenario
+      (`test_burst_publish_cross_worker_delivery_under_load`) shipped the same day; see the
+      follow-ups above for details.
 
 - [x] **Add integration tests** for external services (Redis, Celery, dYdX) — DONE 2026-08-15
     - **Files**: `tests/test_integration_external_services.py`, `Makefile` (`test-integration`),

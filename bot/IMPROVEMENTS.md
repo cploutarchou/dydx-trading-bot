@@ -511,8 +511,13 @@ Items removed from this plan during the same review — and why — are listed i
       wrong `type[Model]` return annotations across the repositories, mixin host-contracts declared as
       `TYPE_CHECKING` attribute blocks, closure-unsafe `Optional[Session]` narrowing, optional-import fallback
       assignments, and six real latent bug families (nonexistent NATS exception attrs/module/kwargs, `Msg.meta` →
-      `Msg.metadata`, nullable `Msg.header`, phantom `Trade` attributes in the trades route). Phase-2 options
-      (check_untyped_defs / warn_unused_ignores / strict) remain the documented next tightening step.
+      `Msg.metadata`, nullable `Msg.header`, phantom `Trade` attributes in the trades route). **Phase-2
+      options enabled same day** — `check_untyped_defs` + `warn_unused_ignores` + `warn_redundant_casts` in
+      `[tool.mypy]` (8 real body errors fixed: pool-metric reads via the defensive helper on non-QueuePool
+      pools, `Optional[None]` attribute inference for `_last_alert_time`/`client`/`messenger`, a
+      `pop(..., None)` arg-type; 34 stale `# type: ignore` comments and 1 redundant `cast` deleted) — the
+      count was driven back to **0** and the gate stays at zero. Phase-3 options
+      (`disallow_untyped_defs` / `warn_return_any` / `strict`) remain the documented next tightening step.
       Not added to pre-commit (mypy needs whole-program context and is slow; CI is the right place for it).
 
 #### **Testing**
@@ -1231,7 +1236,7 @@ remains:
 - ✅ Circuit breaker implementation (COMPLETED — `src/infrastructure/resilience/` named-breaker framework)
 - ✅ Configuration validation (COMPLETED — `validate_startup_config()` in `start_api.py`)
 - ✅ Pre-commit hooks (COMPLETED — `.pre-commit-config.yaml` at the monorepo root, scoped to `bot/`)
-- ✅ Type checking with mypy (COMPLETED — blocking `bot-typecheck` gate since 2026-08-16; baseline cleared 234 → 0, which also fixed six latent bug families)
+- ✅ Type checking with mypy (COMPLETED — blocking `bot-typecheck` gate since 2026-08-16; baseline cleared 234 → 0, six latent bug families fixed; phase-2 options enabled + cleared same day)
 - ✅ Security scanning with bandit (COMPLETED — non-blocking `bot-security` CI job)
 - ✅ DataFrame memory cleanup (COMPLETED)
 - ✅ **Coverage floor** (`--cov-fail-under`) — COMPLETED (2026-08-15): blocking floor of 64% in the `bot-tests`
@@ -1354,8 +1359,10 @@ Pruned during a validation pass against the actual codebase. Two categories:
 - **Dependency Scanning**: `pip-audit` reports the resolved `requirements.txt` tree per build (non-blocking
   `bot-deps-audit` job, phase 1); known accepted finding: 1 no-fix `ecdsa` advisory via `python-jose`
 - **Type Checking**: 0 mypy errors — `bot-typecheck` is a blocking gate (baseline cleared 2026-08-16:
-  234 → 0). Next ratchet: enable the phase-2 options in `bot/pyproject.toml`
-  (`check_untyped_defs`, `warn_unused_ignores`, …) and drive the new count back to 0
+  234 → 0; phase-2 options `check_untyped_defs`/`warn_unused_ignores`/`warn_redundant_casts` enabled the
+  same day and the count driven back to 0). Next ratchet: enable the phase-3 options in
+  `bot/pyproject.toml` (`disallow_untyped_defs`, `warn_return_any`, `strict`) and drive the new count
+  back to 0
 
 ---
 

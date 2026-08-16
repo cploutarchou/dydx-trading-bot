@@ -2,6 +2,23 @@
 
 ## 2026-08-16
 
+- **mypy phase-2 tightening complete** — `check_untyped_defs`, `warn_unused_ignores`, and
+  `warn_redundant_casts` enabled in `pyproject.toml [tool.mypy]`; count driven back to **0**.
+    - `check_untyped_defs` surfaced 8 real errors in 3 files, all fixed:
+      `database.py` `_collect_metrics` now reads `size`/`checkedout`/`overflow` through the existing
+      defensive `_pool_metric` helper (base `Pool` lacks them — direct calls would `AttributeError`
+      on non-QueuePool pools, e.g. SQLite `StaticPool` in tests) with `int(... or 0)` coercion;
+      `_last_alert_time` / `main_instance` `client` + `messenger` got explicit `Optional[...]`
+      annotations (were inferred as `None`-type); `dataframe_utils` cleanup loop swapped
+      `pop(frame_id, None)` (invalid default type) for a membership check.
+    - `warn_unused_ignores` + `warn_redundant_casts`: deleted 34 stale `# type: ignore` comments
+      across 14 files and 1 redundant `cast(int, bot.id)` — ignore debt can no longer accumulate
+      silently.
+    - Validation: full CI-mirror suite **846 passed / 13 skipped**, coverage floor held, black clean
+      (1 file reformatted), flake8 hard gate clean, `mypy src` → 0 errors under the new config.
+    - Docs: `pyproject.toml` phase headers (phase-3 candidates documented), `bot-quality.yml` gate
+      comment, `IMPROVEMENTS.md` (status + success metrics), skill file.
+
 - **mypy baseline campaign complete — `bot-typecheck` promoted to a blocking CI gate.** Fresh baseline
   measured at **234 errors in 26 files** (the documented 189 had grown as new code landed) → **0**.
     - Root causes fixed: `Base = declarative_base()` → `class Base(DeclarativeBase)` in

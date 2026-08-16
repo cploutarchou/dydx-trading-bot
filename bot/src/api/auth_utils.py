@@ -417,7 +417,7 @@ class TokenBlacklist:
         if os.getenv("REDIS_ENABLED", "false").lower() not in ("true", "1", "yes"):
             return None
         try:
-            import redis  # type: ignore[import]
+            import redis
 
             client = redis.Redis(
                 host=redis_host(),

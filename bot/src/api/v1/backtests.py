@@ -2274,7 +2274,7 @@ async def validate_against_dydx_data(
     del current_user
     try:
         with _compat("backtest_service_scope", backtest_service_scope)() as service:
-            validation_result = await service.validate_against_dydx_data(run_id)  # type: ignore[attr-defined]
+            validation_result = await service.validate_against_dydx_data(run_id)
         if not validation_result:
             return api_response(
                 success=False,

@@ -12,7 +12,7 @@ from typing import Any
 try:  # pragma: no cover - optional dependency
     import clickhouse_connect
 except Exception:  # pragma: no cover
-    clickhouse_connect = None  # type: ignore[assignment]
+    clickhouse_connect = None
 
 from .analytics import AnalyticsWriter, NoopAnalyticsWriter
 

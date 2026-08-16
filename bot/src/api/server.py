@@ -1603,7 +1603,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
         running_instances = len([i for i in instances if i.status == BotStatus.RUNNING])
 
         # System resource usage
-        import psutil  # type: ignore[import-untyped]
+        import psutil
 
         cpu_usage = psutil.cpu_percent()
         memory = psutil.virtual_memory()

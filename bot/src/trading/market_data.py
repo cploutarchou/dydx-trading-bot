@@ -43,12 +43,12 @@ _DYDX_RATE_LIMIT_RPS = float(os.getenv("DYDX_RATE_LIMIT_RPS", "5"))
 _DYDX_RATE_LIMIT_WINDOW = float(os.getenv("DYDX_RATE_LIMIT_WINDOW", "1.0"))
 
 # Module-level storage for per-event-loop limiters to avoid reuse across loops
-_rate_limiter = None  # type: ignore[assignment]
-_rate_limiter_key = None  # type: ignore[assignment]
+_rate_limiter = None
+_rate_limiter_key = None
 
 if importlib.util.find_spec("aiolimiter") is not None:
     try:
-        from aiolimiter import AsyncLimiter  # type: ignore[import]
+        from aiolimiter import AsyncLimiter
 
         _rate_limiter_key = "_dydx_rate_limiter"
     except Exception:
@@ -71,7 +71,7 @@ def _get_event_loop_limiter():
     # Store limiter in loop's context to avoid reuse across loops
     if not hasattr(current_loop, _rate_limiter_key):
         try:
-            from aiolimiter import AsyncLimiter  # type: ignore[import]
+            from aiolimiter import AsyncLimiter
 
             setattr(
                 current_loop,

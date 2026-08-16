@@ -64,7 +64,9 @@ source = [
 
 [tool.mypy]
 # ---------------------------------------------------------------------------
-# Type checking — BLOCKING gate (baseline cleared 2026-08-16: 234 errors → 0)
+# Type checking — BLOCKING gate (baseline cleared 2026-08-16: 234 errors → 0;
+# phase-2 options enabled same day: check_untyped_defs + warn_unused_ignores +
+# warn_redundant_casts, new count driven back to 0)
 # ---------------------------------------------------------------------------
 # The codebase predates type annotations; the historical debt was cleared
 # module-by-module and `bot-typecheck` (see .github/workflows/bot-quality.yml)
@@ -82,16 +84,18 @@ ignore_missing_imports = true
 # Skip generated/vendored/cache dirs if mypy follows an import into them.
 exclude = '^(_build|build|dist|\.venv|__pycache__|bot_states)/'
 
-# --- Next tightening steps (phase-2 candidates) ---
-# Notes on deferral: warn_unused_ignores / warn_redundant_casts are valuable but
-# make the ratchet non-monotonic (fixing a real error can turn a previously-needed
-# `# type: ignore` into an unused-ignore warning, raising the count). Enable them
-# once the core type debt is cleared. check_untyped_defs will add errors from
-# unannotated function bodies; disallow_untyped_defs requires annotations.
+# --- Phase-2 options ENABLED 2026-08-16 (drove the new count back to 0) ---
+# Bodies of unannotated functions are checked, and stale ignores / redundant
+# casts are flagged so `# type: ignore` debt can't silently accumulate.
+warn_redundant_casts = true
+warn_unused_ignores = true
+check_untyped_defs = true
+
+# --- Next tightening steps (phase-3 candidates) ---
+# disallow_untyped_defs requires annotations everywhere (big sweep: many
+# route handlers and helpers are still unannotated). warn_return_any flags
+# `Any` leaking out of typed signatures. strict is the end-state bundle.
 # warn_unused_configs = true
-# warn_redundant_casts = true
-# warn_unused_ignores = true
-# check_untyped_defs = true
 # disallow_untyped_defs = true
 # warn_return_any = true
 # strict = true

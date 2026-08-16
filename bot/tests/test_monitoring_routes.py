@@ -285,6 +285,7 @@ def test_portfolio_risk_status_reports_config_and_denials(monkeypatch):
     data = body["data"]
     assert data["config"]["enabled"] is False  # Phase A default
     assert data["config"]["limits"]["max_open_markets"] > 0
+    assert data["config"]["limits"]["aggregate_max_open_markets"] == 0  # default off
     assert data["count"] == 1
     denial = data["recent_denials_24h"][0]
     assert denial["instance_id"] == "bot-42"
@@ -292,3 +293,78 @@ def test_portfolio_risk_status_reports_config_and_denials(monkeypatch):
     assert denial["open_markets"] == 20
     assert denial["created_at"] == "2026-08-15T01:02:03"
     assert fake_session.closed is True  # closure owns the session lifecycle
+
+
+def test_portfolio_risk_status_reports_multi_account_exposure(monkeypatch):
+    """Per-address exposures plus per-network aggregate totals are surfaced;
+    unreachable accounts degrade to incomplete entries instead of failing."""
+    from datetime import datetime
+
+    import src.trading.portfolio_accounts as portfolio_accounts
+    from src.trading.portfolio_accounts import (
+        AccountExposure,
+        PortfolioAccountRef,
+    )
+
+    denial_row = (
+        SimpleNamespace(
+            created_at=datetime(2026, 8, 16, 4, 5, 6),
+            severity="warning",
+            message="Rejected entry: aggregate cap",
+            details={
+                "reasons": ["portfolio_aggregate_max_open_markets"],
+                "aggregate": {"total_open_markets": 30, "accounts": 2},
+            },
+        ),
+        "bot-7",
+    )
+    fake_session = _FakeEventSession([denial_row])
+    _bypass_auth(monkeypatch)
+    monkeypatch.setattr(server.db, "get_session", lambda: fake_session)
+
+    async def _fake_enumerate(**kwargs):
+        return (
+            PortfolioAccountRef("0xa", "testnet"),
+            PortfolioAccountRef("0xb", "testnet"),
+            PortfolioAccountRef("0xc", "mainnet"),
+        )
+
+    async def _fake_http_loader(refs):
+        return (
+            AccountExposure("0xa", "testnet", 1000.0, 800.0, 3, True, None),
+            AccountExposure("0xb", "testnet", None, None, 2, False, "ConnectError"),
+            AccountExposure("0xc", "mainnet", 500.0, 100.0, 1, True, None),
+        )
+
+    monkeypatch.setattr(
+        portfolio_accounts, "enumerate_portfolio_accounts", _fake_enumerate
+    )
+    monkeypatch.setattr(
+        portfolio_accounts, "load_account_exposures_http", _fake_http_loader
+    )
+
+    client = TestClient(server.app, raise_server_exceptions=False)
+    resp = client.get("/api/v1/monitoring/portfolio-risk")
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+
+    assert [a["address"] for a in data["accounts"]] == ["0xa", "0xb", "0xc"]
+    degraded = data["accounts"][1]
+    assert degraded["complete"] is False
+    assert degraded["error"] == "ConnectError"
+
+    testnet = data["aggregate_by_network"]["testnet"]
+    assert testnet["accounts"] == 2
+    assert testnet["incomplete_accounts"] == 1
+    assert testnet["total_equity"] == 1000.0
+    assert testnet["total_free_collateral"] == 800.0
+    assert testnet["total_open_markets"] == 5  # incomplete account's positions count
+    assert testnet["margin_utilization_pct"] == 20.0
+
+    mainnet = data["aggregate_by_network"]["mainnet"]
+    assert mainnet["total_equity"] == 500.0
+    assert mainnet["margin_utilization_pct"] == 80.0
+
+    denial = data["recent_denials_24h"][0]
+    assert denial["aggregate"] == {"total_open_markets": 30, "accounts": 2}
+    assert fake_session.closed is True

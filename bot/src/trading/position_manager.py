@@ -844,6 +844,27 @@ async def open_positions(client) -> None:
                                 "max_open_markets": (
                                     portfolio_decision.limits.max_open_markets
                                 ),
+                                "aggregate": (
+                                    {
+                                        "total_equity": (
+                                            portfolio_decision.aggregate_totals.total_equity
+                                        ),
+                                        "total_free_collateral": (
+                                            portfolio_decision.aggregate_totals.total_free_collateral
+                                        ),
+                                        "total_open_markets": (
+                                            portfolio_decision.aggregate_totals.total_open_markets
+                                        ),
+                                        "accounts": (
+                                            portfolio_decision.aggregate_totals.accounts
+                                        ),
+                                        "incomplete_accounts": (
+                                            portfolio_decision.aggregate_totals.incomplete_accounts
+                                        ),
+                                    }
+                                    if portfolio_decision.aggregate_totals
+                                    else None
+                                ),
                             },
                         )
                         break

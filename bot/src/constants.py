@@ -174,9 +174,11 @@ WS_BROADCAST_DISPATCH_TIMEOUT_SECONDS: float = float(
 # Account-level (portfolio) risk controls — evaluate the SHARED dYdX subaccount
 # (equity / free collateral / open perpetual markets) before any new entry, so
 # N instances sharing one account cannot each stay inside their per-instance
-# limits while the account as a whole is over-exposed. Phase A: opt-in (default
-# off) until proven in production; any limit <= 0 disables that check.
-BOT_PORTFOLIO_RISK_ENABLED: bool = _env_flag("BOT_PORTFOLIO_RISK_ENABLED", False)
+# limits while the account as a whole is over-exposed. ON by default since the
+# Phase B flip (2026-08-17, after the testnet burn-in recorded in
+# docs/bot-risk-control-matrix.md); set =false to restore pre-Phase-A behavior.
+# Any individual limit <= 0 still disables that check.
+BOT_PORTFOLIO_RISK_ENABLED: bool = _env_flag("BOT_PORTFOLIO_RISK_ENABLED", True)
 BOT_PORTFOLIO_MAX_OPEN_MARKETS: int = int(
     _os.getenv("BOT_PORTFOLIO_MAX_OPEN_MARKETS", "20")
 )

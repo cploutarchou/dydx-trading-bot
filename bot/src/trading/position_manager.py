@@ -783,8 +783,9 @@ async def open_positions(client) -> None:
                     # Account-level (portfolio) guard: the shared subaccount
                     # already reflects every instance's fills, so this is the
                     # authoritative aggregate view (no cross-process state).
-                    # Disabled by default (BOT_PORTFOLIO_RISK_ENABLED). Each
-                    # pair leg books USD_PER_TRADE notional in its market.
+                    # On by default since Phase B (disable via
+                    # BOT_PORTFOLIO_RISK_ENABLED=false). Each pair leg books
+                    # USD_PER_TRADE notional in its market.
                     portfolio_decision = await check_portfolio_entry_guard(
                         client,
                         incremental_notional_usd=USD_PER_TRADE * 2,

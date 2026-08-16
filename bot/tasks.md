@@ -1,5 +1,42 @@
 # Tasks Log
 
+## 2026-08-17
+
+- **Portfolio-risk Phase B complete — guard flipped default ON; IMPROVEMENTS.md item #6 (the last open
+  item) closed.** Evidence-then-flip protocol, mirroring the broadcast-bus Phase 2 flip:
+    - **Burn-in harness**: new `scripts/portfolio_risk_burn_in.py` (+ `make portfolio-burn-in`, skill
+      `.agents/skills/portfolio-risk-burn-in/SKILL.md`). Repeated live evaluations of the guard's pure core
+      against every `bot_instances` subaccount via the same public indexer reads the monitoring endpoint uses
+      (no signing credentials). Pass/fail measures the DATA PATH: cycle errors and
+      `portfolio_data_unavailable` observations fail; genuine limit denials (incl.
+      `portfolio_non_positive_equity` on a genuinely empty account) are reported as correct behavior.
+      `--json-out` writes the per-cycle flip evidence. Supporting seam: `parse_open_positions_notional`
+      moved into `portfolio_accounts` and now also feeds `AccountExposure`
+      (`per_market_notional_usd`/`unparsed_position_count`); the guard's inline copy in
+      `load_portfolio_snapshot` was deduped onto it (behavior-identical).
+    - **Live evidence**: 20 cycles × 3 s against live infra + the public testnet indexer — PASS (exit 0).
+      A real funded testnet subaccount (equity ≈ 845k USDC, 5 open perpetual markets, $214,400.16 notional
+      parsed from live position payloads, zero unparsed) was ALLOWED on all 20 cycles with zero read errors,
+      zero data-unavailable events, and zero decision changes; a never-traded address exercised the
+      404 → complete-zero-exposure branch (denied `portfolio_non_positive_equity`, fail-closed by design);
+      the Redis peak ratchet ran live on the Celery-broker Valkey DB and held the running max across cycles.
+      Evidence file: `bot_states/portfolio_risk_burn_in_phase_b.json`.
+    - **The flip**: `BOT_PORTFOLIO_RISK_ENABLED` default `false` → `true` (`src/constants.py`). Suite stays
+      hermetic via a new autouse `_isolate_portfolio_guard` conftest fixture patching the guard module's
+      bound constant OFF (env patching is inert post-import — the bus-flip lesson); the shipped default is
+      pinned by `test_guard_enabled_by_default`; the monitoring-route test now enables the flag explicitly
+      (serialization contract) instead of asserting the default.
+    - **Tests**: `tests/test_portfolio_burn_in.py` (11 cases: pass/fail semantics incl. limit-vs-data-path
+      distinction, cycle errors, aggregate evaluation, decision stability, evidence round-trip,
+      import-safety) + 4 `parse_open_positions_notional` cases in `tests/test_portfolio_accounts.py`
+      (the existing http-loader parse test now pins the new unparsed-position surface).
+    - **Validation**: full CI-mirror gate **861 passed / 13 skipped**, coverage **66.25%** (floor 64);
+      position-manager/live-risk/ratchet suites green; `black --check src tests` clean.
+    - **Docs**: IMPROVEMENTS.md (item #6 done — table row, Phase 3 checkbox, action-plan slice-5 entry,
+      matrix line), `docs/bot-risk-control-matrix.md` (Phase B section with upgrade note + rollback lever,
+      default column), README (default ON + `make portfolio-burn-in`), AGENTS.md (trading components,
+      required checks, commands).
+
 ## 2026-08-16
 
 - **mypy phase-2 tightening complete** — `check_untyped_defs`, `warn_unused_ignores`, and

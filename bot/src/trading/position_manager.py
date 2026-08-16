@@ -783,10 +783,13 @@ async def open_positions(client) -> None:
                     # Account-level (portfolio) guard: the shared subaccount
                     # already reflects every instance's fills, so this is the
                     # authoritative aggregate view (no cross-process state).
-                    # Disabled by default (BOT_PORTFOLIO_RISK_ENABLED).
+                    # Disabled by default (BOT_PORTFOLIO_RISK_ENABLED). Each
+                    # pair leg books USD_PER_TRADE notional in its market.
                     portfolio_decision = await check_portfolio_entry_guard(
                         client,
                         incremental_notional_usd=USD_PER_TRADE * 2,
+                        entry_markets=(base_market, quote_market),
+                        per_leg_notional_usd=USD_PER_TRADE,
                     )
                     if not portfolio_decision.allowed:
                         record_rejection(portfolio_decision.primary_reason)
@@ -843,6 +846,27 @@ async def open_positions(client) -> None:
                                 ),
                                 "max_open_markets": (
                                     portfolio_decision.limits.max_open_markets
+                                ),
+                                "aggregate": (
+                                    {
+                                        "total_equity": (
+                                            portfolio_decision.aggregate_totals.total_equity
+                                        ),
+                                        "total_free_collateral": (
+                                            portfolio_decision.aggregate_totals.total_free_collateral
+                                        ),
+                                        "total_open_markets": (
+                                            portfolio_decision.aggregate_totals.total_open_markets
+                                        ),
+                                        "accounts": (
+                                            portfolio_decision.aggregate_totals.accounts
+                                        ),
+                                        "incomplete_accounts": (
+                                            portfolio_decision.aggregate_totals.incomplete_accounts
+                                        ),
+                                    }
+                                    if portfolio_decision.aggregate_totals
+                                    else None
                                 ),
                             },
                         )

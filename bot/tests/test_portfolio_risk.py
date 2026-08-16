@@ -161,7 +161,10 @@ def test_guard_enabled_allows_healthy_account(monkeypatch):
         monkeypatch,
         equity="10000",
         free_collateral="9000",
-        open_positions={"BTC-USD": {}, "ETH-USD": {}},
+        open_positions={
+            "BTC-USD": {"size": "0.5", "entryPrice": "60000"},
+            "ETH-USD": {"size": "-4", "entryPrice": "3000"},
+        },
     )
     monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_RISK_ENABLED", True)
 
@@ -172,7 +175,11 @@ def test_guard_enabled_allows_healthy_account(monkeypatch):
     )
     assert decision.allowed is True
     assert decision.snapshot == PortfolioSnapshot(
-        equity=10_000.0, free_collateral=9_000.0, open_market_count=2
+        equity=10_000.0,
+        free_collateral=9_000.0,
+        open_market_count=2,
+        per_market_notional_usd={"BTC-USD": 30_000.0, "ETH-USD": 12_000.0},
+        unparsed_position_count=0,
     )
 
 
@@ -257,8 +264,12 @@ def test_open_positions_rejects_when_portfolio_guard_denies(monkeypatch):
 
     calls: dict[str, Any] = {}
 
-    async def _denying_guard(client, *, incremental_notional_usd):
+    async def _denying_guard(
+        client, *, incremental_notional_usd, entry_markets=(), per_leg_notional_usd=0.0
+    ):
         calls["incremental"] = incremental_notional_usd
+        calls["entry_markets"] = entry_markets
+        calls["per_leg_notional_usd"] = per_leg_notional_usd
         return SimpleNamespace(
             allowed=False,
             reasons=("portfolio_max_open_markets",),
@@ -272,6 +283,7 @@ def test_open_positions_rejects_when_portfolio_guard_denies(monkeypatch):
                 min_free_collateral_usd=0.0,
                 max_drawdown_pct=0.0,
             ),
+            aggregate_totals=None,
         )
 
     rejections: list[str] = []
@@ -345,6 +357,8 @@ def test_open_positions_rejects_when_portfolio_guard_denies(monkeypatch):
     asyncio.run(position_manager.open_positions(cast(Any, _FakeClient())))
 
     assert calls["incremental"] == 20.0  # 2 × usd_per_trade (both legs)
+    assert calls["entry_markets"] == ("DOT-USD", "CRO-USD")
+    assert calls["per_leg_notional_usd"] == 10.0
     assert "portfolio_max_open_markets" in rejections
     assert events and events[0][0] == "trade_entry_rejected_portfolio_risk"
     assert events[0][1]["reasons"] == ["portfolio_max_open_markets"]
@@ -414,17 +428,17 @@ class _FakePeakRedis:
     def __init__(self, *, values=None, fail=False):
         self.values = dict(values or {})
         self.fail = fail
-        self.set_calls: list[tuple[str, str]] = []
+        self.set_calls: list[tuple[str, str, int | None]] = []
 
     async def get(self, key):
         if self.fail:
             raise OSError("redis down")
         return self.values.get(key)
 
-    async def set(self, key, value):
+    async def set(self, key, value, ex=None):
         if self.fail:
             raise OSError("redis down")
-        self.set_calls.append((key, value))
+        self.set_calls.append((key, value, ex))
         self.values[key] = value
 
 
@@ -440,7 +454,7 @@ def test_peak_store_ratchets_up_only():
 
     higher = asyncio.run(store.observe("addr-1", 1_100.0))
     assert higher == 1_100.0
-    assert fake.set_calls == [("bot:portfolio:peak_equity:addr-1", "1100.0")]
+    assert fake.set_calls == [("bot:portfolio:peak_equity:addr-1", "1100.0", None)]
 
     first = asyncio.run(store.observe("addr-2", 500.0))  # fresh address
     assert first == 500.0
@@ -487,3 +501,675 @@ def test_guard_observes_peak_and_denies_on_drawdown(monkeypatch):
     assert observed == [("addr-9", 800.0)]
     assert decision.allowed is False
     assert "portfolio_max_drawdown" in decision.reasons
+
+
+# --------------------------------------------------------------------------- #
+# Multi-account aggregation (deployment-wide entry caps)
+# --------------------------------------------------------------------------- #
+
+from src.trading.portfolio_accounts import (  # noqa: E402
+    AccountExposure,
+    PortfolioAccountRef,
+)
+from src.trading.portfolio_risk import evaluate_aggregate_entry  # noqa: E402
+
+
+def _agg_exposure(
+    address: str,
+    *,
+    equity: float | None,
+    free: float | None,
+    open_markets: int,
+    complete: bool = True,
+) -> AccountExposure:
+    return AccountExposure(
+        address=address,
+        network="testnet",
+        equity=equity,
+        free_collateral=free,
+        open_market_count=open_markets,
+        complete=complete,
+    )
+
+
+_AGG_LIMITS = PortfolioRiskLimits(
+    max_open_markets=0,
+    max_margin_utilization_pct=0.0,
+    min_free_collateral_usd=0.0,
+    max_drawdown_pct=0.0,
+    aggregate_max_open_markets=10,
+    aggregate_max_margin_utilization_pct=50.0,
+)
+
+
+def test_aggregate_open_market_cap_at_limit_denies():
+    exposures = (
+        _agg_exposure("0x1", equity=1000.0, free=900.0, open_markets=4),
+        _agg_exposure("0x2", equity=500.0, free=100.0, open_markets=6),
+    )
+    decision = evaluate_aggregate_entry(exposures, _AGG_LIMITS)
+    assert decision.allowed is False
+    assert decision.reasons == ("portfolio_aggregate_max_open_markets",)
+    assert decision.totals.total_open_markets == 10
+    assert decision.totals.accounts == 2
+    # Determinism: same inputs, same decision.
+    assert evaluate_aggregate_entry(exposures, _AGG_LIMITS) == decision
+
+
+def test_aggregate_margin_utilization_at_limit_denies():
+    # Combined: equity 2000, free 1000 -> exactly 50% utilization (at-cap = full).
+    exposures = (
+        _agg_exposure("0x1", equity=1500.0, free=900.0, open_markets=1),
+        _agg_exposure("0x2", equity=500.0, free=100.0, open_markets=1),
+    )
+    decision = evaluate_aggregate_entry(exposures, _AGG_LIMITS)
+    assert decision.allowed is False
+    assert "portfolio_aggregate_margin_utilization" in decision.reasons
+
+
+def test_aggregate_checks_disabled_when_limits_are_zero():
+    limits = PortfolioRiskLimits(
+        max_open_markets=0,
+        max_margin_utilization_pct=0.0,
+        min_free_collateral_usd=0.0,
+        max_drawdown_pct=0.0,
+    )
+    overloaded = (
+        _agg_exposure("0x1", equity=1.0, free=0.0, open_markets=999),
+        _agg_exposure("0x2", equity=None, free=None, open_markets=999, complete=False),
+    )
+    decision = evaluate_aggregate_entry(overloaded, limits)
+    assert decision.allowed is True
+    assert decision.reasons == ()
+
+
+def test_aggregate_incomplete_accounts_excluded_from_sums_but_counted():
+    exposures = (
+        _agg_exposure("0x1", equity=1000.0, free=600.0, open_markets=2),
+        _agg_exposure("0x2", equity=None, free=None, open_markets=3, complete=False),
+    )
+    decision = evaluate_aggregate_entry(exposures, _AGG_LIMITS)
+    # Only complete equity counts: (1000-600)/1000 = 40% < 50% -> utilization OK.
+    assert decision.totals.incomplete_accounts == 1
+    assert decision.totals.total_equity == 1000.0
+    # Open markets still count the incomplete account's readable positions: 5.
+    assert decision.totals.total_open_markets == 5
+    assert decision.allowed is True
+
+
+def test_aggregate_zero_total_equity_skips_utilization_check():
+    exposures = (
+        _agg_exposure("0x1", equity=None, free=None, open_markets=0, complete=False),
+    )
+    decision = evaluate_aggregate_entry(exposures, _AGG_LIMITS)
+    assert (
+        decision.allowed is True
+    )  # nothing computable; per-account guard still fails closed
+
+
+def _patch_aggregate_seams(
+    monkeypatch,
+    *,
+    refs,
+    foreign_exposures,
+    own_address="0xown",
+):
+    async def _fake_enumerate(**kwargs):
+        return refs
+
+    async def _fake_load(client, foreign_refs):
+        _fake_load.calls.append(foreign_refs)
+        return foreign_exposures
+
+    _fake_load.calls = []
+    monkeypatch.setattr(portfolio_risk, "enumerate_portfolio_accounts", _fake_enumerate)
+    monkeypatch.setattr(portfolio_risk, "load_account_exposures_via_client", _fake_load)
+    monkeypatch.setattr(
+        portfolio_risk, "resolve_client_address_or_none", lambda _client: own_address
+    )
+    monkeypatch.setattr(portfolio_risk, "MARKET_DATA_MODE", "TESTNET")
+    return _fake_load
+
+
+def test_guard_skips_aggregation_when_limits_off(monkeypatch):
+    """Default-off contract: no enumeration and no foreign exchange reads."""
+    _patch_account(
+        monkeypatch,
+        equity="10000",
+        free_collateral="9000",
+        open_positions={},
+    )
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_RISK_ENABLED", True)
+
+    async def _fail(**kwargs):  # pragma: no cover - must not be called
+        raise AssertionError("enumeration must not run with aggregate limits off")
+
+    monkeypatch.setattr(portfolio_risk, "enumerate_portfolio_accounts", _fail)
+
+    decision = asyncio.run(
+        check_portfolio_entry_guard(
+            cast(Any, _FakeClient()), incremental_notional_usd=20.0
+        )
+    )
+    assert decision.allowed is True
+    assert decision.aggregate_totals is None
+
+
+def test_guard_denies_on_aggregate_open_markets(monkeypatch):
+    """Own account is healthy; the deployment-wide total is over the cap."""
+    _patch_account(
+        monkeypatch,
+        equity="10000",
+        free_collateral="9000",
+        open_positions={"BTC-USD": {}},
+    )
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_RISK_ENABLED", True)
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_MAX_OPEN_MARKETS", 20)
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS", 3)
+    loader = _patch_aggregate_seams(
+        monkeypatch,
+        refs=(
+            PortfolioAccountRef("0xown", "testnet"),
+            PortfolioAccountRef("0xother", "testnet"),
+            PortfolioAccountRef("0xmain", "mainnet"),  # different network: ignored
+        ),
+        foreign_exposures=(
+            _agg_exposure("0xother", equity=500.0, free=250.0, open_markets=3),
+        ),
+    )
+
+    decision = asyncio.run(
+        check_portfolio_entry_guard(
+            cast(Any, _FakeClient()), incremental_notional_usd=20.0
+        )
+    )
+    # Only the same-network foreign account is read.
+    assert [ref.address for ref in loader.calls[0]] == ["0xother"]
+    assert decision.allowed is False
+    assert "portfolio_aggregate_max_open_markets" in decision.reasons
+    assert decision.aggregate_totals is not None
+    assert decision.aggregate_totals.total_open_markets == 4  # 1 own + 3 foreign
+    assert decision.aggregate_totals.accounts == 2
+    # Snapshot (own account) is still attached for the audit trail.
+    assert decision.snapshot is not None
+    assert decision.snapshot.equity == 10_000.0
+
+
+def test_guard_aggregate_transport_errors_propagate(monkeypatch):
+    _patch_account(
+        monkeypatch,
+        equity="10000",
+        free_collateral="9000",
+        open_positions={},
+    )
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_RISK_ENABLED", True)
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS", 50)
+
+    async def _failing_load(client, foreign_refs):
+        raise RuntimeError("foreign indexer read failed")
+
+    async def _fake_enumerate(**kwargs):
+        return (PortfolioAccountRef("0xother", "testnet"),)
+
+    monkeypatch.setattr(portfolio_risk, "enumerate_portfolio_accounts", _fake_enumerate)
+    monkeypatch.setattr(
+        portfolio_risk, "load_account_exposures_via_client", _failing_load
+    )
+    monkeypatch.setattr(
+        portfolio_risk, "resolve_client_address_or_none", lambda _client: "0xown"
+    )
+    monkeypatch.setattr(portfolio_risk, "MARKET_DATA_MODE", "TESTNET")
+
+    try:
+        asyncio.run(
+            check_portfolio_entry_guard(
+                cast(Any, _FakeClient()), incremental_notional_usd=20.0
+            )
+        )
+    except RuntimeError as exc:
+        assert "foreign indexer read failed" in str(exc)
+    else:  # pragma: no cover - the assertion above must have raised
+        raise AssertionError("aggregate transport error was swallowed")
+
+
+# --------------------------------------------------------------------------- #
+# Advanced controls: notional caps, correlation buckets, daily loss limit
+# --------------------------------------------------------------------------- #
+
+from src.trading.portfolio_risk import (  # noqa: E402
+    CorrelationBucket,
+    parse_correlation_buckets,
+)
+
+
+def _adv_limits(**overrides) -> PortfolioRiskLimits:
+    base = dict(
+        max_open_markets=0,
+        max_margin_utilization_pct=0.0,
+        min_free_collateral_usd=0.0,
+        max_drawdown_pct=0.0,
+    )
+    base.update(overrides)
+    return PortfolioRiskLimits(**base)
+
+
+def _notional_snapshot(**overrides) -> PortfolioSnapshot:
+    base = dict(
+        equity=10_000.0,
+        free_collateral=9_000.0,
+        open_market_count=0,
+        per_market_notional_usd={"BTC-USD": 4_000.0, "ETH-USD": 2_000.0},
+    )
+    base.update(overrides)
+    return PortfolioSnapshot(**base)
+
+
+def test_per_market_concentration_denies_at_cap_with_projection():
+    limits = _adv_limits(max_notional_per_market_usd=5_000.0)
+    snapshot = _notional_snapshot()
+
+    # BTC leg projects 4000 + 1000 = 5000 → at-cap denies.
+    decision = evaluate_portfolio_entry(
+        snapshot,
+        limits,
+        incremental_notional_usd=2_000.0,
+        entry_markets=("BTC-USD", "ETH-USD"),
+        per_leg_notional_usd=1_000.0,
+    )
+    assert decision.allowed is False
+    assert "portfolio_market_concentration" in decision.reasons
+
+    # Just below the cap on both legs (ETH: 2000 + 1000 = 3000) → allowed.
+    decision = evaluate_portfolio_entry(
+        _notional_snapshot(
+            per_market_notional_usd={"BTC-USD": 3_999.999, "ETH-USD": 2_000.0}
+        ),
+        limits,
+        incremental_notional_usd=2_000.0,
+        entry_markets=("BTC-USD", "ETH-USD"),
+        per_leg_notional_usd=1_000.0,
+    )
+    assert decision.allowed is True
+
+    # A market with no existing position still projects the leg notional.
+    decision = evaluate_portfolio_entry(
+        snapshot,
+        _adv_limits(max_notional_per_market_usd=999.0),
+        incremental_notional_usd=2_000.0,
+        entry_markets=("SOL-USD", "AVAX-USD"),
+        per_leg_notional_usd=1_000.0,
+    )
+    assert decision.allowed is False
+
+    # Cap disabled (<= 0) → no denial regardless of concentration.
+    decision = evaluate_portfolio_entry(
+        snapshot,
+        _adv_limits(max_notional_per_market_usd=0.0),
+        incremental_notional_usd=2_000.0,
+        entry_markets=("BTC-USD", "ETH-USD"),
+        per_leg_notional_usd=1_000.0,
+    )
+    assert decision.allowed is True
+
+
+def test_gross_notional_pct_denies_at_cap():
+    # Held total 6000 + 2 legs × 1000 = 8000 = 80% of 10k equity → at-cap.
+    limits = _adv_limits(max_total_notional_pct=80.0)
+    decision = evaluate_portfolio_entry(
+        _notional_snapshot(),
+        limits,
+        incremental_notional_usd=2_000.0,
+        entry_markets=("BTC-USD", "ETH-USD"),
+        per_leg_notional_usd=1_000.0,
+    )
+    assert decision.allowed is False
+    assert "portfolio_gross_notional" in decision.reasons
+
+    # Cap above the projection → allowed.
+    decision = evaluate_portfolio_entry(
+        _notional_snapshot(),
+        _adv_limits(max_total_notional_pct=80.0001),
+        incremental_notional_usd=2_000.0,
+        entry_markets=("BTC-USD", "ETH-USD"),
+        per_leg_notional_usd=1_000.0,
+    )
+    assert decision.allowed is True
+
+
+def test_bucket_concentration_denies_at_cap_with_name():
+    buckets = (
+        CorrelationBucket(
+            name="majors",
+            markets=frozenset({"BTC-USD", "ETH-USD"}),
+            max_notional_pct_of_equity=50.0,
+        ),
+        CorrelationBucket(
+            name="memes",
+            markets=frozenset({"DOGE-USD"}),
+            max_notional_pct_of_equity=10.0,
+        ),
+    )
+    limits = _adv_limits(correlation_buckets=buckets)
+
+    # Bucket holds 6000 (both members); one BTC leg projects +1000 → 7000 ≥
+    # 50% of 10k equity (5000) → deny with the bucket name in the reason.
+    decision = evaluate_portfolio_entry(
+        _notional_snapshot(),
+        limits,
+        incremental_notional_usd=2_000.0,
+        entry_markets=("BTC-USD", "SOL-USD"),
+        per_leg_notional_usd=1_000.0,
+    )
+    assert decision.allowed is False
+    assert "portfolio_bucket_concentration:majors" in decision.reasons
+    # The non-member market does not leak into the bucket projection.
+    assert not any("memes" in reason for reason in decision.reasons)
+
+    # Below the cap (drop held ETH notional) → allowed.
+    decision = evaluate_portfolio_entry(
+        _notional_snapshot(
+            per_market_notional_usd={"BTC-USD": 2_000.0, "ETH-USD": 1_000.0}
+        ),
+        limits,
+        incremental_notional_usd=2_000.0,
+        entry_markets=("SOL-USD", "AVAX-USD"),
+        per_leg_notional_usd=1_000.0,
+    )
+    assert decision.allowed is True
+
+
+def test_daily_loss_denies_at_cap_and_self_heals_via_none():
+    limits = _adv_limits(max_daily_loss_pct=10.0)
+    snapshot = _notional_snapshot(equity=8_900.0, free_collateral=8_000.0)
+
+    # (10000 - 8900) / 10000 = 11% ≥ 10% → deny.
+    decision = evaluate_portfolio_entry(
+        snapshot, limits, incremental_notional_usd=1.0, daily_peak_equity=10_000.0
+    )
+    assert decision.allowed is False
+    assert "portfolio_daily_loss" in decision.reasons
+
+    # Below the cap → allowed.
+    decision = evaluate_portfolio_entry(
+        _notional_snapshot(equity=9_050.0, free_collateral=9_000.0),
+        limits,
+        incremental_notional_usd=1.0,
+        daily_peak_equity=10_000.0,
+    )
+    assert decision.allowed is True
+
+    # Redis unavailable (daily peak None) → check skips itself (fail-open).
+    decision = evaluate_portfolio_entry(
+        snapshot, limits, incremental_notional_usd=1.0, daily_peak_equity=None
+    )
+    assert decision.allowed is True
+
+
+def test_unparsed_positions_fail_closed_only_for_notional_controls():
+    snapshot = _notional_snapshot(unparsed_position_count=2)
+
+    # Per-market cap active → the unreadable exposure denies (fail-closed).
+    decision = evaluate_portfolio_entry(
+        snapshot,
+        _adv_limits(max_notional_per_market_usd=100_000.0),
+        incremental_notional_usd=1.0,
+        entry_markets=("BTC-USD", "ETH-USD"),
+        per_leg_notional_usd=1.0,
+    )
+    assert decision.allowed is False
+    assert "portfolio_notional_data_incomplete" in decision.reasons
+
+    # Buckets active → same fail-closed.
+    decision = evaluate_portfolio_entry(
+        snapshot,
+        _adv_limits(
+            correlation_buckets=(
+                CorrelationBucket(
+                    name="m",
+                    markets=frozenset({"BTC-USD"}),
+                    max_notional_pct_of_equity=100.0,
+                ),
+            )
+        ),
+        incremental_notional_usd=1.0,
+    )
+    assert "portfolio_notional_data_incomplete" in decision.reasons
+
+    # No notional control active → unreadable notionals are irrelevant.
+    decision = evaluate_portfolio_entry(
+        snapshot, _adv_limits(), incremental_notional_usd=1.0
+    )
+    assert decision.allowed is True
+
+
+def test_parse_correlation_buckets_valid_and_malformed():
+    parsed = parse_correlation_buckets(
+        "majors:BTC-USD, ETH-USD:50; memes:DOGE-USD,WIF-USD:12.5"
+    )
+    assert parsed == (
+        CorrelationBucket(
+            name="majors",
+            markets=frozenset({"BTC-USD", "ETH-USD"}),
+            max_notional_pct_of_equity=50.0,
+        ),
+        CorrelationBucket(
+            name="memes",
+            markets=frozenset({"DOGE-USD", "WIF-USD"}),
+            max_notional_pct_of_equity=12.5,
+        ),
+    )
+
+    from loguru import logger as _loguru_logger
+
+    warnings: list[str] = []
+    handler_id = _loguru_logger.add(
+        lambda message: warnings.append(str(message)), level="WARNING"
+    )
+    try:
+        parsed = parse_correlation_buckets(
+            ";;bad; no-pct:A,B; zero:A:0; empty::5; dup:X:1; dup:Y:2; ok:SOL-USD:30"
+        )
+    finally:
+        _loguru_logger.remove(handler_id)
+    assert [bucket.name for bucket in parsed] == ["dup", "ok"]
+    assert parsed[0].markets == frozenset({"X"})  # first definition wins
+    assert len([w for w in warnings if "bucket_entry_skipped" in w]) == 5
+
+    assert parse_correlation_buckets("") == ()
+    assert parse_correlation_buckets("   ;  ") == ()
+
+
+def test_bucket_config_cache_reparses_on_spec_change(monkeypatch):
+    from src.trading import portfolio_risk as pr
+
+    monkeypatch.setattr(pr, "BOT_PORTFOLIO_CORRELATION_BUCKETS", "a:A-USD:10")
+    first = pr._correlation_buckets_from_config()
+    assert [b.name for b in first] == ["a"]
+    monkeypatch.setattr(pr, "BOT_PORTFOLIO_CORRELATION_BUCKETS", "b:B-USD:20")
+    second = pr._correlation_buckets_from_config()
+    assert [b.name for b in second] == ["b"]
+    monkeypatch.setattr(pr, "BOT_PORTFOLIO_CORRELATION_BUCKETS", "")
+    assert pr._correlation_buckets_from_config() == ()
+
+
+def test_snapshot_loader_computes_per_market_notional(monkeypatch):
+    _patch_account(
+        monkeypatch,
+        equity="10000",
+        free_collateral="9000",
+        open_positions={
+            "BTC-USD": {"market": "BTC-USD", "size": "-0.5", "entryPrice": "60000"},
+            "key-only": {"size": "4", "entryPrice": "3000"},  # falls back to key
+            "bad-price": {"size": "1", "entryPrice": "oops"},  # unparseable
+            "zero": {"size": "0", "entryPrice": "100"},  # contributes nothing
+        },
+    )
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_RISK_ENABLED", True)
+
+    decision = asyncio.run(
+        check_portfolio_entry_guard(
+            cast(Any, _FakeClient()), incremental_notional_usd=20.0
+        )
+    )
+    assert decision.allowed is True  # no notional control active by default
+    assert decision.snapshot is not None
+    assert decision.snapshot.per_market_notional_usd == {
+        "BTC-USD": 30_000.0,
+        "key-only": 12_000.0,
+    }
+    assert decision.snapshot.unparsed_position_count == 1
+    assert decision.snapshot.total_notional_usd == 42_000.0
+
+
+def test_daily_peak_store_uses_dated_key_with_ttl():
+    from src.trading import portfolio_risk as pr
+
+    fake = _FakePeakRedis()
+    store = pr.RedisPeakEquityStore(url="redis://localhost:6379/0", client=fake)
+
+    peak = asyncio.run(store.observe_daily("addr-1", 900.0))
+    assert peak == 900.0
+    key, value, ttl = fake.set_calls[0]
+    assert key.startswith("bot:portfolio:daily_peak_equity:addr-1:")
+    assert value == "900.0"
+    assert ttl == pr._DAILY_PEAK_TTL_SECONDS
+
+    # Same-day ratchet: rises, never falls.
+    assert asyncio.run(store.observe_daily("addr-1", 950.0)) == 950.0
+    assert asyncio.run(store.observe_daily("addr-1", 700.0)) == 950.0
+    assert len(fake.set_calls) == 2  # the dip wrote nothing
+
+
+def test_daily_peak_store_never_raises():
+    from src.trading import portfolio_risk as pr
+
+    store = pr.RedisPeakEquityStore(
+        url="redis://localhost:6379/0", client=_FakePeakRedis(fail=True)
+    )
+    assert asyncio.run(store.observe_daily("addr-1", 100.0)) is None
+
+
+def test_guard_observes_daily_peak_only_when_configured(monkeypatch):
+    _patch_account(
+        monkeypatch,
+        equity="9000",
+        free_collateral="8800",
+        open_positions={},
+    )
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_RISK_ENABLED", True)
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_MAX_DAILY_LOSS_PCT", 15.0)
+    monkeypatch.setattr(
+        portfolio_risk, "resolve_client_address_or_none", lambda _client: "addr-9"
+    )
+
+    daily_calls: list[float] = []
+
+    class _PeakStore:
+        async def observe(self, address, equity):
+            return None
+
+        async def observe_daily(self, address, equity):
+            daily_calls.append(equity)
+            return 10_000.0  # → 10% loss, below the 15% cap
+
+    monkeypatch.setattr(portfolio_risk, "get_peak_equity_store", lambda: _PeakStore())
+
+    decision = asyncio.run(
+        check_portfolio_entry_guard(
+            cast(Any, _FakeClient()), incremental_notional_usd=20.0
+        )
+    )
+    assert decision.allowed is True
+    assert daily_calls == [9_000.0]
+
+    # Limit off → observe_daily is never called (no Redis roundtrip).
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_MAX_DAILY_LOSS_PCT", 0.0)
+    daily_calls.clear()
+    decision = asyncio.run(
+        check_portfolio_entry_guard(
+            cast(Any, _FakeClient()), incremental_notional_usd=20.0
+        )
+    )
+    assert decision.allowed is True
+    assert daily_calls == []
+
+
+def test_guard_denies_entry_on_daily_loss(monkeypatch):
+    _patch_account(
+        monkeypatch,
+        equity="8000",
+        free_collateral="7800",
+        open_positions={},
+    )
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_RISK_ENABLED", True)
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_MAX_DAILY_LOSS_PCT", 15.0)
+    monkeypatch.setattr(
+        portfolio_risk, "resolve_client_address_or_none", lambda _client: "addr-9"
+    )
+
+    class _PeakStore:
+        async def observe(self, address, equity):
+            return None
+
+        async def observe_daily(self, address, equity):
+            return 10_000.0  # → 20% daily loss ≥ 15% cap
+
+    monkeypatch.setattr(portfolio_risk, "get_peak_equity_store", lambda: _PeakStore())
+
+    decision = asyncio.run(
+        check_portfolio_entry_guard(
+            cast(Any, _FakeClient()), incremental_notional_usd=20.0
+        )
+    )
+    assert decision.allowed is False
+    assert "portfolio_daily_loss" in decision.reasons
+
+
+def test_guard_denies_entry_on_per_market_concentration(monkeypatch):
+    _patch_account(
+        monkeypatch,
+        equity="10000",
+        free_collateral="9000",
+        open_positions={"BTC-USD": {"size": "0.45", "entryPrice": "60000"}},
+    )
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_RISK_ENABLED", True)
+    monkeypatch.setattr(
+        portfolio_risk, "BOT_PORTFOLIO_MAX_NOTIONAL_PER_MARKET_USD", 30_000.0
+    )
+    monkeypatch.setattr(
+        portfolio_risk,
+        "resolve_client_address_or_none",
+        lambda _client: None,  # skip the Redis peak paths
+    )
+
+    decision = asyncio.run(
+        check_portfolio_entry_guard(
+            cast(Any, _FakeClient()),
+            incremental_notional_usd=2_000.0,
+            entry_markets=("BTC-USD", "ETH-USD"),
+            per_leg_notional_usd=1_000.0,
+        )
+    )
+    # BTC-USD projects 27000 + 1000 = 28000 < 30000 → allowed …
+    assert decision.allowed is True
+
+    decision = asyncio.run(
+        check_portfolio_entry_guard(
+            cast(Any, _FakeClient()),
+            incremental_notional_usd=2_000.0,
+            entry_markets=("BTC-USD", "ETH-USD"),
+            per_leg_notional_usd=1_500.0,  # 27000 + 1500 ≥ 30000? No: 28500
+        )
+    )
+    assert decision.allowed is True
+
+    decision = asyncio.run(
+        check_portfolio_entry_guard(
+            cast(Any, _FakeClient()),
+            incremental_notional_usd=6_000.0,
+            entry_markets=("BTC-USD", "ETH-USD"),
+            per_leg_notional_usd=3_000.0,  # 27000 + 3000 = 30000 → at-cap
+        )
+    )
+    assert decision.allowed is False
+    assert "portfolio_market_concentration" in decision.reasons

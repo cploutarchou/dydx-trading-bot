@@ -149,10 +149,14 @@ MARKET_DATA_CACHE_SOCKET_TIMEOUT_SECONDS: float = float(
 # Uvicorn worker never reaches clients connected to another. When enabled, every
 # ``broadcast_to_bot`` additionally publishes to a shared pub/sub channel and
 # each worker's subscriber fans the message out to its own local connections
-# (see ``src/infrastructure/broadcast``). Default OFF: single-worker deployments
-# and tests behave identically to today, and a Redis outage degrades to
-# local-only delivery (never breaks a broadcast).
-WS_BROADCAST_ENABLED: bool = _env_flag("WS_BROADCAST_ENABLED", False)
+# (see ``src/infrastructure/broadcast``). Default ON since 2026-08-16
+# (Phase 2 flip): multi-worker deployments get cross-worker fan-out, while
+# Redis-less deployments degrade gracefully — unconfigured → Noop bus;
+# unreachable → fast-fail with a publish failure circuit (see bus.py) that
+# bounds the cost to a few connect attempts per pause window. A Redis outage
+# never breaks a broadcast (always local-first). Set =false to restore
+# strictly local-only delivery.
+WS_BROADCAST_ENABLED: bool = _env_flag("WS_BROADCAST_ENABLED", True)
 # Optional explicit Redis URL; falls back to the Celery broker / REDIS_URL /
 # VALKEY_URL resolution in `src/shared/redis_env.py` when unset.
 WS_BROADCAST_REDIS_URL: str = _os.getenv("WS_BROADCAST_REDIS_URL", "")
@@ -188,6 +192,49 @@ BOT_PORTFOLIO_MIN_FREE_COLLATERAL_USD: float = float(
 # `max_drawdown_pct` remains REJECTED (bot-level semantics, still unenforced).
 BOT_PORTFOLIO_MAX_DRAWDOWN_PCT: float = float(
     _os.getenv("BOT_PORTFOLIO_MAX_DRAWDOWN_PCT", "0.0")
+)
+# Advanced portfolio controls (all individually opt-in, 0/empty disables):
+# per-market USD notional concentration cap, gross-notional-as-%-of-equity cap
+# (effective leverage ceiling), and the UTC-day self-healing loss limit (drops
+# from the daily peak equity; the all-time drawdown above never resets itself).
+BOT_PORTFOLIO_MAX_NOTIONAL_PER_MARKET_USD: float = float(
+    _os.getenv("BOT_PORTFOLIO_MAX_NOTIONAL_PER_MARKET_USD", "0.0")
+)
+BOT_PORTFOLIO_MAX_TOTAL_NOTIONAL_PCT: float = float(
+    _os.getenv("BOT_PORTFOLIO_MAX_TOTAL_NOTIONAL_PCT", "0.0")
+)
+BOT_PORTFOLIO_MAX_DAILY_LOSS_PCT: float = float(
+    _os.getenv("BOT_PORTFOLIO_MAX_DAILY_LOSS_PCT", "0.0")
+)
+# Correlation buckets: "NAME:m1,m2,...:max_pct_of_equity" entries joined by ";".
+# Each bucket caps the projected notional held in its member markets (as a % of
+# equity). Malformed entries are skipped with a warning (fail-open parsing);
+# the check itself is exchange-read-derived and fails closed like the other
+# notional controls.
+BOT_PORTFOLIO_CORRELATION_BUCKETS: str = _os.getenv(
+    "BOT_PORTFOLIO_CORRELATION_BUCKETS", ""
+).strip()
+# Multi-account aggregation: deployment-wide caps across EVERY distinct wallet
+# address configured in `bot_instances` (per network). Aggregate limits are
+# opt-in individually (0 disables) and only take effect when the master switch
+# above is on; enabling one also turns on cross-address public indexer reads.
+BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS: int = int(
+    _os.getenv("BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS", "0")
+)
+BOT_PORTFOLIO_AGGREGATE_MAX_MARGIN_UTILIZATION_PCT: float = float(
+    _os.getenv("BOT_PORTFOLIO_AGGREGATE_MAX_MARGIN_UTILIZATION_PCT", "0.0")
+)
+# Enumeration/enrichment bounds: how many distinct subaccounts to consider and
+# how long the (DB-decrypted) address list stays cached per process.
+BOT_PORTFOLIO_AGGREGATE_MAX_ACCOUNTS: int = int(
+    _os.getenv("BOT_PORTFOLIO_AGGREGATE_MAX_ACCOUNTS", "25")
+)
+BOT_PORTFOLIO_ACCOUNTS_CACHE_TTL_SECONDS: float = float(
+    _os.getenv("BOT_PORTFOLIO_ACCOUNTS_CACHE_TTL_SECONDS", "60")
+)
+# Per-request timeout for the monitoring route's direct public indexer reads.
+BOT_PORTFOLIO_ACCOUNTS_HTTP_TIMEOUT_SECONDS: float = float(
+    _os.getenv("BOT_PORTFOLIO_ACCOUNTS_HTTP_TIMEOUT_SECONDS", "5.0")
 )
 
 # Max concurrent dYdX candle fetches when building the price matrix.

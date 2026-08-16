@@ -1,5 +1,57 @@
 # Tasks Log
 
+## 2026-08-16
+
+- Advanced portfolio-level risk controls **complete** (the last unchecked IMPROVEMENTS.md line, folded
+  into open item #6's scope):
+    - Notional concentration caps: `BOT_PORTFOLIO_MAX_NOTIONAL_PER_MARKET_USD` (projected
+      `|size|×entryPrice` in either entry-leg market) and `BOT_PORTFOLIO_MAX_TOTAL_NOTIONAL_PCT`
+      (projected gross notional as % of equity — leverage ceiling). `PortfolioSnapshot` gained
+      `per_market_notional_usd` + `unparsed_position_count`, derived from the same
+      `get_open_positions` read the market-count check uses (zero extra exchange calls). Notional
+      controls fail closed on unparseable positions (`portfolio_notional_data_incomplete`).
+    - Correlation buckets: `BOT_PORTFOLIO_CORRELATION_BUCKETS="name:m1,m2:pct;..."` —
+      operator-defined ticker groups capped as % of equity; fail-open per-entry parsing (first
+      duplicate wins), cached per distinct raw spec; reason `portfolio_bucket_concentration:<name>`.
+    - UTC-day loss limit: `BOT_PORTFOLIO_MAX_DAILY_LOSS_PCT` via a dated Redis peak key
+      (`bot:portfolio:daily_peak_equity:<address>:<YYYY-MM-DD>`, 48 h TTL) — self-heals at UTC
+      midnight unlike the permanent all-time drawdown; Redis-backed ⇒ fail-open; `observe_daily`
+      only touches Redis when the limit is on.
+    - Wiring: `position_manager.open_positions` passes `entry_markets=(base, quote)` +
+      `per_leg_notional_usd=USD_PER_TRADE`; `portfolio_risk_config()` (monitoring route) surfaces
+      the new limits + parsed buckets.
+    - Validation: 12 new cases in `tests/test_portfolio_risk.py` (evaluator boundaries/projections,
+      bucket parser incl. malformed/duplicates, dated-key store TTL + ratchet + never-raises,
+      wrapper daily-peak gating, per-market denial through the real wrapper, loader notional math,
+      `open_positions` leg-market wiring) + monitoring config assertions; full gate green
+      (**846 passed / 13 skipped**, coverage floor held); black + flake8 clean.
+    - Docs: risk matrix "Advanced Portfolio Controls" section, README portfolio bullet, AGENTS.md
+      trading-components line, IMPROVEMENTS.md (lower-priority line + row 6 scope).
+
+- Backtest checkpointing **complete** (IMPROVEMENTS.md open item #7, was "optional, 2 weeks"):
+    - New `src/infrastructure/use_cases/backtest_checkpoint.py`: self-contained per-pair checkpoint
+      (`backtests/<run_id>/checkpoint.json` in the existing artifact store) carrying schema version, run id,
+      request payload hash, the post-prioritization ordered pair plan, completed-prefix count, and the
+      accumulated outputs/scalars. Save/load/delete are all fail-open with narrow catches (ratchet-safe).
+    - `_execute_backtest` wiring: checkpoint written at the heavy-progress cadence (plus a first-post-resume
+      trigger) and on pause entry (`_honor_runtime_control` gained a keyword-only `checkpoint_writer`; the
+      4 loop call sites pass closures). Resume loads before pre-fetch/ranking — a valid checkpoint replaces
+      the pair plan (checkpoint is authoritative over re-ranking), seeds accumulators (trade-id numbering
+      continues), and the loop skips the completed prefix with progress/ETA adjusted. Terminal
+      completed/cancelled delete the checkpoint; failed/timeout keep it. Single lever:
+      `BACKTEST_CHECKPOINT_ENABLED` (default on) disables both write and resume.
+    - Storage: `ArtifactStore.delete()` added (base default no-op → False; local unlink; MinIO
+      `remove_object` with narrow `(S3Error, urllib3 HTTPError)` catch — `storage/` is NOT ratchet-excluded);
+      public `BacktestRepository.build_artifact_store()` seam replaces private access.
+    - Verification: equivalence test proves a resumed run matches an uninterrupted reference run
+      (trades value-identical + id-index continuity, all metrics equal) while simulating only remaining
+      pairs; hash-mismatch/disabled/corrupt/schema/prefix-range cases fail open; terminal cleanup and
+      pause-writer pinned. 23 new cases in `tests/test_backtest_checkpoint.py`;
+      `test_backtest_service` / `test_backtest_api_contract` / `test_backtest_routes` /
+      `test_storage_adapters` / `test_backtest_tasks_failure_persistence` / ratchet green; black + flake8
+      clean; full suite 833 passed / 13 skipped, coverage floor held.
+    - Docs: README recovery section, AGENTS.md Celery/backtest patterns, IMPROVEMENTS.md item #7 + row 7.
+
 ## 2026-08-15
 
 - Portfolio-level risk controls **slice 3 — account-wide drawdown policy** (IMPROVEMENTS.md open item #6):

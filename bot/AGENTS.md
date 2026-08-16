@@ -189,6 +189,13 @@ become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown 
     - Mainnet auto-restart also requires `BOT_AUTO_RECOVER_LIVE_MAINNET=true`
 - Heartbeat keepalive: active backtests refresh heartbeat to avoid being flagged stale; override with
   `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS`
+- Checkpoint resume (default on via `BACKTEST_CHECKPOINT_ENABLED`): `_execute_backtest` writes a self-contained
+  per-pair checkpoint (`src/infrastructure/use_cases/backtest_checkpoint.py` → `backtests/<run_id>/checkpoint.json` in
+  the artifact store) at the heavy-progress cadence and on pause entry; a later execution attempt of the same run
+  (Celery redelivery, transient retry, auto-recovery requeue, or NATS redelivery) validates the request payload hash and
+  resumes from the completed-pair prefix — skipping re-ranking, pre-fetch, and simulation of completed pairs. Terminal
+  `completed`/`cancelled` delete the checkpoint; `failed`/`timeout` keep it. Fail-open: any missing/corrupt/mismatched
+  checkpoint means a fresh run.
 
 **Worker startup and config:**
 
@@ -239,8 +246,11 @@ become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown 
 **Cross-worker WebSocket broadcast bus** (`src/infrastructure/broadcast/bus.py`, `redis.asyncio` pub/sub):
 
 - `ConnectionManager` is process-local; the bus fans `broadcast_to_bot` out across Uvicorn workers via a shared
-  `ws:broadcast` channel. `WS_BROADCAST_ENABLED=false` (default) keeps single-worker/local behavior identical; a Redis
-  outage degrades to local-only delivery (never breaks a broadcast). Override with `WS_BROADCAST_REDIS_URL` and
+  `ws:broadcast` channel. `WS_BROADCAST_ENABLED=true` (default since 2026-08-16, the Phase 2 flip); `=false` restores
+  strictly local-only delivery. Deployments without any Redis URL resolve to the Noop bus; an unreachable Redis
+  fast-fails publishes behind a failure circuit (3 consecutive errors → 30 s pause, surfaced as
+  `publish_paused`/`publish_suppressed` in `GET /api/v1/monitoring/ws-broadcast`) and always degrades to local-only
+  delivery (never breaks a broadcast). Override with `WS_BROADCAST_REDIS_URL` and
   `WS_BROADCAST_SOCKET_TIMEOUT_SECONDS=1.0`.
 - The subscriber uses a **dedicated connection with no read timeout** — an idle `listen()` blocks forever by design;
   inheriting the command `socket_timeout` makes the listener flap (resubscribe loop) and silently drop messages.
@@ -286,8 +296,9 @@ module `reset_*()` helpers.
   or candle aggregation.
 - Run `tests/test_position_manager_exit_safety.py` and `tests/test_position_manager_entry_backoff.py` when touching
   position entry/exit logic or backoff behavior.
-- Run `tests/test_portfolio_risk.py` when touching account-level risk controls
-  (`src/trading/portfolio_risk.py` or the portfolio guard wiring in `position_manager.open_positions`).
+- Run `tests/test_portfolio_risk.py` and `tests/test_portfolio_accounts.py` when touching account-level risk
+  controls (`src/trading/portfolio_risk.py`, `src/trading/portfolio_accounts.py`, or the portfolio guard
+  wiring in `position_manager.open_positions`).
 - Run `tests/test_storage_adapters.py` when touching ClickHouse or MinIO storage integration.
 - Run `tests/test_arbitrage_observability.py` and `tests/test_arbitrage_cycle_cache.py` when touching arbitrage decision
   logic or pair caching.
@@ -354,8 +365,18 @@ module `reset_*()` helpers.
   defaults, backend/admin settings may override at runtime), `src/trading/bot_agents_state.py` (concurrency-safe
   per-instance tracked-position state; DB primary, JSON file fallback),
   `src/trading/portfolio_risk.py` (account-level entry guard on the SHARED subaccount — aggregate open-market
-  cap, margin-utilization cap, projected free-collateral floor; Phase A opt-in via
-  `BOT_PORTFOLIO_RISK_ENABLED`, default off; see `docs/bot-risk-control-matrix.md`).
+  cap, margin-utilization cap, projected free-collateral floor, all-time drawdown; Phase A opt-in via
+  `BOT_PORTFOLIO_RISK_ENABLED`, default off; see `docs/bot-risk-control-matrix.md`),
+  `src/trading/portfolio_accounts.py` (multi-account aggregation — enumerates the deployment's distinct
+  wallet addresses from `bot_instances` and reads their public indexer exposure; opt-in deployment-wide caps
+  via `BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS` / `BOT_PORTFOLIO_AGGREGATE_MAX_MARGIN_UTILIZATION_PCT`,
+  both default off, surfaced on `GET /api/v1/monitoring/portfolio-risk`).
+  Advanced concentration controls on the same guard (all individually off): per-market notional cap
+  (`BOT_PORTFOLIO_MAX_NOTIONAL_PER_MARKET_USD`), gross-notional leverage cap
+  (`BOT_PORTFOLIO_MAX_TOTAL_NOTIONAL_PCT`), correlation buckets
+  (`BOT_PORTFOLIO_CORRELATION_BUCKETS="name:m1,m2:pct;..."`), and the UTC-day self-healing loss limit
+  (`BOT_PORTFOLIO_MAX_DAILY_LOSS_PCT`); notional controls fail closed on unparseable position data
+  (`portfolio_notional_data_incomplete`).
 - **Architecture reference docs**: `flows/` contains a dated (2026-06-21) source-code map of the system —
   `project-structure.md`, `services-inventory.md`, `current-business-flows.md`, `api-flows.md`,
   `background-tasks.md`, `data-flows.md`, `integrations.md`, `risks-and-gaps.md`. Consult these for architecture

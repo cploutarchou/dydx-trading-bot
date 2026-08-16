@@ -804,7 +804,7 @@
           "Monitoring"
         ],
         "summary": "Get Ws Broadcast Health",
-        "description": "Get health of the cross-worker WebSocket broadcast bus.\n\nReports whether the Redis pub/sub bus is enabled, its backend (``redis`` /\n``noop``), reachability (``healthy``), the worker's subscriber identity\n(``worker_id``), and whether the listener task is running (``listening``).\nWhen the bus is disabled (the default, ``WS_BROADCAST_ENABLED=false``) this\nreturns the noop shape. See ``src/infrastructure/broadcast``.",
+        "description": "Get health of the cross-worker WebSocket broadcast bus.\n\nReports whether the Redis pub/sub bus is enabled, its backend (``redis`` /\n``noop``), reachability (``healthy``), the worker's subscriber identity\n(``worker_id``), and whether the listener task is running (``listening``).\nWhen the bus is disabled (``WS_BROADCAST_ENABLED=false``) this returns the\nnoop shape. See ``src/infrastructure/broadcast``.",
         "operationId": "get_ws_broadcast_health_api_v1_monitoring_ws_broadcast_get",
         "responses": {
           "200": {
@@ -842,7 +842,7 @@
           "Monitoring"
         ],
         "summary": "Get Portfolio Risk Status",
-        "description": "Live configuration and recent denials for the account-level entry guard.\n\nReports whether the portfolio guard is enabled and its limits (see\n``src/trading/portfolio_risk.py`` and ``docs/bot-risk-control-matrix.md``),\nplus the last 24h of ``trade_entry_rejected_portfolio_risk`` audit events\nacross all bot instances \u2014 the operator surface for Phase A burn-in.",
+        "description": "Live configuration, deployment-wide exposure, and recent denials.\n\nReports whether the portfolio guard is enabled and its limits (see\n``src/trading/portfolio_risk.py`` and ``docs/bot-risk-control-matrix.md``),\nper-address exposure for every distinct subaccount configured in\n``bot_instances`` (public indexer reads, best-effort per account), the\nper-network aggregate totals, plus the last 24h of\n``trade_entry_rejected_portfolio_risk`` audit events across all bot\ninstances \u2014 the operator surface for Phase A burn-in.",
         "operationId": "get_portfolio_risk_status_api_v1_monitoring_portfolio_risk_get",
         "responses": {
           "200": {

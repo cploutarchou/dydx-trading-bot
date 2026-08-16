@@ -52,6 +52,13 @@ Root-agent selection:
   - async API correctness
   - risk/DeFi/performance validation
 
+- `.github/skills/dydx-pairs-arbitrage/SKILL.md`
+  Pairs/statistical-arbitrage workflow for the bot's decision stack:
+  - cointegration pair selection + live/backtest parity
+  - pair-priority engine and runtime feature flags
+  - entry/exit determinism with audit-trail observability
+  - portfolio-risk guard interplay and fail-closed data handling
+
 - `.github/skills/config-infrastructure-management/SKILL.md`
   Runtime configuration, encrypted profiles, deployment config, environment management, infrastructure-as-code:
   - encrypted profile design and management

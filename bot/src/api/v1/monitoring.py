@@ -179,8 +179,8 @@ async def get_ws_broadcast_health(
     Reports whether the Redis pub/sub bus is enabled, its backend (``redis`` /
     ``noop``), reachability (``healthy``), the worker's subscriber identity
     (``worker_id``), and whether the listener task is running (``listening``).
-    When the bus is disabled (the default, ``WS_BROADCAST_ENABLED=false``) this
-    returns the noop shape. See ``src/infrastructure/broadcast``.
+    When the bus is disabled (``WS_BROADCAST_ENABLED=false``) this returns the
+    noop shape. See ``src/infrastructure/broadcast``.
     """
     _ = current_user
     from src.infrastructure.broadcast import get_broadcast_bus
@@ -197,12 +197,15 @@ async def get_ws_broadcast_health(
 async def get_portfolio_risk_status(
     current_user=Depends(get_current_active_user),
 ):
-    """Live configuration and recent denials for the account-level entry guard.
+    """Live configuration, deployment-wide exposure, and recent denials.
 
     Reports whether the portfolio guard is enabled and its limits (see
     ``src/trading/portfolio_risk.py`` and ``docs/bot-risk-control-matrix.md``),
-    plus the last 24h of ``trade_entry_rejected_portfolio_risk`` audit events
-    across all bot instances — the operator surface for Phase A burn-in.
+    per-address exposure for every distinct subaccount configured in
+    ``bot_instances`` (public indexer reads, best-effort per account), the
+    per-network aggregate totals, plus the last 24h of
+    ``trade_entry_rejected_portfolio_risk`` audit events across all bot
+    instances — the operator surface for Phase A burn-in.
     """
     _ = current_user
     from datetime import timedelta
@@ -210,6 +213,11 @@ async def get_portfolio_risk_status(
     from internal.domain.models import Bot, Event
     from src.infrastructure.db_offload import run_db
     from src.shared.time_utils import utc_now
+    from src.trading.portfolio_accounts import (
+        enumerate_portfolio_accounts,
+        load_account_exposures_http,
+        summarize_exposures,
+    )
     from src.trading.portfolio_risk import portfolio_risk_config
 
     def _load_recent_denials() -> list[dict]:
@@ -240,6 +248,7 @@ async def get_portfolio_risk_status(
                     "open_markets": (event.details or {}).get("open_markets"),
                     "market_1": (event.details or {}).get("market_1"),
                     "market_2": (event.details or {}).get("market_2"),
+                    "aggregate": (event.details or {}).get("aggregate"),
                 }
                 for event, instance_id in rows
             ]
@@ -247,11 +256,43 @@ async def get_portfolio_risk_status(
             session.close()
 
     config = portfolio_risk_config()
+    refs = await enumerate_portfolio_accounts()
+    exposures = await load_account_exposures_http(refs)
+    accounts = [
+        {
+            "address": exposure.address,
+            "network": exposure.network,
+            "equity": exposure.equity,
+            "free_collateral": exposure.free_collateral,
+            "open_market_count": exposure.open_market_count,
+            "complete": exposure.complete,
+            "error": exposure.error,
+        }
+        for exposure in exposures
+    ]
+    aggregate_by_network: dict[str, dict] = {}
+    for network in ("testnet", "mainnet"):
+        network_exposures = tuple(
+            exposure for exposure in exposures if exposure.network == network
+        )
+        if not network_exposures:
+            continue
+        totals = summarize_exposures(network_exposures)
+        aggregate_by_network[network] = {
+            "accounts": totals.accounts,
+            "incomplete_accounts": totals.incomplete_accounts,
+            "total_equity": totals.total_equity,
+            "total_free_collateral": totals.total_free_collateral,
+            "total_open_markets": totals.total_open_markets,
+            "margin_utilization_pct": totals.margin_utilization_pct,
+        }
     denials = await run_db(_load_recent_denials)
     return api_response(
         success=True,
         data={
             "config": config,
+            "accounts": accounts,
+            "aggregate_by_network": aggregate_by_network,
             "recent_denials_24h": denials,
             "count": len(denials),
         },

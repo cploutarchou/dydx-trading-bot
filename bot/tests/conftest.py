@@ -75,13 +75,22 @@ def _isolate_circuit_breakers(monkeypatch):
 @pytest.fixture(autouse=True)
 def _isolate_broadcast_bus(monkeypatch):
     from src.infrastructure.broadcast import NoopBroadcastBus, reset_broadcast_bus
+    from src.infrastructure.broadcast import bus as broadcast_bus_module
 
+    # Neutralize the factory decision itself, not just the env var:
+    # ``bus.py`` imports WS_BROADCAST_ENABLED from constants BY VALUE at import
+    # time, so patching the env after import has no effect on
+    # ``_build_broadcast_bus`` — which matters now the default is ON
+    # (Phase 2 flip). Patching the bus module's binding keeps every
+    # ``get_broadcast_bus()`` caller (websocket_server, monitoring routes)
+    # on the Noop bus for the duration of a test.
+    monkeypatch.setattr(broadcast_bus_module, "WS_BROADCAST_ENABLED", False)
     monkeypatch.setenv("WS_BROADCAST_ENABLED", "false")
     reset_broadcast_bus()
     try:
         from src.api import websocket_server
     except ImportError:  # pragma: no cover - FastAPI/pydantic absent in stripped envs
-        # The bus is already Noop via the disabled flag + reset above; this guard
+        # The bus is already Noop via the patched flag + reset above; this guard
         # only affects stripped local envs (no pydantic_core) so non-FastAPI tests
         # can still run. CI has FastAPI, so the patch applies there. ``ImportError``
         # is intentionally narrow so a genuine regression in websocket_server.py
@@ -118,6 +127,34 @@ def _isolate_portfolio_peak_store(monkeypatch):
         "get_peak_equity_store",
         lambda: _InertPeakStore(),
     )
+
+
+# ============================================================================
+# Portfolio multi-account enumeration isolation
+# ============================================================================
+#
+# The aggregate portfolio checks enumerate distinct wallet addresses from the
+# ``bot_instances`` table (DB reads + credential decryption) and then issue
+# public indexer reads for the foreign accounts. Tests must stay hermetic, so
+# the address cache is reset around every test and the aggregate limits are
+# pinned to their default-off values — a stray BOT_PORTFOLIO_AGGREGATE_* env
+# var cannot flip a test onto live enumeration/exchange paths. Tests
+# exercising the aggregate path monkeypatch ``portfolio_risk.enumerate_portfolio_accounts``
+# and the loader seam directly (their function-scoped monkeypatch runs after
+# this fixture's setup and so takes precedence).
+@pytest.fixture(autouse=True)
+def _isolate_portfolio_accounts(monkeypatch):
+    from src.trading import portfolio_accounts, portfolio_risk
+
+    portfolio_accounts.reset_portfolio_account_cache()
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS", 0)
+    monkeypatch.setattr(
+        portfolio_risk,
+        "BOT_PORTFOLIO_AGGREGATE_MAX_MARGIN_UTILIZATION_PCT",
+        0.0,
+    )
+    yield
+    portfolio_accounts.reset_portfolio_account_cache()
 
 
 # ============================================================================

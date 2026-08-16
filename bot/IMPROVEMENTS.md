@@ -50,7 +50,7 @@ Most of this document is a record of completed work. Everything still pending, i
 | 3 | ~~**Move blocking DB calls off the event loop**~~ **RESOLVED 2026-08-15** — slices 1–5: `run_db` seam + backtest/realtime reads, WebSocket senders, backtest mutations, `bot_records`/`bot_lifecycle`/`strategies`, `pool_pre_ping` (default ON) + auth yield-dependency session fix | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | done |
 | 4 | ~~**Integration tests** (Redis / Celery / dYdX)~~ **RESOLVED 2026-08-15** — opt-in harness (`tests/test_integration_external_services.py`, `make test-integration`): real cache roundtrip, real bus pub/sub, real Celery worker ping+registration, live indexer contract; non-blocking `bot-integration` CI job with a Valkey service container | Compose infra already exists; mostly markers + a CI job | done |
 | 5 | ~~**Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`)~~ **RESOLVED 2026-08-15** — floor set at 64% (measured 65.08%, blocking), `bot-deps-audit` pip-audit CI job + Dependabot shipped; first audit already removed an unused `aiohttp` pin carrying 3 open advisories | Two cheap CI gates; coverage reports today with nothing enforcing them | done |
-| 6 | **Portfolio-level risk controls** — Phase A entry guard, operator visibility, account-wide drawdown, and multi-account aggregation delivered (2026-08-15/16); aggregation caps across every `bot_instances` wallet are opt-in limits; remaining: Phase B burn-in → default ON | Per-instance limits can each pass while the account is over-exposed | in progress (Phase B pending) |
+| 6 | **Portfolio-level risk controls** — Phase A entry guard, operator visibility, account-wide drawdown, multi-account aggregation, AND the advanced concentration set (2026-08-15/16: per-market notional cap, gross-notional leverage cap, correlation buckets, UTC-day loss limit — all individually off); remaining: Phase B burn-in → default ON | Per-instance limits can each pass while the account is over-exposed | in progress (Phase B pending) |
 | 7 | ~~**Backtest checkpointing**~~ **RESOLVED 2026-08-16** — durable per-pair checkpoints (`backtests/<run_id>/checkpoint.json` in the artifact store) written at the heavy-progress cadence and on pause; Celery redelivery / transient retry / auto-recovery requeue / NATS redelivery all resume from the completed-pair prefix after payload-hash validation (fail-open); terminal completed/cancelled delete the checkpoint | Was compute-cost only: resumed runs skip re-fetch + re-simulation of completed pairs | done |
 
 > **Resolved 2026-08-11:** the former row 1 ("Resolve dead code paths") is done — 2FA router
@@ -1237,7 +1237,10 @@ remains:
 ### **Lower Priority**
 
 - ✅ Backtest checkpointing — COMPLETED (2026-08-16); see the action-plan item
-- Advanced portfolio-level risk management
+- ✅ Advanced portfolio-level risk management — COMPLETED (2026-08-16): per-market notional cap,
+  gross-notional/leverage cap, operator-defined correlation buckets, and the UTC-day self-healing loss
+  limit, all layered onto the Phase A guard (individually off by default; see the
+  "Advanced Portfolio Controls" section of `docs/bot-risk-control-matrix.md`)
 
 ---
 

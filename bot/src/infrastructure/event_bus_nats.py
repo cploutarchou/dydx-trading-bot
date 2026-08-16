@@ -737,9 +737,7 @@ class NATSConsumerService:
             # On error, assume not duplicate to avoid blocking message processing
             return False
 
-    async def _handle_result(
-        self, message: Msg, result: ProcessedResult
-    ) -> None:
+    async def _handle_result(self, message: Msg, result: ProcessedResult) -> None:
         """Handle the result of message processing."""
         try:
             if result.action == MessageAction.ACK:
@@ -772,9 +770,7 @@ class NATSConsumerService:
                 f"Failed to handle result for message {result.message_id}: {e}"
             )
 
-    async def _move_to_dead_letter(
-        self, message: Msg, result: ProcessedResult
-    ) -> None:
+    async def _move_to_dead_letter(self, message: Msg, result: ProcessedResult) -> None:
         """Move message to dead letter stream."""
         if not self._jetstream:
             await message.nak()

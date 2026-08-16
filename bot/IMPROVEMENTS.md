@@ -49,7 +49,7 @@ Most of this document is a record of completed work. Everything still pending, i
 | 2 | ~~**Broadcast bus Phase 2**~~ **RESOLVED 2026-08-16** — `WS_BROADCAST_ENABLED` default flipped ON after: publish failure circuit hardening (3 consecutive failures → 30 s pause, bounding Redis-unreachable latency on `broadcast_to_bot`'s awaited path), a 600-message soak across two real workers (exactly-once, per-channel order, zero errors/reconnects), and a live no-Redis degradation check (fast-fail + circuit opens in ~27 ms, health reports `publish_paused`/unhealthy, listener lifecycle clean). Docs + openapi synced; conftest isolation strengthened (bus-module constant patch) | Phase 1 shipped inert; multi-worker deployments still have split websocket registries | done |
 | 3 | ~~**Move blocking DB calls off the event loop**~~ **RESOLVED 2026-08-15** — slices 1–5: `run_db` seam + backtest/realtime reads, WebSocket senders, backtest mutations, `bot_records`/`bot_lifecycle`/`strategies`, `pool_pre_ping` (default ON) + auth yield-dependency session fix | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | done |
 | 4 | ~~**Integration tests** (Redis / Celery / dYdX)~~ **RESOLVED 2026-08-15** — opt-in harness (`tests/test_integration_external_services.py`, `make test-integration`): real cache roundtrip, real bus pub/sub, real Celery worker ping+registration, live indexer contract; non-blocking `bot-integration` CI job with a Valkey service container | Compose infra already exists; mostly markers + a CI job | done |
-| 5 | ~~**Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`)~~ **RESOLVED 2026-08-15** — floor set at 64% (measured 65.08%, blocking), `bot-deps-audit` pip-audit CI job + Dependabot shipped; first audit already removed an unused `aiohttp` pin carrying 3 open advisories | Two cheap CI gates; coverage reports today with nothing enforcing them | done |
+| 5 | ~~**Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`)~~ **RESOLVED 2026-08-15; floor RATCHETED 2026-08-17** — floor 64 (measured 65.08%) at delivery; focused hotspot tests (+75 cases across five pure modules, catching two latent bugs on the way) lifted measured coverage to **69.27%** and the floor to **68** | Two cheap CI gates; coverage reports today with nothing enforcing them | done |
 | 6 | ~~**Portfolio-level risk controls**~~ **RESOLVED 2026-08-17** — Phase A entry guard, operator visibility, account-wide drawdown, multi-account aggregation, the advanced concentration set (per-market notional cap, gross-notional leverage cap, correlation buckets, UTC-day loss limit — all individually off), and **Phase B**: a live burn-in harness (`scripts/portfolio_risk_burn_in.py`, `make portfolio-burn-in`, skill `portfolio-risk-burn-in`) produced 20/20 clean cycles against a real funded testnet subaccount (0 read errors, 0 data-unavailable, 0 decision changes; empty account fails closed for the designed reason) and `BOT_PORTFOLIO_RISK_ENABLED` was flipped **default ON** (`=false` restores the old behavior; the suite stays hermetic via a conftest constant patch like the bus flip) | Per-instance limits can each pass while the account is over-exposed | done |
 | 7 | ~~**Backtest checkpointing**~~ **RESOLVED 2026-08-16** — durable per-pair checkpoints (`backtests/<run_id>/checkpoint.json` in the artifact store) written at the heavy-progress cadence and on pause; Celery redelivery / transient retry / auto-recovery requeue / NATS redelivery all resume from the completed-pair prefix after payload-hash validation (fail-open); terminal completed/cancelled delete the checkpoint | Was compute-cost only: resumed runs skip re-fetch + re-simulation of completed pairs | done |
 
@@ -1100,7 +1100,7 @@ Items removed from this plan during the same review — and why — are listed i
       `test_token_revocation.py` (an async `logout` "coroutine never awaited" test bug) were
       observed and are out of scope for this item.
 
-- [x] **Set a coverage floor** now that reporting exists — DONE 2026-08-15
+- [x] **Set a coverage floor** now that reporting exists — DONE 2026-08-15; RATCHETED 2026-08-17
     - **Files**: `.github/workflows/bot-quality.yml`
     - **Status: COMPLETED.** Measured 65.08% line coverage (15,178 statements, 4,760 missed; branch 3852/812)
       using the *exact* CI invocation (same ignores, same env unsets, aligned venv) on a fully green suite
@@ -1108,9 +1108,28 @@ Items removed from this plan during the same review — and why — are listed i
       pytest invocation — the prescribed `current−1` ratchet margin, mirroring the broad-catch ratchet
       (ratchet up as coverage improves; never lower without documented justification). Verified locally:
       the full run reports `Required test coverage of 64% reached. Total coverage: 65.08%`.
-    - **Hotspots to target first (for raising the floor)**: `src/infrastructure/use_cases/service_backtest.py`
-      (2,959 lines, the orchestration core that was deliberately left unsplit), `src/bot_instance_manager.py`
-      (1,935), `src/api/v1/backtests.py` (2,351)
+    - **Ratchet pass 2026-08-17: 64 → 68.** Ranked modules by missed statements and wrote focused tests for
+      the five best-ROI pure modules (+75 cases, five new files): `tests/test_cointegration_analysis.py`
+      (`trading/analysis/cointegration.py` **10.1% → 89.3%** — the pairs-trading math core was effectively
+      untested), `tests/test_backtest_queries.py` (`use_cases/backtest_queries.py` **28.0% → 97.7%**, the
+      read-side mixin via a minimal fake host), `tests/test_backtest_pair_selection.py`
+      (`use_cases/backtest_pair_selection.py` **40.7% → 89.9%**), `tests/test_auth_utils.py`
+      (`api/auth_utils.py` **49.2% → 88.9%**), `tests/test_dataframe_utils.py` (`shared/dataframe_utils.py`
+      **41.8% → 88.1%`). Total coverage **65.91% → 69.27%** (+3.36 pts), suite 861 → **936 passed**;
+      floor raised to the measured −1 margin (**68**). **Two latent bugs caught by the new tests:**
+      (1) `backtest_pair_selection.py` imported `statsmodels.tsa.statools` — a module that does not exist
+      (canonical: `stattools`) — so the optional-import guard silently swallowed the `ModuleNotFoundError`
+      and **every `cointegration`-mode backtest was running on the heuristic fallback instead of the strict
+      Engle-Granger + ADF ranking** (same nonexistent-module class the mypy campaign caught in the NATS
+      consumer); (2) `dataframe_utils.force_cleanup_all` called `unregister_dataframe` **while holding the
+      registry `threading.Lock`** — the same non-reentrant lock — a guaranteed deadlock on the DataFrame
+      cleanup monitoring path (the new test hung at 0% CPU until the fix). Protocol + hotspot map saved as
+      the `coverage-ratchet` skill (`.agents/skills/coverage-ratchet/`).
+    - **Hotspots to target next (for raising the floor)**: `src/infrastructure/event_bus_nats.py` (~276
+      missed; needs NATS fakes), `src/bot_instance_manager.py` (~309; subprocess lifecycle),
+      `src/api/v1/backtests.py` (~261; route family), `src/infrastructure/workers/backtest_tasks.py`
+      (~204; Celery tasks) — the pure-module tail is exhausted; the next step function is route/worker
+      integration seams
     - **Effort**: 1 day for the gate; coverage work is ongoing
     - **Priority**: MEDIUM
 

@@ -243,18 +243,19 @@ def get_memory_summary() -> Dict[str, Any]:
 def force_cleanup_all():
     """Force cleanup of all tracked DataFrames."""
     try:
+        # Snapshot ids under the lock, then unregister outside it —
+        # unregister_dataframe acquires the same (non-reentrant) lock, so
+        # calling it while holding the lock deadlocks the worker thread.
         with _registry_lock:
             frame_ids = list(_frame_registry.keys())
-            cleaned = 0
+        cleaned = 0
 
-            for frame_id in frame_ids:
-                if unregister_dataframe(frame_id):
-                    cleaned += 1
+        for frame_id in frame_ids:
+            if unregister_dataframe(frame_id):
+                cleaned += 1
 
-            logger.info(
-                f"Force cleanup completed: {cleaned}/{len(frame_ids)} DataFrames"
-            )
-            return cleaned
+        logger.info(f"Force cleanup completed: {cleaned}/{len(frame_ids)} DataFrames")
+        return cleaned
 
     except Exception as e:
         logger.error(f"Failed to force cleanup: {e}")

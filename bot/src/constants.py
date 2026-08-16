@@ -149,10 +149,14 @@ MARKET_DATA_CACHE_SOCKET_TIMEOUT_SECONDS: float = float(
 # Uvicorn worker never reaches clients connected to another. When enabled, every
 # ``broadcast_to_bot`` additionally publishes to a shared pub/sub channel and
 # each worker's subscriber fans the message out to its own local connections
-# (see ``src/infrastructure/broadcast``). Default OFF: single-worker deployments
-# and tests behave identically to today, and a Redis outage degrades to
-# local-only delivery (never breaks a broadcast).
-WS_BROADCAST_ENABLED: bool = _env_flag("WS_BROADCAST_ENABLED", False)
+# (see ``src/infrastructure/broadcast``). Default ON since 2026-08-16
+# (Phase 2 flip): multi-worker deployments get cross-worker fan-out, while
+# Redis-less deployments degrade gracefully — unconfigured → Noop bus;
+# unreachable → fast-fail with a publish failure circuit (see bus.py) that
+# bounds the cost to a few connect attempts per pause window. A Redis outage
+# never breaks a broadcast (always local-first). Set =false to restore
+# strictly local-only delivery.
+WS_BROADCAST_ENABLED: bool = _env_flag("WS_BROADCAST_ENABLED", True)
 # Optional explicit Redis URL; falls back to the Celery broker / REDIS_URL /
 # VALKEY_URL resolution in `src/shared/redis_env.py` when unset.
 WS_BROADCAST_REDIS_URL: str = _os.getenv("WS_BROADCAST_REDIS_URL", "")

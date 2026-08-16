@@ -95,7 +95,7 @@ jobs:
                     --ignore=tests/test_api_database_integration.py \
                     --ignore=tests/test_comprehensive.py \
                     --cov=src \
-                    --cov-fail-under=68 \
+                    --cov-fail-under=70 \
                     --cov-report=term \
                     --cov-report=xml:coverage.xml \
                     --cov-report=html:htmlcov \
@@ -103,15 +103,18 @@ jobs:
                   # Summarise results for the step summary
                   tail -3 pytest-output.txt >> "$GITHUB_STEP_SUMMARY"
 
-            # Coverage FLOOR (blocking): --cov-fail-under=68, ratcheted 2026-08-17
-            # from a measured 69.27% line coverage (exact CI invocation, local infra;
-            # +3.36 pts from 65.91% via focused hotspot tests: cointegration analysis,
-            # backtest queries/pair-selection engines, auth utils, dataframe utils)
-            # minus a 1-point ratchet margin. Prior floor 64 was set 2026-08-15 from
-            # 65.0%. Ratchet upward as coverage improves; never lower without a
-            # documented justification. pytest-cov and coverage are pulled in via
-            # requirements.txt; config lives in bot/pyproject.toml
-            # ([tool.coverage.*]); source root is src.
+            # Coverage FLOOR (blocking): --cov-fail-under=70, ratcheted 2026-08-17
+            # from a measured 71.98% line coverage (exact CI invocation, local infra)
+            # minus a 1-point ratchet margin. Same-day trail: 69.30% via pure-module
+            # hotspot tests (cointegration analysis, backtest queries/pair-selection,
+            # auth utils, dataframe utils; floor 64->68), then 71.98% via the NATS
+            # consumer-service and Celery backtest-task suites (+58 cases; floor 68->70,
+            # which also fixed two latent bugs: the nats-py RetentionPolicy enum lookup
+            # that broke workqueue-stream provisioning, and a None delivery_info crash
+            # on eager task invocation). Original floor 64 was set 2026-08-15 from 65.0%.
+            # Ratchet upward as coverage improves; never lower without a documented
+            # justification. pytest-cov and coverage are pulled in via requirements.txt;
+            # config lives in bot/pyproject.toml ([tool.coverage.*]); source root is src.
             - name: Publish coverage summary
               if: always()
               run: |

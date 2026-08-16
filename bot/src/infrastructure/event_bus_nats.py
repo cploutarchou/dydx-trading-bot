@@ -462,17 +462,24 @@ class NATSConsumerService:
 
         # Create stream
         try:
+            # Construct the enums by VALUE, not member name: the config
+            # vocabulary ("limits"/"interest"/"workqueue", "old"/"new",
+            # "file"/"memory") matches the enum values (the NATS server JSON
+            # spellings), NOT the Python member names — the retention member
+            # is WORK_QUEUE while the config/server value is "workqueue", so
+            # a name-based lookup like RetentionPolicy["WORKQUEUE"] raises
+            # KeyError and stream creation always failed.
             await self._jetstream.add_stream(
                 name=stream_name,
                 subjects=stream_config.subjects,
-                retention=nats_api.RetentionPolicy[stream_config.retention.upper()],
+                retention=nats_api.RetentionPolicy(stream_config.retention.lower()),
                 max_bytes=stream_config.max_bytes,
                 max_age=stream_config.max_age,
                 max_msgs=stream_config.max_msgs,
                 max_msgs_per_subject=stream_config.max_msgs_per_subject,
                 max_consumers=stream_config.max_consumers,
-                discard=nats_api.DiscardPolicy[stream_config.discard.upper()],
-                storage=nats_api.StorageType[stream_config.storage.upper()],
+                discard=nats_api.DiscardPolicy(stream_config.discard.lower()),
+                storage=nats_api.StorageType(stream_config.storage.lower()),
                 replicas=stream_config.replicas,
                 duplicates=stream_config.duplicates_window,
             )

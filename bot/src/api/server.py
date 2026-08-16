@@ -699,11 +699,11 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     db.create_all_tables()
     db.ensure_schema_compatibility()
     db.verify_required_tables()
-    # Start the cross-worker WebSocket broadcast subscriber early (no-op unless
-    # WS_BROADCAST_ENABLED=true), BEFORE any broadcast producer below (backtest
-    # auto-recovery, bot-manager status events) runs. start() is non-raising and
-    # non-blocking: it spawns the listener, which reconnects with backoff if
-    # Redis is not yet up.
+    # Start the cross-worker WebSocket broadcast subscriber early (no-op when
+    # WS_BROADCAST_ENABLED=false or no Redis URL resolves), BEFORE any broadcast
+    # producer below (backtest auto-recovery, bot-manager status events) runs.
+    # start() is non-raising and non-blocking: it spawns the listener, which
+    # reconnects with backoff if Redis is not yet up.
     await get_broadcast_bus().start(manager.deliver_local_broadcast)
     try:
         with backtest_service_scope() as service:

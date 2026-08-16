@@ -239,8 +239,11 @@ become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown 
 **Cross-worker WebSocket broadcast bus** (`src/infrastructure/broadcast/bus.py`, `redis.asyncio` pub/sub):
 
 - `ConnectionManager` is process-local; the bus fans `broadcast_to_bot` out across Uvicorn workers via a shared
-  `ws:broadcast` channel. `WS_BROADCAST_ENABLED=false` (default) keeps single-worker/local behavior identical; a Redis
-  outage degrades to local-only delivery (never breaks a broadcast). Override with `WS_BROADCAST_REDIS_URL` and
+  `ws:broadcast` channel. `WS_BROADCAST_ENABLED=true` (default since 2026-08-16, the Phase 2 flip); `=false` restores
+  strictly local-only delivery. Deployments without any Redis URL resolve to the Noop bus; an unreachable Redis
+  fast-fails publishes behind a failure circuit (3 consecutive errors → 30 s pause, surfaced as
+  `publish_paused`/`publish_suppressed` in `GET /api/v1/monitoring/ws-broadcast`) and always degrades to local-only
+  delivery (never breaks a broadcast). Override with `WS_BROADCAST_REDIS_URL` and
   `WS_BROADCAST_SOCKET_TIMEOUT_SECONDS=1.0`.
 - The subscriber uses a **dedicated connection with no read timeout** — an idle `listen()` blocks forever by design;
   inheriting the command `socket_timeout` makes the listener flap (resubscribe loop) and silently drop messages.

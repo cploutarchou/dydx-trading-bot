@@ -80,3 +80,28 @@ positions still exist on-chain.
 incomplete entry instead of failing the dashboard. Denial audit events carry an `aggregate` detail block
 (totals + incomplete count). Coverage: `tests/test_portfolio_accounts.py` (22 cases), aggregate cases in
 `tests/test_portfolio_risk.py`, and the route shape in `tests/test_monitoring_routes.py`.
+
+## Advanced Portfolio Controls (2026-08-16)
+
+Notional-concentration, correlation-bucket, and daily-loss entry checks layered onto the Phase A guard
+(same engine, same `BOT_PORTFOLIO_RISK_ENABLED` master switch, same audit-event pipeline). All individually
+opt-in (0 / empty disables). Per-market notional is the booked-exposure approximation `|size| × entryPrice`
+per open perpetual — deterministic, needs no extra exchange reads (derived from the same
+`get_open_positions` call the market-count check uses). Each pair entry projects `usd_per_trade` into each
+of its two leg markets.
+
+| Env Var                                    | Default | Check                                                                                                        | Denial reason                            | Test Exists |
+|--------------------------------------------|---------|--------------------------------------------------------------------------------------------------------------|------------------------------------------|-------------|
+| `BOT_PORTFOLIO_MAX_NOTIONAL_PER_MARKET_USD` | `0.0`   | Projected notional in either entry-leg market (existing + `usd_per_trade`) at/after cap                      | `portfolio_market_concentration`         | Yes         |
+| `BOT_PORTFOLIO_MAX_TOTAL_NOTIONAL_PCT`      | `0.0`   | Projected gross notional (all markets + both legs) as % of equity — effective leverage ceiling                | `portfolio_gross_notional`               | Yes         |
+| `BOT_PORTFOLIO_MAX_DAILY_LOSS_PCT`          | `0.0`   | Equity drop from the UTC-day peak (dated Redis key `bot:portfolio:daily_peak_equity:<address>:<YYYY-MM-DD>`, 48 h TTL — self-heals at UTC midnight, unlike the permanent all-time drawdown) at/after cap | `portfolio_daily_loss` | Yes |
+| `BOT_PORTFOLIO_CORRELATION_BUCKETS`         | `""`    | `NAME:m1,m2,...:max_pct_of_equity` entries joined by `;` — projected bucket notional (members + member legs) vs cap. Malformed entries are skipped with a warning (fail-open parsing, first duplicate name wins) | `portfolio_bucket_concentration:<name>` | Yes |
+
+Failure semantics: the notional controls are exchange-read-derived and **fail closed** — if any open
+position's `size`/`entryPrice` cannot be parsed while a notional control is active, entries are denied with
+`portfolio_notional_data_incomplete` instead of under-counting exposure. The daily-loss control is
+Redis-backed auxiliary state and **fails open** (peak unavailable → check skips), identical to the all-time
+drawdown slice. Coverage: advanced-control cases in `tests/test_portfolio_risk.py` (evaluator boundaries
+and projections, bucket parser, dated-key store with TTL, wrapper daily-peak gating, per-market denial
+through the real wrapper, `open_positions` leg-market wiring), plus config surfacing in
+`tests/test_monitoring_routes.py`.

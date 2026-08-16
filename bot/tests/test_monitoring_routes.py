@@ -286,6 +286,11 @@ def test_portfolio_risk_status_reports_config_and_denials(monkeypatch):
     assert data["config"]["enabled"] is False  # Phase A default
     assert data["config"]["limits"]["max_open_markets"] > 0
     assert data["config"]["limits"]["aggregate_max_open_markets"] == 0  # default off
+    # Advanced controls ship off by default (0 / empty spec).
+    assert data["config"]["limits"]["max_notional_per_market_usd"] == 0.0
+    assert data["config"]["limits"]["max_total_notional_pct"] == 0.0
+    assert data["config"]["limits"]["max_daily_loss_pct"] == 0.0
+    assert data["config"]["correlation_buckets"] == []
     assert data["count"] == 1
     denial = data["recent_denials_24h"][0]
     assert denial["instance_id"] == "bot-42"

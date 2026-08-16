@@ -557,7 +557,6 @@ class BotInstance:
                 self._log_exception("Failed to load config: {}", e)
             raise
 
-
     def setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown"""
 

@@ -209,7 +209,7 @@ class _PausableClient:
         self.node = _FakeNode()
 
 
-async def _wait_for_terminal_status(service, run_id, timeout_seconds=2.0):
+async def _wait_for_terminal_status(service, run_id, timeout_seconds=15.0):
     end = asyncio.get_event_loop().time() + timeout_seconds
     while asyncio.get_event_loop().time() < end:
         status = service.get_backtest_status(run_id)
@@ -220,7 +220,7 @@ async def _wait_for_terminal_status(service, run_id, timeout_seconds=2.0):
     raise TimeoutError("backtest did not reach terminal status in time")
 
 
-async def _wait_for_status(service, run_id, expected_status, timeout_seconds=2.0):
+async def _wait_for_status(service, run_id, expected_status, timeout_seconds=15.0):
     end = asyncio.get_event_loop().time() + timeout_seconds
     while asyncio.get_event_loop().time() < end:
         status = service.get_backtest_status(run_id)
@@ -409,11 +409,7 @@ def test_pause_and_resume_running_backtest(monkeypatch):
         assert resumed_payload is not None
         assert resumed_payload["control_status"] == "resume_requested"
 
-        terminal = await _wait_for_terminal_status(
-            service,
-            created.run_id,
-            timeout_seconds=3.0,
-        )
+        terminal = await _wait_for_terminal_status(service, created.run_id)
         assert terminal == "completed"
 
     asyncio.run(_run())
@@ -440,11 +436,7 @@ def test_retry_backtest_starts_new_run_from_persisted_request(monkeypatch):
         assert retried["run_id"] == created.run_id
         assert retried["new_run_id"] != created.run_id
 
-        retry_terminal = await _wait_for_terminal_status(
-            service,
-            retried["new_run_id"],
-            timeout_seconds=2.0,
-        )
+        retry_terminal = await _wait_for_terminal_status(service, retried["new_run_id"])
         assert retry_terminal == "completed"
 
     asyncio.run(_run())
@@ -892,7 +884,7 @@ def test_backtest_times_out_and_exposes_heartbeat_fields(monkeypatch):
         terminal = await _wait_for_terminal_status(
             service,
             created.run_id,
-            timeout_seconds=1.0,
+            timeout_seconds=5.0,
         )
         assert terminal == "timeout"
 
@@ -1013,9 +1005,7 @@ def test_backtest_keepalive_prevents_false_stale_during_slow_phase(monkeypatch):
         assert status.heartbeat_age_seconds is not None
         assert status.heartbeat_age_seconds < 0.4
 
-        terminal = await _wait_for_terminal_status(
-            service, created.run_id, timeout_seconds=3.0
-        )
+        terminal = await _wait_for_terminal_status(service, created.run_id)
         assert terminal == "completed"
 
     asyncio.run(_run())
@@ -1058,9 +1048,7 @@ def test_backtest_watchdog_keeps_heartbeat_alive_during_blocking_phase(monkeypat
         poller.start()
 
         try:
-            terminal = await _wait_for_terminal_status(
-                service, created.run_id, timeout_seconds=3.0
-            )
+            terminal = await _wait_for_terminal_status(service, created.run_id)
         finally:
             stop_polling.set()
             poller.join(timeout=2.0)

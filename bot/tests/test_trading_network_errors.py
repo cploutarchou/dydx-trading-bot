@@ -20,7 +20,6 @@ from src.exceptions import ExchangeError, TradingError
 from src.trading import account_manager
 from src.trading.arbitrage_observability import increment_metric
 
-
 # =============================================================================
 # Fixtures and Helpers
 # =============================================================================
@@ -32,7 +31,7 @@ def mock_client(monkeypatch):
     # Mock DYDX_ADDRESS and SUBACCOUNT_NUMBER to avoid RuntimeError
     monkeypatch.setattr("src.trading.account_manager.DYDX_ADDRESS", "0xTestAddress")
     monkeypatch.setattr("src.trading.account_manager.SUBACCOUNT_NUMBER", 0)
-    
+
     client = SimpleNamespace(
         wallet=None,
         node=SimpleNamespace(
@@ -49,10 +48,8 @@ def mock_client(monkeypatch):
             )
         ),
         indexer=SimpleNamespace(
-            markets=SimpleNamespace(
-                get_perpetual_markets=AsyncMock()
-            )
-        )
+            markets=SimpleNamespace(get_perpetual_markets=AsyncMock())
+        ),
     )
     return client
 
@@ -63,7 +60,7 @@ def mock_client_with_wallet(monkeypatch):
     # Mock constants
     monkeypatch.setattr("src.trading.account_manager.DYDX_ADDRESS", "0xFallbackAddress")
     monkeypatch.setattr("src.trading.account_manager.SUBACCOUNT_NUMBER", 0)
-    
+
     client = SimpleNamespace(
         wallet=SimpleNamespace(
             address="0xTestAddress",
@@ -84,10 +81,8 @@ def mock_client_with_wallet(monkeypatch):
             )
         ),
         indexer=SimpleNamespace(
-            markets=SimpleNamespace(
-                get_perpetual_markets=AsyncMock()
-            )
-        )
+            markets=SimpleNamespace(get_perpetual_markets=AsyncMock())
+        ),
     )
     return client
 
@@ -107,7 +102,7 @@ class TestAccountManagerNetworkFailures:
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
             side_effect=ConnectionError("Failed to connect to dYdX")
         )
-        
+
         # Should raise the connection error
         with pytest.raises(ConnectionError, match="Failed to connect"):
             await account_manager.get_account(mock_client)
@@ -118,7 +113,7 @@ class TestAccountManagerNetworkFailures:
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
             side_effect=asyncio.TimeoutError("Request timed out")
         )
-        
+
         with pytest.raises(asyncio.TimeoutError, match="Request timed out"):
             await account_manager.get_account(mock_client)
 
@@ -127,9 +122,11 @@ class TestAccountManagerNetworkFailures:
         """Test get_account with 503 Service Unavailable."""
         error_response = httpx.Response(503, json={"error": "Service Unavailable"})
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
-            side_effect=httpx.HTTPStatusError("Service Unavailable", request=MagicMock(), response=error_response)
+            side_effect=httpx.HTTPStatusError(
+                "Service Unavailable", request=MagicMock(), response=error_response
+            )
         )
-        
+
         with pytest.raises(httpx.HTTPStatusError):
             await account_manager.get_account(mock_client)
 
@@ -138,12 +135,14 @@ class TestAccountManagerNetworkFailures:
         """Test get_account with 429 Too Many Requests."""
         error_response = httpx.Response(429, json={"error": "Rate limited"})
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
-            side_effect=httpx.HTTPStatusError("Rate limited", request=MagicMock(), response=error_response)
+            side_effect=httpx.HTTPStatusError(
+                "Rate limited", request=MagicMock(), response=error_response
+            )
         )
-        
+
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
             await account_manager.get_account(mock_client)
-        
+
         assert exc_info.value.response.status_code == 429
 
     @pytest.mark.asyncio
@@ -153,11 +152,13 @@ class TestAccountManagerNetworkFailures:
         error_response_404 = httpx.Response(404, json={"error": "Not found"})
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
             side_effect=[
-                httpx.HTTPStatusError("Not found", request=MagicMock(), response=error_response_404),
+                httpx.HTTPStatusError(
+                    "Not found", request=MagicMock(), response=error_response_404
+                ),
                 {"subaccount": {"address": "0xFallback"}},
             ]
         )
-        
+
         # Should succeed with fallback
         result = await account_manager.get_account(mock_client)
         assert result["address"] == "0xFallback"
@@ -168,7 +169,7 @@ class TestAccountManagerNetworkFailures:
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
             side_effect=ConnectionError("Failed to connect")
         )
-        
+
         with pytest.raises(ConnectionError, match="Failed to connect"):
             await account_manager.get_open_positions(mock_client)
 
@@ -177,9 +178,11 @@ class TestAccountManagerNetworkFailures:
         """Test get_open_positions returns empty dict on 404 for fresh account."""
         error_response = httpx.Response(404, json={"error": "Not found"})
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
-            side_effect=httpx.HTTPStatusError("Not found", request=MagicMock(), response=error_response)
+            side_effect=httpx.HTTPStatusError(
+                "Not found", request=MagicMock(), response=error_response
+            )
         )
-        
+
         # Should return empty dict, not raise
         result = await account_manager.get_open_positions(mock_client)
         assert result == {}
@@ -190,7 +193,7 @@ class TestAccountManagerNetworkFailures:
         mock_client.indexer_account.account.get_order = AsyncMock(
             side_effect=ConnectionError("Failed to connect")
         )
-        
+
         with pytest.raises(ConnectionError, match="Failed to connect"):
             await account_manager.get_order(mock_client, "order-123")
 
@@ -199,9 +202,11 @@ class TestAccountManagerNetworkFailures:
         """Test get_order with 404 not found."""
         error_response = httpx.Response(404, json={"error": "Order not found"})
         mock_client.indexer_account.account.get_order = AsyncMock(
-            side_effect=httpx.HTTPStatusError("Order not found", request=MagicMock(), response=error_response)
+            side_effect=httpx.HTTPStatusError(
+                "Order not found", request=MagicMock(), response=error_response
+            )
         )
-        
+
         with pytest.raises(httpx.HTTPStatusError):
             await account_manager.get_order(mock_client, "order-123")
 
@@ -210,9 +215,11 @@ class TestAccountManagerNetworkFailures:
         """Test is_open_positions returns False on 404 (fresh account)."""
         error_response = httpx.Response(404, json={"error": "Not found"})
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
-            side_effect=httpx.HTTPStatusError("Not found", request=MagicMock(), response=error_response)
+            side_effect=httpx.HTTPStatusError(
+                "Not found", request=MagicMock(), response=error_response
+            )
         )
-        
+
         result = await account_manager.is_open_positions(mock_client, "BTC-USD")
         assert result is False
 
@@ -222,7 +229,7 @@ class TestAccountManagerNetworkFailures:
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
             side_effect=ConnectionError("Failed to connect")
         )
-        
+
         with pytest.raises(ConnectionError, match="Failed to connect"):
             await account_manager.is_open_positions(mock_client, "BTC-USD")
 
@@ -232,7 +239,7 @@ class TestAccountManagerNetworkFailures:
         mock_client.indexer_account.account.get_subaccount_fills = AsyncMock(
             side_effect=ConnectionError("Failed to connect")
         )
-        
+
         with pytest.raises(ConnectionError, match="Failed to connect"):
             await account_manager.get_order_fills(mock_client, "order-123")
 
@@ -242,7 +249,7 @@ class TestAccountManagerNetworkFailures:
         mock_client.indexer_account.account.get_subaccount_fills = AsyncMock(
             return_value={"fills": []}
         )
-        
+
         result = await account_manager.get_order_fills(mock_client, "order-123")
         assert result == []
 
@@ -252,7 +259,7 @@ class TestAccountManagerNetworkFailures:
         mock_client.indexer_account.account.get_subaccount_fills = AsyncMock(
             return_value=[{"orderId": "order-123", "size": "1.0"}]
         )
-        
+
         result = await account_manager.get_order_fills(mock_client, "order-123")
         assert result == [{"orderId": "order-123", "size": "1.0"}]
 
@@ -267,41 +274,51 @@ class TestAccountManagerMetrics:
 
     @pytest.mark.asyncio
     @patch("src.trading.account_manager.increment_metric")
-    async def test_get_subaccount_with_metrics_tracks_api_calls(self, mock_increment, mock_client):
+    async def test_get_subaccount_with_metrics_tracks_api_calls(
+        self, mock_increment, mock_client
+    ):
         """Test that successful API calls increment exchange_api_calls_total."""
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
             return_value={"subaccount": {"address": "0xTest"}}
         )
-        
+
         await account_manager._get_subaccount_with_metrics(mock_client, "0xTest")
-        
+
         mock_increment.assert_called_once_with("exchange_api_calls_total")
 
     @pytest.mark.asyncio
     @patch("src.trading.account_manager.increment_metric")
-    async def test_get_subaccount_with_metrics_tracks_provider_errors(self, mock_increment, mock_client):
+    async def test_get_subaccount_with_metrics_tracks_provider_errors(
+        self, mock_increment, mock_client
+    ):
         """Test that provider errors increment provider_errors_total."""
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
             side_effect=ConnectionError("Failed")
         )
-        
+
         with pytest.raises(ConnectionError):
             await account_manager._get_subaccount_with_metrics(mock_client, "0xTest")
-        
+
         mock_increment.assert_called_with("provider_errors_total")
 
     @pytest.mark.asyncio
     @patch("src.trading.account_manager.increment_metric")
-    async def test_get_perpetual_markets_tracks_metrics(self, mock_increment, mock_client):
+    async def test_get_perpetual_markets_tracks_metrics(
+        self, mock_increment, mock_client
+    ):
         """Test that get_perpetual_markets tracks both API calls and provider errors."""
         error_response = httpx.Response(500, json={"error": "Internal Server Error"})
         mock_client.indexer.markets.get_perpetual_markets = AsyncMock(
-            side_effect=httpx.HTTPStatusError("Internal Server Error", request=MagicMock(), response=error_response)
+            side_effect=httpx.HTTPStatusError(
+                "Internal Server Error", request=MagicMock(), response=error_response
+            )
         )
-        
+
         with pytest.raises(httpx.HTTPStatusError):
-            await account_manager._get_perpetual_markets_with_metrics(mock_client, "BTC-USD")
-        
+            await account_manager._get_perpetual_markets_with_metrics(
+                mock_client, "BTC-USD"
+            )
+
         # Should have tracked both API call and provider error
         assert mock_increment.call_count == 2
         mock_increment.assert_any_call("exchange_api_calls_total")
@@ -309,16 +326,18 @@ class TestAccountManagerMetrics:
 
     @pytest.mark.asyncio
     @patch("src.trading.account_manager.increment_metric")
-    async def test_get_order_with_metrics_tracks_metrics(self, mock_increment, mock_client):
+    async def test_get_order_with_metrics_tracks_metrics(
+        self, mock_increment, mock_client
+    ):
         """Test that get_order tracks metrics correctly."""
         # Use a regular Exception since httpx.HTTPStatusError won't be caught by broad except
         mock_client.indexer_account.account.get_order = AsyncMock(
             side_effect=Exception("Internal Server Error")
         )
-        
+
         with pytest.raises(Exception):
             await account_manager._get_order_with_metrics(mock_client, "order-123")
-        
+
         # Should have tracked both API call and provider error
         # Check that both metrics were called
         calls = [str(call) for call in mock_increment.call_args_list]
@@ -338,12 +357,12 @@ class TestPositionManagerNetworkFailures:
     async def test_get_markets_connection_error(self, mock_client, monkeypatch):
         """Test get_markets with connection error."""
         from src.trading import market_data
-        
+
         # Mock the indexer call directly
         mock_client.indexer.markets.get_perpetual_markets = AsyncMock(
             side_effect=ConnectionError("Failed to connect")
         )
-        
+
         with pytest.raises(ConnectionError, match="Failed to connect"):
             await market_data.get_markets(mock_client)
 
@@ -351,11 +370,11 @@ class TestPositionManagerNetworkFailures:
     async def test_get_markets_timeout_error(self, mock_client, monkeypatch):
         """Test get_markets with timeout error."""
         from src.trading import market_data
-        
+
         mock_client.indexer.markets.get_perpetual_markets = AsyncMock(
             side_effect=asyncio.TimeoutError("Request timed out")
         )
-        
+
         with pytest.raises(asyncio.TimeoutError, match="Request timed out"):
             await market_data.get_markets(mock_client)
 
@@ -363,14 +382,14 @@ class TestPositionManagerNetworkFailures:
     async def test_get_candles_recent_network_error(self, mock_client, monkeypatch):
         """Test get_candles_recent with network error."""
         from src.trading import market_data
-        
+
         # The actual function calls get_perpetual_market_candles
         mock_client.indexer.markets.get_perpetual_market_candles = AsyncMock(
             side_effect=ConnectionError("Failed to connect")
         )
-        
+
         # Disable caching to ensure we hit the actual API
-        with patch.object(market_data, 'CANDLES_RECENT_CACHE_TTL_SECONDS', 0):
+        with patch.object(market_data, "CANDLES_RECENT_CACHE_TTL_SECONDS", 0):
             with pytest.raises(ConnectionError, match="Failed to connect"):
                 await market_data.get_candles_recent(mock_client, "BTC-USD", "1h")
 
@@ -384,10 +403,12 @@ class TestBotAgentNetworkFailures:
     """Test bot_agent functions with network failures."""
 
     @pytest.mark.asyncio
-    async def test_bot_agent_open_trades_connection_error(self, mock_client_with_wallet):
+    async def test_bot_agent_open_trades_connection_error(
+        self, mock_client_with_wallet
+    ):
         """Test BotAgent.open_trades with connection error - error is caught and stored in order_dict."""
         from src.trading import bot_agent
-        
+
         # Create a BotAgent instance
         agent = bot_agent.BotAgent(
             client=mock_client_with_wallet,
@@ -404,20 +425,26 @@ class TestBotAgentNetworkFailures:
             half_life=3600.0,
             hedge_ratio=1.0,
         )
-        
+
         # Mock the place_market_order to fail with connection error
-        with patch.object(bot_agent, 'place_market_order', AsyncMock(side_effect=ConnectionError("Failed to connect"))):
+        with patch.object(
+            bot_agent,
+            "place_market_order",
+            AsyncMock(side_effect=ConnectionError("Failed to connect")),
+        ):
             result = await agent.open_trades()
-            
+
             # The exception is caught and stored in order_dict
             assert result["pair_status"] == "ERROR"
             assert "Failed to connect" in result["comments"]
 
     @pytest.mark.asyncio
-    async def test_bot_agent_check_order_status_by_id_connection_error(self, mock_client_with_wallet):
+    async def test_bot_agent_check_order_status_by_id_connection_error(
+        self, mock_client_with_wallet
+    ):
         """Test BotAgent.check_order_status_by_id with connection error."""
         from src.trading import bot_agent
-        
+
         agent = bot_agent.BotAgent(
             client=mock_client_with_wallet,
             market_1="BTC-USD",
@@ -433,9 +460,13 @@ class TestBotAgentNetworkFailures:
             half_life=3600.0,
             hedge_ratio=1.0,
         )
-        
+
         # Mock check_order_status to fail
-        with patch.object(bot_agent, 'check_order_status', AsyncMock(side_effect=ConnectionError("Failed to connect"))):
+        with patch.object(
+            bot_agent,
+            "check_order_status",
+            AsyncMock(side_effect=ConnectionError("Failed to connect")),
+        ):
             with pytest.raises(ConnectionError, match="Failed to connect"):
                 await agent.check_order_status_by_id("order-123")
 
@@ -455,7 +486,7 @@ class TestMalformedAPIResponses:
         mock_client.indexer_account.account.get_subaccount_fills = AsyncMock(
             return_value=["not", "a", "valid", "response"]
         )
-        
+
         result = await account_manager.get_order_fills(mock_client, "order-123")
         assert result == []
 
@@ -465,7 +496,7 @@ class TestMalformedAPIResponses:
         mock_client.indexer_account.account.get_subaccount_fills = AsyncMock(
             return_value={"something_else": "value"}
         )
-        
+
         result = await account_manager.get_order_fills(mock_client, "order-123")
         assert result == []
 
@@ -482,7 +513,7 @@ class TestMalformedAPIResponses:
                 ]
             }
         )
-        
+
         result = await account_manager.get_order_fills(mock_client, "order-123")
         # Should only return the first fill (orderId matches)
         assert len(result) == 1
@@ -494,7 +525,7 @@ class TestMalformedAPIResponses:
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
             return_value={"subaccount": {"openPerpetualPositions": "not a dict"}}
         )
-        
+
         # The implementation returns openPerpetualPositions directly
         # which would be the string "not a dict"
         result = await account_manager.get_open_positions(mock_client)
@@ -506,7 +537,7 @@ class TestMalformedAPIResponses:
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
             return_value={"not_subaccount": {"address": "0xTest"}}
         )
-        
+
         with pytest.raises(KeyError):
             await account_manager.get_account(mock_client)
 
@@ -520,7 +551,9 @@ class TestMixedErrorScenarios:
     """Test complex error scenarios combining multiple failure modes."""
 
     @pytest.mark.asyncio
-    async def test_get_account_primary_timeout_secondary_connection_error(self, mock_client):
+    async def test_get_account_primary_timeout_secondary_connection_error(
+        self, mock_client
+    ):
         """Test get_account with timeout on primary and connection error on secondary."""
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
             side_effect=[
@@ -528,7 +561,7 @@ class TestMixedErrorScenarios:
                 ConnectionError("Secondary connection failed"),
             ]
         )
-        
+
         with pytest.raises(ConnectionError, match="Secondary connection failed"):
             await account_manager.get_account(mock_client)
 
@@ -537,18 +570,22 @@ class TestMixedErrorScenarios:
         """Test is_open_positions with 404 on primary and 500 on secondary."""
         error_404 = httpx.Response(404, json={"error": "Not found"})
         error_500 = httpx.Response(500, json={"error": "Internal Server Error"})
-        
+
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
             side_effect=[
-                httpx.HTTPStatusError("Not found", request=MagicMock(), response=error_404),
-                httpx.HTTPStatusError("Internal Server Error", request=MagicMock(), response=error_500),
+                httpx.HTTPStatusError(
+                    "Not found", request=MagicMock(), response=error_404
+                ),
+                httpx.HTTPStatusError(
+                    "Internal Server Error", request=MagicMock(), response=error_500
+                ),
             ]
         )
-        
+
         # Should propagate the 500 error since it's not a 404
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
             await account_manager.is_open_positions(mock_client, "BTC-USD")
-        
+
         assert exc_info.value.response.status_code == 500
 
     @pytest.mark.asyncio
@@ -556,23 +593,25 @@ class TestMixedErrorScenarios:
         """Test sequential API calls where some succeed and some fail."""
         # First call succeeds, second fails
         call_count = 0
-        
+
         async def side_effect_with_counter(*args, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return {"subaccount": {"address": "0xTest", "openPerpetualPositions": {}}}
+                return {
+                    "subaccount": {"address": "0xTest", "openPerpetualPositions": {}}
+                }
             else:
                 raise ConnectionError("Second call failed")
-        
+
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
             side_effect=side_effect_with_counter
         )
-        
+
         # First call should succeed
         result1 = await account_manager.get_account(mock_client)
         assert result1["address"] == "0xTest"
-        
+
         # Second call should fail
         with pytest.raises(ConnectionError, match="Second call failed"):
             await account_manager.get_account(mock_client)
@@ -594,22 +633,22 @@ class TestRetryAndBackoff:
             _ENTRY_FAILURE_STATE,
             _record_entry_failure,
         )
-        
+
         # Clear any previous state
         _ENTRY_FAILURE_STATE.clear()
-        
+
         pair_key = "BTC-USD|ETH-USD"
-        
+
         # First failure: delay should be base (15 seconds)
         _record_entry_failure(pair_key, "error 1")
         delay1 = _entry_backoff_seconds(1)
         assert delay1 == 15.0
-        
+
         # Second failure: delay should be base * multiplier (15 * 2 = 30)
         _record_entry_failure(pair_key, "error 2")
         delay2 = _entry_backoff_seconds(2)
         assert delay2 == 30.0
-        
+
         # Third failure: delay should be base * multiplier^2 (15 * 4 = 60)
         _record_entry_failure(pair_key, "error 3")
         delay3 = _entry_backoff_seconds(3)
@@ -623,15 +662,15 @@ class TestRetryAndBackoff:
             _ENTRY_FAILURE_STATE,
             _record_entry_failure,
         )
-        
+
         _ENTRY_FAILURE_STATE.clear()
-        
+
         pair_key = "BTC-USD|ETH-USD"
-        
+
         # Record many failures
         for i in range(10):
             _record_entry_failure(pair_key, f"error {i}")
-        
+
         # Delay should be capped at 180 seconds
         delay = _entry_backoff_seconds(10)
         assert delay == 180.0
@@ -645,20 +684,20 @@ class TestRetryAndBackoff:
             _record_entry_success,
             _entry_backoff_seconds,
         )
-        
+
         _ENTRY_FAILURE_STATE.clear()
-        
+
         pair_key = "BTC-USD|ETH-USD"
-        
+
         # Record failures
         _record_entry_failure(pair_key, "error 1")
         _record_entry_failure(pair_key, "error 2")
-        
+
         assert pair_key in _ENTRY_FAILURE_STATE
-        
+
         # Record success
         _record_entry_success(pair_key)
-        
+
         # State should be cleared
         assert pair_key not in _ENTRY_FAILURE_STATE
 
@@ -674,25 +713,25 @@ class TestConcurrentNetworkFailures:
     @pytest.mark.asyncio
     async def test_concurrent_get_account_calls(self, mock_client):
         """Test concurrent get_account calls with network failures on both addresses."""
+
         # Create a side effect that always fails
         async def always_failing_get_subaccount(*args, **kwargs):
             await asyncio.sleep(0.01)
             raise ConnectionError("All calls fail")
-        
-        mock_client.indexer_account.account.get_subaccount = always_failing_get_subaccount
-        
+
+        mock_client.indexer_account.account.get_subaccount = (
+            always_failing_get_subaccount
+        )
+
         # Launch multiple concurrent calls
-        tasks = [
-            account_manager.get_account(mock_client)
-            for _ in range(3)
-        ]
-        
+        tasks = [account_manager.get_account(mock_client) for _ in range(3)]
+
         # All calls should fail since both addresses fail
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # Check that all calls failed
         errors = [r for r in results if isinstance(r, ConnectionError)]
-        
+
         assert len(errors) == 3
 
     @pytest.mark.asyncio
@@ -700,27 +739,30 @@ class TestConcurrentNetworkFailures:
         """Test concurrent API calls hitting rate limits on both addresses."""
         # Use a list to track calls in a thread-safe way
         rate_limited_calls = []
-        
+
         async def rate_limited_get_subaccount(*args, **kwargs):
             # All calls rate limited
             rate_limited_calls.append(1)
             await asyncio.sleep(0.01)
             error_response = httpx.Response(429, json={"error": "Rate limited"})
-            raise httpx.HTTPStatusError("Rate limited", request=MagicMock(), response=error_response)
-        
+            raise httpx.HTTPStatusError(
+                "Rate limited", request=MagicMock(), response=error_response
+            )
+
         mock_client.indexer_account.account.get_subaccount = rate_limited_get_subaccount
-        
+
         # Launch 10 concurrent calls
-        tasks = [
-            account_manager.get_account(mock_client)
-            for _ in range(10)
-        ]
-        
+        tasks = [account_manager.get_account(mock_client) for _ in range(10)]
+
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # All should fail with 429 since both addresses get rate limited
-        rate_limited = [r for r in results if isinstance(r, httpx.HTTPStatusError) and r.response.status_code == 429]
-        
+        rate_limited = [
+            r
+            for r in results
+            if isinstance(r, httpx.HTTPStatusError) and r.response.status_code == 429
+        ]
+
         # All 10 should be rate limited (5 from first address, 5 from fallback)
         # But due to the fallback, we'll get 20 calls total, but only 10 results
         assert len(rate_limited) == 10

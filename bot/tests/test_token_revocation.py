@@ -84,14 +84,17 @@ def _make_token(sub: str = "alice", stv: Any = 0) -> str:
 
 def test_logout_blacklists_presented_token(monkeypatch):
     import asyncio
+
     monkeypatch.delenv("API_BYPASS_AUTH", raising=False)
     token = _make_token("alice", stv=0)
 
     user = _StubUser("alice", token_version=0)
-    response = asyncio.run(auth_router.logout(
-        request=_FakeRequest(token),
-        current_user=user,
-    ))
+    response = asyncio.run(
+        auth_router.logout(
+            request=_FakeRequest(token),
+            current_user=user,
+        )
+    )
 
     assert response == {"message": "Logged out"}
 
@@ -103,6 +106,7 @@ def test_logout_blacklists_presented_token(monkeypatch):
 
 def test_logout_all_bumps_version_and_invalidates_prior_tokens(monkeypatch):
     import asyncio
+
     monkeypatch.delenv("API_BYPASS_AUTH", raising=False)
     old_token = _make_token("alice", stv=0)
 
@@ -112,11 +116,13 @@ def test_logout_all_bumps_version_and_invalidates_prior_tokens(monkeypatch):
     # Pre-condition: the old token currently authenticates.
     authenticate_bearer_token(old_token, cast(Any, _StubSession(_StubUser("alice", 0))))
 
-    response = asyncio.run(auth_router.logout_all(
-        request=_FakeRequest(old_token),
-        current_user=user,
-        session=session,
-    ))
+    response = asyncio.run(
+        auth_router.logout_all(
+            request=_FakeRequest(old_token),
+            current_user=user,
+            session=session,
+        )
+    )
 
     assert response["message"] == "Logged out from all sessions"
     assert response["token_version"] == 1
@@ -150,14 +156,17 @@ def test_legacy_token_without_stv_works_against_version_zero(monkeypatch):
 
 def test_logout_in_bypass_mode_is_noop(monkeypatch):
     import asyncio
+
     monkeypatch.setenv("API_BYPASS_AUTH", "true")
     monkeypatch.setenv("ENVIRONMENT", "development")
 
     token = _make_token("alice", stv=0)
-    response = asyncio.run(auth_router.logout(
-        request=_FakeRequest(token),
-        current_user=_StubUser("alice", 0),
-    ))
+    response = asyncio.run(
+        auth_router.logout(
+            request=_FakeRequest(token),
+            current_user=_StubUser("alice", 0),
+        )
+    )
 
     assert response == {"message": "Logged out"}
 
@@ -167,6 +176,7 @@ def test_logout_in_bypass_mode_is_noop(monkeypatch):
 
 def test_logout_returns_rotation_message_for_service_token_principal(monkeypatch):
     import asyncio
+
     monkeypatch.delenv("API_BYPASS_AUTH", raising=False)
 
     # Service-token stand-ins expose no token_version.
@@ -177,10 +187,12 @@ def test_logout_returns_rotation_message_for_service_token_principal(monkeypatch
         is_superuser = True
 
     token = _make_token("backend-service-token", stv=0)
-    response = asyncio.run(auth_router.logout(
-        request=_FakeRequest(token),
-        current_user=_ServicePrincipal(),
-    ))
+    response = asyncio.run(
+        auth_router.logout(
+            request=_FakeRequest(token),
+            current_user=_ServicePrincipal(),
+        )
+    )
 
     assert "rotated via environment" in response["message"]
     # JTI was not blacklisted.

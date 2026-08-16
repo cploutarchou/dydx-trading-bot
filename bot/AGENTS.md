@@ -189,6 +189,13 @@ become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown 
     - Mainnet auto-restart also requires `BOT_AUTO_RECOVER_LIVE_MAINNET=true`
 - Heartbeat keepalive: active backtests refresh heartbeat to avoid being flagged stale; override with
   `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS`
+- Checkpoint resume (default on via `BACKTEST_CHECKPOINT_ENABLED`): `_execute_backtest` writes a self-contained
+  per-pair checkpoint (`src/infrastructure/use_cases/backtest_checkpoint.py` → `backtests/<run_id>/checkpoint.json` in
+  the artifact store) at the heavy-progress cadence and on pause entry; a later execution attempt of the same run
+  (Celery redelivery, transient retry, auto-recovery requeue, or NATS redelivery) validates the request payload hash and
+  resumes from the completed-pair prefix — skipping re-ranking, pre-fetch, and simulation of completed pairs. Terminal
+  `completed`/`cancelled` delete the checkpoint; `failed`/`timeout` keep it. Fail-open: any missing/corrupt/mismatched
+  checkpoint means a fresh run.
 
 **Worker startup and config:**
 
@@ -289,8 +296,9 @@ module `reset_*()` helpers.
   or candle aggregation.
 - Run `tests/test_position_manager_exit_safety.py` and `tests/test_position_manager_entry_backoff.py` when touching
   position entry/exit logic or backoff behavior.
-- Run `tests/test_portfolio_risk.py` when touching account-level risk controls
-  (`src/trading/portfolio_risk.py` or the portfolio guard wiring in `position_manager.open_positions`).
+- Run `tests/test_portfolio_risk.py` and `tests/test_portfolio_accounts.py` when touching account-level risk
+  controls (`src/trading/portfolio_risk.py`, `src/trading/portfolio_accounts.py`, or the portfolio guard
+  wiring in `position_manager.open_positions`).
 - Run `tests/test_storage_adapters.py` when touching ClickHouse or MinIO storage integration.
 - Run `tests/test_arbitrage_observability.py` and `tests/test_arbitrage_cycle_cache.py` when touching arbitrage decision
   logic or pair caching.
@@ -358,7 +366,11 @@ module `reset_*()` helpers.
   per-instance tracked-position state; DB primary, JSON file fallback),
   `src/trading/portfolio_risk.py` (account-level entry guard on the SHARED subaccount — aggregate open-market
   cap, margin-utilization cap, projected free-collateral floor; Phase A opt-in via
-  `BOT_PORTFOLIO_RISK_ENABLED`, default off; see `docs/bot-risk-control-matrix.md`).
+  `BOT_PORTFOLIO_RISK_ENABLED`, default off; see `docs/bot-risk-control-matrix.md`),
+  `src/trading/portfolio_accounts.py` (multi-account aggregation — enumerates the deployment's distinct
+  wallet addresses from `bot_instances` and reads their public indexer exposure; opt-in deployment-wide caps
+  via `BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS` / `BOT_PORTFOLIO_AGGREGATE_MAX_MARGIN_UTILIZATION_PCT`,
+  both default off, surfaced on `GET /api/v1/monitoring/portfolio-risk`).
 - **Architecture reference docs**: `flows/` contains a dated (2026-06-21) source-code map of the system —
   `project-structure.md`, `services-inventory.md`, `current-business-flows.md`, `api-flows.md`,
   `background-tasks.md`, `data-flows.md`, `integrations.md`, `risks-and-gaps.md`. Consult these for architecture

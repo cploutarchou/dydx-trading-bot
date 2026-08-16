@@ -130,6 +130,34 @@ def _isolate_portfolio_peak_store(monkeypatch):
 
 
 # ============================================================================
+# Portfolio multi-account enumeration isolation
+# ============================================================================
+#
+# The aggregate portfolio checks enumerate distinct wallet addresses from the
+# ``bot_instances`` table (DB reads + credential decryption) and then issue
+# public indexer reads for the foreign accounts. Tests must stay hermetic, so
+# the address cache is reset around every test and the aggregate limits are
+# pinned to their default-off values — a stray BOT_PORTFOLIO_AGGREGATE_* env
+# var cannot flip a test onto live enumeration/exchange paths. Tests
+# exercising the aggregate path monkeypatch ``portfolio_risk.enumerate_portfolio_accounts``
+# and the loader seam directly (their function-scoped monkeypatch runs after
+# this fixture's setup and so takes precedence).
+@pytest.fixture(autouse=True)
+def _isolate_portfolio_accounts(monkeypatch):
+    from src.trading import portfolio_accounts, portfolio_risk
+
+    portfolio_accounts.reset_portfolio_account_cache()
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS", 0)
+    monkeypatch.setattr(
+        portfolio_risk,
+        "BOT_PORTFOLIO_AGGREGATE_MAX_MARGIN_UTILIZATION_PCT",
+        0.0,
+    )
+    yield
+    portfolio_accounts.reset_portfolio_account_cache()
+
+
+# ============================================================================
 # PostgreSQL database helper functions
 # ============================================================================
 

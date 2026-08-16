@@ -50,8 +50,8 @@ Most of this document is a record of completed work. Everything still pending, i
 | 3 | ~~**Move blocking DB calls off the event loop**~~ **RESOLVED 2026-08-15** — slices 1–5: `run_db` seam + backtest/realtime reads, WebSocket senders, backtest mutations, `bot_records`/`bot_lifecycle`/`strategies`, `pool_pre_ping` (default ON) + auth yield-dependency session fix | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | done |
 | 4 | ~~**Integration tests** (Redis / Celery / dYdX)~~ **RESOLVED 2026-08-15** — opt-in harness (`tests/test_integration_external_services.py`, `make test-integration`): real cache roundtrip, real bus pub/sub, real Celery worker ping+registration, live indexer contract; non-blocking `bot-integration` CI job with a Valkey service container | Compose infra already exists; mostly markers + a CI job | done |
 | 5 | ~~**Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`)~~ **RESOLVED 2026-08-15** — floor set at 64% (measured 65.08%, blocking), `bot-deps-audit` pip-audit CI job + Dependabot shipped; first audit already removed an unused `aiohttp` pin carrying 3 open advisories | Two cheap CI gates; coverage reports today with nothing enforcing them | done |
-| 6 | **Portfolio-level risk controls** | Per-instance limits can each pass while the account is over-exposed | 4-6 weeks |
-| 7 | **Backtest checkpointing** (optional) | Compute-cost optimization only; auto-recovery already handles correctness | 2 weeks |
+| 6 | **Portfolio-level risk controls** — Phase A entry guard, operator visibility, account-wide drawdown, and multi-account aggregation delivered (2026-08-15/16); aggregation caps across every `bot_instances` wallet are opt-in limits; remaining: Phase B burn-in → default ON | Per-instance limits can each pass while the account is over-exposed | in progress (Phase B pending) |
+| 7 | ~~**Backtest checkpointing**~~ **RESOLVED 2026-08-16** — durable per-pair checkpoints (`backtests/<run_id>/checkpoint.json` in the artifact store) written at the heavy-progress cadence and on pause; Celery redelivery / transient retry / auto-recovery requeue / NATS redelivery all resume from the completed-pair prefix after payload-hash validation (fail-open); terminal completed/cancelled delete the checkpoint | Was compute-cost only: resumed runs skip re-fetch + re-simulation of completed pairs | done |
 
 > **Resolved 2026-08-11:** the former row 1 ("Resolve dead code paths") is done — 2FA router
 > mounted, `realtime_data_service.py` + candle-aggregation stub + `repository_realtime` shim
@@ -920,13 +920,42 @@ Items removed from this plan during the same review — and why — are listed i
       routes/contract + websocket — 86 pass; exceptions/config/credentials/async_job/circuit/
       cache/broadcast — 137 pass; backtest-service/market-sync/celery-metrics — 50 pass.
 
-- [ ] **Add backtest checkpointing** for long-running tasks (LOW — optional)
-    - **Files**: `src/infrastructure/workers/backtest_tasks.py`
+- [x] **Add backtest checkpointing** for long-running tasks (LOW — optional)
+    - **Files**: `src/infrastructure/use_cases/backtest_checkpoint.py` (new), `src/infrastructure/use_cases/service_backtest.py`,
+      `src/infrastructure/storage/artifacts.py` (+`delete`), `src/infrastructure/storage/minio_artifact_store.py` (+`delete`),
+      `src/infrastructure/persistence/repository_backtest.py` (public `build_artifact_store()` seam),
+      `tests/test_backtest_checkpoint.py` (23 cases)
     - **Impact**: resume interrupted backtests instead of restarting them
     - **Effort**: 2 weeks
     - **Note**: partially mitigated already — `BACKTEST_AUTO_RECOVERY_MODE=fail-safe|restart` handles
       interrupted runs, and `async_job_manager` tracks progress checkpoints for stall detection. This item is a
       compute-cost optimization, not a correctness fix. Drop it if long backtests aren't hurting in practice.
+    - **Status**: COMPLETED (2026-08-16). Design rests on three verified invariants: pairs are independent, every final
+      metric is a pure function of the per-pair outputs + `initial_balance`, and all three execution backends
+      (asyncio/Celery/NATS) funnel through one `_execute_backtest`. The checkpoint is a **self-contained
+      `backtests/<run_id>/checkpoint.json`** sidecar in the existing artifact store (local or MinIO): schema version,
+      run id, **request payload hash** (`_request_payload_hash`, the same fingerprint the task context already
+      carries), the **post-prioritization ordered pair plan**, the completed-prefix pair count, and the accumulated
+      outputs/scalars. Writes ride the existing heavy-progress cadence (`BACKTEST_HEAVY_PROGRESS_PERSIST_EVERY_PAIRS`
+      / `_SECONDS`, plus an extra trigger on the first post-resume pair) and **pause entry** —
+      `_honor_runtime_control` grew a keyword-only `checkpoint_writer` invoked when a run enters the paused state
+      (all existing call sites unchanged; the 4 loop call sites pass a closure). On any later execution attempt of the
+      same run — Celery `acks_late`+`reject_on_worker_lost` redelivery, transient `self.retry`, startup
+      `BACKTEST_AUTO_RECOVERY_MODE=restart` requeue, or NATS JetStream redelivery — the checkpoint is loaded before
+      pre-fetch/ranking; a valid one **replaces the pair plan** (the checkpointed plan is authoritative: re-ranking
+      could observe drifted market data), seeds the accumulators (so `trade_index_offset`/`trade_id` numbering
+      continues seamlessly), and the loop skips the completed prefix (progress/ETA account for skipped pairs).
+      Terminal `completed`/`cancelled` **delete** the checkpoint (new best-effort `ArtifactStore.delete()`, implemented
+      for local + MinIO with narrow catches — `storage/` is not ratchet-excluded); `failed`/`timeout` keep it as a
+      resume candidate. Everything fails open: missing/corrupt/schema-mismatched/hash-mismatched checkpoints log a
+      warning and run fresh. Single rollback lever: `BACKTEST_CHECKPOINT_ENABLED=false` (default on) disables both
+      writes and resume. Why self-contained rather than reusing the trades/snapshots sidecars: `save_run` re-syncs
+      sidecars on every full persist and run (re)start resets them to empty, so piggybacking would race the restart
+      that resume itself triggers. Verified: equivalence test proves a resumed run produces **identical trades
+      (id-sequence continuity), metrics, and stats** to an uninterrupted reference run while skipping completed pairs'
+      simulation; hash-mismatch/disabled/corrupt cases fail open; terminal cleanup asserted; 23 new cases green;
+      `test_backtest_service`/`test_backtest_api_contract`/`test_backtest_routes`/`test_storage_adapters`/
+      `test_backtest_tasks_failure_persistence`/ratchet all green.
 
 - [x] **Implement configuration validation** at startup
     - **Files**: `src/shared/env_loader.py`, create configuration schemas
@@ -1120,10 +1149,32 @@ remains:
       conftest isolation keeps the store inert in tests. Coverage: 6 new cases (pure at-cap/ratchet/
       peak-missing, store ratchet + never-raises with a fake client, wrapper observe→deny integration)
       + live Valkey sanity (1000 → holds on dip → 1200, persisted); full gate **773 passed / 13
-      skipped**, coverage 65.57%. **Remaining slices:** Phase B (burn-in on testnet via the
-      visibility endpoint, then flip the default ON) and multi-account aggregation (enumerate
-      distinct credentials across `bot_instances`; today the guard is per-process, each instance
-      guarding its own subaccount).
+      skipped**, coverage 65.57%. **Slice 4 (2026-08-16): multi-account aggregation** — deployment-wide
+      caps across every distinct wallet address in `bot_instances` (per network). New
+      `src/trading/portfolio_accounts.py`: best-effort decrypt-and-enumerate (undecryptable rows skipped,
+      never fatal; dedupe on `(network, address)`; per-process TTL cache
+      `BOT_PORTFOLIO_ACCOUNTS_CACHE_TTL_SECONDS` default 60 s; deterministic order; cap
+      `BOT_PORTFOLIO_AGGREGATE_MAX_ACCOUNTS` default 25) + two exposure loaders (guard-path via the
+      worker's indexer client, monitoring-path via direct public HTTP; dYdX v4 account reads are public per
+      address so no signing credentials are needed for foreign subaccounts; 404 = complete zero exposure;
+      malformed payloads excluded from equity sums and counted; other errors propagate on the entry path /
+      degrade per account on the dashboard). New pure `evaluate_aggregate_entry` with two opt-in limits —
+      `BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS` (0 = off) and
+      `BOT_PORTFOLIO_AGGREGATE_MAX_MARGIN_UTILIZATION_PCT` (0.0 = off) — wired into
+      `check_portfolio_entry_guard` AFTER the per-account checks with zero added exchange reads when both
+      are off (the default); denial reasons `portfolio_aggregate_*` flow into the existing rejection
+      counting, warning logs, and `trade_entry_rejected_portfolio_risk` audit events (now with an
+      `aggregate` totals detail block). Deliberately NO aggregate free-collateral floor (margin is isolated
+      per subaccount on dYdX v4). `GET /api/v1/monitoring/portfolio-risk` extended with `accounts`
+      (per-address exposure + per-account error) and `aggregate_by_network` totals; conftest autouse
+      isolation resets the enumeration cache and pins the aggregate limits off. Coverage: 22 new cases in
+      `tests/test_portfolio_accounts.py`, 8 aggregate cases in `tests/test_portfolio_risk.py`, extended
+      route tests in `tests/test_monitoring_routes.py`. **Live verification (2026-08-16)**: booted the
+      canonical API against the local infra DB with a real `bot_instances` row — enumeration + decryption +
+      live public indexer read all confirmed end-to-end; the check CAUGHT AND FIXED two real bugs before
+      merge (plain-httpx responses need explicit `.json()`/`raise_for_status()` — the dydx client lib does
+      both implicitly; regression tests added for each). **Remaining slices:** Phase B (burn-in on testnet
+      via the visibility endpoint, then flip the default ON).
 
 ---
 
@@ -1185,7 +1236,7 @@ remains:
 
 ### **Lower Priority**
 
-- Backtest checkpointing (optional — auto-recovery already covers correctness)
+- ✅ Backtest checkpointing — COMPLETED (2026-08-16); see the action-plan item
 - Advanced portfolio-level risk management
 
 ---

@@ -161,6 +161,14 @@ Useful environment variables:
   `REDIS_URL` / `VALKEY_URL`) and bound command latency with `WS_BROADCAST_SOCKET_TIMEOUT_SECONDS=1.0`. A Redis outage
   degrades to local-only delivery (never breaks a broadcast). Health is visible at
   `GET /api/v1/monitoring/ws-broadcast` (auth required).
+- **Portfolio risk controls** (`src/trading/portfolio_risk.py`, `src/trading/portfolio_accounts.py`): opt-in
+  account-level entry guard on the shared subaccount (`BOT_PORTFOLIO_RISK_ENABLED=false` default) with
+  open-market / margin-utilization / free-collateral-floor / drawdown caps, plus opt-in deployment-wide
+  aggregate caps across every distinct wallet address in `bot_instances`
+  (`BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS` / `BOT_PORTFOLIO_AGGREGATE_MAX_MARGIN_UTILIZATION_PCT`, both
+  default 0 = off; foreign subaccounts are read via public indexer calls — no signing credentials needed).
+  Exposure and denials are visible at `GET /api/v1/monitoring/portfolio-risk` (auth required); see
+  `docs/bot-risk-control-matrix.md`.
 - `NATS_URL` and `NATS_MONITORING_URL` for the optional command/event bus contract
 - `BACKTEST_ARTIFACT_STORAGE_ENABLED=false` keeps artifact persistence on the local fallback path
 - `BACKTEST_CLICKHOUSE_WRITES_ENABLED=false` keeps analytical writes disabled by default
@@ -286,6 +294,14 @@ repair logic through the API before applying it.
 Long-running active backtests refresh their heartbeat periodically so they do not get flagged stale mid-run. Override
 `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS` if you need a different keepalive cadence in staging or other deployed
 environments.
+
+Backtest checkpointing (on by default, `BACKTEST_CHECKPOINT_ENABLED=false` to disable): long-running backtests persist a
+durable resume point at the heavy-progress cadence (`BACKTEST_HEAVY_PROGRESS_PERSIST_EVERY_PAIRS`/`_SECONDS`) and on
+pause entry. If the worker dies mid-run, the next execution attempt of the same run — Celery redelivery, transient retry,
+or `BACKTEST_AUTO_RECOVERY_MODE=restart` requeue — resumes from the checkpoint instead of re-simulating completed pairs
+(matched via the request payload hash; any mismatch starts fresh). Checkpoints live as
+`backtests/<run_id>/checkpoint.json` in the artifact store (local or MinIO) and are deleted when a run completes or is
+cancelled; failed/timeout runs keep theirs as resume candidates.
 
 For `/api/v1/backtests` and `/api/v1/backtests/run`, strategy resolution is ordered as: strategy table lookup by
 `strategy_id` → recent persisted backtest request snapshots in DB → request-provided `strategy_payload_snapshot`

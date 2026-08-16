@@ -179,8 +179,8 @@ async def get_ws_broadcast_health(
     Reports whether the Redis pub/sub bus is enabled, its backend (``redis`` /
     ``noop``), reachability (``healthy``), the worker's subscriber identity
     (``worker_id``), and whether the listener task is running (``listening``).
-    When the bus is disabled (the default, ``WS_BROADCAST_ENABLED=false``) this
-    returns the noop shape. See ``src/infrastructure/broadcast``.
+    When the bus is disabled (``WS_BROADCAST_ENABLED=false``) this returns the
+    noop shape. See ``src/infrastructure/broadcast``.
     """
     _ = current_user
     from src.infrastructure.broadcast import get_broadcast_bus

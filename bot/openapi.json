@@ -804,7 +804,7 @@
           "Monitoring"
         ],
         "summary": "Get Ws Broadcast Health",
-        "description": "Get health of the cross-worker WebSocket broadcast bus.\n\nReports whether the Redis pub/sub bus is enabled, its backend (``redis`` /\n``noop``), reachability (``healthy``), the worker's subscriber identity\n(``worker_id``), and whether the listener task is running (``listening``).\nWhen the bus is disabled (the default, ``WS_BROADCAST_ENABLED=false``) this\nreturns the noop shape. See ``src/infrastructure/broadcast``.",
+        "description": "Get health of the cross-worker WebSocket broadcast bus.\n\nReports whether the Redis pub/sub bus is enabled, its backend (``redis`` /\n``noop``), reachability (``healthy``), the worker's subscriber identity\n(``worker_id``), and whether the listener task is running (``listening``).\nWhen the bus is disabled (``WS_BROADCAST_ENABLED=false``) this returns the\nnoop shape. See ``src/infrastructure/broadcast``.",
         "operationId": "get_ws_broadcast_health_api_v1_monitoring_ws_broadcast_get",
         "responses": {
           "200": {

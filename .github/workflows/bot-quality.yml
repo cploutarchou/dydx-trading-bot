@@ -349,11 +349,14 @@ jobs:
     # reconnects). This is the coverage that gates flipping the broadcast bus
     # default ON (Phase 2) and it has already caught a real listener-flap bug
     # in the Phase 1 bus.
-    # Promoted to a BLOCKING gate 2026-08-16: green in every CI run since it
-    # landed (5/5 across master pushes and Dependabot PRs) plus local
-    # validation with the burst scenario against live infra. If shared-runner
-    # flakiness appears, triage via MULTIWORKER_BURST_MESSAGES without
-    # un-promoting the job.
+    # Promoted to a BLOCKING gate 2026-08-16. IMPORTANT: the earlier phase-1
+    # "green" job conclusions were misleading — `continue-on-error` marked the
+    # job success even though the pytest step never actually passed in CI (it
+    # errored on the missing .configkey.bin while decrypting the encrypted
+    # profile). Promotion exposed that; the job now carries a hermetic
+    # APP_RUN_CONFIG_FILE (mirroring bot-tests) and genuinely runs the suite.
+    # If shared-runner flakiness appears, triage via MULTIWORKER_BURST_MESSAGES
+    # without un-promoting the job.
     bot-multiworker:
         name: Bot multi-worker broadcast test
         runs-on: ubuntu-latest
@@ -390,6 +393,10 @@ jobs:
             POSTGRES_PORT: "5432"
             POSTGRES_USER: dydx_bot
             POSTGRES_PASSWORD: change-me-db-password
+            # Hermetic runtime config (mirrors bot-tests): without this the
+            # pytest process tries to decrypt config/profiles/*.config.enc.json
+            # and fails on the missing .configkey.bin (repo secret).
+            APP_RUN_CONFIG_FILE: ${{ github.workspace }}/.ci-run.json
         defaults:
             run:
                 working-directory: bot
@@ -407,6 +414,24 @@ jobs:
 
             - name: Install dependencies
               run: pip install -r requirements.txt
+
+            - name: Prepare CI runtime config
+              run: |
+                  cat > "$APP_RUN_CONFIG_FILE" <<'JSON'
+                  {
+                    "shared": {
+                      "APP_ENV": "development",
+                      "ENVIRONMENT": "development"
+                    },
+                    "redis": {
+                      "REDIS_ENABLED": false,
+                      "REDIS_HOST": "localhost",
+                      "REDIS_PORT": 6379,
+                      "REDIS_DB": 0,
+                      "REDIS_SSL": false
+                    }
+                  }
+                  JSON
 
             - name: Run multi-worker broadcast test
               # -s so the harness's worker log tails (printed on failure) and
@@ -438,9 +463,12 @@ jobs:
     # control pings + registering the project's tasks, and the indexer's public
     # markets contract. Redis scratch DBs 14/15 keep the run isolated; the dYdX
     # test skips (not fails) when outbound network is unavailable.
-    # Promoted to a BLOCKING gate 2026-08-16 alongside bot-multiworker: green in
-    # every CI run since it landed (6/6). The indexer contract still skips (not
-    # fails) when outbound network is unavailable, so the gate is offline-safe.
+    # Promoted to a BLOCKING gate 2026-08-16 alongside bot-multiworker. Note:
+    # the earlier phase-1 "green" conclusions were misleading for the same
+    # reason (continue-on-error masked the never-actually-green pytest step);
+    # the job now carries a hermetic APP_RUN_CONFIG_FILE. The indexer contract
+    # still skips (not fails) when outbound network is unavailable, so the gate
+    # is offline-safe.
     bot-integration:
         name: Bot external-service integration tests
         runs-on: ubuntu-latest
@@ -457,6 +485,10 @@ jobs:
                     --health-retries 20
         env:
             INTEGRATION_TEST: "1"
+            # Hermetic runtime config (mirrors bot-tests): without this the
+            # pytest process tries to decrypt config/profiles/*.config.enc.json
+            # and fails on the missing .configkey.bin (repo secret).
+            APP_RUN_CONFIG_FILE: ${{ github.workspace }}/.ci-run.json
         defaults:
             run:
                 working-directory: bot
@@ -474,6 +506,24 @@ jobs:
 
             - name: Install dependencies
               run: pip install -r requirements.txt
+
+            - name: Prepare CI runtime config
+              run: |
+                  cat > "$APP_RUN_CONFIG_FILE" <<'JSON'
+                  {
+                    "shared": {
+                      "APP_ENV": "development",
+                      "ENVIRONMENT": "development"
+                    },
+                    "redis": {
+                      "REDIS_ENABLED": false,
+                      "REDIS_HOST": "localhost",
+                      "REDIS_PORT": 6379,
+                      "REDIS_DB": 0,
+                      "REDIS_SSL": false
+                    }
+                  }
+                  JSON
 
             - name: Run external-service integration tests
               run: |

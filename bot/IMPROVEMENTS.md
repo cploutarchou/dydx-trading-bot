@@ -45,8 +45,8 @@ Most of this document is a record of completed work. Everything still pending, i
 
 | # | Item | Why it matters | Effort |
 | --- | --- | --- | --- |
-| 1 | **Multi-worker tests** — core harness delivered 2026-08-14; CI job (`bot-multiworker`) landed 2026-08-15 and was **promoted to a blocking quality gate 2026-08-16** (green in every run since it landed, 5/5); burst/load coverage added to the harness the same day (see action-plan item). Remaining: nothing required for the Phase 2 flip decision except a staging load test if desired | Gates everything below it; the only way the split-registry class of bug gets caught | done (core + CI gate + burst/load) |
-| 2 | **Broadcast bus Phase 2** — flip `WS_BROADCAST_ENABLED` on. Mechanics + burst coverage (unit and two-real-worker topology) are DONE and now gated in CI; what remains is the deployment-behavior change itself (staging load test → flip default ON) | Phase 1 shipped inert; multi-worker deployments still have split websocket registries | 1-2 weeks |
+| 1 | **Multi-worker tests** — core harness delivered 2026-08-14; CI job (`bot-multiworker`) landed 2026-08-15 and was **promoted to a blocking quality gate 2026-08-16** with burst/load coverage added the same day. The promotion exposed that the phase-1 job had *never actually run green* in CI (`continue-on-error` masked the failing pytest step — it errored on the missing `.configkey.bin` while decrypting the encrypted profile); both promoted jobs now carry a hermetic `APP_RUN_CONFIG_FILE` (mirroring `bot-tests`) and genuinely execute | Gates everything below it; the only way the split-registry class of bug gets caught | done (core + CI gate + burst/load) |
+| 2 | ~~**Broadcast bus Phase 2**~~ **RESOLVED 2026-08-16** — `WS_BROADCAST_ENABLED` default flipped ON after: publish failure circuit hardening (3 consecutive failures → 30 s pause, bounding Redis-unreachable latency on `broadcast_to_bot`'s awaited path), a 600-message soak across two real workers (exactly-once, per-channel order, zero errors/reconnects), and a live no-Redis degradation check (fast-fail + circuit opens in ~27 ms, health reports `publish_paused`/unhealthy, listener lifecycle clean). Docs + openapi synced; conftest isolation strengthened (bus-module constant patch) | Phase 1 shipped inert; multi-worker deployments still have split websocket registries | done |
 | 3 | ~~**Move blocking DB calls off the event loop**~~ **RESOLVED 2026-08-15** — slices 1–5: `run_db` seam + backtest/realtime reads, WebSocket senders, backtest mutations, `bot_records`/`bot_lifecycle`/`strategies`, `pool_pre_ping` (default ON) + auth yield-dependency session fix | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | done |
 | 4 | ~~**Integration tests** (Redis / Celery / dYdX)~~ **RESOLVED 2026-08-15** — opt-in harness (`tests/test_integration_external_services.py`, `make test-integration`): real cache roundtrip, real bus pub/sub, real Celery worker ping+registration, live indexer contract; non-blocking `bot-integration` CI job with a Valkey service container | Compose infra already exists; mostly markers + a CI job | done |
 | 5 | ~~**Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`)~~ **RESOLVED 2026-08-15** — floor set at 64% (measured 65.08%, blocking), `bot-deps-audit` pip-audit CI job + Dependabot shipped; first audit already removed an unused `aiohttp` pin carrying 3 open advisories | Two cheap CI gates; coverage reports today with nothing enforcing them | done |
@@ -151,7 +151,8 @@ Items removed from this plan during the same review — and why — are listed i
 - **Process-Local State Limitations** (WebSocket fan-out: Phase 1 RESOLVED): Cannot scale horizontally due to in-memory state management
     - **WebSocket Connections**: `src/api/websocket_server.py` was process-local only — multiple Uvicorn workers had
       separate registries; Phase 1 added a Redis pub/sub broadcast bus (`src/infrastructure/broadcast/bus.py`) so
-      `broadcast_to_bot` fans out across workers (OFF by default via `WS_BROADCAST_ENABLED`; Phase 2 will enable it)
+      `broadcast_to_bot` fans out across workers (default ON via `WS_BROADCAST_ENABLED` since the 2026-08-16
+      Phase 2 flip; `=false` restores local-only)
     - **Strategy Storage**: ~~In-memory strategies disappear on restart~~ — already PostgreSQL-backed
       (`InMemoryStrategyStore` is a misnomer; strategies survive restarts and stay consistent across workers)
     - **Rate Limiting**: ~~Process-local fallback buckets~~ — already Redis-backed
@@ -684,8 +685,9 @@ Items removed from this plan during the same review — and why — are listed i
       `get_/reset_broadcast_bus` singleton). `broadcast_to_bot` was refactored into `_deliver_local` (local fan-out)
       + a best-effort `get_broadcast_bus().publish(...)`; each worker's lifespan-started subscriber fans received
       messages to its own local connections via the new `deliver_local_broadcast` (origin-tagged self-skip prevents
-      loops). It is **OFF by default** (`WS_BROADCAST_ENABLED=false`) so single-worker deployments and tests behave
-      identically to today, and a Redis outage degrades to local-only delivery (never breaks a broadcast). No new
+      loops). It was OFF by default until the 2026-08-16 Phase 2 flip (`WS_BROADCAST_ENABLED` now defaults to
+      true); a Redis outage degrades to local-only delivery (never breaks a broadcast), and an unreachable
+      Redis is bounded by the publish failure circuit. No new
       broad catches in `websocket_server.py` (the bus guarantees `publish` never raises); the `broadcast/` directory
       is excluded from the broad-catch ratchet like `cache/`. Operator visibility via `GET /api/v1/monitoring/ws-broadcast`.
       Coverage in `tests/test_broadcast_bus.py` (16 cases) + the monitoring route test (8-route auth gate). Broad-catch
@@ -693,13 +695,12 @@ Items removed from this plan during the same review — and why — are listed i
     - **Delivery checkpoints**:
         - [x] Phase 1 — broadcast bus infra + `ConnectionManager` wiring + lifespan hooks + `/ws-broadcast` health
           + tests, behind `WS_BROADCAST_ENABLED` (OFF / inert-by-default)
-        - [ ] **Phase 2 — KEEP (highest-value open item).** Until this lands, all of Phase 1 is inert code:
-          `WS_BROADCAST_ENABLED=false` means multi-worker deployments still have split websocket registries.
-          Work: flip the default ON after multi-worker load testing; add publish/receive/drop metrics + a bounded
-          dispatch semaphore under burst; coalesce per-symbol market broadcasts (`realtime_data_service` emits one
-          `broadcast_market_update` per symbol per tick → N Redis publishes when enabled) before wiring that
-          service; consider sharding pub/sub channels by topic.
-          **Progress (2026-08-15) — the mechanics are DONE**: the bus now carries operational metrics
+        - [x] **Phase 2 — DONE (flipped 2026-08-16).** Until this landed, all of Phase 1 was inert code:
+          `WS_BROADCAST_ENABLED=false` meant multi-worker deployments still had split websocket registries.
+          Original work items: flip the default ON after multi-worker load testing; add publish/receive/drop
+          metrics + a bounded dispatch under burst; coalesce per-symbol market broadcasts IF a realtime producer
+          is ever re-introduced; consider sharding pub/sub channels by topic.
+          **Progress (2026-08-15) — the mechanics were DONE**: the bus carried operational metrics
           (`published / publish_errors / received / self_suppressed / decode_errors / dispatched /
           dispatch_errors / dispatch_timeouts / reconnects`) surfaced via `GET /api/v1/monitoring/ws-broadcast`
           (`health["metrics"]`); each dispatch is bounded by `WS_BROADCAST_DISPATCH_TIMEOUT_SECONDS` (default 5 s)
@@ -712,20 +713,39 @@ Items removed from this plan during the same review — and why — are listed i
           (default 150 messages across 3 channels via `MULTIWORKER_BURST_MESSAGES`/`MULTIWORKER_BURST_CHANNELS`,
           alternating publisher per channel so both A→B and B→A carry load, one client per channel per worker;
           asserts exactly-once + per-channel publish order + quiet window + zero error counters and **zero
-          listener reconnects** — the flap bug class this harness already caught once). **Remaining for the
-          flip**: a staging load test and the deployment decision itself (flip `WS_BROADCAST_ENABLED` default
-          ON); per-symbol coalescing IF a realtime market-data producer is ever re-introduced (the original
+          listener reconnects** — the flap bug class this harness already caught once).           **Remaining for the
+          flip**: ~~a staging load test and the deployment decision itself~~ **DONE 2026-08-16** (see
+          below); per-symbol coalescing IF a realtime market-data producer is ever re-introduced (the original
           consumer, `realtime_data_service`, was deleted — see the dead-code item — so coalescing has no current
-          producer to serve). The flip itself is a deployment-behavior change and stays explicitly gated on those.
+          producer to serve).
           **Unblocked 2026-08-16**: the `bot-multiworker` CI job was promoted to a blocking quality gate
-          (green in every run since it landed, 5/5, now carrying the burst scenario), and `bot-integration`
-          was promoted alongside it (6/6 green; offline-safe because the indexer contract skips, not fails).
-          **Blocked on**: multi-worker tests (below) — the core harness landed 2026-08-14 (and already fixed a
-          real listener-flap bug in this bus) plus its CI job on 2026-08-15 (`bot-multiworker`, non-blocking
-          phase 1 in `.github/workflows/bot-quality.yml`); promote that job to a gate once stable. Operator
-          tooling for the flip landed with the harness: `GET /api/v1/monitoring/ws-broadcast` reports `subscribed`
-          (true subscription state) + `metrics`, and `POST /api/v1/monitoring/ws-broadcast/publish` smoke-tests
-          end-to-end fan-out.
+          and `bot-integration` was promoted alongside it. The promotion exposed that the phase-1 jobs had
+          never actually run green in CI — `continue-on-error` marked the JOB success while the pytest step
+          errored on the missing `.configkey.bin` (the pytest process tried to decrypt the repo's encrypted
+          profile without the repo secret). Both jobs now write a hermetic `APP_RUN_CONFIG_FILE`
+          (`.ci-run.json`, mirroring `bot-tests`) so the suites genuinely execute against the service
+          containers; the offline indexer contract still skips rather than fails.
+          **Blocked on**: ~~multi-worker tests (below)~~ resolved — the core harness landed 2026-08-14 (and
+          already fixed a real listener-flap bug in this bus), its CI job landed 2026-08-15 and was promoted to
+          a blocking gate 2026-08-16. Operator tooling for the flip landed with the harness:
+          `GET /api/v1/monitoring/ws-broadcast` reports `subscribed` (true subscription state) + `metrics`, and
+          `POST /api/v1/monitoring/ws-broadcast/publish` smoke-tests end-to-end fan-out.
+          **FLIPPED 2026-08-16 — Phase 2 COMPLETE.** (a) *Hardening first*: `publish` is awaited inline on
+          `broadcast_to_bot`'s critical path and `redis_url()` always resolves a URL, so with Redis
+          configured-but-unreachable every broadcast would pay up to the 1 s connect timeout — the bus gained a
+          **publish failure circuit** (3 consecutive failures → 30 s pause, `publish_suppressed`/`publish_pauses`
+          counters + `publish_paused` health field; half-open probe after the window; success resets the streak;
+          injectable `publish_failure_threshold`/`publish_pause_seconds` for tests — 3 new cases in
+          `tests/test_broadcast_bus.py`). (b) *Evidence*: a 600-message soak across two real workers
+          (`MULTIWORKER_BURST_MESSAGES=600` — exactly-once, per-channel order, zero error counters, zero
+          reconnects, ~22 s) and a live no-Redis check (10 publishes against a dead port: 3 fast-fails then the
+          circuit opens, 26.8 ms total; `health()` reports `publish_paused: true` / `healthy: false`; listener
+          start/stop clean). (c) *The flip*: `WS_BROADCAST_ENABLED` default `false`→`true` in
+          `src/constants.py`; docs synced (README, AGENTS.md, bus module docstring, `server.py` startup
+          comment, monitoring route docstring + regenerated `openapi.json`). (d) *Test isolation*: the autouse
+          `_isolate_broadcast_bus` fixture now patches the bus module's imported `WS_BROADCAST_ENABLED`
+          constant (env-var patching is inert post-import — `bus.py` binds the constant by value), keeping the
+          whole suite on the Noop bus under the new default. Operators opt out with `WS_BROADCAST_ENABLED=false`.
 
 #### **Architecture Improvements**
 
@@ -942,10 +962,13 @@ Items removed from this plan during the same review — and why — are listed i
           `POSTGRES_*` env, step summary, `timeout-minutes: 15`). The exact job command was validated locally
           against live infra (2 passed).
           **Promoted to a BLOCKING gate 2026-08-16** (dropped `continue-on-error`, added to
-          `quality-gate.needs`): green in every CI run since it landed (5/5 across master pushes and
-          Dependabot PRs); `bot-integration` promoted alongside it (6/6 green; the dYdX indexer contract
-          skips offline, so the gate is offline-safe). Flakiness triage knob without un-promoting:
-          `MULTIWORKER_BURST_MESSAGES` (0 disables the burst scenario).
+          `quality-gate.needs`). The promotion exposed that the phase-1 job conclusion ("success") was
+          misleading: `continue-on-error` had been masking a pytest step that never actually passed in CI —
+          it errored at setup on the missing `.configkey.bin` (pytest's `load_repo_env` tried to decrypt the
+          encrypted profile; only `bot-tests` carried a hermetic `APP_RUN_CONFIG_FILE`). Both promoted jobs
+          now write their own `.ci-run.json` (same content as `bot-tests`) and genuinely run.
+          Flakiness triage knob without un-promoting: `MULTIWORKER_BURST_MESSAGES` (0 disables the burst
+          scenario).
         - [x] Multi-replica (docker-level) + burst/load coverage ahead of the Phase 2 flip — DONE
           2026-08-16: `test_burst_publish_cross_worker_delivery_under_load` (see the broadcast Phase 2
           item for the full assertion list; 3 passed / 25.7 s against live infra, remainder-path sizing
@@ -1121,8 +1144,9 @@ remains:
   `responses.py`/`endpoint_timing.py`). Backtest service 4,443→2,959 lines (Phases 1–5a: `backtest_models.py`,
   `backtest_pair_selection.py`, `backtest_history.py`, `backtest_queries.py`, `backtest_controls.py`);
   further decomposition assessed and **closed** as net-negative — see action-plan item
-- ✅ **Implement distributed state management** for horizontal scaling (Phase 1 COMPLETED — Redis pub/sub WebSocket
-  broadcast bus, OFF by default; strategy storage was already Postgres-backed and rate limiting already Redis-backed,
+- ✅ **Implement distributed state management** for horizontal scaling (Phases 1–2 COMPLETED — Redis pub/sub WebSocket
+  broadcast bus, default ON since 2026-08-16 with a publish failure circuit bounding Redis-unreachable latency;
+  strategy storage was already Postgres-backed and rate limiting already Redis-backed,
   so only the WebSocket registry needed work — see action-plan item)
 - ✅ **Replace sys.exit () calls** with proper exception handling (COMPLETED)
 - ✅ **Implement token revocation** - Complete logout/logout-all functionality (COMPLETED)
@@ -1303,9 +1327,9 @@ The original Week-1 items are retained as an implementation record; completed wo
 ### **Week 2: Architecture Foundation**
 
 1. ✅ **Break up the API server** — COMPLETED (Phases 1–6 delivered; 6,093→1,740 lines)
-2. ✅ **Implement distributed state management** — Phase 1 delivered (Redis pub/sub WebSocket broadcast bus behind
-   `WS_BROADCAST_ENABLED`, OFF by default; strategy storage was already Postgres-backed, rate limiting already
-   Redis-backed). Phase 2 (flip default ON after multi-worker load testing) deferred.
+2. ✅ **Implement distributed state management** — COMPLETED (Phase 1: Redis pub/sub WebSocket broadcast bus behind
+   `WS_BROADCAST_ENABLED`; strategy storage was already Postgres-backed, rate limiting already Redis-backed.
+   Phase 2 flipped the default ON 2026-08-16 after load evidence + publish-circuit hardening.)
 3. ✅ **Add multi-worker test infrastructure** - Begin testing process-local state issues (DELIVERED 2026-08-14:
    `tests/test_multi_worker_broadcast.py` + `make test-multiworker`; already caught and fixed a real bus bug)
 
@@ -1318,7 +1342,9 @@ The original Week-1 items are retained as an implementation record; completed wo
 1. ✅ **Authentication bypass vulnerabilities** in expensive backtest operations — RESOLVED
 2. ✅ **Credentials stored in plain text** in database configuration — RESOLVED
 3. ✅ **Position tracking errors** due to missing fill confirmation — RESOLVED
-4. 🟡 **Process-local state limitations** preventing horizontal scaling — Phase 1 DELIVERED (Redis pub/sub WebSocket broadcast bus, OFF by default); strategy-storage and rate-limiting concerns were stale (already Postgres- and Redis-backed respectively)
+4. ✅ **Process-local state limitations** preventing horizontal scaling — RESOLVED (Redis pub/sub WebSocket broadcast
+   bus, default ON since the 2026-08-16 Phase 2 flip with publish-circuit-bounded degradation); strategy-storage and
+   rate-limiting concerns were stale (already Postgres- and Redis-backed respectively)
 5. ✅ **Broad exception handlers** masking real issues — CONTAINED: typed hierarchy + global 500 handler + an
    enforced ratchet (324→309) that can only go down. The residue was reviewed and is mostly intentional
    best-effort isolation, so this is closed rather than "in progress"

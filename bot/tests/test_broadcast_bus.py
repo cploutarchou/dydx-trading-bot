@@ -47,10 +47,14 @@ class _FakePubSub:
 class _FakeRedis:
     """In-memory stand-in for ``redis.asyncio.Redis``."""
 
-    def __init__(self, *, fail_publish=False, fail_ping=False):
+    def __init__(self, *, fail_publish=False, fail_ping=False, fail_publish_first=0):
         self.published: list[tuple[str, str]] = []
         self.fail_publish = fail_publish
         self.fail_ping = fail_ping
+        # Fail only the first N publish() calls, then succeed — drives the
+        # publish failure circuit's open/reset/probe transitions.
+        self.fail_publish_first = fail_publish_first
+        self.publish_calls = 0
         self.pubsubs: list[_FakePubSub] = []
 
     def pubsub(self):
@@ -59,7 +63,10 @@ class _FakeRedis:
         return ps
 
     async def publish(self, channel, payload):
-        if self.fail_publish:
+        self.publish_calls += 1
+        if self.fail_publish or (
+            self.fail_publish_first and self.publish_calls <= self.fail_publish_first
+        ):
             raise RuntimeError("publish boom")
         self.published.append((channel, payload))
 
@@ -346,6 +353,94 @@ def test_publish_metrics_count_success_and_error():
     asyncio.run(sick_bus.publish("c", {"x": 1}))
     assert sick_bus._metrics["published"] == 0
     assert sick_bus._metrics["publish_errors"] == 1
+
+
+# ── Publish failure circuit ───────────────────────────────────────────────────
+
+
+def test_publish_circuit_opens_after_consecutive_failures():
+    """After the threshold, publishes are skipped outright (no client call)."""
+    fake = _FakeRedis(fail_publish=True)
+    bus = RedisBroadcastBus(
+        url="redis://localhost:6379/0",
+        worker_id="w",
+        client=fake,
+        publish_failure_threshold=3,
+        publish_pause_seconds=60.0,
+    )
+
+    async def _scenario():
+        for _ in range(3):  # 3 consecutive failures → circuit opens
+            await bus.publish("c", {"x": 1})
+        for _ in range(5):  # paused: skipped without touching the client
+            await bus.publish("c", {"x": 1})
+        return await bus.health()
+
+    health = asyncio.run(_scenario())
+    assert fake.publish_calls == 3
+    m = bus._metrics
+    assert m["publish_errors"] == 3
+    assert m["publish_suppressed"] == 5
+    assert m["publish_pauses"] == 1
+    assert health["publish_paused"] is True
+
+
+def test_publish_circuit_streak_resets_on_success():
+    """Failures below the threshold, interrupted by a success, never open it."""
+    fake = _FakeRedis(fail_publish_first=2)  # calls 1-2 fail, 3+ succeed
+    bus = RedisBroadcastBus(
+        url="redis://localhost:6379/0",
+        worker_id="w",
+        client=fake,
+        publish_failure_threshold=3,
+        publish_pause_seconds=60.0,
+    )
+
+    async def _scenario():
+        await bus.publish("c", {"x": 1})  # failure 1
+        await bus.publish("c", {"x": 2})  # failure 2
+        await bus.publish("c", {"x": 3})  # success → streak reset
+        await bus.publish("c", {"x": 4})  # success
+        await bus.publish("c", {"x": 5})  # success
+        return await bus.health()
+
+    health = asyncio.run(_scenario())
+    assert fake.publish_calls == 5
+    assert len(fake.published) == 3
+    m = bus._metrics
+    assert m["publish_errors"] == 2
+    assert m["publish_suppressed"] == 0
+    assert m["publish_pauses"] == 0
+    assert health["publish_paused"] is False
+
+
+def test_publish_circuit_probes_again_after_pause_window():
+    """The circuit half-opens when the pause elapses; success closes it."""
+    fake = _FakeRedis(fail_publish_first=1)  # call 1 fails, 2+ succeed
+    bus = RedisBroadcastBus(
+        url="redis://localhost:6379/0",
+        worker_id="w",
+        client=fake,
+        publish_failure_threshold=1,
+        publish_pause_seconds=0.02,
+    )
+
+    async def _scenario():
+        await bus.publish("c", {"x": 1})  # failure → immediately paused
+        await bus.publish("c", {"x": 2})  # suppressed
+        assert fake.publish_calls == 1
+        await asyncio.sleep(0.05)  # pause window elapses → half-open probe
+        await bus.publish("c", {"x": 3})  # probe succeeds → circuit closed
+        await bus.publish("c", {"x": 4})  # straight through again
+        return await bus.health()
+
+    health = asyncio.run(_scenario())
+    assert fake.publish_calls == 3
+    assert len(fake.published) == 2
+    m = bus._metrics
+    assert m["publish_suppressed"] == 1
+    assert m["publish_pauses"] == 1
+    assert health["publish_paused"] is False
 
 
 def test_dispatch_timeout_is_counted_and_listener_continues():

@@ -67,6 +67,7 @@ make local-bot
 make test
 make test-multiworker
 make test-integration
+make portfolio-burn-in
 make preflight-testnet
 ```
 
@@ -83,6 +84,13 @@ reaches a WebSocket client attached to worker B exactly once with no loop-back. 
 target and when the suite runs without `MULTIWORKER_TEST=1`) when not opted in. The companion operator smoke test is
 `POST /api/v1/monitoring/ws-broadcast/publish` (auth required), which emits a server-built `broadcast_test` message
 through the same path the runtime uses.
+
+`make portfolio-burn-in` runs the live portfolio-risk guard burn-in (`scripts/portfolio_risk_burn_in.py`):
+repeated evaluations of the guard's decision against every subaccount configured in `bot_instances`
+(public indexer reads, no signing credentials), failing on read errors or data-unavailability — the
+false-denial classes — while reporting genuine limit denials as correct behavior. Requires the shared
+infrastructure and at least one `bot_instances` row with a `config.credentials.address`; knobs via
+`PORTFOLIO_BURN_IN_CYCLES` / `PORTFOLIO_BURN_IN_INTERVAL` / `PORTFOLIO_BURN_IN_OUT`.
 
 `make local-api` starts the canonical API without uvicorn hot reload by default, which gives cleaner shutdown semantics
 for runtime verification. Use `make dev-api` or set `BOT_API_RELOAD=true` only when file-watch reload behavior is
@@ -161,8 +169,10 @@ Useful environment variables:
   `REDIS_URL` / `VALKEY_URL`) and bound command latency with `WS_BROADCAST_SOCKET_TIMEOUT_SECONDS=1.0`. A Redis outage
   degrades to local-only delivery (never breaks a broadcast). Health is visible at
   `GET /api/v1/monitoring/ws-broadcast` (auth required).
-- **Portfolio risk controls** (`src/trading/portfolio_risk.py`, `src/trading/portfolio_accounts.py`): opt-in
-  account-level entry guard on the shared subaccount (`BOT_PORTFOLIO_RISK_ENABLED=false` default) with
+- **Portfolio risk controls** (`src/trading/portfolio_risk.py`, `src/trading/portfolio_accounts.py`):
+  account-level entry guard on the shared subaccount — **ON by default since the Phase B flip
+  (2026-08-17)**; set `BOT_PORTFOLIO_RISK_ENABLED=false` to opt out. Default-active limits: 20 open
+  markets and 60% margin utilization (each individually disable-able). Also provides
   open-market / margin-utilization / free-collateral-floor / drawdown caps, plus opt-in deployment-wide
   aggregate caps across every distinct wallet address in `bot_instances`
   (`BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS` / `BOT_PORTFOLIO_AGGREGATE_MAX_MARGIN_UTILIZATION_PCT`, both
@@ -175,7 +185,8 @@ Useful environment variables:
   drawdown cap never resets itself). Unparseable position notionals fail closed when any notional control is
   active (`portfolio_notional_data_incomplete`).
   Exposure and denials are visible at `GET /api/v1/monitoring/portfolio-risk` (auth required); see
-  `docs/bot-risk-control-matrix.md`.
+  `docs/bot-risk-control-matrix.md`. Re-run the live guard burn-in (which produced the flip evidence)
+  with `make portfolio-burn-in` before changing any default limit.
 - `NATS_URL` and `NATS_MONITORING_URL` for the optional command/event bus contract
 - `BACKTEST_ARTIFACT_STORAGE_ENABLED=false` keeps artifact persistence on the local fallback path
 - `BACKTEST_CLICKHOUSE_WRITES_ENABLED=false` keeps analytical writes disabled by default

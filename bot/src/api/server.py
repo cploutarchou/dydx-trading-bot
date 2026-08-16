@@ -74,7 +74,7 @@ except Exception as bot_manager_import_error:  # pragma: no cover
     logger.warning(
         "Bot instance manager unavailable at startup: {}", bot_manager_import_error
     )
-    bot_manager = None
+    bot_manager = None  # type: ignore[assignment]
 
 from internal.domain.models import BacktestRun  # noqa: E402
 from src.api.websocket_server import (  # noqa: E402
@@ -1603,7 +1603,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
         running_instances = len([i for i in instances if i.status == BotStatus.RUNNING])
 
         # System resource usage
-        import psutil  # type: ignore[import-untyped]
+        import psutil
 
         cpu_usage = psutil.cpu_percent()
         memory = psutil.virtual_memory()

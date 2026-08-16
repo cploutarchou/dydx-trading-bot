@@ -44,6 +44,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import QueuePool, Pool
 
 
+def _pool_metric(pool: Pool, name: str) -> Any | None:
+    """Read a QueuePool-style stat defensively (base Pool lacks size/checkedout/overflow)."""
+    getter = getattr(pool, name, None)
+    return getter() if callable(getter) else None
+
+
 def _resolve_pool_max_overflow(pool: Pool, configured_max_overflow: int = 0) -> int:
     """Return the largest valid configured or runtime pool overflow limit.
 
@@ -60,6 +66,8 @@ def _resolve_pool_max_overflow(pool: Pool, configured_max_overflow: int = 0) -> 
     ):
         if callable(raw_value):
             raw_value = raw_value()
+        if raw_value is None:
+            continue
         try:
             value = int(raw_value)
         except (TypeError, ValueError):
@@ -107,10 +115,10 @@ class ConnectionPoolMonitor:
         self._connection_timeouts: deque[dict[str, Any]] = deque(
             maxlen=metrics_window_size
         )
-        self._last_alert_time = None
+        self._last_alert_time: datetime | None = None
         self._alert_cooldown_seconds = 300  # 5 minutes between alerts
         self._monitoring_active = False
-        self._monitoring_thread = None
+        self._monitoring_thread: threading.Thread | None = None
 
         # Current pool state
         self._current_pool_size = 0
@@ -167,10 +175,10 @@ class ConnectionPoolMonitor:
                 return
 
             with self._lock:
-                # SQLAlchemy pool metrics
-                pool_size = pool.size()
-                checked_out = pool.checkedout()
-                overflow = pool.overflow()
+                # SQLAlchemy pool metrics (base Pool lacks size/checkedout/overflow)
+                pool_size = int(_pool_metric(pool, "size") or 0)
+                checked_out = int(_pool_metric(pool, "checkedout") or 0)
+                overflow = int(_pool_metric(pool, "overflow") or 0)
                 max_overflow = _resolve_pool_max_overflow(
                     pool, self.configured_max_overflow
                 )
@@ -1243,9 +1251,9 @@ class DatabaseManager:
             pool = engine.pool
             diagnostics["pool_info"] = {
                 "pool_class": pool.__class__.__name__,
-                "size": pool.size(),
-                "checked_out": pool.checkedout(),
-                "overflow": pool.overflow(),
+                "size": _pool_metric(pool, "size"),
+                "checked_out": _pool_metric(pool, "checkedout"),
+                "overflow": _pool_metric(pool, "overflow"),
                 "max_overflow": _resolve_pool_max_overflow(
                     pool,
                     getattr(self.config, "max_overflow", 0),

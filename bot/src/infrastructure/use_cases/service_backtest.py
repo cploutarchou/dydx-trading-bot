@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import hashlib
 import json
 import logging
@@ -1677,9 +1678,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         )
         self._tasks[run_id] = task
         task.add_done_callback(
-            lambda completed_task, completed_run_id=run_id: self._handle_task_done(
-                completed_run_id, completed_task
-            )
+            lambda completed_task: self._handle_task_done(run_id, completed_task)
         )
         return self._prepare_existing_run_recovery(
             run_data,
@@ -2277,7 +2276,9 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                     )
             resumed = resumed_checkpoint is not None
             resumed_completed = (
-                resumed_checkpoint["completed_pairs_count"] if resumed else 0
+                resumed_checkpoint["completed_pairs_count"]
+                if resumed_checkpoint is not None
+                else 0
             )
 
             heartbeat_thread = threading.Thread(
@@ -2348,7 +2349,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
 
                 if max_pairs is not None:
                     pair_markets = pair_markets[:max_pairs]
-            elif resumed:
+            elif resumed_checkpoint is not None:
                 # Trust the checkpointed plan — it defines what "completed"
                 # means for this run. Re-ranking now could observe drifted
                 # market data and produce a different order.
@@ -2358,7 +2359,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 ]
 
             total_pairs = len(pair_markets)
-            if resumed:
+            if resumed_checkpoint is not None:
                 all_trades: List[Dict[str, Any]] = list(resumed_checkpoint["trades"])
                 all_snapshots: List[Dict[str, Any]] = list(
                     resumed_checkpoint["position_snapshots"]
@@ -2430,9 +2431,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                     run_id,
                     run_data,
                     deadline_monotonic,
-                    checkpoint_writer=lambda completed=idx: _save_run_checkpoint(
-                        completed
-                    ),
+                    checkpoint_writer=functools.partial(_save_run_checkpoint, idx),
                 )
                 if resumed and idx < resumed_completed:
                     # Already captured by the checkpoint this attempt resumed
@@ -2500,9 +2499,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                         run_id,
                         run_data,
                         deadline_monotonic,
-                        checkpoint_writer=lambda completed=idx: (
-                            _save_run_checkpoint(completed)
-                        ),
+                        checkpoint_writer=functools.partial(_save_run_checkpoint, idx),
                     )
                     candles_1 = await self._await_with_deadline(
                         _history._fetch_market_history(
@@ -2526,9 +2523,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                         run_id,
                         run_data,
                         deadline_monotonic,
-                        checkpoint_writer=lambda completed=idx: (
-                            _save_run_checkpoint(completed)
-                        ),
+                        checkpoint_writer=functools.partial(_save_run_checkpoint, idx),
                     )
                     candles_2 = await self._await_with_deadline(
                         _history._fetch_market_history(
@@ -2552,9 +2547,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                     run_id,
                     run_data,
                     deadline_monotonic,
-                    checkpoint_writer=lambda completed=idx: _save_run_checkpoint(
-                        completed
-                    ),
+                    checkpoint_writer=functools.partial(_save_run_checkpoint, idx),
                 )
                 timestamps, p1, p2 = self._align_series(candles_1, candles_2)
                 trades, snapshots, daily_pnl = await self._simulate_pair(
@@ -3034,9 +3027,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         )
         self._tasks[run_id] = task
         task.add_done_callback(
-            lambda completed_task, completed_run_id=run_id: self._handle_task_done(
-                completed_run_id, completed_task
-            )
+            lambda completed_task: self._handle_task_done(run_id, completed_task)
         )
         run_data["status"] = "running"
         run_data["updated_at"] = datetime.now(timezone.utc).isoformat()

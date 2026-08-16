@@ -34,12 +34,14 @@ class InterceptHandler(logging.Handler):
         try:
             level_name = logger.level(record.levelname).name
         except ValueError:
-            level_name = record.levelno
+            # Unknown symbolic level — fall back to the numeric one; Loguru
+            # accepts ints for log().
+            level_name = str(record.levelno)
 
         frame = logging.currentframe()
         depth = 2
         while frame and frame.f_code.co_filename == logging.__file__:
-            frame = frame.f_back
+            frame = frame.f_back  # type: ignore[assignment]
             depth += 1
 
         logger.opt(depth=depth, exception=record.exc_info).log(

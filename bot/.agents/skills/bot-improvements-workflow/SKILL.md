@@ -36,7 +36,8 @@ This is the hardened workflow for delivering tasks in `bot/`. Follow it top to b
 
 ## 3. Gates (all must pass before done)
 
-Full CI-mirror suite (coverage floor 64):
+Full CI-mirror suite (coverage floor 70 — see the `coverage-ratchet` skill for the
+protocol; raise it as coverage improves, never lower without justification):
 
 ```bash
 cd bot
@@ -45,15 +46,21 @@ env -u DB_TYPE -u BOT_DB_TYPE -u DATABASE_URL -u BOT_DATABASE_URL -u DB_HOST -u 
     -u BOT_DB_PASSWORD -u MYSQL_HOST -u MYSQL_PORT -u MYSQL_DATABASE -u MYSQL_USER -u MYSQL_PASSWORD \
     APP_RUN_CONFIG_FILE=/tmp/opencode/.ci-run.json .venv/bin/python -m pytest tests/ --tb=short \
     --ignore=tests/test_api_database_integration.py --ignore=tests/test_comprehensive.py \
-    --cov=src --cov-fail-under=64 -q
+    --cov=src --cov-fail-under=70 -q
 ```
 
-Lint/format:
+Lint/format/typecheck:
 
 ```bash
 .venv/bin/python -m black src tests
 .venv/bin/python -m flake8 src tests --select=E9,F63,F7,F82
+.venv/bin/python -m mypy --no-color src   # blocking gate since 2026-08-16 — must be 0 errors
 ```
+
+mypy notes: `Base` is `class Base(DeclarativeBase)` (SQLAlchemy 2 native typing); optional-dependency
+fallback assignments need `# type: ignore[assignment,misc]`; mixins declare host contracts in
+`if TYPE_CHECKING:` blocks. Phase-2 options are ON (`check_untyped_defs`, `warn_unused_ignores`,
+`warn_redundant_casts`) — never add a `# type: ignore` that isn't needed (unused ones fail the gate).
 
 Ratchet: included in the suite (`tests/test_exception_handling_ratchet.py`); if it fails, narrow
 the new catches — do not raise the baseline.

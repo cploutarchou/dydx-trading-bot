@@ -23,6 +23,23 @@ from src.middleware.auth_middleware import get_current_active_user
 router = APIRouter()
 
 
+def _pair_notional(price1: Any, size1: Any, price2: Any, size2: Any) -> Optional[float]:
+    """Sum both legs' |price × size|; None when any leg is missing."""
+    if price1 is None or size1 is None or price2 is None or size2 is None:
+        return None
+    return float(price1) * float(size1) + float(price2) * float(size2)
+
+
+def _trade_duration_seconds(created_at: Any, closed_at: Any) -> Optional[float]:
+    """Seconds between creation and close; None while open or timestamps missing."""
+    if created_at is None or closed_at is None:
+        return None
+    try:
+        return (closed_at - created_at).total_seconds()
+    except TypeError:
+        return None
+
+
 @router.get("/api/v1/bots/{instance_id}/history")
 async def get_bot_history(
     instance_id: str,
@@ -38,7 +55,7 @@ async def get_bot_history(
             bot = uow.bots.get_by_instance_id(instance_id)
             if not bot:
                 return None
-            events = uow.events.get_bot_events(int(bot.id), days=days)  # type: ignore[arg-type]
+            events = uow.events.get_bot_events(int(bot.id), days=days)
             return {
                 "instance_id": instance_id,
                 "total_events": len(events),
@@ -95,7 +112,7 @@ async def get_bot_jobs(
             bot = uow.bots.get_by_instance_id(instance_id)
             if not bot:
                 return None
-            jobs = uow.jobs.get_job_history(int(bot.id), days=days)  # type: ignore[arg-type]
+            jobs = uow.jobs.get_job_history(int(bot.id), days=days)
 
             def _job_status_value(job) -> str:
                 return str(getattr(job.status, "value", job.status)).lower()
@@ -195,7 +212,7 @@ async def get_bot_trades(
             bot = uow.bots.get_by_instance_id(instance_id)
             if not bot:
                 return None
-            trades = uow.trades.get_bot_trades(int(bot.id))  # type: ignore[arg-type]
+            trades = uow.trades.get_bot_trades(int(bot.id))
 
             # Filter by status if requested
             if status:
@@ -214,12 +231,12 @@ async def get_bot_trades(
                         "pair2": trade.pair2,
                         "status": trade.status,
                         "entry_price1": (
-                            float(trade.entry_price1)  # type: ignore[arg-type]
+                            float(trade.entry_price1)
                             if trade.entry_price1 is not None
                             else None
                         ),
                         "entry_price2": (
-                            float(trade.entry_price2)  # type: ignore[arg-type]
+                            float(trade.entry_price2)
                             if trade.entry_price2 is not None
                             else None
                         ),
@@ -228,38 +245,38 @@ async def get_bot_trades(
                             if trade.exit_price1 is not None
                             else None
                         ),
-                        # type: ignore[arg-type]
                         "exit_price2": (
                             float(trade.exit_price2)
                             if trade.exit_price2 is not None
                             else None
                         ),
-                        # type: ignore[arg-type]
-                        "entry_cost": (
-                            float(trade.entry_cost)
-                            if trade.entry_cost is not None
-                            else None
+                        # Derived from real columns (the Trade model has no
+                        # entry_cost/exit_proceeds columns).
+                        "entry_cost": _pair_notional(
+                            trade.entry_price1,
+                            trade.entry_size1,
+                            trade.entry_price2,
+                            trade.entry_size2,
                         ),
-                        # type: ignore[arg-type]
-                        "exit_proceeds": (
-                            float(trade.exit_proceeds)  # type: ignore[arg-type]
-                            if trade.exit_proceeds is not None
-                            else None
+                        "exit_proceeds": _pair_notional(
+                            trade.exit_price1,
+                            trade.exit_size1,
+                            trade.exit_price2,
+                            trade.exit_size2,
                         ),
                         "profit_loss": (
                             float(trade.profit_loss)
                             if trade.profit_loss is not None
                             else None
                         ),
-                        # type: ignore[arg-type]
                         "profit_loss_percentage": (
-                            float(trade.profit_loss_percentage)  # type: ignore[arg-type]
+                            float(trade.profit_loss_percentage)
                             if trade.profit_loss_percentage is not None
                             else None
                         ),
                         "opened_at": (
-                            trade.opened_at.isoformat()
-                            if trade.opened_at is not None
+                            trade.created_at.isoformat()
+                            if trade.created_at is not None
                             else None
                         ),
                         "closed_at": (
@@ -267,7 +284,9 @@ async def get_bot_trades(
                             if trade.closed_at is not None
                             else None
                         ),
-                        "duration_seconds": trade.duration_seconds,
+                        "duration_seconds": _trade_duration_seconds(
+                            trade.created_at, trade.closed_at
+                        ),
                     }
                     for trade in trades
                 ],
@@ -313,7 +332,7 @@ async def get_bot_stats(
             if not bot:
                 return None
             bot_stats = uow.bots.get_statistics(instance_id)
-            trade_stats = uow.trades.get_trade_statistics(int(bot.id))  # type: ignore[arg-type]
+            trade_stats = uow.trades.get_trade_statistics(int(bot.id))
             return {
                 "instance_id": instance_id,
                 "bot_statistics": {

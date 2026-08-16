@@ -95,7 +95,7 @@ jobs:
                     --ignore=tests/test_api_database_integration.py \
                     --ignore=tests/test_comprehensive.py \
                     --cov=src \
-                    --cov-fail-under=64 \
+                    --cov-fail-under=70 \
                     --cov-report=term \
                     --cov-report=xml:coverage.xml \
                     --cov-report=html:htmlcov \
@@ -103,12 +103,18 @@ jobs:
                   # Summarise results for the step summary
                   tail -3 pytest-output.txt >> "$GITHUB_STEP_SUMMARY"
 
-            # Coverage FLOOR (blocking): --cov-fail-under=64, set 2026-08-15 from a
-            # measured 65.0% line coverage (exact CI invocation, local infra) minus
-            # a 1-point ratchet margin. Ratchet it upward as coverage improves;
-            # never lower it without a documented justification. pytest-cov and
-            # coverage are pulled in via requirements.txt; config lives in
-            # bot/pyproject.toml ([tool.coverage.*]); source root is src.
+            # Coverage FLOOR (blocking): --cov-fail-under=70, ratcheted 2026-08-17
+            # from a measured 71.98% line coverage (exact CI invocation, local infra)
+            # minus a 1-point ratchet margin. Same-day trail: 69.30% via pure-module
+            # hotspot tests (cointegration analysis, backtest queries/pair-selection,
+            # auth utils, dataframe utils; floor 64->68), then 71.98% via the NATS
+            # consumer-service and Celery backtest-task suites (+58 cases; floor 68->70,
+            # which also fixed two latent bugs: the nats-py RetentionPolicy enum lookup
+            # that broke workqueue-stream provisioning, and a None delivery_info crash
+            # on eager task invocation). Original floor 64 was set 2026-08-15 from 65.0%.
+            # Ratchet upward as coverage improves; never lower without a documented
+            # justification. pytest-cov and coverage are pulled in via requirements.txt;
+            # config lives in bot/pyproject.toml ([tool.coverage.*]); source root is src.
             - name: Publish coverage summary
               if: always()
               run: |
@@ -186,17 +192,16 @@ jobs:
               run: flake8 src tests --select=E9,F63,F7,F82 --show-source
 
     # ---------------------------------------------------------------------------
-    # Bot type checking (mypy) — phase 1: NON-BLOCKING reporting baseline
+    # Bot type checking (mypy) — BLOCKING gate (baseline cleared 2026-08-16)
     # ---------------------------------------------------------------------------
-    # The codebase predates type annotations and carries an existing mypy baseline
-    # (~189 errors, concentrated in infrastructure/persistence/repository.py,
-    # infrastructure/event_bus_nats.py, infrastructure/persistence/repository_backtest.py).
-    # This job surfaces type debt and new regressions WITHOUT blocking merges:
-    #   - the mypy step uses continue-on-error, so errors don't fail the build;
-    #   - the job is intentionally NOT in the quality-gate `needs`.
-    # To make it a gate later: clear the baseline, drop continue-on-error, and add
-    # `bot-typecheck` to quality-gate.needs. Config lives in bot/pyproject.toml
-    # ([tool.mypy]); enable the commented phase-2 options there to tighten.
+    # The codebase predates type annotations; the type debt was cleared
+    # module-by-module (234 errors → 0, measured 2026-08-16) and this job now
+    # gates merges:
+    #   - any new mypy error fails the build;
+    #   - the job is in the quality-gate `needs`.
+    # Config lives in bot/pyproject.toml ([tool.mypy]); phase-2 options
+    # (check_untyped_defs, warn_unused_ignores, warn_redundant_casts) are enabled
+    # there — the commented phase-3 options are the next tightening step.
     bot-typecheck:
         name: Bot type check (mypy)
         runs-on: ubuntu-latest
@@ -222,7 +227,6 @@ jobs:
               run: pip install -r requirements.txt
 
             - name: Run mypy
-              continue-on-error: true # phase 1: reporting-only, does not gate
               run: |
                   set -o pipefail
                   python -m mypy --no-color src 2>&1 | tee mypy-output.txt
@@ -230,9 +234,9 @@ jobs:
             - name: Publish mypy summary
               if: always()
               run: |
-                  echo "### 🔍 Type checking (mypy — phase 1, non-blocking)" >> "$GITHUB_STEP_SUMMARY"
+                  echo "### 🔍 Type checking (mypy — blocking gate)" >> "$GITHUB_STEP_SUMMARY"
                   echo "" >> "$GITHUB_STEP_SUMMARY"
-                  echo "Reporting-only. Drive \`Found N errors\` to 0, then flip this job to a gate (see bot/pyproject.toml)." >> "$GITHUB_STEP_SUMMARY"
+                  echo "Baseline cleared 2026-08-16 (234 → 0); any error now fails the build." >> "$GITHUB_STEP_SUMMARY"
                   echo "" >> "$GITHUB_STEP_SUMMARY"
                   if [ -f mypy-output.txt ]; then
                       echo '```' >> "$GITHUB_STEP_SUMMARY"
@@ -658,6 +662,7 @@ jobs:
         needs:
             - bot-tests
             - bot-lint
+            - bot-typecheck
             - bot-multiworker
             - bot-integration
             - docker-compose-validate

@@ -18,6 +18,7 @@ from loguru import logger as loguru_logger
 
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
+from src.infrastructure.use_cases.backtest_history import _extract_retry_after_seconds
 from src.infrastructure.use_cases.service_backtest import BacktestService
 from src.infrastructure.workers.backtest_event_emitter import (
     emit_backtest_event_sync,
@@ -205,7 +206,7 @@ def _max_retries() -> int:
 
 
 def _retry_countdown_seconds(retries: int, exc: BaseException) -> float:
-    retry_after = BacktestService._extract_retry_after_seconds(exc)
+    retry_after = _extract_retry_after_seconds(exc)
     if retry_after is not None:
         return retry_after
     raw_base = os.getenv("BACKTEST_CELERY_RETRY_BASE_SECONDS", "30")
@@ -466,7 +467,7 @@ def run_backtest_task(
                 meta={
                     "task_id": task_id,
                     "task_name": "backtests.run",
-                    "queue": getattr(self.request, "delivery_info", {}).get(
+                    "queue": (getattr(self.request, "delivery_info", None) or {}).get(
                         "routing_key", "backtests"
                     ),
                     "status": "STARTED",

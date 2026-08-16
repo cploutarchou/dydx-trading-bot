@@ -396,6 +396,11 @@ def test_http_loader_parses_response_bodies(monkeypatch):
             open_market_count=1,
             complete=True,
             error=None,
+            # The empty position dict carries no size/entryPrice — it now
+            # surfaces as an unparsed position instead of being silently
+            # dropped (the notional controls fail closed on it).
+            per_market_notional_usd={},
+            unparsed_position_count=1,
         ),
     )
 
@@ -441,3 +446,55 @@ def test_http_loader_maps_404_status_to_complete_zero_exposure(monkeypatch):
     assert exposures[0].complete is True
     assert exposures[0].equity == 0.0
     assert exposures[0].open_market_count == 0
+
+
+# --------------------------------------------------------------------------- #
+# Shared per-market notional exposure math (burn-in / notional controls)
+# --------------------------------------------------------------------------- #
+
+
+def test_parse_open_positions_notional_books_size_times_entry():
+    positions = {
+        "BTC-USD": {"market": "BTC-USD", "size": "0.5", "entryPrice": "60000"},
+        "ETH-USD": {"market": "ETH-USD", "size": "-4", "entryPrice": "3000"},
+    }
+    per_market, unparsed = portfolio_accounts.parse_open_positions_notional(positions)
+    # |size| x entryPrice per leg; shorts book positive notional.
+    assert per_market == {"BTC-USD": 30000.0, "ETH-USD": 12000.0}
+    assert unparsed == 0
+
+
+def test_parse_open_positions_notional_accumulates_and_counts_unparsed():
+    positions = {
+        # Two legs in the same market accumulate.
+        "BTC-USD": {"market": "BTC-USD", "size": "1", "entryPrice": "10"},
+        "BTC-USD-2": {"market": "BTC-USD", "size": "2", "entryPrice": "10"},
+        # Missing / malformed fields count as unparsed instead of guessing.
+        "BAD-USD": {"market": "BAD-USD"},
+        "WORSE-USD": "not-a-dict",
+        # Zero-size positions stay out of the book (nothing booked).
+        "ZERO-USD": {"market": "ZERO-USD", "size": "0", "entryPrice": "5"},
+    }
+    per_market, unparsed = portfolio_accounts.parse_open_positions_notional(positions)
+    assert per_market == {"BTC-USD": 30.0}
+    assert unparsed == 2
+
+
+def test_parse_open_positions_notional_non_dict_is_empty_book():
+    assert portfolio_accounts.parse_open_positions_notional(None) == ({}, 0)
+    assert portfolio_accounts.parse_open_positions_notional("nope") == ({}, 0)
+    assert portfolio_accounts.parse_open_positions_notional({}) == ({}, 0)
+
+
+def test_parse_account_exposure_carries_notional_fields():
+    payload = {
+        "equity": "1000",
+        "freeCollateral": "900",
+        "openPerpetualPositions": {
+            "BTC-USD": {"market": "BTC-USD", "size": "1", "entryPrice": "100"},
+            "BROKEN": {},
+        },
+    }
+    exposure = parse_account_exposure(_ref("0x1"), payload)
+    assert exposure.per_market_notional_usd == {"BTC-USD": 100.0}
+    assert exposure.unparsed_position_count == 1

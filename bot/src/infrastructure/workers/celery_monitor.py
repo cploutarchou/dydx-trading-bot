@@ -635,7 +635,9 @@ def list_celery_queues() -> Dict[str, Any]:
             ).split(",")
             if queue.strip()
         ]
-        payload = [{"name": queue, "length": None} for queue in queues]
+        payload: List[Dict[str, Any]] = [
+            {"name": queue, "length": None} for queue in queues
+        ]
         try:
             with celery_app.connection_or_acquire() as conn:
                 channel = conn.default_channel

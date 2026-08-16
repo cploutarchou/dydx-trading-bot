@@ -33,7 +33,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
@@ -71,7 +71,11 @@ class AccountExposure:
     equity/free-collateral sums must then exclude this account), or when the
     read failed outright (``error`` carries the reason). ``open_market_count``
     is still reported when known — a readable-but-malformed account keeps its
-    positions count.
+    positions count. ``per_market_notional_usd`` / ``unparsed_position_count``
+    carry the same exposure math the guard's own snapshot uses
+    (:func:`parse_open_positions_notional`) so the burn-in harness and any
+    future notional view can evaluate the concentration controls without a
+    signing client; the aggregate checks themselves only use the counts.
     """
 
     address: str
@@ -81,6 +85,8 @@ class AccountExposure:
     open_market_count: int
     complete: bool
     error: str | None = None
+    per_market_notional_usd: dict[str, float] = field(default_factory=dict)
+    unparsed_position_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -125,6 +131,37 @@ def _is_http_404(exc: BaseException) -> bool:
     return getattr(response, "status_code", None) == 404
 
 
+def parse_open_positions_notional(
+    positions: Any,
+) -> tuple[dict[str, float], int]:
+    """Per-open-market notional and unparsable-position count.
+
+    Shared exposure math for every reader of an ``openPerpetualPositions``
+    dict (the guard's own snapshot and the public subaccount reads alike):
+    each position books ``|size| x entryPrice`` in its market (the payload
+    carries no mark price; entry price is the deterministic exposure the
+    account actually took), positions missing/holding unparseable fields are
+    counted instead of guessed at. A non-dict ``positions`` value is an empty
+    book — some degraded payloads omit the key entirely.
+    """
+    if not isinstance(positions, dict):
+        return {}, 0
+    per_market: dict[str, float] = {}
+    unparsed = 0
+    for ticker, position in positions.items():
+        market = (
+            position.get("market") if isinstance(position, dict) else None
+        ) or ticker
+        try:
+            notional = abs(float(position["size"])) * float(position["entryPrice"])
+        except (KeyError, TypeError, ValueError):
+            unparsed += 1
+            continue
+        if notional > 0:
+            per_market[market] = per_market.get(market, 0.0) + notional
+    return per_market, unparsed
+
+
 def parse_account_exposure(
     ref: PortfolioAccountRef, subaccount_payload: Any
 ) -> AccountExposure:
@@ -138,6 +175,7 @@ def parse_account_exposure(
     free_collateral = _as_float(payload.get("freeCollateral"))
     positions = payload.get("openPerpetualPositions")
     open_market_count = len(positions) if isinstance(positions, dict) else 0
+    per_market_notional, unparsed = parse_open_positions_notional(positions)
     return AccountExposure(
         address=ref.address,
         network=ref.network,
@@ -145,6 +183,8 @@ def parse_account_exposure(
         free_collateral=free_collateral,
         open_market_count=open_market_count,
         complete=equity is not None and free_collateral is not None,
+        per_market_notional_usd=per_market_notional,
+        unparsed_position_count=unparsed,
     )
 
 

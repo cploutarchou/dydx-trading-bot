@@ -19,13 +19,33 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Set
 
 from src.infrastructure.use_cases.async_job_manager import async_job_manager
 
 
 class BacktestControlMixin:
     """Runtime control methods; mixed into :class:`BacktestService`."""
+
+    if TYPE_CHECKING:
+        # Host contract — provided by BacktestService at runtime (see module
+        # docstring). Declared type-only so mypy checks this mixin's usage without
+        # duplicating the implementations; the real definitions live on (and are
+        # checked on) the host.
+        _runs: Dict[str, Dict[str, Any]]
+        _tasks: Dict[str, asyncio.Task]
+        _TERMINAL_STATUSES: Set[str]
+        repository: Any
+        _load_run_data: Callable[..., Optional[Dict[str, Any]]]
+        _resolve_stale_run_data: Callable[..., Dict[str, Any]]
+        _persist_run_data: Callable[..., Dict[str, Any]]
+        _set_runtime_control: Callable[..., Dict[str, Any]]
+        _get_runtime_control: Callable[..., Dict[str, Any]]
+        _strip_runtime_control: Callable[..., Dict[str, Any]]
+        _reconstruct_restart_request_payload: Callable[..., Dict[str, Any]]
+        _revoke_celery_backtest: Callable[[Optional[str]], None]
+        _configured_worker_backend: Callable[..., str]
+        create_and_run_backtest: Callable[..., Any]
 
     def pause_backtest(self, run_id: str) -> Optional[Dict[str, Any]]:
         data = self._load_run_data(run_id)

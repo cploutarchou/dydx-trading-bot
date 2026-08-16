@@ -1,6 +1,160 @@
 # Tasks Log
 
+## 2026-08-17
+
+- **Coverage floor ratcheted 68 → 70 (measured 69.30% → 71.98%) + two more latent bugs fixed.**
+  Second ratchet pass, targeting the two biggest worker-infrastructure coverage gaps with
+  hand-rolled fakes (no live NATS/Redis/broker required).
+    - **`tests/test_nats_consumer_service.py` (38 cases; `event_bus_nats.py` 35.3% → 89.7%)**:
+      connect success/failure/disabled (max_reconnects −1 → 60-attempt translation), connection
+      callbacks incl. reconnect-triggered resubscribe, stream + consumer provisioning (exists/create/
+      probe-error paths), the full `_process_messages` loop (happy ACK, invalid JSON → NAK, invalid
+      envelope → NAK, duplicate → ACK without handler call, handler exception → NAK), envelope
+      extraction, PostgreSQL duplicate-check (terminal statuses only; fail-open on DB error),
+      result dispatch (ACK/NAK/REQUEUE/unknown + swallow transport failures), dead-letter publishing
+      (subject mapping, delivery count, original payload, ack-after-move; NAK fallbacks), stream-name
+      mapping, subscribe/start/shutdown lifecycle, and the module singleton helpers.
+    - **`tests/test_backtest_tasks_helpers.py` (21 cases; `backtest_tasks.py` 23.6% → 91.6%)**:
+      lock TTL/retry-policy env matrices, Retry-After-aware exponential backoff, transient-error
+      classification (HTTP status set, transport families, message heuristics, never-transient types),
+      redis lock acquire/release compare-and-delete semantics, pub/sub status plumbing, and seven
+      `run_backtest_task` flows (duplicate-lock skip → SUCCESS duplicate_skipped, missing run, the
+      three strategy/pairs validation errors, happy path + progress-callback PROGRESS/publish,
+      transient → Retry with persisted retrying status, permanent → failed, soft-time-limit, cancel).
+    - **Bug 3 — NATS workqueue-stream provisioning always failed**: `_ensure_stream` looked up nats-py
+      enums by member name (`RetentionPolicy["WORKQUEUE"]`) but the member is `WORK_QUEUE` — KeyError
+      on every attempt to create BOT_COMMANDS / BACKTEST_COMMANDS (both workqueue retention), sinking
+      the Phase-4 command-bus provisioning path. Enums are now constructed by VALUE (the NATS
+      server-JSON spellings that the config vocabulary mirrors). Regression-pinned by the new
+      provisioning tests.
+    - **Bug 4 — eager Celery invocation crashed on `delivery_info`**: the STARTED metadata read
+      `getattr(self.request, "delivery_info", {}).get(...)`; in eager/pushed request contexts the
+      attribute exists but is `None`, so the default never applied and the task raised
+      AttributeError before reporting state. Now `(getattr(...) or {})`.
+    - **Floor raise**: `--cov-fail-under` 68 → 70 in `bot-tests` (comment trail updated);
+      suite green at **994 passed / 13 skipped**, total coverage **71.98%**. `coverage-ratchet` skill
+      updated (history, hotspot map, two new gotcha classes: enum value-vs-name lookups; async stubs
+      under `raise self.retry(...)` + None `delivery_info` in eager contexts).
+
+- **Coverage floor ratcheted 64 → 68 (measured 65.91% → 69.27%) + two latent bugs fixed.** The plan's
+  coverage-floor item prescribed `current−1` ratcheting as coverage improves; this pass executed it.
+    - **Five focused test files (+75 cases)** against the best-ROI pure modules ranked by missed
+      statements: `tests/test_cointegration_analysis.py` (12; `trading/analysis/cointegration.py`
+      10.1% → 89.3% — seeded AR(1)/synthetic-pair generators, all guards, the full
+      `store_cointegration_results` pass with faked messenger/storage), `tests/test_backtest_queries.py`
+      (17; `use_cases/backtest_queries.py` 28.0% → 97.7% — the read-side mixin driven through a minimal
+      fake host: status mapping, trades legacy fallback determinism, comparison best/worst semantics,
+      synthetic daily-pnl/position-snapshot fallbacks), `tests/test_backtest_pair_selection.py` (12;
+      strict Engle-Granger+ADF scoring vs penalty branch vs heuristic fallback vs guards),
+      `tests/test_auth_utils.py` (19; bcrypt truncation, JWT exp-type matrix incl. jose's own
+      expired-at-decode rejection, TOTP/QR roundtrip, blacklist Redis/memory paths via injected fakes),
+      `tests/test_dataframe_utils.py` (15; registry lifecycle, downcasting incl. the pandas-3
+      `str`-dtype caveat, cache-entry eviction).
+    - **Bug 1 — cointegration ranking silently degraded since extraction**: `backtest_pair_selection.py`
+      imported `statsmodels.tsa.statools` (nonexistent; canonical `stattools`), so the optional-import
+      guard swallowed the `ModuleNotFoundError` and every `cointegration`-mode backtest ranked pairs with
+      the heuristic fallback instead of the strict statistical path. Fixed; tests now cover both paths.
+    - **Bug 2 — deadlock on the DataFrame cleanup path**: `dataframe_utils.force_cleanup_all` called
+      `unregister_dataframe` while holding the same non-reentrant `threading.Lock` (backs the DataFrame
+      cleanup monitoring surface) — any invocation hung the calling thread. Fixed by snapshotting ids
+      under the lock and unregistering outside it; the new test hung at 0% CPU until the fix (that hang
+      was the diagnosis).
+    - **Floor raise**: `--cov-fail-under` 64 → 68 in `bot-tests` (comment block updated with the
+      measurement trail); full suite green at **936 passed / 13 skipped**, total coverage **69.27%**.
+    - **Protocol saved as a skill**: `.agents/skills/coverage-ratchet/SKILL.md` (exact CI invocation,
+      the every-place-the-number-lives checklist, hotspot map incl. the remaining integration-seam
+      hotspots, and the gotchas hit this pass: silent optional-import fallbacks, lock deadlocks, seeded
+      statistical assertions, pandas-3 str dtype, pydantic v2 `model_dump`).
+
+- **Portfolio-risk Phase B complete — guard flipped default ON; IMPROVEMENTS.md item #6 (the last open
+  item) closed.** Evidence-then-flip protocol, mirroring the broadcast-bus Phase 2 flip:
+    - **Burn-in harness**: new `scripts/portfolio_risk_burn_in.py` (+ `make portfolio-burn-in`, skill
+      `.agents/skills/portfolio-risk-burn-in/SKILL.md`). Repeated live evaluations of the guard's pure core
+      against every `bot_instances` subaccount via the same public indexer reads the monitoring endpoint uses
+      (no signing credentials). Pass/fail measures the DATA PATH: cycle errors and
+      `portfolio_data_unavailable` observations fail; genuine limit denials (incl.
+      `portfolio_non_positive_equity` on a genuinely empty account) are reported as correct behavior.
+      `--json-out` writes the per-cycle flip evidence. Supporting seam: `parse_open_positions_notional`
+      moved into `portfolio_accounts` and now also feeds `AccountExposure`
+      (`per_market_notional_usd`/`unparsed_position_count`); the guard's inline copy in
+      `load_portfolio_snapshot` was deduped onto it (behavior-identical).
+    - **Live evidence**: 20 cycles × 3 s against live infra + the public testnet indexer — PASS (exit 0).
+      A real funded testnet subaccount (equity ≈ 845k USDC, 5 open perpetual markets, $214,400.16 notional
+      parsed from live position payloads, zero unparsed) was ALLOWED on all 20 cycles with zero read errors,
+      zero data-unavailable events, and zero decision changes; a never-traded address exercised the
+      404 → complete-zero-exposure branch (denied `portfolio_non_positive_equity`, fail-closed by design);
+      the Redis peak ratchet ran live on the Celery-broker Valkey DB and held the running max across cycles.
+      Evidence file: `bot_states/portfolio_risk_burn_in_phase_b.json`.
+    - **The flip**: `BOT_PORTFOLIO_RISK_ENABLED` default `false` → `true` (`src/constants.py`). Suite stays
+      hermetic via a new autouse `_isolate_portfolio_guard` conftest fixture patching the guard module's
+      bound constant OFF (env patching is inert post-import — the bus-flip lesson); the shipped default is
+      pinned by `test_guard_enabled_by_default`; the monitoring-route test now enables the flag explicitly
+      (serialization contract) instead of asserting the default.
+    - **Tests**: `tests/test_portfolio_burn_in.py` (11 cases: pass/fail semantics incl. limit-vs-data-path
+      distinction, cycle errors, aggregate evaluation, decision stability, evidence round-trip,
+      import-safety) + 4 `parse_open_positions_notional` cases in `tests/test_portfolio_accounts.py`
+      (the existing http-loader parse test now pins the new unparsed-position surface).
+    - **Validation**: full CI-mirror gate **861 passed / 13 skipped**, coverage **66.25%** (floor 64);
+      position-manager/live-risk/ratchet suites green; `black --check src tests` clean.
+    - **Docs**: IMPROVEMENTS.md (item #6 done — table row, Phase 3 checkbox, action-plan slice-5 entry,
+      matrix line), `docs/bot-risk-control-matrix.md` (Phase B section with upgrade note + rollback lever,
+      default column), README (default ON + `make portfolio-burn-in`), AGENTS.md (trading components,
+      required checks, commands).
+
 ## 2026-08-16
+
+- **mypy phase-2 tightening complete** — `check_untyped_defs`, `warn_unused_ignores`, and
+  `warn_redundant_casts` enabled in `pyproject.toml [tool.mypy]`; count driven back to **0**.
+    - `check_untyped_defs` surfaced 8 real errors in 3 files, all fixed:
+      `database.py` `_collect_metrics` now reads `size`/`checkedout`/`overflow` through the existing
+      defensive `_pool_metric` helper (base `Pool` lacks them — direct calls would `AttributeError`
+      on non-QueuePool pools, e.g. SQLite `StaticPool` in tests) with `int(... or 0)` coercion;
+      `_last_alert_time` / `main_instance` `client` + `messenger` got explicit `Optional[...]`
+      annotations (were inferred as `None`-type); `dataframe_utils` cleanup loop swapped
+      `pop(frame_id, None)` (invalid default type) for a membership check.
+    - `warn_unused_ignores` + `warn_redundant_casts`: deleted 34 stale `# type: ignore` comments
+      across 14 files and 1 redundant `cast(int, bot.id)` — ignore debt can no longer accumulate
+      silently.
+    - Validation: full CI-mirror suite **846 passed / 13 skipped**, coverage floor held, black clean
+      (1 file reformatted), flake8 hard gate clean, `mypy src` → 0 errors under the new config.
+    - Docs: `pyproject.toml` phase headers (phase-3 candidates documented), `bot-quality.yml` gate
+      comment, `IMPROVEMENTS.md` (status + success metrics), skill file.
+
+- **mypy baseline campaign complete — `bot-typecheck` promoted to a blocking CI gate.** Fresh baseline
+  measured at **234 errors in 26 files** (the documented 189 had grown as new code landed) → **0**.
+    - Root causes fixed: `Base = declarative_base()` → `class Base(DeclarativeBase)` in
+      `internal/domain/__init__.py` (unlocked native SQLAlchemy 2 typing for every model; runtime-
+      equivalent, full suite green); wrong `type[Model]` return annotations across
+      `persistence/repository.py` (the source of ~50 cascade errors); mixin host-contracts declared as
+      `if TYPE_CHECKING:` attribute blocks (`backtest_controls.py` / `backtest_queries.py` — mirrors
+      their existing docstring contracts); closure-unsafe `Optional[Session]` narrowing in
+      `repository_backtest.py` (bind narrowed locals after guards); optional-import fallback
+      assignments; lambda-default inference failures (`functools.partial` for checkpoint writers).
+    - **Six real latent bug families fixed** (all in paths unit tests fake out):
+      1. `nats.errors.StreamNotFoundError` / `nats.errors.ConsumerNotFoundError` don't exist in
+         installed nats-py — the `except` clauses would `AttributeError` at exception-match time,
+         aborting stream/consumer auto-creation → now `nats.js.errors.NotFoundError`.
+      2. `nats.api.*` module doesn't exist (`nats.js.api`) — `_ensure_stream`/`_ensure_consumer`
+         would crash on every call → aliased import.
+      3. `ConsumerConfig(max_delivery_attempts=…)` / `AckExplicitPolicy` — wrong kwarg and
+         nonexistent enum → `max_deliver` + `AckPolicy.EXPLICIT`.
+      4. `Msg.meta` → `Msg.metadata` (receipt logging + dead-letter payloads).
+      5. `Msg.header` is nullable → `(message.header or {}).get(...)` in logging/dead-letter.
+      6. `GET /api/v1/bots/{id}/trades` serialized `entry_cost`/`exit_proceeds`/`opened_at`/
+         `duration_seconds` — attributes that don't exist on the `Trade` model (route would 500 on
+         any real DB row; test fakes masked it) → now derived from real columns
+         (`_pair_notional` over prices×sizes, `created_at`, `closed_at−created_at`), test fakes
+         updated to the real shape.
+    - Interface cleanups: `AnalyticsWriter` ABC gained `enabled: bool` (Noop reports False) so
+      `WorkerMetricsWriter` accepts the protocol instead of the concrete ClickHouse class;
+      `_save_run_once` now raises if called without a session (memory path returns earlier);
+      `manage_trade_exits` gained explicit `return None`.
+    - CI promotion: `bot-typecheck` dropped `continue-on-error`, added to `quality-gate.needs`;
+      summary/header text updated; `pyproject.toml [tool.mypy]` header updated (phase-2 options
+      remain the documented next tightening step).
+    - Validation: full CI-mirror suite **846 passed / 13 skipped**, coverage floor held,
+      `black` clean, flake8 hard gate clean, `mypy src` → 0 errors, workflow YAML parses.
+    - Docs: `IMPROVEMENTS.md` (type-checking entries + success metrics), skill file gate list.
 
 - Advanced portfolio-level risk controls **complete** (the last unchecked IMPROVEMENTS.md line, folded
   into open item #6's scope):

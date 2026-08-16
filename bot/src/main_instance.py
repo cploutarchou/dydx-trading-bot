@@ -41,8 +41,8 @@ class BotInstance:
         self.deprecated_config_file = config_file
         self._deprecated_config_file_warning_emitted = False
         self.logger: Optional[Any] = None
-        self.client = None
-        self.messenger = None
+        self.client: Optional[Any] = None
+        self.messenger: Optional[TelegramMessenger] = None
         self.running = False
         self.config = None
 

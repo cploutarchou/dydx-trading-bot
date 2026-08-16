@@ -141,6 +141,12 @@ become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown 
   pub/sub (scratch DBs 14/15), a real Celery worker subprocess (control ping + task registration), and the live
   public dYdX v4 indexer markets contract (skips when offline). Skips automatically unless `INTEGRATION_TEST=1` is
   set (directly or via this target).
+- `make portfolio-burn-in` — Run the live portfolio-risk guard burn-in harness
+  (`scripts/portfolio_risk_burn_in.py`): repeated evaluations of the guard decision against every subaccount in
+  `bot_instances` (public indexer reads). Fails on read errors / data-unavailability (the false-denial classes);
+  reports genuine limit denials as correct behavior. Requires shared infra + a `bot_instances` row with
+  `config.credentials.address`; knobs `PORTFOLIO_BURN_IN_CYCLES` / `PORTFOLIO_BURN_IN_INTERVAL` /
+  `PORTFOLIO_BURN_IN_OUT`. Re-run before changing any default portfolio limit.
 - `make test-auth` — Test authentication system (runs `test_api_database_integration.py` in Docker)
 - `make preflight-testnet` — Run testnet preflight checks with production-like simulation
 - `make preflight-testnet-strict` — Run strict preflight (warnings fail; required for release)
@@ -298,7 +304,21 @@ module `reset_*()` helpers.
   position entry/exit logic or backoff behavior.
 - Run `tests/test_portfolio_risk.py` and `tests/test_portfolio_accounts.py` when touching account-level risk
   controls (`src/trading/portfolio_risk.py`, `src/trading/portfolio_accounts.py`, or the portfolio guard
-  wiring in `position_manager.open_positions`).
+  wiring in `position_manager.open_positions`); also run `tests/test_portfolio_burn_in.py` when touching the
+  burn-in harness, and re-run `make portfolio-burn-in` live before changing any default portfolio limit.
+- Run `tests/test_nats_consumer_service.py` when touching the NATS JetStream consumer service
+  (`src/infrastructure/event_bus_nats.py` — provisioning, message loop, dead-letter, lifecycle), and
+  `tests/test_backtest_tasks_helpers.py` when touching the Celery backtest task module
+  (`src/infrastructure/workers/backtest_tasks.py`); also run the opt-in `tests/test_nats_consumer*.py`
+  suites and `tests/test_backtest_tasks_failure_persistence.py` for the adjacent seams they cover.
+- Run `tests/test_cointegration_analysis.py` and `tests/test_backtest_pair_selection.py` when touching the
+  cointegration math core (`src/trading/analysis/cointegration.py`) or the pair-prioritization engine
+  (`src/infrastructure/use_cases/backtest_pair_selection.py`); `tests/test_backtest_queries.py` when touching
+  the backtest read-side mixin (`backtest_queries.py`); `tests/test_auth_utils.py` when touching
+  `src/api/auth_utils.py`; `tests/test_dataframe_utils.py` when touching `src/shared/dataframe_utils.py`.
+  When raising the coverage floor (`--cov-fail-under`), follow the `coverage-ratchet` skill
+  (`.agents/skills/coverage-ratchet/`): measure with the exact CI invocation, new floor = measured − 1,
+  update every place the number lives.
 - Run `tests/test_storage_adapters.py` when touching ClickHouse or MinIO storage integration.
 - Run `tests/test_arbitrage_observability.py` and `tests/test_arbitrage_cycle_cache.py` when touching arbitrage decision
   logic or pair caching.
@@ -365,8 +385,10 @@ module `reset_*()` helpers.
   defaults, backend/admin settings may override at runtime), `src/trading/bot_agents_state.py` (concurrency-safe
   per-instance tracked-position state; DB primary, JSON file fallback),
   `src/trading/portfolio_risk.py` (account-level entry guard on the SHARED subaccount — aggregate open-market
-  cap, margin-utilization cap, projected free-collateral floor, all-time drawdown; Phase A opt-in via
-  `BOT_PORTFOLIO_RISK_ENABLED`, default off; see `docs/bot-risk-control-matrix.md`),
+  cap, margin-utilization cap, projected free-collateral floor, all-time drawdown; **default ON since the
+  Phase B flip 2026-08-17** after the recorded burn-in — opt out via `BOT_PORTFOLIO_RISK_ENABLED=false`;
+  re-run the burn-in with `make portfolio-burn-in` before changing any default limit; see
+  `docs/bot-risk-control-matrix.md`),
   `src/trading/portfolio_accounts.py` (multi-account aggregation — enumerates the deployment's distinct
   wallet addresses from `bot_instances` and reads their public indexer exposure; opt-in deployment-wide caps
   via `BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS` / `BOT_PORTFOLIO_AGGREGATE_MAX_MARGIN_UTILIZATION_PCT`,

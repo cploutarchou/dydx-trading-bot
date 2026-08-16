@@ -56,7 +56,7 @@ async def _ensure_event_stream(js: Any) -> None:
     except Exception:
         pass  # Not found; create below.
     try:
-        import nats.api as nats_api  # type: ignore[import-untyped]
+        import nats.api as nats_api
     except Exception:
         nats_api = None
     try:
@@ -175,7 +175,7 @@ async def publish_backtest_event(
     data = json.dumps(envelope).encode()
 
     try:
-        import nats  # type: ignore[import-untyped]
+        import nats
     except Exception as exc:  # pragma: no cover - exercised when nats.py absent
         logger.debug("backtest_event_emit_skip nats_unavailable error=%r", exc)
         return None

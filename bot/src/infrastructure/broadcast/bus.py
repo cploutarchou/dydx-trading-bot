@@ -203,7 +203,7 @@ class RedisBroadcastBus(BroadcastBus):
         if self._client is not None:
             return self._client
         try:  # pragma: no cover - optional dependency / config path
-            import redis.asyncio as aioredis  # type: ignore[import]
+            import redis.asyncio as aioredis
         except Exception as exc:  # noqa: BLE001 - optional dep, degrade to noop
             self._build_error = f"redis.asyncio unavailable: {exc!r}"
             return None
@@ -227,7 +227,7 @@ class RedisBroadcastBus(BroadcastBus):
         if self._listener_client is not None:
             return self._listener_client
         try:  # pragma: no cover - optional dependency / config path
-            import redis.asyncio as aioredis  # type: ignore[import]
+            import redis.asyncio as aioredis
         except Exception as exc:  # noqa: BLE001 - optional dep, degrade to noop
             self._listener_build_error = f"redis.asyncio unavailable: {exc!r}"
             return None

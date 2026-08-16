@@ -54,7 +54,7 @@ T = TypeVar("T")
 _PYBREAKER_AVAILABLE = False
 if importlib.util.find_spec("pybreaker") is not None:
     try:
-        import pybreaker  # type: ignore[import]
+        import pybreaker
 
         _PYBREAKER_AVAILABLE = True
     except ImportError:  # pragma: no cover - optional dependency
@@ -90,7 +90,7 @@ def _is_excluded_indexer_error(exc: BaseException) -> bool:
     system malfunction and DO count (predicate returns False).
     """
     try:
-        import httpx  # type: ignore[import]
+        import httpx
     except ImportError:  # pragma: no cover - httpx is a core dependency
         return False
     if isinstance(exc, httpx.HTTPStatusError):
@@ -231,10 +231,10 @@ def _fire_breaker_open_alert(service: str, fail_counter: int) -> None:
 
 if _PYBREAKER_AVAILABLE:
 
-    class _BreakerStateListener(pybreaker.CircuitBreakerListener):  # type: ignore[misc]
+    class _BreakerStateListener(pybreaker.CircuitBreakerListener):
         """Log every breaker state transition and alert operators on OPEN."""
 
-        def state_change(self, cb, _old_state, new_state):  # type: ignore[override]
+        def state_change(self, cb, _old_state, new_state):
             name = cb.name or "breaker"
             state_name = getattr(new_state, "name", str(new_state))
             if state_name == "open":

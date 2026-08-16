@@ -92,7 +92,7 @@ def _resolve_realtime_bot_id(session: Any, bot_instance_id: str) -> Optional[int
     try:
         uow_core = _core_uow_factory(session)
         bot = uow_core.bots.get_by_instance_id(raw_id)
-        return int(bot.id) if bot else None  # type: ignore[arg-type]
+        return int(bot.id) if bot else None
     except Exception as exc:
         logger.warning(
             "Failed to resolve realtime bot id for {}: {}",
@@ -120,7 +120,7 @@ def _get_current_positions_sync(bot_instance_id: str):
                 status_code=404,
             )
 
-        positions = uow.positions.get_open_positions(bot_id_int)  # type: ignore[arg-type]
+        positions = uow.positions.get_open_positions(bot_id_int)
 
         return api_response(
             success=True,

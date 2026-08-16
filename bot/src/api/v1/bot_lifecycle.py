@@ -184,14 +184,14 @@ def _persist_bot_status_and_event(
 
         if event_type:
             uow.events.log_event(
-                int(bot.id),  # type: ignore[arg-type]
+                int(bot.id),
                 event_type,
                 severity,
                 message,
                 details=details,
             )
 
-        raw_config = dict(bot.config) if bot.config is not None else {}  # type: ignore[arg-type]
+        raw_config = dict(bot.config) if bot.config is not None else {}
         return open_config_secrets(raw_config)
     except Exception as db_error:
         logger.warning(
@@ -243,7 +243,7 @@ def _persist_created_bot_config(
 
         try:
             uow.events.log_event(
-                int(bot_db.id),  # type: ignore[arg-type]
+                int(bot_db.id),
                 "bot_created",
                 "info",
                 f"Bot instance created via API: {instance_id}",
@@ -273,7 +273,7 @@ def _delete_bot_db_record(instance_id: str) -> None:
         bot = uow.bots.get_by_instance_id(instance_id)
         if bot is not None:
             uow.events.log_event(
-                int(bot.id),  # type: ignore[arg-type]
+                int(bot.id),
                 "bot_deleted",
                 "info",
                 "Bot instance deleted via API",

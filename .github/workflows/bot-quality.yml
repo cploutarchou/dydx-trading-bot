@@ -344,12 +344,16 @@ jobs:
     # canonical API as TWO real worker processes sharing one Redis/Valkey and an
     # ephemeral PostgreSQL database with WS_BROADCAST_ENABLED=true, and asserts
     # that a broadcast on worker A reaches a WebSocket client on worker B exactly
-    # once with no loop-back. This is the coverage that gates flipping the
-    # broadcast bus default ON (Phase 2) and it has already caught a real
-    # listener-flap bug in the Phase 1 bus.
-    # Phase 1: NON-BLOCKING (continue-on-error + not in quality-gate.needs) so
-    # stability on shared runners is proven before it gates merges. To promote:
-    # drop continue-on-error and add `bot-multiworker` to quality-gate.needs.
+    # once with no loop-back, plus a burst/load scenario (multi-channel burst,
+    # both publish directions, exactly-once + per-channel order + zero listener
+    # reconnects). This is the coverage that gates flipping the broadcast bus
+    # default ON (Phase 2) and it has already caught a real listener-flap bug
+    # in the Phase 1 bus.
+    # Promoted to a BLOCKING gate 2026-08-16: green in every CI run since it
+    # landed (5/5 across master pushes and Dependabot PRs) plus local
+    # validation with the burst scenario against live infra. If shared-runner
+    # flakiness appears, triage via MULTIWORKER_BURST_MESSAGES without
+    # un-promoting the job.
     bot-multiworker:
         name: Bot multi-worker broadcast test
         runs-on: ubuntu-latest
@@ -407,7 +411,6 @@ jobs:
             - name: Run multi-worker broadcast test
               # -s so the harness's worker log tails (printed on failure) and
               # skip reasons surface in the CI log.
-              continue-on-error: true # phase 1: prove runner stability before gating
               run: |
                   set -o pipefail
                   python -m pytest tests/test_multi_worker_broadcast.py -vv -s --tb=short 2>&1 | tee multiworker-output.txt
@@ -415,9 +418,9 @@ jobs:
             - name: Publish multi-worker summary
               if: always()
               run: |
-                  echo "### 🔗 Multi-worker broadcast test (phase 1, non-blocking)" >> "$GITHUB_STEP_SUMMARY"
+                  echo "### 🔗 Multi-worker broadcast test (blocking gate)" >> "$GITHUB_STEP_SUMMARY"
                   echo "" >> "$GITHUB_STEP_SUMMARY"
-                  echo "Two real API workers + Redis + ephemeral Postgres (\`tests/test_multi_worker_broadcast.py\`). Promote to a gate once stable (see workflow comments)." >> "$GITHUB_STEP_SUMMARY"
+                  echo "Two real API workers + Redis + ephemeral Postgres, incl. the burst/load scenario (\`tests/test_multi_worker_broadcast.py\`)." >> "$GITHUB_STEP_SUMMARY"
                   echo "" >> "$GITHUB_STEP_SUMMARY"
                   if [ -f multiworker-output.txt ]; then
                       echo '```' >> "$GITHUB_STEP_SUMMARY"
@@ -435,9 +438,9 @@ jobs:
     # control pings + registering the project's tasks, and the indexer's public
     # markets contract. Redis scratch DBs 14/15 keep the run isolated; the dYdX
     # test skips (not fails) when outbound network is unavailable.
-    # Phase 1: NON-BLOCKING (continue-on-error + not in quality-gate.needs) to
-    # prove stability on shared runners first — promote the same way as
-    # bot-multiworker once green consistently.
+    # Promoted to a BLOCKING gate 2026-08-16 alongside bot-multiworker: green in
+    # every CI run since it landed (6/6). The indexer contract still skips (not
+    # fails) when outbound network is unavailable, so the gate is offline-safe.
     bot-integration:
         name: Bot external-service integration tests
         runs-on: ubuntu-latest
@@ -473,7 +476,6 @@ jobs:
               run: pip install -r requirements.txt
 
             - name: Run external-service integration tests
-              continue-on-error: true # phase 1: prove runner stability before gating
               run: |
                   set -o pipefail
                   python -m pytest tests/test_integration_external_services.py -vv -s --tb=short 2>&1 | tee integration-output.txt
@@ -481,7 +483,7 @@ jobs:
             - name: Publish integration summary
               if: always()
               run: |
-                  echo "### 🌐 External-service integration tests (phase 1, non-blocking)" >> "$GITHUB_STEP_SUMMARY"
+                  echo "### 🌐 External-service integration tests (blocking gate)" >> "$GITHUB_STEP_SUMMARY"
                   echo "" >> "$GITHUB_STEP_SUMMARY"
                   echo "Real Redis/Valkey cache + pub/sub, a real Celery worker, and the public dYdX indexer (\`tests/test_integration_external_services.py\`)." >> "$GITHUB_STEP_SUMMARY"
                   echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -606,6 +608,8 @@ jobs:
         needs:
             - bot-tests
             - bot-lint
+            - bot-multiworker
+            - bot-integration
             - docker-compose-validate
             - k8s-secret-scan
             - kustomize-validate

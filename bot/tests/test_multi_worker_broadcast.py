@@ -52,6 +52,20 @@ _WS_CHANNEL = "backtest-multiworker-test-run"
 _READY_TIMEOUT_SECONDS = 180.0
 _QUIET_WINDOW_SECONDS = 1.5
 
+# Burst/load scenario sizing (the multi-replica load coverage that gates the
+# broadcast-bus Phase 2 flip). Overridable so a flaky shared runner can be
+# triaged without code changes; MULTIWORKER_BURST_MESSAGES=0 skips the scenario.
+_BURST_CHANNELS = max(1, int(os.getenv("MULTIWORKER_BURST_CHANNELS", "3")))
+_BURST_MESSAGES = max(0, int(os.getenv("MULTIWORKER_BURST_MESSAGES", "150")))
+_BURST_RECV_TIMEOUT_SECONDS = 60.0
+_ERROR_METRIC_KEYS = (
+    "publish_errors",
+    "decode_errors",
+    "dispatch_errors",
+    "dispatch_timeouts",
+    "reconnects",
+)
+
 
 def _env_flag(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
@@ -438,6 +452,169 @@ def test_broadcast_on_worker_a_reaches_worker_b_exactly_once(cluster):
             for ws in (ws_a, ws_b):
                 with pytest.raises(asyncio.TimeoutError):
                     await asyncio.wait_for(ws.recv(), timeout=_QUIET_WINDOW_SECONDS)
+
+    try:
+        asyncio.run(_scenario())
+    except Exception:
+        # Surfacing worker logs is the only way to debug server-side closes.
+        for worker in cluster.workers:
+            print(
+                f"\n[multiworker] worker {worker.name} (port {worker.port}) "
+                f"log tail:\n{worker.log_tail(40)}"
+            )
+        raise
+
+
+def test_burst_publish_cross_worker_delivery_under_load(cluster):
+    """Burst/load coverage at the two-real-worker topology level.
+
+    Publishes a rapid burst of ``broadcast_test`` messages across multiple
+    synthetic channels, alternating the *publishing* worker per channel (so
+    both the A→B and B→A cross-worker paths carry sustained load), while one
+    WebSocket client per channel is attached to EACH worker. Asserts the
+    properties the Phase 2 default-flip depends on:
+
+    - exactly-once delivery to every client (local and cross-worker);
+    - per-channel publish-order preserved end-to-end (single publisher per
+      channel keeps Redis ordering deterministic);
+    - no duplicates/echoes afterwards (quiet window);
+    - zero bus error counters and ZERO reconnects across the burst (a
+      listener flap silently drops messages — the bug class this harness
+      already caught once — so ``reconnects`` must not move at all).
+    """
+    if _BURST_MESSAGES == 0:
+        pytest.skip("MULTIWORKER_BURST_MESSAGES=0 — burst scenario disabled")
+
+    channels = [f"{_WS_CHANNEL}-burst-{i}" for i in range(_BURST_CHANNELS)]
+    per_channel = [
+        _BURST_MESSAGES // _BURST_CHANNELS
+        + (1 if i < _BURST_MESSAGES % _BURST_CHANNELS else 0)
+        for i in range(_BURST_CHANNELS)
+    ]
+    assert sum(per_channel) == _BURST_MESSAGES
+    # Round-robin schedule: channel index for each of the _BURST_MESSAGES
+    # publishes (first channels absorb the remainder, matching per_channel).
+    schedule = [seq % _BURST_CHANNELS for seq in range(_BURST_MESSAGES)]
+
+    # Channel i is published by worker A when i is even, B when odd: both
+    # cross-worker directions carry load while each channel keeps a single
+    # publisher (deterministic per-channel Redis ordering).
+    publisher_for = {
+        c: cluster.a if i % 2 == 0 else cluster.b for i, c in enumerate(channels)
+    }
+    count_for = dict(zip(channels, per_channel))
+
+    async def _scenario() -> None:
+        from websockets.asyncio.client import connect
+
+        # One client per channel per worker: 2 * len(channels) connections,
+        # each of which must see its channel's burst exactly once, in order.
+        clients: dict = {}  # (channel, worker_idx) -> websockets connection
+        try:
+            for c in channels:
+                for idx, worker in enumerate(cluster.workers):
+                    ws = await connect(
+                        f"ws://127.0.0.1:{worker.port}/ws/bots/{c}", open_timeout=15
+                    )
+                    clients[(c, idx)] = ws
+            # Drain the initial backtest_progress frame each connection gets.
+            for ws in clients.values():
+                initial = json.loads(await asyncio.wait_for(ws.recv(), timeout=15.0))
+                assert initial["type"] == "backtest_progress", initial
+
+            metrics_before = {
+                worker.name: _bus_health(worker)["metrics"]
+                for worker in cluster.workers
+            }
+
+            # Rapid sequential burst: round-robin across channels so the shared
+            # ws:broadcast listener on each worker sees interleaved traffic.
+            published_ids: dict[str, list[str]] = {c: [] for c in channels}
+            for channel_idx in schedule:
+                c = channels[channel_idx]
+                test_id = await asyncio.to_thread(
+                    _publish_test_broadcast, publisher_for[c], c
+                )
+                published_ids[c].append(test_id)
+
+            # Collect every client's frames; each must see exactly its
+            # channel's messages, in publish order, with no foreign frames.
+            async def _collect(c: str, idx: int) -> list[str]:
+                ws = clients[(c, idx)]
+                expected = count_for[c]
+                ids: list[str] = []
+                deadline = time.monotonic() + _BURST_RECV_TIMEOUT_SECONDS
+                while len(ids) < expected:
+                    remaining = deadline - time.monotonic()
+                    assert remaining > 0, (
+                        f"client (channel={c}, worker={idx}) received only "
+                        f"{len(ids)}/{expected} frames before timeout"
+                    )
+                    message = json.loads(
+                        await asyncio.wait_for(ws.recv(), timeout=remaining)
+                    )
+                    assert (
+                        message["type"] == "broadcast_test"
+                    ), f"unexpected frame on burst channel {c}: {message}"
+                    assert message["bot_instance_id"] == c, message
+                    ids.append(str(message["data"]["test_id"]))
+                return ids
+
+            results = await asyncio.gather(
+                *(
+                    _collect(c, idx)
+                    for c in channels
+                    for idx in range(len(cluster.workers))
+                )
+            )
+            flat = {
+                (c, idx): ids
+                for (c, idx), ids in zip(
+                    [(c, idx) for c in channels for idx in range(len(cluster.workers))],
+                    results,
+                )
+            }
+            for c in channels:
+                for idx in range(len(cluster.workers)):
+                    path = (
+                        "local"
+                        if publisher_for[c] is cluster.workers[idx]
+                        else "cross-worker"
+                    )
+                    assert flat[(c, idx)] == published_ids[c], (
+                        f"{path} delivery on channel {c} (worker {idx}) diverged "
+                        f"from publish order (duplicates, loss, or reorder)"
+                    )
+
+            # Quiet window: no duplicates or echoes beyond the exact burst.
+            for ws in clients.values():
+                with pytest.raises(asyncio.TimeoutError):
+                    await asyncio.wait_for(ws.recv(), timeout=_QUIET_WINDOW_SECONDS)
+
+            metrics_after = {
+                worker.name: _bus_health(worker)["metrics"]
+                for worker in cluster.workers
+            }
+            for worker in cluster.workers:
+                before, after = metrics_before[worker.name], metrics_after[worker.name]
+                expected_published = sum(
+                    count_for[c] for c in channels if publisher_for[c] is worker
+                )
+                assert after["published"] - before["published"] == expected_published, (
+                    worker.name,
+                    before,
+                    after,
+                )
+                for key in _ERROR_METRIC_KEYS:
+                    assert after[key] - before[key] == 0, (
+                        worker.name,
+                        key,
+                        before,
+                        after,
+                    )
+        finally:
+            for ws in clients.values():
+                await ws.close()
 
     try:
         asyncio.run(_scenario())

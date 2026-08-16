@@ -296,6 +296,15 @@ test-integration: ensure-venv ## Run external-service integration tests (Redis/C
 	@$(MAKE) -C .. infra-up
 	$(call run-venv-python-env,PYTHONPATH=$(CURDIR) INTEGRATION_TEST=1,-m pytest tests/test_integration_external_services.py -s -vv)
 
+.PHONY: portfolio-burn-in
+portfolio-burn-in: ensure-venv ## Run the live portfolio-risk burn-in harness (needs infra + a bot_instances row)
+	@echo "$(CYAN)🔥 Running portfolio risk guard burn-in (20 cycles x 3s)...$(RESET)"
+	@$(MAKE) -C .. infra-up
+	$(call run-venv-python-env,PYTHONPATH=$(CURDIR),scripts/portfolio_risk_burn_in.py \
+		--cycles $${PORTFOLIO_BURN_IN_CYCLES:-20} \
+		--interval-seconds $${PORTFOLIO_BURN_IN_INTERVAL:-3} \
+		--json-out $${PORTFOLIO_BURN_IN_OUT:-bot_states/portfolio_risk_burn_in.json})
+
 .PHONY: install-hooks
 install-hooks: ensure-venv ## Install git pre-commit hooks (run once after clone)
 	@echo "$(CYAN)🪝 Installing pre-commit hooks...$(RESET)"

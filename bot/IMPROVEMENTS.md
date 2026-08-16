@@ -50,7 +50,7 @@ Most of this document is a record of completed work. Everything still pending, i
 | 3 | ~~**Move blocking DB calls off the event loop**~~ **RESOLVED 2026-08-15** — slices 1–5: `run_db` seam + backtest/realtime reads, WebSocket senders, backtest mutations, `bot_records`/`bot_lifecycle`/`strategies`, `pool_pre_ping` (default ON) + auth yield-dependency session fix | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | done |
 | 4 | ~~**Integration tests** (Redis / Celery / dYdX)~~ **RESOLVED 2026-08-15** — opt-in harness (`tests/test_integration_external_services.py`, `make test-integration`): real cache roundtrip, real bus pub/sub, real Celery worker ping+registration, live indexer contract; non-blocking `bot-integration` CI job with a Valkey service container | Compose infra already exists; mostly markers + a CI job | done |
 | 5 | ~~**Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`)~~ **RESOLVED 2026-08-15** — floor set at 64% (measured 65.08%, blocking), `bot-deps-audit` pip-audit CI job + Dependabot shipped; first audit already removed an unused `aiohttp` pin carrying 3 open advisories | Two cheap CI gates; coverage reports today with nothing enforcing them | done |
-| 6 | **Portfolio-level risk controls** — Phase A entry guard, operator visibility, account-wide drawdown, multi-account aggregation, AND the advanced concentration set (2026-08-15/16: per-market notional cap, gross-notional leverage cap, correlation buckets, UTC-day loss limit — all individually off); remaining: Phase B burn-in → default ON | Per-instance limits can each pass while the account is over-exposed | in progress (Phase B pending) |
+| 6 | ~~**Portfolio-level risk controls**~~ **RESOLVED 2026-08-17** — Phase A entry guard, operator visibility, account-wide drawdown, multi-account aggregation, the advanced concentration set (per-market notional cap, gross-notional leverage cap, correlation buckets, UTC-day loss limit — all individually off), and **Phase B**: a live burn-in harness (`scripts/portfolio_risk_burn_in.py`, `make portfolio-burn-in`, skill `portfolio-risk-burn-in`) produced 20/20 clean cycles against a real funded testnet subaccount (0 read errors, 0 data-unavailable, 0 decision changes; empty account fails closed for the designed reason) and `BOT_PORTFOLIO_RISK_ENABLED` was flipped **default ON** (`=false` restores the old behavior; the suite stays hermetic via a conftest constant patch like the bus flip) | Per-instance limits can each pass while the account is over-exposed | done |
 | 7 | ~~**Backtest checkpointing**~~ **RESOLVED 2026-08-16** — durable per-pair checkpoints (`backtests/<run_id>/checkpoint.json` in the artifact store) written at the heavy-progress cadence and on pause; Celery redelivery / transient retry / auto-recovery requeue / NATS redelivery all resume from the completed-pair prefix after payload-hash validation (fail-open); terminal completed/cancelled delete the checkpoint | Was compute-cost only: resumed runs skip re-fetch + re-simulation of completed pairs | done |
 
 > **Resolved 2026-08-11:** the former row 1 ("Resolve dead code paths") is done — 2FA router
@@ -1123,7 +1123,7 @@ deployments, distributed tracing, monolith-level horizontal scaling, backtest pa
 monitoring dashboard) has been **removed** — see "Removed from this plan" at the end for the reasoning. What
 remains:
 
-- [ ] **Implement advanced risk management** with portfolio-level controls
+- [x] **Implement advanced risk management** with portfolio-level controls
     - **Files**: Risk control engine improvements, portfolio analytics
     - **Impact**: cross-instance capital protection — today risk controls are per-instance, so N instances can
       each stay inside their limits while the account as a whole is over-exposed
@@ -1187,8 +1187,31 @@ remains:
       canonical API against the local infra DB with a real `bot_instances` row — enumeration + decryption +
       live public indexer read all confirmed end-to-end; the check CAUGHT AND FIXED two real bugs before
       merge (plain-httpx responses need explicit `.json()`/`raise_for_status()` — the dydx client lib does
-      both implicitly; regression tests added for each). **Remaining slices:** Phase B (burn-in on testnet
-      via the visibility endpoint, then flip the default ON).
+      both implicitly; regression tests added for each). **Slice 5 (2026-08-17): Phase B — burn-in + default
+      flip, ITEM COMPLETE.** (a) *Harness*: `scripts/portfolio_risk_burn_in.py` (wrapped by
+      `make portfolio-burn-in`, documented in the `portfolio-risk-burn-in` skill) runs repeated live
+      evaluations of the guard's pure core against every `bot_instances` subaccount via the same public
+      indexer reads the monitoring endpoint uses; it FAILS on cycle errors and
+      `portfolio_data_unavailable` observations (the false-denial classes) but only REPORTS genuine
+      limit denials, and writes the full cycle log as flip evidence (`--json-out`). Supporting seam:
+      `parse_open_positions_notional` now lives in `portfolio_accounts` and feeds both the guard's own
+      snapshot and `AccountExposure` (`per_market_notional_usd` + `unparsed_position_count`), so the
+      harness evaluates the notional controls at full fidelity; the guard's inline copy was deduped onto
+      it. Coverage: `tests/test_portfolio_burn_in.py` (11 cases) + 4 parser cases in
+      `tests/test_portfolio_accounts.py`. (b) *Evidence*: 20 cycles × 3 s against live infra — a real
+      funded testnet subaccount (equity ≈ 845k, 5 open perpetual markets, $214,400.16 notional parsed
+      from live position payloads, 0 unparsed) was ALLOWED all 20 cycles with zero read errors and zero
+      decision changes; a never-traded address exercised the 404 → complete-zero-exposure branch and was
+      denied for `portfolio_non_positive_equity` (fail-closed by design — an empty account cannot take
+      entries); the Redis peak ratchet ran live (Valkey, Celery-broker DB — the stored peak correctly
+      held the running max above the final cycle's equity). Result: PASS, exit 0. (c) *The flip*:
+      `BOT_PORTFOLIO_RISK_ENABLED` default `false`→`true` in `src/constants.py`; the suite stays
+      hermetic via a new autouse `_isolate_portfolio_guard` conftest fixture that patches the guard
+      module's bound constant OFF (env-var patching is inert post-import — the same lesson as the
+      broadcast-bus flip); the shipped default is pinned by `test_guard_enabled_by_default`; docs
+      synced (README, risk-control matrix Phase B section, AGENTS.md, OPERATIONS.md). Operators opt
+      out with `BOT_PORTFOLIO_RISK_ENABLED=false`; the matrix documents the upgrade note (default
+      limits 20 open markets / 60% margin utilization now apply out of the box).
 
 ---
 
@@ -1254,7 +1277,8 @@ remains:
 - ✅ Advanced portfolio-level risk management — COMPLETED (2026-08-16): per-market notional cap,
   gross-notional/leverage cap, operator-defined correlation buckets, and the UTC-day self-healing loss
   limit, all layered onto the Phase A guard (individually off by default; see the
-  "Advanced Portfolio Controls" section of `docs/bot-risk-control-matrix.md`)
+  "Advanced Portfolio Controls" section of `docs/bot-risk-control-matrix.md`). The guard itself is
+  **default ON since 2026-08-17** (Phase B burn-in + flip; see the action-plan item)
 
 ---
 

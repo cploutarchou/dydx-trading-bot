@@ -22,13 +22,14 @@ aggregate view with no cross-process state. Engine: `src/trading/portfolio_risk.
 `position_manager.open_positions` after the per-instance `max_positions` check; every denial is
 rejection-counted, warning-logged, and persisted as a `trade_entry_rejected_portfolio_risk` audit event.
 
-**Phase A: opt-in — set `BOT_PORTFOLIO_RISK_ENABLED=true` to activate.** Any limit <= 0 disables that
-check. Fail-closed for malformed account data (`portfolio_data_unavailable`); transport errors propagate
-exactly like the existing free-collateral guards.
+**Default ON since the Phase B flip (2026-08-17)** — set `BOT_PORTFOLIO_RISK_ENABLED=false` to
+deactivate. Any limit <= 0 disables that check. Fail-closed for malformed account data
+(`portfolio_data_unavailable`); transport errors propagate exactly like the existing free-collateral
+guards.
 
 | Env Var                                    | Default | Check                                                                                                                                   | Denial reason                     | Test Exists |
 |--------------------------------------------|---------|-----------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------|-------------|
-| `BOT_PORTFOLIO_RISK_ENABLED`               | `false` | Master switch (off → guard short-circuits without exchange reads)                                                                        | —                                 | Yes         |
+| `BOT_PORTFOLIO_RISK_ENABLED`               | `true`  | Master switch (off → guard short-circuits without exchange reads); default ON since Phase B (2026-08-17)                                  | —                                 | Yes         |
 | `BOT_PORTFOLIO_MAX_OPEN_MARKETS`           | `20`    | Aggregate open perpetual markets on the subaccount (pair entries occupy two) — at-limit denies new entries                                | `portfolio_max_open_markets`      | Yes         |
 | `BOT_PORTFOLIO_MAX_MARGIN_UTILIZATION_PCT` | `60.0`  | `(equity − freeCollateral) / equity` — at-limit denies new entries                                                                       | `portfolio_margin_utilization`    | Yes         |
 | `BOT_PORTFOLIO_MIN_FREE_COLLATERAL_USD`    | `0.0`   | Projected free collateral after the incremental notional (≈ 2 × `usd_per_trade`, 1x-leverage approximation) must stay above the floor    | `portfolio_free_collateral_floor` | Yes         |
@@ -80,6 +81,36 @@ positions still exist on-chain.
 incomplete entry instead of failing the dashboard. Denial audit events carry an `aggregate` detail block
 (totals + incomplete count). Coverage: `tests/test_portfolio_accounts.py` (22 cases), aggregate cases in
 `tests/test_portfolio_risk.py`, and the route shape in `tests/test_monitoring_routes.py`.
+
+## Phase B — Burn-in & Default Flip (2026-08-17)
+
+The master switch was flipped **default ON** after a recorded live burn-in, following the same
+evidence-then-flip protocol as the broadcast-bus Phase 2 flip. Operators keep full control:
+`BOT_PORTFOLIO_RISK_ENABLED=false` restores the pre-guard behavior; every individual limit stays
+independently disable-able at `0`/empty.
+
+**Upgrade note**: with the default ON, the two default-active limits now apply out of the box —
+20 open perpetual markets and 60% margin utilization per subaccount. A deployment already running
+hotter than those must either raise the limits (`BOT_PORTFOLIO_MAX_OPEN_MARKETS` /
+`BOT_PORTFOLIO_MAX_MARGIN_UTILIZATION_PCT`) or opt out; entries above the limits are denied with the
+standard `portfolio_*` reason codes and show up in `/api/v1/monitoring/portfolio-risk`.
+
+**Burn-in harness**: `make portfolio-burn-in` (engine: `scripts/portfolio_risk_burn_in.py`, guidance in
+the `portfolio-risk-burn-in` skill) runs repeated live evaluations of the guard's pure core against every
+`bot_instances` subaccount via the same public indexer reads the monitoring endpoint uses (no signing
+credentials). It FAILS on cycle errors and `portfolio_data_unavailable` observations — the
+false-denial classes — while genuine limit denials (including `portfolio_non_positive_equity` on a
+genuinely empty account) are reported as correct behavior. `--json-out` writes the full per-cycle log as
+evidence. Re-run it before changing any default limit.
+
+**Flip evidence (2026-08-17, live infra + public testnet indexer)**: 20 cycles × 3 s, PASS (exit 0) —
+a real funded testnet subaccount (equity ≈ 845k USDC, 5 open perpetual markets, $214,400 notional parsed
+from live position payloads, zero unparsed) was ALLOWED on all 20 cycles with zero read errors, zero
+data-unavailable observations, and zero decision changes; a never-traded address exercised the
+404 → complete-zero-exposure branch and was denied `portfolio_non_positive_equity` (fail-closed by
+design); the Redis peak ratchet ran live and held the running max across cycles. Test isolation: the
+suite stays hermetic under the new default via an autouse conftest fixture that pins the guard OFF
+(module-constant patch); the shipped default is pinned by `test_guard_enabled_by_default`.
 
 ## Advanced Portfolio Controls (2026-08-16)
 

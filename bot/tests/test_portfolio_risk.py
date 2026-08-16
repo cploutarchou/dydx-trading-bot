@@ -1173,3 +1173,15 @@ def test_guard_denies_entry_on_per_market_concentration(monkeypatch):
     )
     assert decision.allowed is False
     assert "portfolio_market_concentration" in decision.reasons
+
+
+def test_guard_enabled_by_default():
+    """Phase B flip (2026-08-17): the master switch ships ON.
+
+    Operators opt out with ``BOT_PORTFOLIO_RISK_ENABLED=false``; the in-suite
+    isolation fixture pins the module attribute off per test, so the shipped
+    default is pinned here against the constants module directly.
+    """
+    import src.constants as constants
+
+    assert constants.BOT_PORTFOLIO_RISK_ENABLED is True

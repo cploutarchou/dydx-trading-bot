@@ -21,10 +21,13 @@ Design contract
 * ``incremental_notional_usd`` is compared against free collateral as a
   conservative 1x-leverage approximation of the margin a new entry consumes
   (a pair entry commits ~2 × ``usd_per_trade`` notional across its legs).
-* Checks with a limit <= 0 are disabled individually; the whole guard is off
-  unless ``BOT_PORTFOLIO_RISK_ENABLED=true`` (Phase A: opt-in until proven in
-  production, mirroring the broadcast-bus rollout pattern and the
-  enforce-only-proven-controls philosophy in ``src/shared/live_risk_controls``).
+* Checks with a limit <= 0 are disabled individually. The master switch
+  ``BOT_PORTFOLIO_RISK_ENABLED`` is ON by default since the Phase B flip
+  (2026-08-17, after the testnet burn-in — see
+  ``docs/bot-risk-control-matrix.md``); ``=false`` restores the pre-guard
+  behavior (mirroring the broadcast-bus rollout, whose flip also followed a
+  recorded burn-in, and the enforce-only-proven-controls philosophy in
+  ``src/shared/live_risk_controls``).
 
 Every denial is expected to be logged and persisted by the caller with the
 machine-readable reason codes (audit-trail requirement).
@@ -415,10 +418,11 @@ async def load_portfolio_snapshot(client) -> PortfolioSnapshot:
 
     Parse failures degrade to ``None`` fields (which the evaluator treats as
     fail-closed for entries); transport errors propagate to the caller, exactly
-    like the existing free-collateral guards. Per-market notional uses
-    ``|size| x entryPrice`` per open perpetual (the position payload carries no
-    mark price); positions that fail to parse are counted in
-    ``unparsed_position_count`` so the notional controls can fail closed.
+    like the existing free-collateral guards. Per-market notional uses the
+    shared ``parse_open_positions_notional`` exposure math (``|size| x
+    entryPrice`` per open perpetual, no mark price in the payload); positions
+    that fail to parse are counted in ``unparsed_position_count`` so the
+    notional controls can fail closed.
     """
 
     def _as_float(value) -> float | None:
@@ -427,24 +431,13 @@ async def load_portfolio_snapshot(client) -> PortfolioSnapshot:
         except (TypeError, ValueError):
             return None
 
+    from src.trading.portfolio_accounts import parse_open_positions_notional
+
     account = await get_account(client)
     open_positions = await get_open_positions(client)
-    per_market_notional: dict[str, float] = {}
-    unparsed_position_count = 0
-    if isinstance(open_positions, dict):
-        for ticker, position in open_positions.items():
-            market = (
-                position.get("market") if isinstance(position, dict) else None
-            ) or ticker
-            try:
-                notional = abs(float(position["size"])) * float(position["entryPrice"])
-            except (KeyError, TypeError, ValueError):
-                unparsed_position_count += 1
-                continue
-            if notional > 0:
-                per_market_notional[market] = (
-                    per_market_notional.get(market, 0.0) + notional
-                )
+    per_market_notional, unparsed_position_count = parse_open_positions_notional(
+        open_positions
+    )
     return PortfolioSnapshot(
         equity=_as_float(account.get("equity")),
         free_collateral=_as_float(account.get("freeCollateral")),

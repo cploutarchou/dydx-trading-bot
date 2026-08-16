@@ -193,9 +193,9 @@ jobs:
     # gates merges:
     #   - any new mypy error fails the build;
     #   - the job is in the quality-gate `needs`.
-    # Config lives in bot/pyproject.toml ([tool.mypy]); the commented phase-2
-    # options there (check_untyped_defs, disallow_untyped_defs, strict, ...)
-    # are the next tightening step.
+    # Config lives in bot/pyproject.toml ([tool.mypy]); phase-2 options
+    # (check_untyped_defs, warn_unused_ignores, warn_redundant_casts) are enabled
+    # there — the commented phase-3 options are the next tightening step.
     bot-typecheck:
         name: Bot type check (mypy)
         runs-on: ubuntu-latest

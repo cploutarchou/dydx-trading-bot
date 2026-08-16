@@ -69,7 +69,7 @@ def _resolve_pool_max_overflow(pool: Pool, configured_max_overflow: int = 0) -> 
         if raw_value is None:
             continue
         try:
-            value = int(raw_value)  # type: ignore[arg-type]
+            value = int(raw_value)
         except (TypeError, ValueError):
             continue
         if value >= 0:
@@ -115,7 +115,7 @@ class ConnectionPoolMonitor:
         self._connection_timeouts: deque[dict[str, Any]] = deque(
             maxlen=metrics_window_size
         )
-        self._last_alert_time = None
+        self._last_alert_time: datetime | None = None
         self._alert_cooldown_seconds = 300  # 5 minutes between alerts
         self._monitoring_active = False
         self._monitoring_thread: threading.Thread | None = None
@@ -175,10 +175,10 @@ class ConnectionPoolMonitor:
                 return
 
             with self._lock:
-                # SQLAlchemy pool metrics
-                pool_size = pool.size()
-                checked_out = pool.checkedout()
-                overflow = pool.overflow()
+                # SQLAlchemy pool metrics (base Pool lacks size/checkedout/overflow)
+                pool_size = int(_pool_metric(pool, "size") or 0)
+                checked_out = int(_pool_metric(pool, "checkedout") or 0)
+                overflow = int(_pool_metric(pool, "overflow") or 0)
                 max_overflow = _resolve_pool_max_overflow(
                     pool, self.configured_max_overflow
                 )

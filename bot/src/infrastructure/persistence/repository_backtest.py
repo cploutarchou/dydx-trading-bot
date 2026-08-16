@@ -233,6 +233,12 @@ class BacktestRepository:
             return str(path.resolve())
 
     @classmethod
+    def build_artifact_store(cls) -> ArtifactStore:
+        """Public seam: shared artifact-store resolution for checkpoint storage."""
+
+        return cls._build_artifact_store()
+
+    @classmethod
     def _build_artifact_store(cls) -> ArtifactStore:
         root = cls._resolve_artifact_root()
         if cls._minio_artifacts_enabled():

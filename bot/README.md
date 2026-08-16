@@ -295,6 +295,14 @@ Long-running active backtests refresh their heartbeat periodically so they do no
 `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS` if you need a different keepalive cadence in staging or other deployed
 environments.
 
+Backtest checkpointing (on by default, `BACKTEST_CHECKPOINT_ENABLED=false` to disable): long-running backtests persist a
+durable resume point at the heavy-progress cadence (`BACKTEST_HEAVY_PROGRESS_PERSIST_EVERY_PAIRS`/`_SECONDS`) and on
+pause entry. If the worker dies mid-run, the next execution attempt of the same run — Celery redelivery, transient retry,
+or `BACKTEST_AUTO_RECOVERY_MODE=restart` requeue — resumes from the checkpoint instead of re-simulating completed pairs
+(matched via the request payload hash; any mismatch starts fresh). Checkpoints live as
+`backtests/<run_id>/checkpoint.json` in the artifact store (local or MinIO) and are deleted when a run completes or is
+cancelled; failed/timeout runs keep theirs as resume candidates.
+
 For `/api/v1/backtests` and `/api/v1/backtests/run`, strategy resolution is ordered as: strategy table lookup by
 `strategy_id` → recent persisted backtest request snapshots in DB → request-provided `strategy_payload_snapshot`
 (compatibility fallback).

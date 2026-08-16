@@ -272,6 +272,7 @@ def test_open_positions_rejects_when_portfolio_guard_denies(monkeypatch):
                 min_free_collateral_usd=0.0,
                 max_drawdown_pct=0.0,
             ),
+            aggregate_totals=None,
         )
 
     rejections: list[str] = []
@@ -487,3 +488,232 @@ def test_guard_observes_peak_and_denies_on_drawdown(monkeypatch):
     assert observed == [("addr-9", 800.0)]
     assert decision.allowed is False
     assert "portfolio_max_drawdown" in decision.reasons
+
+
+# --------------------------------------------------------------------------- #
+# Multi-account aggregation (deployment-wide entry caps)
+# --------------------------------------------------------------------------- #
+
+from src.trading.portfolio_accounts import (  # noqa: E402
+    AccountExposure,
+    PortfolioAccountRef,
+)
+from src.trading.portfolio_risk import evaluate_aggregate_entry  # noqa: E402
+
+
+def _agg_exposure(
+    address: str,
+    *,
+    equity: float | None,
+    free: float | None,
+    open_markets: int,
+    complete: bool = True,
+) -> AccountExposure:
+    return AccountExposure(
+        address=address,
+        network="testnet",
+        equity=equity,
+        free_collateral=free,
+        open_market_count=open_markets,
+        complete=complete,
+    )
+
+
+_AGG_LIMITS = PortfolioRiskLimits(
+    max_open_markets=0,
+    max_margin_utilization_pct=0.0,
+    min_free_collateral_usd=0.0,
+    max_drawdown_pct=0.0,
+    aggregate_max_open_markets=10,
+    aggregate_max_margin_utilization_pct=50.0,
+)
+
+
+def test_aggregate_open_market_cap_at_limit_denies():
+    exposures = (
+        _agg_exposure("0x1", equity=1000.0, free=900.0, open_markets=4),
+        _agg_exposure("0x2", equity=500.0, free=100.0, open_markets=6),
+    )
+    decision = evaluate_aggregate_entry(exposures, _AGG_LIMITS)
+    assert decision.allowed is False
+    assert decision.reasons == ("portfolio_aggregate_max_open_markets",)
+    assert decision.totals.total_open_markets == 10
+    assert decision.totals.accounts == 2
+    # Determinism: same inputs, same decision.
+    assert evaluate_aggregate_entry(exposures, _AGG_LIMITS) == decision
+
+
+def test_aggregate_margin_utilization_at_limit_denies():
+    # Combined: equity 2000, free 1000 -> exactly 50% utilization (at-cap = full).
+    exposures = (
+        _agg_exposure("0x1", equity=1500.0, free=900.0, open_markets=1),
+        _agg_exposure("0x2", equity=500.0, free=100.0, open_markets=1),
+    )
+    decision = evaluate_aggregate_entry(exposures, _AGG_LIMITS)
+    assert decision.allowed is False
+    assert "portfolio_aggregate_margin_utilization" in decision.reasons
+
+
+def test_aggregate_checks_disabled_when_limits_are_zero():
+    limits = PortfolioRiskLimits(
+        max_open_markets=0,
+        max_margin_utilization_pct=0.0,
+        min_free_collateral_usd=0.0,
+        max_drawdown_pct=0.0,
+    )
+    overloaded = (
+        _agg_exposure("0x1", equity=1.0, free=0.0, open_markets=999),
+        _agg_exposure("0x2", equity=None, free=None, open_markets=999, complete=False),
+    )
+    decision = evaluate_aggregate_entry(overloaded, limits)
+    assert decision.allowed is True
+    assert decision.reasons == ()
+
+
+def test_aggregate_incomplete_accounts_excluded_from_sums_but_counted():
+    exposures = (
+        _agg_exposure("0x1", equity=1000.0, free=600.0, open_markets=2),
+        _agg_exposure("0x2", equity=None, free=None, open_markets=3, complete=False),
+    )
+    decision = evaluate_aggregate_entry(exposures, _AGG_LIMITS)
+    # Only complete equity counts: (1000-600)/1000 = 40% < 50% -> utilization OK.
+    assert decision.totals.incomplete_accounts == 1
+    assert decision.totals.total_equity == 1000.0
+    # Open markets still count the incomplete account's readable positions: 5.
+    assert decision.totals.total_open_markets == 5
+    assert decision.allowed is True
+
+
+def test_aggregate_zero_total_equity_skips_utilization_check():
+    exposures = (
+        _agg_exposure("0x1", equity=None, free=None, open_markets=0, complete=False),
+    )
+    decision = evaluate_aggregate_entry(exposures, _AGG_LIMITS)
+    assert (
+        decision.allowed is True
+    )  # nothing computable; per-account guard still fails closed
+
+
+def _patch_aggregate_seams(
+    monkeypatch,
+    *,
+    refs,
+    foreign_exposures,
+    own_address="0xown",
+):
+    async def _fake_enumerate(**kwargs):
+        return refs
+
+    async def _fake_load(client, foreign_refs):
+        _fake_load.calls.append(foreign_refs)
+        return foreign_exposures
+
+    _fake_load.calls = []
+    monkeypatch.setattr(portfolio_risk, "enumerate_portfolio_accounts", _fake_enumerate)
+    monkeypatch.setattr(portfolio_risk, "load_account_exposures_via_client", _fake_load)
+    monkeypatch.setattr(
+        portfolio_risk, "resolve_client_address_or_none", lambda _client: own_address
+    )
+    monkeypatch.setattr(portfolio_risk, "MARKET_DATA_MODE", "TESTNET")
+    return _fake_load
+
+
+def test_guard_skips_aggregation_when_limits_off(monkeypatch):
+    """Default-off contract: no enumeration and no foreign exchange reads."""
+    _patch_account(
+        monkeypatch,
+        equity="10000",
+        free_collateral="9000",
+        open_positions={},
+    )
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_RISK_ENABLED", True)
+
+    async def _fail(**kwargs):  # pragma: no cover - must not be called
+        raise AssertionError("enumeration must not run with aggregate limits off")
+
+    monkeypatch.setattr(portfolio_risk, "enumerate_portfolio_accounts", _fail)
+
+    decision = asyncio.run(
+        check_portfolio_entry_guard(
+            cast(Any, _FakeClient()), incremental_notional_usd=20.0
+        )
+    )
+    assert decision.allowed is True
+    assert decision.aggregate_totals is None
+
+
+def test_guard_denies_on_aggregate_open_markets(monkeypatch):
+    """Own account is healthy; the deployment-wide total is over the cap."""
+    _patch_account(
+        monkeypatch,
+        equity="10000",
+        free_collateral="9000",
+        open_positions={"BTC-USD": {}},
+    )
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_RISK_ENABLED", True)
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_MAX_OPEN_MARKETS", 20)
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS", 3)
+    loader = _patch_aggregate_seams(
+        monkeypatch,
+        refs=(
+            PortfolioAccountRef("0xown", "testnet"),
+            PortfolioAccountRef("0xother", "testnet"),
+            PortfolioAccountRef("0xmain", "mainnet"),  # different network: ignored
+        ),
+        foreign_exposures=(
+            _agg_exposure("0xother", equity=500.0, free=250.0, open_markets=3),
+        ),
+    )
+
+    decision = asyncio.run(
+        check_portfolio_entry_guard(
+            cast(Any, _FakeClient()), incremental_notional_usd=20.0
+        )
+    )
+    # Only the same-network foreign account is read.
+    assert [ref.address for ref in loader.calls[0]] == ["0xother"]
+    assert decision.allowed is False
+    assert "portfolio_aggregate_max_open_markets" in decision.reasons
+    assert decision.aggregate_totals is not None
+    assert decision.aggregate_totals.total_open_markets == 4  # 1 own + 3 foreign
+    assert decision.aggregate_totals.accounts == 2
+    # Snapshot (own account) is still attached for the audit trail.
+    assert decision.snapshot is not None
+    assert decision.snapshot.equity == 10_000.0
+
+
+def test_guard_aggregate_transport_errors_propagate(monkeypatch):
+    _patch_account(
+        monkeypatch,
+        equity="10000",
+        free_collateral="9000",
+        open_positions={},
+    )
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_RISK_ENABLED", True)
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS", 50)
+
+    async def _failing_load(client, foreign_refs):
+        raise RuntimeError("foreign indexer read failed")
+
+    async def _fake_enumerate(**kwargs):
+        return (PortfolioAccountRef("0xother", "testnet"),)
+
+    monkeypatch.setattr(portfolio_risk, "enumerate_portfolio_accounts", _fake_enumerate)
+    monkeypatch.setattr(
+        portfolio_risk, "load_account_exposures_via_client", _failing_load
+    )
+    monkeypatch.setattr(
+        portfolio_risk, "resolve_client_address_or_none", lambda _client: "0xown"
+    )
+    monkeypatch.setattr(portfolio_risk, "MARKET_DATA_MODE", "TESTNET")
+
+    try:
+        asyncio.run(
+            check_portfolio_entry_guard(
+                cast(Any, _FakeClient()), incremental_notional_usd=20.0
+            )
+        )
+    except RuntimeError as exc:
+        assert "foreign indexer read failed" in str(exc)
+    else:  # pragma: no cover - the assertion above must have raised
+        raise AssertionError("aggregate transport error was swallowed")

@@ -37,11 +37,14 @@ from dataclasses import dataclass
 from loguru import logger
 
 from src.constants import (
+    BOT_PORTFOLIO_AGGREGATE_MAX_MARGIN_UTILIZATION_PCT,
+    BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS,
     BOT_PORTFOLIO_MAX_DRAWDOWN_PCT,
     BOT_PORTFOLIO_MAX_MARGIN_UTILIZATION_PCT,
     BOT_PORTFOLIO_MAX_OPEN_MARKETS,
     BOT_PORTFOLIO_MIN_FREE_COLLATERAL_USD,
     BOT_PORTFOLIO_RISK_ENABLED,
+    MARKET_DATA_MODE,
 )
 from src.shared.redis_env import redis_url
 from src.trading.account_manager import (
@@ -49,16 +52,31 @@ from src.trading.account_manager import (
     get_open_positions,
     resolve_client_address_or_none,
 )
+from src.trading.portfolio_accounts import (
+    AccountExposure,
+    AggregateExposureTotals,
+    enumerate_portfolio_accounts,
+    load_account_exposures_via_client,
+    summarize_exposures,
+)
 
 
 @dataclass(frozen=True)
 class PortfolioRiskLimits:
-    """Account-level entry limits; any field <= 0 disables that check."""
+    """Account-level entry limits; any field <= 0 disables that check.
+
+    The ``aggregate_*`` fields cap the deployment-wide totals across every
+    distinct subaccount configured in ``bot_instances`` (same network as the
+    worker); they default to 0 (off) and only engage when the master switch is
+    on — enabling either one also turns on cross-address public indexer reads.
+    """
 
     max_open_markets: int
     max_margin_utilization_pct: float
     min_free_collateral_usd: float
     max_drawdown_pct: float
+    aggregate_max_open_markets: int = 0
+    aggregate_max_margin_utilization_pct: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -76,10 +94,21 @@ class PortfolioRiskDecision:
     reasons: tuple[str, ...]
     snapshot: PortfolioSnapshot | None
     limits: PortfolioRiskLimits
+    aggregate_totals: AggregateExposureTotals | None = None
 
     @property
     def primary_reason(self) -> str:
         return self.reasons[0] if self.reasons else "allowed"
+
+
+@dataclass(frozen=True)
+class AggregateRiskEvaluation:
+    """Pure result of the deployment-wide aggregate checks."""
+
+    allowed: bool
+    reasons: tuple[str, ...]
+    totals: AggregateExposureTotals
+    limits: PortfolioRiskLimits
 
 
 def _limits_from_config() -> PortfolioRiskLimits:
@@ -88,6 +117,10 @@ def _limits_from_config() -> PortfolioRiskLimits:
         max_margin_utilization_pct=BOT_PORTFOLIO_MAX_MARGIN_UTILIZATION_PCT,
         min_free_collateral_usd=BOT_PORTFOLIO_MIN_FREE_COLLATERAL_USD,
         max_drawdown_pct=BOT_PORTFOLIO_MAX_DRAWDOWN_PCT,
+        aggregate_max_open_markets=BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS,
+        aggregate_max_margin_utilization_pct=(
+            BOT_PORTFOLIO_AGGREGATE_MAX_MARGIN_UTILIZATION_PCT
+        ),
     )
 
 
@@ -101,6 +134,10 @@ def portfolio_risk_config() -> dict:
             "max_margin_utilization_pct": limits.max_margin_utilization_pct,
             "min_free_collateral_usd": limits.min_free_collateral_usd,
             "max_drawdown_pct": limits.max_drawdown_pct,
+            "aggregate_max_open_markets": limits.aggregate_max_open_markets,
+            "aggregate_max_margin_utilization_pct": (
+                limits.aggregate_max_margin_utilization_pct
+            ),
         },
         "incremental_notional": "pair entries consume ~2x usd_per_trade (1x approximation)",
     }
@@ -157,6 +194,45 @@ def evaluate_portfolio_entry(
         allowed=not reasons,
         reasons=tuple(reasons),
         snapshot=snapshot,
+        limits=limits,
+    )
+
+
+def evaluate_aggregate_entry(
+    exposures: tuple[AccountExposure, ...],
+    limits: PortfolioRiskLimits,
+) -> AggregateRiskEvaluation:
+    """Decide whether deployment-wide totals stay inside the aggregate limits.
+
+    Deterministic and pure. Totals come from
+    :func:`src.trading.portfolio_accounts.summarize_exposures` (equity and free
+    collateral sum COMPLETE accounts only; open markets count every account).
+    There is deliberately no aggregate free-collateral floor — margin is
+    isolated per subaccount on dYdX v4, so the floor stays a per-account
+    check. ``sum(total_equity) <= 0`` skips the utilization check (nothing to
+    compute); the per-account controls still fail closed on their own.
+    """
+    totals = summarize_exposures(exposures)
+    reasons: list[str] = []
+
+    if (
+        limits.aggregate_max_open_markets > 0
+        and totals.total_open_markets >= limits.aggregate_max_open_markets
+    ):
+        reasons.append("portfolio_aggregate_max_open_markets")
+
+    utilization = totals.margin_utilization_pct
+    if (
+        limits.aggregate_max_margin_utilization_pct > 0
+        and utilization is not None
+        and utilization >= limits.aggregate_max_margin_utilization_pct
+    ):
+        reasons.append("portfolio_aggregate_margin_utilization")
+
+    return AggregateRiskEvaluation(
+        allowed=not reasons,
+        reasons=tuple(reasons),
+        totals=totals,
         limits=limits,
     )
 
@@ -280,9 +356,13 @@ async def check_portfolio_entry_guard(
 
     Returns an ALLOW decision without touching the exchange when the guard is
     disabled; otherwise evaluates the live subaccount snapshot against the
-    configured limits. Never raises for data-shape problems (fail-closed via
-    ``portfolio_data_unavailable``); transport errors propagate like the
-    neighboring collateral guards.
+    configured limits. When an aggregate limit is configured (> 0), the
+    deployment's OTHER same-network subaccounts (enumerated from
+    ``bot_instances``) are read via public indexer calls and the aggregate
+    checks run on top — with no extra exchange reads when both aggregate
+    limits are off (the default). Never raises for data-shape problems
+    (fail-closed via ``portfolio_data_unavailable``); transport errors
+    propagate like the neighboring collateral guards.
     """
     limits = _limits_from_config()
     if not BOT_PORTFOLIO_RISK_ENABLED:
@@ -303,6 +383,17 @@ async def check_portfolio_entry_guard(
         incremental_notional_usd=incremental_notional_usd,
         peak_equity=peak_equity,
     )
+    aggregate_evaluation = await _evaluate_aggregate_if_configured(
+        client, limits=limits, snapshot=snapshot
+    )
+    if aggregate_evaluation is not None:
+        decision = PortfolioRiskDecision(
+            allowed=decision.allowed and aggregate_evaluation.allowed,
+            reasons=decision.reasons + aggregate_evaluation.reasons,
+            snapshot=decision.snapshot,
+            limits=decision.limits,
+            aggregate_totals=aggregate_evaluation.totals,
+        )
     if not decision.allowed:
         logger.warning(
             "portfolio_risk_entry_denied reasons={} equity={} free_collateral={} "
@@ -317,4 +408,60 @@ async def check_portfolio_entry_guard(
             limits.max_margin_utilization_pct,
             limits.min_free_collateral_usd,
         )
+        if aggregate_evaluation is not None:
+            logger.warning(
+                "portfolio_risk_aggregate_denied reasons={} total_open_markets={} "
+                "total_equity={} total_free_collateral={} accounts={} "
+                "incomplete_accounts={}",
+                list(aggregate_evaluation.reasons),
+                aggregate_evaluation.totals.total_open_markets,
+                aggregate_evaluation.totals.total_equity,
+                aggregate_evaluation.totals.total_free_collateral,
+                aggregate_evaluation.totals.accounts,
+                aggregate_evaluation.totals.incomplete_accounts,
+            )
     return decision
+
+
+def _own_network_tag() -> str:
+    """The worker's own network, normalized to the enumeration tag."""
+    return "testnet" if MARKET_DATA_MODE == "TESTNET" else "mainnet"
+
+
+async def _evaluate_aggregate_if_configured(
+    client, *, limits: PortfolioRiskLimits, snapshot: PortfolioSnapshot
+) -> AggregateRiskEvaluation | None:
+    """Run the deployment-wide aggregate checks when a limit is configured.
+
+    Skips entirely (no enumeration, no extra exchange reads) when both
+    aggregate limits are off — the default. Own-account exposure is folded in
+    from the already-loaded snapshot; foreign same-network accounts come from
+    the public per-address indexer reads.
+    """
+    if (
+        limits.aggregate_max_open_markets <= 0
+        and limits.aggregate_max_margin_utilization_pct <= 0
+    ):
+        return None
+
+    own_address = resolve_client_address_or_none(client) or ""
+    own_network = _own_network_tag()
+    refs = await enumerate_portfolio_accounts()
+    foreign_refs = tuple(
+        ref for ref in refs if ref.network == own_network and ref.address != own_address
+    )
+    own_exposure = AccountExposure(
+        address=own_address,
+        network=own_network,
+        equity=snapshot.equity,
+        free_collateral=snapshot.free_collateral,
+        open_market_count=snapshot.open_market_count,
+        complete=snapshot.equity is not None and snapshot.free_collateral is not None,
+    )
+    exposures: tuple[AccountExposure, ...] = (own_exposure,)
+    if foreign_refs:
+        foreign_exposures = await load_account_exposures_via_client(
+            client, foreign_refs
+        )
+        exposures = (own_exposure,) + foreign_exposures
+    return evaluate_aggregate_entry(exposures, limits)

@@ -10,6 +10,10 @@ from typing import Any
 class AnalyticsWriter(ABC):
     """Write analytical backtest rows to an external engine."""
 
+    #: Whether the destination accepts writes. Consumers check this instead of
+    #: isinstance-ing the concrete class; the no-op fallback reports False.
+    enabled: bool = True
+
     @abstractmethod
     def write_rows(self, table_name: str, rows: Sequence[Mapping[str, Any]]) -> int:
         """Write rows and return the count accepted by the destination."""
@@ -28,6 +32,8 @@ class AnalyticsWriter(ABC):
 
 class NoopAnalyticsWriter(AnalyticsWriter):
     """Fallback writer that intentionally discards analytics rows."""
+
+    enabled = False
 
     def write_rows(self, table_name: str, rows: Sequence[Mapping[str, Any]]) -> int:
         del table_name, rows

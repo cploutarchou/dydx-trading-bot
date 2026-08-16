@@ -379,10 +379,10 @@ async def _fetch_market_history(
 
         if response is None:
             if history_telemetry is not None:
-                market_telemetry = history_telemetry.get(market)
-                if market_telemetry is not None:
-                    market_telemetry["failed_windows"] = (
-                        int(market_telemetry.get("failed_windows") or 0) + 1
+                failed_telemetry = history_telemetry.get(market)
+                if failed_telemetry is not None:
+                    failed_telemetry["failed_windows"] = (
+                        int(failed_telemetry.get("failed_windows") or 0) + 1
                     )
                     if isinstance(last_error, asyncio.TimeoutError):
                         market_telemetry["timeout_errors"] = (
@@ -422,10 +422,10 @@ async def _fetch_market_history(
             ) from last_error
 
         if history_telemetry is not None:
-            market_telemetry = history_telemetry.get(market)
-            if market_telemetry is not None:
-                market_telemetry["windows"] = (
-                    int(market_telemetry.get("windows") or 0) + 1
+            windows_telemetry = history_telemetry.get(market)
+            if windows_telemetry is not None:
+                windows_telemetry["windows"] = (
+                    int(windows_telemetry.get("windows") or 0) + 1
                 )
 
         if not isinstance(response, dict):

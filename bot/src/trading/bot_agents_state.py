@@ -18,7 +18,7 @@ from loguru import logger
 try:
     import fcntl
 except ImportError:  # pragma: no cover - non-POSIX fallback
-    fcntl = None
+    fcntl = None  # type: ignore[assignment]
 
 # ---------------------------------------------------------------------------
 # Instance identity

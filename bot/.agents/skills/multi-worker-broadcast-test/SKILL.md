@@ -56,9 +56,15 @@ when Redis or Postgres is unreachable — read the skip reason, don't "fix" the 
 
 The suite runs in the `bot-multiworker` job of `.github/workflows/bot-quality.yml`
 (Postgres 15.18 + Valkey 7.2 service containers). Promoted to a **blocking
-quality gate 2026-08-16** after proving green in every run since it landed —
-if it flakes on a shared runner, shrink `MULTIWORKER_BURST_MESSAGES` in the job
-env to triage; don't un-promote the job.
+quality gate 2026-08-16**. Gotcha learned during promotion: with
+`continue-on-error`, the JOB conclusion reads `success` even when the pytest
+step fails — always read the step logs, not the job conclusion, when judging
+phase-1-style non-blocking jobs. The job writes a hermetic
+`APP_RUN_CONFIG_FILE` (`.ci-run.json`, mirroring `bot-tests`) because pytest's
+`load_repo_env` otherwise tries to decrypt `config/profiles/*.config.enc.json`
+and fails on the missing `.configkey.bin`. If it flakes on a shared runner,
+shrink `MULTIWORKER_BURST_MESSAGES` in the job env to triage; don't un-promote
+the job.
 
 ## Invariants to preserve when editing
 

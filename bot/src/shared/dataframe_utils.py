@@ -165,8 +165,8 @@ def _cleanup_old_entries():
                 to_remove.append(frame_id)
 
         for frame_id in to_remove:
-            entry = _frame_registry.pop(frame_id, None)
-            if entry:
+            if frame_id in _frame_registry:
+                entry = _frame_registry.pop(frame_id)
                 cleanup_dataframe(entry.get("df"))
 
         if to_remove:

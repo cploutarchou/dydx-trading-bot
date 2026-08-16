@@ -58,7 +58,8 @@ Lint/format/typecheck:
 
 mypy notes: `Base` is `class Base(DeclarativeBase)` (SQLAlchemy 2 native typing); optional-dependency
 fallback assignments need `# type: ignore[assignment,misc]`; mixins declare host contracts in
-`if TYPE_CHECKING:` blocks; `warn_unused_ignores` is OFF (phase-2), so stale ignores are not flagged.
+`if TYPE_CHECKING:` blocks. Phase-2 options are ON (`check_untyped_defs`, `warn_unused_ignores`,
+`warn_redundant_casts`) — never add a `# type: ignore` that isn't needed (unused ones fail the gate).
 
 Ratchet: included in the suite (`tests/test_exception_handling_ratchet.py`); if it fails, narrow
 the new catches — do not raise the baseline.

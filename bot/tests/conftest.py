@@ -158,6 +158,26 @@ def _isolate_portfolio_accounts(monkeypatch):
 
 
 # ============================================================================
+# Portfolio entry-guard default isolation
+# ============================================================================
+#
+# ``BOT_PORTFOLIO_RISK_ENABLED`` is ON by default since the Phase B flip
+# (2026-08-17). The guard module binds the constant by value at import, so an
+# env-var patch is inert post-import — the module attribute is pinned to False
+# here, mirroring the broadcast-bus constant patch above, so the suite stays
+# hermetic under the new default (the guard would otherwise make live exchange
+# reads from every open_positions test). Tests exercising the guard enable it
+# explicitly via ``monkeypatch.setattr(portfolio_risk,
+# "BOT_PORTFOLIO_RISK_ENABLED", True)`` — their function-scoped monkeypatch
+# runs after this fixture's setup and so takes precedence.
+@pytest.fixture(autouse=True)
+def _isolate_portfolio_guard(monkeypatch):
+    from src.trading import portfolio_risk
+
+    monkeypatch.setattr(portfolio_risk, "BOT_PORTFOLIO_RISK_ENABLED", False)
+
+
+# ============================================================================
 # PostgreSQL database helper functions
 # ============================================================================
 

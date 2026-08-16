@@ -283,7 +283,15 @@ def test_portfolio_risk_status_reports_config_and_denials(monkeypatch):
     assert body["success"] is True
 
     data = body["data"]
-    assert data["config"]["enabled"] is False  # Phase A default
+    # The autouse guard-isolation fixture pins the flag off in-process; enable
+    # it here to pin the serialization (the production default itself is
+    # pinned in test_portfolio_risk.py).
+    import src.trading.portfolio_risk as portfolio_risk_module
+
+    monkeypatch.setattr(portfolio_risk_module, "BOT_PORTFOLIO_RISK_ENABLED", True)
+    resp = client.get("/api/v1/monitoring/portfolio-risk")
+    assert resp.status_code == 200
+    assert resp.json()["data"]["config"]["enabled"] is True
     assert data["config"]["limits"]["max_open_markets"] > 0
     assert data["config"]["limits"]["aggregate_max_open_markets"] == 0  # default off
     # Advanced controls ship off by default (0 / empty spec).

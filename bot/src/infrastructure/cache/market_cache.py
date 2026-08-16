@@ -143,7 +143,7 @@ class RedisMarketDataCache(MarketDataCache):
         if self._client is not None:
             return self._client
         try:  # pragma: no cover - optional dependency / config path
-            import redis.asyncio as aioredis  # type: ignore[import]
+            import redis.asyncio as aioredis
         except Exception as exc:  # noqa: BLE001 - optional dep, degrade to noop
             self._build_error = f"redis.asyncio unavailable: {exc!r}"
             return None

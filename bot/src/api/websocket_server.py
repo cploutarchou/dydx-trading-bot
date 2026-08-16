@@ -7,7 +7,7 @@ import asyncio
 import json
 import os
 import time
-from typing import Any, Dict, List, Optional, Set, cast
+from typing import Any, Dict, List, Optional, Set
 
 from fastapi import WebSocket, WebSocketDisconnect
 from loguru import logger
@@ -538,7 +538,7 @@ class WebSocketServer:
         try:
             core_uow = UnitOfWork(session)
             bot = core_uow.bots.get_by_instance_id(raw)
-            return int(cast(int, bot.id)) if bot else None
+            return int(bot.id) if bot else None
         except Exception as exc:
             logger.warning(
                 "Failed resolving websocket bot instance '{}' to numeric id: {}",

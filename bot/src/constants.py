@@ -193,6 +193,28 @@ BOT_PORTFOLIO_MIN_FREE_COLLATERAL_USD: float = float(
 BOT_PORTFOLIO_MAX_DRAWDOWN_PCT: float = float(
     _os.getenv("BOT_PORTFOLIO_MAX_DRAWDOWN_PCT", "0.0")
 )
+# Multi-account aggregation: deployment-wide caps across EVERY distinct wallet
+# address configured in `bot_instances` (per network). Aggregate limits are
+# opt-in individually (0 disables) and only take effect when the master switch
+# above is on; enabling one also turns on cross-address public indexer reads.
+BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS: int = int(
+    _os.getenv("BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS", "0")
+)
+BOT_PORTFOLIO_AGGREGATE_MAX_MARGIN_UTILIZATION_PCT: float = float(
+    _os.getenv("BOT_PORTFOLIO_AGGREGATE_MAX_MARGIN_UTILIZATION_PCT", "0.0")
+)
+# Enumeration/enrichment bounds: how many distinct subaccounts to consider and
+# how long the (DB-decrypted) address list stays cached per process.
+BOT_PORTFOLIO_AGGREGATE_MAX_ACCOUNTS: int = int(
+    _os.getenv("BOT_PORTFOLIO_AGGREGATE_MAX_ACCOUNTS", "25")
+)
+BOT_PORTFOLIO_ACCOUNTS_CACHE_TTL_SECONDS: float = float(
+    _os.getenv("BOT_PORTFOLIO_ACCOUNTS_CACHE_TTL_SECONDS", "60")
+)
+# Per-request timeout for the monitoring route's direct public indexer reads.
+BOT_PORTFOLIO_ACCOUNTS_HTTP_TIMEOUT_SECONDS: float = float(
+    _os.getenv("BOT_PORTFOLIO_ACCOUNTS_HTTP_TIMEOUT_SECONDS", "5.0")
+)
 
 # Max concurrent dYdX candle fetches when building the price matrix.
 CANDLE_FETCH_CONCURRENCY: int = int(_os.getenv("CANDLE_FETCH_CONCURRENCY", "10"))

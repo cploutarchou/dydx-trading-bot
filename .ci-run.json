@@ -1,0 +1,13 @@
+{
+  "shared": {
+    "APP_ENV": "development",
+    "ENVIRONMENT": "development"
+  },
+  "redis": {
+    "REDIS_ENABLED": false,
+    "REDIS_HOST": "localhost",
+    "REDIS_PORT": 6379,
+    "REDIS_DB": 0,
+    "REDIS_SSL": false
+  }
+}

@@ -2,6 +2,36 @@
 
 ## 2026-08-17
 
+- **Coverage floor ratcheted 64 → 68 (measured 65.91% → 69.27%) + two latent bugs fixed.** The plan's
+  coverage-floor item prescribed `current−1` ratcheting as coverage improves; this pass executed it.
+    - **Five focused test files (+75 cases)** against the best-ROI pure modules ranked by missed
+      statements: `tests/test_cointegration_analysis.py` (12; `trading/analysis/cointegration.py`
+      10.1% → 89.3% — seeded AR(1)/synthetic-pair generators, all guards, the full
+      `store_cointegration_results` pass with faked messenger/storage), `tests/test_backtest_queries.py`
+      (17; `use_cases/backtest_queries.py` 28.0% → 97.7% — the read-side mixin driven through a minimal
+      fake host: status mapping, trades legacy fallback determinism, comparison best/worst semantics,
+      synthetic daily-pnl/position-snapshot fallbacks), `tests/test_backtest_pair_selection.py` (12;
+      strict Engle-Granger+ADF scoring vs penalty branch vs heuristic fallback vs guards),
+      `tests/test_auth_utils.py` (19; bcrypt truncation, JWT exp-type matrix incl. jose's own
+      expired-at-decode rejection, TOTP/QR roundtrip, blacklist Redis/memory paths via injected fakes),
+      `tests/test_dataframe_utils.py` (15; registry lifecycle, downcasting incl. the pandas-3
+      `str`-dtype caveat, cache-entry eviction).
+    - **Bug 1 — cointegration ranking silently degraded since extraction**: `backtest_pair_selection.py`
+      imported `statsmodels.tsa.statools` (nonexistent; canonical `stattools`), so the optional-import
+      guard swallowed the `ModuleNotFoundError` and every `cointegration`-mode backtest ranked pairs with
+      the heuristic fallback instead of the strict statistical path. Fixed; tests now cover both paths.
+    - **Bug 2 — deadlock on the DataFrame cleanup path**: `dataframe_utils.force_cleanup_all` called
+      `unregister_dataframe` while holding the same non-reentrant `threading.Lock` (backs the DataFrame
+      cleanup monitoring surface) — any invocation hung the calling thread. Fixed by snapshotting ids
+      under the lock and unregistering outside it; the new test hung at 0% CPU until the fix (that hang
+      was the diagnosis).
+    - **Floor raise**: `--cov-fail-under` 64 → 68 in `bot-tests` (comment block updated with the
+      measurement trail); full suite green at **936 passed / 13 skipped**, total coverage **69.27%**.
+    - **Protocol saved as a skill**: `.agents/skills/coverage-ratchet/SKILL.md` (exact CI invocation,
+      the every-place-the-number-lives checklist, hotspot map incl. the remaining integration-seam
+      hotspots, and the gotchas hit this pass: silent optional-import fallbacks, lock deadlocks, seeded
+      statistical assertions, pandas-3 str dtype, pydantic v2 `model_dump`).
+
 - **Portfolio-risk Phase B complete — guard flipped default ON; IMPROVEMENTS.md item #6 (the last open
   item) closed.** Evidence-then-flip protocol, mirroring the broadcast-bus Phase 2 flip:
     - **Burn-in harness**: new `scripts/portfolio_risk_burn_in.py` (+ `make portfolio-burn-in`, skill

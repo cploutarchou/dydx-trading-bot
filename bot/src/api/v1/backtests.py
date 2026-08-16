@@ -1764,13 +1764,16 @@ async def get_backtest_trades(
             trades_payload = [trade.model_dump() for trade in trades]
             _cache_set(cache_key, trades_payload)
 
+        normalized_trades = trades_payload or []
+        trades_count = len(normalized_trades)
+
         _log_endpoint_timing(
             "/api/v1/backtests/{run_id}/trades",
             started_at,
             trades_payload,
             cache_hit=cache_hit,
             payload_items=(
-                len(trades_payload) if isinstance(trades_payload, list) else None
+                len(normalized_trades) if isinstance(normalized_trades, list) else None
             ),
             extra={
                 "run_id": run_id,
@@ -1785,10 +1788,10 @@ async def get_backtest_trades(
             data={
                 "run_id": run_id,
                 "trades": trades_payload,
-                "total": len(trades_payload),
-                "count": len(trades_payload),
+                "total": trades_count,
+                "count": trades_count,
             },
-            message=f"Retrieved {len(trades_payload)} trades for backtest '{run_id}'",
+            message=f"Retrieved {trades_count} trades for backtest '{run_id}'",
             headers=_endpoint_perf_headers(started_at, cache_hit=cache_hit),
         )
 

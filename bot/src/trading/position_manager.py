@@ -1636,3 +1636,4 @@ async def manage_trade_exits(client) -> str | None:
     # Save remaining items
     logger.info("{} items remaining; persisting {}", len(save_output), BOT_AGENTS_PATH)
     await save_processed_positions(open_positions_dict, save_output)
+    return None

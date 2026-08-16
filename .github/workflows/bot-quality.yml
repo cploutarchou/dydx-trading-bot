@@ -186,17 +186,16 @@ jobs:
               run: flake8 src tests --select=E9,F63,F7,F82 --show-source
 
     # ---------------------------------------------------------------------------
-    # Bot type checking (mypy) — phase 1: NON-BLOCKING reporting baseline
+    # Bot type checking (mypy) — BLOCKING gate (baseline cleared 2026-08-16)
     # ---------------------------------------------------------------------------
-    # The codebase predates type annotations and carries an existing mypy baseline
-    # (~189 errors, concentrated in infrastructure/persistence/repository.py,
-    # infrastructure/event_bus_nats.py, infrastructure/persistence/repository_backtest.py).
-    # This job surfaces type debt and new regressions WITHOUT blocking merges:
-    #   - the mypy step uses continue-on-error, so errors don't fail the build;
-    #   - the job is intentionally NOT in the quality-gate `needs`.
-    # To make it a gate later: clear the baseline, drop continue-on-error, and add
-    # `bot-typecheck` to quality-gate.needs. Config lives in bot/pyproject.toml
-    # ([tool.mypy]); enable the commented phase-2 options there to tighten.
+    # The codebase predates type annotations; the type debt was cleared
+    # module-by-module (234 errors → 0, measured 2026-08-16) and this job now
+    # gates merges:
+    #   - any new mypy error fails the build;
+    #   - the job is in the quality-gate `needs`.
+    # Config lives in bot/pyproject.toml ([tool.mypy]); the commented phase-2
+    # options there (check_untyped_defs, disallow_untyped_defs, strict, ...)
+    # are the next tightening step.
     bot-typecheck:
         name: Bot type check (mypy)
         runs-on: ubuntu-latest
@@ -222,7 +221,6 @@ jobs:
               run: pip install -r requirements.txt
 
             - name: Run mypy
-              continue-on-error: true # phase 1: reporting-only, does not gate
               run: |
                   set -o pipefail
                   python -m mypy --no-color src 2>&1 | tee mypy-output.txt
@@ -230,9 +228,9 @@ jobs:
             - name: Publish mypy summary
               if: always()
               run: |
-                  echo "### 🔍 Type checking (mypy — phase 1, non-blocking)" >> "$GITHUB_STEP_SUMMARY"
+                  echo "### 🔍 Type checking (mypy — blocking gate)" >> "$GITHUB_STEP_SUMMARY"
                   echo "" >> "$GITHUB_STEP_SUMMARY"
-                  echo "Reporting-only. Drive \`Found N errors\` to 0, then flip this job to a gate (see bot/pyproject.toml)." >> "$GITHUB_STEP_SUMMARY"
+                  echo "Baseline cleared 2026-08-16 (234 → 0); any error now fails the build." >> "$GITHUB_STEP_SUMMARY"
                   echo "" >> "$GITHUB_STEP_SUMMARY"
                   if [ -f mypy-output.txt ]; then
                       echo '```' >> "$GITHUB_STEP_SUMMARY"
@@ -658,6 +656,7 @@ jobs:
         needs:
             - bot-tests
             - bot-lint
+            - bot-typecheck
             - bot-multiworker
             - bot-integration
             - docker-compose-validate

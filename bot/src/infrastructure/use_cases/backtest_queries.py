@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import random
 from datetime import date, timedelta
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set
 
 from src.infrastructure.use_cases.async_job_manager import async_job_manager
 from src.infrastructure.use_cases.backtest_models import (
@@ -30,6 +30,20 @@ from src.infrastructure.use_cases.backtest_models import (
 
 class BacktestQueryMixin:
     """Read-side query methods; mixed into :class:`BacktestService`."""
+
+    if TYPE_CHECKING:
+        # Host contract — provided by BacktestService at runtime (see module
+        # docstring). Declared type-only so mypy checks this mixin's usage without
+        # duplicating the implementations; the real definitions live on (and are
+        # checked on) the host.
+        _tasks: Dict[str, Any]
+        _ACTIVE_STATUSES: Set[str]
+        repository: Any
+        _canonical_status: Callable[..., str]
+        _load_run_data: Callable[..., Optional[Dict[str, Any]]]
+        _load_run_overview: Callable[..., Optional[Dict[str, Any]]]
+        _resolve_stale_run_data: Callable[..., Dict[str, Any]]
+        _strip_runtime_control: Callable[..., Dict[str, Any]]
 
     def get_backtest_details(self, run_id: str) -> Optional[_BacktestRunDetails]:
         data = self._load_run_data(run_id)
@@ -584,7 +598,7 @@ class BacktestQueryMixin:
             (total_pnl / max(1, winning_count)) * 1.3 if winning_count > 0 else 5.0
         )
         per_loss = -(abs(per_win) * 0.6)
-        snapshots: List[Dict[str, Any]] = []
+        synthetic: List[Dict[str, Any]] = []
         for i in range(total_trades):
             pair = markets[i % len(markets)]
             pair_key = f"{pair[0]}/{pair[1]}"
@@ -597,7 +611,7 @@ class BacktestQueryMixin:
                 if is_win
                 else (per_loss * rng.uniform(0.7, 1.3))
             )
-            snapshots.append(
+            synthetic.append(
                 {
                     "timestamp": entry_day.isoformat() + "T00:00:00Z",
                     "positions": [
@@ -617,4 +631,4 @@ class BacktestQueryMixin:
                     ],
                 }
             )
-        return snapshots[offset : offset + limit]
+        return synthetic[offset : offset + limit]

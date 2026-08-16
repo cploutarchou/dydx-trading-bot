@@ -23,9 +23,12 @@ import numpy as np
 
 from src.infrastructure.use_cases.backtest_models import _linregress_slope
 
-try:  # pragma: no cover - optional at runtime, exercised in integration tests
-    from statsmodels.tsa.statools import adfuller, coint
-except Exception:  # pragma: no cover
+try:
+    # Correct module is `statsmodels.tsa.stattools`; the original `statools`
+    # spelling silently failed the import and permanently forced every
+    # cointegration-mode ranking onto the heuristic fallback.
+    from statsmodels.tsa.stattools import adfuller, coint
+except Exception:  # pragma: no cover - statsmodels missing in minimal envs
     adfuller = None
     coint = None
 

@@ -306,6 +306,14 @@ module `reset_*()` helpers.
   controls (`src/trading/portfolio_risk.py`, `src/trading/portfolio_accounts.py`, or the portfolio guard
   wiring in `position_manager.open_positions`); also run `tests/test_portfolio_burn_in.py` when touching the
   burn-in harness, and re-run `make portfolio-burn-in` live before changing any default portfolio limit.
+- Run `tests/test_cointegration_analysis.py` and `tests/test_backtest_pair_selection.py` when touching the
+  cointegration math core (`src/trading/analysis/cointegration.py`) or the pair-prioritization engine
+  (`src/infrastructure/use_cases/backtest_pair_selection.py`); `tests/test_backtest_queries.py` when touching
+  the backtest read-side mixin (`backtest_queries.py`); `tests/test_auth_utils.py` when touching
+  `src/api/auth_utils.py`; `tests/test_dataframe_utils.py` when touching `src/shared/dataframe_utils.py`.
+  When raising the coverage floor (`--cov-fail-under`), follow the `coverage-ratchet` skill
+  (`.agents/skills/coverage-ratchet/`): measure with the exact CI invocation, new floor = measured − 1,
+  update every place the number lives.
 - Run `tests/test_storage_adapters.py` when touching ClickHouse or MinIO storage integration.
 - Run `tests/test_arbitrage_observability.py` and `tests/test_arbitrage_cycle_cache.py` when touching arbitrage decision
   logic or pair caching.

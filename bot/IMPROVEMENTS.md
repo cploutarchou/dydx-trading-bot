@@ -51,7 +51,7 @@ Most of this document is a record of completed work. Everything still pending, i
 | 4 | ~~**Integration tests** (Redis / Celery / dYdX)~~ **RESOLVED 2026-08-15** — opt-in harness (`tests/test_integration_external_services.py`, `make test-integration`): real cache roundtrip, real bus pub/sub, real Celery worker ping+registration, live indexer contract; non-blocking `bot-integration` CI job with a Valkey service container | Compose infra already exists; mostly markers + a CI job | done |
 | 5 | ~~**Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`)~~ **RESOLVED 2026-08-15** — floor set at 64% (measured 65.08%, blocking), `bot-deps-audit` pip-audit CI job + Dependabot shipped; first audit already removed an unused `aiohttp` pin carrying 3 open advisories | Two cheap CI gates; coverage reports today with nothing enforcing them | done |
 | 6 | **Portfolio-level risk controls** — Phase A entry guard, operator visibility, account-wide drawdown, and multi-account aggregation delivered (2026-08-15/16); aggregation caps across every `bot_instances` wallet are opt-in limits; remaining: Phase B burn-in → default ON | Per-instance limits can each pass while the account is over-exposed | in progress (Phase B pending) |
-| 7 | **Backtest checkpointing** (optional) | Compute-cost optimization only; auto-recovery already handles correctness | 2 weeks |
+| 7 | ~~**Backtest checkpointing**~~ **RESOLVED 2026-08-16** — durable per-pair checkpoints (`backtests/<run_id>/checkpoint.json` in the artifact store) written at the heavy-progress cadence and on pause; Celery redelivery / transient retry / auto-recovery requeue / NATS redelivery all resume from the completed-pair prefix after payload-hash validation (fail-open); terminal completed/cancelled delete the checkpoint | Was compute-cost only: resumed runs skip re-fetch + re-simulation of completed pairs | done |
 
 > **Resolved 2026-08-11:** the former row 1 ("Resolve dead code paths") is done — 2FA router
 > mounted, `realtime_data_service.py` + candle-aggregation stub + `repository_realtime` shim
@@ -920,13 +920,42 @@ Items removed from this plan during the same review — and why — are listed i
       routes/contract + websocket — 86 pass; exceptions/config/credentials/async_job/circuit/
       cache/broadcast — 137 pass; backtest-service/market-sync/celery-metrics — 50 pass.
 
-- [ ] **Add backtest checkpointing** for long-running tasks (LOW — optional)
-    - **Files**: `src/infrastructure/workers/backtest_tasks.py`
+- [x] **Add backtest checkpointing** for long-running tasks (LOW — optional)
+    - **Files**: `src/infrastructure/use_cases/backtest_checkpoint.py` (new), `src/infrastructure/use_cases/service_backtest.py`,
+      `src/infrastructure/storage/artifacts.py` (+`delete`), `src/infrastructure/storage/minio_artifact_store.py` (+`delete`),
+      `src/infrastructure/persistence/repository_backtest.py` (public `build_artifact_store()` seam),
+      `tests/test_backtest_checkpoint.py` (23 cases)
     - **Impact**: resume interrupted backtests instead of restarting them
     - **Effort**: 2 weeks
     - **Note**: partially mitigated already — `BACKTEST_AUTO_RECOVERY_MODE=fail-safe|restart` handles
       interrupted runs, and `async_job_manager` tracks progress checkpoints for stall detection. This item is a
       compute-cost optimization, not a correctness fix. Drop it if long backtests aren't hurting in practice.
+    - **Status**: COMPLETED (2026-08-16). Design rests on three verified invariants: pairs are independent, every final
+      metric is a pure function of the per-pair outputs + `initial_balance`, and all three execution backends
+      (asyncio/Celery/NATS) funnel through one `_execute_backtest`. The checkpoint is a **self-contained
+      `backtests/<run_id>/checkpoint.json`** sidecar in the existing artifact store (local or MinIO): schema version,
+      run id, **request payload hash** (`_request_payload_hash`, the same fingerprint the task context already
+      carries), the **post-prioritization ordered pair plan**, the completed-prefix pair count, and the accumulated
+      outputs/scalars. Writes ride the existing heavy-progress cadence (`BACKTEST_HEAVY_PROGRESS_PERSIST_EVERY_PAIRS`
+      / `_SECONDS`, plus an extra trigger on the first post-resume pair) and **pause entry** —
+      `_honor_runtime_control` grew a keyword-only `checkpoint_writer` invoked when a run enters the paused state
+      (all existing call sites unchanged; the 4 loop call sites pass a closure). On any later execution attempt of the
+      same run — Celery `acks_late`+`reject_on_worker_lost` redelivery, transient `self.retry`, startup
+      `BACKTEST_AUTO_RECOVERY_MODE=restart` requeue, or NATS JetStream redelivery — the checkpoint is loaded before
+      pre-fetch/ranking; a valid one **replaces the pair plan** (the checkpointed plan is authoritative: re-ranking
+      could observe drifted market data), seeds the accumulators (so `trade_index_offset`/`trade_id` numbering
+      continues seamlessly), and the loop skips the completed prefix (progress/ETA account for skipped pairs).
+      Terminal `completed`/`cancelled` **delete** the checkpoint (new best-effort `ArtifactStore.delete()`, implemented
+      for local + MinIO with narrow catches — `storage/` is not ratchet-excluded); `failed`/`timeout` keep it as a
+      resume candidate. Everything fails open: missing/corrupt/schema-mismatched/hash-mismatched checkpoints log a
+      warning and run fresh. Single rollback lever: `BACKTEST_CHECKPOINT_ENABLED=false` (default on) disables both
+      writes and resume. Why self-contained rather than reusing the trades/snapshots sidecars: `save_run` re-syncs
+      sidecars on every full persist and run (re)start resets them to empty, so piggybacking would race the restart
+      that resume itself triggers. Verified: equivalence test proves a resumed run produces **identical trades
+      (id-sequence continuity), metrics, and stats** to an uninterrupted reference run while skipping completed pairs'
+      simulation; hash-mismatch/disabled/corrupt cases fail open; terminal cleanup asserted; 23 new cases green;
+      `test_backtest_service`/`test_backtest_api_contract`/`test_backtest_routes`/`test_storage_adapters`/
+      `test_backtest_tasks_failure_persistence`/ratchet all green.
 
 - [x] **Implement configuration validation** at startup
     - **Files**: `src/shared/env_loader.py`, create configuration schemas
@@ -1207,7 +1236,7 @@ remains:
 
 ### **Lower Priority**
 
-- Backtest checkpointing (optional — auto-recovery already covers correctness)
+- ✅ Backtest checkpointing — COMPLETED (2026-08-16); see the action-plan item
 - Advanced portfolio-level risk management
 
 ---

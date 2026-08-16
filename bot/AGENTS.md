@@ -189,6 +189,13 @@ become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown 
     - Mainnet auto-restart also requires `BOT_AUTO_RECOVER_LIVE_MAINNET=true`
 - Heartbeat keepalive: active backtests refresh heartbeat to avoid being flagged stale; override with
   `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS`
+- Checkpoint resume (default on via `BACKTEST_CHECKPOINT_ENABLED`): `_execute_backtest` writes a self-contained
+  per-pair checkpoint (`src/infrastructure/use_cases/backtest_checkpoint.py` → `backtests/<run_id>/checkpoint.json` in
+  the artifact store) at the heavy-progress cadence and on pause entry; a later execution attempt of the same run
+  (Celery redelivery, transient retry, auto-recovery requeue, or NATS redelivery) validates the request payload hash and
+  resumes from the completed-pair prefix — skipping re-ranking, pre-fetch, and simulation of completed pairs. Terminal
+  `completed`/`cancelled` delete the checkpoint; `failed`/`timeout` keep it. Fail-open: any missing/corrupt/mismatched
+  checkpoint means a fresh run.
 
 **Worker startup and config:**
 

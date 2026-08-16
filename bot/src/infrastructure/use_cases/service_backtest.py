@@ -13,7 +13,7 @@ import time
 import traceback as traceback_module
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Dict, List, Optional, cast
+from typing import Any, Awaitable, Callable, Dict, List, Optional, cast
 from uuid import uuid4
 
 import numpy as np
@@ -49,6 +49,7 @@ from src.infrastructure.use_cases.backtest_models import (  # noqa: E402
 # :mod:`src.infrastructure.use_cases.backtest_pair_selection`; the thin delegating
 # methods below preserve the existing ``cls.``/``self.`` call sites unchanged.
 from src.infrastructure.use_cases import (  # noqa: E402
+    backtest_checkpoint as _checkpoint,
     backtest_history as _history,
     backtest_pair_selection as _pair_selection,
 )
@@ -1240,6 +1241,8 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         run_id: str,
         run_data: Dict[str, Any],
         deadline_monotonic: float,
+        *,
+        checkpoint_writer: Optional[Callable[[], None]] = None,
     ) -> Dict[str, Any]:
         control = self._load_fresh_runtime_control(run_id)
         if run_data.get("cancel_requested") or control.get("cancel_requested"):
@@ -1268,6 +1271,11 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             }
         )
         run_data = self._persist_run_data(run_data)
+        # Entering a pause is a likely precursor to an operator restart —
+        # persist a resume point covering the completed prefix while the
+        # in-memory state is still warm. The writer never raises.
+        if checkpoint_writer is not None:
+            checkpoint_writer()
 
         while True:
             if self._remaining_seconds(deadline_monotonic) <= 0:
@@ -2244,6 +2252,34 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             if not pair_markets:
                 raise ValueError("No valid market pairs available from request")
 
+            # Checkpoint resume: if a valid checkpoint exists for this exact
+            # request, reuse its post-prioritization pair plan and accumulated
+            # outputs instead of re-ranking and re-simulating completed pairs.
+            # Any miss/corruption/mismatch fails open to a fresh run.
+            checkpoint_store = None
+            resumed_checkpoint = None
+            if _checkpoint.checkpoints_enabled():
+                try:
+                    checkpoint_store = _checkpoint.get_checkpoint_store()
+                except _checkpoint._CHECKPOINT_IO_ERRORS as exc:
+                    logger.warning(
+                        "Backtest checkpoint store unavailable for run %s: %s",
+                        run_id,
+                        exc,
+                    )
+                if checkpoint_store is not None:
+                    resumed_checkpoint = _checkpoint.load_checkpoint(
+                        checkpoint_store,
+                        run_id,
+                        expected_payload_hash=self._request_payload_hash(
+                            request_payload
+                        ),
+                    )
+            resumed = resumed_checkpoint is not None
+            resumed_completed = (
+                resumed_checkpoint["completed_pairs_count"] if resumed else 0
+            )
+
             heartbeat_thread = threading.Thread(
                 target=self._run_backtest_heartbeat_keepalive_thread,
                 args=(run_id, deadline_monotonic, heartbeat_stop_event),
@@ -2280,7 +2316,8 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 market_map = {}
 
             # Modes using historical behavior require per-market history cache.
-            if pair_selection_mode in {"volatility", "cointegration"}:
+            # Skipped entirely on checkpoint resume (plan already computed).
+            if not resumed and pair_selection_mode in {"volatility", "cointegration"}:
                 for market in unique_markets:
                     try:
                         market_history_cache[market] = await self._await_with_deadline(
@@ -2301,7 +2338,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                     except Exception:
                         market_history_cache[market] = {}
 
-            if not explicit_pair_selection:
+            if not resumed and not explicit_pair_selection:
                 pair_markets = self._prioritize_pairs(
                     pair_markets=pair_markets,
                     mode=pair_selection_mode,
@@ -2311,15 +2348,42 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
 
                 if max_pairs is not None:
                     pair_markets = pair_markets[:max_pairs]
+            elif resumed:
+                # Trust the checkpointed plan — it defines what "completed"
+                # means for this run. Re-ranking now could observe drifted
+                # market data and produce a different order.
+                pair_markets = [
+                    (str(pair[0]), str(pair[1]))
+                    for pair in resumed_checkpoint["pair_plan"]
+                ]
 
             total_pairs = len(pair_markets)
-            all_trades: List[Dict[str, Any]] = []
-            all_snapshots: List[Dict[str, Any]] = []
-            daily_pnl_agg: Dict[str, float] = {}
-            running_total_pnl = 0.0
-            running_winners = 0
-            running_gross_profit = 0.0
-            running_gross_loss = 0.0
+            if resumed:
+                all_trades: List[Dict[str, Any]] = list(resumed_checkpoint["trades"])
+                all_snapshots: List[Dict[str, Any]] = list(
+                    resumed_checkpoint["position_snapshots"]
+                )
+                daily_pnl_agg: Dict[str, float] = dict(resumed_checkpoint["daily_pnl"])
+                running_total_pnl = float(resumed_checkpoint["running_total_pnl"])
+                running_winners = int(resumed_checkpoint["running_winners"])
+                running_gross_profit = float(resumed_checkpoint["running_gross_profit"])
+                running_gross_loss = float(resumed_checkpoint["running_gross_loss"])
+                logger.info(
+                    "Backtest %s resuming from checkpoint: %d/%d pairs already "
+                    "complete (%d trades loaded)",
+                    run_id,
+                    resumed_completed,
+                    total_pairs,
+                    len(all_trades),
+                )
+            else:
+                all_trades = []
+                all_snapshots = []
+                daily_pnl_agg = {}
+                running_total_pnl = 0.0
+                running_winners = 0
+                running_gross_profit = 0.0
+                running_gross_loss = 0.0
             heavy_every_pairs = self._env_positive_int(
                 "BACKTEST_HEAVY_PROGRESS_PERSIST_EVERY_PAIRS",
                 self._HEAVY_PROGRESS_PERSIST_EVERY_PAIRS,
@@ -2329,6 +2393,32 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 self._HEAVY_PROGRESS_PERSIST_EVERY_SECONDS,
             )
             last_heavy_persist_at = time.monotonic()
+            checkpoint_payload_hash = self._request_payload_hash(request_payload)
+
+            def _save_run_checkpoint(completed_pairs_count: int) -> None:
+                if checkpoint_store is None:
+                    return
+                _checkpoint.save_checkpoint(
+                    checkpoint_store,
+                    _checkpoint.build_checkpoint(
+                        run_id=run_id,
+                        payload_hash=checkpoint_payload_hash,
+                        pair_plan=pair_markets,
+                        completed_pairs_count=completed_pairs_count,
+                        trades=all_trades,
+                        position_snapshots=all_snapshots,
+                        daily_pnl=daily_pnl_agg,
+                        running_total_pnl=running_total_pnl,
+                        running_winners=running_winners,
+                        running_gross_profit=running_gross_profit,
+                        running_gross_loss=running_gross_loss,
+                    ),
+                )
+
+            def _delete_run_checkpoint() -> None:
+                if checkpoint_store is None:
+                    return
+                _checkpoint.delete_checkpoint(checkpoint_store, run_id)
 
             for idx, (m1, m2) in enumerate(pair_markets):
                 if self._remaining_seconds(deadline_monotonic) <= 0:
@@ -2337,8 +2427,17 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 # are not starved during CPU-bound pair processing.
                 await asyncio.sleep(0)
                 run_data = await self._honor_runtime_control(
-                    run_id, run_data, deadline_monotonic
+                    run_id,
+                    run_data,
+                    deadline_monotonic,
+                    checkpoint_writer=lambda completed=idx: _save_run_checkpoint(
+                        completed
+                    ),
                 )
+                if resumed and idx < resumed_completed:
+                    # Already captured by the checkpoint this attempt resumed
+                    # from — skip its fetch + simulation entirely.
+                    continue
 
                 progress = round((idx / max(1, total_pairs)) * 95.0, 2)
                 run_data["progress_pct"] = progress
@@ -2363,12 +2462,11 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 if progress_callback is not None:
                     try:
                         _elapsed = time.monotonic() - started_monotonic
-                        _pairs_done = max(1, idx)
+                        # On checkpoint resume, skipped pairs must not inflate
+                        # the throughput estimate for this attempt.
+                        _pairs_done = max(1, idx - resumed_completed)
                         _eta_seconds = (
-                            int(
-                                (_elapsed / _pairs_done)
-                                * max(0, total_pairs - _pairs_done)
-                            )
+                            int((_elapsed / _pairs_done) * max(0, total_pairs - idx))
                             if _elapsed > 0 and _pairs_done > 0
                             else 0
                         )
@@ -2399,7 +2497,12 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                     candles_1 = market_history_cache[m1]
                 else:
                     run_data = await self._honor_runtime_control(
-                        run_id, run_data, deadline_monotonic
+                        run_id,
+                        run_data,
+                        deadline_monotonic,
+                        checkpoint_writer=lambda completed=idx: (
+                            _save_run_checkpoint(completed)
+                        ),
                     )
                     candles_1 = await self._await_with_deadline(
                         _history._fetch_market_history(
@@ -2420,7 +2523,12 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                     candles_2 = market_history_cache[m2]
                 else:
                     run_data = await self._honor_runtime_control(
-                        run_id, run_data, deadline_monotonic
+                        run_id,
+                        run_data,
+                        deadline_monotonic,
+                        checkpoint_writer=lambda completed=idx: (
+                            _save_run_checkpoint(completed)
+                        ),
                     )
                     candles_2 = await self._await_with_deadline(
                         _history._fetch_market_history(
@@ -2441,7 +2549,12 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 # Re-check before entering the CPU-heavy simulation section so control
                 # latency is bounded by one external fetch instead of a full pair run.
                 run_data = await self._honor_runtime_control(
-                    run_id, run_data, deadline_monotonic
+                    run_id,
+                    run_data,
+                    deadline_monotonic,
+                    checkpoint_writer=lambda completed=idx: _save_run_checkpoint(
+                        completed
+                    ),
                 )
                 timestamps, p1, p2 = self._align_series(candles_1, candles_2)
                 trades, snapshots, daily_pnl = await self._simulate_pair(
@@ -2507,6 +2620,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 now_monotonic = time.monotonic()
                 should_persist_heavy = (
                     idx == 0
+                    or idx == resumed_completed
                     or (idx + 1) >= total_pairs
                     or ((idx + 1) % heavy_every_pairs == 0)
                     or (now_monotonic - last_heavy_persist_at) >= heavy_every_seconds
@@ -2526,6 +2640,9 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                         history_fetch_telemetry,
                     )
                     run_data = self._persist_run_data(run_data)
+                    # Durable resume point: everything through pair ``idx`` is
+                    # complete and persisted, so a retry/redelivery can skip it.
+                    _save_run_checkpoint(idx + 1)
 
                 # Yield control so other coroutines (status polling) run smoothly.
                 await asyncio.sleep(0)
@@ -2598,6 +2715,8 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                     "total_pnl": round(total_pnl, 4),
                 },
             )
+            # Terminal success: the checkpoint has no further resume value.
+            _delete_run_checkpoint()
 
             if progress_callback is not None:
                 try:
@@ -2656,6 +2775,8 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             )
             run_data = self._persist_run_data(run_data)
             async_job_manager.mark_cancelled(run_id, reason="Backtest cancelled")
+            # Operator-intentional terminal state — drop the resume point.
+            _delete_run_checkpoint()
             if propagate_exceptions:
                 raise
         except TimeoutError as exc:

@@ -46,6 +46,15 @@ class ArtifactStore(ABC):
     def exists(self, key: str) -> bool:
         """Return True when the artifact exists."""
 
+    def delete(self, key: str) -> bool:
+        """Best-effort delete. Returns True when the artifact was removed.
+
+        Default no-op for stores without delete support so callers never
+        depend on removal succeeding.
+        """
+        del key
+        return False
+
 
 class LocalArtifactStore(ArtifactStore):
     """Filesystem-backed artifact store used as the safe local fallback."""
@@ -99,3 +108,10 @@ class LocalArtifactStore(ArtifactStore):
 
     def exists(self, key: str) -> bool:
         return self._resolve_path(key).exists()
+
+    def delete(self, key: str) -> bool:
+        try:
+            self._resolve_path(key).unlink()
+            return True
+        except OSError:
+            return False

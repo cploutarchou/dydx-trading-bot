@@ -365,12 +365,18 @@ module `reset_*()` helpers.
   defaults, backend/admin settings may override at runtime), `src/trading/bot_agents_state.py` (concurrency-safe
   per-instance tracked-position state; DB primary, JSON file fallback),
   `src/trading/portfolio_risk.py` (account-level entry guard on the SHARED subaccount — aggregate open-market
-  cap, margin-utilization cap, projected free-collateral floor; Phase A opt-in via
+  cap, margin-utilization cap, projected free-collateral floor, all-time drawdown; Phase A opt-in via
   `BOT_PORTFOLIO_RISK_ENABLED`, default off; see `docs/bot-risk-control-matrix.md`),
   `src/trading/portfolio_accounts.py` (multi-account aggregation — enumerates the deployment's distinct
   wallet addresses from `bot_instances` and reads their public indexer exposure; opt-in deployment-wide caps
   via `BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS` / `BOT_PORTFOLIO_AGGREGATE_MAX_MARGIN_UTILIZATION_PCT`,
   both default off, surfaced on `GET /api/v1/monitoring/portfolio-risk`).
+  Advanced concentration controls on the same guard (all individually off): per-market notional cap
+  (`BOT_PORTFOLIO_MAX_NOTIONAL_PER_MARKET_USD`), gross-notional leverage cap
+  (`BOT_PORTFOLIO_MAX_TOTAL_NOTIONAL_PCT`), correlation buckets
+  (`BOT_PORTFOLIO_CORRELATION_BUCKETS="name:m1,m2:pct;..."`), and the UTC-day self-healing loss limit
+  (`BOT_PORTFOLIO_MAX_DAILY_LOSS_PCT`); notional controls fail closed on unparseable position data
+  (`portfolio_notional_data_incomplete`).
 - **Architecture reference docs**: `flows/` contains a dated (2026-06-21) source-code map of the system —
   `project-structure.md`, `services-inventory.md`, `current-business-flows.md`, `api-flows.md`,
   `background-tasks.md`, `data-flows.md`, `integrations.md`, `risks-and-gaps.md`. Consult these for architecture

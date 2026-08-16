@@ -2,6 +2,70 @@
 
 ## 2026-08-17
 
+- **Coverage floor ratcheted 68 → 70 (measured 69.30% → 71.98%) + two more latent bugs fixed.**
+  Second ratchet pass, targeting the two biggest worker-infrastructure coverage gaps with
+  hand-rolled fakes (no live NATS/Redis/broker required).
+    - **`tests/test_nats_consumer_service.py` (38 cases; `event_bus_nats.py` 35.3% → 89.7%)**:
+      connect success/failure/disabled (max_reconnects −1 → 60-attempt translation), connection
+      callbacks incl. reconnect-triggered resubscribe, stream + consumer provisioning (exists/create/
+      probe-error paths), the full `_process_messages` loop (happy ACK, invalid JSON → NAK, invalid
+      envelope → NAK, duplicate → ACK without handler call, handler exception → NAK), envelope
+      extraction, PostgreSQL duplicate-check (terminal statuses only; fail-open on DB error),
+      result dispatch (ACK/NAK/REQUEUE/unknown + swallow transport failures), dead-letter publishing
+      (subject mapping, delivery count, original payload, ack-after-move; NAK fallbacks), stream-name
+      mapping, subscribe/start/shutdown lifecycle, and the module singleton helpers.
+    - **`tests/test_backtest_tasks_helpers.py` (21 cases; `backtest_tasks.py` 23.6% → 91.6%)**:
+      lock TTL/retry-policy env matrices, Retry-After-aware exponential backoff, transient-error
+      classification (HTTP status set, transport families, message heuristics, never-transient types),
+      redis lock acquire/release compare-and-delete semantics, pub/sub status plumbing, and seven
+      `run_backtest_task` flows (duplicate-lock skip → SUCCESS duplicate_skipped, missing run, the
+      three strategy/pairs validation errors, happy path + progress-callback PROGRESS/publish,
+      transient → Retry with persisted retrying status, permanent → failed, soft-time-limit, cancel).
+    - **Bug 3 — NATS workqueue-stream provisioning always failed**: `_ensure_stream` looked up nats-py
+      enums by member name (`RetentionPolicy["WORKQUEUE"]`) but the member is `WORK_QUEUE` — KeyError
+      on every attempt to create BOT_COMMANDS / BACKTEST_COMMANDS (both workqueue retention), sinking
+      the Phase-4 command-bus provisioning path. Enums are now constructed by VALUE (the NATS
+      server-JSON spellings that the config vocabulary mirrors). Regression-pinned by the new
+      provisioning tests.
+    - **Bug 4 — eager Celery invocation crashed on `delivery_info`**: the STARTED metadata read
+      `getattr(self.request, "delivery_info", {}).get(...)`; in eager/pushed request contexts the
+      attribute exists but is `None`, so the default never applied and the task raised
+      AttributeError before reporting state. Now `(getattr(...) or {})`.
+    - **Floor raise**: `--cov-fail-under` 68 → 70 in `bot-tests` (comment trail updated);
+      suite green at **994 passed / 13 skipped**, total coverage **71.98%**. `coverage-ratchet` skill
+      updated (history, hotspot map, two new gotcha classes: enum value-vs-name lookups; async stubs
+      under `raise self.retry(...)` + None `delivery_info` in eager contexts).
+
+- **Coverage floor ratcheted 64 → 68 (measured 65.91% → 69.27%) + two latent bugs fixed.** The plan's
+  coverage-floor item prescribed `current−1` ratcheting as coverage improves; this pass executed it.
+    - **Five focused test files (+75 cases)** against the best-ROI pure modules ranked by missed
+      statements: `tests/test_cointegration_analysis.py` (12; `trading/analysis/cointegration.py`
+      10.1% → 89.3% — seeded AR(1)/synthetic-pair generators, all guards, the full
+      `store_cointegration_results` pass with faked messenger/storage), `tests/test_backtest_queries.py`
+      (17; `use_cases/backtest_queries.py` 28.0% → 97.7% — the read-side mixin driven through a minimal
+      fake host: status mapping, trades legacy fallback determinism, comparison best/worst semantics,
+      synthetic daily-pnl/position-snapshot fallbacks), `tests/test_backtest_pair_selection.py` (12;
+      strict Engle-Granger+ADF scoring vs penalty branch vs heuristic fallback vs guards),
+      `tests/test_auth_utils.py` (19; bcrypt truncation, JWT exp-type matrix incl. jose's own
+      expired-at-decode rejection, TOTP/QR roundtrip, blacklist Redis/memory paths via injected fakes),
+      `tests/test_dataframe_utils.py` (15; registry lifecycle, downcasting incl. the pandas-3
+      `str`-dtype caveat, cache-entry eviction).
+    - **Bug 1 — cointegration ranking silently degraded since extraction**: `backtest_pair_selection.py`
+      imported `statsmodels.tsa.statools` (nonexistent; canonical `stattools`), so the optional-import
+      guard swallowed the `ModuleNotFoundError` and every `cointegration`-mode backtest ranked pairs with
+      the heuristic fallback instead of the strict statistical path. Fixed; tests now cover both paths.
+    - **Bug 2 — deadlock on the DataFrame cleanup path**: `dataframe_utils.force_cleanup_all` called
+      `unregister_dataframe` while holding the same non-reentrant `threading.Lock` (backs the DataFrame
+      cleanup monitoring surface) — any invocation hung the calling thread. Fixed by snapshotting ids
+      under the lock and unregistering outside it; the new test hung at 0% CPU until the fix (that hang
+      was the diagnosis).
+    - **Floor raise**: `--cov-fail-under` 64 → 68 in `bot-tests` (comment block updated with the
+      measurement trail); full suite green at **936 passed / 13 skipped**, total coverage **69.27%**.
+    - **Protocol saved as a skill**: `.agents/skills/coverage-ratchet/SKILL.md` (exact CI invocation,
+      the every-place-the-number-lives checklist, hotspot map incl. the remaining integration-seam
+      hotspots, and the gotchas hit this pass: silent optional-import fallbacks, lock deadlocks, seeded
+      statistical assertions, pandas-3 str dtype, pydantic v2 `model_dump`).
+
 - **Portfolio-risk Phase B complete — guard flipped default ON; IMPROVEMENTS.md item #6 (the last open
   item) closed.** Evidence-then-flip protocol, mirroring the broadcast-bus Phase 2 flip:
     - **Burn-in harness**: new `scripts/portfolio_risk_burn_in.py` (+ `make portfolio-burn-in`, skill

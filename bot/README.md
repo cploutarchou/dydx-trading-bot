@@ -167,6 +167,13 @@ Useful environment variables:
   aggregate caps across every distinct wallet address in `bot_instances`
   (`BOT_PORTFOLIO_AGGREGATE_MAX_OPEN_MARKETS` / `BOT_PORTFOLIO_AGGREGATE_MAX_MARGIN_UTILIZATION_PCT`, both
   default 0 = off; foreign subaccounts are read via public indexer calls — no signing credentials needed).
+  Advanced concentration controls (all individually off by default): per-market notional cap
+  (`BOT_PORTFOLIO_MAX_NOTIONAL_PER_MARKET_USD`, projected `|size|×entryPrice` per entry leg), gross-notional
+  leverage cap (`BOT_PORTFOLIO_MAX_TOTAL_NOTIONAL_PCT`), operator-defined correlation buckets
+  (`BOT_PORTFOLIO_CORRELATION_BUCKETS="majors:BTC-USD,ETH-USD:50;..."` — bucket notional as % of equity), and
+  the self-healing UTC-day loss limit (`BOT_PORTFOLIO_MAX_DAILY_LOSS_PCT`, dated Redis peak key; the all-time
+  drawdown cap never resets itself). Unparseable position notionals fail closed when any notional control is
+  active (`portfolio_notional_data_incomplete`).
   Exposure and denials are visible at `GET /api/v1/monitoring/portfolio-risk` (auth required); see
   `docs/bot-risk-control-matrix.md`.
 - `NATS_URL` and `NATS_MONITORING_URL` for the optional command/event bus contract

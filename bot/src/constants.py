@@ -193,6 +193,27 @@ BOT_PORTFOLIO_MIN_FREE_COLLATERAL_USD: float = float(
 BOT_PORTFOLIO_MAX_DRAWDOWN_PCT: float = float(
     _os.getenv("BOT_PORTFOLIO_MAX_DRAWDOWN_PCT", "0.0")
 )
+# Advanced portfolio controls (all individually opt-in, 0/empty disables):
+# per-market USD notional concentration cap, gross-notional-as-%-of-equity cap
+# (effective leverage ceiling), and the UTC-day self-healing loss limit (drops
+# from the daily peak equity; the all-time drawdown above never resets itself).
+BOT_PORTFOLIO_MAX_NOTIONAL_PER_MARKET_USD: float = float(
+    _os.getenv("BOT_PORTFOLIO_MAX_NOTIONAL_PER_MARKET_USD", "0.0")
+)
+BOT_PORTFOLIO_MAX_TOTAL_NOTIONAL_PCT: float = float(
+    _os.getenv("BOT_PORTFOLIO_MAX_TOTAL_NOTIONAL_PCT", "0.0")
+)
+BOT_PORTFOLIO_MAX_DAILY_LOSS_PCT: float = float(
+    _os.getenv("BOT_PORTFOLIO_MAX_DAILY_LOSS_PCT", "0.0")
+)
+# Correlation buckets: "NAME:m1,m2,...:max_pct_of_equity" entries joined by ";".
+# Each bucket caps the projected notional held in its member markets (as a % of
+# equity). Malformed entries are skipped with a warning (fail-open parsing);
+# the check itself is exchange-read-derived and fails closed like the other
+# notional controls.
+BOT_PORTFOLIO_CORRELATION_BUCKETS: str = _os.getenv(
+    "BOT_PORTFOLIO_CORRELATION_BUCKETS", ""
+).strip()
 # Multi-account aggregation: deployment-wide caps across EVERY distinct wallet
 # address configured in `bot_instances` (per network). Aggregate limits are
 # opt-in individually (0 disables) and only take effect when the master switch

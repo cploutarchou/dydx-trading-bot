@@ -99,11 +99,11 @@ class BotRepository:
         self.session.commit()
         return bot
 
-    def get_by_instance_id(self, instance_id: str) -> type[Bot] | None:
+    def get_by_instance_id(self, instance_id: str) -> Bot | None:
         """Get bot by instance ID"""
         return self.session.query(Bot).filter(Bot.instance_id == instance_id).first()
 
-    def get_all(self) -> list[type[Bot]]:
+    def get_all(self) -> list[Bot]:
         """Get all bots"""
         return self.session.query(Bot).all()
 
@@ -189,15 +189,15 @@ class JobRepository:
         self.session.commit()
         return job
 
-    def get_by_job_id(self, job_id: str) -> type[Job] | None:
+    def get_by_job_id(self, job_id: str) -> Job | None:
         """Get job by job ID"""
         return self.session.query(Job).filter(Job.job_id == job_id).first()
 
-    def get_by_id(self, job_id: int) -> type[Job] | None:
+    def get_by_id(self, job_id: int) -> Job | None:
         """Get a job by ID"""
         return self.session.query(Job).filter(Job.id == job_id).first()
 
-    def get_by_bot_id(self, bot_id: int) -> list[type[Job]]:
+    def get_by_bot_id(self, bot_id: int) -> list[Job]:
         """Get all jobs for a bot"""
         return self.session.query(Job).filter(Job.bot_id == bot_id).all()
 
@@ -275,7 +275,7 @@ class JobRepository:
             job.updated_at = utc_now()
             self.session.commit()
 
-    def get_job_history(self, bot_id: int, days: int = 7) -> list[type[Job]]:
+    def get_job_history(self, bot_id: int, days: int = 7) -> list[Job]:
         """Get job history for a bot within the last N days"""
         cutoff_date = utc_now() - timedelta(days=days)
         return (
@@ -494,15 +494,15 @@ class TradeRepository:
         self._write_analytics_trade(trade, event_kind="opened")
         return trade
 
-    def get_by_position_id(self, position_id: str) -> type[Trade] | None:
+    def get_by_position_id(self, position_id: str) -> Trade | None:
         """Get trade by position ID"""
         return self.session.query(Trade).filter(Trade.trade_id == position_id).first()
 
-    def get_by_bot_id(self, bot_id: int) -> list[type[Trade]]:
+    def get_by_bot_id(self, bot_id: int) -> list[Trade]:
         """Get all trades for a bot"""
         return self.session.query(Trade).filter(Trade.bot_id == bot_id).all()
 
-    def get_bot_trades(self, bot_id: int) -> list[type[Trade]]:
+    def get_bot_trades(self, bot_id: int) -> list[Trade]:
         """Alias for get_by_bot_id"""
         return self.get_by_bot_id(bot_id)
 
@@ -909,7 +909,7 @@ class EventRepository:
         self._write_analytics_event(event)
         return event
 
-    def get_bot_events(self, bot_instance_id: int, days: int = 7) -> list[type[Event]]:
+    def get_bot_events(self, bot_instance_id: int, days: int = 7) -> list[Event]:
         """Get events for a bot within the last N days"""
         cutoff_date = utc_now() - timedelta(days=days)
         return (
@@ -922,7 +922,7 @@ class EventRepository:
             .all()
         )
 
-    def get_all_events(self, days: int = 7) -> list[type[Event]]:
+    def get_all_events(self, days: int = 7) -> list[Event]:
         """Get all events within the last N days"""
         cutoff_date = utc_now() - timedelta(days=days)
         return (

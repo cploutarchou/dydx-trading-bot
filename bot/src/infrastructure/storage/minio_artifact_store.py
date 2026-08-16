@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 try:  # pragma: no cover - import is optional in test/dev environments
     from minio import Minio
 except Exception:  # pragma: no cover - keep adapter functional without package
-    Minio = None
+    Minio = None  # type: ignore[assignment,misc]
 
 try:  # pragma: no cover - narrow error types for best-effort deletes
     from minio.error import S3Error
@@ -59,7 +59,7 @@ class MinIOArtifactStore(ArtifactStore):
         self._client = self._build_client()
 
     @staticmethod
-    def _is_not_found_error(exc: Exception) -> bool:
+    def _is_not_found_error(exc: BaseException) -> bool:
         code = str(getattr(exc, "code", "") or "").lower()
         if code in {"nosuchkey", "nosuchbucket", "notfound", "404"}:
             return True

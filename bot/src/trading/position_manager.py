@@ -783,10 +783,13 @@ async def open_positions(client) -> None:
                     # Account-level (portfolio) guard: the shared subaccount
                     # already reflects every instance's fills, so this is the
                     # authoritative aggregate view (no cross-process state).
-                    # Disabled by default (BOT_PORTFOLIO_RISK_ENABLED).
+                    # Disabled by default (BOT_PORTFOLIO_RISK_ENABLED). Each
+                    # pair leg books USD_PER_TRADE notional in its market.
                     portfolio_decision = await check_portfolio_entry_guard(
                         client,
                         incremental_notional_usd=USD_PER_TRADE * 2,
+                        entry_markets=(base_market, quote_market),
+                        per_leg_notional_usd=USD_PER_TRADE,
                     )
                     if not portfolio_decision.allowed:
                         record_rejection(portfolio_decision.primary_reason)
@@ -1633,3 +1636,4 @@ async def manage_trade_exits(client) -> str | None:
     # Save remaining items
     logger.info("{} items remaining; persisting {}", len(save_output), BOT_AGENTS_PATH)
     await save_processed_positions(open_positions_dict, save_output)
+    return None

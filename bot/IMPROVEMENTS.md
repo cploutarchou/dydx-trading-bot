@@ -50,7 +50,7 @@ Most of this document is a record of completed work. Everything still pending, i
 | 3 | ~~**Move blocking DB calls off the event loop**~~ **RESOLVED 2026-08-15** — slices 1–5: `run_db` seam + backtest/realtime reads, WebSocket senders, backtest mutations, `bot_records`/`bot_lifecycle`/`strategies`, `pool_pre_ping` (default ON) + auth yield-dependency session fix | Zero `AsyncSession` in `src/` — every DB call in an async handler stalls the loop | done |
 | 4 | ~~**Integration tests** (Redis / Celery / dYdX)~~ **RESOLVED 2026-08-15** — opt-in harness (`tests/test_integration_external_services.py`, `make test-integration`): real cache roundtrip, real bus pub/sub, real Celery worker ping+registration, live indexer contract; non-blocking `bot-integration` CI job with a Valkey service container | Compose infra already exists; mostly markers + a CI job | done |
 | 5 | ~~**Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`)~~ **RESOLVED 2026-08-15** — floor set at 64% (measured 65.08%, blocking), `bot-deps-audit` pip-audit CI job + Dependabot shipped; first audit already removed an unused `aiohttp` pin carrying 3 open advisories | Two cheap CI gates; coverage reports today with nothing enforcing them | done |
-| 6 | **Portfolio-level risk controls** — Phase A entry guard, operator visibility, account-wide drawdown, and multi-account aggregation delivered (2026-08-15/16); aggregation caps across every `bot_instances` wallet are opt-in limits; remaining: Phase B burn-in → default ON | Per-instance limits can each pass while the account is over-exposed | in progress (Phase B pending) |
+| 6 | **Portfolio-level risk controls** — Phase A entry guard, operator visibility, account-wide drawdown, multi-account aggregation, AND the advanced concentration set (2026-08-15/16: per-market notional cap, gross-notional leverage cap, correlation buckets, UTC-day loss limit — all individually off); remaining: Phase B burn-in → default ON | Per-instance limits can each pass while the account is over-exposed | in progress (Phase B pending) |
 | 7 | ~~**Backtest checkpointing**~~ **RESOLVED 2026-08-16** — durable per-pair checkpoints (`backtests/<run_id>/checkpoint.json` in the artifact store) written at the heavy-progress cadence and on pause; Celery redelivery / transient retry / auto-recovery requeue / NATS redelivery all resume from the completed-pair prefix after payload-hash validation (fail-open); terminal completed/cancelled delete the checkpoint | Was compute-cost only: resumed runs skip re-fetch + re-simulation of completed pairs | done |
 
 > **Resolved 2026-08-11:** the former row 1 ("Resolve dead code paths") is done — 2FA router
@@ -128,9 +128,15 @@ Items removed from this plan during the same review — and why — are listed i
 
 #### **Moderate Issues**
 
-- **No Type Checking** (RESOLVED — phase 1): mypy is configured in `pyproject.toml` (`[tool.mypy]`) and runs in CI via
-  the **non-blocking** `bot-typecheck` job (`.github/workflows/bot-quality.yml`); reports a ~189-error baseline to the
-  job summary without gating merges. Path to a blocking gate is documented in the config
+- **No Type Checking** (RESOLVED — blocking gate since 2026-08-16): mypy is configured in `pyproject.toml`
+  (`[tool.mypy]`) and runs in CI via the **blocking** `bot-typecheck` job
+  (`.github/workflows/bot-quality.yml`, in `quality-gate.needs`). The historical baseline was cleared
+  module-by-module (234 errors → 0, measured 2026-08-16 — the count had grown from the documented 189 as new
+  code landed). Clearing it also surfaced and fixed real latent bugs: the NATS consumer caught nonexistent
+  exception attrs (`nats.errors.StreamNotFoundError`/`ConsumerNotFoundError` → `nats.js.errors.NotFoundError`),
+  the nonexistent `nats.api` module (`nats.js.api`), wrong `ConsumerConfig` kwargs, and `Msg.meta` →
+  `Msg.metadata`; `GET /api/v1/bots/{id}/trades` serialized four `Trade` attributes that don't exist on the
+  model (now derived from real columns). Next tightening step: the phase-2 options documented in the config
     - **Impact**: Type-related bugs, poor IDE support
     - **Files**: Missing mypy.ini or pyproject.toml type checking
 
@@ -488,7 +494,7 @@ Items removed from this plan during the same review — and why — are listed i
     - **Impact**: Catch type-related bugs early
     - **Effort**: 2-3 days
     - **Priority**: MEDIUM
-    - **Status**: COMPLETED (phase 1 — reporting-only baseline) - Added `mypy==2.3.0` plus stubs (`types-requests`,
+    - **Status**: COMPLETED (blocking gate since 2026-08-16) - Added `mypy==2.3.0` plus stubs (`types-requests`,
       `types-PyYAML`; `pandas-stubs`/`types-psutil` were already present) to `requirements.txt`, and a `[tool.mypy]`
       section to `pyproject.toml`: `python_version = "3.12"`, `explicit_package_bases = true` (several subpackages —
       `api/v1`, `api/pair_history`, `infrastructure/persistence`, `infrastructure/use_cases` — are namespace packages
@@ -497,14 +503,17 @@ Items removed from this plan during the same review — and why — are listed i
       `exclude`. The valuable-but-noisy options (`warn_unused_ignores`, `warn_redundant_casts`, `check_untyped_defs`,
       `disallow_untyped_defs`, `warn_return_any`, `strict`) are documented as commented phase-2 toggles —
       `warn_unused_ignores` in particular is deferred because it makes the ratchet non-monotonic (fixing a real error
-      turns a previously-needed `# type: ignore` into a new warning). mypy runs in CI via a new **non-blocking**
-      `bot-typecheck` job in `.github/workflows/bot-quality.yml` (`continue-on-error` on the mypy step, NOT in the
-      `quality-gate` needs) that posts the error count to the job summary. Current baseline: **189 errors in 22 files**,
-      dominated by real categories (assignment 66, arg-type 41, misc 19, union-attr 14, return-value 7) and concentrated
-      in `infrastructure/persistence/repository.py` (68), `infrastructure/event_bus_nats.py` (29), and
-      `infrastructure/persistence/repository_backtest.py` (18). Path to a real gate: clear the baseline module-by-module
-      → drop `continue-on-error` + add the job to `quality-gate.needs` → enable the phase-2 options. Not added to
-      pre-commit (mypy needs whole-program context and is slow; CI is the right place for it).
+      turns a previously-needed `# type: ignore` into a new warning).
+      **Baseline campaign 2026-08-16: 234 errors in 26 files → 0**, then the `bot-typecheck` CI job was promoted to a
+      blocking gate (`continue-on-error` dropped, added to `quality-gate.needs`). The count had grown from the
+      documented 189 as new code landed. Root causes fixed along the way: `Base = declarative_base()` →
+      `class Base(DeclarativeBase)` (unlocked native SQLAlchemy 2 typing for all 155+ `Mapped[]` columns),
+      wrong `type[Model]` return annotations across the repositories, mixin host-contracts declared as
+      `TYPE_CHECKING` attribute blocks, closure-unsafe `Optional[Session]` narrowing, optional-import fallback
+      assignments, and six real latent bug families (nonexistent NATS exception attrs/module/kwargs, `Msg.meta` →
+      `Msg.metadata`, nullable `Msg.header`, phantom `Trade` attributes in the trades route). Phase-2 options
+      (check_untyped_defs / warn_unused_ignores / strict) remain the documented next tightening step.
+      Not added to pre-commit (mypy needs whole-program context and is slow; CI is the right place for it).
 
 #### **Testing**
 
@@ -1222,7 +1231,7 @@ remains:
 - ✅ Circuit breaker implementation (COMPLETED — `src/infrastructure/resilience/` named-breaker framework)
 - ✅ Configuration validation (COMPLETED — `validate_startup_config()` in `start_api.py`)
 - ✅ Pre-commit hooks (COMPLETED — `.pre-commit-config.yaml` at the monorepo root, scoped to `bot/`)
-- ✅ Type checking with mypy (COMPLETED phase 1 — non-blocking `bot-typecheck` job, 189-error baseline)
+- ✅ Type checking with mypy (COMPLETED — blocking `bot-typecheck` gate since 2026-08-16; baseline cleared 234 → 0, which also fixed six latent bug families)
 - ✅ Security scanning with bandit (COMPLETED — non-blocking `bot-security` CI job)
 - ✅ DataFrame memory cleanup (COMPLETED)
 - ✅ **Coverage floor** (`--cov-fail-under`) — COMPLETED (2026-08-15): blocking floor of 64% in the `bot-tests`
@@ -1237,7 +1246,10 @@ remains:
 ### **Lower Priority**
 
 - ✅ Backtest checkpointing — COMPLETED (2026-08-16); see the action-plan item
-- Advanced portfolio-level risk management
+- ✅ Advanced portfolio-level risk management — COMPLETED (2026-08-16): per-market notional cap,
+  gross-notional/leverage cap, operator-defined correlation buckets, and the UTC-day self-healing loss
+  limit, all layered onto the Phase A guard (individually off by default; see the
+  "Advanced Portfolio Controls" section of `docs/bot-risk-control-matrix.md`)
 
 ---
 
@@ -1341,9 +1353,9 @@ Pruned during a validation pass against the actual codebase. Two categories:
 - **Security Scanning**: 0 high-severity bandit findings (current baseline: 3 medium, 0 high)
 - **Dependency Scanning**: `pip-audit` reports the resolved `requirements.txt` tree per build (non-blocking
   `bot-deps-audit` job, phase 1); known accepted finding: 1 no-fix `ecdsa` advisory via `python-jose`
-- **Type Checking**: mypy error count never exceeds the 189-error baseline, and drops module-by-module toward a
-  blocking gate. (The old "100% mypy strict" target was removed — it is not reachable from a 189-error baseline
-  and made the metric useless as a signal.)
+- **Type Checking**: 0 mypy errors — `bot-typecheck` is a blocking gate (baseline cleared 2026-08-16:
+  234 → 0). Next ratchet: enable the phase-2 options in `bot/pyproject.toml`
+  (`check_untyped_defs`, `warn_unused_ignores`, …) and drive the new count back to 0
 
 ---
 

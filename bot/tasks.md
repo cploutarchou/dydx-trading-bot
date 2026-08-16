@@ -2,6 +2,40 @@
 
 ## 2026-08-17
 
+- **Coverage floor ratcheted 68 → 70 (measured 69.30% → 71.98%) + two more latent bugs fixed.**
+  Second ratchet pass, targeting the two biggest worker-infrastructure coverage gaps with
+  hand-rolled fakes (no live NATS/Redis/broker required).
+    - **`tests/test_nats_consumer_service.py` (38 cases; `event_bus_nats.py` 35.3% → 89.7%)**:
+      connect success/failure/disabled (max_reconnects −1 → 60-attempt translation), connection
+      callbacks incl. reconnect-triggered resubscribe, stream + consumer provisioning (exists/create/
+      probe-error paths), the full `_process_messages` loop (happy ACK, invalid JSON → NAK, invalid
+      envelope → NAK, duplicate → ACK without handler call, handler exception → NAK), envelope
+      extraction, PostgreSQL duplicate-check (terminal statuses only; fail-open on DB error),
+      result dispatch (ACK/NAK/REQUEUE/unknown + swallow transport failures), dead-letter publishing
+      (subject mapping, delivery count, original payload, ack-after-move; NAK fallbacks), stream-name
+      mapping, subscribe/start/shutdown lifecycle, and the module singleton helpers.
+    - **`tests/test_backtest_tasks_helpers.py` (21 cases; `backtest_tasks.py` 23.6% → 91.6%)**:
+      lock TTL/retry-policy env matrices, Retry-After-aware exponential backoff, transient-error
+      classification (HTTP status set, transport families, message heuristics, never-transient types),
+      redis lock acquire/release compare-and-delete semantics, pub/sub status plumbing, and seven
+      `run_backtest_task` flows (duplicate-lock skip → SUCCESS duplicate_skipped, missing run, the
+      three strategy/pairs validation errors, happy path + progress-callback PROGRESS/publish,
+      transient → Retry with persisted retrying status, permanent → failed, soft-time-limit, cancel).
+    - **Bug 3 — NATS workqueue-stream provisioning always failed**: `_ensure_stream` looked up nats-py
+      enums by member name (`RetentionPolicy["WORKQUEUE"]`) but the member is `WORK_QUEUE` — KeyError
+      on every attempt to create BOT_COMMANDS / BACKTEST_COMMANDS (both workqueue retention), sinking
+      the Phase-4 command-bus provisioning path. Enums are now constructed by VALUE (the NATS
+      server-JSON spellings that the config vocabulary mirrors). Regression-pinned by the new
+      provisioning tests.
+    - **Bug 4 — eager Celery invocation crashed on `delivery_info`**: the STARTED metadata read
+      `getattr(self.request, "delivery_info", {}).get(...)`; in eager/pushed request contexts the
+      attribute exists but is `None`, so the default never applied and the task raised
+      AttributeError before reporting state. Now `(getattr(...) or {})`.
+    - **Floor raise**: `--cov-fail-under` 68 → 70 in `bot-tests` (comment trail updated);
+      suite green at **994 passed / 13 skipped**, total coverage **71.98%**. `coverage-ratchet` skill
+      updated (history, hotspot map, two new gotcha classes: enum value-vs-name lookups; async stubs
+      under `raise self.retry(...)` + None `delivery_info` in eager contexts).
+
 - **Coverage floor ratcheted 64 → 68 (measured 65.91% → 69.27%) + two latent bugs fixed.** The plan's
   coverage-floor item prescribed `current−1` ratcheting as coverage improves; this pass executed it.
     - **Five focused test files (+75 cases)** against the best-ROI pure modules ranked by missed

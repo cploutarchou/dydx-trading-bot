@@ -467,7 +467,7 @@ def run_backtest_task(
                 meta={
                     "task_id": task_id,
                     "task_name": "backtests.run",
-                    "queue": getattr(self.request, "delivery_info", {}).get(
+                    "queue": (getattr(self.request, "delivery_info", None) or {}).get(
                         "routing_key", "backtests"
                     ),
                     "status": "STARTED",

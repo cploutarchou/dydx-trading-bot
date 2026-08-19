@@ -1,5 +1,85 @@
 # Tasks Log
 
+## 2026-08-20 (pass 8)
+
+- **Coverage floor ratcheted 81 → 82 (measured 82.10% → 83.25%); no product change.** Eighth
+  ratchet pass, targeting the top Miss-ranked hotspot `api/websocket_server.py` (164 missed /
+  59.4%).
+    - **`tests/test_websocket_server.py` extended 9 → 42 cases; `api/websocket_server.py`
+      164 → 1 missed statement (59.4% → 99.6% scoped; the remainder is `deliver_local_broadcast`'s
+      body, covered by `tests/test_broadcast_bus.py` in full runs)**: scripted WebSocket double
+      with per-send error queues (Optional entries — `None` = that send succeeds) plus scripted
+      incoming frames; `_wire_realtime` helper patching `db.get_session` / `UnitOfWork` /
+      `UnitOfWorkRealtime` seams (numeric ids bypass the bots repo; `resolve_bot=False` drives
+      the unknown-bot branches). Covers: env-parse helpers (parse/empty/garbage/clamp),
+      send-failure metrics matrix (backtest-channel scoping incl. `None`/`bot-*`/`backtest-`
+      early returns, disconnect-vs-error counters, prune window, recent-count alerts,
+      empty-run-id/unknown-run projections, summary aggregation), connection lifecycle
+      (connect/disconnect/drop across channels), `_deliver_local` unknown/empty-channel no-ops,
+      mixed-outcome broadcasts (success + WebSocketDisconnect + RuntimeError sockets → failed
+      connections dropped, additive counters asserted), `send_personal_message` outcomes,
+      all six `WebSocketEvents` handlers + module broadcast helpers + strategy channel/snapshot
+      builder, `_resolve_realtime_bot_id` matrix, `_build_backtest_status_message` /
+      `_build_backtest_log_message` full branch matrix, `handle_connection` (full lifecycle,
+      initial-state send failure closing before the receive loop, invalid-JSON disconnect),
+      `handle_message` dispatch (ping/positions/stats/market_data/unknown/non-backtest
+      request_status, backtest status-failure RuntimeError), realtime senders
+      (`send_initial_state` full snapshot incl. stats-zero defaults + unknown-bot warning +
+      loader error; `send_positions`/`send_stats`/`send_market_data` rows/unknown/missing/error),
+      and `send_backtest_status` (not-found, completed-with-log, log-send failure returning
+      False, loader error).
+    - **Floor raise**: `--cov-fail-under` 81 → 82 in `bot-tests` (comment trail updated); suite
+      green at **1331 passed / 13 skipped**, total coverage **83.25%**; black + mypy + exception
+      ratchet clean; adjacent suites re-run green (`test_broadcast_bus.py` +
+      `test_monitoring_routes.py`, 75 passed). `coverage-ratchet` skill updated (history,
+      hotspot map — next: `main_instance.py` ~158, `position_manager.py` ~130,
+      `repository_backtest.py` ~126, `celery_monitor.py` ~123 — and pass-8 gotchas: initial-state
+      stats block carries only `daily_win_rate`, verbatim strategy-status publishes,
+      shared-bucket `consecutive_send_failures` races under gather, setdefault channel
+      registration, Nth-send error queues, `--cov=<file>` empty-data quirk, autouse
+      manager-state clearing).
+
+## 2026-08-19 (pass 7)
+
+- **Coverage floor ratcheted 78 → 81 (measured 79.60% → 82.10%); no product change.** Seventh
+  ratchet pass, targeting the persistence pair.
+    - **`tests/test_persistence_repository_unit.py` (20 cases; `persistence/repository.py`
+      219 → 19 missed statements, 52.1% → 93.5%)**: scripted `_FakeSession` whose query objects
+      memoize a per-model FIFO spec (so `count()+all()` chains share one spec) covering
+      BotRepository CRUD + statistics (open/winning/losing aggregation), JobRepository full
+      lifecycle (start/complete/fail/cancel with field resets, progress clamping ±, metadata
+      merge, history, update_status matrix incl. started_at/completed_at transitions),
+      TradeRepository (create + analytics "opened" mirror, queries, close-trade P&L math incl.
+      the partial-exit skip, statistics, exit updates, `_build_analytics_row` shape + event-time
+      normalization, writer-failure degradation, `_resolve_bot_instance_id` variants),
+      EventRepository (coercers, datetime normalization matrix, order-status mapping, log_event
+      + analytics write, order-analytics rows for entry/exit/orphaned legs with exchange-native
+      fields, write-failure degradation, event-context fallbacks for non-dict details),
+      StrategyRepository (list/list_public/get/versions projections, create with flush→version
+      bump→refresh, update merge + version chain, soft delete, revert), and the UnitOfWork
+      commit/rollback context contract.
+    - **`tests/test_database_unit.py` (20 cases; `infrastructure/database.py` 222 → 144 missed
+      scoped; the config-resolution remainder is covered by the existing config-runtime suite in
+      full runs)**: pool helpers (`_pool_metric` callables-only semantics, max-overflow
+      resolution incl. callable/garbage forms), ConnectionPoolMonitor (collect + utilization
+      incl. zero-capacity, alert cooldown, failure-rate alert with stale-window exclusion,
+      current-metrics stats, history limiting, health matrix healthy/warning/critical/failures,
+      start/double-start/stop, loop iteration with sleep-disabled and collect-failure
+      survival), DatabaseConfig projections (connection string URL passthrough vs built-from-
+      fields, engine kwargs shape, to_diagnostics), DatabaseManager built via `object.__new__`
+      (fork-reset variants, lazy engine/session init + RuntimeError branches, session_scope
+      commit/rollback/close, create/drop tables with patched Base, health check + pool-monitor
+      failure recording, verify_required_tables, schema-compatibility fix paths with fake
+      inspectors, alembic baseline/migration decision matrix incl. legacy-skip and
+      empty-bootstrap, pool accessors + diagnostics incl. pool_info, fork-hook guards).
+    - **Floor raise**: `--cov-fail-under` 78 → 81 in `bot-tests` (comment trail updated); suite
+      green at **1295 passed / 13 skipped**, total coverage **82.10%**; black + mypy (0 errors
+      in 97 files) + exception-handling ratchet all clean; adjacent persistence suites re-run
+      green (28 passed). `coverage-ratchet` skill updated (history, hotspot map, pass-7
+      gotchas: memoized query specs, realized_pnl vs profit_loss asymmetry, class-cached
+      analytics writers, `object.__new__` for singletons, monitor overflow denominator, alembic
+      %% interpolation).
+
 ## 2026-08-19 (pass 6)
 
 - **Coverage floor ratcheted 77 → 78 (measured 78.09% → 79.60%); no product change.** Sixth ratchet

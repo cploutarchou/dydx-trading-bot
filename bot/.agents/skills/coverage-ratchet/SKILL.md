@@ -12,7 +12,10 @@ is a **ratchet**: it only goes up. History: 64 (2026-08-15, measured 65.08) →
 NATS consumer-service + Celery backtest-task suites) → 73 (2026-08-18, measured
 74.42, BacktestService unit-seam + Telegram notifications suites) → 75
 (2026-08-19, measured 76.37, BotInstanceManager lifecycle/recovery suite; fixed
-delete-of-active-runtime deadlocking on the per-instance lifecycle lock).
+delete-of-active-runtime deadlocking on the per-instance lifecycle lock) → 77
+(2026-08-19, measured 78.09, backtest route-family suite with pinned compat
+namespaces; hardened `_build_backtest_analytics_summary` against non-dict
+analytics).
 
 ## 1. Measure with the EXACT CI invocation
 
@@ -95,24 +98,23 @@ Watch for these when writing the tests (each was a real catch):
   `self.request.delivery_info` exists but is None in pushed/eager request
   contexts — `getattr(req, "delivery_info", {})` does NOT default; use `or {}`.
 
-## 4. Known remaining hotspots (measured 2026-08-19, after four passes)
+## 4. Known remaining hotspots (measured 2026-08-19, after five passes)
 
-By missed statements: `api/v1/backtests.py` (~261, route family),
-`api/server.py` (~225, startup/lifespan), `infrastructure/database.py` (~222),
-`infrastructure/persistence/repository.py` (~219), `api/websocket_server.py`
-(~165), `main_instance.py` (~158, worker entrypoint), `trading/position_manager.py`
-(~130), `persistence/repository_backtest.py` (~126), `workers/celery_monitor.py`
-(~123). Covered in pass 4 (2026-08-19): `bot_instance_manager.py` 309→15 missed
-(61.7%→95.4%) via a lifecycle suite in `tests/test_bot_instance_manager.py` —
-fake `Popen`, fake psutil `Process` (cmdline/is_running/status/metrics failure
-matrix), fake `UnitOfWork`/session, record-only `async_job_manager`; no real
-subprocess, DB, or psutil probing. Earlier wins: pass 3 (2026-08-18)
-`use_cases/service_backtest.py` 256→43 missed via a unit-seam suite
-(`BacktestService.__new__` + dict-backed fake repo — no DB, no Celery) and
-`shared/notifications.py` 116→4 via transport/message-family tests (patched
-`requests.post` + `resilience.call`). The next step function is route-family
-seams (TestClient + module monkeypatch seams, per the existing route test files)
-and the `database.py`/`repository.py` persistence pair.
+By missed statements: `api/server.py` (~225, startup/lifespan),
+`infrastructure/database.py` (~222), `infrastructure/persistence/repository.py`
+(~219), `api/websocket_server.py` (~165), `main_instance.py` (~158, worker
+entrypoint), `trading/position_manager.py` (~130),
+`persistence/repository_backtest.py` (~126), `workers/celery_monitor.py`
+(~123). Covered in pass 5 (2026-08-19): `api/v1/backtests.py` 261→58 missed
+(66.7%→92.4% scoped; several of the 58 are covered by other suites) via
+`tests/test_backtest_routes_unit.py` — autouse fixture pins
+`_compatibility_namespace_provider` to a per-test dict so every `_compat(...)`
+seam is stubbable, plus stub services/stores/dydx clients; handlers invoked
+directly (contract-test pattern), no TestClient/auth needed. Earlier wins: pass 4
+`bot_instance_manager.py` 309→15 missed (fake Popen/psutil/UnitOfWork), pass 3
+`service_backtest.py` 256→43 + `notifications.py` 116→4. The next step function
+is the `database.py`/`repository.py` persistence pair and `api/server.py`
+startup/lifespan seams.
 
 Gotchas from pass 3 (each cost a debugging round):
 - Service-unit seams: bypass `__init__` via `__new__` + manual `repository`/
@@ -158,3 +160,26 @@ Gotchas from pass 4 (BotInstanceManager lifecycle suite):
 - pydantic models do not validate assignment by default: mutating
   `config.trading_params.is_testnet` or assigning a raw-string `status` on a
   `BotInstanceState` is a legitimate test seam for the non-enum branches.
+
+Gotchas from pass 5 (backtest route family):
+- Route handlers are testable WITHOUT TestClient: call them directly with
+  `current_user=object()` (contract-test pattern). Auth/rate-limit
+  `Depends(...)` only run through the ASGI stack, so they are skipped.
+- Pin `_compatibility_namespace_provider` to a per-test dict via an autouse
+  fixture — importing the server elsewhere in the suite re-wires the provider
+  to the server namespace, making `_compat` seams order-dependent. The same
+  applies to `_backtest_rate_limit_provider`: the "unconfigured raises"
+  default only holds until any test imports the server.
+- Compat seams accept BOTH sync and async stubs in some routes via
+  `_maybe_awaitable`; the `run_db(...)` sync seams must stay sync (they run
+  in a threadpool).
+- Route call ORDER matters for call-recording asserts: create/run routes run
+  the admission health check (`get_runtime_health`) BEFORE
+  `create_and_run_backtest`; restart/retry check status (incl.
+  `request_available`) BEFORE the service call.
+- Pair-label semantics: `selected_pairs` labels split on "/" into dYdX market
+  names ("BTC-USD/ETH-USD" → ["BTC-USD","ETH-USD"]), not base symbols —
+  `_resolve_backtest_markets` validates parts against the indexer market set.
+- `_build_backtest_analytics_summary` previously crashed on non-dict
+  analytics despite its own isinstance guards (fixed 2026-08-19); watch for
+  that half-defensive pattern elsewhere.

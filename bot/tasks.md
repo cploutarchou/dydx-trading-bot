@@ -1,5 +1,36 @@
 # Tasks Log
 
+## 2026-08-19 (pass 6)
+
+- **Coverage floor ratcheted 77 → 78 (measured 78.09% → 79.60%); no product change.** Sixth ratchet
+  pass, targeting `src/api/server.py` (startup/lifespan seams).
+    - **`tests/test_api_server_unit.py` (34 cases; `src/api/server.py` 241 → 22 missed statements,
+      58.8% → 94.9% scoped)**: the lifespan context manager driven end-to-end — Celery worker-backend
+      probe variants (workers online / empty / unreachable / pre-set env skip), auth-bypass warning,
+      DB health/migration call ordering, broadcast-bus start/stop/aclose drain order, backtest
+      auto-recovery success/failure, bot-manager publisher wiring + monitor-task supervision incl.
+      completed-task recreation and shutdown cancellation, health-check abort, manager-unavailable
+      degradation, and `BOT_STOP_RUNTIME_ON_API_SHUTDOWN` propagation; `_bot_manager_monitor_loop`
+      cancellation-during-cleanup / cleanup-error survival; runtime preflight (risk-control rejection,
+      wallet/subaccount blockers, 404 vs non-404 indexer errors, collateral guardrails with buffer /
+      trade-size / subaccount-isolation warnings, mainnet/testnet detection, connect failures); trace
+      middleware (inbound + generated trace ids, query truncation, dev log-level routing incl. the
+      strategy-probe 404 debug case, exception propagation, production silence); both rate limiter
+      classes with the redis→in-process fallback matrix (pipeline counts, execution failure,
+      retry-window, missing package, cached client) and 429 dependencies; markets cache + route
+      (fresh hit with cap, live fetch with failing closers, stale fallback header, 503 fail-closed);
+      custom OpenAPI (Bearer scheme, StandardApiResponse envelope, auth-path exemption); validation +
+      unhandled exception handlers; /health + strict /ready (200/503); system status (manager
+      unavailable / running instance / 500); users/me defaults; runtime db-config; /metrics;
+      capabilities; strategy-resolution metric routes incl. prometheus + reset; stderr filter; env
+      readers; markets-cache TTL-disabled branch; `_runtime_db_pool_warnings`; bot diagnostics
+      helpers.
+    - **Floor raise**: `--cov-fail-under` 77 → 78 in `bot-tests` (comment trail updated); suite green
+      at **1255 passed / 13 skipped**, total coverage **79.60%**; black + mypy (0 errors in 97 files)
+      + exception-handling ratchet all clean. `coverage-ratchet` skill updated (history, hotspot map,
+      pass-6 gotchas: lifespan env leak guard, monitor-task global, async call_next, fake-manager
+      `max_instances`, redis from_url deliberately left uncovered).
+
 ## 2026-08-19 (pass 5)
 
 - **Coverage floor ratcheted 75 → 77 (measured 76.37% → 78.09%).** Fifth ratchet pass, targeting the

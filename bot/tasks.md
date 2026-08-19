@@ -1,5 +1,46 @@
 # Tasks Log
 
+## 2026-08-19 (pass 7)
+
+- **Coverage floor ratcheted 78 → 81 (measured 79.60% → 82.10%); no product change.** Seventh
+  ratchet pass, targeting the persistence pair.
+    - **`tests/test_persistence_repository_unit.py` (20 cases; `persistence/repository.py`
+      219 → 19 missed statements, 52.1% → 93.5%)**: scripted `_FakeSession` whose query objects
+      memoize a per-model FIFO spec (so `count()+all()` chains share one spec) covering
+      BotRepository CRUD + statistics (open/winning/losing aggregation), JobRepository full
+      lifecycle (start/complete/fail/cancel with field resets, progress clamping ±, metadata
+      merge, history, update_status matrix incl. started_at/completed_at transitions),
+      TradeRepository (create + analytics "opened" mirror, queries, close-trade P&L math incl.
+      the partial-exit skip, statistics, exit updates, `_build_analytics_row` shape + event-time
+      normalization, writer-failure degradation, `_resolve_bot_instance_id` variants),
+      EventRepository (coercers, datetime normalization matrix, order-status mapping, log_event
+      + analytics write, order-analytics rows for entry/exit/orphaned legs with exchange-native
+      fields, write-failure degradation, event-context fallbacks for non-dict details),
+      StrategyRepository (list/list_public/get/versions projections, create with flush→version
+      bump→refresh, update merge + version chain, soft delete, revert), and the UnitOfWork
+      commit/rollback context contract.
+    - **`tests/test_database_unit.py` (20 cases; `infrastructure/database.py` 222 → 144 missed
+      scoped; the config-resolution remainder is covered by the existing config-runtime suite in
+      full runs)**: pool helpers (`_pool_metric` callables-only semantics, max-overflow
+      resolution incl. callable/garbage forms), ConnectionPoolMonitor (collect + utilization
+      incl. zero-capacity, alert cooldown, failure-rate alert with stale-window exclusion,
+      current-metrics stats, history limiting, health matrix healthy/warning/critical/failures,
+      start/double-start/stop, loop iteration with sleep-disabled and collect-failure
+      survival), DatabaseConfig projections (connection string URL passthrough vs built-from-
+      fields, engine kwargs shape, to_diagnostics), DatabaseManager built via `object.__new__`
+      (fork-reset variants, lazy engine/session init + RuntimeError branches, session_scope
+      commit/rollback/close, create/drop tables with patched Base, health check + pool-monitor
+      failure recording, verify_required_tables, schema-compatibility fix paths with fake
+      inspectors, alembic baseline/migration decision matrix incl. legacy-skip and
+      empty-bootstrap, pool accessors + diagnostics incl. pool_info, fork-hook guards).
+    - **Floor raise**: `--cov-fail-under` 78 → 81 in `bot-tests` (comment trail updated); suite
+      green at **1295 passed / 13 skipped**, total coverage **82.10%**; black + mypy (0 errors
+      in 97 files) + exception-handling ratchet all clean; adjacent persistence suites re-run
+      green (28 passed). `coverage-ratchet` skill updated (history, hotspot map, pass-7
+      gotchas: memoized query specs, realized_pnl vs profit_loss asymmetry, class-cached
+      analytics writers, `object.__new__` for singletons, monitor overflow denominator, alembic
+      %% interpolation).
+
 ## 2026-08-19 (pass 6)
 
 - **Coverage floor ratcheted 77 → 78 (measured 78.09% → 79.60%); no product change.** Sixth ratchet

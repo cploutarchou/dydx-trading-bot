@@ -293,6 +293,10 @@ module `reset_*()` helpers.
   startup/readiness paths.
 - Verify strategy runtime websocket behavior (`/ws/strategies`) still sends `strategy_status_snapshot` on connect and
   lifecycle updates after runtime state changes.
+- Run `tests/test_websocket_server.py` when touching the WebSocket sender family
+  (`src/api/websocket_server.py` — ConnectionManager lifecycle/delivery/failure metrics, the
+  realtime loaders, backtest status/log senders, and the broadcast event helpers); run
+  `tests/test_broadcast_bus.py` alongside when touching the local-delivery/bus-publish split.
 - Verify per-instance subprocess logs still write to `bot_states/bot_<instance_id>.log` and dead-process cleanup remains
   active when touching `src/bot_instance_manager.py`.
 - Run `tests/test_bot_instance_manager.py` when touching the instance lifecycle manager

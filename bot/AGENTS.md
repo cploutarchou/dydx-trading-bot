@@ -303,6 +303,9 @@ module `reset_*()` helpers.
   status/progress and alias contracts; also run `tests/test_backtest_routes_unit.py` when touching the backtest
   router internals (`src/api/v1/backtests.py` — compat-namespace seams, market/strategy resolution, admission
   control, per-route error envelopes).
+- Run `tests/test_api_server_unit.py` when touching API startup/lifespan or server-owned support seams
+  (`src/api/server.py` — lifespan ordering, runtime preflight guardrails, rate limiters, markets cache,
+  trace middleware, `/ready` strictness, diagnostics helpers).
 - Run `tests/test_async_job_manager.py` when touching background task orchestration (`async_job_manager`) behavior.
 - Run `tests/test_market_sync_tasks.py` and `tests/test_market_data_cache.py` when touching market data sync, caching,
   or candle aggregation.

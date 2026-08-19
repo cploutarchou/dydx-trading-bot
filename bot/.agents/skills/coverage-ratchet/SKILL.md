@@ -15,7 +15,9 @@ NATS consumer-service + Celery backtest-task suites) → 73 (2026-08-18, measure
 delete-of-active-runtime deadlocking on the per-instance lifecycle lock) → 77
 (2026-08-19, measured 78.09, backtest route-family suite with pinned compat
 namespaces; hardened `_build_backtest_analytics_summary` against non-dict
-analytics).
+analytics) → 78 (2026-08-19, measured 79.60, API server startup/lifespan
+suite — lifespan driven with faked Celery/DB/broadcast-bus/manager seams;
+no product change).
 
 ## 1. Measure with the EXACT CI invocation
 
@@ -98,23 +100,27 @@ Watch for these when writing the tests (each was a real catch):
   `self.request.delivery_info` exists but is None in pushed/eager request
   contexts — `getattr(req, "delivery_info", {})` does NOT default; use `or {}`.
 
-## 4. Known remaining hotspots (measured 2026-08-19, after five passes)
+## 4. Known remaining hotspots (measured 2026-08-19, after six passes)
 
-By missed statements: `api/server.py` (~225, startup/lifespan),
-`infrastructure/database.py` (~222), `infrastructure/persistence/repository.py`
-(~219), `api/websocket_server.py` (~165), `main_instance.py` (~158, worker
-entrypoint), `trading/position_manager.py` (~130),
-`persistence/repository_backtest.py` (~126), `workers/celery_monitor.py`
-(~123). Covered in pass 5 (2026-08-19): `api/v1/backtests.py` 261→58 missed
-(66.7%→92.4% scoped; several of the 58 are covered by other suites) via
-`tests/test_backtest_routes_unit.py` — autouse fixture pins
-`_compatibility_namespace_provider` to a per-test dict so every `_compat(...)`
-seam is stubbable, plus stub services/stores/dydx clients; handlers invoked
-directly (contract-test pattern), no TestClient/auth needed. Earlier wins: pass 4
-`bot_instance_manager.py` 309→15 missed (fake Popen/psutil/UnitOfWork), pass 3
+By missed statements: `infrastructure/database.py` (~222),
+`infrastructure/persistence/repository.py` (~219), `api/websocket_server.py`
+(~165), `main_instance.py` (~158, worker entrypoint),
+`trading/position_manager.py` (~130), `persistence/repository_backtest.py`
+(~126), `workers/celery_monitor.py` (~123). Covered in pass 6 (2026-08-19):
+`api/server.py` 241→22 missed (58.8%→94.9% scoped) via
+`tests/test_api_server_unit.py` — the lifespan context manager driven end-to-end
+with faked Celery control/DB backend/broadcast bus/job manager/lifecycle
+manager (startup ordering, shutdown drain order, monitor-task cancellation,
+health-check abort, auth-bypass warning, Celery probe variants), runtime
+preflight collateral guardrails, trace middleware (inbound/generated trace ids,
+query truncation, log-level routing, exception propagation), both rate limiter
+classes incl. the redis→in-process fallback matrix, markets cache
+fresh/stale/disabled, custom OpenAPI envelope injection, exception handlers,
+health/ready strictness, system status, and diagnostics helpers. Earlier wins:
+pass 5 `api/v1/backtests.py` 261→58 (pinned compat namespaces), pass 4
+`bot_instance_manager.py` 309→15 (fake Popen/psutil/UnitOfWork), pass 3
 `service_backtest.py` 256→43 + `notifications.py` 116→4. The next step function
-is the `database.py`/`repository.py` persistence pair and `api/server.py`
-startup/lifespan seams.
+is the `database.py`/`repository.py` persistence pair.
 
 Gotchas from pass 3 (each cost a debugging round):
 - Service-unit seams: bypass `__init__` via `__new__` + manual `repository`/
@@ -183,3 +189,29 @@ Gotchas from pass 5 (backtest route family):
 - `_build_backtest_analytics_summary` previously crashed on non-dict
   analytics despite its own isinstance guards (fixed 2026-08-19); watch for
   that half-defensive pattern elsewhere.
+
+Gotchas from pass 6 (API server startup/lifespan):
+- The lifespan context manager is fully drivable with `async with
+  server.lifespan(server.app)` inside `asyncio.run` — monkeypatch on the
+  `server` namespace: `DatabaseConfig`, `get_broadcast_bus`,
+  `async_job_manager`, `bot_manager`, `backtest_service_scope`, auth helpers,
+  and the five `server.db` lifecycle methods. The Celery probe imports
+  `celery_app` from `src.infrastructure.workers.celery_app` INSIDE lifespan —
+  patch the module attribute there.
+- Lifespan SETS `os.environ["BACKTEST_WORKER_BACKEND"]="celery"` — an autouse
+  `monkeypatch.delenv(..., raising=False)` must guard that leak, or later
+  tests see a mutated process env.
+- The monitor task is a module global (`bot_manager_monitor_task`); snapshot/
+  cancel/restore it in a fixture, and pre-seed a COMPLETED task to reach the
+  `done()`-recreation branch.
+- `@app.middleware("http")` returns the original function — call
+  `request_trace_logging_middleware(request, call_next)` directly with a
+  starlette `Request(scope)` and an ASYNC `call_next` (sync lambdas fail the
+  `await`). Fake responses only need `status_code` + dict `headers`.
+- Fake managers used by `system_status` need a `max_instances` attribute —
+  its absence raises inside the route and silently converts the response to
+  the 500 envelope (`data=None`).
+- The redis rate limiter's `from_url` construction block is the one seam left
+  uncovered on purpose: building real clients against `redis_url()` is
+  environment-dependent; drive `_get_redis` via preset `_redis_client`
+  fakes / `find_spec` patches instead.

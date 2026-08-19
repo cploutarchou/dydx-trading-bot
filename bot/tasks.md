@@ -1,5 +1,153 @@
 # Tasks Log
 
+## 2026-08-19 (pass 6)
+
+- **Coverage floor ratcheted 77 → 78 (measured 78.09% → 79.60%); no product change.** Sixth ratchet
+  pass, targeting `src/api/server.py` (startup/lifespan seams).
+    - **`tests/test_api_server_unit.py` (34 cases; `src/api/server.py` 241 → 22 missed statements,
+      58.8% → 94.9% scoped)**: the lifespan context manager driven end-to-end — Celery worker-backend
+      probe variants (workers online / empty / unreachable / pre-set env skip), auth-bypass warning,
+      DB health/migration call ordering, broadcast-bus start/stop/aclose drain order, backtest
+      auto-recovery success/failure, bot-manager publisher wiring + monitor-task supervision incl.
+      completed-task recreation and shutdown cancellation, health-check abort, manager-unavailable
+      degradation, and `BOT_STOP_RUNTIME_ON_API_SHUTDOWN` propagation; `_bot_manager_monitor_loop`
+      cancellation-during-cleanup / cleanup-error survival; runtime preflight (risk-control rejection,
+      wallet/subaccount blockers, 404 vs non-404 indexer errors, collateral guardrails with buffer /
+      trade-size / subaccount-isolation warnings, mainnet/testnet detection, connect failures); trace
+      middleware (inbound + generated trace ids, query truncation, dev log-level routing incl. the
+      strategy-probe 404 debug case, exception propagation, production silence); both rate limiter
+      classes with the redis→in-process fallback matrix (pipeline counts, execution failure,
+      retry-window, missing package, cached client) and 429 dependencies; markets cache + route
+      (fresh hit with cap, live fetch with failing closers, stale fallback header, 503 fail-closed);
+      custom OpenAPI (Bearer scheme, StandardApiResponse envelope, auth-path exemption); validation +
+      unhandled exception handlers; /health + strict /ready (200/503); system status (manager
+      unavailable / running instance / 500); users/me defaults; runtime db-config; /metrics;
+      capabilities; strategy-resolution metric routes incl. prometheus + reset; stderr filter; env
+      readers; markets-cache TTL-disabled branch; `_runtime_db_pool_warnings`; bot diagnostics
+      helpers.
+    - **Floor raise**: `--cov-fail-under` 77 → 78 in `bot-tests` (comment trail updated); suite green
+      at **1255 passed / 13 skipped**, total coverage **79.60%**; black + mypy (0 errors in 97 files)
+      + exception-handling ratchet all clean. `coverage-ratchet` skill updated (history, hotspot map,
+      pass-6 gotchas: lifespan env leak guard, monitor-task global, async call_next, fake-manager
+      `max_instances`, redis from_url deliberately left uncovered).
+
+## 2026-08-19 (pass 5)
+
+- **Coverage floor ratcheted 75 → 77 (measured 76.37% → 78.09%).** Fifth ratchet pass, targeting the
+  largest remaining hotspot: the backtest route family.
+    - **`tests/test_backtest_routes_unit.py` (40 cases; `src/api/v1/backtests.py` 261 → 58 missed
+      statements, 66.7% → 92.4% scoped)**: an autouse fixture pins
+      `_compatibility_namespace_provider` to a per-test dict so every `_compat(...)` seam is stubbable
+      deterministically (server import order can't leak in), plus a configurable `_StubService`, fake
+      dYdX indexer clients, a fake strategy store, and a history-lookup session stub. Handlers are
+      invoked directly with `current_user=object()` (the established contract-test pattern — no
+      TestClient, no auth stack). Covered: unconfigured providers fail closed + `configure_backtest_routes`
+      provider swap, env-reader matrices, endpoint cache (TTL disabled, expiry pop, overflow eviction —
+      expired first, then oldest), market resolution (pair-label expansion with full market names, cap
+      slicing, invalid/empty indexer sets, connect failure, node.close failure swallowed), manual/strategy
+      request building (defaults merge, resolution↔candle_resolution mirroring, zero-balance fallback via
+      `model_construct`), the full `_resolve_strategy_backtest_request` matrix (store/history/request-
+      snapshot/not-found/strict-production), service scope + close variants + repository-session wiring,
+      admission-control branch matrix (global/queue/in-process/persistence-overload + Retry-After),
+      websocket broadcast (success/failure), unauthorized ws adapter, and all 31 HTTP route handlers'
+      success/404/409/422/429/500 paths including trades/analytics caching and the logs route
+      (missing/tail/directory-as-file).
+    - **Bug 7 — `_build_backtest_analytics_summary` crashed on non-dict analytics**: the function
+      guarded `trades`/`daily_pnl`/`position_snapshots` with `isinstance(analytics, dict)` but then
+      called `analytics.get(...)` unguarded — any non-dict payload raised AttributeError. Now
+      normalizes non-dict input to `{}` (the guards' clear intent).
+    - **Floor raise**: `--cov-fail-under` 75 → 77 in `bot-tests` (comment trail updated); suite green
+      at **1221 passed / 13 skipped**, total coverage **78.09%**; black + mypy (0 errors in 97 files)
+      + exception-handling ratchet all clean; mandated backtest contract/auth/routes suites re-run
+      green (64 passed). `coverage-ratchet` skill updated (history, hotspot map, pass-5 gotchas:
+      pinned compat namespaces, direct handler invocation, admission-before-create call order,
+      pair-label market-name semantics).
+
+## 2026-08-19
+
+- **Coverage floor ratcheted 73 → 75 (measured 74.42% → 76.37%) + one latent bug fixed.** Fourth
+  ratchet pass, targeting the largest remaining hotspot: the subprocess lifecycle manager.
+    - **`tests/test_bot_instance_manager.py` extended (27 → 88 cases; `src/bot_instance_manager.py`
+      309 → 15 missed statements, 61.7% → 95.4%)**: full fake harness — record-only
+      `async_job_manager`, fake `Popen` (poll/terminate/kill/wait with optional
+      `TimeoutExpired`), fake psutil `Process` (cmdline identity, zombie, access-denied,
+      no-such-process, metrics failures), fake `UnitOfWork`/session, tmp-path state dirs; no real
+      subprocess, DB, or psutil probing. Covered: env/backoff helpers (`_read_positive_float_env`,
+      pool-overload detection, cooldown activation → skip → throttled notice → recovery),
+      `_resolve_max_instances` env matrix, `_ensure_instance_record` / `_record_runtime_event` /
+      `_persist_instances_to_db` (runtime_state serialization, seal+config_meta, commit failure →
+      rollback without backoff, pool-overload → backoff), legacy snapshot write + failure,
+      `_load_existing_instances_from_db` hydration (enum vs legacy string statuses, process_info
+      reconstruction) + invalid-row dev cleanup (8-table delete, mainnet guard, delete-failure
+      rollback), disk-snapshot loader + corruption, config-payload coercion matrix,
+      `_build_instance_config_from_record` defaults/skips, external-runtime resolution branches,
+      liveness refresh matrix, `_mark_instance_error` transitions + event recording,
+      create/duplicate/limit/risk-rejection, start success (job lifecycle + Telegram env
+      propagation) / Popen failure / job-completion failure / fast-exit, the **entire stop
+      matrix** (graceful, force, graceful-timeout escalation, force-timeout no-reap,
+      already-exited, external-runtime graceful/force/timeout/exited-during-stop, probe-error
+      warning, in-progress lock rejection, failure → error transition), delete (force-stop +
+      file cleanup, cleanup failure), status probes (attached dead/alive, metrics
+      access-denied/disappeared, external alive/denied/gone/unattached), `list_instances`,
+      `auto_recover_live_runtimes` (verified-running, locked-skip, second-probe-under-lock,
+      restart-disabled mark-error, testnet restart, mainnet allowance gate, failed restart),
+      `_check_liveness_and_degrade` (no-heartbeat refresh, fresh, stale → degraded publish,
+      recovering skip), `shutdown`, strategy-id/job-metadata/payload helpers, publisher-failure
+      isolation, and log handle/tail edge cases (OSError paths, directory-instead-of-file).
+    - **Bug 6 — deleting an active runtime could never succeed**: `_delete_instance_locked`
+      called the public `stop_instance` while already holding the per-instance `asyncio.Lock`;
+      `stop_instance` observed the held lock and returned "lifecycle operation in progress", so
+      every delete of a RUNNING/DEGRADED instance failed. Now calls `_stop_instance_locked`
+      under the lock (same pattern as `auto_recover_live_runtimes`), regression-pinned by
+      `test_delete_instance_force_stops_and_removes_files`.
+    - **Floor raise**: `--cov-fail-under` 73 → 75 in `bot-tests` (comment trail updated); suite
+      green at **1181 passed / 13 skipped**, total coverage **76.37%**; black + mypy (0 errors in
+      97 files) + exception-handling ratchet all clean. `coverage-ratchet` skill updated
+      (history, hotspot map, pass-4 gotchas: fake-psutil cmdline identity, strategy-id publish
+      gating, fake-row `id` attribute, re-entrant lifecycle locks, pydantic assignment seams).
+
+## 2026-08-18
+
+- **Coverage floor ratcheted 70 → 73 (measured 71.98% → 74.42%) + one latent bug fixed.** Third
+  ratchet pass, targeting the two largest newly-ranked coverage gaps with DB-free seams.
+    - **`tests/test_backtest_service_unit.py` (82 cases; `use_cases/service_backtest.py` 256 → 43
+      missed statements)**: drives `BacktestService` through `__new__` + a dict-backed fake repo
+      (no DB, no Celery) — canonical status/lifecycle normalization, ops-row projection,
+      load/persist/cache seams (incl. cache-first `_load_run_data` when session is None and the
+      `_runs` class cache), runtime-control merge matrix, the full `_honor_runtime_control`
+      pause→resume/timeout/cancel loop (via `get_run_overview` state-machine swapping —
+      `_set_runtime_control` persists a copy, so post-hoc dict mutation is invisible), heartbeat
+      keepalive (async + thread + touch paths), stale-heartbeat observability and resolution,
+      worker-backend resolution (explicit celery/nats, reprobe off, cooldown window),
+      auto-recovery mode aliases/eligibility/prepare, celery enqueue failure marking, restart
+      edge paths, `_build_metrics` exact-formula + sensitivity matrix (with matching rounding),
+      Sharpe/drawdown/daily-PnL edges, seeded `_simulate_pair` round trip, and
+      `_execute_backtest` validation/timeout/completion flows (exception paths assert on
+      `_persist_progress_data`, not `save_run`).
+    - **`tests/test_notifications.py` extended (6 → 50 cases; `shared/notifications.py` 116 → 4
+      missed)**: constructor credential resolution (args → env → constants, disabled flag +
+      once-only notice), HTML escaping, instance/environment prefixes, truncation limits,
+      account-address resolution and Mintscan link variants, `_safe_env_int` /
+      `_normalize_error_category` / dedupe-window matrices, `_should_skip_duplicate` lifecycle,
+      the full `_send_request_blocking` retry ladder against patched `requests.post` +
+      `time.sleep` (success, 403 bot-chat, 429 retry-after honored, 429 bad-JSON fallback,
+      transient exhaustion, non-transient fail-fast, circuit-open immediate stop,
+      RequestException retry/exhaustion, `TELEGRAM_SEND_RETRIES` overrides), event-loop thread
+      offload, `send_message` core (dedupe skip, env default window, truncation, payload shape),
+      message-family variants (startup env detection, lifecycle titles + failure override, error
+      severity/dedupe, trade opened/closed key fallbacks + z-score parsing, cointegration
+      branches, account-status thresholds, daily summary, shutdown escaping), and every
+      module-level wrapper incl. the legacy `sent`/`no-token`/`failed` mapping.
+    - **Bug 5 — garbage `TELEGRAM_SEND_RETRIES` crashed every send**: `int(os.getenv(...))`
+      raised an uncaught `ValueError` on any non-integer value, failing all Telegram delivery
+      attempts. Now falls back to 3 attempts (regression-pinned by the garbage-env test).
+    - **Floor raise**: `--cov-fail-under` 70 → 73 in `bot-tests` (comment trail updated);
+      suite green at **1120 passed / 13 skipped**, total coverage **74.42%**; black + mypy
+      (0 errors) + exception-handling ratchet all clean. `coverage-ratchet` skill updated
+      (history, hotspot map, pass-3 gotchas: cache-first loads, control-dict copy semantics,
+      async-classmethod monkeypatch factory, progress-vs-save persist seams, rounding-aware
+      assertions, scripted-transport patterns).
+
 ## 2026-08-17
 
 - **Coverage floor ratcheted 68 → 70 (measured 69.30% → 71.98%) + two more latent bugs fixed.**

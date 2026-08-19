@@ -1532,12 +1532,15 @@ class BotInstanceManager:
     async def _delete_instance_locked(self, instance_id: str) -> BotOperationResult:
         """Delete bot instance and cleanup files while holding per-instance lifecycle lock."""
         try:
-            # Stop instance first if running
+            # Stop instance first if running. Call the locked variant directly:
+            # the public stop_instance() would observe this lock as held and
+            # reject the operation as "in progress", making deletes of active
+            # runtimes impossible.
             if (
                 instance_id in self.instances
                 and self.instances[instance_id].status in self.ACTIVE_RUNTIME_STATUSES
             ):
-                stop_result = await self.stop_instance(instance_id, force=True)
+                stop_result = await self._stop_instance_locked(instance_id, force=True)
                 if not stop_result.success:
                     return stop_result
 

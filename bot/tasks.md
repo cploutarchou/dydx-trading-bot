@@ -1,5 +1,90 @@
 # Tasks Log
 
+## 2026-08-19
+
+- **Coverage floor ratcheted 73 → 75 (measured 74.42% → 76.37%) + one latent bug fixed.** Fourth
+  ratchet pass, targeting the largest remaining hotspot: the subprocess lifecycle manager.
+    - **`tests/test_bot_instance_manager.py` extended (27 → 88 cases; `src/bot_instance_manager.py`
+      309 → 15 missed statements, 61.7% → 95.4%)**: full fake harness — record-only
+      `async_job_manager`, fake `Popen` (poll/terminate/kill/wait with optional
+      `TimeoutExpired`), fake psutil `Process` (cmdline identity, zombie, access-denied,
+      no-such-process, metrics failures), fake `UnitOfWork`/session, tmp-path state dirs; no real
+      subprocess, DB, or psutil probing. Covered: env/backoff helpers (`_read_positive_float_env`,
+      pool-overload detection, cooldown activation → skip → throttled notice → recovery),
+      `_resolve_max_instances` env matrix, `_ensure_instance_record` / `_record_runtime_event` /
+      `_persist_instances_to_db` (runtime_state serialization, seal+config_meta, commit failure →
+      rollback without backoff, pool-overload → backoff), legacy snapshot write + failure,
+      `_load_existing_instances_from_db` hydration (enum vs legacy string statuses, process_info
+      reconstruction) + invalid-row dev cleanup (8-table delete, mainnet guard, delete-failure
+      rollback), disk-snapshot loader + corruption, config-payload coercion matrix,
+      `_build_instance_config_from_record` defaults/skips, external-runtime resolution branches,
+      liveness refresh matrix, `_mark_instance_error` transitions + event recording,
+      create/duplicate/limit/risk-rejection, start success (job lifecycle + Telegram env
+      propagation) / Popen failure / job-completion failure / fast-exit, the **entire stop
+      matrix** (graceful, force, graceful-timeout escalation, force-timeout no-reap,
+      already-exited, external-runtime graceful/force/timeout/exited-during-stop, probe-error
+      warning, in-progress lock rejection, failure → error transition), delete (force-stop +
+      file cleanup, cleanup failure), status probes (attached dead/alive, metrics
+      access-denied/disappeared, external alive/denied/gone/unattached), `list_instances`,
+      `auto_recover_live_runtimes` (verified-running, locked-skip, second-probe-under-lock,
+      restart-disabled mark-error, testnet restart, mainnet allowance gate, failed restart),
+      `_check_liveness_and_degrade` (no-heartbeat refresh, fresh, stale → degraded publish,
+      recovering skip), `shutdown`, strategy-id/job-metadata/payload helpers, publisher-failure
+      isolation, and log handle/tail edge cases (OSError paths, directory-instead-of-file).
+    - **Bug 6 — deleting an active runtime could never succeed**: `_delete_instance_locked`
+      called the public `stop_instance` while already holding the per-instance `asyncio.Lock`;
+      `stop_instance` observed the held lock and returned "lifecycle operation in progress", so
+      every delete of a RUNNING/DEGRADED instance failed. Now calls `_stop_instance_locked`
+      under the lock (same pattern as `auto_recover_live_runtimes`), regression-pinned by
+      `test_delete_instance_force_stops_and_removes_files`.
+    - **Floor raise**: `--cov-fail-under` 73 → 75 in `bot-tests` (comment trail updated); suite
+      green at **1181 passed / 13 skipped**, total coverage **76.37%**; black + mypy (0 errors in
+      97 files) + exception-handling ratchet all clean. `coverage-ratchet` skill updated
+      (history, hotspot map, pass-4 gotchas: fake-psutil cmdline identity, strategy-id publish
+      gating, fake-row `id` attribute, re-entrant lifecycle locks, pydantic assignment seams).
+
+## 2026-08-18
+
+- **Coverage floor ratcheted 70 → 73 (measured 71.98% → 74.42%) + one latent bug fixed.** Third
+  ratchet pass, targeting the two largest newly-ranked coverage gaps with DB-free seams.
+    - **`tests/test_backtest_service_unit.py` (82 cases; `use_cases/service_backtest.py` 256 → 43
+      missed statements)**: drives `BacktestService` through `__new__` + a dict-backed fake repo
+      (no DB, no Celery) — canonical status/lifecycle normalization, ops-row projection,
+      load/persist/cache seams (incl. cache-first `_load_run_data` when session is None and the
+      `_runs` class cache), runtime-control merge matrix, the full `_honor_runtime_control`
+      pause→resume/timeout/cancel loop (via `get_run_overview` state-machine swapping —
+      `_set_runtime_control` persists a copy, so post-hoc dict mutation is invisible), heartbeat
+      keepalive (async + thread + touch paths), stale-heartbeat observability and resolution,
+      worker-backend resolution (explicit celery/nats, reprobe off, cooldown window),
+      auto-recovery mode aliases/eligibility/prepare, celery enqueue failure marking, restart
+      edge paths, `_build_metrics` exact-formula + sensitivity matrix (with matching rounding),
+      Sharpe/drawdown/daily-PnL edges, seeded `_simulate_pair` round trip, and
+      `_execute_backtest` validation/timeout/completion flows (exception paths assert on
+      `_persist_progress_data`, not `save_run`).
+    - **`tests/test_notifications.py` extended (6 → 50 cases; `shared/notifications.py` 116 → 4
+      missed)**: constructor credential resolution (args → env → constants, disabled flag +
+      once-only notice), HTML escaping, instance/environment prefixes, truncation limits,
+      account-address resolution and Mintscan link variants, `_safe_env_int` /
+      `_normalize_error_category` / dedupe-window matrices, `_should_skip_duplicate` lifecycle,
+      the full `_send_request_blocking` retry ladder against patched `requests.post` +
+      `time.sleep` (success, 403 bot-chat, 429 retry-after honored, 429 bad-JSON fallback,
+      transient exhaustion, non-transient fail-fast, circuit-open immediate stop,
+      RequestException retry/exhaustion, `TELEGRAM_SEND_RETRIES` overrides), event-loop thread
+      offload, `send_message` core (dedupe skip, env default window, truncation, payload shape),
+      message-family variants (startup env detection, lifecycle titles + failure override, error
+      severity/dedupe, trade opened/closed key fallbacks + z-score parsing, cointegration
+      branches, account-status thresholds, daily summary, shutdown escaping), and every
+      module-level wrapper incl. the legacy `sent`/`no-token`/`failed` mapping.
+    - **Bug 5 — garbage `TELEGRAM_SEND_RETRIES` crashed every send**: `int(os.getenv(...))`
+      raised an uncaught `ValueError` on any non-integer value, failing all Telegram delivery
+      attempts. Now falls back to 3 attempts (regression-pinned by the garbage-env test).
+    - **Floor raise**: `--cov-fail-under` 70 → 73 in `bot-tests` (comment trail updated);
+      suite green at **1120 passed / 13 skipped**, total coverage **74.42%**; black + mypy
+      (0 errors) + exception-handling ratchet all clean. `coverage-ratchet` skill updated
+      (history, hotspot map, pass-3 gotchas: cache-first loads, control-dict copy semantics,
+      async-classmethod monkeypatch factory, progress-vs-save persist seams, rounding-aware
+      assertions, scripted-transport patterns).
+
 ## 2026-08-17
 
 - **Coverage floor ratcheted 68 → 70 (measured 69.30% → 71.98%) + two more latent bugs fixed.**

@@ -146,7 +146,10 @@ class TelegramMessenger:
             return False
 
         url = f"{self.base_url}/{method}"
-        attempts = max(1, int(os.getenv("TELEGRAM_SEND_RETRIES", "3") or "3"))
+        try:
+            attempts = max(1, int(os.getenv("TELEGRAM_SEND_RETRIES", "3") or "3"))
+        except ValueError:
+            attempts = 3
         for attempt in range(1, attempts + 1):
             try:
                 response = resilience.call(

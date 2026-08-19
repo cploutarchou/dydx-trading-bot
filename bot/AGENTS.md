@@ -306,6 +306,9 @@ module `reset_*()` helpers.
 - Run `tests/test_api_server_unit.py` when touching API startup/lifespan or server-owned support seams
   (`src/api/server.py` — lifespan ordering, runtime preflight guardrails, rate limiters, markets cache,
   trace middleware, `/ready` strictness, diagnostics helpers).
+- Run `tests/test_persistence_repository_unit.py` and `tests/test_database_unit.py` when touching the
+  core persistence layer (`src/infrastructure/persistence/repository.py` repositories/UnitOfWork or
+  `src/infrastructure/database.py` manager/pool-monitor/config-projection seams).
 - Run `tests/test_async_job_manager.py` when touching background task orchestration (`async_job_manager`) behavior.
 - Run `tests/test_market_sync_tasks.py` and `tests/test_market_data_cache.py` when touching market data sync, caching,
   or candle aggregation.

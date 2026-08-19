@@ -95,7 +95,7 @@ jobs:
                     --ignore=tests/test_api_database_integration.py \
                     --ignore=tests/test_comprehensive.py \
                     --cov=src \
-                    --cov-fail-under=81 \
+                    --cov-fail-under=82 \
                     --cov-report=term \
                     --cov-report=xml:coverage.xml \
                     --cov-report=html:htmlcov \
@@ -103,8 +103,8 @@ jobs:
                   # Summarise results for the step summary
                   tail -3 pytest-output.txt >> "$GITHUB_STEP_SUMMARY"
 
-            # Coverage FLOOR (blocking): --cov-fail-under=81, ratcheted 2026-08-19
-            # from a measured 82.10% line coverage (exact CI invocation, local infra)
+            # Coverage FLOOR (blocking): --cov-fail-under=82, ratcheted 2026-08-20
+            # from a measured 83.25% line coverage (exact CI invocation, local infra)
             # minus a 1-point ratchet margin. Trail: 64 (2026-08-15, 65.08) -> 68
             # (2026-08-17, 69.30, pure-module hotspots) -> 70 (2026-08-17, 71.98,
             # NATS consumer-service + Celery backtest-task suites; fixed the nats-py
@@ -126,8 +126,14 @@ jobs:
             # 82.10, persistence pair: scripted fake-session suite for every
             # repository incl. analytics mirroring and the UnitOfWork contract,
             # plus pool-monitor/config-projection/manager-lifecycle seams for
-            # database.py; no product change). Ratchet upward as coverage
-            # improves; never
+            # database.py; no product change) -> 82 (2026-08-20, 83.25, websocket
+            # sender-family suite: connection lifecycle incl. mixed-outcome
+            # broadcast drops, all realtime loaders (initial_state/positions/
+            # stats/market_data) with unknown-bot and loader-error branches,
+            # backtest status/log senders incl. not-found and per-send failure
+            # paths, WebSocketEvents + module broadcast helpers, and the full
+            # send-failure metrics matrix; no product change). Ratchet upward as
+            # coverage improves; never
             # lower without a documented justification. pytest-cov and coverage are
             # pulled in via requirements.txt; config lives in bot/pyproject.toml
             # ([tool.coverage.*]); source root is src.

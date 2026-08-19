@@ -19,7 +19,10 @@ analytics) → 78 (2026-08-19, measured 79.60, API server startup/lifespan
 suite — lifespan driven with faked Celery/DB/broadcast-bus/manager seams;
 no product change) → 81 (2026-08-19, measured 82.10, persistence pair —
 scripted fake-session repository suite incl. analytics mirroring +
-database.py pool-monitor/config/manager seams; no product change).
+database.py pool-monitor/config/manager seams; no product change) → 82
+(2026-08-20, measured 83.25, websocket sender-family suite — connection
+lifecycle, all realtime loaders, backtest status/log senders, failure
+metrics matrix; no product change).
 
 ## 1. Measure with the EXACT CI invocation
 
@@ -102,12 +105,22 @@ Watch for these when writing the tests (each was a real catch):
   `self.request.delivery_info` exists but is None in pushed/eager request
   contexts — `getattr(req, "delivery_info", {})` does NOT default; use `or {}`.
 
-## 4. Known remaining hotspots (measured 2026-08-19, after seven passes)
+## 4. Known remaining hotspots (measured 2026-08-20, after eight passes)
 
-By missed statements: `api/websocket_server.py` (~165),
-`main_instance.py` (~158, worker entrypoint), `trading/position_manager.py`
-(~130), `persistence/repository_backtest.py` (~126),
-`workers/celery_monitor.py` (~123). Covered in pass 7 (2026-08-19): the
+By missed statements: `main_instance.py` (~158, worker entrypoint),
+`trading/position_manager.py` (~130), `persistence/repository_backtest.py`
+(~126), `workers/celery_monitor.py` (~123),
+`workers/nats_backtest_consumer.py` (~110). Covered in pass 8 (2026-08-20):
+`api/websocket_server.py` 164→1 missed (59.4%→99.6% scoped) by extending
+`tests/test_websocket_server.py` (9→42 tests) — scripted WebSocket double
+with per-send error queues, `_wire_realtime` patching db/UnitOfWork/
+UnitOfWorkRealtime seams, connection lifecycle incl. mixed-outcome
+broadcast drops, all realtime loaders (initial_state/positions/stats/
+market_data) with unknown-bot and loader-error branches, backtest
+status/log senders incl. not-found and per-send failure paths,
+WebSocketEvents + module broadcast helpers, and the send-failure metrics
+matrix (env parsing, prune window, recent-count alerts, summary).
+Covered in pass 7 (2026-08-19): the
 persistence pair — `persistence/repository.py` 219→19 missed (52.1%→93.5%)
 via `tests/test_persistence_repository_unit.py` (scripted `_FakeSession`
 whose query objects resolve a per-model FIFO spec ONCE so count+all chains
@@ -130,8 +143,7 @@ health/ready strictness, system status, and diagnostics helpers. Earlier wins:
 pass 5 `api/v1/backtests.py` 261→58 (pinned compat namespaces), pass 4
 `bot_instance_manager.py` 309→15 (fake Popen/psutil/UnitOfWork), pass 3
 `service_backtest.py` 256→43 + `notifications.py` 116→4. The next step function
-are `websocket_server.py` sender seams and the `main_instance.py` worker
-entrypoint.
+is the `main_instance.py` worker entrypoint, then `position_manager.py`.
 
 Gotchas from pass 3 (each cost a debugging round):
 - Service-unit seams: bypass `__init__` via `__new__` + manual `repository`/
@@ -249,3 +261,31 @@ Gotchas from pass 7 (persistence pair):
 - Alembic seams: `command.stamp`/`command.upgrade` are monkeypatchable on the
   module, and `Config.get_main_option` re-interpolates `%%` back to `%` —
   assert against the ORIGINAL single-percent URL.
+
+Gotchas from pass 8 (websocket sender family):
+- The initial-state stats block carries ONLY `daily_win_rate` from the risk
+  serializers; `max_drawdown`/`current_drawdown` are spread in by `send_stats`
+  alone — don't assert them on initial_state payloads.
+- `broadcast_strategy_status` publishes the payload VERBATIM (no `type` key);
+  only `build_strategy_snapshot_message` wraps payloads in the
+  `strategy_status_snapshot` envelope.
+- Per-run send buckets are shared across a channel's sockets: under
+  `asyncio.gather`, a success recording interleaved with failure recordings
+  resets `consecutive_send_failures` — only the ADDITIVE counters
+  (attempts/successes/failures/disconnects) are stable assertions for
+  mixed-outcome broadcasts.
+- Registering multiple sockets on one channel:
+  `active_connections.setdefault(ch, set()).add(ws)` — assigning
+  `active_connections[ch] = {ws}` in a loop silently REPLACES the set.
+- Scripted send errors need "raise on Nth" semantics: a queue of Optional
+  exceptions where `None` means that send succeeds — a plain exception list
+  raises on the FIRST send.
+- The realtime loaders run through the REAL `run_in_threadpool`, so fake
+  sessions/repos must be plain sync objects; numeric instance ids bypass the
+  bots repo entirely (assert `bots.calls == []`), non-numeric ids go through
+  `UnitOfWork.bots.get_by_instance_id`.
+- `--cov=<single file>` produced an EMPTY data file under this repo's pytest
+  config; scope with `--cov=src` and filter in `coverage report --include=`.
+- An autouse fixture clearing the module-global `manager`'s three dicts
+  (connections/subscriptions/send_metrics) around each test keeps the shared
+  singleton deterministic without replacing it.

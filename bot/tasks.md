@@ -1,5 +1,37 @@
 # Tasks Log
 
+## 2026-08-19 (pass 5)
+
+- **Coverage floor ratcheted 75 → 77 (measured 76.37% → 78.09%).** Fifth ratchet pass, targeting the
+  largest remaining hotspot: the backtest route family.
+    - **`tests/test_backtest_routes_unit.py` (40 cases; `src/api/v1/backtests.py` 261 → 58 missed
+      statements, 66.7% → 92.4% scoped)**: an autouse fixture pins
+      `_compatibility_namespace_provider` to a per-test dict so every `_compat(...)` seam is stubbable
+      deterministically (server import order can't leak in), plus a configurable `_StubService`, fake
+      dYdX indexer clients, a fake strategy store, and a history-lookup session stub. Handlers are
+      invoked directly with `current_user=object()` (the established contract-test pattern — no
+      TestClient, no auth stack). Covered: unconfigured providers fail closed + `configure_backtest_routes`
+      provider swap, env-reader matrices, endpoint cache (TTL disabled, expiry pop, overflow eviction —
+      expired first, then oldest), market resolution (pair-label expansion with full market names, cap
+      slicing, invalid/empty indexer sets, connect failure, node.close failure swallowed), manual/strategy
+      request building (defaults merge, resolution↔candle_resolution mirroring, zero-balance fallback via
+      `model_construct`), the full `_resolve_strategy_backtest_request` matrix (store/history/request-
+      snapshot/not-found/strict-production), service scope + close variants + repository-session wiring,
+      admission-control branch matrix (global/queue/in-process/persistence-overload + Retry-After),
+      websocket broadcast (success/failure), unauthorized ws adapter, and all 31 HTTP route handlers'
+      success/404/409/422/429/500 paths including trades/analytics caching and the logs route
+      (missing/tail/directory-as-file).
+    - **Bug 7 — `_build_backtest_analytics_summary` crashed on non-dict analytics**: the function
+      guarded `trades`/`daily_pnl`/`position_snapshots` with `isinstance(analytics, dict)` but then
+      called `analytics.get(...)` unguarded — any non-dict payload raised AttributeError. Now
+      normalizes non-dict input to `{}` (the guards' clear intent).
+    - **Floor raise**: `--cov-fail-under` 75 → 77 in `bot-tests` (comment trail updated); suite green
+      at **1221 passed / 13 skipped**, total coverage **78.09%**; black + mypy (0 errors in 97 files)
+      + exception-handling ratchet all clean; mandated backtest contract/auth/routes suites re-run
+      green (64 passed). `coverage-ratchet` skill updated (history, hotspot map, pass-5 gotchas:
+      pinned compat namespaces, direct handler invocation, admission-before-create call order,
+      pair-label market-name semantics).
+
 ## 2026-08-19
 
 - **Coverage floor ratcheted 73 → 75 (measured 74.42% → 76.37%) + one latent bug fixed.** Fourth

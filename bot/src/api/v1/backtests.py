@@ -193,11 +193,11 @@ def _cache_set(key: str, value: Any) -> None:
 def _build_backtest_analytics_summary(
     run_id: str, analytics: Dict[str, Any]
 ) -> Dict[str, Any]:
-    trades = analytics.get("trades") if isinstance(analytics, dict) else None
-    daily_pnl = analytics.get("daily_pnl") if isinstance(analytics, dict) else None
-    position_snapshots = (
-        analytics.get("position_snapshots") if isinstance(analytics, dict) else None
-    )
+    if not isinstance(analytics, dict):
+        analytics = {}
+    trades = analytics.get("trades")
+    daily_pnl = analytics.get("daily_pnl")
+    position_snapshots = analytics.get("position_snapshots")
 
     total_trades = int(analytics.get("total_trades", 0) or 0)
     if isinstance(trades, list) and total_trades <= 0:

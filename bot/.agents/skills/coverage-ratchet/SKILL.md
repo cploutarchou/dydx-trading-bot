@@ -9,7 +9,10 @@ The bot enforces a blocking line-coverage floor in CI (`bot-tests` job of
 `../.github/workflows/bot-quality.yml`, `--cov=src --cov-fail-under=N`). The floor
 is a **ratchet**: it only goes up. History: 64 (2026-08-15, measured 65.08) →
 68 (2026-08-17, measured 69.30, pure-module pass) → 70 (2026-08-17, measured 71.98,
-NATS consumer-service + Celery backtest-task suites).
+NATS consumer-service + Celery backtest-task suites) → 73 (2026-08-18, measured
+74.42, BacktestService unit-seam + Telegram notifications suites) → 75
+(2026-08-19, measured 76.37, BotInstanceManager lifecycle/recovery suite; fixed
+delete-of-active-runtime deadlocking on the per-instance lifecycle lock).
 
 ## 1. Measure with the EXACT CI invocation
 
@@ -92,13 +95,66 @@ Watch for these when writing the tests (each was a real catch):
   `self.request.delivery_info` exists but is None in pushed/eager request
   contexts — `getattr(req, "delivery_info", {})` does NOT default; use `or {}`.
 
-## 4. Known remaining hotspots (measured 2026-08-17, after both passes)
+## 4. Known remaining hotspots (measured 2026-08-19, after four passes)
 
-By missed statements: `bot_instance_manager.py` (~309, subprocess lifecycle),
-`api/v1/backtests.py` (~261, route family), `api/server.py` (~241, startup/lifespan),
-`infrastructure/database.py` (~222), `infrastructure/persistence/repository.py`
-(~219), `main_instance.py` (~158, worker entrypoint), `workers/celery_monitor.py`
-(~124), `shared/notifications.py` (~116). Both the pure-module tail AND the two
-worker-infrastructure modules (event_bus_nats 89.7%, backtest_tasks 91.6%) are now
-covered; the next step function is subprocess-manager and route-family seams
-(TestClient + module monkeypatch seams, per the existing route test files).
+By missed statements: `api/v1/backtests.py` (~261, route family),
+`api/server.py` (~225, startup/lifespan), `infrastructure/database.py` (~222),
+`infrastructure/persistence/repository.py` (~219), `api/websocket_server.py`
+(~165), `main_instance.py` (~158, worker entrypoint), `trading/position_manager.py`
+(~130), `persistence/repository_backtest.py` (~126), `workers/celery_monitor.py`
+(~123). Covered in pass 4 (2026-08-19): `bot_instance_manager.py` 309→15 missed
+(61.7%→95.4%) via a lifecycle suite in `tests/test_bot_instance_manager.py` —
+fake `Popen`, fake psutil `Process` (cmdline/is_running/status/metrics failure
+matrix), fake `UnitOfWork`/session, record-only `async_job_manager`; no real
+subprocess, DB, or psutil probing. Earlier wins: pass 3 (2026-08-18)
+`use_cases/service_backtest.py` 256→43 missed via a unit-seam suite
+(`BacktestService.__new__` + dict-backed fake repo — no DB, no Celery) and
+`shared/notifications.py` 116→4 via transport/message-family tests (patched
+`requests.post` + `resilience.call`). The next step function is route-family
+seams (TestClient + module monkeypatch seams, per the existing route test files)
+and the `database.py`/`repository.py` persistence pair.
+
+Gotchas from pass 3 (each cost a debugging round):
+- Service-unit seams: bypass `__init__` via `__new__` + manual `repository`/
+  `session` attrs. `_load_run_data` is **cache-first** when `session is None`
+  (class-level `_runs` dict) — pop the cache entry when a test re-seeds the fake
+  repo, or later assertions read stale data.
+- `_set_runtime_control` persists a **copy** of the control dict; mutating the
+  original after persistence is invisible to reloads. Drive pause→resume→cancel
+  transitions by swapping `get_run_overview` return values (state-machine list,
+  pop-on-successor).
+- Monkeypatching an `async` classmethod: a plain `def` factory returning an inner
+  `async def _resolve(cls)` wrapped in `classmethod(...)` — if the factory itself
+  is `async def`, the call yields a coroutine and `await` fails mysteriously.
+- Exception-path persistence goes through `_persist_progress_data`
+  (`update_run_progress`), not `save_run` — assert on the right seam.
+- Formatting helpers round their outputs (`round(x, 2)` with banker's rounding);
+  apply the identical rounding to expected values or ±0.005 assertions fail.
+- Retry-ladder transports: patch `requests.post` AND `time.sleep` at module scope,
+  and feed a scripted response list (pop-while->1, else repeat last) — covers
+  200/403-bot/429-retry_after/bad-JSON/transient-exhausted/circuit-open/
+  RequestException branches with no real network or sleeps.
+
+Gotchas from pass 4 (BotInstanceManager lifecycle suite):
+- Fake psutil `Process` objects MUST carry a cmdline containing both
+  `main_instance` and the instance id — `_resolve_external_runtime_process`
+  rejects PID reuse via cmdline identity, and a hardcoded default cmdline
+  silently routes every probe to the "different process" branch.
+- Strategy-status publishes are None for non-`strategy-<a>-<b>` instance ids
+  (`_build_strategy_status_payload` returns None before the publisher runs) —
+  publish-assertion tests need strategy-shaped ids, and a raising-publisher
+  test still marks liveness for `running`/`heartbeat` events even when the
+  payload builds to None.
+- Fake DB rows used by `_record_runtime_event` need an `id` attribute
+  (`uow.events.log_event(bot.id, ...)`); a missing `id` raises inside the
+  broad catch and the event is silently dropped.
+- Re-entrant lifecycle locks: a locked `_delete_instance_locked` previously
+  called the PUBLIC `stop_instance`, which saw the held lock and returned
+  "lifecycle operation in progress" — deletes of active runtimes could never
+  succeed (fixed 2026-08-19 by calling `_stop_instance_locked` under the lock,
+  mirroring `auto_recover_live_runtimes`). When testing locked paths, remember
+  the pre-lock liveness probe in `auto_recover_live_runtimes` runs BEFORE the
+  lock check — to reach the skipped-branch, make that first probe fail.
+- pydantic models do not validate assignment by default: mutating
+  `config.trading_params.is_testnet` or assigning a raw-string `status` on a
+  `BotInstanceState` is a legitimate test seam for the non-enum branches.

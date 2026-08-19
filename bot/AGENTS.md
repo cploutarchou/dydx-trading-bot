@@ -295,6 +295,10 @@ module `reset_*()` helpers.
   lifecycle updates after runtime state changes.
 - Verify per-instance subprocess logs still write to `bot_states/bot_<instance_id>.log` and dead-process cleanup remains
   active when touching `src/bot_instance_manager.py`.
+- Run `tests/test_bot_instance_manager.py` when touching the instance lifecycle manager
+  (`src/bot_instance_manager.py` — stop/delete/auto-recover/external-psutil-liveness/DB-recovery
+  seams; includes the regression pin for deletes of active runtimes, which must go through
+  `_stop_instance_locked` under the per-instance lifecycle lock).
 - Run `tests/test_backtest_api_contract.py` when touching backtest routes/payloads to preserve backend-facing
   status/progress and alias contracts.
 - Run `tests/test_async_job_manager.py` when touching background task orchestration (`async_job_manager`) behavior.
@@ -315,7 +319,10 @@ module `reset_*()` helpers.
   cointegration math core (`src/trading/analysis/cointegration.py`) or the pair-prioritization engine
   (`src/infrastructure/use_cases/backtest_pair_selection.py`); `tests/test_backtest_queries.py` when touching
   the backtest read-side mixin (`backtest_queries.py`); `tests/test_auth_utils.py` when touching
-  `src/api/auth_utils.py`; `tests/test_dataframe_utils.py` when touching `src/shared/dataframe_utils.py`.
+  `src/api/auth_utils.py`; `tests/test_dataframe_utils.py` when touching `src/shared/dataframe_utils.py`;
+  `tests/test_backtest_service_unit.py` when touching the backtest service internals
+  (`src/infrastructure/use_cases/service_backtest.py` — lifecycle/persistence/heartbeat/recovery seams);
+  `tests/test_notifications.py` when touching the Telegram messaging layer (`src/shared/notifications.py`).
   When raising the coverage floor (`--cov-fail-under`), follow the `coverage-ratchet` skill
   (`.agents/skills/coverage-ratchet/`): measure with the exact CI invocation, new floor = measured − 1,
   update every place the number lives.

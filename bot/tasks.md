@@ -1,5 +1,44 @@
 # Tasks Log
 
+## 2026-08-20 (pass 8)
+
+- **Coverage floor ratcheted 81 → 82 (measured 82.10% → 83.25%); no product change.** Eighth
+  ratchet pass, targeting the top Miss-ranked hotspot `api/websocket_server.py` (164 missed /
+  59.4%).
+    - **`tests/test_websocket_server.py` extended 9 → 42 cases; `api/websocket_server.py`
+      164 → 1 missed statement (59.4% → 99.6% scoped; the remainder is `deliver_local_broadcast`'s
+      body, covered by `tests/test_broadcast_bus.py` in full runs)**: scripted WebSocket double
+      with per-send error queues (Optional entries — `None` = that send succeeds) plus scripted
+      incoming frames; `_wire_realtime` helper patching `db.get_session` / `UnitOfWork` /
+      `UnitOfWorkRealtime` seams (numeric ids bypass the bots repo; `resolve_bot=False` drives
+      the unknown-bot branches). Covers: env-parse helpers (parse/empty/garbage/clamp),
+      send-failure metrics matrix (backtest-channel scoping incl. `None`/`bot-*`/`backtest-`
+      early returns, disconnect-vs-error counters, prune window, recent-count alerts,
+      empty-run-id/unknown-run projections, summary aggregation), connection lifecycle
+      (connect/disconnect/drop across channels), `_deliver_local` unknown/empty-channel no-ops,
+      mixed-outcome broadcasts (success + WebSocketDisconnect + RuntimeError sockets → failed
+      connections dropped, additive counters asserted), `send_personal_message` outcomes,
+      all six `WebSocketEvents` handlers + module broadcast helpers + strategy channel/snapshot
+      builder, `_resolve_realtime_bot_id` matrix, `_build_backtest_status_message` /
+      `_build_backtest_log_message` full branch matrix, `handle_connection` (full lifecycle,
+      initial-state send failure closing before the receive loop, invalid-JSON disconnect),
+      `handle_message` dispatch (ping/positions/stats/market_data/unknown/non-backtest
+      request_status, backtest status-failure RuntimeError), realtime senders
+      (`send_initial_state` full snapshot incl. stats-zero defaults + unknown-bot warning +
+      loader error; `send_positions`/`send_stats`/`send_market_data` rows/unknown/missing/error),
+      and `send_backtest_status` (not-found, completed-with-log, log-send failure returning
+      False, loader error).
+    - **Floor raise**: `--cov-fail-under` 81 → 82 in `bot-tests` (comment trail updated); suite
+      green at **1331 passed / 13 skipped**, total coverage **83.25%**; black + mypy + exception
+      ratchet clean; adjacent suites re-run green (`test_broadcast_bus.py` +
+      `test_monitoring_routes.py`, 75 passed). `coverage-ratchet` skill updated (history,
+      hotspot map — next: `main_instance.py` ~158, `position_manager.py` ~130,
+      `repository_backtest.py` ~126, `celery_monitor.py` ~123 — and pass-8 gotchas: initial-state
+      stats block carries only `daily_win_rate`, verbatim strategy-status publishes,
+      shared-bucket `consecutive_send_failures` races under gather, setdefault channel
+      registration, Nth-send error queues, `--cov=<file>` empty-data quirk, autouse
+      manager-state clearing).
+
 ## 2026-08-19 (pass 7)
 
 - **Coverage floor ratcheted 78 → 81 (measured 79.60% → 82.10%); no product change.** Seventh

@@ -37,6 +37,20 @@ _BACKEND_PROBE_EXECUTOR = ThreadPoolExecutor(
 # paths keep resolving to the same class.
 from src.exceptions import BacktestEnqueueError  # noqa: E402
 
+# Pair-prioritization / scoring engine (Phase 2). The implementation lives in
+# :mod:`src.infrastructure.use_cases.backtest_pair_selection`; the thin delegating
+# methods below preserve the existing ``cls.``/``self.`` call sites unchanged.
+from src.infrastructure.use_cases import (  # noqa: E402
+    backtest_checkpoint as _checkpoint,
+)
+from src.infrastructure.use_cases import backtest_history as _history
+from src.infrastructure.use_cases import backtest_pair_selection as _pair_selection
+
+# Runtime control / mutation methods (Phase 5a). Same mixin pattern as Phase 4.
+from src.infrastructure.use_cases.backtest_controls import (  # noqa: E402
+    BacktestControlMixin,
+)
+
 # Backtest response/serialization DTOs live in a focused module
 # (:mod:`src.infrastructure.use_cases.backtest_models`); re-imported here so existing
 # bare-name references (e.g. ``_BacktestRunDetails(**run_data)``) resolve to the same
@@ -46,24 +60,10 @@ from src.infrastructure.use_cases.backtest_models import (  # noqa: E402
     _BacktestRunList,
 )
 
-# Pair-prioritization / scoring engine (Phase 2). The implementation lives in
-# :mod:`src.infrastructure.use_cases.backtest_pair_selection`; the thin delegating
-# methods below preserve the existing ``cls.``/``self.`` call sites unchanged.
-from src.infrastructure.use_cases import (  # noqa: E402
-    backtest_checkpoint as _checkpoint,
-    backtest_history as _history,
-    backtest_pair_selection as _pair_selection,
-)
-
 # Read-side / reporting query methods (Phase 4). Mixed in so the public
 # ``service.get_X(...)`` API is unchanged; implementations live in that module.
 from src.infrastructure.use_cases.backtest_queries import (  # noqa: E402
     BacktestQueryMixin,
-)
-
-# Runtime control / mutation methods (Phase 5a). Same mixin pattern as Phase 4.
-from src.infrastructure.use_cases.backtest_controls import (  # noqa: E402
-    BacktestControlMixin,
 )
 
 

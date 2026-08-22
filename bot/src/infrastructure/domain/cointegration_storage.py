@@ -159,6 +159,7 @@ class PairStorage:
         """
         try:
             from sqlalchemy import text
+
             from src.infrastructure.database import db
 
             instance_id = _get_instance_id()
@@ -219,6 +220,7 @@ class PairStorage:
         """Load cointegration results from the database. Returns None if unavailable."""
         try:
             from sqlalchemy import text
+
             from src.infrastructure.database import db
 
             instance_id = _get_instance_id()
@@ -326,6 +328,7 @@ class PairStorage:
         """Clear all stored pairs (both DB and file)."""
         try:
             from sqlalchemy import text
+
             from src.infrastructure.database import db
 
             instance_id = _get_instance_id()

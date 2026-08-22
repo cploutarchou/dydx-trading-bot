@@ -11,10 +11,12 @@ import json
 from src.infrastructure.broadcast import (
     NoopBroadcastBus,
     RedisBroadcastBus,
+)
+from src.infrastructure.broadcast import bus as broadcast_module
+from src.infrastructure.broadcast import (
     get_broadcast_bus,
     reset_broadcast_bus,
 )
-from src.infrastructure.broadcast import bus as broadcast_module
 
 # ── Fakes for the redis.asyncio client + pubsub ───────────────────────────────
 

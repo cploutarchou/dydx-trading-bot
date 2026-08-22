@@ -1,5 +1,22 @@
 # Tasks Log
 
+## 2026-08-22
+
+- **isort enforcement landed** (the follow-up deferred from the pre-commit-hooks item): import
+  ordering is now a checked gate everywhere Black is.
+    - `requirements.txt`: `isort==6.0.1` pinned alongside `black==26.5.1` / `flake8==7.3.0`.
+    - `pyproject.toml`: `[tool.isort]` with `profile = "black"` (zero conflict with Black),
+      `line_length = 88`, `known_first_party = ["src"]`.
+    - One-time sort of `src` + `tests` — 26 files reformatted, import-order only (no behavior
+      change; `compileall` clean).
+    - `.pre-commit-config.yaml` (monorepo root): new local `isort` hook pinned to `isort==6.0.1`,
+      scoped to `^bot/(src|tests)/`, same pattern as the black/flake8 hooks.
+    - `../.github/workflows/bot-quality.yml`: `bot-lint` job gains an
+      `isort --check-only --diff src tests` step (runs before Black) and is renamed
+      "Bot lint (isort + Black + flake8)"; install step pinned in sync.
+    - Validation: `isort --check-only` / `black --check` (195 files clean) / flake8
+      `E9,F63,F7,F82` / `mypy` 0 errors / full CI-mirror suite at coverage floor 82 — all green.
+
 ## 2026-08-20 (pass 8)
 
 - **Coverage floor ratcheted 81 → 82 (measured 82.10% → 83.25%); no product change.** Eighth

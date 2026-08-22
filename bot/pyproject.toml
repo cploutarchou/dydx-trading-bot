@@ -24,6 +24,14 @@ dependencies = [
 line-length = 88
 target-version = ["py312"]
 
+[tool.isort]
+# profile="black" keeps isort fully compatible with Black (no fighting over
+# import placement); line-length matches [tool.black]. Enforced in the bot-lint
+# CI job and the pre-commit hook (both pinned to isort==6.0.1).
+profile = "black"
+line_length = 88
+known_first_party = ["src"]
+
 [tool.coverage.run]
 # Measure production code only. The test suite lives under tests/ and is never
 # counted toward coverage; src/ is the single source root.

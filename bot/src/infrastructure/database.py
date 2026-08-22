@@ -41,7 +41,7 @@ from loguru import logger
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import QueuePool, Pool
+from sqlalchemy.pool import Pool, QueuePool
 
 
 def _pool_metric(pool: Pool, name: str) -> Any | None:

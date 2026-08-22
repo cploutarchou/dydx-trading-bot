@@ -10,11 +10,11 @@ import logging
 
 import pytest
 
+from src.exceptions import ConfigurationError
 from src.shared.config_validation import (
     _collect_config_problems,
     validate_startup_config,
 )
-from src.exceptions import ConfigurationError
 
 # Every env var the validator reads. Cleared per-test for isolation.
 _ENV_VARS = [

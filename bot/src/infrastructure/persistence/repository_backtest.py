@@ -24,6 +24,7 @@ from src.shared.env_loader import find_repo_root
 logger = logging.getLogger(__name__)
 
 from sqlalchemy.orm import Session, defer
+
 from src.infrastructure.storage import (
     AnalyticsWriter,
     ArtifactStore,

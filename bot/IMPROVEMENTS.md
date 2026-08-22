@@ -485,9 +485,15 @@ Items removed from this plan during the same review — and why — are listed i
       flow style the commas are list delimiters, so pre-commit passed `--select=E9 F63 F7 F82` and flake8 treated
       `F63`/`F7`/`F82` as filenames (verified: `FileNotFoundError`) — i.e. the hook failed on every commit. Switched
       to block-style `args:`. Verified all 11 hooks pass on tracked bot files and that flake8 correctly fails on an
-      undefined name (F821). isort **deferred** — installed by CI but never enforced, and ~10 existing files would need
-      reformatting; better as a focused follow-up (config + CI gate + one-time sort). NOTE: runs locally only; the live
-      CI (`../.github/workflows/bot-quality.yml`) does not yet invoke pre-commit/black/flake8.
+      undefined name (F821). isort was **deferred at the time** and **landed 2026-08-22**: `isort==6.0.1`
+      pinned in `requirements.txt`, `[tool.isort]` (`profile = "black"`, `line_length = 88`,
+      `known_first_party = ["src"]`) in `pyproject.toml`, a one-time sort of `src`/`tests`
+      (26 files), an `isort` hook in `.pre-commit-config.yaml`, and an `isort --check-only --diff`
+      step in the `bot-lint` CI job (job renamed "isort + Black + flake8"). Gates verified green
+      post-sort: black `--check`, flake8 `E9,F63,F7,F82`, mypy 0 errors, full suite at the
+      coverage floor. NOTE: pre-commit runs locally only; the live
+      CI (`../.github/workflows/bot-quality.yml`) does not yet invoke pre-commit (black/isort/
+      flake8 gates run there directly).
 
 - [x] **Add type checking** with mypy
     - **Files**: Create mypy.ini or pyproject.toml configuration

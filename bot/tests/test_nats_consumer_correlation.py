@@ -1,6 +1,6 @@
 """Tests for NATS consumer correlation ID propagation."""
 
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -77,11 +77,12 @@ async def test_handle_sets_correlation_id_on_payload():
 @pytest.mark.asyncio
 async def test_process_backtest_command_logs_correlation_id():
     """Test that _process_backtest_command logs with correlation_id."""
+    from unittest.mock import patch
+
     from src.infrastructure.workers.nats_backtest_consumer import (
         BacktestCommandHandler,
         BacktestCommandPayload,
     )
-    from unittest.mock import patch
 
     handler = BacktestCommandHandler()
 
@@ -125,8 +126,9 @@ async def test_process_backtest_command_logs_correlation_id():
 @pytest.mark.asyncio
 async def test_handle_error_logs_correlation_id():
     """Test that handle method error path logs correlation_id."""
-    from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler
     from unittest.mock import patch
+
+    from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandHandler
 
     handler = BacktestCommandHandler()
 
@@ -154,11 +156,12 @@ async def test_handle_error_logs_correlation_id():
 @pytest.mark.asyncio
 async def test_handle_duplicate_logs_correlation_id():
     """Test that duplicate detection logs correlation_id."""
+    from unittest.mock import patch
+
     from src.infrastructure.workers.nats_backtest_consumer import (
         BacktestCommandHandler,
         BacktestCommandPayload,
     )
-    from unittest.mock import patch
 
     handler = BacktestCommandHandler()
 
@@ -197,8 +200,9 @@ async def test_handle_duplicate_logs_correlation_id():
 
 def test_backtest_command_payload_has_correlation_id():
     """Test that BacktestCommandPayload has correlation_id field."""
-    from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandPayload
     from dataclasses import fields
+
+    from src.infrastructure.workers.nats_backtest_consumer import BacktestCommandPayload
 
     payload_fields = {f.name for f in fields(BacktestCommandPayload)}
     assert "correlation_id" in payload_fields

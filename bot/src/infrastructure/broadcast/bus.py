@@ -47,8 +47,8 @@ from typing import Any, Awaitable, Callable
 from loguru import logger
 
 from src.constants import (
-    WS_BROADCAST_ENABLED,
     WS_BROADCAST_DISPATCH_TIMEOUT_SECONDS,
+    WS_BROADCAST_ENABLED,
     WS_BROADCAST_REDIS_URL,
     WS_BROADCAST_SOCKET_TIMEOUT_SECONDS,
 )

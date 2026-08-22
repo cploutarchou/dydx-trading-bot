@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 from datetime import datetime, timedelta
-from typing import Any, Optional, Dict
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 

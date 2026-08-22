@@ -285,6 +285,7 @@ def test_backtest_repository_strict_mode_disabled_by_default(monkeypatch):
 
     # Force reload of environment
     import importlib
+
     import src.infrastructure.persistence.repository_backtest
 
     importlib.reload(src.infrastructure.persistence.repository_backtest)
@@ -301,6 +302,7 @@ def test_backtest_repository_strict_mode_enabled_via_env(monkeypatch):
 
     # Force reload of environment
     import importlib
+
     import src.infrastructure.persistence.repository_backtest
 
     importlib.reload(src.infrastructure.persistence.repository_backtest)

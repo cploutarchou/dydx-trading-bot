@@ -9,7 +9,7 @@ import os
 import socket
 import traceback as traceback_module
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
 import httpx
@@ -206,7 +206,7 @@ def _max_retries() -> int:
 
 
 def _retry_countdown_seconds(retries: int, exc: BaseException) -> float:
-    retry_after = _extract_retry_after_seconds(exc)
+    retry_after: Optional[float] = _extract_retry_after_seconds(exc)
     if retry_after is not None:
         return retry_after
     raw_base = os.getenv("BACKTEST_CELERY_RETRY_BASE_SECONDS", "30")
@@ -219,7 +219,7 @@ def _retry_countdown_seconds(retries: int, exc: BaseException) -> float:
         max_delay = max(base, float(raw_max))
     except (TypeError, ValueError):
         max_delay = 600.0
-    return min(max_delay, base * (2 ** max(0, retries)))
+    return float(min(max_delay, base * (2 ** max(0, retries))))
 
 
 def _is_transient_backtest_error(exc: BaseException) -> bool:

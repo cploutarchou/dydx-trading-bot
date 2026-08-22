@@ -224,4 +224,5 @@ class BacktestControlMixin:
         if task and not task.done():
             task.cancel()
         self._runs.pop(run_id, None)
-        return self.repository.delete_run(run_id)
+        deleted: bool = self.repository.delete_run(run_id)
+        return deleted

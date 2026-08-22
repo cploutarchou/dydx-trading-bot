@@ -716,7 +716,9 @@ def send_error_notification(
     )
 
 
-def send_trade_notification(action: str, trade_info: Dict[str, Any], **kwargs) -> bool:
+def send_trade_notification(
+    action: str, trade_info: Dict[str, Any], **kwargs: Any
+) -> bool:
     """Send trade-related notifications."""
     if action == "opened":
         return _messenger.send_trade_opened_message(trade_info)

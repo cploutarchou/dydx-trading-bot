@@ -1223,7 +1223,8 @@ def _backtest_storage_health(service: Any) -> Dict[str, Any]:
     repository = getattr(service, "repository", None)
     probe = getattr(repository, "storage_health", None)
     if callable(probe):
-        return probe()
+        health: Dict[str, Any] = probe()
+        return health
     return {
         "ready": True,
         "artifacts": {"enabled": False, "healthy": True},

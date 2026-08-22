@@ -564,11 +564,11 @@ async def abort_all_positions(client):
                 price * 1.7 if side == "BUY" else price * 0.3
             )  # Helps towards ensuring order will be filled
             tick_size = markets["markets"][market]["tickSize"]
-            accept_price = format_number(accept_price, tick_size)
+            accept_price_formatted = format_number(accept_price, tick_size)
 
             # Place order to close
             order, order_id = await place_market_order(
-                client, market, side, pos["sumOpen"], accept_price, True
+                client, market, side, pos["sumOpen"], accept_price_formatted, True
             )
 
             # Append the result

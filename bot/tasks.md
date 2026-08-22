@@ -1,5 +1,30 @@
 # Tasks Log
 
+## 2026-08-22 (pass 3)
+
+- **mypy phase 3a — `warn_return_any` + `warn_unused_configs` + `disallow_untyped_defs` enabled, gate
+  still 0 errors.** The last documented quality-tightening item, delivered as a ratchet.
+    - `warn_return_any`: all 36 leaking sites fixed. Real seam fixes: `api_response` now returns
+      `JSONResponse` (was untyped → Any leaked into every handler), `run_db` is generic
+      (`Callable[..., T] -> T`), `BacktestRepository._retry_with_backoff` is generic; remainder are
+      typed-local bindings over stub-less libs (jose, pybreaker, celery `states`, minio, pandas).
+    - Latent bugs surfaced by the new annotations, fixed: (1) `format_number -> str` exposed 5
+      string-into-float rebinding sites in `position_manager`/`account_manager` (close-order prices
+      were silently re-typed mid-function; now explicit `*_formatted` variables, runtime values
+      identical); (2) `verify_token`'s new `Optional` return exposed a missing None-guard in
+      `authenticate_bearer_token` (explicit 401 raise now, same outcome).
+    - `disallow_untyped_defs`: ON globally with a **24-module exemption ratchet**
+      (`[[tool.mypy.overrides]]`); 12 small modules migrated clean this pass. New modules must be
+      fully annotated — `tests/test_mypy_untyped_defs_ratchet.py` pins the frozen set (growth fails
+      the build). `strict` remains the end-state after the list empties.
+    - 2FA routes: `-> Union[Dict[str, Any], JSONResponse]` + `response_model=None` (FastAPI cannot
+      build a response model from that Union; generated `openapi.json` byte-identical).
+    - Validation: mypy 0 errors; isort/black/flake8 clean; auth suites
+      (`test_auth_middleware_service_token`, `test_auth_utils`, `test_auth_2fa_recovery`,
+      `test_auth_api_contract`, `test_auth_bypass_environment_guard`), position-manager suites
+      (exit-safety/entry-backoff), and network-errors suite green; full CI-mirror suite at the
+      coverage floor.
+
 ## 2026-08-22 (pass 2)
 
 - **Input-validation deferred tail closed — Celery revoke body promoted to a validated model**

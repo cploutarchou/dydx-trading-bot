@@ -111,7 +111,10 @@ class JWTUtils:
             }
         )
 
-        return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        # python-jose ships no stubs; bind through a typed local so the Any
+        # from jwt.encode does not leak out of the declared -> str contract.
+        encoded: str = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        return encoded
 
     @staticmethod
     def create_refresh_token(
@@ -134,13 +137,16 @@ class JWTUtils:
             }
         )
 
-        return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        encoded: str = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        return encoded
 
     @staticmethod
     def decode_token(token: str) -> Optional[Dict[str, Any]]:
         """Decode and validate a JWT token"""
         try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            payload: Dict[str, Any] = jwt.decode(
+                token, SECRET_KEY, algorithms=[ALGORITHM]
+            )
             return payload
         except JWTError:
             return None
@@ -185,7 +191,7 @@ class JWTUtils:
         return datetime.now(timezone.utc).timestamp() > exp_ts
 
     @classmethod
-    def verify_token(cls, token_):
+    def verify_token(cls, token_: str) -> Optional[Dict[str, Any]]:
         """
         Verify a token is valid:
         - decode token

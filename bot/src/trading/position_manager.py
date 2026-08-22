@@ -448,7 +448,10 @@ def _failsafe_close_price(
     price = float(raw_price)
     accept_price = price * 1.7 if side == "BUY" else price * 0.3
     tick_size = markets["markets"][market]["tickSize"]
-    return format_number(accept_price, tick_size)
+    # format_number is untyped (shared util over Any market metadata); bind
+    # through a typed local so the Any does not leak out of the -> str contract.
+    formatted: str = format_number(accept_price, tick_size)
+    return formatted
 
 
 async def _place_reduce_only_close_with_retries(
@@ -463,7 +466,7 @@ async def _place_reduce_only_close_with_retries(
     last_error: Optional[Exception] = None
     for attempt in range(1, attempts + 1):
         try:
-            return await place_market_order(
+            result: tuple[Dict[str, Any], str] = await place_market_order(
                 client,
                 market=market,
                 side=side,
@@ -471,6 +474,7 @@ async def _place_reduce_only_close_with_retries(
                 price=price,
                 reduce_only=True,
             )
+            return result
         except Exception as exc:
             last_error = exc
             logger.warning(
@@ -897,11 +901,13 @@ async def open_positions(client) -> None:
                     quote_tick_size = markets["markets"][quote_market]["tickSize"]
 
                     # Format prices
-                    accept_base_price = format_number(accept_base_price, base_tick_size)
-                    accept_quote_price = format_number(
+                    accept_base_price_formatted = format_number(
+                        accept_base_price, base_tick_size
+                    )
+                    accept_quote_price_formatted = format_number(
                         accept_quote_price, quote_tick_size
                     )
-                    accept_failsafe_base_price = format_number(
+                    accept_failsafe_base_price_formatted = format_number(
                         failsafe_base_price, base_tick_size
                     )
 
@@ -981,11 +987,11 @@ async def open_positions(client) -> None:
                             market_2=quote_market,
                             base_side=base_side,
                             base_size=base_size,
-                            base_price=accept_base_price,
+                            base_price=accept_base_price_formatted,
                             quote_side=quote_side,
                             quote_size=quote_size,
-                            quote_price=accept_quote_price,
-                            accept_failsafe_base_price=accept_failsafe_base_price,
+                            quote_price=accept_quote_price_formatted,
+                            accept_failsafe_base_price=accept_failsafe_base_price_formatted,
                             z_score=z_score,
                             half_life=half_life,
                             hedge_ratio=hedge_ratio,
@@ -1403,8 +1409,8 @@ async def manage_trade_exits(client) -> str | None:
             accept_price_m2 = price_m2 * 1.05 if side_m2 == "BUY" else price_m2 * 0.95
             tick_size_m1 = markets["markets"][position_market_m1]["tickSize"]
             tick_size_m2 = markets["markets"][position_market_m2]["tickSize"]
-            accept_price_m1 = format_number(accept_price_m1, tick_size_m1)
-            accept_price_m2 = format_number(accept_price_m2, tick_size_m2)
+            accept_price_m1_formatted = format_number(accept_price_m1, tick_size_m1)
+            accept_price_m2_formatted = format_number(accept_price_m2, tick_size_m2)
 
             # Close positions
             close_order_m1 = None
@@ -1446,7 +1452,7 @@ async def manage_trade_exits(client) -> str | None:
                         market=position_market_m1,
                         side=side_m1,
                         size=position_size_m1,
-                        price=accept_price_m1,
+                        price=accept_price_m1_formatted,
                         attempts=3,
                     )
                 )
@@ -1467,7 +1473,7 @@ async def manage_trade_exits(client) -> str | None:
                         market=position_market_m2,
                         side=side_m2,
                         size=position_size_m2,
-                        price=accept_price_m2,
+                        price=accept_price_m2_formatted,
                         attempts=3,
                     )
                 )
@@ -1504,8 +1510,8 @@ async def manage_trade_exits(client) -> str | None:
                     messenger.send_trade_closed_message(trade_info, exit_reason_text)
                     persisted_trade_id = persist_live_trade_closed(
                         position,
-                        exit_price1=accept_price_m1,
-                        exit_price2=accept_price_m2,
+                        exit_price1=accept_price_m1_formatted,
+                        exit_price2=accept_price_m2_formatted,
                         exit_size1=position_size_m1,
                         exit_size2=position_size_m2,
                     )
@@ -1524,8 +1530,8 @@ async def manage_trade_exits(client) -> str | None:
                             "close_order_m2_side": side_m2,
                             "close_order_m1_size": position_size_m1,
                             "close_order_m2_size": position_size_m2,
-                            "close_order_m1_price": accept_price_m1,
-                            "close_order_m2_price": accept_price_m2,
+                            "close_order_m1_price": accept_price_m1_formatted,
+                            "close_order_m2_price": accept_price_m2_formatted,
                             "close_order_time_m1": close_order_time_m1,
                             "close_order_time_m2": close_order_time_m2,
                             "z_score": float(z_score_current),
@@ -1607,7 +1613,7 @@ async def manage_trade_exits(client) -> str | None:
                             "close_order_m1_id": close_order_m1_id,
                             "close_order_m1_side": side_m1,
                             "close_order_m1_size": position_size_m1,
-                            "close_order_m1_price": accept_price_m1,
+                            "close_order_m1_price": accept_price_m1_formatted,
                             "close_order_time_m1": close_order_time_m1,
                             "exit_reason": exit_reason_key,
                             "error": str(exc),

@@ -221,7 +221,8 @@ class MinIOArtifactStore(ArtifactStore):
             response = None
             try:
                 response = self._client.get_object(self.bucket, safe_key)
-                return response.read()
+                data: bytes = response.read()
+                return data
             except Exception as exc:  # noqa: BLE001
                 if self.strict_mode:
                     logger.error(

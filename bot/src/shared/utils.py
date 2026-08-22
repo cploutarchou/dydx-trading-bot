@@ -1,9 +1,10 @@
 """Utility functions for trading bot."""
 
 from datetime import datetime, timedelta, timezone
+from typing import Any, Dict
 
 
-def format_number(curr_num, match_num):
+def format_number(curr_num: Any, match_num: Any) -> str:
     """
     Format a number to match the decimal places of another number.
 
@@ -25,7 +26,7 @@ def format_number(curr_num, match_num):
         return f"{int(curr_num)}"
 
 
-def format_time(timestamp):
+def format_time(timestamp: datetime) -> str:
     """Format timestamp to ISO 8601 UTC string with Z suffix and no microseconds."""
     return (
         timestamp.replace(microsecond=0)
@@ -35,7 +36,7 @@ def format_time(timestamp):
     )
 
 
-def get_ISO_times():
+def get_ISO_times() -> Dict[str, Dict[str, str]]:
     """
     Get ISO time ranges for historical data queries.
 

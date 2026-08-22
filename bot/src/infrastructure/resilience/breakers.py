@@ -234,7 +234,7 @@ if _PYBREAKER_AVAILABLE:
     class _BreakerStateListener(pybreaker.CircuitBreakerListener):
         """Log every breaker state transition and alert operators on OPEN."""
 
-        def state_change(self, cb, _old_state, new_state):
+        def state_change(self, cb: Any, _old_state: Any, new_state: Any) -> None:
             name = cb.name or "breaker"
             state_name = getattr(new_state, "name", str(new_state))
             if state_name == "open":
@@ -347,7 +347,10 @@ async def call_async(name: str, coro_factory: Callable[[], Awaitable[T]]) -> T:
     if handle.circuit is None:
         return await coro_factory()
     try:
-        return await handle.circuit.call_async(coro_factory)
+        # pybreaker ships no stubs; bind through a typed local so the Any from
+        # call_async does not leak out of the generic contract.
+        result: T = await handle.circuit.call_async(coro_factory)
+        return result
     except _CIRCUIT_BREAKER_ERROR as exc:
         raise CircuitBreakerOpenError(
             f"Circuit breaker '{name}' is open", service=name
@@ -366,7 +369,8 @@ def call(name: str, func: Callable[..., T], *args: Any, **kwargs: Any) -> T:
     if handle.circuit is None:
         return func(*args, **kwargs)
     try:
-        return handle.circuit.call(func, *args, **kwargs)
+        result: T = handle.circuit.call(func, *args, **kwargs)
+        return result
     except _CIRCUIT_BREAKER_ERROR as exc:
         raise CircuitBreakerOpenError(
             f"Circuit breaker '{name}' is open", service=name

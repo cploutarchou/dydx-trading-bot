@@ -3,6 +3,7 @@
 import asyncio
 import os
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from dydx_v4_client.indexer.rest.indexer_client import IndexerClient
 from dydx_v4_client.network import make_mainnet, make_testnet
@@ -63,7 +64,9 @@ def _is_placeholder_value(value: str) -> bool:
 class Client:
     """dYdX client wrapper encapsulating indexer, account indexer, node, and wallet."""
 
-    def __init__(self, indexer, indexer_account, node, wallet):
+    def __init__(
+        self, indexer: Any, indexer_account: Any, node: Any, wallet: Any
+    ) -> None:
         """Initialize client with connection objects."""
         self.indexer = indexer
         self.indexer_account = indexer_account
@@ -74,7 +77,7 @@ class Client:
 _preflight_client_cache: dict[str, tuple[Client, datetime]] = {}
 
 
-def _resolve_runtime_network(is_testnet: bool):
+def _resolve_runtime_network(is_testnet: bool) -> Any:
     """Build the dYdX network configuration for the requested environment."""
     if is_testnet:
         node_url = _sanitize_node_url(
@@ -103,7 +106,7 @@ def _resolve_runtime_network(is_testnet: bool):
     )
 
 
-async def connect_dydx():
+async def connect_dydx() -> Client:
     """
     Connect to dYdX network and initialize all necessary clients.
 
@@ -210,7 +213,7 @@ async def connect_dydx_runtime(address: str, mnemonic: str, is_testnet: bool) ->
     return client
 
 
-async def check_jurisdiction(client, market):
+async def check_jurisdiction(client: Any, market: str) -> None:
     """
     Check if market trading is allowed from current location.
 

@@ -316,7 +316,7 @@ class ConfigurationManager:
     _instance: Optional["ConfigurationManager"] = None
     _config: Optional[DydxConfig] = None
 
-    def __new__(cls):
+    def __new__(cls) -> "ConfigurationManager":
         if cls._instance is None:
             cls._instance = super(ConfigurationManager, cls).__new__(cls)
         return cls._instance

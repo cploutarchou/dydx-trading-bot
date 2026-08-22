@@ -35,7 +35,7 @@ def _trade_duration_seconds(created_at: Any, closed_at: Any) -> Optional[float]:
     if created_at is None or closed_at is None:
         return None
     try:
-        return (closed_at - created_at).total_seconds()
+        return float((closed_at - created_at).total_seconds())
     except TypeError:
         return None
 

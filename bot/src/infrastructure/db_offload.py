@@ -15,12 +15,14 @@ Return plain data (DTOs / dicts) across the seam, never live ORM objects that
 could lazy-load back on the event loop.
 """
 
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar
 
 from starlette.concurrency import run_in_threadpool
 
+T = TypeVar("T")
 
-async def run_db(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+
+async def run_db(func: Callable[..., T], *args: Any, **kwargs: Any) -> T:
     """Run a blocking (sync) DB callable in a worker thread, off the event loop.
 
     The callable must own its full ``Session`` lifecycle (open, use, close) so no

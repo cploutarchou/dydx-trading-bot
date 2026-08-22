@@ -535,6 +535,30 @@ Items removed from this plan during the same review — and why — are listed i
       `pop(..., None)` arg-type; 34 stale `# type: ignore` comments and 1 redundant `cast` deleted) — the
       count was driven back to **0** and the gate stays at zero. Phase-3 options
       (`disallow_untyped_defs` / `warn_return_any` / `strict`) remain the documented next tightening step.
+      **Phase 3a landed 2026-08-22** — `warn_return_any`, `warn_unused_configs`, and `disallow_untyped_defs`
+      are now ENABLED in `[tool.mypy]`, all at 0 errors:
+      `warn_return_any` (36 sites fixed; several were real seam fixes — `api_response` gained
+      `-> JSONResponse` + `data: Any`, `run_db` became generic `Callable[..., T] -> T`,
+      `BacktestRepository._retry_with_backoff` became generic; the rest are typed-local bindings over
+      stub-less libs — jose/pybreaker/celery `states`/minio). Annotating `format_number -> str` surfaced
+      5 latent string-into-float rebinding sites in `position_manager`/`account_manager` (fixed with
+      explicit `*_formatted` names, runtime values identical); annotating `verify_token` surfaced a
+      missing None-guard in `authenticate_bearer_token` (now explicit, same 401 outcome).
+      `disallow_untyped_defs` is enforced globally with a **24-module exemption ratchet**
+      (`[[tool.mypy.overrides]]` in `pyproject.toml`): 12 small modules (≤4 untyped defs each) were
+      migrated clean this pass (`shared/utils`, `shared/notifications`, `trading/dydx_client`,
+      `trading/bot_agents_state`, `infrastructure/use_cases/async_job_manager`,
+      `infrastructure/domain/cointegration_storage`, `infrastructure/workers/market_sync_tasks`,
+      `infrastructure/resilience/breakers`, `api/auth_utils`, `api/v1/auth/totp_state`,
+      `api/v1/auth/password_2fa`, and `config/config.py`); the 24 remaining modules
+      (server, backtests router, websocket_server, database, repository pair, account/position managers,
+      …) stay exempt until migrated. The list is pinned by
+      `tests/test_mypy_untyped_defs_ratchet.py` — adding an entry fails the build; migrating a module
+      means annotating it, removing the override, and updating the frozen set in the same change.
+      `strict` remains the end-state bundle once the exemption list is empty. Note: the four 2FA route
+      handlers now declare `-> Union[Dict[str, Any], JSONResponse]` with `response_model=None`
+      (FastAPI can't build a response model from that Union — the annotation is for mypy only;
+      generated OpenAPI is byte-identical).
       Not added to pre-commit (mypy needs whole-program context and is slow; CI is the right place for it).
 
 #### **Testing**

@@ -7,9 +7,11 @@ from src.infrastructure.cache import (
     NoopMarketDataCache,
     RedisMarketDataCache,
     get_market_data_cache,
-    reset_market_data_cache,
 )
 from src.infrastructure.cache import market_cache as market_cache_module
+from src.infrastructure.cache import (
+    reset_market_data_cache,
+)
 from src.trading import market_data
 
 # ── Existing fakes for the dYdX client ────────────────────────────────────────

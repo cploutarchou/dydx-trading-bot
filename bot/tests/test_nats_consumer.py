@@ -418,8 +418,8 @@ class TestGlobalFunctions(unittest.IsolatedAsyncioTestCase):
     def test_init_consumer_service(self):
         """Test global consumer service initialization."""
         from src.infrastructure.event_bus_nats import (
-            init_nats_consumer_service,
             get_nats_consumer_service,
+            init_nats_consumer_service,
         )
 
         service = init_nats_consumer_service(enabled=False)

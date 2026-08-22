@@ -24,8 +24,8 @@ from src.infrastructure.workers.celery_monitor import (
     list_celery_queues,
     list_celery_tasks,
     list_celery_workers,
-    revoke_celery_task,
     retry_celery_task,
+    revoke_celery_task,
 )
 from src.middleware.auth_middleware import get_admin_user
 

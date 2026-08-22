@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.api.responses import api_response
@@ -58,7 +59,7 @@ router = APIRouter(prefix="/api/v1/arbitrage")
 @router.get("/improvement-metrics")
 async def get_arbitrage_improvement_metrics(
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     _ = current_user
     return api_response(
         success=True,
@@ -75,7 +76,7 @@ async def get_arbitrage_improvement_metrics(
 @router.get("/runtime-settings")
 async def get_arbitrage_runtime_settings(
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     _ = current_user
     settings = get_runtime_settings()
     return api_response(
@@ -89,7 +90,7 @@ async def get_arbitrage_runtime_settings(
 async def update_arbitrage_runtime_settings(
     payload: ArbitrageRuntimeSettingsRequest,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     _ = current_user
     # Only forward keys the caller actually set so unset fields keep their
     # current runtime value (matches prior ``payload or {}`` semantics).
@@ -105,7 +106,7 @@ async def update_arbitrage_runtime_settings(
 async def get_arbitrage_pair_priority(
     limit: int = 25,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     _ = current_user
     safe_limit = max(1, min(int(limit or 25), 100))
     pairs = pair_storage.load_pairs()
@@ -142,7 +143,7 @@ async def get_arbitrage_pair_priority(
 async def get_arbitrage_opportunity_explain(
     opportunity_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     _ = current_user
     metrics = snapshot_metrics(
         {

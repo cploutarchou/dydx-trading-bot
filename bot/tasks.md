@@ -1,5 +1,26 @@
 # Tasks Log
 
+## 2026-08-22 (pass 5)
+
+- **mypy phase 3c — exemption ratchet 17 → 11 modules** (6 modules, 59 untyped-def sites
+  annotated; gate stays 0 errors).
+    - Migrated: `api/v1/bot_lifecycle` (8 handlers `-> JSONResponse`), `api/v1/celery_admin`
+      (7 routes, `current_user: User` params), `api/v1/monitoring` (10 handlers),
+      `infrastructure/persistence/repository` (10 mutation methods `-> None` + `UnitOfWork`
+      `__enter__`/`__exit__`), `infrastructure/persistence/repository_realtime` (8 sites incl.
+      `upsert_market_data -> MarketData`, `create_alert -> Alert`),
+      `trading/market_data` (8 sites — public candle/market loaders; stub-less dydx payloads
+      as `Any`/`List[Any]`, `construct_market_prices -> pd.DataFrame`).
+    - All annotations runtime no-ops; pure signature tightening.
+    - Ratchet: `pyproject.toml` override list + ratchet-test frozen set shrunk to 11;
+      223 untyped-def sites remain (backtests 57, websocket_server 25, server 23, database 21,
+      account_manager 19, bot_instance_manager 18, strategies/bot_realtime 15 each,
+      bot_agent/main_instance 10 each).
+    - Validation: mypy 0 errors; isort/black/flake8 clean; per-area suites green (bot lifecycle,
+      websocket server, bot realtime, market sync + cache, celery admin + monitor, monitoring
+      routes, persistence repository + database units — 177 passed); full CI-mirror suite at
+      the coverage floor.
+
 ## 2026-08-22 (pass 4)
 
 - **mypy phase 3b — exemption ratchet 24 → 17 modules** (7 modules, 33 untyped-def sites

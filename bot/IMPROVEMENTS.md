@@ -569,6 +569,16 @@ Items removed from this plan during the same review — and why — are listed i
       `force_cleanup_all` is `-> int`), `api/v1/bot_records` (5 route handlers `-> JSONResponse`),
       `api/v1/auth` (5 handlers `-> dict`, matching `_authenticate_user`), and `api/v1/arbitrage`
       (5 handlers `-> JSONResponse`). 282 untyped-def sites remain across the 17 exempt modules.
+      **Phase 3c (same day)** — exemption list **17 → 11**: migrated `api/v1/bot_lifecycle`
+      (8 handlers `-> JSONResponse`), `api/v1/celery_admin` (7 routes incl. `current_user: User`),
+      `api/v1/monitoring` (10 monitoring handlers), `infrastructure/persistence/repository`
+      (10 mutation methods `-> None` + the `UnitOfWork` context-manager pair),
+      `infrastructure/persistence/repository_realtime` (6 methods `-> None`/model returns +
+      `UnitOfWorkRealtime` pair), and `trading/market_data` (8 sites — the public
+      `get_candles_*`/`get_markets`/`construct_market_prices` family; stub-less dydx payloads
+      annotated `Any`/`List[Any]`, `construct_market_prices -> pd.DataFrame`). 223 untyped-def
+      sites remain across the 11 exempt modules (the big core files: backtests 57,
+      websocket_server 25, server 23, database 21, account_manager 19, …).
       Not added to pre-commit (mypy needs whole-program context and is slow; CI is the right place for it).
 
 #### **Testing**

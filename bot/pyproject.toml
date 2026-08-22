@@ -111,19 +111,19 @@ warn_unused_configs = true
 warn_return_any = true
 disallow_untyped_defs = true
 
-# --- disallow_untyped_defs exemption ratchet (24 modules, 2026-08-22) ---
+# --- disallow_untyped_defs exemption ratchet (17 modules, 2026-08-22 phase 3b) ---
 # Each entry is a module that still has unannotated defs. To migrate one:
 # annotate its defs, run `.venv/bin/python -m mypy src` until clean, then
 # remove the entry here AND from the ratchet test's expected set.
+# Phase 3b (2026-08-22) migrated: workers/backtest_tasks, trading/portfolio_risk,
+# trading/analysis/cointegration, shared/dataframe_utils, api/v1/bot_records,
+# api/v1/auth, api/v1/arbitrage (24 -> 17).
 [[tool.mypy.overrides]]
 module = [
     "src.api.server",
-    "src.api.v1.arbitrage",
-    "src.api.v1.auth",
     "src.api.v1.backtests",
     "src.api.v1.bot_lifecycle",
     "src.api.v1.bot_realtime",
-    "src.api.v1.bot_records",
     "src.api.v1.celery_admin",
     "src.api.v1.monitoring",
     "src.api.v1.strategies",
@@ -132,14 +132,10 @@ module = [
     "src.infrastructure.database",
     "src.infrastructure.persistence.repository",
     "src.infrastructure.persistence.repository_realtime",
-    "src.infrastructure.workers.backtest_tasks",
     "src.main_instance",
-    "src.shared.dataframe_utils",
     "src.trading.account_manager",
-    "src.trading.analysis.cointegration",
     "src.trading.bot_agent",
     "src.trading.market_data",
-    "src.trading.portfolio_risk",
     "src.trading.position_manager",
 ]
 disallow_untyped_defs = false

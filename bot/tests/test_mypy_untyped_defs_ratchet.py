@@ -22,17 +22,18 @@ from pathlib import Path
 
 _PYPROJECT = Path(__file__).resolve().parent.parent / "pyproject.toml"
 
-# Frozen exemption set (24 modules, phase 3a baseline 2026-08-22). Shrinks over
+# Frozen exemption set (17 modules after phase 3b, 2026-08-22). Shrinks over
 # time; NEVER grows without an explicit justification edit here.
+# Phase 3a baseline (2026-08-22): 24 modules.
+# Phase 3b (2026-08-22): -7 (workers/backtest_tasks, trading/portfolio_risk,
+# trading/analysis/cointegration, shared/dataframe_utils, api/v1/bot_records,
+# api/v1/auth, api/v1/arbitrage).
 EXPECTED_EXEMPT_MODULES = frozenset(
     {
         "src.api.server",
-        "src.api.v1.arbitrage",
-        "src.api.v1.auth",
         "src.api.v1.backtests",
         "src.api.v1.bot_lifecycle",
         "src.api.v1.bot_realtime",
-        "src.api.v1.bot_records",
         "src.api.v1.celery_admin",
         "src.api.v1.monitoring",
         "src.api.v1.strategies",
@@ -41,14 +42,10 @@ EXPECTED_EXEMPT_MODULES = frozenset(
         "src.infrastructure.database",
         "src.infrastructure.persistence.repository",
         "src.infrastructure.persistence.repository_realtime",
-        "src.infrastructure.workers.backtest_tasks",
         "src.main_instance",
-        "src.shared.dataframe_utils",
         "src.trading.account_manager",
-        "src.trading.analysis.cointegration",
         "src.trading.bot_agent",
         "src.trading.market_data",
-        "src.trading.portfolio_risk",
         "src.trading.position_manager",
     }
 )

@@ -85,7 +85,7 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _get_redis_client():
+def _get_redis_client() -> Any:
     """Return a lazily-created synchronous redis client for pub/sub publishing."""
     import redis as _redis
 
@@ -125,7 +125,7 @@ def _redis_lock_url() -> str | None:
     return None
 
 
-def _get_lock_redis_client():
+def _get_lock_redis_client() -> Any:
     import redis as _redis
 
     url = _redis_lock_url()
@@ -153,7 +153,7 @@ def _lock_ttl_seconds() -> int:
         return 7 * 24 * 60 * 60 + 300
 
 
-def _acquire_backtest_lock(run_id: str, token: str):
+def _acquire_backtest_lock(run_id: str, token: str) -> Optional[Any]:
     try:
         client = _get_lock_redis_client()
     except Exception as exc:

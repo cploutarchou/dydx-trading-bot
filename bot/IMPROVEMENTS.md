@@ -559,6 +559,16 @@ Items removed from this plan during the same review — and why — are listed i
       handlers now declare `-> Union[Dict[str, Any], JSONResponse]` with `response_model=None`
       (FastAPI can't build a response model from that Union — the annotation is for mypy only;
       generated OpenAPI is byte-identical).
+      **Phase 3b (same day)** — the exemption list shrank **24 → 17**: migrated
+      `infrastructure/workers/backtest_tasks` (3 sites; `_acquire_backtest_lock`'s true contract is
+      `Optional[Any]` — it returns the redis client, not a bool), `trading/portfolio_risk` (5 — the
+      trading-critical guard, `client: Any` params; portfolio + accounts suites green),
+      `trading/analysis/cointegration` (5, incl. the public analysis functions
+      `half_life_mean_reversion`/`calculate_zscore`/`calculate_cointegration`/
+      `count_zero_crossings`/`store_cointegration_results`), `shared/dataframe_utils` (5;
+      `force_cleanup_all` is `-> int`), `api/v1/bot_records` (5 route handlers `-> JSONResponse`),
+      `api/v1/auth` (5 handlers `-> dict`, matching `_authenticate_user`), and `api/v1/arbitrage`
+      (5 handlers `-> JSONResponse`). 282 untyped-def sites remain across the 17 exempt modules.
       Not added to pre-commit (mypy needs whole-program context and is slow; CI is the right place for it).
 
 #### **Testing**

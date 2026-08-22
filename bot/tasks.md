@@ -1,5 +1,22 @@
 # Tasks Log
 
+## 2026-08-22 (pass 4)
+
+- **mypy phase 3b — exemption ratchet 24 → 17 modules** (7 modules, 33 untyped-def sites
+  annotated; gate stays 0 errors).
+    - Migrated: `infrastructure/workers/backtest_tasks`, `trading/portfolio_risk`,
+      `trading/analysis/cointegration`, `shared/dataframe_utils`, `api/v1/bot_records`,
+      `api/v1/auth`, `api/v1/arbitrage`. All annotations are runtime no-ops; one honest-contract
+      fix: `_acquire_backtest_lock` returns the redis client (or `None`), not a bool — annotated
+      `Optional[Any]` to match its callers.
+    - `pyproject.toml` override list and `tests/test_mypy_untyped_defs_ratchet.py` frozen set
+      shrunk to 17 in the same change; 282 untyped-def sites remain across the exempt modules
+      (next batches: the 8–12-site tier, then the 15+ core modules).
+    - Validation: mypy 0 errors; isort/black/flake8 clean; per-area suites green (portfolio risk +
+      accounts, cointegration, dataframe utils, bot records, auth contract/service-token/token
+      revocation, arbitrage routes, backtest task helpers — 153 passed); full CI-mirror suite at
+      the coverage floor.
+
 ## 2026-08-22 (pass 3)
 
 - **mypy phase 3a — `warn_return_any` + `warn_unused_configs` + `disallow_untyped_defs` enabled, gate

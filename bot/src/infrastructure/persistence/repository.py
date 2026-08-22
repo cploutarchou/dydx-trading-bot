@@ -109,7 +109,7 @@ class BotRepository:
 
     def update_status(
         self, instance_id: str, status: BotStatusEnum, process_id: Optional[int] = None
-    ):
+    ) -> None:
         """Update bot status"""
         bot = self.get_by_instance_id(instance_id)
         if bot:
@@ -117,7 +117,7 @@ class BotRepository:
             bot.process_id = process_id
             self.session.commit()
 
-    def delete_bot(self, instance_id: str):
+    def delete_bot(self, instance_id: str) -> None:
         """Delete a bot"""
         bot = self.get_by_instance_id(instance_id)
         if bot:
@@ -201,7 +201,7 @@ class JobRepository:
         """Get all jobs for a bot"""
         return self.session.query(Job).filter(Job.bot_id == bot_id).all()
 
-    def start_job(self, job_id: str, process_id: Optional[int] = None):
+    def start_job(self, job_id: str, process_id: Optional[int] = None) -> None:
         """Start a job"""
         job = self.get_by_job_id(job_id)
         if job:
@@ -222,7 +222,7 @@ class JobRepository:
         job_id: str,
         result: Optional[dict] = None,
         execution_time_ms: Optional[int] = None,
-    ):
+    ) -> None:
         """Complete a job"""
         job = self.get_by_job_id(job_id)
         if job:
@@ -237,7 +237,7 @@ class JobRepository:
 
     def fail_job(
         self, job_id: str, error_message: str, error_traceback: Optional[str] = None
-    ):
+    ) -> None:
         """Fail a job"""
         job = self.get_by_job_id(job_id)
         if job:
@@ -248,7 +248,7 @@ class JobRepository:
             job.completed_at = utc_now()
             self.session.commit()
 
-    def cancel_job(self, job_id: str, reason: Optional[str] = None):
+    def cancel_job(self, job_id: str, reason: Optional[str] = None) -> None:
         """Cancel a job and persist the cancellation reason."""
         job = self.get_by_job_id(job_id)
         if job:
@@ -263,7 +263,7 @@ class JobRepository:
         job_id: str,
         progress_pct: float,
         metadata: Optional[dict[str, Any]] = None,
-    ):
+    ) -> None:
         """Persist job progress and optional structured metadata."""
         job = self.get_by_job_id(job_id)
         if job:
@@ -295,7 +295,7 @@ class JobRepository:
         cancellation_reason: Optional[str] = None,
         progress_pct: Optional[float] = None,
         metadata: Optional[dict[str, Any]] = None,
-    ):
+    ) -> None:
         """Update job status"""
         job = self.get_by_id(job_id)
         if job:
@@ -513,7 +513,7 @@ class TradeRepository:
         exit_price2: Optional[float] = None,
         exit_size1: Optional[float] = None,
         exit_size2: Optional[float] = None,
-    ):
+    ) -> None:
         """Close a trade"""
         trade = self.get_by_position_id(trade_id)
         if trade:
@@ -588,7 +588,7 @@ class TradeRepository:
         exit_size2: Optional[float] = None,
         realized_pnl: float = 0.0,
         realized_pnl_pct: float = 0.0,
-    ):
+    ) -> None:
         """Update trade exit information"""
         trade = self.get_by_position_id(position_id)
         if trade:
@@ -1256,10 +1256,10 @@ class UnitOfWork:
         self.events = EventRepository(session)
         self.strategies = StrategyRepository(session)
 
-    def __enter__(self):
+    def __enter__(self) -> "UnitOfWork":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         if exc_type:
             self.session.rollback()
         else:

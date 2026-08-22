@@ -4,6 +4,7 @@ import asyncio
 import importlib.util
 import os
 import time
+from typing import Any, List, Optional
 
 import pandas as pd
 from loguru import logger
@@ -55,7 +56,7 @@ if importlib.util.find_spec("aiolimiter") is not None:
         _rate_limiter_key = None
 
 
-def _get_event_loop_limiter():
+def _get_event_loop_limiter() -> Optional[Any]:
     """Get or create a rate limiter specific to the current event loop."""
     if _rate_limiter_key is None:
         return None
@@ -121,7 +122,7 @@ def _closes_to_series(response: dict) -> pd.Series:
 # framework. See `resilience.call_async(...)` / `resilience.breaker_states()`.
 
 
-def normalize_resolution(resolution):
+def normalize_resolution(resolution: Any) -> Any:
     """Return a dYdX candle resolution enum while accepting older app aliases."""
     raw = str(resolution or "1HOUR").strip().upper()
     mapping = {
@@ -169,7 +170,9 @@ def normalize_resolution(resolution):
 DYDX_RESOLUTION = normalize_resolution(RESOLUTION)
 
 
-def _candle_fetch_logger(*, market: str, resolution: str, timeframe: str, kind: str):
+def _candle_fetch_logger(
+    *, market: str, resolution: str, timeframe: str, kind: str
+) -> Any:
     """Return a logger pre-bound with candle fetch dimensions for Loki filtering."""
     return logger.bind(
         market=str(market),
@@ -179,7 +182,7 @@ def _candle_fetch_logger(*, market: str, resolution: str, timeframe: str, kind: 
     )
 
 
-async def get_candles_recent(client, market, resolution=None):
+async def get_candles_recent(client: Any, market: str, resolution: Any = None) -> Any:
     """Get recent candles for a market, with a 30-second in-process cache."""
     effective_resolution = (
         normalize_resolution(resolution) if resolution else DYDX_RESOLUTION
@@ -275,7 +278,9 @@ async def get_candles_recent(client, market, resolution=None):
     return result
 
 
-async def get_candles_historical(client, market, resolution=None):
+async def get_candles_historical(
+    client: Any, market: str, resolution: Any = None
+) -> List[Any]:
     """Get historical candles for a market across timeframes."""
     # Define output
     close_prices = []
@@ -343,7 +348,7 @@ async def get_candles_historical(client, market, resolution=None):
     return close_prices
 
 
-async def get_markets(client):
+async def get_markets(client: Any) -> Any:
     """Get list of all perpetual markets, with a 60-second L1 + shared L2 cache."""
     global _markets_cache
     now = time.monotonic()
@@ -386,7 +391,9 @@ async def get_markets(client):
     return result
 
 
-async def construct_market_prices(client, selected_markets=None, resolution=None):
+async def construct_market_prices(
+    client: Any, selected_markets: Any = None, resolution: Any = None
+) -> pd.DataFrame:
     """
     Construct a DataFrame of market prices for all tradeable markets.
 
@@ -432,7 +439,7 @@ async def construct_market_prices(client, selected_markets=None, resolution=None
     # Parallel fetch with bounded concurrency
     sem = asyncio.Semaphore(CANDLE_FETCH_CONCURRENCY)
 
-    async def fetch_one(market):
+    async def fetch_one(market: str) -> tuple[str, List[Any]]:
         async with sem:
             logger.info(
                 "Fetching candles for {} (concurrency cap={})",

@@ -3,9 +3,10 @@ Password 2FA router
 """
 
 from datetime import timedelta
-from typing import cast
+from typing import Any, Dict, Union, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -94,11 +95,14 @@ def _verify_current_totp(session: Session, user_id: int, raw_token: str) -> None
         )
 
 
-@router.post("/setup")
+# response_model=None: these handlers return either an api_response envelope
+# (JSONResponse) or a plain dict FastAPI serializes; the Union return
+# annotation is for mypy and is not a valid Pydantic response model.
+@router.post("/setup", response_model=None)
 async def setup_2fa(
     current_user: User = Depends(get_current_active_user),
     session: Session = Depends(get_session),
-):
+) -> Union[Dict[str, Any], JSONResponse]:
     """Setup TOTP 2FA and return QR provisioning metadata."""
     user_id = _user_id_value(current_user)
     username = _username_value(current_user)
@@ -132,12 +136,12 @@ async def setup_2fa(
     }
 
 
-@router.post("/verify")
+@router.post("/verify", response_model=None)
 async def verify_2fa(
     payload: Verify2FARequest,
     current_user: User = Depends(get_current_active_user),
     session: Session = Depends(get_session),
-):
+) -> Union[Dict[str, Any], JSONResponse]:
     """Verify TOTP token and mark 2FA as enabled for the user.
 
     On the enable transition (first successful verify), a set of single-use
@@ -182,12 +186,12 @@ async def verify_2fa(
     return {"message": "2FA verification successful", "is_enabled": True}
 
 
-@router.post("/backup-codes/regenerate")
+@router.post("/backup-codes/regenerate", response_model=None)
 async def regenerate_backup_codes(
     payload: Verify2FARequest,
     current_user: User = Depends(get_current_active_user),
     session: Session = Depends(get_session),
-):
+) -> Union[Dict[str, Any], JSONResponse]:
     """Regenerate backup codes. Requires a valid TOTP code (device present).
 
     Invalidates all previously-issued backup codes and returns a new set in plain
@@ -206,12 +210,12 @@ async def regenerate_backup_codes(
     return {"message": "Backup codes regenerated", "backup_codes": backup_codes}
 
 
-@router.post("/disable")
+@router.post("/disable", response_model=None)
 async def disable_2fa(
     payload: SecondFactorRequest,
     current_user: User = Depends(get_current_active_user),
     session: Session = Depends(get_session),
-):
+) -> Union[Dict[str, Any], JSONResponse]:
     """Disable 2FA. Requires a valid TOTP code **or** an unused backup code.
 
     Never accepts password-only, so 2FA cannot be bypassed via password

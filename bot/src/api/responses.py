@@ -12,7 +12,7 @@ primitives, and ``src.shared.time_utils`` — safe to import from any layer.
 from __future__ import annotations
 
 import contextvars
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
@@ -32,11 +32,11 @@ INTERNAL_ERROR_MESSAGE = "Internal server error"
 
 def api_response(
     success: bool,
-    data=None,
+    data: Any = None,
     message: str = "",
     status_code: int = 200,
     headers: Optional[Dict[str, str]] = None,
-):
+) -> JSONResponse:
     """Standardized API response envelope.
 
     Returns a ``JSONResponse`` shaped as

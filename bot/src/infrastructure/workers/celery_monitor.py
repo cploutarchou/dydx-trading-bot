@@ -103,17 +103,19 @@ def _cached_monitor_result(cache_key: str, factory: Callable[[], _T]) -> _T:
 
 def celery_state_from_backtest(status: Any) -> str:
     normalized = str(status or "").strip().lower()
+    # celery's `states` module ships no stubs; str() keeps the declared -> str
+    # contract honest without leaking Any.
     if normalized in {"completed", "success", "succeeded", "done"}:
-        return states.SUCCESS
+        return str(states.SUCCESS)
     if normalized in {"failed", "error", "timeout", "timed_out", "stale", "stalled"}:
-        return states.FAILURE
+        return str(states.FAILURE)
     if normalized in {"cancelled", "canceled", "cancel_requested"}:
-        return states.REVOKED
+        return str(states.REVOKED)
     if normalized in {"running", "started", "active", "processing"}:
-        return states.STARTED
+        return str(states.STARTED)
     if normalized in {"retry", "retrying"}:
-        return states.RETRY
-    return states.PENDING
+        return str(states.RETRY)
+    return str(states.PENDING)
 
 
 def normalized_task_status(status: Any) -> str:
@@ -223,7 +225,8 @@ def _result_payload(result: AsyncResult) -> Dict[str, Any]:
         payload.update(info)
     elif info is not None and result.state in {states.FAILURE, states.RETRY}:
         payload["error_message"] = str(info)
-    return redact_payload(payload)
+    redacted: Dict[str, Any] = redact_payload(payload)
+    return redacted
 
 
 def _backtest_request(run: Dict[str, Any]) -> Dict[str, Any]:

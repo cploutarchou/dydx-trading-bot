@@ -1085,7 +1085,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         """Refresh only the stored heartbeat for a run without rewriting the row."""
         timestamp = datetime.now(timezone.utc).isoformat()
         if self.repository.session is None:
-            touched = self.repository.touch_run(run_id, timestamp)
+            touched: bool = self.repository.touch_run(run_id, timestamp)
             if touched and run_id in self._runs:
                 cached = dict(self._runs.get(run_id) or {})
                 cached["updated_at"] = timestamp
@@ -1095,12 +1095,12 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         session = db.get_session()
         try:
             repository = BacktestRepository(session)
-            touched = repository.touch_run(run_id, timestamp)
-            if touched and run_id in self._runs:
+            touched_db: bool = repository.touch_run(run_id, timestamp)
+            if touched_db and run_id in self._runs:
                 cached = dict(self._runs.get(run_id) or {})
                 cached["updated_at"] = timestamp
                 self._runs[run_id] = cached
-            return touched
+            return touched_db
         finally:
             session.close()
 
@@ -1512,7 +1512,8 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
     @staticmethod
     def _extract_request_payload(request: Any) -> Dict[str, Any]:
         if hasattr(request, "model_dump"):
-            return request.model_dump()
+            dumped: Dict[str, Any] = request.model_dump()
+            return dumped
         if isinstance(request, dict):
             return request
         return {}

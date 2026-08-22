@@ -11,7 +11,7 @@ import os
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from loguru import logger
 
@@ -121,7 +121,7 @@ def _db_save_positions(positions: List[Dict[str, Any]]) -> bool:
         return False
 
 
-def _sa_text(sql: str):
+def _sa_text(sql: str) -> Any:
     from sqlalchemy import text
 
     return text(sql)
@@ -162,7 +162,7 @@ def _write_bot_agents_unlocked(positions: List[Dict[str, Any]]) -> None:
 
 
 @contextlib.contextmanager
-def _bot_agents_file_lock():
+def _bot_agents_file_lock() -> Iterator[None]:
     BOT_AGENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     lock_path = BOT_AGENTS_PATH.with_name(f".{BOT_AGENTS_PATH.name}.lock")
     with lock_path.open("a", encoding="utf-8") as lock_file:

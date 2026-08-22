@@ -112,11 +112,11 @@ def get_dataframe_memory_usage(df: Any) -> int:
     """
     try:
         if hasattr(df, "memory_usage"):
-            return df.memory_usage(deep=True).sum()
+            return int(df.memory_usage(deep=True).sum())
         elif hasattr(df, "nbytes"):
-            return df.nbytes
+            return int(df.nbytes)
         elif hasattr(df, "__sizeof__"):
-            return df.__sizeof__()
+            return int(df.__sizeof__())
         else:
             return 0
     except Exception:

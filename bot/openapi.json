@@ -1193,8 +1193,14 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "additionalProperties": true,
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CeleryTaskRevokeRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
                 "title": "Payload"
               }
             }
@@ -6983,6 +6989,18 @@
         ],
         "title": "BotStatus",
         "description": "Bot status enumeration with incident-safe recovery states."
+      },
+      "CeleryTaskRevokeRequest": {
+        "properties": {
+          "terminate": {
+            "type": "boolean",
+            "title": "Terminate",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "CeleryTaskRevokeRequest",
+        "description": "Validated body for the admin Celery revoke endpoint.\n\n``terminate=True`` escalates the revoke to a SIGTERM of the executing task, so\nthe flag must be a real boolean \u2014 the previous raw-dict ``bool(payload.get(...))``\ncoerced JSON strings like ``\"false\"``/``\"0\"`` to ``True``. Unknown keys are\nignored so existing clients sending unrelated fields keep working."
       },
       "HTTPValidationError": {
         "properties": {

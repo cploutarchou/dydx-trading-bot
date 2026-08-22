@@ -12,9 +12,10 @@ Responses use the shared ``api_response`` envelope; timing uses
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, Optional
+from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.api.endpoint_timing import endpoint_perf_headers, log_endpoint_timing
 from src.api.responses import api_response
@@ -30,6 +31,20 @@ from src.infrastructure.workers.celery_monitor import (
 from src.middleware.auth_middleware import get_admin_user
 
 router = APIRouter(prefix="/api/v1/celery", tags=["Celery (admin)"])
+
+
+class CeleryTaskRevokeRequest(BaseModel):
+    """Validated body for the admin Celery revoke endpoint.
+
+    ``terminate=True`` escalates the revoke to a SIGTERM of the executing task, so
+    the flag must be a real boolean — the previous raw-dict ``bool(payload.get(...))``
+    coerced JSON strings like ``"false"``/``"0"`` to ``True``. Unknown keys are
+    ignored so existing clients sending unrelated fields keep working.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    terminate: bool = Field(default=False)
 
 
 @router.get("/tasks")
@@ -107,12 +122,14 @@ async def celery_task_detail(
 @router.post("/tasks/{task_id}/revoke")
 async def celery_task_revoke(
     task_id: str,
-    payload: Dict[str, Any] = Body(default_factory=dict),
+    # Optional so clients that POST with no body at all keep the graceful-revoke
+    # default (the previous Body(default_factory=dict) contract).
+    payload: Optional[CeleryTaskRevokeRequest] = None,
     current_user=Depends(get_admin_user),
 ):
     """Admin-only Celery revoke/cancel endpoint."""
     _ = current_user
-    terminate = bool(payload.get("terminate", False))
+    terminate = payload.terminate if payload is not None else False
     return api_response(
         True,
         revoke_celery_task(task_id, terminate=terminate),

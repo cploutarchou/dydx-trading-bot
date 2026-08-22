@@ -183,7 +183,7 @@ jobs:
     # Bot lint — Black formatting + flake8 hard gate
     # ---------------------------------------------------------------------------
     bot-lint:
-        name: Bot lint (Black + flake8)
+        name: Bot lint (isort + Black + flake8)
         runs-on: ubuntu-latest
         defaults:
             run:
@@ -199,9 +199,15 @@ jobs:
                   python-version: "3.12"
 
             - name: Install lint tools
-              # Pinned to match bot/requirements.txt (black==26.5.1, flake8==7.3.0).
-              # Keep these in sync when bumping the requirements.txt pins.
-              run: pip install black==26.5.1 flake8==7.3.0
+              # Pinned to match bot/requirements.txt (black==26.5.1, isort==6.0.1,
+              # flake8==7.3.0). Keep these in sync when bumping the requirements.txt pins.
+              run: pip install black==26.5.1 isort==6.0.1 flake8==7.3.0
+
+            - name: isort import-order gate
+              # Fails on import-order drift. Config (profile=black, line-length 88)
+              # is read from bot/pyproject.toml [tool.isort] — identical to
+              # local/pre-commit.
+              run: isort --check-only --diff src tests
 
             - name: Black formatting gate
               # Fails on formatting drift. Config (line-length=88, py312) is read

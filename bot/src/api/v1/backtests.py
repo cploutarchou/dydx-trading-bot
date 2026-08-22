@@ -17,10 +17,8 @@ from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from internal.domain.models import BacktestRun
-from src.api.endpoint_timing import (
-    endpoint_perf_headers as _endpoint_perf_headers,
-    log_endpoint_timing as _log_endpoint_timing,
-)
+from src.api.endpoint_timing import endpoint_perf_headers as _endpoint_perf_headers
+from src.api.endpoint_timing import log_endpoint_timing as _log_endpoint_timing
 from src.api.responses import api_response
 from src.api.v1.strategies import InMemoryStrategyStore
 from src.api.websocket_server import WebSocketServer, manager

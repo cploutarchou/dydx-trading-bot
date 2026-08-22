@@ -14,19 +14,19 @@ import asyncio
 import json
 
 import pytest
-from pydantic import ValidationError
 from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 
 from src.api import server
 from src.infrastructure.domain.bot_api_models import (
-    BotInstanceConfig,
     BacktestingParameters,
+    BotInstanceConfig,
     TradingParameters,
 )
 from src.infrastructure.domain.models_backtest import BacktestConfigRequest
 from src.shared.trading_validators import (
-    validate_iso_date_range,
     normalize_market_list,
+    validate_iso_date_range,
 )
 
 # ---------------------------------------------------------------------------

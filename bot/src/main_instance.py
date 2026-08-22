@@ -12,7 +12,7 @@ import inspect
 import json
 import os
 import signal
-from typing import Any, Awaitable, Dict, Optional, TypeVar, overload, cast
+from typing import Any, Awaitable, Dict, Optional, TypeVar, cast, overload
 
 from loguru import logger
 
@@ -21,9 +21,9 @@ from config.config import config
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
 from src.shared.credentials_cipher import open_config_secrets
+from src.shared.live_risk_controls import assert_supported_live_risk_controls
 from src.shared.logging_setup import setup_logging
 from src.shared.notifications import TelegramMessenger
-from src.shared.live_risk_controls import assert_supported_live_risk_controls
 from src.trading.account_manager import abort_all_positions
 from src.trading.analysis.cointegration import store_cointegration_results
 from src.trading.dydx_client import connect_dydx_runtime

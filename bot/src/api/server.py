@@ -47,9 +47,7 @@ load_repo_env(__file__)
 
 # Import authentication modules
 from src.api.v1.auth import router as auth_router  # noqa: E402
-from src.api.v1.auth.password_2fa import (  # noqa: E402
-    router as password_2fa_router,
-)
+from src.api.v1.auth.password_2fa import router as password_2fa_router  # noqa: E402
 
 # Import bot models and manager
 from src.infrastructure.domain.bot_api_models import (  # noqa: E402
@@ -77,6 +75,22 @@ except Exception as bot_manager_import_error:  # pragma: no cover
     bot_manager = None  # type: ignore[assignment]
 
 from internal.domain.models import BacktestRun  # noqa: E402
+from src.api.endpoint_timing import (  # noqa: E402
+    endpoint_perf_headers as _endpoint_perf_headers,
+)
+from src.api.endpoint_timing import log_endpoint_timing as _log_endpoint_timing
+from src.api.endpoint_timing import payload_size_bytes as _payload_size_bytes
+from src.api.responses import (  # noqa: E402
+    INTERNAL_ERROR_MESSAGE,
+    api_response,
+    trace_id_ctx,
+)
+from src.api.v1.arbitrage import ArbitrageRuntimeSettingsRequest  # noqa: E402
+from src.api.v1.strategies import (  # noqa: E402
+    InMemoryStrategyStore,
+    StrategyRequest,
+    StrategyVersionRevertRequest,
+)
 from src.api.websocket_server import (  # noqa: E402
     WebSocketServer,
     broadcast_strategy_status,
@@ -105,31 +119,15 @@ from src.infrastructure.use_cases.async_job_manager import (  # noqa: E402
     async_job_manager,
 )
 from src.infrastructure.use_cases.service_backtest import BacktestService  # noqa: E402
+from src.shared.live_risk_controls import (  # noqa: E402
+    assert_supported_live_risk_controls,
+)
 
 # Celery inspection helpers (list_celery_tasks, get_celery_task, revoke_celery_task,
 # retry_celery_task, list_celery_workers, list_celery_queues, celery_health) are now
 # imported directly by src/api/v1/celery_admin.py and no longer used here.
 from src.shared.logging_setup import setup_logging  # noqa: E402
-from src.shared.live_risk_controls import (
-    assert_supported_live_risk_controls,
-)  # noqa: E402
 from src.shared.time_utils import utc_now_iso  # noqa: E402
-from src.api.responses import (  # noqa: E402
-    INTERNAL_ERROR_MESSAGE,
-    api_response,
-    trace_id_ctx,
-)
-from src.api.endpoint_timing import (  # noqa: E402
-    endpoint_perf_headers as _endpoint_perf_headers,
-    log_endpoint_timing as _log_endpoint_timing,
-    payload_size_bytes as _payload_size_bytes,
-)
-from src.api.v1.strategies import (  # noqa: E402
-    InMemoryStrategyStore,
-    StrategyRequest,
-    StrategyVersionRevertRequest,
-)
-from src.api.v1.arbitrage import ArbitrageRuntimeSettingsRequest  # noqa: E402
 from src.trading.arbitrage_observability import snapshot_metrics  # noqa: E402
 from src.trading.arbitrage_runtime_config import (  # noqa: E402
     get_feature_flags,
@@ -853,48 +851,9 @@ app.include_router(
     tags=["Authentication", "2FA"],
 )
 
-# Include extracted route modules (monolith breakup). Monitoring is first; its
-# routes live in src/api/v1/monitoring.py and inherit app middleware/auth/handlers.
-from src.api.v1.monitoring import router as monitoring_router  # noqa: E402
-from src.api.v1.celery_admin import router as celery_admin_router  # noqa: E402
-from src.api.v1.strategies import router as strategies_router  # noqa: E402
-from src.api.v1.arbitrage import router as arbitrage_router  # noqa: E402
-from src.api.v1.bot_lifecycle import (  # noqa: E402
-    configure_bot_lifecycle,
-    create_bot_instance,
-    delete_bot_instance,
-    get_bot_instance,
-    list_bot_instances,
-    quick_deploy_bot,
-    restart_bot_instance,
-    router as bot_lifecycle_router,
-    start_bot_instance,
-    stop_bot_instance,
-)
-from src.api.v1.bot_records import (  # noqa: E402
-    get_bot_history,
-    get_bot_jobs,
-    get_bot_stats,
-    get_bot_trades,
-    router as bot_records_router,
-)
-from src.api.v1.bot_realtime import (  # noqa: E402
-    _authorize_websocket_connection,
-    _resolve_realtime_bot_id,
-    configure_bot_realtime,
-    get_alerts,
-    get_current_positions,
-    get_market_data,
-    get_position,
-    get_position_history,
-    get_realtime_stats,
-    router as bot_realtime_router,
-    websocket_alerts,
-    websocket_bot_runtime,
-    websocket_strategies,
-)
 from src.api.v1 import backtests as backtest_routes  # noqa: E402
-from src.api.v1.backtests import (  # noqa: E402
+from src.api.v1.arbitrage import router as arbitrage_router  # noqa: E402
+from src.api.v1.backtests import (
     _backtest_capacity_snapshot,
     _broadcast_backtest_progress,
     _normalize_requested_pair_cap,
@@ -904,8 +863,52 @@ from src.api.v1.backtests import (  # noqa: E402
     _strategy_resolution_metrics_snapshot,
     backtest_service_scope,
     configure_backtest_routes,
-    router as backtests_router,
 )
+from src.api.v1.backtests import router as backtests_router  # noqa: E402
+from src.api.v1.bot_lifecycle import (
+    configure_bot_lifecycle,
+    create_bot_instance,
+    delete_bot_instance,
+    get_bot_instance,
+    list_bot_instances,
+    quick_deploy_bot,
+    restart_bot_instance,
+)
+from src.api.v1.bot_lifecycle import router as bot_lifecycle_router  # noqa: E402
+from src.api.v1.bot_lifecycle import (
+    start_bot_instance,
+    stop_bot_instance,
+)
+from src.api.v1.bot_realtime import (
+    _authorize_websocket_connection,
+    _resolve_realtime_bot_id,
+    configure_bot_realtime,
+    get_alerts,
+    get_current_positions,
+    get_market_data,
+    get_position,
+    get_position_history,
+    get_realtime_stats,
+)
+from src.api.v1.bot_realtime import router as bot_realtime_router  # noqa: E402
+from src.api.v1.bot_realtime import (
+    websocket_alerts,
+    websocket_bot_runtime,
+    websocket_strategies,
+)
+from src.api.v1.bot_records import (
+    get_bot_history,
+    get_bot_jobs,
+    get_bot_stats,
+    get_bot_trades,
+)
+from src.api.v1.bot_records import router as bot_records_router  # noqa: E402
+from src.api.v1.celery_admin import router as celery_admin_router  # noqa: E402
+
+# Include extracted route modules (monolith breakup). Monitoring is first; its
+# routes live in src/api/v1/monitoring.py and inherit app middleware/auth/handlers.
+from src.api.v1.monitoring import router as monitoring_router  # noqa: E402
+from src.api.v1.strategies import router as strategies_router  # noqa: E402
 
 # Preserve the historical ``src.api.server`` import/monkeypatch surface while the
 # canonical implementations live in the extracted backtest router.

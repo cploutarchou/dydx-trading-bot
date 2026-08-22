@@ -10,8 +10,8 @@ from loguru import logger
 
 from src.constants import MAX_HALF_LIFE, WINDOW
 from src.infrastructure.domain.cointegration_storage import (
-    calculate_confidence_score,
     CointegrationResult,
+    calculate_confidence_score,
     pair_storage,
 )
 from src.shared.dataframe_utils import (

@@ -18,9 +18,9 @@ from src.constants import (
 from src.infrastructure import resilience
 from src.infrastructure.cache import get_market_data_cache
 from src.shared.dataframe_utils import (
+    cleanup_cache_entries,
     cleanup_dataframe,
     optimize_dataframe_memory,
-    cleanup_cache_entries,
     register_dataframe,
     unregister_dataframe,
 )

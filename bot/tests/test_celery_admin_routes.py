@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 import src.api.endpoint_timing as endpoint_timing
 import src.api.server as server
 from src.api.v1.celery_admin import router as celery_router
-from src.middleware.auth_middleware import get_current_active_user, get_admin_user
+from src.middleware.auth_middleware import get_admin_user, get_current_active_user
 
 _CELERY_PATHS = [
     ("GET", "/api/v1/celery/tasks"),

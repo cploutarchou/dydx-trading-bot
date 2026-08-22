@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 
 import pytest
-
 from conftest import assert_db_type_supported
+
 from src.infrastructure.database import (
     ConnectionPoolMonitor,
     DatabaseConfig,

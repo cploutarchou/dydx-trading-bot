@@ -13,13 +13,13 @@ from sqlalchemy.orm import Session
 
 from internal.domain.models import (
     Bot,
+    BotStatusEnum,
     Event,
     Job,
-    Trade,
+    JobStatusEnum,
     Strategy,
     StrategyVersion,
-    BotStatusEnum,
-    JobStatusEnum,
+    Trade,
     TradeStatusEnum,
 )
 from src.infrastructure.storage import (

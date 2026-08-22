@@ -9,9 +9,10 @@
 # formatting + the flake8 hard selection) plus zero-config hygiene, so local
 # feedback matches CI and the hooks stay fast and non-annoying. Black and flake8
 # run in pre-commit-managed environments pinned to the SAME versions as
-# bot/requirements.txt (black==26.5.1, flake8==7.3.0), so formatting is identical
-# to CI without requiring bot/.venv to be active. Black reads its settings from
-# bot/pyproject.toml [tool.black] (line-length=88, py312). Keep these versions in
+# bot/requirements.txt (black==26.5.1, isort==6.0.1, flake8==7.3.0), so
+# formatting is identical to CI without requiring bot/.venv to be active.
+# Black/isort read their settings from bot/pyproject.toml ([tool.black]
+# line-length=88 py312; [tool.isort] profile=black). Keep these versions in
 # sync with requirements.txt when bumping.
 #
 # Install (one-time), from anywhere in the repo:
@@ -58,6 +59,15 @@ repos:
         entry: black
         language: python
         additional_dependencies: [black==26.5.1]
+        types: [python]
+        files: ^bot/(src|tests)/
+        require_serial: true
+      - id: isort
+        name: isort (sort imports)
+        description: Sort imports (version pinned to bot/requirements.txt); config from bot/pyproject.toml [tool.isort] (profile=black).
+        entry: isort
+        language: python
+        additional_dependencies: [isort==6.0.1]
         types: [python]
         files: ^bot/(src|tests)/
         require_serial: true

@@ -145,7 +145,7 @@ class PairStorage:
         self.storage_path = Path(resolved_path)
         self._ensure_storage_dir()
 
-    def _ensure_storage_dir(self):
+    def _ensure_storage_dir(self) -> None:
         """Ensure a storage directory exists."""
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -324,7 +324,7 @@ class PairStorage:
         """Load and filter for high-confidence pairs only."""
         return [pair for pair in self.load_pairs() if pair.is_high_confidence]
 
-    def clear_pairs(self):
+    def clear_pairs(self) -> None:
         """Clear all stored pairs (both DB and file)."""
         try:
             from sqlalchemy import text

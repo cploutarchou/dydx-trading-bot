@@ -14,7 +14,7 @@ handler.
 """
 
 from datetime import timedelta
-from typing import cast
+from typing import Optional, cast
 
 from sqlalchemy.orm import Session
 
@@ -27,7 +27,7 @@ def _token_value(record: UserToken) -> str:
     return str(cast(object, record.token))
 
 
-def get_totp_secret_record(session: Session, user_id: int):
+def get_totp_secret_record(session: Session, user_id: int) -> Optional[UserToken]:
     """Most recent non-revoked ``totp_secret`` row for the user, or ``None``."""
     return (
         session.query(UserToken)
@@ -41,7 +41,7 @@ def get_totp_secret_record(session: Session, user_id: int):
     )
 
 
-def get_totp_enabled_record(session: Session, user_id: int):
+def get_totp_enabled_record(session: Session, user_id: int) -> Optional[UserToken]:
     """Most recent non-revoked ``totp_enabled`` row for the user, or ``None``."""
     return (
         session.query(UserToken)

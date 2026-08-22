@@ -912,7 +912,8 @@ class DatabaseManager:
         session_factory = self._session_factory
         if session_factory is None:
             raise RuntimeError("Database session factory is not initialized")
-        return session_factory()
+        session: Session = session_factory()
+        return session
 
     @contextmanager
     def session_scope(self) -> Iterator[Session]:

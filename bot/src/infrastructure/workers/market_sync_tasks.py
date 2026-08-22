@@ -77,7 +77,7 @@ def _selected_markets_override() -> List[str]:
     return markets
 
 
-def _get_redis_client():
+def _get_redis_client() -> Any:
     try:
         import redis as _redis
 

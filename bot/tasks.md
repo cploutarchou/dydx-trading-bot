@@ -1,5 +1,29 @@
 # Tasks Log
 
+## 2026-08-22 (pass 2)
+
+- **Input-validation deferred tail closed — Celery revoke body promoted to a validated model**
+  (the last raw-`Dict` request body in `src/`). Fixes a real coercion hazard.
+    - `src/api/v1/celery_admin.py`: new `CeleryTaskRevokeRequest` (`terminate: bool = False`,
+      `model_config extra="ignore"`); the revoke route takes it as an **optional** body
+      (`Optional[CeleryTaskRevokeRequest] = None`) so clients that POST with no body keep the
+      graceful-revoke default — the exact previous `Body(default_factory=dict)` contract.
+    - **Bug fixed**: `bool(payload.get("terminate", False))` coerced JSON strings
+      `"false"`/`"0"` to `True`, silently escalating a graceful revoke into a SIGTERM of the
+      executing task; non-boolean garbage (`"banana"`, `2`, `[]`) also became `True`. Now:
+      unambiguous lax coercions (`"true"`/`"1"`/`1`) still work, everything else is a strict
+      422 in the standardized `api_response` envelope.
+    - Metrics-reset endpoint audit: `POST /api/v1/admin/runtime/strategy-resolution-metrics/reset`
+      takes no request body — nothing to validate; documented in IMPROVEMENTS.md.
+    - Tests: 7 full-HTTP route cases in `tests/test_celery_admin_routes.py` (no-body, empty
+      object, true flag, string-`"false"` regression, garbage-flag 422 envelope, extra-keys
+      ignored, admin gate 403) + 14 model-matrix cases in `tests/test_api_input_validation.py`.
+    - `openapi.json` regenerated — the revoke body now references the
+      `CeleryTaskRevokeRequest` schema (typed boolean, default false) instead of
+      `additionalProperties: true`.
+    - Validation: isort/black/flake8 hard gate clean, mypy 0 errors, targeted suites green
+      (76 passed), full CI-mirror suite at coverage floor 82.
+
 ## 2026-08-22
 
 - **isort enforcement landed** (the follow-up deferred from the pre-commit-hooks item): import

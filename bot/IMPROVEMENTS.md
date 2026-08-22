@@ -401,7 +401,18 @@ Items removed from this plan during the same review — and why — are listed i
       Coverage in `tests/test_api_input_validation.py` (49 cases). `openapi.json` regenerated so
       the contract surfaces `minimum`/`maximum`/`exclusiveMinimum`/`pattern` on the trading
       schemas. Scope was trading-critical endpoints only (bot lifecycle, backtests, strategies,
-      arbitrage runtime-settings) — admin/celery housekeeping (revoke, metrics reset) deferred.
+      arbitrage runtime-settings) — admin/celery housekeeping deferred.
+      **Deferred tail landed 2026-08-22:** the one remaining raw-`Dict` body — the admin
+      Celery revoke route (`POST /api/v1/celery/tasks/{task_id}/revoke`) — was promoted to
+      `CeleryTaskRevokeRequest` (`terminate: bool = False`, `extra="ignore"`, optional body so
+      no-body POSTs keep the graceful default). This fixed a real coercion hazard:
+      `bool(payload.get("terminate", False))` turned JSON strings like `"false"`/`"0"` into
+      `True` — silently escalating a graceful revoke into a SIGTERM of the executing task;
+      garbage flags now get the strict 422 envelope instead of a terminate. The metrics-reset
+      endpoint takes no request body, so nothing was needed there. Coverage: 7 full-HTTP
+      route tests in `tests/test_celery_admin_routes.py` (no-body/empty/true/string-false
+      regression/garbage-422/extra-keys/admin gate) + 14 model-matrix cases in
+      `tests/test_api_input_validation.py`; `openapi.json` regenerated.
 
 #### **Performance**
 

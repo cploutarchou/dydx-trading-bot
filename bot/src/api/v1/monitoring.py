@@ -14,10 +14,12 @@ from __future__ import annotations
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from src.api.responses import api_response
 from src.infrastructure.database import db
+from src.infrastructure.domain.models.auth_models import User
 from src.middleware.auth_middleware import get_current_active_user
 from src.shared.time_utils import utc_now_iso
 
@@ -41,8 +43,8 @@ class WsBroadcastPublishRequest(BaseModel):
 
 @router.get("/dataframe/memory")
 async def get_dataframe_memory_stats(
-    current_user=Depends(get_current_active_user),
-):
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """Get DataFrame memory usage statistics."""
     _ = current_user
     try:
@@ -69,8 +71,8 @@ async def get_dataframe_memory_stats(
 
 @router.post("/dataframe/cleanup")
 async def cleanup_all_dataframes(
-    current_user=Depends(get_current_active_user),
-):
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """Force cleanup of all tracked DataFrames."""
     _ = current_user
     try:
@@ -93,8 +95,8 @@ async def cleanup_all_dataframes(
 
 @router.get("/database/pool")
 async def get_database_pool_metrics(
-    current_user=Depends(get_current_active_user),
-):
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """Get current database connection pool metrics."""
     _ = current_user
     metrics = db.get_pool_metrics()
@@ -107,8 +109,8 @@ async def get_database_pool_metrics(
 
 @router.get("/database/pool/health")
 async def get_database_pool_health(
-    current_user=Depends(get_current_active_user),
-):
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """Get database connection pool health status."""
     _ = current_user
     health = db.get_pool_health_status()
@@ -122,8 +124,8 @@ async def get_database_pool_health(
 @router.get("/database/pool/history")
 async def get_database_pool_history(
     limit: int = 50,
-    current_user=Depends(get_current_active_user),
-):
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """Get historical database connection pool metrics."""
     _ = current_user
     safe_limit = max(1, min(int(limit or 50), 500))
@@ -137,8 +139,8 @@ async def get_database_pool_history(
 
 @router.get("/database/diagnostics")
 async def get_database_diagnostics(
-    current_user=Depends(get_current_active_user),
-):
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """Get comprehensive database diagnostics including pool metrics."""
     _ = current_user
     diagnostics = db.get_diagnostics()
@@ -151,8 +153,8 @@ async def get_database_diagnostics(
 
 @router.get("/circuit-breakers")
 async def get_circuit_breaker_states(
-    current_user=Depends(get_current_active_user),
-):
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """Get live circuit-breaker states for all registered external services.
 
     Reports the state (closed/open/half-open), failure counters, and thresholds
@@ -172,8 +174,8 @@ async def get_circuit_breaker_states(
 
 @router.get("/ws-broadcast")
 async def get_ws_broadcast_health(
-    current_user=Depends(get_current_active_user),
-):
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """Get health of the cross-worker WebSocket broadcast bus.
 
     Reports whether the Redis pub/sub bus is enabled, its backend (``redis`` /
@@ -195,8 +197,8 @@ async def get_ws_broadcast_health(
 
 @router.get("/portfolio-risk")
 async def get_portfolio_risk_status(
-    current_user=Depends(get_current_active_user),
-):
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """Live configuration, deployment-wide exposure, and recent denials.
 
     Reports whether the portfolio guard is enabled and its limits (see
@@ -303,8 +305,8 @@ async def get_portfolio_risk_status(
 @router.post("/ws-broadcast/publish")
 async def publish_ws_broadcast_test(
     request: WsBroadcastPublishRequest,
-    current_user=Depends(get_current_active_user),
-):
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """Publish a diagnostic broadcast to a channel via ``broadcast_to_bot``.
 
     Operator smoke test for the cross-worker bus: emits a fixed, server-built

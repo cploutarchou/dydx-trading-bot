@@ -3,6 +3,7 @@
 import asyncio
 import json
 from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Sequence
 
 from loguru import logger
 
@@ -27,20 +28,20 @@ class BotAgent:
     # Initialize class
     def __init__(
         self,
-        client,
-        market_1,
-        market_2,
-        base_side,
-        base_size,
-        base_price,
-        quote_side,
-        quote_size,
-        quote_price,
-        accept_failsafe_base_price,
-        z_score,
-        half_life,
-        hedge_ratio,
-    ):
+        client: Any,
+        market_1: str,
+        market_2: str,
+        base_side: str,
+        base_size: str,
+        base_price: str,
+        quote_side: str,
+        quote_size: str,
+        quote_price: str,
+        accept_failsafe_base_price: str,
+        z_score: float,
+        half_life: float,
+        hedge_ratio: float,
+    ) -> None:
         """Initialize bot agent with trade parameters."""
         # Initialize class variables
         self.client = client
@@ -62,7 +63,7 @@ class BotAgent:
 
         # Initialize output variable
         # Pair status options are FAILED, LIVE, CLOSE, ERROR
-        self.order_dict = {
+        self.order_dict: Dict[str, Any] = {
             "market_1": market_1,
             "market_2": market_2,
             "hedge_ratio": hedge_ratio,
@@ -85,7 +86,7 @@ class BotAgent:
         }
 
     @staticmethod
-    def _opposite_side(side):
+    def _opposite_side(side: str) -> str:
         normalized = str(side).upper()
         if normalized == "BUY":
             return "SELL"
@@ -94,22 +95,23 @@ class BotAgent:
         raise ValueError(f"Unsupported order side: {side}")
 
     @staticmethod
-    def _telemetry_fragment(**fields) -> str:
+    def _telemetry_fragment(**fields: Any) -> str:
         payload = {k: v for k, v in fields.items()}
         return json.dumps(payload, separators=(",", ":"), sort_keys=True)
 
     @staticmethod
-    def _normalize_order_status(status) -> str:
+    def _normalize_order_status(status: Any) -> str:
         normalized = str(status or "").strip().upper()
         if normalized == "CANCELED":
             return "CANCELLED"
         return normalized
 
-    async def _emergency_close_first_leg(self):
+    async def _emergency_close_first_leg(self) -> str:
         close_size = self.order_dict.get("order_m1_size") or self.base_size
         close_side = self._opposite_side(self.base_side)
         retries = 3
         last_status = "unknown"
+        order_id: str = ""
         for attempt in range(1, retries + 1):
             close_order, order_id = await place_market_order(
                 self.client,
@@ -177,7 +179,7 @@ class BotAgent:
             f"telemetry={self._telemetry_fragment(cleanup_status='failed', close_order_status=last_status, position_open_after_cleanup=True)}"
         )
 
-    async def check_order_status_by_id(self, order_id):
+    async def check_order_status_by_id(self, order_id: str) -> str:
         """Check order status by order ID with retry logic."""
         # Allow time to process
         await asyncio.sleep(2)
@@ -223,7 +225,7 @@ class BotAgent:
         return "live"
 
     @staticmethod
-    def _first_present(payload, keys):
+    def _first_present(payload: Dict[str, Any], keys: Sequence[str]) -> Any:
         for key in keys:
             value = payload.get(key)
             if value not in (None, ""):
@@ -231,7 +233,7 @@ class BotAgent:
         return None
 
     @staticmethod
-    def _weighted_average_fill_price(fills):
+    def _weighted_average_fill_price(fills: List[Any]) -> Optional[str]:
         total_size = 0.0
         total_notional = 0.0
         for fill in fills:
@@ -252,7 +254,9 @@ class BotAgent:
             return None
         return str(total_notional / total_size)
 
-    async def _reconcile_filled_order(self, leg_prefix, *, order_id, market):
+    async def _reconcile_filled_order(
+        self, leg_prefix: str, *, order_id: str, market: str
+    ) -> None:
         """
         Refresh order details from the indexer and prefer actual fill prices.
 
@@ -307,7 +311,7 @@ class BotAgent:
             self.order_dict[f"{leg_prefix}_price_source"] = "fills"
             self.order_dict[f"{leg_prefix}_fill_count"] = len(fills)
 
-    async def open_trades(self):
+    async def open_trades(self) -> Dict[str, Any]:
         """
         Open both sides of the paired trade.
 

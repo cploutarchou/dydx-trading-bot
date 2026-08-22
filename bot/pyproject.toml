@@ -111,7 +111,7 @@ warn_unused_configs = true
 warn_return_any = true
 disallow_untyped_defs = true
 
-# --- disallow_untyped_defs exemption ratchet (11 modules, 2026-08-22 phase 3c) ---
+# --- disallow_untyped_defs exemption ratchet (9 modules, 2026-08-22 phase 3d) ---
 # Each entry is a module that still has unannotated defs. To migrate one:
 # annotate its defs, run `.venv/bin/python -m mypy src` until clean, then
 # remove the entry here AND from the ratchet test's expected set.
@@ -121,6 +121,7 @@ disallow_untyped_defs = true
 # Phase 3c (2026-08-22): -6 (api/v1/bot_lifecycle, api/v1/celery_admin,
 # api/v1/monitoring, infrastructure/persistence/repository,
 # infrastructure/persistence/repository_realtime, trading/market_data; 17 -> 11).
+# Phase 3d (2026-08-22): -2 (trading/bot_agent, main_instance; 11 -> 9).
 [[tool.mypy.overrides]]
 module = [
     "src.api.server",
@@ -130,9 +131,7 @@ module = [
     "src.api.websocket_server",
     "src.bot_instance_manager",
     "src.infrastructure.database",
-    "src.main_instance",
     "src.trading.account_manager",
-    "src.trading.bot_agent",
     "src.trading.position_manager",
 ]
 disallow_untyped_defs = false

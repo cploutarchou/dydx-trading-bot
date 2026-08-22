@@ -579,6 +579,15 @@ Items removed from this plan during the same review — and why — are listed i
       annotated `Any`/`List[Any]`, `construct_market_prices -> pd.DataFrame`). 223 untyped-def
       sites remain across the 11 exempt modules (the big core files: backtests 57,
       websocket_server 25, server 23, database 21, account_manager 19, …).
+      **Phase 3d (same day)** — exemption list **11 → 9**: migrated `trading/bot_agent`
+      (10 sites — the paired-trade execution agent; `__init__` typed from the single
+      `position_manager` call site where sizes/prices are `format_number` strings and
+      z-score/half-life/hedge-ratio are `_as_float` floats, `open_trades -> Dict[str, Any]`,
+      `_emergency_close_first_leg -> str` with a pre-declared `order_id: str` binding the
+      untyped `place_market_order` unpack, `_weighted_average_fill_price -> Optional[str]`,
+      `_reconcile_filled_order -> None`) and `main_instance` (10 sites — all lifecycle methods
+      `-> None` incl. the nested `signal_handler(signum: int, frame: Any)` and `async main()`;
+      runtime no-ops only). 203 untyped-def sites remain across the 9 exempt modules.
       Not added to pre-commit (mypy needs whole-program context and is slow; CI is the right place for it).
 
 #### **Testing**

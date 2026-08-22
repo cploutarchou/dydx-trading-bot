@@ -1,5 +1,31 @@
 # Tasks Log
 
+## 2026-08-22 (pass 6)
+
+- **mypy phase 3d — exemption ratchet 11 → 9 modules** (2 modules, 20 untyped-def sites
+  annotated; gate stays 0 errors).
+    - Migrated: `trading/bot_agent` (10 sites — `__init__` typed against the sole
+      `position_manager` call site: markets/sides/sizes/prices `str` (`format_number`
+      outputs), metrics `float`; `open_trades -> Dict[str, Any]`,
+      `_emergency_close_first_leg -> str`, `_reconcile_filled_order -> None`,
+      `_weighted_average_fill_price -> Optional[str]`; `order_dict` declared
+      `Dict[str, Any]`) and `main_instance` (10 sites — lifecycle methods `-> None`
+      (`setup_logging`/`load_config`/`setup_signal_handlers`/`initialize`/
+      `run_initial_setup`/`trading_loop`/`run`/`_log_exception`), nested
+      `signal_handler(signum: int, frame: Any) -> None`, `async main() -> None`).
+    - All annotations runtime no-ops; the `order_id: str = ""` pre-declaration in
+      `_emergency_close_first_leg` is dead-initialized (always rebound at loop top) and
+      exists only to bind the untyped `place_market_order` unpack for `warn_return_any`.
+    - Ratchet: `pyproject.toml` override list + ratchet-test frozen set shrunk to 9;
+      203 untyped-def sites remain (backtests 57, websocket_server 25, server 23,
+      database 21, account_manager 19, bot_instance_manager 18, strategies/bot_realtime
+      15 each, position_manager 10).
+    - Validation: mypy 0 errors; isort/black/flake8 clean; per-area suites green
+      (bot-agent emergency cleanup — the `make test-execution-safety` target, main
+      instance, trading network errors, mypy ratchet, instance manager, position-manager
+      exit/entry safety — 151 passed); full CI-mirror suite 1354 passed, 13 skipped,
+      coverage 83.33% ≥ 82 floor.
+
 ## 2026-08-22 (pass 5)
 
 - **mypy phase 3c — exemption ratchet 17 → 11 modules** (6 modules, 59 untyped-def sites

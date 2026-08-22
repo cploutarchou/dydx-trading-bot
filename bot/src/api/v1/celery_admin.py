@@ -12,24 +12,41 @@ Responses use the shared ``api_response`` envelope; timing uses
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, Optional
+from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.api.endpoint_timing import endpoint_perf_headers, log_endpoint_timing
 from src.api.responses import api_response
+from src.infrastructure.domain.models.auth_models import User
 from src.infrastructure.workers.celery_monitor import (
     celery_health,
     get_celery_task,
     list_celery_queues,
     list_celery_tasks,
     list_celery_workers,
-    revoke_celery_task,
     retry_celery_task,
+    revoke_celery_task,
 )
 from src.middleware.auth_middleware import get_admin_user
 
 router = APIRouter(prefix="/api/v1/celery", tags=["Celery (admin)"])
+
+
+class CeleryTaskRevokeRequest(BaseModel):
+    """Validated body for the admin Celery revoke endpoint.
+
+    ``terminate=True`` escalates the revoke to a SIGTERM of the executing task, so
+    the flag must be a real boolean — the previous raw-dict ``bool(payload.get(...))``
+    coerced JSON strings like ``"false"``/``"0"`` to ``True``. Unknown keys are
+    ignored so existing clients sending unrelated fields keep working.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    terminate: bool = Field(default=False)
 
 
 @router.get("/tasks")
@@ -42,8 +59,8 @@ async def celery_tasks(
     bot_id: Optional[str] = Query(default=None),
     environment: Optional[str] = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
-    current_user=Depends(get_admin_user),
-):
+    current_user: User = Depends(get_admin_user),
+) -> JSONResponse:
     """Admin-only Celery task list with safe metadata redaction."""
     _ = current_user
     started_at = time.perf_counter()
@@ -82,8 +99,8 @@ async def celery_tasks(
 @router.get("/tasks/{task_id}")
 async def celery_task_detail(
     task_id: str,
-    current_user=Depends(get_admin_user),
-):
+    current_user: User = Depends(get_admin_user),
+) -> JSONResponse:
     """Admin-only Celery task detail including failure traceback when available."""
     _ = current_user
     started_at = time.perf_counter()
@@ -107,12 +124,14 @@ async def celery_task_detail(
 @router.post("/tasks/{task_id}/revoke")
 async def celery_task_revoke(
     task_id: str,
-    payload: Dict[str, Any] = Body(default_factory=dict),
-    current_user=Depends(get_admin_user),
-):
+    # Optional so clients that POST with no body at all keep the graceful-revoke
+    # default (the previous Body(default_factory=dict) contract).
+    payload: Optional[CeleryTaskRevokeRequest] = None,
+    current_user: User = Depends(get_admin_user),
+) -> JSONResponse:
     """Admin-only Celery revoke/cancel endpoint."""
     _ = current_user
-    terminate = bool(payload.get("terminate", False))
+    terminate = payload.terminate if payload is not None else False
     return api_response(
         True,
         revoke_celery_task(task_id, terminate=terminate),
@@ -123,8 +142,8 @@ async def celery_task_revoke(
 @router.post("/tasks/{task_id}/retry")
 async def celery_task_retry(
     task_id: str,
-    current_user=Depends(get_admin_user),
-):
+    current_user: User = Depends(get_admin_user),
+) -> JSONResponse:
     """Admin-only retry for supported failed tasks."""
     _ = current_user
     try:
@@ -135,7 +154,7 @@ async def celery_task_retry(
 
 
 @router.get("/workers")
-async def celery_workers(current_user=Depends(get_admin_user)):
+async def celery_workers(current_user: User = Depends(get_admin_user)) -> JSONResponse:
     """Admin-only Celery worker inspection."""
     _ = current_user
     started_at = time.perf_counter()
@@ -156,7 +175,7 @@ async def celery_workers(current_user=Depends(get_admin_user)):
 
 
 @router.get("/queues")
-async def celery_queues(current_user=Depends(get_admin_user)):
+async def celery_queues(current_user: User = Depends(get_admin_user)) -> JSONResponse:
     """Admin-only Celery queue overview."""
     _ = current_user
     started_at = time.perf_counter()
@@ -177,7 +196,9 @@ async def celery_queues(current_user=Depends(get_admin_user)):
 
 
 @router.get("/health")
-async def celery_monitor_health(current_user=Depends(get_admin_user)):
+async def celery_monitor_health(
+    current_user: User = Depends(get_admin_user),
+) -> JSONResponse:
     """Admin-only Celery broker/backend/worker health."""
     _ = current_user
     started_at = time.perf_counter()

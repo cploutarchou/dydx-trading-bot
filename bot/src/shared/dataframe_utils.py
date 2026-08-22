@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 from datetime import datetime, timedelta
-from typing import Any, Optional, Dict
+from typing import Any, Dict, Iterator, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ _max_tracked_frames = 100
 _tracking_enabled = True
 
 
-def enable_dataframe_tracking(enabled: bool = True):
+def enable_dataframe_tracking(enabled: bool = True) -> None:
     """Enable or disable DataFrame memory tracking."""
     global _tracking_enabled
     _tracking_enabled = enabled
@@ -112,11 +112,11 @@ def get_dataframe_memory_usage(df: Any) -> int:
     """
     try:
         if hasattr(df, "memory_usage"):
-            return df.memory_usage(deep=True).sum()
+            return int(df.memory_usage(deep=True).sum())
         elif hasattr(df, "nbytes"):
-            return df.nbytes
+            return int(df.nbytes)
         elif hasattr(df, "__sizeof__"):
-            return df.__sizeof__()
+            return int(df.__sizeof__())
         else:
             return 0
     except Exception:
@@ -154,7 +154,7 @@ def cleanup_dataframe(df: Any) -> bool:
         return False
 
 
-def _cleanup_old_entries():
+def _cleanup_old_entries() -> None:
     """Clean up old entries from the DataFrame registry."""
     try:
         cutoff_time = datetime.now() - timedelta(minutes=30)
@@ -177,7 +177,9 @@ def _cleanup_old_entries():
 
 
 @contextlib.contextmanager
-def managed_dataframe(df: Any, name: str, metadata: Optional[Dict[str, Any]] = None):
+def managed_dataframe(
+    df: Any, name: str, metadata: Optional[Dict[str, Any]] = None
+) -> Iterator[Any]:
     """Context manager for automatic DataFrame cleanup.
 
     Args:
@@ -240,7 +242,7 @@ def get_memory_summary() -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-def force_cleanup_all():
+def force_cleanup_all() -> int:
     """Force cleanup of all tracked DataFrames."""
     try:
         # Snapshot ids under the lock, then unregister outside it —
@@ -309,7 +311,7 @@ def optimize_dataframe_memory(df: Any) -> Any:
 
 def cleanup_cache_entries(
     cache_dict: Dict[str, Any], max_size: int = 100, max_age_minutes: int = 60
-):
+) -> None:
     """Clean up cache entries with size and age limits.
 
     Args:

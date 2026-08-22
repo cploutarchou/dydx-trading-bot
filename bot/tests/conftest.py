@@ -74,8 +74,9 @@ def _isolate_circuit_breakers(monkeypatch):
 # precedence when it wants to exercise a real/double bus.
 @pytest.fixture(autouse=True)
 def _isolate_broadcast_bus(monkeypatch):
-    from src.infrastructure.broadcast import NoopBroadcastBus, reset_broadcast_bus
+    from src.infrastructure.broadcast import NoopBroadcastBus
     from src.infrastructure.broadcast import bus as broadcast_bus_module
+    from src.infrastructure.broadcast import reset_broadcast_bus
 
     # Neutralize the factory decision itself, not just the env var:
     # ``bus.py`` imports WS_BROADCAST_ENABLED from constants BY VALUE at import

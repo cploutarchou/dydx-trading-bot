@@ -155,7 +155,13 @@ def authenticate_bearer_token(token: str, session: Session) -> User:
         )
 
     payload = JWTUtils.verify_token(normalized)
-    username: Optional[str] = payload.get("sub") if payload else None
+    if payload is None:
+        raise AuthenticationError(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    username: Optional[str] = payload.get("sub")
     if username is None:
         raise AuthenticationError(
             status_code=status.HTTP_401_UNAUTHORIZED,

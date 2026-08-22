@@ -18,8 +18,8 @@ def test_worker_id():
 def test_start_nats_command():
     """Test start_nats_command records start time."""
     from src.infrastructure.workers.nats_worker_metrics import (
-        start_nats_command,
         _command_start_times,
+        start_nats_command,
     )
 
     # Clear any existing state
@@ -35,8 +35,8 @@ def test_start_nats_command():
 def test_start_nats_command_with_none():
     """Test start_nats_command handles None correlation_id."""
     from src.infrastructure.workers.nats_worker_metrics import (
-        start_nats_command,
         _command_start_times,
+        start_nats_command,
     )
 
     _command_start_times.clear()
@@ -53,9 +53,9 @@ def test_start_nats_command_with_none():
 def test_complete_nats_command(mock_resolve_writer):
     """Test complete_nats_command records metrics."""
     from src.infrastructure.workers.nats_worker_metrics import (
-        start_nats_command,
-        complete_nats_command,
         _command_start_times,
+        complete_nats_command,
+        start_nats_command,
     )
 
     _command_start_times.clear()
@@ -94,8 +94,8 @@ def test_complete_nats_command(mock_resolve_writer):
 def test_complete_nats_command_without_start(mock_resolve_writer):
     """Test complete_nats_command handles missing start time gracefully."""
     from src.infrastructure.workers.nats_worker_metrics import (
-        complete_nats_command,
         _command_start_times,
+        complete_nats_command,
     )
 
     _command_start_times.clear()
@@ -121,9 +121,9 @@ def test_complete_nats_command_without_start(mock_resolve_writer):
 def test_complete_nats_command_calls_resolve_writer_by_default(mock_resolve_writer):
     """Test that complete_nats_command calls _resolve_writer if writer not provided."""
     from src.infrastructure.workers.nats_worker_metrics import (
-        start_nats_command,
-        complete_nats_command,
         _command_start_times,
+        complete_nats_command,
+        start_nats_command,
     )
 
     _command_start_times.clear()
@@ -151,9 +151,9 @@ def test_complete_nats_command_calls_resolve_writer_by_default(mock_resolve_writ
 def test_fail_nats_command(mock_resolve_writer):
     """Test fail_nats_command records failure metrics."""
     from src.infrastructure.workers.nats_worker_metrics import (
-        start_nats_command,
-        fail_nats_command,
         _command_start_times,
+        fail_nats_command,
+        start_nats_command,
     )
 
     _command_start_times.clear()
@@ -183,11 +183,11 @@ def test_fail_nats_command(mock_resolve_writer):
 def test_metrics_with_none_writer(mock_resolve_writer):
     """Test that metrics functions handle None writer gracefully."""
     from src.infrastructure.workers.nats_worker_metrics import (
-        record_nats_command_metric,
-        start_nats_command,
+        _command_start_times,
         complete_nats_command,
         fail_nats_command,
-        _command_start_times,
+        record_nats_command_metric,
+        start_nats_command,
     )
 
     _command_start_times.clear()

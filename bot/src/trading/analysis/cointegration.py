@@ -2,7 +2,7 @@
 
 import time
 from datetime import datetime, timezone
-from typing import Tuple, cast
+from typing import Any, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -10,8 +10,8 @@ from loguru import logger
 
 from src.constants import MAX_HALF_LIFE, WINDOW
 from src.infrastructure.domain.cointegration_storage import (
-    calculate_confidence_score,
     CointegrationResult,
+    calculate_confidence_score,
     pair_storage,
 )
 from src.shared.dataframe_utils import (
@@ -29,7 +29,7 @@ class SmartError(Exception):
     pass
 
 
-def half_life_mean_reversion(series):
+def half_life_mean_reversion(series: Any) -> float:
     """Calculate half-life of mean reversion for a time series."""
     if len(series) <= 1:
         raise SmartError("Series length must be greater than 1.")
@@ -70,7 +70,7 @@ def half_life_mean_reversion(series):
     return float(half_life)
 
 
-def calculate_zscore(spread):
+def calculate_zscore(spread: Any) -> pd.Series:
     """Calculate Z-score of a spread series."""
     spread_series = pd.Series(spread)
     mean = spread_series.rolling(center=False, window=WINDOW).mean()
@@ -80,7 +80,7 @@ def calculate_zscore(spread):
     return zscore
 
 
-def calculate_cointegration(series_1, series_2):
+def calculate_cointegration(series_1: Any, series_2: Any) -> Tuple[int, float, float]:
     """
     Test cointegration between two price series.
 
@@ -130,7 +130,7 @@ def calculate_cointegration(series_1, series_2):
     return coint_flag, hedge_ratio, half_life
 
 
-def count_zero_crossings(series):
+def count_zero_crossings(series: Any) -> int:
     """Count zero crossings in a time series."""
     if len(series) < 2:
         return 0
@@ -146,7 +146,7 @@ def count_zero_crossings(series):
     return int(np.sum(np.abs(sign_changes) == 2))
 
 
-def store_cointegration_results(df_market_prices):
+def store_cointegration_results(df_market_prices: pd.DataFrame) -> dict:
     """
     Find and store cointegrated pairs from market price data.
 

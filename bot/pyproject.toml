@@ -24,6 +24,14 @@ dependencies = [
 line-length = 88
 target-version = ["py312"]
 
+[tool.isort]
+# profile="black" keeps isort fully compatible with Black (no fighting over
+# import placement); line-length matches [tool.black]. Enforced in the bot-lint
+# CI job and the pre-commit hook (both pinned to isort==6.0.1).
+profile = "black"
+line_length = 88
+known_first_party = ["src"]
+
 [tool.coverage.run]
 # Measure production code only. The test suite lives under tests/ and is never
 # counted toward coverage; src/ is the single source root.
@@ -91,14 +99,42 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 check_untyped_defs = true
 
-# --- Next tightening steps (phase-3 candidates) ---
-# disallow_untyped_defs requires annotations everywhere (big sweep: many
-# route handlers and helpers are still unannotated). warn_return_any flags
-# `Any` leaking out of typed signatures. strict is the end-state bundle.
-# warn_unused_configs = true
-# disallow_untyped_defs = true
-# warn_return_any = true
-# strict = true
+# --- Phase-3 options ENABLED 2026-08-22 (phase 3a) ---
+# warn_return_any: Any can no longer leak out of typed signatures (36 sites
+# fixed; several were real seam fixes — api_response, run_db, and
+# _retry_with_backoff gained proper generics/annotations).
+# disallow_untyped_defs: new code must be fully annotated. The modules below
+# still have pre-annotation defs; they are ratchet-exempt — shrink this list
+# as modules are migrated (never grow it; tests/test_mypy_untyped_defs_ratchet.py
+# pins the count). strict remains the end-state bundle after the list is empty.
+warn_unused_configs = true
+warn_return_any = true
+disallow_untyped_defs = true
+
+# --- disallow_untyped_defs exemption ratchet (9 modules, 2026-08-22 phase 3d) ---
+# Each entry is a module that still has unannotated defs. To migrate one:
+# annotate its defs, run `.venv/bin/python -m mypy src` until clean, then
+# remove the entry here AND from the ratchet test's expected set.
+# Phase 3b (2026-08-22): -7 (workers/backtest_tasks, trading/portfolio_risk,
+# trading/analysis/cointegration, shared/dataframe_utils, api/v1/bot_records,
+# api/v1/auth, api/v1/arbitrage; 24 -> 17).
+# Phase 3c (2026-08-22): -6 (api/v1/bot_lifecycle, api/v1/celery_admin,
+# api/v1/monitoring, infrastructure/persistence/repository,
+# infrastructure/persistence/repository_realtime, trading/market_data; 17 -> 11).
+# Phase 3d (2026-08-22): -2 (trading/bot_agent, main_instance; 11 -> 9).
+[[tool.mypy.overrides]]
+module = [
+    "src.api.server",
+    "src.api.v1.backtests",
+    "src.api.v1.bot_realtime",
+    "src.api.v1.strategies",
+    "src.api.websocket_server",
+    "src.bot_instance_manager",
+    "src.infrastructure.database",
+    "src.trading.account_manager",
+    "src.trading.position_manager",
+]
+disallow_untyped_defs = false
 
 [tool.bandit]
 # ---------------------------------------------------------------------------

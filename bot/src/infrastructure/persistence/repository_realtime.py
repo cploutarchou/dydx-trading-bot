@@ -319,7 +319,7 @@ class PositionRepository:
         *,
         z_score_current: Optional[float] = None,
         funding_rate: Optional[float] = None,
-    ):
+    ) -> None:
         """Update current prices for a position"""
         position = (
             self.session.query(Position)
@@ -351,7 +351,7 @@ class PositionRepository:
             self.session.commit()
             self._write_position_snapshot(position, event_kind="mark_to_market")
 
-    def close_position(self, position_id: str):
+    def close_position(self, position_id: str) -> None:
         """Close a position"""
         position = (
             self.session.query(Position)
@@ -406,7 +406,7 @@ class MarketDataRepository:
         moving_avg_20: Optional[float] = None,
         moving_avg_50: Optional[float] = None,
         funding_rate: Optional[float] = None,
-    ):
+    ) -> MarketData:
         """Insert or update market data"""
         market_data = self.get_market_data(bot_instance_id, symbol)
         if market_data:
@@ -458,7 +458,7 @@ class StatsRepository:
 
     def calculate_and_update_stats(
         self, bot_instance_id: int, position_repo: PositionRepository
-    ):
+    ) -> None:
         """Calculate and update bot statistics"""
         positions = position_repo.get_open_positions(bot_instance_id)
         stats = self.get_stats(bot_instance_id)
@@ -502,7 +502,7 @@ class AlertRepository:
         severity: str,
         message: str,
         details: Optional[dict] = None,
-    ):
+    ) -> Alert:
         """Create a new alert"""
         alert = Alert(
             bot_instance_id=bot_instance_id,
@@ -529,7 +529,7 @@ class AlertRepository:
         """Alias for get_unacknowledged_alerts for API compatibility"""
         return self.get_unacknowledged_alerts(bot_instance_id)
 
-    def acknowledge_alert(self, alert_id: int):
+    def acknowledge_alert(self, alert_id: int) -> None:
         """Mark an alert as acknowledged"""
         alert = self.session.query(Alert).filter(Alert.id == alert_id).first()
         if alert:
@@ -562,10 +562,10 @@ class UnitOfWorkRealtime:
         self.alerts = AlertRepository(session)
         self.snapshots = PositionSnapshotsRepository(session)
 
-    def __enter__(self):
+    def __enter__(self) -> "UnitOfWorkRealtime":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         if exc_type:
             self.session.rollback()
         else:

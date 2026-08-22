@@ -1,5 +1,135 @@
 # Tasks Log
 
+## 2026-08-22 (pass 6)
+
+- **mypy phase 3d — exemption ratchet 11 → 9 modules** (2 modules, 20 untyped-def sites
+  annotated; gate stays 0 errors).
+    - Migrated: `trading/bot_agent` (10 sites — `__init__` typed against the sole
+      `position_manager` call site: markets/sides/sizes/prices `str` (`format_number`
+      outputs), metrics `float`; `open_trades -> Dict[str, Any]`,
+      `_emergency_close_first_leg -> str`, `_reconcile_filled_order -> None`,
+      `_weighted_average_fill_price -> Optional[str]`; `order_dict` declared
+      `Dict[str, Any]`) and `main_instance` (10 sites — lifecycle methods `-> None`
+      (`setup_logging`/`load_config`/`setup_signal_handlers`/`initialize`/
+      `run_initial_setup`/`trading_loop`/`run`/`_log_exception`), nested
+      `signal_handler(signum: int, frame: Any) -> None`, `async main() -> None`).
+    - All annotations runtime no-ops; the `order_id: str = ""` pre-declaration in
+      `_emergency_close_first_leg` is dead-initialized (always rebound at loop top) and
+      exists only to bind the untyped `place_market_order` unpack for `warn_return_any`.
+    - Ratchet: `pyproject.toml` override list + ratchet-test frozen set shrunk to 9;
+      203 untyped-def sites remain (backtests 57, websocket_server 25, server 23,
+      database 21, account_manager 19, bot_instance_manager 18, strategies/bot_realtime
+      15 each, position_manager 10).
+    - Validation: mypy 0 errors; isort/black/flake8 clean; per-area suites green
+      (bot-agent emergency cleanup — the `make test-execution-safety` target, main
+      instance, trading network errors, mypy ratchet, instance manager, position-manager
+      exit/entry safety — 151 passed); full CI-mirror suite 1354 passed, 13 skipped,
+      coverage 83.33% ≥ 82 floor.
+
+## 2026-08-22 (pass 5)
+
+- **mypy phase 3c — exemption ratchet 17 → 11 modules** (6 modules, 59 untyped-def sites
+  annotated; gate stays 0 errors).
+    - Migrated: `api/v1/bot_lifecycle` (8 handlers `-> JSONResponse`), `api/v1/celery_admin`
+      (7 routes, `current_user: User` params), `api/v1/monitoring` (10 handlers),
+      `infrastructure/persistence/repository` (10 mutation methods `-> None` + `UnitOfWork`
+      `__enter__`/`__exit__`), `infrastructure/persistence/repository_realtime` (8 sites incl.
+      `upsert_market_data -> MarketData`, `create_alert -> Alert`),
+      `trading/market_data` (8 sites — public candle/market loaders; stub-less dydx payloads
+      as `Any`/`List[Any]`, `construct_market_prices -> pd.DataFrame`).
+    - All annotations runtime no-ops; pure signature tightening.
+    - Ratchet: `pyproject.toml` override list + ratchet-test frozen set shrunk to 11;
+      223 untyped-def sites remain (backtests 57, websocket_server 25, server 23, database 21,
+      account_manager 19, bot_instance_manager 18, strategies/bot_realtime 15 each,
+      bot_agent/main_instance 10 each).
+    - Validation: mypy 0 errors; isort/black/flake8 clean; per-area suites green (bot lifecycle,
+      websocket server, bot realtime, market sync + cache, celery admin + monitor, monitoring
+      routes, persistence repository + database units — 177 passed); full CI-mirror suite at
+      the coverage floor.
+
+## 2026-08-22 (pass 4)
+
+- **mypy phase 3b — exemption ratchet 24 → 17 modules** (7 modules, 33 untyped-def sites
+  annotated; gate stays 0 errors).
+    - Migrated: `infrastructure/workers/backtest_tasks`, `trading/portfolio_risk`,
+      `trading/analysis/cointegration`, `shared/dataframe_utils`, `api/v1/bot_records`,
+      `api/v1/auth`, `api/v1/arbitrage`. All annotations are runtime no-ops; one honest-contract
+      fix: `_acquire_backtest_lock` returns the redis client (or `None`), not a bool — annotated
+      `Optional[Any]` to match its callers.
+    - `pyproject.toml` override list and `tests/test_mypy_untyped_defs_ratchet.py` frozen set
+      shrunk to 17 in the same change; 282 untyped-def sites remain across the exempt modules
+      (next batches: the 8–12-site tier, then the 15+ core modules).
+    - Validation: mypy 0 errors; isort/black/flake8 clean; per-area suites green (portfolio risk +
+      accounts, cointegration, dataframe utils, bot records, auth contract/service-token/token
+      revocation, arbitrage routes, backtest task helpers — 153 passed); full CI-mirror suite at
+      the coverage floor.
+
+## 2026-08-22 (pass 3)
+
+- **mypy phase 3a — `warn_return_any` + `warn_unused_configs` + `disallow_untyped_defs` enabled, gate
+  still 0 errors.** The last documented quality-tightening item, delivered as a ratchet.
+    - `warn_return_any`: all 36 leaking sites fixed. Real seam fixes: `api_response` now returns
+      `JSONResponse` (was untyped → Any leaked into every handler), `run_db` is generic
+      (`Callable[..., T] -> T`), `BacktestRepository._retry_with_backoff` is generic; remainder are
+      typed-local bindings over stub-less libs (jose, pybreaker, celery `states`, minio, pandas).
+    - Latent bugs surfaced by the new annotations, fixed: (1) `format_number -> str` exposed 5
+      string-into-float rebinding sites in `position_manager`/`account_manager` (close-order prices
+      were silently re-typed mid-function; now explicit `*_formatted` variables, runtime values
+      identical); (2) `verify_token`'s new `Optional` return exposed a missing None-guard in
+      `authenticate_bearer_token` (explicit 401 raise now, same outcome).
+    - `disallow_untyped_defs`: ON globally with a **24-module exemption ratchet**
+      (`[[tool.mypy.overrides]]`); 12 small modules migrated clean this pass. New modules must be
+      fully annotated — `tests/test_mypy_untyped_defs_ratchet.py` pins the frozen set (growth fails
+      the build). `strict` remains the end-state after the list empties.
+    - 2FA routes: `-> Union[Dict[str, Any], JSONResponse]` + `response_model=None` (FastAPI cannot
+      build a response model from that Union; generated `openapi.json` byte-identical).
+    - Validation: mypy 0 errors; isort/black/flake8 clean; auth suites
+      (`test_auth_middleware_service_token`, `test_auth_utils`, `test_auth_2fa_recovery`,
+      `test_auth_api_contract`, `test_auth_bypass_environment_guard`), position-manager suites
+      (exit-safety/entry-backoff), and network-errors suite green; full CI-mirror suite at the
+      coverage floor.
+
+## 2026-08-22 (pass 2)
+
+- **Input-validation deferred tail closed — Celery revoke body promoted to a validated model**
+  (the last raw-`Dict` request body in `src/`). Fixes a real coercion hazard.
+    - `src/api/v1/celery_admin.py`: new `CeleryTaskRevokeRequest` (`terminate: bool = False`,
+      `model_config extra="ignore"`); the revoke route takes it as an **optional** body
+      (`Optional[CeleryTaskRevokeRequest] = None`) so clients that POST with no body keep the
+      graceful-revoke default — the exact previous `Body(default_factory=dict)` contract.
+    - **Bug fixed**: `bool(payload.get("terminate", False))` coerced JSON strings
+      `"false"`/`"0"` to `True`, silently escalating a graceful revoke into a SIGTERM of the
+      executing task; non-boolean garbage (`"banana"`, `2`, `[]`) also became `True`. Now:
+      unambiguous lax coercions (`"true"`/`"1"`/`1`) still work, everything else is a strict
+      422 in the standardized `api_response` envelope.
+    - Metrics-reset endpoint audit: `POST /api/v1/admin/runtime/strategy-resolution-metrics/reset`
+      takes no request body — nothing to validate; documented in IMPROVEMENTS.md.
+    - Tests: 7 full-HTTP route cases in `tests/test_celery_admin_routes.py` (no-body, empty
+      object, true flag, string-`"false"` regression, garbage-flag 422 envelope, extra-keys
+      ignored, admin gate 403) + 14 model-matrix cases in `tests/test_api_input_validation.py`.
+    - `openapi.json` regenerated — the revoke body now references the
+      `CeleryTaskRevokeRequest` schema (typed boolean, default false) instead of
+      `additionalProperties: true`.
+    - Validation: isort/black/flake8 hard gate clean, mypy 0 errors, targeted suites green
+      (76 passed), full CI-mirror suite at coverage floor 82.
+
+## 2026-08-22
+
+- **isort enforcement landed** (the follow-up deferred from the pre-commit-hooks item): import
+  ordering is now a checked gate everywhere Black is.
+    - `requirements.txt`: `isort==6.0.1` pinned alongside `black==26.5.1` / `flake8==7.3.0`.
+    - `pyproject.toml`: `[tool.isort]` with `profile = "black"` (zero conflict with Black),
+      `line_length = 88`, `known_first_party = ["src"]`.
+    - One-time sort of `src` + `tests` — 26 files reformatted, import-order only (no behavior
+      change; `compileall` clean).
+    - `.pre-commit-config.yaml` (monorepo root): new local `isort` hook pinned to `isort==6.0.1`,
+      scoped to `^bot/(src|tests)/`, same pattern as the black/flake8 hooks.
+    - `../.github/workflows/bot-quality.yml`: `bot-lint` job gains an
+      `isort --check-only --diff src tests` step (runs before Black) and is renamed
+      "Bot lint (isort + Black + flake8)"; install step pinned in sync.
+    - Validation: `isort --check-only` / `black --check` (195 files clean) / flake8
+      `E9,F63,F7,F82` / `mypy` 0 errors / full CI-mirror suite at coverage floor 82 — all green.
+
 ## 2026-08-20 (pass 8)
 
 - **Coverage floor ratcheted 81 → 82 (measured 82.10% → 83.25%); no product change.** Eighth

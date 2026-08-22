@@ -401,7 +401,18 @@ Items removed from this plan during the same review — and why — are listed i
       Coverage in `tests/test_api_input_validation.py` (49 cases). `openapi.json` regenerated so
       the contract surfaces `minimum`/`maximum`/`exclusiveMinimum`/`pattern` on the trading
       schemas. Scope was trading-critical endpoints only (bot lifecycle, backtests, strategies,
-      arbitrage runtime-settings) — admin/celery housekeeping (revoke, metrics reset) deferred.
+      arbitrage runtime-settings) — admin/celery housekeeping deferred.
+      **Deferred tail landed 2026-08-22:** the one remaining raw-`Dict` body — the admin
+      Celery revoke route (`POST /api/v1/celery/tasks/{task_id}/revoke`) — was promoted to
+      `CeleryTaskRevokeRequest` (`terminate: bool = False`, `extra="ignore"`, optional body so
+      no-body POSTs keep the graceful default). This fixed a real coercion hazard:
+      `bool(payload.get("terminate", False))` turned JSON strings like `"false"`/`"0"` into
+      `True` — silently escalating a graceful revoke into a SIGTERM of the executing task;
+      garbage flags now get the strict 422 envelope instead of a terminate. The metrics-reset
+      endpoint takes no request body, so nothing was needed there. Coverage: 7 full-HTTP
+      route tests in `tests/test_celery_admin_routes.py` (no-body/empty/true/string-false
+      regression/garbage-422/extra-keys/admin gate) + 14 model-matrix cases in
+      `tests/test_api_input_validation.py`; `openapi.json` regenerated.
 
 #### **Performance**
 
@@ -485,9 +496,15 @@ Items removed from this plan during the same review — and why — are listed i
       flow style the commas are list delimiters, so pre-commit passed `--select=E9 F63 F7 F82` and flake8 treated
       `F63`/`F7`/`F82` as filenames (verified: `FileNotFoundError`) — i.e. the hook failed on every commit. Switched
       to block-style `args:`. Verified all 11 hooks pass on tracked bot files and that flake8 correctly fails on an
-      undefined name (F821). isort **deferred** — installed by CI but never enforced, and ~10 existing files would need
-      reformatting; better as a focused follow-up (config + CI gate + one-time sort). NOTE: runs locally only; the live
-      CI (`../.github/workflows/bot-quality.yml`) does not yet invoke pre-commit/black/flake8.
+      undefined name (F821). isort was **deferred at the time** and **landed 2026-08-22**: `isort==6.0.1`
+      pinned in `requirements.txt`, `[tool.isort]` (`profile = "black"`, `line_length = 88`,
+      `known_first_party = ["src"]`) in `pyproject.toml`, a one-time sort of `src`/`tests`
+      (26 files), an `isort` hook in `.pre-commit-config.yaml`, and an `isort --check-only --diff`
+      step in the `bot-lint` CI job (job renamed "isort + Black + flake8"). Gates verified green
+      post-sort: black `--check`, flake8 `E9,F63,F7,F82`, mypy 0 errors, full suite at the
+      coverage floor. NOTE: pre-commit runs locally only; the live
+      CI (`../.github/workflows/bot-quality.yml`) does not yet invoke pre-commit (black/isort/
+      flake8 gates run there directly).
 
 - [x] **Add type checking** with mypy
     - **Files**: Create mypy.ini or pyproject.toml configuration
@@ -518,6 +535,59 @@ Items removed from this plan during the same review — and why — are listed i
       `pop(..., None)` arg-type; 34 stale `# type: ignore` comments and 1 redundant `cast` deleted) — the
       count was driven back to **0** and the gate stays at zero. Phase-3 options
       (`disallow_untyped_defs` / `warn_return_any` / `strict`) remain the documented next tightening step.
+      **Phase 3a landed 2026-08-22** — `warn_return_any`, `warn_unused_configs`, and `disallow_untyped_defs`
+      are now ENABLED in `[tool.mypy]`, all at 0 errors:
+      `warn_return_any` (36 sites fixed; several were real seam fixes — `api_response` gained
+      `-> JSONResponse` + `data: Any`, `run_db` became generic `Callable[..., T] -> T`,
+      `BacktestRepository._retry_with_backoff` became generic; the rest are typed-local bindings over
+      stub-less libs — jose/pybreaker/celery `states`/minio). Annotating `format_number -> str` surfaced
+      5 latent string-into-float rebinding sites in `position_manager`/`account_manager` (fixed with
+      explicit `*_formatted` names, runtime values identical); annotating `verify_token` surfaced a
+      missing None-guard in `authenticate_bearer_token` (now explicit, same 401 outcome).
+      `disallow_untyped_defs` is enforced globally with a **24-module exemption ratchet**
+      (`[[tool.mypy.overrides]]` in `pyproject.toml`): 12 small modules (≤4 untyped defs each) were
+      migrated clean this pass (`shared/utils`, `shared/notifications`, `trading/dydx_client`,
+      `trading/bot_agents_state`, `infrastructure/use_cases/async_job_manager`,
+      `infrastructure/domain/cointegration_storage`, `infrastructure/workers/market_sync_tasks`,
+      `infrastructure/resilience/breakers`, `api/auth_utils`, `api/v1/auth/totp_state`,
+      `api/v1/auth/password_2fa`, and `config/config.py`); the 24 remaining modules
+      (server, backtests router, websocket_server, database, repository pair, account/position managers,
+      …) stay exempt until migrated. The list is pinned by
+      `tests/test_mypy_untyped_defs_ratchet.py` — adding an entry fails the build; migrating a module
+      means annotating it, removing the override, and updating the frozen set in the same change.
+      `strict` remains the end-state bundle once the exemption list is empty. Note: the four 2FA route
+      handlers now declare `-> Union[Dict[str, Any], JSONResponse]` with `response_model=None`
+      (FastAPI can't build a response model from that Union — the annotation is for mypy only;
+      generated OpenAPI is byte-identical).
+      **Phase 3b (same day)** — the exemption list shrank **24 → 17**: migrated
+      `infrastructure/workers/backtest_tasks` (3 sites; `_acquire_backtest_lock`'s true contract is
+      `Optional[Any]` — it returns the redis client, not a bool), `trading/portfolio_risk` (5 — the
+      trading-critical guard, `client: Any` params; portfolio + accounts suites green),
+      `trading/analysis/cointegration` (5, incl. the public analysis functions
+      `half_life_mean_reversion`/`calculate_zscore`/`calculate_cointegration`/
+      `count_zero_crossings`/`store_cointegration_results`), `shared/dataframe_utils` (5;
+      `force_cleanup_all` is `-> int`), `api/v1/bot_records` (5 route handlers `-> JSONResponse`),
+      `api/v1/auth` (5 handlers `-> dict`, matching `_authenticate_user`), and `api/v1/arbitrage`
+      (5 handlers `-> JSONResponse`). 282 untyped-def sites remain across the 17 exempt modules.
+      **Phase 3c (same day)** — exemption list **17 → 11**: migrated `api/v1/bot_lifecycle`
+      (8 handlers `-> JSONResponse`), `api/v1/celery_admin` (7 routes incl. `current_user: User`),
+      `api/v1/monitoring` (10 monitoring handlers), `infrastructure/persistence/repository`
+      (10 mutation methods `-> None` + the `UnitOfWork` context-manager pair),
+      `infrastructure/persistence/repository_realtime` (6 methods `-> None`/model returns +
+      `UnitOfWorkRealtime` pair), and `trading/market_data` (8 sites — the public
+      `get_candles_*`/`get_markets`/`construct_market_prices` family; stub-less dydx payloads
+      annotated `Any`/`List[Any]`, `construct_market_prices -> pd.DataFrame`). 223 untyped-def
+      sites remain across the 11 exempt modules (the big core files: backtests 57,
+      websocket_server 25, server 23, database 21, account_manager 19, …).
+      **Phase 3d (same day)** — exemption list **11 → 9**: migrated `trading/bot_agent`
+      (10 sites — the paired-trade execution agent; `__init__` typed from the single
+      `position_manager` call site where sizes/prices are `format_number` strings and
+      z-score/half-life/hedge-ratio are `_as_float` floats, `open_trades -> Dict[str, Any]`,
+      `_emergency_close_first_leg -> str` with a pre-declared `order_id: str` binding the
+      untyped `place_market_order` unpack, `_weighted_average_fill_price -> Optional[str]`,
+      `_reconcile_filled_order -> None`) and `main_instance` (10 sites — all lifecycle methods
+      `-> None` incl. the nested `signal_handler(signum: int, frame: Any)` and `async main()`;
+      runtime no-ops only). 203 untyped-def sites remain across the 9 exempt modules.
       Not added to pre-commit (mypy needs whole-program context and is slow; CI is the right place for it).
 
 #### **Testing**

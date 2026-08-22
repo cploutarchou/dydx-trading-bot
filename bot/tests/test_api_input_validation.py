@@ -14,19 +14,19 @@ import asyncio
 import json
 
 import pytest
-from pydantic import ValidationError
 from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 
 from src.api import server
 from src.infrastructure.domain.bot_api_models import (
-    BotInstanceConfig,
     BacktestingParameters,
+    BotInstanceConfig,
     TradingParameters,
 )
 from src.infrastructure.domain.models_backtest import BacktestConfigRequest
 from src.shared.trading_validators import (
-    validate_iso_date_range,
     normalize_market_list,
+    validate_iso_date_range,
 )
 
 # ---------------------------------------------------------------------------
@@ -298,3 +298,58 @@ def test_validation_handler_returns_envelope():
     assert "errors" in payload["data"]
     assert "trace_id" in payload
     assert payload["data"]["errors"], "expected at least one validation error entry"
+
+
+# ---------------------------------------------------------------------------
+# CeleryTaskRevokeRequest (admin celery housekeeping — the deferred tail)
+# ---------------------------------------------------------------------------
+
+
+def test_celery_revoke_request_defaults():
+    from src.api.v1.celery_admin import CeleryTaskRevokeRequest
+
+    req = CeleryTaskRevokeRequest()
+    assert req.terminate is False
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ({"terminate": True}, True),
+        ({"terminate": False}, False),
+        # Lax-mode string/int coercions that ARE unambiguous booleans.
+        ({"terminate": "true"}, True),
+        ({"terminate": "false"}, False),
+        ({"terminate": "0"}, False),
+        ({"terminate": "1"}, True),
+        ({"terminate": 0}, False),
+        ({"terminate": 1}, True),
+    ],
+)
+def test_celery_revoke_request_lax_boolean_coercions(raw, expected):
+    from src.api.v1.celery_admin import CeleryTaskRevokeRequest
+
+    assert CeleryTaskRevokeRequest(**raw).terminate is expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"terminate": "banana"},
+        {"terminate": []},
+        {"terminate": {}},
+        {"terminate": 2},
+    ],
+)
+def test_celery_revoke_request_rejects_non_booleans(raw):
+    from src.api.v1.celery_admin import CeleryTaskRevokeRequest
+
+    with pytest.raises(ValidationError):
+        CeleryTaskRevokeRequest(**raw)
+
+
+def test_celery_revoke_request_ignores_extra_keys():
+    from src.api.v1.celery_admin import CeleryTaskRevokeRequest
+
+    req = CeleryTaskRevokeRequest(**{"terminate": True, "reason": "x", "force": 1})
+    assert req.terminate is True

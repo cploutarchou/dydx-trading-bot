@@ -629,8 +629,8 @@ class TestRetryAndBackoff:
     async def test_entry_backoff_increases_delay(self):
         """Test that entry backoff increases delay with each failure."""
         from src.trading.position_manager import (
-            _entry_backoff_seconds,
             _ENTRY_FAILURE_STATE,
+            _entry_backoff_seconds,
             _record_entry_failure,
         )
 
@@ -658,8 +658,8 @@ class TestRetryAndBackoff:
     async def test_entry_backoff_capped_at_max(self):
         """Test that entry backoff is capped at maximum."""
         from src.trading.position_manager import (
-            _entry_backoff_seconds,
             _ENTRY_FAILURE_STATE,
+            _entry_backoff_seconds,
             _record_entry_failure,
         )
 
@@ -680,9 +680,9 @@ class TestRetryAndBackoff:
         """Test that successful entry resets backoff state."""
         from src.trading.position_manager import (
             _ENTRY_FAILURE_STATE,
+            _entry_backoff_seconds,
             _record_entry_failure,
             _record_entry_success,
-            _entry_backoff_seconds,
         )
 
         _ENTRY_FAILURE_STATE.clear()

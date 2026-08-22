@@ -20,7 +20,7 @@ from src.infrastructure.persistence.repository import UnitOfWork
 class AsyncJobManager:
     """Create and supervise asyncio tasks without losing task failures."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.tasks: dict[str, asyncio.Task[Any]] = {}
         self._persistence_lock = threading.Lock()
         self._metrics_lock = threading.Lock()
@@ -196,7 +196,7 @@ class AsyncJobManager:
     ) -> str:
         resolved_job_id = job_id or f"{job_type}-{uuid4().hex[:12]}"
 
-        def _create(uow: UnitOfWork):
+        def _create(uow: UnitOfWork) -> Any:
             existing = uow.jobs.get_by_job_id(resolved_job_id)
             if existing is not None:
                 return existing

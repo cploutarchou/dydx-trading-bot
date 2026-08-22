@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from loguru import logger
 
 from src.api.responses import api_response
@@ -35,7 +36,7 @@ def _trade_duration_seconds(created_at: Any, closed_at: Any) -> Optional[float]:
     if created_at is None or closed_at is None:
         return None
     try:
-        return (closed_at - created_at).total_seconds()
+        return float((closed_at - created_at).total_seconds())
     except TypeError:
         return None
 
@@ -45,7 +46,7 @@ async def get_bot_history(
     instance_id: str,
     days: int = 7,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get bot event history"""
 
     def _load_history() -> Optional[Dict[str, Any]]:
@@ -102,7 +103,7 @@ async def get_bot_jobs(
     instance_id: str,
     days: int = 7,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get bot job history"""
 
     def _load_jobs() -> Optional[Dict[str, Any]]:
@@ -114,7 +115,7 @@ async def get_bot_jobs(
                 return None
             jobs = uow.jobs.get_job_history(int(bot.id), days=days)
 
-            def _job_status_value(job) -> str:
+            def _job_status_value(job: Any) -> str:
                 return str(getattr(job.status, "value", job.status)).lower()
 
             completed_jobs = len(
@@ -202,7 +203,7 @@ async def get_bot_trades(
     instance_id: str,
     status: Optional[str] = None,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get bot trades"""
 
     def _load_trades() -> Optional[Dict[str, Any]]:
@@ -321,7 +322,7 @@ async def get_bot_trades(
 async def get_bot_stats(
     instance_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get bot statistics"""
 
     def _load_stats() -> Optional[Dict[str, Any]]:

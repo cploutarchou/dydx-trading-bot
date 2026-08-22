@@ -37,6 +37,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Any
 
 from loguru import logger
 
@@ -412,7 +413,7 @@ def evaluate_aggregate_entry(
     )
 
 
-async def load_portfolio_snapshot(client) -> PortfolioSnapshot:
+async def load_portfolio_snapshot(client: Any) -> PortfolioSnapshot:
     """Read the shared subaccount's equity, free collateral, open-market
     count, and per-market notionals via the circuit-broken indexer reads.
 
@@ -425,7 +426,7 @@ async def load_portfolio_snapshot(client) -> PortfolioSnapshot:
     notional controls can fail closed.
     """
 
-    def _as_float(value) -> float | None:
+    def _as_float(value: Any) -> float | None:
         try:
             return float(value)
         except (TypeError, ValueError):
@@ -481,7 +482,7 @@ class RedisPeakEquityStore:
         # ``client`` is an injection seam for tests; production leaves it None.
         self._client = client
 
-    def _ensure_client(self):
+    def _ensure_client(self) -> Any:
         if self._client is not None:
             return self._client
         try:  # pragma: no cover - optional-connection path, built lazily
@@ -569,7 +570,7 @@ def reset_peak_equity_store() -> None:
 
 
 async def check_portfolio_entry_guard(
-    client,
+    client: Any,
     *,
     incremental_notional_usd: float,
     entry_markets: tuple[str, ...] = (),
@@ -665,7 +666,7 @@ def _own_network_tag() -> str:
 
 
 async def _evaluate_aggregate_if_configured(
-    client, *, limits: PortfolioRiskLimits, snapshot: PortfolioSnapshot
+    client: Any, *, limits: PortfolioRiskLimits, snapshot: PortfolioSnapshot
 ) -> AggregateRiskEvaluation | None:
     """Run the deployment-wide aggregate checks when a limit is configured.
 

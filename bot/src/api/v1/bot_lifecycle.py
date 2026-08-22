@@ -298,7 +298,7 @@ async def create_bot_instance(
     config: BotInstanceConfig,
     current_user: User = Depends(get_current_active_user),
     _rate: None = Depends(_check_instance_rate_limit),
-):
+) -> JSONResponse:
     """Create a new bot instance"""
 
     try:
@@ -394,7 +394,9 @@ async def create_bot_instance(
 
 
 @router.get("/api/v1/bots", response_model=BotInstanceList)
-async def list_bot_instances(current_user: User = Depends(get_current_active_user)):
+async def list_bot_instances(
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """Get list of all bot instances"""
 
     _ = current_user
@@ -430,7 +432,7 @@ async def list_bot_instances(current_user: User = Depends(get_current_active_use
 async def get_bot_instance(
     instance_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get specific bot instance status"""
 
     _ = current_user
@@ -466,7 +468,7 @@ async def get_bot_instance(
 async def delete_bot_instance(
     instance_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Delete bot instance"""
 
     try:
@@ -526,7 +528,7 @@ async def start_bot_instance(
     instance_id: str,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Start bot instance"""
 
     _ = background_tasks
@@ -604,7 +606,7 @@ async def stop_bot_instance(
     instance_id: str,
     force: bool = False,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Stop bot instance"""
 
     try:
@@ -680,7 +682,7 @@ async def stop_bot_instance(
 async def restart_bot_instance(
     instance_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Restart bot instance"""
 
     try:
@@ -813,7 +815,7 @@ async def quick_deploy_bot(
     trading_params: TradingParameters,
     auto_start: bool = True,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Quick deploy and optionally start a new bot instance"""
 
     _ = current_user

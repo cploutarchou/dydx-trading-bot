@@ -41,7 +41,7 @@ from loguru import logger
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import QueuePool, Pool
+from sqlalchemy.pool import Pool, QueuePool
 
 
 def _pool_metric(pool: Pool, name: str) -> Any | None:
@@ -912,7 +912,8 @@ class DatabaseManager:
         session_factory = self._session_factory
         if session_factory is None:
             raise RuntimeError("Database session factory is not initialized")
-        return session_factory()
+        session: Session = session_factory()
+        return session
 
     @contextmanager
     def session_scope(self) -> Iterator[Session]:

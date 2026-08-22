@@ -12,7 +12,7 @@ import inspect
 import json
 import os
 import signal
-from typing import Any, Awaitable, Dict, Optional, TypeVar, overload, cast
+from typing import Any, Awaitable, Dict, Optional, TypeVar, cast, overload
 
 from loguru import logger
 
@@ -21,9 +21,9 @@ from config.config import config
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
 from src.shared.credentials_cipher import open_config_secrets
+from src.shared.live_risk_controls import assert_supported_live_risk_controls
 from src.shared.logging_setup import setup_logging
 from src.shared.notifications import TelegramMessenger
-from src.shared.live_risk_controls import assert_supported_live_risk_controls
 from src.trading.account_manager import abort_all_positions
 from src.trading.analysis.cointegration import store_cointegration_results
 from src.trading.dydx_client import connect_dydx_runtime
@@ -70,7 +70,7 @@ class BotInstance:
             return message
         return f"{type(exc).__name__} (no detail provided)"
 
-    def _log_exception(self, message: str, exc: BaseException):
+    def _log_exception(self, message: str, exc: BaseException) -> None:
         """Log traceback when supported while remaining friendly to lightweight test doubles."""
         error_detail = self._describe_exception(exc)
         if self.logger is None:
@@ -108,7 +108,7 @@ class BotInstance:
             return await cast(Awaitable[_T], value)
         return value
 
-    def setup_logging(self):
+    def setup_logging(self) -> None:
         """Setup instance-specific logging"""
         setup_logging()
         self.logger = logger.bind(
@@ -523,7 +523,7 @@ class BotInstance:
             ),
         )
 
-    def load_config(self):
+    def load_config(self) -> None:
         """Load instance-specific configuration"""
         try:
             self._warn_if_deprecated_config_file_supplied()
@@ -557,10 +557,10 @@ class BotInstance:
                 self._log_exception("Failed to load config: {}", e)
             raise
 
-    def setup_signal_handlers(self):
+    def setup_signal_handlers(self) -> None:
         """Setup signal handlers for graceful shutdown"""
 
-        def signal_handler(signum, frame):
+        def signal_handler(signum: int, frame: Any) -> None:
             self._require_logger().info(
                 f"Received signal {signum}, shutting down instance {self.instance_id}..."
             )
@@ -570,7 +570,7 @@ class BotInstance:
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         """Initialize bot instance"""
         try:
             self.setup_logging()
@@ -653,7 +653,7 @@ class BotInstance:
                 )
             raise
 
-    async def run_initial_setup(self):
+    async def run_initial_setup(self) -> None:
         """Run initial setup tasks (positions, cointegration analysis)"""
         runtime_messenger: TelegramMessenger | None = None
         try:
@@ -714,7 +714,7 @@ class BotInstance:
                 )
             raise
 
-    async def trading_loop(self):
+    async def trading_loop(self) -> None:
         """Main trading loop"""
         self.running = True
         runtime_logger = self._require_logger()
@@ -778,7 +778,7 @@ class BotInstance:
         finally:
             self.running = False
 
-    async def run(self):
+    async def run(self) -> None:
         """Run the complete bot instance"""
         try:
             await self.initialize()
@@ -824,7 +824,7 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-async def main():
+async def main() -> None:
     """Main entry point for bot instance"""
     try:
         args = parse_arguments()

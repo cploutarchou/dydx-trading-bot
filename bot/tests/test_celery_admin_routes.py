@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 import src.api.endpoint_timing as endpoint_timing
 import src.api.server as server
 from src.api.v1.celery_admin import router as celery_router
-from src.middleware.auth_middleware import get_current_active_user, get_admin_user
+from src.middleware.auth_middleware import get_admin_user, get_current_active_user
 
 _CELERY_PATHS = [
     ("GET", "/api/v1/celery/tasks"),
@@ -120,3 +120,104 @@ def test_celery_task_detail_404_when_missing(monkeypatch):
     client = TestClient(server.app, raise_server_exceptions=False)
     resp = client.get("/api/v1/celery/tasks/nope")
     assert resp.status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# Revoke endpoint — validated CeleryTaskRevokeRequest body
+# --------------------------------------------------------------------------- #
+
+
+def _admin_client(monkeypatch, revoke_spy):
+    """TestClient with the admin override active and revoke_celery_task spied."""
+    monkeypatch.delenv("API_BYPASS_AUTH", raising=False)
+    monkeypatch.setitem(
+        server.app.dependency_overrides,
+        get_current_active_user,
+        lambda: SimpleNamespace(is_active=True, is_admin=True),
+    )
+    server.app.dependency_overrides.pop(get_admin_user, None)
+
+    def _fake_revoke(task_id, terminate=False):
+        revoke_spy.append((task_id, terminate))
+        return {"task_id": task_id, "revoked": True, "terminate": terminate}
+
+    monkeypatch.setattr("src.api.v1.celery_admin.revoke_celery_task", _fake_revoke)
+    return TestClient(server.app, raise_server_exceptions=False)
+
+
+def test_celery_revoke_without_body_defaults_to_graceful(monkeypatch):
+    """No body at all keeps the old Body(default_factory=dict) contract."""
+    spy: list = []
+    client = _admin_client(monkeypatch, spy)
+    resp = client.post("/api/v1/celery/tasks/task-1/revoke")
+    assert resp.status_code == 200
+    assert resp.json()["data"]["terminate"] is False
+    assert spy == [("task-1", False)]
+
+
+def test_celery_revoke_empty_object_defaults_to_graceful(monkeypatch):
+    spy: list = []
+    client = _admin_client(monkeypatch, spy)
+    resp = client.post("/api/v1/celery/tasks/task-2/revoke", json={})
+    assert resp.status_code == 200
+    assert spy == [("task-2", False)]
+
+
+def test_celery_revoke_true_flag_terminates(monkeypatch):
+    spy: list = []
+    client = _admin_client(monkeypatch, spy)
+    resp = client.post("/api/v1/celery/tasks/task-3/revoke", json={"terminate": True})
+    assert resp.status_code == 200
+    assert resp.json()["data"]["terminate"] is True
+    assert spy == [("task-3", True)]
+
+
+def test_celery_revoke_string_false_stays_graceful(monkeypatch):
+    """Regression: bool("false") used to coerce the string to True (SIGTERM)."""
+    spy: list = []
+    client = _admin_client(monkeypatch, spy)
+    resp = client.post(
+        "/api/v1/celery/tasks/task-4/revoke", json={"terminate": "false"}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["terminate"] is False
+    assert spy == [("task-4", False)]
+
+
+def test_celery_revoke_garbage_flag_rejected_with_envelope(monkeypatch):
+    """A non-boolean flag is a strict 422 in the standardized envelope."""
+    spy: list = []
+    client = _admin_client(monkeypatch, spy)
+    resp = client.post(
+        "/api/v1/celery/tasks/task-5/revoke", json={"terminate": "banana"}
+    )
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["success"] is False
+    assert "errors" in body["data"]
+    assert spy == []
+
+
+def test_celery_revoke_ignores_unknown_keys(monkeypatch):
+    """extra="ignore" keeps clients sending unrelated fields working."""
+    spy: list = []
+    client = _admin_client(monkeypatch, spy)
+    resp = client.post(
+        "/api/v1/celery/tasks/task-6/revoke",
+        json={"terminate": True, "reason": "operator request", "force": 1},
+    )
+    assert resp.status_code == 200
+    assert spy == [("task-6", True)]
+
+
+def test_celery_revoke_requires_admin(monkeypatch):
+    monkeypatch.delenv("API_BYPASS_AUTH", raising=False)
+    monkeypatch.setitem(
+        server.app.dependency_overrides,
+        get_current_active_user,
+        lambda: SimpleNamespace(is_active=True, is_admin=False),
+    )
+    server.app.dependency_overrides.pop(get_admin_user, None)
+    client = TestClient(server.app, raise_server_exceptions=False)
+    resp = client.post("/api/v1/celery/tasks/task-7/revoke", json={"terminate": True})
+    assert resp.status_code == 403

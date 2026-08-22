@@ -9,7 +9,7 @@ import os
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, cast
+from typing import Any, Callable, Dict, List, Optional, Sequence, TypeVar, cast
 from urllib.parse import urlsplit
 
 from sqlalchemy.exc import OperationalError, PendingRollbackError
@@ -24,6 +24,7 @@ from src.shared.env_loader import find_repo_root
 logger = logging.getLogger(__name__)
 
 from sqlalchemy.orm import Session, defer
+
 from src.infrastructure.storage import (
     AnalyticsWriter,
     ArtifactStore,
@@ -32,6 +33,8 @@ from src.infrastructure.storage import (
     MinIOArtifactStore,
     NoopAnalyticsWriter,
 )
+
+T = TypeVar("T")
 
 
 class BacktestRepository:
@@ -479,12 +482,12 @@ class BacktestRepository:
 
     def _retry_with_backoff(
         self,
-        operation: Any,
+        operation: Callable[..., T],
         *args: Any,
         max_attempts: int = 5,
         initial_backoff_ms: float = 10.0,
         **kwargs: Any,
-    ) -> Any:
+    ) -> T:
         """
         Retry operation with exponential backoff for transient database errors.
 

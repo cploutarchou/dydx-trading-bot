@@ -9,7 +9,7 @@ import os
 import socket
 import traceback as traceback_module
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
 import httpx
@@ -85,7 +85,7 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _get_redis_client():
+def _get_redis_client() -> Any:
     """Return a lazily-created synchronous redis client for pub/sub publishing."""
     import redis as _redis
 
@@ -125,7 +125,7 @@ def _redis_lock_url() -> str | None:
     return None
 
 
-def _get_lock_redis_client():
+def _get_lock_redis_client() -> Any:
     import redis as _redis
 
     url = _redis_lock_url()
@@ -153,7 +153,7 @@ def _lock_ttl_seconds() -> int:
         return 7 * 24 * 60 * 60 + 300
 
 
-def _acquire_backtest_lock(run_id: str, token: str):
+def _acquire_backtest_lock(run_id: str, token: str) -> Optional[Any]:
     try:
         client = _get_lock_redis_client()
     except Exception as exc:
@@ -206,7 +206,7 @@ def _max_retries() -> int:
 
 
 def _retry_countdown_seconds(retries: int, exc: BaseException) -> float:
-    retry_after = _extract_retry_after_seconds(exc)
+    retry_after: Optional[float] = _extract_retry_after_seconds(exc)
     if retry_after is not None:
         return retry_after
     raw_base = os.getenv("BACKTEST_CELERY_RETRY_BASE_SECONDS", "30")
@@ -219,7 +219,7 @@ def _retry_countdown_seconds(retries: int, exc: BaseException) -> float:
         max_delay = max(base, float(raw_max))
     except (TypeError, ValueError):
         max_delay = 600.0
-    return min(max_delay, base * (2 ** max(0, retries)))
+    return float(min(max_delay, base * (2 ** max(0, retries))))
 
 
 def _is_transient_backtest_error(exc: BaseException) -> bool:

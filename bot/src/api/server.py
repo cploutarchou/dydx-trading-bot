@@ -12,7 +12,18 @@ import time
 from collections import deque
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict, Generator, List, Optional, Union
+from typing import (
+    Any,
+    AsyncGenerator,
+    Awaitable,
+    Callable,
+    Dict,
+    Generator,
+    Iterator,
+    List,
+    Optional,
+    Union,
+)
 from uuid import uuid4
 
 import httpx
@@ -30,7 +41,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -142,18 +153,18 @@ _original_stderr = sys.stderr
 class _FilteredStderr:
     """Filter noisy third-party warnings that are expected and already handled."""
 
-    def __init__(self, stderr):
+    def __init__(self, stderr: Any) -> None:
         self.stderr = stderr
 
-    def write(self, message):
+    def write(self, message: str) -> None:
         if "Node URL should not contain http(s)://" not in message:
             self.stderr.write(message)
             self.stderr.flush()
 
-    def flush(self):
+    def flush(self) -> None:
         self.stderr.flush()
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         return getattr(self.stderr, name)
 
 
@@ -527,7 +538,7 @@ def _bot_db_sync_diagnostics() -> Dict[str, Any]:
 
 
 # Custom OpenAPI schema for JWT Bearer authentication
-def custom_openapi():
+def custom_openapi() -> Any:
     if app.openapi_schema:
         return app.openapi_schema
 
@@ -957,7 +968,7 @@ app.include_router(backtests_router)
 async def runtime_preflight(
     request: RuntimePreflightRequest,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Evaluate whether a live runtime is ready to start on the selected environment."""
     del current_user
     try:
@@ -1126,7 +1137,9 @@ async def runtime_preflight(
 
 
 @app.middleware("http")
-async def request_trace_logging_middleware(request: Request, call_next):
+async def request_trace_logging_middleware(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
     """Attach per-request trace IDs and emit verbose request logs in development."""
     inbound_trace_id = (request.headers.get("X-Trace-Id") or "").strip()
     trace_id = inbound_trace_id or str(uuid4())
@@ -1233,7 +1246,7 @@ def _backtest_storage_health(service: Any) -> Dict[str, Any]:
 
 
 @app.get("/health")
-async def health_check():
+async def health_check() -> JSONResponse:
     """API health check"""
     with backtest_service_scope() as service:
         runtime_health = service.get_runtime_health()
@@ -1266,7 +1279,7 @@ async def health_check():
 
 
 @app.get("/ready")
-async def readiness_check():
+async def readiness_check() -> JSONResponse:
     """Strict readiness probe for orchestrators and deployment gates."""
     with backtest_service_scope() as service:
         runtime_health = service.get_runtime_health()
@@ -1306,8 +1319,8 @@ async def readiness_check():
         )
 
 
-@app.get("/metrics")
-async def metrics():
+@app.get("/metrics", response_model=None)
+async def metrics() -> Dict[str, Any]:
     """Return bot-local runtime metrics for backend /metrics dependency probing."""
     return {
         "timestamp": utc_now_iso(),
@@ -1322,14 +1335,14 @@ async def metrics():
 
 
 @app.get("/api/v1/capabilities")
-async def api_capabilities():
+async def api_capabilities() -> JSONResponse:
     """Expose bot-service HTTP and websocket capabilities for backend integration."""
     http_routes: List[str] = []
     websocket_routes: List[str] = []
     commands: List[str] = []
     queries: List[str] = []
 
-    def _registered_routes(routes, prefix: str = ""):
+    def _registered_routes(routes: Any, prefix: str = "") -> Iterator[Any]:
         """Yield direct and lazily included FastAPI routes with effective paths.
 
         FastAPI 0.138+ stores ``include_router`` mounts as ``_IncludedRouter``
@@ -1412,7 +1425,7 @@ async def api_capabilities():
 
 
 @app.get("/api/v1/markets/perpetuals")
-async def list_perpetual_markets(limit: int = 0):
+async def list_perpetual_markets(limit: int = 0) -> JSONResponse:
     """Return available dYdX perpetual markets for run configuration.
 
     Results are cached for ``MARKETS_CACHE_TTL_SECONDS`` (default 60 s).
@@ -1518,7 +1531,9 @@ async def list_perpetual_markets(limit: int = 0):
 
 
 @app.get("/api/v1/runtime/db-config")
-async def runtime_db_config(current_user: User = Depends(get_admin_user)):
+async def runtime_db_config(
+    current_user: User = Depends(get_admin_user),
+) -> JSONResponse:
     """Admin-only diagnostics for effective runtime database configuration."""
     _ = current_user
     try:
@@ -1548,7 +1563,7 @@ async def runtime_db_config(current_user: User = Depends(get_admin_user)):
 @app.get("/api/v1/users/me")
 async def get_current_user_profile(
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Frontend-compatible current user endpoint used after login."""
     return api_response(
         success=True,
@@ -1573,7 +1588,9 @@ async def get_current_user_profile(
 
 
 @app.get("/api/v1/system/status")
-async def system_status(current_user: User = Depends(get_current_active_user)):
+async def system_status(
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """Get system status and statistics"""
     try:
         with backtest_service_scope() as service:
@@ -1655,7 +1672,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
 @app.get("/api/v1/runtime/strategy-resolution-metrics")
 async def get_strategy_resolution_metrics(
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Lightweight dashboard endpoint for strategy-resolution drift metrics."""
     del current_user
     return api_response(
@@ -1671,7 +1688,7 @@ async def get_strategy_resolution_metrics(
 )
 async def get_strategy_resolution_metrics_prometheus(
     current_user: User = Depends(get_current_active_user),
-):
+) -> PlainTextResponse:
     """Prometheus text-format strategy-resolution metrics for dashboards/probes."""
     del current_user
     return PlainTextResponse(
@@ -1683,7 +1700,7 @@ async def get_strategy_resolution_metrics_prometheus(
 @app.get("/api/v1/admin/runtime/strategy-resolution-metrics")
 async def get_strategy_resolution_metrics_admin(
     current_user: User = Depends(get_admin_user),
-):
+) -> JSONResponse:
     """Admin-only alias for strategy-resolution drift metrics."""
     del current_user
     return api_response(
@@ -1696,7 +1713,7 @@ async def get_strategy_resolution_metrics_admin(
 @app.post("/api/v1/admin/runtime/strategy-resolution-metrics/reset")
 async def reset_strategy_resolution_metrics_admin(
     current_user: User = Depends(get_admin_user),
-):
+) -> JSONResponse:
     """Admin-only endpoint to reset in-memory strategy-resolution counters."""
     del current_user
     return api_response(
@@ -1711,7 +1728,7 @@ async def reset_strategy_resolution_metrics_admin(
 # ============================================================================
 
 
-async def _bot_manager_monitor_loop():
+async def _bot_manager_monitor_loop() -> None:
     """Background loop that reconciles dead processes into API-visible error states."""
     interval_seconds = max(
         2,

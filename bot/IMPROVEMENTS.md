@@ -638,6 +638,42 @@ Items removed from this plan during the same review — and why — are listed i
       monolith files remain exempt (backtests 57, websocket_server 25, server 23 —
       105 untyped-def sites total); phase 3h+ migrates them, then `strict` becomes
       the end-state bundle.
+      **Phase 3h (2026-08-23) — DONE** — exemption list **3 → 1**: migrated
+      `api/websocket_server` (25 sites — `ConnectionManager.__init__`/connect/
+      disconnect/`_drop_connection`/`_deliver_local`/`broadcast_to_bot` (a
+      fire-and-forget — `-> None`; mypy caught my first `-> bool` guess by
+      "Missing return statement"), the six `handle_*` event broadcasters,
+      `_resolve_realtime_bot_id(session: Any)`, `handle_connection`/
+      `handle_message`/`send_positions`/`send_stats`/`send_market_data -> None`,
+      and the seven module-level `broadcast_*` helpers) and `api/server`
+      (23 sites — the `_FilteredStderr` wrapper (`write(message: str) -> None`,
+      `__getattr__(name: str) -> Any`), `custom_openapi() -> Any`, the trace
+      middleware (`call_next: Callable[[Request], Awaitable[Response]] -> Response`),
+      `/health`+`/ready` `-> JSONResponse` (strict 503 semantics unchanged),
+      `/metrics` `-> Dict[str, Any]` with `response_model=None` (the proven 2FA
+      pattern; OpenAPI verified byte-identical), capabilities/markets/profile/
+      status/strategy-resolution routes `-> JSONResponse`/`PlainTextResponse`,
+      nested `_registered_routes(routes: Any, ...) -> Iterator[Any]`, and
+      `_bot_manager_monitor_loop -> None`).
+      **Phase 3i (2026-08-23) — DONE — the ratchet is now EMPTY**: migrated the
+      final module `api/v1/backtests` (57 sites in one pass — the two backtest
+      websocket handlers `-> None`, `get_backtest_service() -> BacktestService`,
+      `_run_with_backtest_service` became generic
+      `Callable[[Any], _T] -> _T` (the `run_db` pattern), the 18 `_*_sync`
+      session-owning shims `-> Any`, `_maybe_awaitable(value: Any) -> Any`,
+      nested `_read_logs() -> List[str]`, and all ~32 routes
+      `-> JSONResponse` (incl. `create_backtest`/`run_backtest_compat`, whose
+      decorators already pin `response_model=BacktestResponse` — OpenAPI
+      verified byte-identical). Five compat-seam routes
+      (`interrupted`/`reconcile`/admin aliases/`repair-request-admin`) bind the
+      `_compat(...)` Any through typed `response: JSONResponse` locals.
+      **The `[[tool.mypy.overrides]]` block is deleted from `pyproject.toml` —
+      `disallow_untyped_defs` now applies to every module in `src/` with zero
+      exemptions**, pinned by the ratchet test's empty frozen set: re-adding an
+      entry fails the build. All 97 source files check clean end-to-end.
+      Next tightening decision (not yet taken): `strict = true` — measure its
+      blast radius first (`disallow_any_generics` would flag bare `dict`/`list`
+      annotations; `disallow_untyped_calls` is likely near-zero now).
       Not added to pre-commit (mypy needs whole-program context and is slow; CI is the right place for it).
 
 #### **Testing**

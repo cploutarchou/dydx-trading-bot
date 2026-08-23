@@ -1,5 +1,34 @@
 # Tasks Log
 
+## 2026-08-23 (pass 10) — DONE — exemption ratchet EMPTY
+
+- **mypy phases 3h + 3i — exemption ratchet 3 → 0 modules** (the final three
+  API monoliths; 105 untyped-def sites annotated; gate stays 0 errors).
+    - **3h**: `api/websocket_server` (25 sites — ConnectionManager lifecycle/
+      delivery family `-> None`, six event broadcasters, the three senders,
+      seven module-level `broadcast_*` helpers) and `api/server` (23 sites —
+      stderr filter wrapper, `custom_openapi -> Any`, trace middleware
+      (`-> Response`, `call_next` typed), `/health`+`/ready`/routes
+      `-> JSONResponse`, `/metrics -> Dict[str, Any]` + `response_model=None`
+      (2FA pattern, OpenAPI byte-identical), monitor loop `-> None`).
+      Ratchet 3 → 1. Per-area green (api server unit, websocket server,
+      broadcast bus, auth service-token overlap, ratchet — 103 passed); full
+      suite 1354 passed / 83.33%.
+    - **3i**: `api/v1/backtests` (57 sites — websocket handlers `-> None`,
+      `get_backtest_service -> BacktestService`, generic
+      `_run_with_backtest_service` (`Callable[[Any], _T] -> _T`), 18 `_*_sync`
+      shims `-> Any`, ~32 routes `-> JSONResponse`; five compat-seam routes
+      bind `_compat(...)` Any through typed `response: JSONResponse` locals).
+      Ratchet 1 → 0: **the `[[tool.mypy.overrides]]` block is deleted —
+      `disallow_untyped_defs` applies globally with zero exemptions**, pinned
+      by the ratchet test's empty frozen set. OpenAPI byte-identical. Per-area
+      green (backtest API contract, backtest routes unit, ratchet — 82
+      passed); full suite 1354 passed, 13 skipped, coverage 83.33% ≥ 82.
+    - Validation: mypy 0 errors throughout (incl. a no-exemption config run);
+      isort/black/flake8 clean; every gate re-run after black's rewrap.
+    - Next decision (not taken): `strict = true` flip — measure blast radius
+      first (`disallow_any_generics` vs bare `dict`/`list` annotations).
+
 ## 2026-08-23 (pass 9) — DONE
 
 - **mypy phase 3g — exemption ratchet 5 → 3 modules** (infrastructure pair; 39

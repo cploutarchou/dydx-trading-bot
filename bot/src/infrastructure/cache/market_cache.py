@@ -148,7 +148,7 @@ class RedisMarketDataCache(MarketDataCache):
             self._build_error = f"redis.asyncio unavailable: {exc!r}"
             return None
         try:  # pragma: no cover - connection is deferred to first command
-            self._client = aioredis.from_url(
+            self._client = aioredis.from_url(  # type: ignore[no-untyped-call]
                 self._url,
                 decode_responses=True,
                 socket_timeout=self._socket_timeout,

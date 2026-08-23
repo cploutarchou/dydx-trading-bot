@@ -674,6 +674,33 @@ Items removed from this plan during the same review — and why — are listed i
       Next tightening decision (not yet taken): `strict = true` — measure its
       blast radius first (`disallow_any_generics` would flag bare `dict`/`list`
       annotations; `disallow_untyped_calls` is likely near-zero now).
+      **Phase 4a (2026-08-23) — DONE — `strict = true` is ON.** Measured the
+      strict bundle's blast radius at **101 errors** (87 `disallow_any_generics`,
+      8 `disallow_untyped_calls`, 3 `strict_equality`, 2 `disallow_untyped_decorators`,
+      1 `no_implicit_reexport`) and fixed all of them in one pass, then flipped
+      `strict = true` in `pyproject.toml` (pinned by the ratchet test alongside
+      `disallow_untyped_defs`). The 87 generic sites were parameterized with
+      their real element types — which surfaced two genuinely wrong earlier
+      annotations: `_candles_recent_cache` is keyed by `(market, resolution)`
+      tuples (was flat `dict`), and `BotInstanceManager.processes` holds
+      text-mode `Popen[str]` (was unparameterized; first guess `Popen[bytes]`
+      was corrected against the single `text=True` creation site).
+      `cleanup_cache_entries` widened to `Dict[Any, Any]` — the helper is
+      key-agnostic by design and the tuple-keyed candle cache is a legitimate
+      caller. The 2 `strict_equality` hits are legacy-shape defensive
+      comparisons kept intact behind explicit `Any` locals (documented inline).
+      Third-party seams carry 10 scoped ignores: 8× `# type: ignore[no-untyped-call]`
+      on redis `from_url` sites, 2× `# type: ignore[untyped-decorator]` on Celery
+      `@celery_app.task` functions. The nats `Msg` import moved to its canonical
+      `nats.aio.msg` home (`TYPE_CHECKING`-only; same class verified at runtime).
+      Gates: strict mypy `Success: no issues found in 97 source files`,
+      isort/black/flake8 clean, 16 per-area suites green (323 passed — websocket,
+      broadcast bus, api server, auth contract/utils, monitoring, persistence,
+      database, market sync/cache, cointegration, portfolio risk, NATS consumer,
+      backtest task helpers, dataframe utils, ratchet), full CI-mirror suite
+      1354 passed / 13 skipped / coverage 83.34% ≥ 82. **The type-checking
+      campaign is complete: phase 1 (config + gate) → 2 (body checks) → 3a–3i
+      (annotations, ratchet 24 → 0) → 4a (strict).**
       Not added to pre-commit (mypy needs whole-program context and is slow; CI is the right place for it).
 
 #### **Testing**

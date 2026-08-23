@@ -411,7 +411,7 @@ class TokenBlacklist:
     """
 
     _REDIS_PREFIX = "auth:blacklist:"
-    _fallback_tokens: set = set()
+    _fallback_tokens: set[str] = set()
     _redis_client: Any = None  # redis.Redis | None
     _redis_initialised: bool = False
 

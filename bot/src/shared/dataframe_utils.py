@@ -310,7 +310,7 @@ def optimize_dataframe_memory(df: Any) -> Any:
 
 
 def cleanup_cache_entries(
-    cache_dict: Dict[str, Any], max_size: int = 100, max_age_minutes: int = 60
+    cache_dict: Dict[Any, Any], max_size: int = 100, max_age_minutes: int = 60
 ) -> None:
     """Clean up cache entries with size and age limits.
 

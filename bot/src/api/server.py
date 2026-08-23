@@ -174,7 +174,7 @@ sys.stderr = _FilteredStderr(_original_stderr)
 setup_logging()
 # trace_id_ctx / INTERNAL_ERROR_MESSAGE / api_response live in src/api/responses.py
 # (re-imported above) so extracted route modules can share them without a circular import.
-bot_manager_monitor_task: Optional[asyncio.Task] = None
+bot_manager_monitor_task: Optional[asyncio.Task[None]] = None
 
 MARKET_RESOLUTION_TIMEOUT_SECONDS = 10.0
 
@@ -192,7 +192,7 @@ class _SlidingWindowRateLimiter:
     def __init__(self, max_requests: int, window_seconds: float):
         self._max = max_requests
         self._window = window_seconds
-        self._buckets: Dict[str, list] = {}
+        self._buckets: Dict[str, list[Any]] = {}
         self._lock = threading.Lock()
 
     def _caller_key(self, request: Request) -> str:
@@ -251,7 +251,7 @@ class _RedisSlidingWindowRateLimiter:
             import redis as _redis
 
             url = redis_url(prefer_celery_broker=True)
-            self._redis_client = _redis.from_url(
+            self._redis_client = _redis.from_url(  # type: ignore[no-untyped-call]
                 url,
                 decode_responses=True,
                 socket_connect_timeout=0.5,

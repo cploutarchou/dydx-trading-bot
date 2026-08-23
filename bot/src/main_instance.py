@@ -689,7 +689,10 @@ class BotInstance:
 
                 # Store results in instance-specific file
                 stores_result = store_cointegration_results(df_market_prices)
-                save_succeeded = stores_result == "saved" or stores_result is True
+                # Typed contract is dict-only; these legacy-shape guards stay
+                # defensive against older store return values.
+                legacy_result: Any = stores_result
+                save_succeeded = legacy_result == "saved" or legacy_result is True
                 if isinstance(stores_result, dict):
                     save_succeeded = bool(stores_result.get("success"))
                 if not save_succeeded:

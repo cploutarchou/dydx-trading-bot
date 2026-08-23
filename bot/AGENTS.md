@@ -430,4 +430,4 @@ module `reset_*()` helpers.
   questions; treat claims marked **UNKNOWN / NEEDS VALIDATION** accordingly.
 - **Worker container entrypoint**: `worker_entrypoint.py` is the container entrypoint for background workers; it
   calls `load_repo_env(__file__)` first, sanitizes node URL env vars, and launches Celery with queue/autoscale
-  settings (`CELERY_QUEUES` default `backtests,default,high_priority,scheduled`).
+  settings (`CELERY_QUEUES` default `backtests,default,scheduled`).

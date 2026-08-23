@@ -29,7 +29,9 @@ if sys.platform == "darwin":
 
 env_loader.load_repo_env(__file__)
 
-DEFAULT_CELERY_QUEUES = ("backtests", "default", "high_priority", "scheduled")
+# Only queues with routed producers belong here; a per-run queue override can
+# still target a custom queue if an operator adds it to CELERY_QUEUES explicitly.
+DEFAULT_CELERY_QUEUES = ("backtests", "default", "scheduled")
 
 
 def _redis_url(db_offset: int = 0) -> str:

@@ -84,7 +84,7 @@ services:
       WORKER_MODE: celery
       CELERY_BROKER_URL: redis://valkey:6379/1
       CELERY_RESULT_BACKEND: redis://valkey:6379/2
-      CELERY_QUEUES: ${CELERY_QUEUES:-backtests,default,high_priority,scheduled}
+      CELERY_QUEUES: ${CELERY_QUEUES:-backtests,default,scheduled}
       CELERY_CONCURRENCY: ${CELERY_CONCURRENCY:-1}
       CELERY_WORKER_MAX_TASKS_PER_CHILD: ${CELERY_WORKER_MAX_TASKS_PER_CHILD:-100}
     healthcheck:

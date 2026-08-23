@@ -14,7 +14,7 @@ load_repo_env(__file__)
 
 from src.shared.env_loader import load_file_env_values
 
-DEFAULT_CELERY_QUEUES = "backtests,default,high_priority,scheduled"
+DEFAULT_CELERY_QUEUES = "backtests,default,scheduled"
 
 
 def _sanitize_node_url_env(var_name: str) -> None:
@@ -25,10 +25,10 @@ def _sanitize_node_url_env(var_name: str) -> None:
     value = raw.strip()
     lowered = value.lower()
     if lowered.startswith("http://"):
-        os.environ[var_name] = value[len("http://"):]
+        os.environ[var_name] = value[len("http://") :]
         return
     if lowered.startswith("https://"):
-        os.environ[var_name] = value[len("https://"):]
+        os.environ[var_name] = value[len("https://") :]
         return
 
 
@@ -87,9 +87,7 @@ def _celery_max_tasks_per_child_arg() -> List[str]:
 class _FilteredStderr:
     """Filter noisy upstream warnings that are safe to ignore in worker logs."""
 
-    _DROP_TOKENS = (
-        "Node URL should not contain http(s)://",
-    )
+    _DROP_TOKENS = ("Node URL should not contain http(s)://",)
 
     def __init__(self, stderr):
         self.stderr = stderr
@@ -113,11 +111,11 @@ def _run_nats_worker() -> int:
     import logging
     import signal
 
-    from src.shared.logging_setup import setup_logging
     from src.infrastructure.workers.nats_backtest_consumer import (
         init_nats_backtest_consumers,
         shutdown_nats_backtest_consumers,
     )
+    from src.shared.logging_setup import setup_logging
 
     # Initialize Loguru bridge early so imports/logic are captured.
     setup_logging()
@@ -127,7 +125,7 @@ def _run_nats_worker() -> int:
     # Set up standard logging
     logging.basicConfig(
         level=os.getenv("LOG_LEVEL", "INFO"),
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
     logger = logging.getLogger(__name__)
@@ -143,6 +141,7 @@ def _run_nats_worker() -> int:
     # Set up signal handlers
     try:
         import uvloop
+
         uvloop.install()
     except ImportError:
         pass

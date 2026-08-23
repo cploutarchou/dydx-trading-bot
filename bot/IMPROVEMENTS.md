@@ -620,6 +620,24 @@ Items removed from this plan during the same review — and why — are listed i
       code now declares typed object responses — `openapi.json` updated (50 insertions:
       `Response_*` object schemas, additive only, no request/status-code changes).
       144 untyped-def sites remain across the 5 exempt modules.
+      **Phase 3g (2026-08-23) — DONE** — exemption list **5 → 3**: migrated
+      `infrastructure/database` (21 sites — the `ConnectionPoolMonitor` methods
+      `-> None` (start/stop monitoring, `_monitor_pool`/`_collect_metrics`/
+      `_check_alerts`/`_trigger_alert`/`record_connection_*`), the
+      `DatabaseConfig.__init__`, the `DatabaseManager` singleton pair
+      (`__new__(cls) -> "DatabaseManager"` — mypy's Optional narrowing handles the
+      assign-on-miss pattern — and `__init__`), the lifecycle methods
+      (`_initialize`/`create_all_tables`/`ensure_schema_compatibility`/
+      `run_pending_migrations`/`drop_all_tables`/`close`), the module-level DI
+      generator `get_session() -> Iterator[Session]`, and `init_db() -> None`) and
+      `bot_instance_manager` (18 sites — recovery diagnostics loaders, dev-row
+      cleanup helpers (`record: Any`, `session: Any` — ORM rows from the test
+      doubles), DB persistence sync family, `_publish_strategy_status -> None`,
+      log-handle lifecycle, trading-stats refresh, `cleanup_dead_processes`/
+      `_check_liveness_and_degrade`/`shutdown -> None`). Only the three big API
+      monolith files remain exempt (backtests 57, websocket_server 25, server 23 —
+      105 untyped-def sites total); phase 3h+ migrates them, then `strict` becomes
+      the end-state bundle.
       Not added to pre-commit (mypy needs whole-program context and is slow; CI is the right place for it).
 
 #### **Testing**

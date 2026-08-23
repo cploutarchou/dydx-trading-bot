@@ -139,7 +139,7 @@ Useful environment variables:
 - `BACKTEST_WORKER_BACKEND=celery` for worker-backed backtests; set `asyncio` only for focused local/unit debugging
 - `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` for broker/result backend
 - `REDIS_URL` / `VALKEY_URL` or `REDIS_*` / `VALKEY_*` as the shared cache aliases used by runtime modules
-- `CELERY_QUEUES=backtests,default,high_priority,scheduled` for a worker that consumes all standard queues
+- `CELERY_QUEUES=backtests,default,scheduled` for a worker that consumes all standard queues
 - `BACKTEST_CELERY_QUEUE=backtests` for backtest dispatch
 - `BACKTEST_CELERY_MAX_RETRIES=3`
 - `BACKTEST_CELERY_RETRY_BASE_SECONDS=30`
@@ -201,8 +201,11 @@ Queues:
 
 - `backtests` - long-running backtest execution
 - `default` - lightweight hooks and general background work
-- `high_priority` - reserved for urgent operational tasks
 - `scheduled` - Celery Beat tasks such as optional market sync
+
+Only queues with routed producers are consumed by default. A per-run queue override (or
+`BACKTEST_CELERY_QUEUE`) can still target a custom queue — add it to `CELERY_QUEUES` on the workers
+so it is consumed.
 
 Scale workers horizontally by running more worker processes against the same broker and database. For backtests, prefer
 one or a small number of concurrent tasks per worker because each run can hold DB connections and fetch large market

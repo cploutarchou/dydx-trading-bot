@@ -146,7 +146,7 @@ def count_zero_crossings(series: Any) -> int:
     return int(np.sum(np.abs(sign_changes) == 2))
 
 
-def store_cointegration_results(df_market_prices: pd.DataFrame) -> dict:
+def store_cointegration_results(df_market_prices: pd.DataFrame) -> dict[str, Any]:
     """
     Find and store cointegrated pairs from market price data.
 

@@ -1,7 +1,7 @@
 """Authentication router."""
 
 from datetime import datetime, timezone
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -57,7 +57,7 @@ class RegisterRequest(BaseModel):
     full_name: str = ""
 
 
-def _build_token_response(username: str, token_version: int = 0) -> dict:
+def _build_token_response(username: str, token_version: int = 0) -> dict[str, Any]:
     """Build access/refresh tokens carrying the user's security stamp (``stv``).
 
     ``stv`` is checked against ``users.token_version`` on every authenticated
@@ -124,7 +124,7 @@ def _authenticate_user(
     password: str,
     session: Session,
     totp_code: Optional[str] = None,
-) -> dict:
+) -> dict[str, Any]:
     if is_auth_bypass_enabled():
         return _build_token_response(username)
 
@@ -172,7 +172,7 @@ async def token_login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: Session = Depends(get_session),
     totp_code: Optional[str] = Form(default=None),
-) -> dict:
+) -> dict[str, Any]:
     """OAuth2 login endpoint (also used by the Swagger UI Authorize dialog).
 
     ``totp_code`` is an additional optional form field; users with 2FA enabled
@@ -188,7 +188,7 @@ async def token_login(
 async def login(
     payload: LoginRequest,
     session: Session = Depends(get_session),
-) -> dict:
+) -> dict[str, Any]:
     """Frontend-compatible JSON login endpoint."""
     return _authenticate_user(
         payload.username, payload.password, session, totp_code=payload.totp_code
@@ -199,7 +199,7 @@ async def login(
 async def register(
     payload: RegisterRequest,
     session: Session = Depends(get_session),
-) -> dict:
+) -> dict[str, Any]:
     """Register endpoint."""
     username = SecurityUtils.sanitize_input(payload.username, max_length=50)
     full_name = SecurityUtils.sanitize_input(payload.full_name, max_length=100)
@@ -279,7 +279,7 @@ _SERVICE_TOKEN_REVOCATION_MESSAGE = (
 async def logout(
     request: Request,
     current_user: User = Depends(get_current_active_user),
-) -> dict:
+) -> dict[str, Any]:
     """Logout the current session by revoking the presented JWT (JTI blacklist)."""
     if is_auth_bypass_enabled():
         return {"message": "Logged out"}
@@ -296,7 +296,7 @@ async def logout_all(
     request: Request,
     current_user: User = Depends(get_current_active_user),
     session: Session = Depends(get_session),
-) -> dict:
+) -> dict[str, Any]:
     """Revoke every outstanding token for the current user.
 
     Bumps ``users.token_version`` so all previously issued JWTs (whose ``stv``

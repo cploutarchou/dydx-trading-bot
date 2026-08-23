@@ -33,9 +33,9 @@ ISO_TIMES = get_ISO_times()
 
 # ── Module-level caches ───────────────────────────────────────────────────────
 
-_markets_cache: dict = {"data": None, "expires": 0.0}
+_markets_cache: dict[str, Any] = {"data": None, "expires": 0.0}
 # key: (market, resolution) → {"data": pd.Series, "expires": float}
-_candles_recent_cache: dict = {}
+_candles_recent_cache: dict[tuple[str, Any], Any] = {}
 
 # ── Token-bucket rate limiter (aiolimiter) ────────────────────────────────────
 # Defaults: 5 requests per 1-second window (configurable via env vars).
@@ -101,7 +101,7 @@ async def _throttle_api_call() -> None:
         await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
 
 
-def _closes_to_series(response: dict) -> pd.Series:
+def _closes_to_series(response: dict[str, Any]) -> pd.Series:
     """Build a reversed-close ``pd.Series`` from a raw dYdX candle response.
 
     Shared by the live API path and the L2 cache-hit path so both return the

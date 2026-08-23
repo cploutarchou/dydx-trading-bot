@@ -86,7 +86,7 @@ class BotRepository:
         self.session = session
 
     def create_bot(
-        self, instance_id: str, network: str, strategy: str, config: dict
+        self, instance_id: str, network: str, strategy: str, config: dict[str, Any]
     ) -> Bot:
         """Create a new bot"""
         bot = Bot(
@@ -124,7 +124,7 @@ class BotRepository:
             self.session.delete(bot)
             self.session.commit()
 
-    def get_statistics(self, instance_id: str) -> dict:
+    def get_statistics(self, instance_id: str) -> dict[str, Any]:
         """Get statistics for a bot"""
         bot = self.get_by_instance_id(instance_id)
         if not bot:
@@ -172,8 +172,8 @@ class JobRepository:
         job_id: str,
         bot_id: Optional[int],
         job_type: str,
-        parameters: Optional[dict] = None,
-        metadata: Optional[dict] = None,
+        parameters: Optional[dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> Job:
         """Create a new job"""
         job = Job(
@@ -220,7 +220,7 @@ class JobRepository:
     def complete_job(
         self,
         job_id: str,
-        result: Optional[dict] = None,
+        result: Optional[dict[str, Any]] = None,
         execution_time_ms: Optional[int] = None,
     ) -> None:
         """Complete a job"""
@@ -289,7 +289,7 @@ class JobRepository:
         self,
         job_id: int,
         status: JobStatusEnum,
-        result: Optional[dict] = None,
+        result: Optional[dict[str, Any]] = None,
         error_message: Optional[str] = None,
         error_traceback: Optional[str] = None,
         cancellation_reason: Optional[str] = None,
@@ -548,7 +548,7 @@ class TradeRepository:
             self.session.commit()
             self._write_analytics_trade(trade, event_kind="closed")
 
-    def get_trade_statistics(self, bot_id: int) -> dict:
+    def get_trade_statistics(self, bot_id: int) -> dict[str, Any]:
         """Get trade statistics for a bot"""
         trades = self.get_by_bot_id(bot_id)
         total_trades = len(trades)
@@ -887,7 +887,7 @@ class EventRepository:
         event_type: str,
         severity: str,
         message: str,
-        details: Optional[dict] = None,
+        details: Optional[dict[str, Any]] = None,
         user_id: Optional[str] = None,
         related_job_id: Optional[str] = None,
         related_trade_id: Optional[str] = None,
@@ -939,7 +939,7 @@ class StrategyRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def _to_dict(self, strategy: Strategy) -> dict:
+    def _to_dict(self, strategy: Strategy) -> dict[str, Any]:
         return {
             "id": strategy.id,
             "name": strategy.name,
@@ -990,7 +990,7 @@ class StrategyRepository:
             ),
         }
 
-    def list(self, skip: int = 0, limit: int = 50) -> dict:
+    def list(self, skip: int = 0, limit: int = 50) -> dict[str, Any]:
         query = (
             self.session.query(Strategy)
             .filter(Strategy.deleted_at.is_(None))
@@ -1000,7 +1000,7 @@ class StrategyRepository:
         rows = query.offset(skip).limit(limit).all()
         return {"strategies": [self._to_dict(s) for s in rows], "total": total}
 
-    def list_public(self) -> dict:
+    def list_public(self) -> dict[str, Any]:
         rows = (
             self.session.query(Strategy)
             .filter(Strategy.is_public.is_(True), Strategy.deleted_at.is_(None))
@@ -1009,7 +1009,7 @@ class StrategyRepository:
         )
         return {"strategies": [self._to_dict(s) for s in rows], "total": len(rows)}
 
-    def get(self, strategy_id: int) -> Optional[dict]:
+    def get(self, strategy_id: int) -> Optional[dict[str, Any]]:
         row = (
             self.session.query(Strategy)
             .filter(Strategy.id == strategy_id, Strategy.deleted_at.is_(None))
@@ -1017,7 +1017,9 @@ class StrategyRepository:
         )
         return self._to_dict(row) if row else None
 
-    def create(self, payload: dict, note: str = "Initial version") -> dict:
+    def create(
+        self, payload: dict[str, Any], note: str = "Initial version"
+    ) -> dict[str, Any]:
         strategy = Strategy(
             name=payload.get("name", "Untitled Strategy"),
             category=payload.get("category", "custom"),
@@ -1082,8 +1084,8 @@ class StrategyRepository:
         return self._to_dict(strategy)
 
     def update(
-        self, strategy_id: int, payload: dict, note: str = "Updated strategy"
-    ) -> Optional[dict]:
+        self, strategy_id: int, payload: dict[str, Any], note: str = "Updated strategy"
+    ) -> Optional[dict[str, Any]]:
         strategy = (
             self.session.query(Strategy)
             .filter(Strategy.id == strategy_id, Strategy.deleted_at.is_(None))
@@ -1208,7 +1210,7 @@ class StrategyRepository:
         self.session.commit()
         return True
 
-    def versions(self, strategy_id: int) -> List[dict]:
+    def versions(self, strategy_id: int) -> List[dict[str, Any]]:
         rows = (
             self.session.query(StrategyVersion)
             .filter(StrategyVersion.strategy_id == strategy_id)
@@ -1227,7 +1229,7 @@ class StrategyRepository:
             for row in rows
         ]
 
-    def revert(self, strategy_id: int, version_id: int) -> Optional[dict]:
+    def revert(self, strategy_id: int, version_id: int) -> Optional[dict[str, Any]]:
         version = (
             self.session.query(StrategyVersion)
             .filter(

@@ -56,7 +56,7 @@ def _exempt_modules_from_pyproject() -> set[str]:
 
 
 def test_disallow_untyped_defs_is_enabled_globally() -> None:
-    """The strict flag itself must stay on — weakening it needs review here."""
+    """The strict flags themselves must stay on — weakening them needs review here."""
     with _PYPROJECT.open("rb") as fh:
         data = tomllib.load(fh)
     mypy_cfg = data["tool"]["mypy"]
@@ -65,6 +65,11 @@ def test_disallow_untyped_defs_is_enabled_globally() -> None:
         "exemptions are the only sanctioned escape hatch (and are pinned below)"
     )
     assert mypy_cfg.get("warn_return_any") is True
+    assert mypy_cfg.get("strict") is True, (
+        "strict must remain enabled (flipped 2026-08-23, phase 4a, after the "
+        "exemption ratchet reached zero); turning it off needs an explicit "
+        "justification edit here"
+    )
 
 
 def test_exemption_list_matches_frozen_set() -> None:

@@ -26,14 +26,7 @@ from src.infrastructure.workers.backtest_event_emitter import (
 )
 from src.infrastructure.workers.celery_app import celery_app
 from src.infrastructure.workers.celery_monitor import build_progress_meta, failure_meta
-from src.shared.redis_env import (
-    redis_db,
-    redis_host,
-    redis_password,
-    redis_port,
-    redis_ssl_enabled,
-    redis_url,
-)
+from src.shared.redis_env import redis_url
 
 logger = logging.getLogger(__name__)
 
@@ -83,28 +76,6 @@ def _build_runtime_task_context(
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _get_redis_client() -> Any:
-    """Return a lazily-created synchronous redis client for pub/sub publishing."""
-    import redis as _redis
-
-    try:
-        explicit_url = redis_url(prefer_celery_broker=True)
-        if explicit_url:
-            return _redis.from_url(explicit_url, decode_responses=True)  # type: ignore[no-untyped-call]
-
-        return _redis.Redis(
-            host=redis_host(),
-            port=int(redis_port()),
-            db=int(redis_db() or "0"),
-            password=redis_password() or None,
-            ssl=redis_ssl_enabled(),
-            decode_responses=True,
-        )
-    except Exception as exc:
-        logger.warning("backtest_pubsub_redis_init_failed error=%r", exc)
-        return None
 
 
 def _redis_lock_url() -> str | None:
@@ -255,39 +226,6 @@ def _is_transient_backtest_error(exc: BaseException) -> bool:
             "504",
         )
     )
-
-
-def _publish_backtest_status(
-    run_id: str,
-    status: str,
-    progress: float = 0.0,
-    current_pair: str = "",
-    eta_seconds: float = 0.0,
-) -> None:
-    """Publish a backtest status event to Redis for downstream WebSocket push."""
-    rc = _get_redis_client()
-    if rc is None:
-        return
-    try:
-        channel = f"backtest:{run_id}:status"
-        payload = json.dumps(
-            {
-                "run_id": run_id,
-                "status": status,
-                "progress": progress,
-                "current_pair": current_pair,
-                "eta_seconds": eta_seconds,
-                "timestamp": _now_iso(),
-            }
-        )
-        rc.publish(channel, payload)
-    except Exception as exc:
-        logger.debug("backtest_pubsub_publish_failed run_id=%s error=%r", run_id, exc)
-    finally:
-        try:
-            rc.close()
-        except Exception:
-            pass
 
 
 def _mark_worker_failure(
@@ -508,7 +446,6 @@ def run_backtest_task(
                 started_at=_now_iso(),
             )
             repository.save_run(data)
-            _publish_backtest_status(run_id, "started")
             emit_backtest_event_sync(run_id=run_id, status="started")
 
             async def _progress_callback(
@@ -546,9 +483,6 @@ def run_backtest_task(
                         selected_pairs=selected_pairs,
                     ),
                 )
-                _publish_backtest_status(
-                    callback_run_id, "progress", progress, current_pair, eta
-                )
                 await publish_backtest_event(
                     run_id=callback_run_id,
                     status="progress",
@@ -563,7 +497,6 @@ def run_backtest_task(
                     propagate_exceptions=True,
                 )
             )
-            _publish_backtest_status(run_id, "completed", 100.0, "complete")
             emit_backtest_event_sync(run_id=run_id, status="completed", progress=100.0)
             loguru_logger.info(
                 "celery_backtest_task_completed task_id={} run_id={}",
@@ -586,7 +519,6 @@ def run_backtest_task(
             worker_hostname=socket.gethostname(),
             retry_count=int(getattr(self.request, "retries", 0) or 0),
         )
-        _publish_backtest_status(run_id, "failed")
         emit_backtest_event_sync(
             run_id=run_id,
             status="failed",
@@ -616,7 +548,6 @@ def run_backtest_task(
                 error_code="BACKTEST_CANCELLED",
             ),
         )
-        _publish_backtest_status(run_id, "cancelled")
         emit_backtest_event_sync(
             run_id=run_id,
             status="cancelled",
@@ -663,7 +594,6 @@ def run_backtest_task(
                     "worker_hostname": socket.gethostname(),
                 },
             )
-            _publish_backtest_status(run_id, "retrying")
             loguru_logger.warning(
                 "celery_backtest_task_retrying task_id={} run_id={} retry_count={} countdown_seconds={} error={}",
                 task_id,
@@ -685,7 +615,6 @@ def run_backtest_task(
             worker_hostname=socket.gethostname(),
             retry_count=int(getattr(self.request, "retries", 0) or 0),
         )
-        _publish_backtest_status(run_id, "failed")
         emit_backtest_event_sync(
             run_id=run_id,
             status="failed",

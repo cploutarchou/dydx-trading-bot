@@ -702,55 +702,70 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
         logger.warning("Runtime DB pool config warning: {}", warning)
     if not db.health_check():
         raise RuntimeError("Bot database health check failed during API startup")
-    db.run_pending_migrations()
-    # Metadata creation remains a compatibility safety net for ORM-only tables;
-    # migrations run first so an empty database cannot be mistaken for legacy.
-    db.create_all_tables()
-    db.ensure_schema_compatibility()
-    db.verify_required_tables()
-    # Start the cross-worker WebSocket broadcast subscriber early (no-op when
-    # WS_BROADCAST_ENABLED=false or no Redis URL resolves), BEFORE any broadcast
-    # producer below (backtest auto-recovery, bot-manager status events) runs.
-    # start() is non-raising and non-blocking: it spawns the listener, which
-    # reconnects with backoff if Redis is not yet up.
-    await get_broadcast_bus().start(manager.deliver_local_broadcast)
+    # Serialize schema migration + startup recovery across API replicas via the
+    # Postgres advisory StartupLeaderLock. Two replicas racing
+    # run_pending_migrations/create_all or double-dispatching recovery is the
+    # multi-instance hazard this removes. Fail fast when the lock cannot be
+    # taken: running this section unlocked is worse than a delayed start (the
+    # orchestrator restarts the replica and it retries).
+    leader_lock = db.startup_leader_lock()
+    if not leader_lock.acquire():
+        raise RuntimeError(
+            "Startup leader lock not acquired within the wait window; another "
+            "replica likely holds it (mid-migration/recovery). Restart to retry."
+        )
     try:
-        with backtest_service_scope() as service:
-            backtest_recovery = await service.auto_recover_interrupted_runs(
-                _broadcast_backtest_progress
+        db.run_pending_migrations()
+        # Metadata creation remains a compatibility safety net for ORM-only tables;
+        # migrations run first so an empty database cannot be mistaken for legacy.
+        db.create_all_tables()
+        db.ensure_schema_compatibility()
+        db.verify_required_tables()
+        # Start the cross-worker WebSocket broadcast subscriber early (no-op when
+        # WS_BROADCAST_ENABLED=false or no Redis URL resolves), BEFORE any broadcast
+        # producer below (backtest auto-recovery, bot-manager status events) runs.
+        # start() is non-raising and non-blocking: it spawns the listener, which
+        # reconnects with backoff if Redis is not yet up.
+        await get_broadcast_bus().start(manager.deliver_local_broadcast)
+        try:
+            with backtest_service_scope() as service:
+                backtest_recovery = await service.auto_recover_interrupted_runs(
+                    _broadcast_backtest_progress
+                )
+            logger.info(
+                "Backtest auto-recovery completed: mode={} candidates={} restarted={} marked_failed={}",
+                backtest_recovery.get("mode"),
+                backtest_recovery.get("candidate_count"),
+                backtest_recovery.get("restarted_count"),
+                backtest_recovery.get("marked_failed_count"),
             )
-        logger.info(
-            "Backtest auto-recovery completed: mode={} candidates={} restarted={} marked_failed={}",
-            backtest_recovery.get("mode"),
-            backtest_recovery.get("candidate_count"),
-            backtest_recovery.get("restarted_count"),
-            backtest_recovery.get("marked_failed_count"),
-        )
-    except Exception as exc:
-        logger.warning("Backtest auto-recovery failed during API startup: {}", exc)
-    if bot_manager is not None:
-        bot_manager.set_status_event_publisher(broadcast_strategy_status)
-        await bot_manager.cleanup_dead_processes()
-        live_recovery = await bot_manager.auto_recover_live_runtimes()
-        logger.info(
-            "Live runtime auto-recovery completed: checked={} verified={} restarted={} marked_error={}",
-            live_recovery.get("checked"),
-            len(live_recovery.get("verified_running", [])),
-            len(live_recovery.get("restarted", [])),
-            len(live_recovery.get("marked_error", [])),
-        )
-        if bot_manager_monitor_task is None or bot_manager_monitor_task.done():
-            bot_manager_monitor_task = async_job_manager.create_supervised_task(
-                _bot_manager_monitor_loop(),
-                job_type="readiness_check",
-                job_id="bot-manager-monitor",
-                metadata={"component": "bot_manager"},
-                auto_complete=False,
+        except Exception as exc:
+            logger.warning("Backtest auto-recovery failed during API startup: {}", exc)
+        if bot_manager is not None:
+            bot_manager.set_status_event_publisher(broadcast_strategy_status)
+            await bot_manager.cleanup_dead_processes()
+            live_recovery = await bot_manager.auto_recover_live_runtimes()
+            logger.info(
+                "Live runtime auto-recovery completed: checked={} verified={} restarted={} marked_error={}",
+                live_recovery.get("checked"),
+                len(live_recovery.get("verified_running", [])),
+                len(live_recovery.get("restarted", [])),
+                len(live_recovery.get("marked_error", [])),
             )
-    else:
-        logger.warning(
-            "Bot manager unavailable; bot-instance endpoints may be degraded"
-        )
+            if bot_manager_monitor_task is None or bot_manager_monitor_task.done():
+                bot_manager_monitor_task = async_job_manager.create_supervised_task(
+                    _bot_manager_monitor_loop(),
+                    job_type="readiness_check",
+                    job_id="bot-manager-monitor",
+                    metadata={"component": "bot_manager"},
+                    auto_complete=False,
+                )
+        else:
+            logger.warning(
+                "Bot manager unavailable; bot-instance endpoints may be degraded"
+            )
+    finally:
+        leader_lock.release()
     logger.info("Bot API Server ready")
 
     try:

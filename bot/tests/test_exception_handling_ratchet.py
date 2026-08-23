@@ -64,7 +64,13 @@ from pathlib import Path
 # is now deleted along with its Celery registration). Net -12. The other parts
 # of the resolution — mounting the 2FA router, repointing the repository_realtime
 # shim import to the canonical path — introduced no broad catches.
-BROAD_CATCH_BASELINE = 297
+# 2026-08-23: -3 — removed the dead Redis backtest-status pub-sub producer
+# (`_publish_backtest_status` + its `_get_redis_client`) from
+# src/infrastructure/workers/backtest_tasks.py; the channel had no subscriber
+# anywhere (NATS JetStream events are the sanctioned status path and websocket
+# clients are DB-pull-based), so the two broad catches in the publisher and one
+# in the client factory went with it.
+BROAD_CATCH_BASELINE = 294
 
 # Matches "except Exception", "except Exception as e", "except Exception:" and bare "except:".
 _BROAD_CATCH_RE = re.compile(r"\bexcept\s+(Exception|BaseException)\b|^\s*except\s*:")

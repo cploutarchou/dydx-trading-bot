@@ -664,3 +664,97 @@ def test_manager_register_fork_hook_guards(monkeypatch):
     monkeypatch.delattr("os.register_at_fork", raising=False)
     fresh._register_fork_hook()  # no hook support: no-op
     assert fresh._fork_hook_registered is False
+
+
+# --- startup leader lock ------------------------------------------------------------
+
+
+class _FakeLockConnection:
+    def __init__(self, try_results, unlock_error=None):
+        self.try_results = list(try_results)
+        self.unlock_error = unlock_error
+        self.executed: list[str] = []
+        self.closed = False
+
+    def execute(self, statement, params=None):
+        sql = str(statement)
+        self.executed.append(sql)
+        if "pg_try_advisory_lock" in sql:
+            result = self.try_results.pop(0) if self.try_results else False
+            return SimpleNamespace(scalar=lambda: result)
+        if "pg_advisory_unlock" in sql:
+            if self.unlock_error is not None:
+                raise self.unlock_error
+            return SimpleNamespace(scalar=lambda: True)
+        raise AssertionError(f"unexpected SQL: {sql}")
+
+    def close(self):
+        self.closed = True
+
+
+class _FakeLockEngine:
+    def __init__(self, connection, dialect_name="postgresql"):
+        self._connection = connection
+        self.dialect = SimpleNamespace(name=dialect_name)
+
+    def connect(self):
+        return self._connection
+
+
+def test_startup_leader_lock_fails_open_for_non_postgres():
+    conn = _FakeLockConnection([True])
+    lock = database.StartupLeaderLock(_FakeLockEngine(conn, dialect_name="sqlite"))
+    assert lock.acquire() is True
+    assert conn.executed == []  # no advisory SQL issued
+    lock.release()  # no-op, must not raise
+
+
+def test_startup_leader_lock_polls_until_acquired_then_releases():
+    conn = _FakeLockConnection([False, False, True])
+    lock = database.StartupLeaderLock(
+        _FakeLockEngine(conn), wait_seconds=30.0, poll_seconds=0.0
+    )
+    assert lock.acquire() is True
+    assert len(conn.executed) == 3  # three pg_try_advisory_lock attempts
+    assert conn.closed is False  # held connection stays open
+
+    lock.release()
+    assert conn.executed[-1].startswith("SELECT pg_advisory_unlock")
+    assert conn.closed is True
+    lock.release()  # second release is a no-op
+
+
+def test_startup_leader_lock_timeout_returns_false_and_closes():
+    conn = _FakeLockConnection([])  # always False
+    lock = database.StartupLeaderLock(
+        _FakeLockEngine(conn), wait_seconds=0.0, poll_seconds=0.0
+    )
+    assert lock.acquire() is False
+    assert conn.closed is True
+    assert not any("unlock" in sql for sql in conn.executed)
+
+
+def test_startup_leader_lock_release_survives_unlock_failure():
+    from sqlalchemy.exc import OperationalError
+
+    exc = OperationalError("stmt", {}, Exception("broken"))
+    conn = _FakeLockConnection([True], unlock_error=exc)
+    lock = database.StartupLeaderLock(_FakeLockEngine(conn), poll_seconds=0.0)
+    assert lock.acquire() is True
+
+    lock.release()  # must not raise despite the unlock failure
+    assert conn.closed is True
+
+
+def test_manager_startup_leader_lock_wait_env(monkeypatch):
+    manager = _fresh_manager()
+    engine = _FakeLockEngine(_FakeLockConnection([True]))
+    monkeypatch.setattr(manager, "get_engine", lambda: engine)
+
+    monkeypatch.setenv("STARTUP_LEADER_LOCK_WAIT_SECONDS", "7.5")
+    lock = manager.startup_leader_lock()
+    assert lock._wait_seconds == 7.5
+
+    monkeypatch.setenv("STARTUP_LEADER_LOCK_WAIT_SECONDS", "not-a-number")
+    lock = manager.startup_leader_lock()
+    assert lock._wait_seconds == 120.0

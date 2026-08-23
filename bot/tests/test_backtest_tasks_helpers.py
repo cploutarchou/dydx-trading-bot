@@ -138,7 +138,6 @@ def _reset_fake_service_state():
     _FakeService.recorded_retries = []
     _FakeRepo.last = None
     CAPTURE["states"].clear()
-    CAPTURE["published"].clear()
     CAPTURE["events"].clear()
     yield
     run_backtest_task.pop_request() if run_backtest_task.request_stack.top else None
@@ -146,7 +145,7 @@ def _reset_fake_service_state():
 
 # Observable captures from the last _invoke_task call — also populated when the
 # task raises, so failure-path tests can still assert on state/publish/events.
-CAPTURE = {"states": [], "published": [], "events": []}
+CAPTURE = {"states": [], "events": []}
 
 
 def _invoke_task(
@@ -158,7 +157,6 @@ def _invoke_task(
     so raising paths can assert against them.
     """
     states: List[Dict[str, Any]] = CAPTURE["states"]
-    published: List[tuple] = CAPTURE["published"]
     events: List[Dict[str, Any]] = CAPTURE["events"]
 
     monkeypatch.setattr(
@@ -185,9 +183,6 @@ def _invoke_task(
     )
     monkeypatch.setattr(backtest_tasks, "BacktestService", _FakeService)
     monkeypatch.setattr(
-        backtest_tasks, "_publish_backtest_status", lambda *a, **k: published.append(a)
-    )
-    monkeypatch.setattr(
         backtest_tasks, "emit_backtest_event_sync", lambda **k: events.append(k)
     )
 
@@ -209,7 +204,7 @@ def _invoke_task(
         result = run_backtest_task.run(run_id, task_context)
     finally:
         run_backtest_task.pop_request()
-    return result, states, published, events
+    return result, states, events
 
 
 def _run_payload() -> Dict[str, Any]:
@@ -461,80 +456,6 @@ def test_release_lock_issues_compare_and_delete(monkeypatch):
     assert flaky.closed is True
 
 
-# ---------------------------------------------------------- pub/sub status
-
-
-def test_publish_backtest_status_plumbing(monkeypatch):
-    class _PubClient:
-        def __init__(self):
-            self.channels: List[tuple] = []
-            self.closed = False
-
-        def publish(self, channel, payload):
-            self.channels.append((channel, payload))
-
-        def close(self):
-            self.closed = True
-
-    client = _PubClient()
-    monkeypatch.setattr(backtest_tasks, "_get_redis_client", lambda: client)
-    backtest_tasks._publish_backtest_status("run-1", "started", 5.0, "BTC/ETH", 12.0)
-
-    assert len(client.channels) == 1
-    channel, payload = client.channels[0]
-    assert channel == "backtest:run-1:status"
-    import json
-
-    body = json.loads(payload)
-    assert body["run_id"] == "run-1"
-    assert body["status"] == "started"
-    assert body["progress"] == 5.0
-    assert client.closed is True
-
-    # No client: silent no-op; failing publish: swallowed
-    monkeypatch.setattr(backtest_tasks, "_get_redis_client", lambda: None)
-    backtest_tasks._publish_backtest_status("run-1", "started")  # must not raise
-
-    class _Broken:
-        def publish(self, *a):
-            raise ConnectionError("redis down")
-
-        def close(self):
-            pass
-
-    monkeypatch.setattr(backtest_tasks, "_get_redis_client", lambda: _Broken())
-    backtest_tasks._publish_backtest_status("run-1", "started")  # must not raise
-
-
-def test_get_redis_client_prefers_explicit_url(monkeypatch):
-    import redis as redis_module
-
-    sentinel = object()
-    captured: Dict[str, Any] = {}
-
-    def _fake_from_url(url, **kwargs):
-        captured["url"] = url
-        captured["kwargs"] = kwargs
-        return sentinel
-
-    monkeypatch.setattr(redis_module, "from_url", _fake_from_url)
-    monkeypatch.setattr(
-        backtest_tasks,
-        "redis_url",
-        lambda prefer_celery_broker=True: "redis://pub:6379/2",
-    )
-    assert backtest_tasks._get_redis_client() is sentinel
-    assert captured["url"] == "redis://pub:6379/2"
-    assert captured["kwargs"]["decode_responses"] is True
-
-    # Constructor failure degrades to None (never raises)
-    def _exploding_url(prefer_celery_broker=True):
-        raise RuntimeError("env broken")
-
-    monkeypatch.setattr(backtest_tasks, "redis_url", _exploding_url)
-    assert backtest_tasks._get_redis_client() is None
-
-
 # ------------------------------------------------- task lifecycle flows
 
 
@@ -543,7 +464,7 @@ def test_task_duplicate_lock_skip(monkeypatch):
         raise RuntimeError("BACKTEST_ALREADY_RUNNING: locked elsewhere")
 
     monkeypatch.setattr(backtest_tasks, "_acquire_backtest_lock", _already_locked)
-    result, states, _, _ = _invoke_task(
+    result, states, _ = _invoke_task(
         monkeypatch, "run-1", run_payload=_run_payload(), acquire=_already_locked
     )
 
@@ -581,7 +502,7 @@ def test_task_validation_failures(monkeypatch):
 
 
 def test_task_happy_path(monkeypatch):
-    result, states, published, events = _invoke_task(
+    result, states, events = _invoke_task(
         monkeypatch, "run-1", run_payload=_run_payload()
     )
 
@@ -594,19 +515,17 @@ def test_task_happy_path(monkeypatch):
     assert states[0]["meta"]["selected_pairs"] == ["BTC-USD/ETH-USD"]
     assert states[0]["meta"]["backtest_run_id"] == "run-1"
 
-    statuses = [call[1] for call in published]
-    assert "started" in statuses and "completed" in statuses
     event_statuses = [e.get("status") for e in events]
     assert "started" in event_statuses and "completed" in event_statuses
 
-    # The captured progress callback drives PROGRESS state + pubsub
+    # The captured progress callback drives PROGRESS state + NATS event
     callback = _FakeService.recorded_executions[0]["callback"]
     before = len(states)
     asyncio.run(callback("run-1", 50.0, "BTC-USD/ETH-USD", 30.0))
     assert states[before]["state"] == "PROGRESS"
     assert states[before]["meta"]["progress_percent"] == 50.0
     assert states[before]["meta"]["completed_pairs"] == 0  # 50% of 1 pair
-    assert published[-1][1] == "progress"
+    assert any(e.get("status") == "progress" for e in events)
 
 
 def test_task_transient_error_retries(monkeypatch):
@@ -628,9 +547,9 @@ def test_task_permanent_error_marks_failed(monkeypatch):
     with pytest.raises(RuntimeError, match="fatal logic error"):
         _invoke_task(monkeypatch, "run-1", run_payload=_run_payload())
 
-    # Worker-failure persistence ran and a failed status was published
+    # Worker-failure persistence ran and a failed status event was emitted
     assert any("mark_failed" in e for e in CAPTURE["events"])
-    assert CAPTURE["published"][-1][1] == "failed"
+    assert any(e.get("status") == "failed" for e in CAPTURE["events"])
 
 
 def test_task_soft_time_limit_marks_timeout(monkeypatch):

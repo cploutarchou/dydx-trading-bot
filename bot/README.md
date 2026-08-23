@@ -288,6 +288,12 @@ Both endpoints are no-ops under `API_BYPASS_AUTH` and return a rotation hint whe
 Set `REDIS_ENABLED=true` for cross-worker single-token revocation; without Redis the blacklist falls back to an
 in-process set that is scoped to a single worker.
 
+CORS is fail-safe by default: the server answers the wildcard origin (`*`) **without** credentials. Browsers reject
+credentialed wildcard responses anyway and this API authenticates via `Authorization` headers (not cookies), so no
+working flow depends on wildcard+credentials. Production deployments that serve browser clients with cookies should set
+`BOT_API_CORS_ORIGINS` to an explicit comma-separated origin list — that switches the server to those origins with
+`allow_credentials=true`.
+
 Live runtime exit state is now confirmation-based: submitting reduce-only close orders is not enough to mark a trade or
 position closed. The runtime waits for exchange-flat confirmation before closing persistence state; partial, timed-out,
 or orphaned exits remain visible in tracked state and emit critical operator alerts.

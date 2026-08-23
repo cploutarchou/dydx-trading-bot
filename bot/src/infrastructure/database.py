@@ -39,7 +39,8 @@ from alembic import command
 from alembic.config import Config
 from loguru import logger
 from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import Pool, QueuePool
 
@@ -126,7 +127,7 @@ class ConnectionPoolMonitor:
         self._current_pool_overflow = 0
         self._current_pool_available = 0
 
-    def start_monitoring(self, pool: Pool, engine_name: str = "database"):
+    def start_monitoring(self, pool: Pool, engine_name: str = "database") -> None:
         """Start background monitoring of the connection pool."""
         with self._lock:
             if self._monitoring_active:
@@ -147,7 +148,7 @@ class ConnectionPoolMonitor:
             self._monitoring_thread.start()
             logger.info(f"Started connection pool monitoring for {engine_name}")
 
-    def stop_monitoring(self):
+    def stop_monitoring(self) -> None:
         """Stop background monitoring."""
         with self._lock:
             self._monitoring_active = False
@@ -156,7 +157,7 @@ class ConnectionPoolMonitor:
                 self._monitoring_thread = None
             logger.info("Stopped connection pool monitoring")
 
-    def _monitor_pool(self):
+    def _monitor_pool(self) -> None:
         """Background monitoring loop."""
         while self._monitoring_active:
             try:
@@ -167,7 +168,7 @@ class ConnectionPoolMonitor:
                 logger.error(f"Error in pool monitoring loop: {e}")
                 time.sleep(self.monitoring_interval_seconds)
 
-    def _collect_metrics(self):
+    def _collect_metrics(self) -> None:
         """Collect current pool metrics."""
         try:
             pool = self._pool
@@ -210,7 +211,7 @@ class ConnectionPoolMonitor:
         except Exception as e:
             logger.error(f"Error collecting pool metrics: {e}")
 
-    def _check_alerts(self):
+    def _check_alerts(self) -> None:
         """Check if any alert conditions are met."""
         try:
             with self._lock:
@@ -258,7 +259,7 @@ class ConnectionPoolMonitor:
         except Exception as e:
             logger.error(f"Error checking pool alerts: {e}")
 
-    def _trigger_alert(self, alert_type: str, message: str):
+    def _trigger_alert(self, alert_type: str, message: str) -> None:
         """Trigger an alert."""
         alert_msg = f"🚨 Database Connection Pool Alert [{alert_type}]: {message}"
         logger.warning(alert_msg)
@@ -266,13 +267,13 @@ class ConnectionPoolMonitor:
         # Here you could integrate with external monitoring systems
         # For example: send to metrics system, trigger PagerDuty, etc.
 
-    def record_connection_failure(self, error: Exception):
+    def record_connection_failure(self, error: Exception) -> None:
         """Record a connection failure for alerting."""
         with self._lock:
             self._connection_failures.append(datetime.utcnow())
             logger.warning(f"Database connection failure recorded: {error}")
 
-    def record_connection_timeout(self, timeout_seconds: float):
+    def record_connection_timeout(self, timeout_seconds: float) -> None:
         """Record a connection timeout for alerting."""
         with self._lock:
             self._connection_timeouts.append(
@@ -280,7 +281,7 @@ class ConnectionPoolMonitor:
             )
             logger.warning(f"Database connection timeout recorded: {timeout_seconds}s")
 
-    def get_current_metrics(self) -> dict:
+    def get_current_metrics(self) -> dict[str, Any]:
         """Get current pool metrics."""
         with self._lock:
             if not self._metrics_history:
@@ -340,7 +341,7 @@ class ConnectionPoolMonitor:
                 },
             }
 
-    def get_metrics_history(self, limit: int = 50) -> list:
+    def get_metrics_history(self, limit: int = 50) -> list[dict[str, Any]]:
         """Get historical metrics."""
         with self._lock:
             metrics = list(self._metrics_history)
@@ -348,7 +349,7 @@ class ConnectionPoolMonitor:
                 metrics = metrics[-limit:]
             return [{**m, "timestamp": m["timestamp"].isoformat()} for m in metrics]
 
-    def get_health_status(self) -> dict:
+    def get_health_status(self) -> dict[str, Any]:
         """Get pool health status summary."""
         with self._lock:
             if not self._metrics_history:
@@ -437,7 +438,7 @@ class DatabaseConfig:
             return default
         return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.cutover_mode = (
             os.getenv("BOT_DB_CUTOVER_MODE", "shared").strip().lower().replace("-", "_")
         )
@@ -666,7 +667,7 @@ class DatabaseConfig:
             self._env_any(("DB_PASSWORD", "POSTGRES_PASSWORD"), ""),
         )
 
-    def to_diagnostics(self) -> dict:
+    def to_diagnostics(self) -> dict[str, Any]:
         """Build a sanitized runtime diagnostics payload without exposing secrets."""
         return {
             "db_type": self.db_type,
@@ -781,7 +782,7 @@ class DatabaseConfig:
             f"@{self.db_host}:{self.db_port}/{self.db_name}?{query}"
         )
 
-    def get_engine_kwargs(self) -> dict:
+    def get_engine_kwargs(self) -> dict[str, Any]:
         """Get SQLAlchemy engine kwargs based on database type."""
         connect_args: dict[str, object] = {
             "connect_timeout": self.timeout_seconds,
@@ -801,26 +802,109 @@ class DatabaseConfig:
         }
 
 
+STARTUP_LEADER_LOCK_KEY = 728381
+
+
+class StartupLeaderLock:
+    """Postgres session advisory lock serializing API startup across replicas.
+
+    Guards schema migration + startup recovery so two API replicas cannot race
+    ``run_pending_migrations``/``create_all`` or double-dispatch recovery. The
+    lock lives on a dedicated connection; Postgres releases it automatically
+    when that connection dies, so a crashed leader cannot wedge startup.
+    Non-Postgres backends fail open (single-instance deployments; the
+    advisory-lock SQL is Postgres-specific).
+    """
+
+    def __init__(
+        self,
+        engine: Optional[Engine],
+        *,
+        lock_key: int = STARTUP_LEADER_LOCK_KEY,
+        wait_seconds: float = 120.0,
+        poll_seconds: float = 1.0,
+    ) -> None:
+        self._engine = engine
+        self._lock_key = lock_key
+        self._wait_seconds = wait_seconds
+        self._poll_seconds = poll_seconds
+        self._connection: Optional[Connection] = None
+
+    def acquire(self) -> bool:
+        if self._connection is not None:
+            return True
+        engine = self._engine
+        if engine is None or engine.dialect.name != "postgresql":
+            logger.info(
+                "Startup leader lock skipped (non-Postgres backend); startup runs unlocked"
+            )
+            return True
+        connection = engine.connect()
+        deadline = time.monotonic() + self._wait_seconds
+        while True:
+            acquired = bool(
+                connection.execute(
+                    text("SELECT pg_try_advisory_lock(:lock_key)"),
+                    {"lock_key": self._lock_key},
+                ).scalar()
+            )
+            if acquired:
+                self._connection = connection
+                logger.info("Startup leader lock acquired (key={})", self._lock_key)
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                connection.close()
+                logger.warning(
+                    "Startup leader lock NOT acquired within {}s (key={}); another replica holds it",
+                    self._wait_seconds,
+                    self._lock_key,
+                )
+                return False
+            time.sleep(min(self._poll_seconds, remaining))
+
+    def release(self) -> None:
+        connection, self._connection = self._connection, None
+        if connection is None:
+            return
+        try:
+            connection.execute(
+                text("SELECT pg_advisory_unlock(:lock_key)"),
+                {"lock_key": self._lock_key},
+            )
+        except SQLAlchemyError as exc:
+            # Best-effort: closing the connection releases the session lock.
+            logger.warning(
+                "Startup leader lock unlock failed (connection close releases it): {}",
+                exc,
+            )
+        finally:
+            try:
+                connection.close()
+            except SQLAlchemyError:
+                pass
+
+
 class DatabaseManager:
     """Database connection and session management"""
 
     _instance: Optional["DatabaseManager"] = None
     _engine: Optional[Engine] = None
-    _session_factory: Optional[sessionmaker] = None
+    _session_factory: Optional[sessionmaker[Session]] = None
     _fork_hook_registered: bool = False
     _pool_monitor: Optional[ConnectionPoolMonitor] = None
 
-    def __new__(cls):
+    def __new__(cls) -> "DatabaseManager":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self):
+    def __init__(self) -> None:
         if self._engine is None:
             self._initialize()
         self._register_fork_hook()
 
-    def _register_fork_hook(self):
+    def _register_fork_hook(self) -> None:
         if self._fork_hook_registered:
             return
         register_at_fork = getattr(os, "register_at_fork", None)
@@ -830,7 +914,7 @@ class DatabaseManager:
         register_at_fork(after_in_child=self._after_fork_child_reset)
         self._fork_hook_registered = True
 
-    def _after_fork_child_reset(self):
+    def _after_fork_child_reset(self) -> None:
         """Ensure child processes never reuse inherited pooled DB sockets.
 
         Note: With 'spawn' start method (used on macOS), child processes start
@@ -847,7 +931,7 @@ class DatabaseManager:
                 "Failed disposing inherited SQLAlchemy pool in child: {}", exc
             )
 
-    def _initialize(self):
+    def _initialize(self) -> None:
         """Initialize database engine and session factory"""
         config = DatabaseConfig()
         connection_string = config.get_connection_string()
@@ -928,7 +1012,7 @@ class DatabaseManager:
         finally:
             session.close()
 
-    def create_all_tables(self):
+    def create_all_tables(self) -> None:
         """Create all database tables from models"""
         from internal.domain import Base
 
@@ -937,7 +1021,7 @@ class DatabaseManager:
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created successfully")
 
-    def ensure_schema_compatibility(self):
+    def ensure_schema_compatibility(self) -> None:
         """Apply small backward-compatible schema fixes for existing databases."""
         engine = self.get_engine()
 
@@ -1087,7 +1171,7 @@ class DatabaseManager:
                            )
                         """))
 
-    def verify_required_tables(self) -> dict:
+    def verify_required_tables(self) -> dict[str, Any]:
         """Verify runtime-critical tables are present in the active bot database."""
         required = {
             "bot_instances",
@@ -1159,7 +1243,7 @@ class DatabaseManager:
         logger.info("Alembic baseline stamp completed at {}", baseline_revision)
         return "stamped"
 
-    def run_pending_migrations(self):
+    def run_pending_migrations(self) -> None:
         """Apply Alembic migrations against the active database URL."""
         alembic_config = self._build_alembic_config()
         if alembic_config is None:
@@ -1191,7 +1275,22 @@ class DatabaseManager:
         command.upgrade(alembic_config, "head")
         logger.info("Alembic migrations applied successfully")
 
-    def drop_all_tables(self):
+    def startup_leader_lock(self) -> StartupLeaderLock:
+        """Build the cross-replica startup leader lock bound to this engine.
+
+        ``STARTUP_LEADER_LOCK_WAIT_SECONDS`` bounds how long a replica waits
+        for a concurrent leader (default 120 s); unparseable values fall back
+        to the default rather than failing startup.
+        """
+        try:
+            wait_seconds = float(
+                os.getenv("STARTUP_LEADER_LOCK_WAIT_SECONDS", "120") or "120"
+            )
+        except ValueError:
+            wait_seconds = 120.0
+        return StartupLeaderLock(self.get_engine(), wait_seconds=wait_seconds)
+
+    def drop_all_tables(self) -> None:
         """Drop all database tables (DANGEROUS - use only in development)"""
         from internal.domain import Base
 
@@ -1214,7 +1313,7 @@ class DatabaseManager:
                 self._pool_monitor.record_connection_failure(e)
             return False
 
-    def get_pool_metrics(self) -> dict:
+    def get_pool_metrics(self) -> dict[str, Any]:
         """Get current connection pool metrics."""
         if self._pool_monitor is None:
             return {
@@ -1223,7 +1322,7 @@ class DatabaseManager:
             }
         return self._pool_monitor.get_current_metrics()
 
-    def get_pool_health_status(self) -> dict:
+    def get_pool_health_status(self) -> dict[str, Any]:
         """Get connection pool health status."""
         if self._pool_monitor is None:
             return {
@@ -1232,13 +1331,13 @@ class DatabaseManager:
             }
         return self._pool_monitor.get_health_status()
 
-    def get_pool_metrics_history(self, limit: int = 50) -> list:
+    def get_pool_metrics_history(self, limit: int = 50) -> list[dict[str, Any]]:
         """Get historical connection pool metrics."""
         if self._pool_monitor is None:
             return []
         return self._pool_monitor.get_metrics_history(limit)
 
-    def get_diagnostics(self) -> dict:
+    def get_diagnostics(self) -> dict[str, Any]:
         """Get comprehensive database diagnostics including pool metrics."""
         diagnostics = {
             "database": self.config.to_diagnostics() if self.config else {},
@@ -1265,7 +1364,7 @@ class DatabaseManager:
 
         return diagnostics
 
-    def close(self):
+    def close(self) -> None:
         """Close database connection"""
         # Stop pool monitoring
         if self._pool_monitor:
@@ -1280,7 +1379,7 @@ class DatabaseManager:
 db = DatabaseManager()
 
 
-def get_session():
+def get_session() -> Iterator[Session]:
     """Get database session for dependency injection with automatic cleanup"""
     session = db.get_session()
     try:
@@ -1289,7 +1388,7 @@ def get_session():
         session.close()
 
 
-def init_db():
+def init_db() -> None:
     """Initialize database (run on startup)"""
     db.create_all_tables()
     logger.info("Database initialized successfully")

@@ -59,11 +59,12 @@ Lint/format/typecheck:
 
 mypy notes: `Base` is `class Base(DeclarativeBase)` (SQLAlchemy 2 native typing); optional-dependency
 fallback assignments need `# type: ignore[assignment,misc]`; mixins declare host contracts in
-`if TYPE_CHECKING:` blocks. Phase-2 options are ON (`check_untyped_defs`, `warn_unused_ignores`,
-`warn_redundant_casts`) — never add a `# type: ignore` that isn't needed (unused ones fail the gate).
-Phase-3a options are ON since 2026-08-22 (`warn_return_any`, `warn_unused_configs`,
-`disallow_untyped_defs`): new modules must be fully annotated (bind stub-less lib results through
-typed locals, e.g. `encoded: str = jwt.encode(...)`); the 9 pre-annotation modules are ratchet-exempt (phase 3a baseline was 24)
+`if TYPE_CHECKING:` blocks. **`strict = true` is ON since 2026-08-23 (phase 4a)** — the full strict
+bundle applies to every module (phase 3a's `disallow_untyped_defs` ratchet shrank 24 → 0 by 3i, then
+4a flipped strict on top; both pinned by `tests/test_mypy_untyped_defs_ratchet.py`). New code must
+be fully annotated with parameterized generics (no bare `dict`/`list`/`Task`; redis `from_url` and
+Celery decorators carry scoped ignores); never add a `# type: ignore` that isn't needed (unused ones
+fail the gate).
 in `pyproject.toml` `[[tool.mypy.overrides]]`, pinned by `tests/test_mypy_untyped_defs_ratchet.py` —
 migrate a module by annotating it, then remove its override + frozen-set entry in the same change.
 

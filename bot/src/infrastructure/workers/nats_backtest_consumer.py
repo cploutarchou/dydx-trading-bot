@@ -112,7 +112,7 @@ class BacktestCommandHandler:
         """
         self.backtest_repo = backtest_repo
         self._worker_id = f"{socket.gethostname()}-{os.getpid()}"
-        self._active_tasks: Dict[str, asyncio.Task] = {}  # command_id -> task
+        self._active_tasks: Dict[str, asyncio.Task[None]] = {}  # command_id -> task
         self._running_backtests: Dict[str, bool] = {}  # run_id -> is_running
 
         logger.info(

@@ -29,7 +29,7 @@ from src.shared.time_utils import utc_now_iso
 class ConnectionManager:
     """Manages WebSocket connections and broadcasts"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.active_connections: Dict[str, Set[WebSocket]] = {}
         self.user_subscriptions: Dict[WebSocket, Set[str]] = {}
         self.send_metrics: Dict[str, Dict[str, Any]] = {}
@@ -294,7 +294,7 @@ class ConnectionManager:
             "runs_with_alerts": runs_with_alerts,
         }
 
-    async def connect(self, websocket: WebSocket, bot_instance_id: str):
+    async def connect(self, websocket: WebSocket, bot_instance_id: str) -> None:
         """Register new WebSocket connection"""
         await websocket.accept()
 
@@ -309,7 +309,7 @@ class ConnectionManager:
             f"Client connected to bot {bot_instance_id}. Total: {len(self.active_connections[bot_instance_id])}"
         )
 
-    def disconnect(self, websocket: WebSocket, bot_instance_id: str):
+    def disconnect(self, websocket: WebSocket, bot_instance_id: str) -> None:
         """Unregister WebSocket connection"""
         if bot_instance_id in self.active_connections:
             self.active_connections[bot_instance_id].discard(websocket)
@@ -320,7 +320,7 @@ class ConnectionManager:
         self.user_subscriptions.pop(websocket, None)
         logger.info(f"Client disconnected from bot {bot_instance_id}")
 
-    def _drop_connection(self, websocket: WebSocket):
+    def _drop_connection(self, websocket: WebSocket) -> None:
         """Remove websocket from all tracked channels/subscriptions."""
         channels = list(self.user_subscriptions.get(websocket, set()))
         for channel in channels:
@@ -336,7 +336,7 @@ class ConnectionManager:
         self,
         channel_id: str,
         connection: WebSocket,
-        message: Dict,
+        message: Dict[str, Any],
     ) -> tuple[WebSocket, bool]:
         try:
             await connection.send_json(message)
@@ -363,7 +363,9 @@ class ConnectionManager:
             )
             return connection, False
 
-    async def _deliver_local(self, bot_instance_id: str, message: Dict):
+    async def _deliver_local(
+        self, bot_instance_id: str, message: Dict[str, Any]
+    ) -> None:
         """Fan a message out to THIS worker's connections on a channel.
 
         Shared by :meth:`broadcast_to_bot` (the producer entry point) and
@@ -390,7 +392,9 @@ class ConnectionManager:
         for connection in disconnected:
             self._drop_connection(connection)
 
-    async def broadcast_to_bot(self, bot_instance_id: str, message: Dict):
+    async def broadcast_to_bot(
+        self, bot_instance_id: str, message: Dict[str, Any]
+    ) -> None:
         """Broadcast message to all clients connected to a bot.
 
         Delivers locally to this worker's connections, then best-effort publishes
@@ -403,7 +407,9 @@ class ConnectionManager:
         # broadcast and no try/except is needed here (see broadcast/bus.py).
         await get_broadcast_bus().publish(bot_instance_id, message)
 
-    async def deliver_local_broadcast(self, channel_id: str, message: Dict) -> None:
+    async def deliver_local_broadcast(
+        self, channel_id: str, message: Dict[str, Any]
+    ) -> None:
         """Deliver a received cross-worker broadcast to this worker's clients.
 
         Entry point for the broadcast-bus subscriber. Unlike
@@ -414,7 +420,7 @@ class ConnectionManager:
 
     async def send_personal_message(
         self,
-        message: Dict,
+        message: Dict[str, Any],
         websocket: WebSocket,
         *,
         channel_id: Optional[str] = None,
@@ -454,7 +460,9 @@ class WebSocketEvents:
     """WebSocket event handlers"""
 
     @staticmethod
-    async def handle_position_opened(bot_instance_id: str, position_data: Dict):
+    async def handle_position_opened(
+        bot_instance_id: str, position_data: Dict[str, Any]
+    ) -> None:
         """Broadcast position opened event"""
         message = {
             "type": "position_opened",
@@ -465,7 +473,9 @@ class WebSocketEvents:
         await manager.broadcast_to_bot(bot_instance_id, message)
 
     @staticmethod
-    async def handle_position_updated(bot_instance_id: str, position_data: Dict):
+    async def handle_position_updated(
+        bot_instance_id: str, position_data: Dict[str, Any]
+    ) -> None:
         """Broadcast position price update"""
         message = {
             "type": "position_updated",
@@ -476,7 +486,9 @@ class WebSocketEvents:
         await manager.broadcast_to_bot(bot_instance_id, message)
 
     @staticmethod
-    async def handle_position_closed(bot_instance_id: str, position_data: Dict):
+    async def handle_position_closed(
+        bot_instance_id: str, position_data: Dict[str, Any]
+    ) -> None:
         """Broadcast position closed event"""
         message = {
             "type": "position_closed",
@@ -487,7 +499,9 @@ class WebSocketEvents:
         await manager.broadcast_to_bot(bot_instance_id, message)
 
     @staticmethod
-    async def handle_market_data(bot_instance_id: str, market_data: Dict):
+    async def handle_market_data(
+        bot_instance_id: str, market_data: Dict[str, Any]
+    ) -> None:
         """Broadcast market data update"""
         message = {
             "type": "market_data",
@@ -498,7 +512,9 @@ class WebSocketEvents:
         await manager.broadcast_to_bot(bot_instance_id, message)
 
     @staticmethod
-    async def handle_stats_updated(bot_instance_id: str, stats_data: Dict):
+    async def handle_stats_updated(
+        bot_instance_id: str, stats_data: Dict[str, Any]
+    ) -> None:
         """Broadcast stats update"""
         message = {
             "type": "stats_updated",
@@ -509,7 +525,7 @@ class WebSocketEvents:
         await manager.broadcast_to_bot(bot_instance_id, message)
 
     @staticmethod
-    async def handle_alert(bot_instance_id: str, alert_data: Dict):
+    async def handle_alert(bot_instance_id: str, alert_data: Dict[str, Any]) -> None:
         """Broadcast alert event"""
         message = {
             "type": "alert",
@@ -526,7 +542,7 @@ class WebSocketServer:
     """WebSocket connection handler"""
 
     @staticmethod
-    def _resolve_realtime_bot_id(session, bot_instance_id: str) -> int | None:
+    def _resolve_realtime_bot_id(session: Any, bot_instance_id: str) -> int | None:
         raw = str(bot_instance_id or "").strip()
         if not raw:
             return None
@@ -556,7 +572,9 @@ class WebSocketServer:
         return channel_id.removeprefix("backtest-")
 
     @staticmethod
-    def _build_backtest_status_message(run_id: str, data: Dict) -> Dict:
+    def _build_backtest_status_message(
+        run_id: str, data: Dict[str, Any]
+    ) -> Dict[str, Any]:
         progress = float(data.get("progress_pct", 0.0) or 0.0)
         return {
             "type": "backtest_progress",
@@ -584,7 +602,9 @@ class WebSocketServer:
         }
 
     @staticmethod
-    def _build_backtest_log_message(run_id: str, data: Dict) -> Dict | None:
+    def _build_backtest_log_message(
+        run_id: str, data: Dict[str, Any]
+    ) -> Dict[str, Any] | None:
         status = str(data.get("status") or "").strip().lower()
         current_pair = data.get("current_pair")
         current_task = data.get("current_task")
@@ -626,7 +646,7 @@ class WebSocketServer:
         }
 
     @staticmethod
-    async def handle_connection(websocket: WebSocket, bot_instance_id: str):
+    async def handle_connection(websocket: WebSocket, bot_instance_id: str) -> None:
         """Handle new WebSocket connection"""
         await manager.connect(websocket, bot_instance_id)
 
@@ -667,7 +687,7 @@ class WebSocketServer:
                     websocket, WebSocketServer._backtest_run_id(bot_instance_id)
                 )
 
-            def _load_snapshot() -> Optional[Dict]:
+            def _load_snapshot() -> Optional[Dict[str, Any]]:
                 """Load + serialize the realtime snapshot off the event loop.
 
                 Owns its full Session lifecycle and returns plain dicts (no ORM
@@ -753,7 +773,9 @@ class WebSocketServer:
             return False
 
     @staticmethod
-    async def handle_message(websocket: WebSocket, bot_instance_id: str, message: Dict):
+    async def handle_message(
+        websocket: WebSocket, bot_instance_id: str, message: Dict[str, Any]
+    ) -> None:
         """Handle incoming WebSocket message"""
         message_type = message.get("type")
 
@@ -790,11 +812,11 @@ class WebSocketServer:
             logger.warning(f"Unknown message type: {message_type}")
 
     @staticmethod
-    async def send_positions(websocket: WebSocket, bot_instance_id: str):
+    async def send_positions(websocket: WebSocket, bot_instance_id: str) -> None:
         """Send all positions to client"""
         try:
 
-            def _load_positions() -> Optional[List[Dict]]:
+            def _load_positions() -> Optional[List[Dict[str, Any]]]:
                 """Load + serialize open positions off the event loop."""
                 session = db.get_session()
                 try:
@@ -837,11 +859,11 @@ class WebSocketServer:
             logger.error(f"Error sending positions: {e}")
 
     @staticmethod
-    async def send_stats(websocket: WebSocket, bot_instance_id: str):
+    async def send_stats(websocket: WebSocket, bot_instance_id: str) -> None:
         """Send statistics to client"""
         try:
 
-            def _load_stats() -> Optional[Dict]:
+            def _load_stats() -> Optional[Dict[str, Any]]:
                 """Load + serialize realtime stats off the event loop."""
                 session = db.get_session()
                 try:
@@ -889,11 +911,11 @@ class WebSocketServer:
             logger.error(f"Error sending stats: {e}")
 
     @staticmethod
-    async def send_market_data(websocket: WebSocket, bot_instance_id: str):
+    async def send_market_data(websocket: WebSocket, bot_instance_id: str) -> None:
         """Send market data to client"""
         try:
 
-            def _load_market_data() -> Optional[List[Dict]]:
+            def _load_market_data() -> Optional[List[Dict[str, Any]]]:
                 """Load + serialize market data off the event loop."""
                 session = db.get_session()
                 try:
@@ -941,7 +963,7 @@ class WebSocketServer:
         """Send backtest status to client on initial connect or explicit request."""
         try:
 
-            def _load_backtest_run_overview() -> Optional[Dict]:
+            def _load_backtest_run_overview() -> Optional[Dict[str, Any]]:
                 session = db.get_session()
                 try:
                     repository = BacktestRepository(session)
@@ -999,42 +1021,54 @@ class WebSocketServer:
 # Broadcast helper functions for use in bot operations
 
 
-async def broadcast_position_opened(bot_instance_id: int, position_data: Dict):
+async def broadcast_position_opened(
+    bot_instance_id: int, position_data: Dict[str, Any]
+) -> None:
     """Called when bot opens new position"""
     await WebSocketEvents.handle_position_opened(str(bot_instance_id), position_data)
 
 
-async def broadcast_position_update(bot_instance_id: int, position_data: Dict):
+async def broadcast_position_update(
+    bot_instance_id: int, position_data: Dict[str, Any]
+) -> None:
     """Called when position prices update"""
     await WebSocketEvents.handle_position_updated(str(bot_instance_id), position_data)
 
 
-async def broadcast_position_closed(bot_instance_id: int, position_data: Dict):
+async def broadcast_position_closed(
+    bot_instance_id: int, position_data: Dict[str, Any]
+) -> None:
     """Called when bot closes position"""
     await WebSocketEvents.handle_position_closed(str(bot_instance_id), position_data)
 
 
-async def broadcast_market_update(bot_instance_id: int, market_data: Dict):
+async def broadcast_market_update(
+    bot_instance_id: int, market_data: Dict[str, Any]
+) -> None:
     """Called when market data updates"""
     await WebSocketEvents.handle_market_data(str(bot_instance_id), market_data)
 
 
-async def broadcast_stats_update(bot_instance_id: int, stats_data: Dict):
+async def broadcast_stats_update(
+    bot_instance_id: int, stats_data: Dict[str, Any]
+) -> None:
     """Called when statistics update"""
     await WebSocketEvents.handle_stats_updated(str(bot_instance_id), stats_data)
 
 
-async def broadcast_alert(bot_instance_id: int, alert_data: Dict):
+async def broadcast_alert(bot_instance_id: int, alert_data: Dict[str, Any]) -> None:
     """Called when alert is triggered"""
     await WebSocketEvents.handle_alert(str(bot_instance_id), alert_data)
 
 
-async def broadcast_strategy_status(status_payload: Dict):
+async def broadcast_strategy_status(status_payload: Dict[str, Any]) -> None:
     """Broadcast strategy runtime lifecycle updates to strategy channel subscribers."""
     await manager.broadcast_to_bot("strategies", status_payload)
 
 
-def build_strategy_snapshot_message(status_payloads: list[Dict]) -> Dict:
+def build_strategy_snapshot_message(
+    status_payloads: list[Dict[str, Any]],
+) -> Dict[str, Any]:
     """Build initial strategy channel snapshot payload."""
     return {
         "type": "strategy_status_snapshot",

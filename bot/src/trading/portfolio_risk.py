@@ -235,7 +235,7 @@ def _limits_from_config() -> PortfolioRiskLimits:
     )
 
 
-def portfolio_risk_config() -> dict:
+def portfolio_risk_config() -> dict[str, Any]:
     """Operator-facing configuration snapshot (used by the monitoring route)."""
     limits = _limits_from_config()
     return {
@@ -488,7 +488,7 @@ class RedisPeakEquityStore:
         try:  # pragma: no cover - optional-connection path, built lazily
             import redis.asyncio as aioredis
 
-            self._client = aioredis.from_url(
+            self._client = aioredis.from_url(  # type: ignore[no-untyped-call]
                 self._url,
                 decode_responses=True,
                 socket_timeout=self._socket_timeout,

@@ -1,5 +1,236 @@
 # Tasks Log
 
+## 2026-08-23 (pass 15) — DONE
+
+- **Unused `high_priority` Celery queue removed from defaults** (flows/risks-and-gaps.md row
+  "`high_priority` queue is configured but no current task routes there").
+    - Verified no producer routes there: `task_routes` feeds only `backtests` (env-overridable via
+      `BACKTEST_CELERY_QUEUE`) and `scheduled` (opt-in market sync); everything else falls to
+      `task_default_queue="default"`. The per-run queue override seam
+      (`BacktestService._build_task_context` → `send_task(queue=...)`) still allows targeting a
+      custom queue — operators add it to `CELERY_QUEUES` explicitly.
+    - Removed from every default: `DEFAULT_CELERY_QUEUES` in
+      `src/infrastructure/workers/celery_app.py` + `celery_monitor.py`, `worker_entrypoint.py`,
+      bot `Makefile` (`local-worker`), root `Makefile` worker target,
+      `docker-compose.bot-worker.yml`, `deploy/k8s/dydx-trading-bot-staging.yaml`,
+      `deploy/k8s/dydx-trading-bot-production.yaml`, `deploy/k8s-next/applications.yaml`; docs
+      synced (README queue list + custom-queue note, CLAUDE.md env block, AGENTS.md worker
+      entrypoint line, senior-agent quick reference).
+    - Tests: `test_celery_monitor` route assertions now also pin `high_priority` NOT declared;
+      entrypoint/Makefile default-string assertions updated to the 3-queue default.
+    - Validation: per-area 106 passed (worker entrypoint, celery monitor, market sync, backtest
+      service unit); opt-in integration suite 6 passed against live infra — a real Celery worker
+      booted on the new 3-queue default, plus Redis cache/broadcast roundtrips and the live dYdX
+      indexer contract; isort/black/flake8 clean; strict mypy 0 errors; full CI-mirror suite
+      1361 passed, 13 skipped, coverage 83.37% ≥ 82.
+    - Also fixed pre-existing isort import order in `worker_entrypoint.py` (`_run_nats_worker`)
+      while formatting the file this pass touched.
+
+## 2026-08-23 (pass 14) — DONE
+
+- **Startup leader lock for multi-replica safety** (flows/risks-and-gaps.md row
+  "startup migrations/recovery may execute concurrently on replicas").
+    - `src/infrastructure/database.py`: new `StartupLeaderLock` — Postgres
+      session advisory lock (`pg_try_advisory_lock`/`pg_advisory_unlock`) held
+      on a dedicated connection; polls until deadline, fails open for
+      non-Postgres backends, unlock failures degrade to connection-close (which
+      Postgres auto-releases — a crashed leader cannot wedge startup). Catches
+      are narrow (`SQLAlchemyError`) so the exception ratchet is untouched.
+      Factory `DatabaseManager.startup_leader_lock()` reads
+      `STARTUP_LEADER_LOCK_WAIT_SECONDS` (default 120 s, unparseable → default).
+    - `src/api/server.py` lifespan: the whole startup critical section
+      (migrations → create_all → schema compat → verify → bus start → backtest
+      recovery → bot-manager recovery) runs under the lock; a replica that
+      cannot acquire it fails fast with a RuntimeError instead of running
+      unlocked.
+    - Tests: 6 new (5 database-unit — fail-open non-pg, poll-until-acquired +
+      release SQL/close, timeout closes without unlock, unlock-failure
+      resilience, env wait knob; 1 lifespan — fail-fast leaves the critical
+      section untouched). `_wire_lifespan` fakes the lock; full-startup test
+      asserts acquire/release around the DB sequence.
+    - Validation: strict mypy 0 errors; isort/black/flake8 clean; per-area
+      green (api server unit + database unit 63 passed; instance manager +
+      backtest service unit 170 passed); full CI-mirror suite 1361 passed,
+      13 skipped, coverage 83.37% ≥ 82. Live-boot verification against real
+      Postgres was NOT possible this session (Docker daemon unavailable) — the
+      advisory SQL is pinned by unit tests instead.
+    - Docs: risks-and-gaps row resolved, README startup section, AGENTS.md
+      latest-context line.
+
+## 2026-08-23 (pass 13) — DONE
+
+- **Dead Redis backtest-status pub-sub producer removed** (flows/risks-and-gaps.md
+  row "producer but no subscriber").
+    - Investigation: `_publish_backtest_status` published to
+      `backtest:{run_id}:status` from 7 lifecycle points in the Celery task;
+      repo-wide search found zero subscribers (only the broadcast bus's
+      `ws:broadcast` channel and NATS JetStream consume pub/sub). Backtest
+      websocket clients are pull-based by contract (snapshot on connect +
+      `request_status` refresh via DB reads), and the durable NATS emitter
+      (`publish_backtest_event`) fires in the same task for backend projection —
+      the Redis channel was a legacy pre-NATS path.
+    - Removed: `_publish_backtest_status`, its `_get_redis_client` (lock client
+      is separate and untouched), 7 call sites, the now-unused
+      `redis_host/port/db/password/ssl` imports; 2 obsolete tests dropped, task
+      lifecycle tests re-based onto the NATS event captures.
+    - Exception ratchet tightened in the same change: 297 → 294 (three broad
+      catches went with the dead code), per the ratchet rule.
+    - Docs: risks-and-gaps row struck (resolved-by-removal), flows
+      data-flows/background-tasks/current-business-flows updated.
+    - Validation: strict mypy 0 errors; isort/black/flake8 clean; per-area green
+      (backtest task helpers, failure persistence, NATS consumer + event
+      emitter — 57 passed); full CI-mirror suite 1355 passed, 13 skipped,
+      coverage 83.33% ≥ 82.
+
+## 2026-08-23 (pass 12) — DONE
+
+- **CORS hardening (flows/risks-and-gaps.md row "CORS wildcard + credentials")** —
+  the last verified-open Medium security row from the 2026-06-21 gap audit.
+    - `src/api/server.py`: new `_resolve_cors_settings()` — `BOT_API_CORS_ORIGINS`
+      (comma-separated) → those origins with `allow_credentials=true`; unset/blank
+      → wildcard `["*"]` with `allow_credentials=False`. Rationale: browsers reject
+      credentialed wildcard responses per spec, and this API authenticates via
+      Authorization headers (not cookies), so no working flow depended on the old
+      wildcard+credentials combo — the insecure pairing is gone with zero breakage.
+    - Tests: 3 new cases in `tests/test_api_server_unit.py` (default
+      wildcard/no-credentials, explicit origins parse + credentials on, blank-env
+      fallback).
+    - Docs: README security section (env knob + rationale),
+      `flows/risks-and-gaps.md` row struck through with resolution note,
+      AGENTS.md latest-context line.
+    - Validation: strict mypy 0 errors; isort/black/flake8 clean; per-area green
+      (api server unit, auth contract, service-token overlap — 41 passed); full
+      CI-mirror suite 1357 passed, 13 skipped, coverage 83.34% ≥ 82.
+
+## 2026-08-23 (pass 11) — DONE — `strict = true` flipped (phase 4a)
+
+- **mypy phase 4a — the strict bundle is ON** (measured 101 errors, fixed all,
+  gate stays 0 errors).
+    - Measurement first: temp config with `strict = true` → 87 `type-arg`
+      (bare generics), 8 `no-untyped-call` (redis `from_url`), 3
+      `comparison-overlap`, 2 `untyped-decorator` (Celery), 1 `attr-defined`
+      (nats implicit re-export).
+    - Fixed: 87 bare `dict`/`list`/`set`/`List`/`Dict`/`Task`/`Popen`/
+      `sessionmaker` annotations parameterized with real element types; 2
+      legacy-shape defensive comparisons bound through explicit `Any` locals
+      (`main_instance` cointegration store check, `position_manager`
+      bot-open guard); nats `Msg` imported from canonical `nats.aio.msg`;
+      10 scoped type-ignores added for third-party seams (8 redis
+      `from_url`, 2 Celery decorators); `cleanup_cache_entries` widened to
+      `Dict[Any, Any]` (key-agnostic helper).
+    - Two earlier annotations corrected by the stricter pass:
+      `_candles_recent_cache` is tuple-keyed
+      (`dict[tuple[str, Any], Any]`), and `processes` holds `Popen[str]`
+      (text mode), not `Popen[bytes]`.
+    - `strict = true` added to `pyproject.toml [tool.mypy]` (explicit phase-2/3
+      flags kept as history); ratchet test now asserts `strict is True`
+      alongside `disallow_untyped_defs`.
+    - Validation: strict mypy `Success: no issues found in 97 source files`;
+      isort/black/flake8 clean; 16 per-area suites green (323 passed);
+      full CI-mirror suite 1354 passed, 13 skipped, coverage 83.34% ≥ 82.
+
+## 2026-08-23 (pass 10) — DONE — exemption ratchet EMPTY
+
+- **mypy phases 3h + 3i — exemption ratchet 3 → 0 modules** (the final three
+  API monoliths; 105 untyped-def sites annotated; gate stays 0 errors).
+    - **3h**: `api/websocket_server` (25 sites — ConnectionManager lifecycle/
+      delivery family `-> None`, six event broadcasters, the three senders,
+      seven module-level `broadcast_*` helpers) and `api/server` (23 sites —
+      stderr filter wrapper, `custom_openapi -> Any`, trace middleware
+      (`-> Response`, `call_next` typed), `/health`+`/ready`/routes
+      `-> JSONResponse`, `/metrics -> Dict[str, Any]` + `response_model=None`
+      (2FA pattern, OpenAPI byte-identical), monitor loop `-> None`).
+      Ratchet 3 → 1. Per-area green (api server unit, websocket server,
+      broadcast bus, auth service-token overlap, ratchet — 103 passed); full
+      suite 1354 passed / 83.33%.
+    - **3i**: `api/v1/backtests` (57 sites — websocket handlers `-> None`,
+      `get_backtest_service -> BacktestService`, generic
+      `_run_with_backtest_service` (`Callable[[Any], _T] -> _T`), 18 `_*_sync`
+      shims `-> Any`, ~32 routes `-> JSONResponse`; five compat-seam routes
+      bind `_compat(...)` Any through typed `response: JSONResponse` locals).
+      Ratchet 1 → 0: **the `[[tool.mypy.overrides]]` block is deleted —
+      `disallow_untyped_defs` applies globally with zero exemptions**, pinned
+      by the ratchet test's empty frozen set. OpenAPI byte-identical. Per-area
+      green (backtest API contract, backtest routes unit, ratchet — 82
+      passed); full suite 1354 passed, 13 skipped, coverage 83.33% ≥ 82.
+    - Validation: mypy 0 errors throughout (incl. a no-exemption config run);
+      isort/black/flake8 clean; every gate re-run after black's rewrap.
+    - Next decision (not taken): `strict = true` flip — measure blast radius
+      first (`disallow_any_generics` vs bare `dict`/`list` annotations).
+
+## 2026-08-23 (pass 9) — DONE
+
+- **mypy phase 3g — exemption ratchet 5 → 3 modules** (infrastructure pair; 39
+  untyped-def sites annotated; gate stays 0 errors).
+    - Migrated: `infrastructure/database` (21 sites — pool-monitor methods,
+      `DatabaseConfig.__init__`, `DatabaseManager.__new__(cls) ->
+      "DatabaseManager"` + `__init__`, engine/migration lifecycle
+      (`_initialize`, `create_all_tables`, `ensure_schema_compatibility`,
+      `run_pending_migrations`, `drop_all_tables`, `close`), module-level
+      `get_session() -> Iterator[Session]`, `init_db() -> None`) and
+      `bot_instance_manager` (18 sites — recovery diagnostics, dev-row cleanup,
+      DB persistence sync family, strategy-status publisher, log handles,
+      trading-stats refresh, dead-process cleanup / liveness degrade / shutdown).
+    - All annotations runtime no-ops; no body changes required this pass.
+    - Ratchet: `pyproject.toml` override list + ratchet-test frozen set shrunk to 3
+      (backtests 57, websocket_server 25, server 23 — 105 sites remain).
+    - Validation: mypy 0 errors; isort/black/flake8 clean; per-area suites green
+      (database unit, persistence repository unit, bot instance manager,
+      monitoring routes, mypy ratchet — 140 passed); full CI-mirror suite
+      1354 passed, 13 skipped, coverage 83.33% ≥ 82 floor.
+
+## 2026-08-23 (pass 8)
+
+- **mypy phase 3f — exemption ratchet 7 → 5 modules** (the API route pair; 23
+  untyped-def sites annotated; gate stays 0 errors).
+    - Migrated: `api/v1/strategies` (8 routes — `current_user: User = Depends(...)`
+      + `-> JSONResponse`, including the public catalog route) and
+      `api/v1/bot_realtime` (15 sites — six session-owning `_*_sync` loaders and six
+      HTTP routes `-> JSONResponse` (typed returns flow through `run_db`'s generic),
+      three websocket handlers (`websocket_alerts`, `websocket_bot_runtime`,
+      `websocket_strategies`) `-> None`).
+    - Schema-safety check: regenerated `openapi.json` from the live app — zero diff
+      on strategies/bot_realtime paths (annotations schema-neutral as designed);
+      caught a 3b docs-sync gap (10 auth paths missing their `Response_*` schemas
+      after the `-> dict` annotations) and updated `openapi.json` (additive only).
+    - Ratchet: `pyproject.toml` override list + ratchet-test frozen set shrunk to 5;
+      144 untyped-def sites remain (backtests 57, websocket_server 25, server 23,
+      database 21, bot_instance_manager 18).
+    - Validation: mypy 0 errors; isort/black/flake8 clean; per-area suites green
+      (bot realtime routes, realtime positions/repository/pnl/serializers, bot
+      record/lifecycle routes, auth API contract, strategies routes, websocket
+      server, mypy ratchet — 99 passed); full CI-mirror suite 1354 passed,
+      13 skipped, coverage 83.33% ≥ 82 floor.
+
+## 2026-08-22 (pass 7)
+
+- **mypy phase 3e — exemption ratchet 9 → 7 modules** (the trading-critical pair;
+  27 untyped-def sites annotated; gate stays 0 errors).
+    - Migrated: `trading/position_manager` (9 sites — `_record_entry_failure`/
+      `_record_entry_success -> None`, `client: Any` on
+      `_confirm_exchange_flat_after_close`, `_get_recent_candles_for_cycle -> Any`,
+      `_resolve_leg_open_state`, `_place_reduce_only_close_with_retries`,
+      `_close_orphan_exchange_leg`, `open_positions`, `manage_trade_exits`) and
+      `trading/account_manager` (18 sites — full order-execution seam;
+      `place_market_order -> Tuple[Any, str]`, `check_order_status -> str` (typed
+      local over the Any payload), `get_order_fills -> List[Any]`,
+      `is_open_positions -> bool`, `cancel_all_orders -> Optional[List[Any]]`,
+      `abort_all_positions -> List[Any]`, `get_account`/`get_open_positions -> Any`).
+    - Two behavior-preserving fixes mypy forced: (1) `place_market_order`'s
+      `Market(market_payload)` local renamed to `market_obj` — it shadowed the
+      newly-typed `market: str` param (local rename, runtime identical); (2)
+      `cancel_all_orders` gained an explicit trailing `return None` (the implicit
+      fall-off already returned None; mypy only permits fall-off for `-> None`/`-> Any`).
+    - Ratchet: `pyproject.toml` override list + ratchet-test frozen set shrunk to 7;
+      174 untyped-def sites remain (backtests 57, websocket_server 25, server 23,
+      database 21, bot_instance_manager 18, strategies/bot_realtime 15 each).
+    - Validation: mypy 0 errors; isort/black/flake8 clean; per-area suites green
+      (position-manager exit/entry safety, bot-agent emergency cleanup
+      (`make test-execution-safety`), portfolio risk + accounts, live risk controls,
+      live trade persistence, account-manager abort cleanup, trading network errors,
+      arbitrage observability + cycle cache, mypy ratchet — 141 passed); full
+      CI-mirror suite 1354 passed, 13 skipped, coverage 83.32% ≥ 82 floor.
+
 ## 2026-08-22 (pass 6)
 
 - **mypy phase 3d — exemption ratchet 11 → 9 modules** (2 modules, 20 untyped-def sites

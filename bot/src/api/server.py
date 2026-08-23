@@ -12,7 +12,18 @@ import time
 from collections import deque
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict, Generator, List, Optional, Union
+from typing import (
+    Any,
+    AsyncGenerator,
+    Awaitable,
+    Callable,
+    Dict,
+    Generator,
+    Iterator,
+    List,
+    Optional,
+    Union,
+)
 from uuid import uuid4
 
 import httpx
@@ -30,7 +41,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -142,18 +153,18 @@ _original_stderr = sys.stderr
 class _FilteredStderr:
     """Filter noisy third-party warnings that are expected and already handled."""
 
-    def __init__(self, stderr):
+    def __init__(self, stderr: Any) -> None:
         self.stderr = stderr
 
-    def write(self, message):
+    def write(self, message: str) -> None:
         if "Node URL should not contain http(s)://" not in message:
             self.stderr.write(message)
             self.stderr.flush()
 
-    def flush(self):
+    def flush(self) -> None:
         self.stderr.flush()
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         return getattr(self.stderr, name)
 
 
@@ -163,7 +174,7 @@ sys.stderr = _FilteredStderr(_original_stderr)
 setup_logging()
 # trace_id_ctx / INTERNAL_ERROR_MESSAGE / api_response live in src/api/responses.py
 # (re-imported above) so extracted route modules can share them without a circular import.
-bot_manager_monitor_task: Optional[asyncio.Task] = None
+bot_manager_monitor_task: Optional[asyncio.Task[None]] = None
 
 MARKET_RESOLUTION_TIMEOUT_SECONDS = 10.0
 
@@ -181,7 +192,7 @@ class _SlidingWindowRateLimiter:
     def __init__(self, max_requests: int, window_seconds: float):
         self._max = max_requests
         self._window = window_seconds
-        self._buckets: Dict[str, list] = {}
+        self._buckets: Dict[str, list[Any]] = {}
         self._lock = threading.Lock()
 
     def _caller_key(self, request: Request) -> str:
@@ -240,7 +251,7 @@ class _RedisSlidingWindowRateLimiter:
             import redis as _redis
 
             url = redis_url(prefer_celery_broker=True)
-            self._redis_client = _redis.from_url(
+            self._redis_client = _redis.from_url(  # type: ignore[no-untyped-call]
                 url,
                 decode_responses=True,
                 socket_connect_timeout=0.5,
@@ -527,7 +538,7 @@ def _bot_db_sync_diagnostics() -> Dict[str, Any]:
 
 
 # Custom OpenAPI schema for JWT Bearer authentication
-def custom_openapi():
+def custom_openapi() -> Any:
     if app.openapi_schema:
         return app.openapi_schema
 
@@ -691,55 +702,70 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
         logger.warning("Runtime DB pool config warning: {}", warning)
     if not db.health_check():
         raise RuntimeError("Bot database health check failed during API startup")
-    db.run_pending_migrations()
-    # Metadata creation remains a compatibility safety net for ORM-only tables;
-    # migrations run first so an empty database cannot be mistaken for legacy.
-    db.create_all_tables()
-    db.ensure_schema_compatibility()
-    db.verify_required_tables()
-    # Start the cross-worker WebSocket broadcast subscriber early (no-op when
-    # WS_BROADCAST_ENABLED=false or no Redis URL resolves), BEFORE any broadcast
-    # producer below (backtest auto-recovery, bot-manager status events) runs.
-    # start() is non-raising and non-blocking: it spawns the listener, which
-    # reconnects with backoff if Redis is not yet up.
-    await get_broadcast_bus().start(manager.deliver_local_broadcast)
+    # Serialize schema migration + startup recovery across API replicas via the
+    # Postgres advisory StartupLeaderLock. Two replicas racing
+    # run_pending_migrations/create_all or double-dispatching recovery is the
+    # multi-instance hazard this removes. Fail fast when the lock cannot be
+    # taken: running this section unlocked is worse than a delayed start (the
+    # orchestrator restarts the replica and it retries).
+    leader_lock = db.startup_leader_lock()
+    if not leader_lock.acquire():
+        raise RuntimeError(
+            "Startup leader lock not acquired within the wait window; another "
+            "replica likely holds it (mid-migration/recovery). Restart to retry."
+        )
     try:
-        with backtest_service_scope() as service:
-            backtest_recovery = await service.auto_recover_interrupted_runs(
-                _broadcast_backtest_progress
+        db.run_pending_migrations()
+        # Metadata creation remains a compatibility safety net for ORM-only tables;
+        # migrations run first so an empty database cannot be mistaken for legacy.
+        db.create_all_tables()
+        db.ensure_schema_compatibility()
+        db.verify_required_tables()
+        # Start the cross-worker WebSocket broadcast subscriber early (no-op when
+        # WS_BROADCAST_ENABLED=false or no Redis URL resolves), BEFORE any broadcast
+        # producer below (backtest auto-recovery, bot-manager status events) runs.
+        # start() is non-raising and non-blocking: it spawns the listener, which
+        # reconnects with backoff if Redis is not yet up.
+        await get_broadcast_bus().start(manager.deliver_local_broadcast)
+        try:
+            with backtest_service_scope() as service:
+                backtest_recovery = await service.auto_recover_interrupted_runs(
+                    _broadcast_backtest_progress
+                )
+            logger.info(
+                "Backtest auto-recovery completed: mode={} candidates={} restarted={} marked_failed={}",
+                backtest_recovery.get("mode"),
+                backtest_recovery.get("candidate_count"),
+                backtest_recovery.get("restarted_count"),
+                backtest_recovery.get("marked_failed_count"),
             )
-        logger.info(
-            "Backtest auto-recovery completed: mode={} candidates={} restarted={} marked_failed={}",
-            backtest_recovery.get("mode"),
-            backtest_recovery.get("candidate_count"),
-            backtest_recovery.get("restarted_count"),
-            backtest_recovery.get("marked_failed_count"),
-        )
-    except Exception as exc:
-        logger.warning("Backtest auto-recovery failed during API startup: {}", exc)
-    if bot_manager is not None:
-        bot_manager.set_status_event_publisher(broadcast_strategy_status)
-        await bot_manager.cleanup_dead_processes()
-        live_recovery = await bot_manager.auto_recover_live_runtimes()
-        logger.info(
-            "Live runtime auto-recovery completed: checked={} verified={} restarted={} marked_error={}",
-            live_recovery.get("checked"),
-            len(live_recovery.get("verified_running", [])),
-            len(live_recovery.get("restarted", [])),
-            len(live_recovery.get("marked_error", [])),
-        )
-        if bot_manager_monitor_task is None or bot_manager_monitor_task.done():
-            bot_manager_monitor_task = async_job_manager.create_supervised_task(
-                _bot_manager_monitor_loop(),
-                job_type="readiness_check",
-                job_id="bot-manager-monitor",
-                metadata={"component": "bot_manager"},
-                auto_complete=False,
+        except Exception as exc:
+            logger.warning("Backtest auto-recovery failed during API startup: {}", exc)
+        if bot_manager is not None:
+            bot_manager.set_status_event_publisher(broadcast_strategy_status)
+            await bot_manager.cleanup_dead_processes()
+            live_recovery = await bot_manager.auto_recover_live_runtimes()
+            logger.info(
+                "Live runtime auto-recovery completed: checked={} verified={} restarted={} marked_error={}",
+                live_recovery.get("checked"),
+                len(live_recovery.get("verified_running", [])),
+                len(live_recovery.get("restarted", [])),
+                len(live_recovery.get("marked_error", [])),
             )
-    else:
-        logger.warning(
-            "Bot manager unavailable; bot-instance endpoints may be degraded"
-        )
+            if bot_manager_monitor_task is None or bot_manager_monitor_task.done():
+                bot_manager_monitor_task = async_job_manager.create_supervised_task(
+                    _bot_manager_monitor_loop(),
+                    job_type="readiness_check",
+                    job_id="bot-manager-monitor",
+                    metadata={"component": "bot_manager"},
+                    auto_complete=False,
+                )
+        else:
+            logger.warning(
+                "Bot manager unavailable; bot-instance endpoints may be degraded"
+            )
+    finally:
+        leader_lock.release()
     logger.info("Bot API Server ready")
 
     try:
@@ -781,11 +807,30 @@ app = FastAPI(
 # Set custom OpenAPI schema
 app.openapi = custom_openapi  # type: ignore[method-assign]  # FastAPI's documented override pattern
 
+
+def _resolve_cors_settings() -> tuple[list[str], bool]:
+    """Resolve CORS origins/credentials from the environment, fail-safe.
+
+    ``BOT_API_CORS_ORIGINS`` (comma-separated explicit origins) enables the
+    credentialed CORS posture production deployments need. Without it the
+    server serves the spec-compliant wildcard WITHOUT credentials — browsers
+    reject credentialed wildcard responses anyway, and this API authenticates
+    via Authorization headers (not cookies), so no working flow depends on
+    wildcard+credentials.
+    """
+    raw_origins = os.getenv("BOT_API_CORS_ORIGINS", "").strip()
+    origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+    if origins:
+        return origins, True
+    return ["*"], False
+
+
 # Add CORS middleware
+_cors_origins, _cors_allow_credentials = _resolve_cors_settings()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -957,7 +1002,7 @@ app.include_router(backtests_router)
 async def runtime_preflight(
     request: RuntimePreflightRequest,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Evaluate whether a live runtime is ready to start on the selected environment."""
     del current_user
     try:
@@ -1126,7 +1171,9 @@ async def runtime_preflight(
 
 
 @app.middleware("http")
-async def request_trace_logging_middleware(request: Request, call_next):
+async def request_trace_logging_middleware(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
     """Attach per-request trace IDs and emit verbose request logs in development."""
     inbound_trace_id = (request.headers.get("X-Trace-Id") or "").strip()
     trace_id = inbound_trace_id or str(uuid4())
@@ -1233,7 +1280,7 @@ def _backtest_storage_health(service: Any) -> Dict[str, Any]:
 
 
 @app.get("/health")
-async def health_check():
+async def health_check() -> JSONResponse:
     """API health check"""
     with backtest_service_scope() as service:
         runtime_health = service.get_runtime_health()
@@ -1266,7 +1313,7 @@ async def health_check():
 
 
 @app.get("/ready")
-async def readiness_check():
+async def readiness_check() -> JSONResponse:
     """Strict readiness probe for orchestrators and deployment gates."""
     with backtest_service_scope() as service:
         runtime_health = service.get_runtime_health()
@@ -1306,8 +1353,8 @@ async def readiness_check():
         )
 
 
-@app.get("/metrics")
-async def metrics():
+@app.get("/metrics", response_model=None)
+async def metrics() -> Dict[str, Any]:
     """Return bot-local runtime metrics for backend /metrics dependency probing."""
     return {
         "timestamp": utc_now_iso(),
@@ -1322,14 +1369,14 @@ async def metrics():
 
 
 @app.get("/api/v1/capabilities")
-async def api_capabilities():
+async def api_capabilities() -> JSONResponse:
     """Expose bot-service HTTP and websocket capabilities for backend integration."""
     http_routes: List[str] = []
     websocket_routes: List[str] = []
     commands: List[str] = []
     queries: List[str] = []
 
-    def _registered_routes(routes, prefix: str = ""):
+    def _registered_routes(routes: Any, prefix: str = "") -> Iterator[Any]:
         """Yield direct and lazily included FastAPI routes with effective paths.
 
         FastAPI 0.138+ stores ``include_router`` mounts as ``_IncludedRouter``
@@ -1412,7 +1459,7 @@ async def api_capabilities():
 
 
 @app.get("/api/v1/markets/perpetuals")
-async def list_perpetual_markets(limit: int = 0):
+async def list_perpetual_markets(limit: int = 0) -> JSONResponse:
     """Return available dYdX perpetual markets for run configuration.
 
     Results are cached for ``MARKETS_CACHE_TTL_SECONDS`` (default 60 s).
@@ -1518,7 +1565,9 @@ async def list_perpetual_markets(limit: int = 0):
 
 
 @app.get("/api/v1/runtime/db-config")
-async def runtime_db_config(current_user: User = Depends(get_admin_user)):
+async def runtime_db_config(
+    current_user: User = Depends(get_admin_user),
+) -> JSONResponse:
     """Admin-only diagnostics for effective runtime database configuration."""
     _ = current_user
     try:
@@ -1548,7 +1597,7 @@ async def runtime_db_config(current_user: User = Depends(get_admin_user)):
 @app.get("/api/v1/users/me")
 async def get_current_user_profile(
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Frontend-compatible current user endpoint used after login."""
     return api_response(
         success=True,
@@ -1573,7 +1622,9 @@ async def get_current_user_profile(
 
 
 @app.get("/api/v1/system/status")
-async def system_status(current_user: User = Depends(get_current_active_user)):
+async def system_status(
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """Get system status and statistics"""
     try:
         with backtest_service_scope() as service:
@@ -1655,7 +1706,7 @@ async def system_status(current_user: User = Depends(get_current_active_user)):
 @app.get("/api/v1/runtime/strategy-resolution-metrics")
 async def get_strategy_resolution_metrics(
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Lightweight dashboard endpoint for strategy-resolution drift metrics."""
     del current_user
     return api_response(
@@ -1671,7 +1722,7 @@ async def get_strategy_resolution_metrics(
 )
 async def get_strategy_resolution_metrics_prometheus(
     current_user: User = Depends(get_current_active_user),
-):
+) -> PlainTextResponse:
     """Prometheus text-format strategy-resolution metrics for dashboards/probes."""
     del current_user
     return PlainTextResponse(
@@ -1683,7 +1734,7 @@ async def get_strategy_resolution_metrics_prometheus(
 @app.get("/api/v1/admin/runtime/strategy-resolution-metrics")
 async def get_strategy_resolution_metrics_admin(
     current_user: User = Depends(get_admin_user),
-):
+) -> JSONResponse:
     """Admin-only alias for strategy-resolution drift metrics."""
     del current_user
     return api_response(
@@ -1696,7 +1747,7 @@ async def get_strategy_resolution_metrics_admin(
 @app.post("/api/v1/admin/runtime/strategy-resolution-metrics/reset")
 async def reset_strategy_resolution_metrics_admin(
     current_user: User = Depends(get_admin_user),
-):
+) -> JSONResponse:
     """Admin-only endpoint to reset in-memory strategy-resolution counters."""
     del current_user
     return api_response(
@@ -1711,7 +1762,7 @@ async def reset_strategy_resolution_metrics_admin(
 # ============================================================================
 
 
-async def _bot_manager_monitor_loop():
+async def _bot_manager_monitor_loop() -> None:
     """Background loop that reconciles dead processes into API-visible error states."""
     interval_seconds = max(
         2,

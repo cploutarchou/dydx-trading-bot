@@ -37,17 +37,14 @@ def test_makefile_local_worker_and_flower_use_workers_celery_app():
 
     assert "local-worker: ensure-venv" in content
     assert "src.infrastructure.workers.celery_app:celery_app worker -l info" in content
-    assert "-Q $${CELERY_QUEUES:-backtests,default,high_priority,scheduled}" in content
+    assert "-Q $${CELERY_QUEUES:-backtests,default,scheduled}" in content
     assert (
         "src.infrastructure.workers.celery_app:celery_app flower --address=0.0.0.0 --port=5555"
         in content
     )
     assert "redis://localhost:6379/1" in content
     assert "redis://localhost:6379/2" in content
-    assert (
-        "CELERY_QUEUES=$${CELERY_QUEUES:-backtests,default,high_priority,scheduled}"
-        in content
-    )
+    assert "CELERY_QUEUES=$${CELERY_QUEUES:-backtests,default,scheduled}" in content
 
 
 def test_workers_celery_app_loads_repo_env_before_resolving_broker_settings():
@@ -74,9 +71,10 @@ def test_celery_app_routes_backtests_to_dedicated_queue():
     assert routes["backtests.run"]["queue"] == "backtests"
     assert routes["bot.sync_market_candles"]["queue"] == "scheduled"
     assert celery_app.conf.task_default_queue == "default"
-    assert {"backtests", "default", "high_priority", "scheduled"}.issubset(
-        {queue.name for queue in celery_app.conf.task_queues}
-    )
+    declared = {queue.name for queue in celery_app.conf.task_queues}
+    assert {"backtests", "default", "scheduled"}.issubset(declared)
+    # No producer routes to high_priority; it must not be a default queue.
+    assert "high_priority" not in declared
 
 
 def test_celery_beat_schedule_is_market_sync_opt_in(monkeypatch):

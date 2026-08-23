@@ -113,7 +113,7 @@ def _entry_should_skip_pair(pair_key: str) -> tuple[bool, float]:
     return (remaining > 0), max(0.0, remaining)
 
 
-def _record_entry_failure(pair_key: str, error: Any):
+def _record_entry_failure(pair_key: str, error: Any) -> None:
     current = _ENTRY_FAILURE_STATE.get(pair_key, {})
     failure_count = int(current.get("failure_count", 0) or 0) + 1
     cooldown = _entry_backoff_seconds(failure_count)
@@ -125,7 +125,7 @@ def _record_entry_failure(pair_key: str, error: Any):
     }
 
 
-def _record_entry_success(pair_key: str):
+def _record_entry_success(pair_key: str) -> None:
     if pair_key in _ENTRY_FAILURE_STATE:
         _ENTRY_FAILURE_STATE.pop(pair_key, None)
 
@@ -292,7 +292,7 @@ def _classify_exit_confirmation_state(
 
 
 async def _confirm_exchange_flat_after_close(
-    client,
+    client: Any,
     *,
     position: Dict[str, Any],
     close_order_ids: Dict[str, str],
@@ -329,10 +329,10 @@ async def _confirm_exchange_flat_after_close(
 
 
 async def _get_recent_candles_for_cycle(
-    client,
+    client: Any,
     market: str,
     cycle_cache: Optional[Dict[str, Any]],
-):
+) -> Any:
     if not is_arbitrage_improvements_enabled() or cycle_cache is None:
         return await get_candles_recent(client, market)
     if market in cycle_cache:
@@ -346,7 +346,7 @@ async def _get_recent_candles_for_cycle(
 
 
 async def _resolve_leg_open_state(
-    client,
+    client: Any,
     *,
     base_market: str,
     quote_market: str,
@@ -455,7 +455,7 @@ def _failsafe_close_price(
 
 
 async def _place_reduce_only_close_with_retries(
-    client,
+    client: Any,
     *,
     market: str,
     side: str,
@@ -490,7 +490,7 @@ async def _place_reduce_only_close_with_retries(
 
 
 async def _close_orphan_exchange_leg(
-    client,
+    client: Any,
     *,
     tracked_position: Dict[str, Any],
     exchange_positions: Dict[str, Any],
@@ -579,7 +579,7 @@ async def _close_orphan_exchange_leg(
         return False
 
 
-async def open_positions(client) -> None:
+async def open_positions(client: Any) -> None:
     """
     Manage finding triggers for trade entry.
 
@@ -1036,7 +1036,10 @@ async def open_positions(client) -> None:
                             continue
 
                         # Guard: Handle failure
-                        if bot_open_dict == "failed":
+                        # Defensive legacy-shape check; bind through Any so the
+                        # typed dict contract does not narrow it away.
+                        legacy_open_result: Any = bot_open_dict
+                        if legacy_open_result == "failed":
                             record_rejection("bot_agent_failed")
                             _record_entry_failure(pair_key, "bot_agent returned failed")
                             persist_trade_activity_event(
@@ -1197,7 +1200,7 @@ async def open_positions(client) -> None:
     logger.info("arbitrage_scan_cycle_complete cycle_id={}", scan_cycle_id)
 
 
-async def manage_trade_exits(client) -> str | None:
+async def manage_trade_exits(client: Any) -> str | None:
     """
     Manage exiting open positions based on exit criteria.
 

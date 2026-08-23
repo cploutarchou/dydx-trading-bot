@@ -376,10 +376,16 @@ module `reset_*()` helpers.
   runtime/backtest contracts.
 - Service-token overlap behavior (`BOT_API_TOKEN`, `BOT_API_TOKEN_PREVIOUS`, `BOT_API_TOKENS`) and readiness semantics
   remain active contracts with backend delegation.
+- CORS is fail-safe since 2026-08-23: wildcard origins are served WITHOUT credentials by default (the API uses
+  Authorization-header auth, not cookies); set `BOT_API_CORS_ORIGINS` (comma-separated) for the credentialed
+  browser-client posture. Seam: `_resolve_cors_settings` in `src/api/server.py`.
 - Strategy runtime websocket expectations remain operator-critical: snapshot on connect plus lifecycle/status updates
   after runtime changes.
 - Use supervised job pattern (`async_job_manager`) for all long-running background work; task state must persist to
   `jobs` table for operator visibility.
+- Startup is replica-safe since 2026-08-23: the lifespan holds the Postgres advisory `StartupLeaderLock`
+  (`src/infrastructure/database.py`) across migrations + startup recovery; lock wait is tunable via
+  `STARTUP_LEADER_LOCK_WAIT_SECONDS` (default 120 s, then fail fast). Non-Postgres backends run unlocked.
 - **Celery and Flower**: Backtest execution is Celery-backed when Valkey/Redis-compatible infrastructure is available;
   `make local-worker` must start before `make local-api`; Flower UI connects to active workers on port 5555.
 - **Backtest logging**: Long-running backtests capture per-job logs to `bot_states/backtest_<run_id>.log`; retrieve via
@@ -424,4 +430,4 @@ module `reset_*()` helpers.
   questions; treat claims marked **UNKNOWN / NEEDS VALIDATION** accordingly.
 - **Worker container entrypoint**: `worker_entrypoint.py` is the container entrypoint for background workers; it
   calls `load_repo_env(__file__)` first, sanitizes node URL env vars, and launches Celery with queue/autoscale
-  settings (`CELERY_QUEUES` default `backtests,default,high_priority,scheduled`).
+  settings (`CELERY_QUEUES` default `backtests,default,scheduled`).

@@ -64,7 +64,7 @@ class BotInstanceManager:
 
         # In-memory instance tracking
         self.instances: Dict[str, BotInstanceState] = {}
-        self.processes: Dict[str, subprocess.Popen] = {}
+        self.processes: Dict[str, subprocess.Popen[str]] = {}
         self.log_handles: Dict[str, TextIO] = {}
         self.instance_locks: Dict[str, asyncio.Lock] = {}
         self.status_event_publisher: Optional[
@@ -200,11 +200,11 @@ class BotInstanceManager:
     def set_status_event_publisher(
         self,
         publisher: Optional[Callable[[Dict[str, object]], Awaitable[None]]],
-    ):
+    ) -> None:
         """Register async publisher for strategy runtime status events."""
         self.status_event_publisher = publisher
 
-    def _load_existing_instances(self):
+    def _load_existing_instances(self) -> None:
         """Load bot instances from the database only."""
         self.recovery_diagnostics.update(
             {
@@ -239,7 +239,7 @@ class BotInstanceManager:
             "Bot instance DB recovery failed; DB-backed runtime config is required"
         )
 
-    def _record_recovery_skip(self, instance_id: str, reason: str):
+    def _record_recovery_skip(self, instance_id: str, reason: str) -> None:
         skipped_instances = self.recovery_diagnostics.setdefault(
             "skipped_instances", []
         )
@@ -265,7 +265,7 @@ class BotInstanceManager:
         return cls._env_flag("BOT_AUTO_RECOVER_LIVE_MAINNET", default=False)
 
     @staticmethod
-    def _dev_invalid_recovery_cleanup_enabled(record) -> bool:
+    def _dev_invalid_recovery_cleanup_enabled(record: Any) -> bool:
         """Allow stale invalid DB rows to be purged only in non-production runtimes."""
         if os.getenv("BOT_DEV_CLEAN_INVALID_BOT_ROWS", "true").strip().lower() not in {
             "1",
@@ -296,7 +296,7 @@ class BotInstanceManager:
         return any(marker in instance_id for marker in ("test", "fixture", "dummy"))
 
     def _delete_invalid_recovery_record_if_dev(
-        self, session, record, reason: str
+        self, session: Any, record: Any, reason: str
     ) -> bool:
         """Delete unrecoverable dev/test bot rows so recovery warnings do not repeat."""
         if not self._dev_invalid_recovery_cleanup_enabled(record):
@@ -416,7 +416,7 @@ class BotInstanceManager:
             if session is not None:
                 session.close()
 
-    def _load_existing_instances_from_disk(self):
+    def _load_existing_instances_from_disk(self) -> None:
         """Load bot instances from the legacy compatibility snapshot on disk."""
         state_file = self.state_dir / "instances.json"
         if state_file.exists():
@@ -487,7 +487,9 @@ class BotInstanceManager:
             )
             return normalized
 
-    def _build_instance_config_from_record(self, record) -> Optional[BotInstanceConfig]:
+    def _build_instance_config_from_record(
+        self, record: Any
+    ) -> Optional[BotInstanceConfig]:
         """Reconstruct the runtime config shape from the persisted DB payload."""
         payload = self._coerce_record_config_payload(getattr(record, "config", None))
         credentials_payload = payload.get("credentials") or {}
@@ -537,7 +539,7 @@ class BotInstanceManager:
 
         return BotInstanceConfig.model_validate(config_payload)
 
-    def _coerce_record_status(self, raw_status) -> BotStatus:
+    def _coerce_record_status(self, raw_status: Any) -> BotStatus:
         """Normalize persisted status values into API-facing bot status values."""
         if hasattr(raw_status, "value"):
             value = raw_status.value
@@ -604,7 +606,7 @@ class BotInstanceManager:
         """
         return seal_config_secrets(payload)
 
-    def _ensure_instance_record(self, instance: BotInstanceState):
+    def _ensure_instance_record(self, instance: BotInstanceState) -> None:
         """Create the DB row for an instance if API orchestration has not done it yet."""
         if not self._db_persistence_enabled():
             return
@@ -648,8 +650,8 @@ class BotInstanceManager:
         event_type: str,
         severity: str,
         message: str,
-        details: Optional[dict] = None,
-    ):
+        details: Optional[dict[str, Any]] = None,
+    ) -> None:
         """Persist runtime events so failures survive process restarts."""
         if not self._db_persistence_enabled():
             return
@@ -677,7 +679,7 @@ class BotInstanceManager:
             if session is not None:
                 session.close()
 
-    def _persist_instances_to_db(self):
+    def _persist_instances_to_db(self) -> None:
         """Sync runtime state back into the database so it stays authoritative across restarts."""
         if not self._db_persistence_enabled():
             return
@@ -763,7 +765,7 @@ class BotInstanceManager:
             if session is not None:
                 session.close()
 
-    def _save_instances_state(self):
+    def _save_instances_state(self) -> None:
         """Persist instance state to DB, with opt-in legacy snapshot for debugging."""
         self._persist_instances_to_db()
 
@@ -872,7 +874,7 @@ class BotInstanceManager:
         event: str = "status",
         last_error: Optional[str] = None,
         message: Optional[str] = None,
-    ):
+    ) -> None:
         """Publish status update for strategy-managed instances when configured."""
         if event in {"running", "heartbeat"}:
             self._mark_instance_liveness_verified(instance_id)
@@ -921,7 +923,7 @@ class BotInstanceManager:
         self.log_handles[instance_id] = handle
         return handle
 
-    def _close_instance_log(self, instance_id: str):
+    def _close_instance_log(self, instance_id: str) -> None:
         """Close any open log file handle for an instance."""
         handle = self.log_handles.pop(instance_id, None)
         if handle is None:
@@ -1674,7 +1676,7 @@ class BotInstanceManager:
         instance.last_update = datetime.now(timezone.utc)
         return instance.to_api_status()
 
-    def _update_instance_trading_stats(self, instance_id: str):
+    def _update_instance_trading_stats(self, instance_id: str) -> None:
         """Update trading statistics from database-backed trade state."""
         if instance_id not in self.instances:
             return
@@ -1811,7 +1813,7 @@ class BotInstanceManager:
         self.recovery_diagnostics["live_auto_recovery"] = report
         return report
 
-    async def cleanup_dead_processes(self):
+    async def cleanup_dead_processes(self) -> None:
         """Cleanup dead processes and update instance statuses"""
         state_changed = False
         for instance_id in list(self.processes.keys()):
@@ -1844,7 +1846,7 @@ class BotInstanceManager:
         # P1.7: Check for stale heartbeats and mark as degraded
         await self._check_liveness_and_degrade()
 
-    async def _check_liveness_and_degrade(self):
+    async def _check_liveness_and_degrade(self) -> None:
         """P1.7: Monitor heartbeat staleness and degrade status if needed"""
         now = datetime.now(timezone.utc)
         state_changed = False
@@ -1924,7 +1926,7 @@ class BotInstanceManager:
             ),
         }
 
-    async def shutdown(self, *, stop_active: bool = False):
+    async def shutdown(self, *, stop_active: bool = False) -> None:
         """Release manager resources and optionally stop active child runtimes."""
         if stop_active:
             for instance_id, instance in list(self.instances.items()):

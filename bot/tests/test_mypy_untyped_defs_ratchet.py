@@ -22,9 +22,11 @@ from pathlib import Path
 
 _PYPROJECT = Path(__file__).resolve().parent.parent / "pyproject.toml"
 
-# Frozen exemption set (9 modules after phase 3d, 2026-08-22). Shrinks over
-# time; NEVER grows without an explicit justification edit here.
-# Phase 3a baseline (2026-08-22): 24 modules.
+# Frozen exemption set: EMPTY since phase 3i (2026-08-23) — every module in
+# src/ is fully annotated and `disallow_untyped_defs` applies globally with no
+# per-module overrides. NEVER grow this list; re-adding an exemption must be a
+# visible, reviewable decision recorded here.
+# Migration history — phase 3a baseline (2026-08-22): 24 modules.
 # Phase 3b (2026-08-22): -7 (workers/backtest_tasks, trading/portfolio_risk,
 # trading/analysis/cointegration, shared/dataframe_utils, api/v1/bot_records,
 # api/v1/auth, api/v1/arbitrage).
@@ -32,19 +34,12 @@ _PYPROJECT = Path(__file__).resolve().parent.parent / "pyproject.toml"
 # api/v1/monitoring, infrastructure/persistence/repository,
 # infrastructure/persistence/repository_realtime, trading/market_data).
 # Phase 3d (2026-08-22): -2 (trading/bot_agent, main_instance).
-EXPECTED_EXEMPT_MODULES = frozenset(
-    {
-        "src.api.server",
-        "src.api.v1.backtests",
-        "src.api.v1.bot_realtime",
-        "src.api.v1.strategies",
-        "src.api.websocket_server",
-        "src.bot_instance_manager",
-        "src.infrastructure.database",
-        "src.trading.account_manager",
-        "src.trading.position_manager",
-    }
-)
+# Phase 3e (2026-08-22): -2 (trading/position_manager, trading/account_manager).
+# Phase 3f (2026-08-23): -2 (api/v1/strategies, api/v1/bot_realtime).
+# Phase 3g (2026-08-23): -2 (infrastructure/database, bot_instance_manager).
+# Phase 3h (2026-08-23): -2 (api/server, api/websocket_server).
+# Phase 3i (2026-08-23): -1 (api/v1/backtests — final module; list now empty).
+EXPECTED_EXEMPT_MODULES = frozenset()
 
 
 def _exempt_modules_from_pyproject() -> set[str]:
@@ -61,7 +56,7 @@ def _exempt_modules_from_pyproject() -> set[str]:
 
 
 def test_disallow_untyped_defs_is_enabled_globally() -> None:
-    """The strict flag itself must stay on — weakening it needs review here."""
+    """The strict flags themselves must stay on — weakening them needs review here."""
     with _PYPROJECT.open("rb") as fh:
         data = tomllib.load(fh)
     mypy_cfg = data["tool"]["mypy"]
@@ -70,6 +65,11 @@ def test_disallow_untyped_defs_is_enabled_globally() -> None:
         "exemptions are the only sanctioned escape hatch (and are pinned below)"
     )
     assert mypy_cfg.get("warn_return_any") is True
+    assert mypy_cfg.get("strict") is True, (
+        "strict must remain enabled (flipped 2026-08-23, phase 4a, after the "
+        "exemption ratchet reached zero); turning it off needs an explicit "
+        "justification edit here"
+    )
 
 
 def test_exemption_list_matches_frozen_set() -> None:

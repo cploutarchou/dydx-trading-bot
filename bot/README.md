@@ -139,7 +139,7 @@ Useful environment variables:
 - `BACKTEST_WORKER_BACKEND=celery` for worker-backed backtests; set `asyncio` only for focused local/unit debugging
 - `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` for broker/result backend
 - `REDIS_URL` / `VALKEY_URL` or `REDIS_*` / `VALKEY_*` as the shared cache aliases used by runtime modules
-- `CELERY_QUEUES=backtests,default,high_priority,scheduled` for a worker that consumes all standard queues
+- `CELERY_QUEUES=backtests,default,scheduled` for a worker that consumes all standard queues
 - `BACKTEST_CELERY_QUEUE=backtests` for backtest dispatch
 - `BACKTEST_CELERY_MAX_RETRIES=3`
 - `BACKTEST_CELERY_RETRY_BASE_SECONDS=30`
@@ -201,8 +201,11 @@ Queues:
 
 - `backtests` - long-running backtest execution
 - `default` - lightweight hooks and general background work
-- `high_priority` - reserved for urgent operational tasks
 - `scheduled` - Celery Beat tasks such as optional market sync
+
+Only queues with routed producers are consumed by default. A per-run queue override (or
+`BACKTEST_CELERY_QUEUE`) can still target a custom queue — add it to `CELERY_QUEUES` on the workers
+so it is consumed.
 
 Scale workers horizontally by running more worker processes against the same broker and database. For backtests, prefer
 one or a small number of concurrent tasks per worker because each run can hold DB connections and fetch large market
@@ -288,6 +291,12 @@ Both endpoints are no-ops under `API_BYPASS_AUTH` and return a rotation hint whe
 Set `REDIS_ENABLED=true` for cross-worker single-token revocation; without Redis the blacklist falls back to an
 in-process set that is scoped to a single worker.
 
+CORS is fail-safe by default: the server answers the wildcard origin (`*`) **without** credentials. Browsers reject
+credentialed wildcard responses anyway and this API authenticates via `Authorization` headers (not cookies), so no
+working flow depends on wildcard+credentials. Production deployments that serve browser clients with cookies should set
+`BOT_API_CORS_ORIGINS` to an explicit comma-separated origin list — that switches the server to those origins with
+`allow_credentials=true`.
+
 Live runtime exit state is now confirmation-based: submitting reduce-only close orders is not enough to mark a trade or
 position closed. The runtime waits for exchange-flat confirmation before closing persistence state; partial, timed-out,
 or orphaned exits remain visible in tracked state and emit critical operator alerts.
@@ -301,6 +310,12 @@ bot rows with missing workers are marked error. Set `BACKTEST_AUTO_RECOVERY_MODE
 and `BOT_AUTO_RECOVER_LIVE_RUNTIMES=true` for testnet live bot auto-restart; mainnet live restart also requires
 `BOT_AUTO_RECOVER_LIVE_MAINNET=true`. Backtest startup recovery waits for `BACKTEST_AUTO_RECOVERY_MIN_AGE_SECONDS`
 before acting so fresh rows from another API worker are not incorrectly failed.
+
+The whole startup critical section — migrations, compatibility schema fixes, backtest recovery, and live-runtime
+recovery — is serialized across API replicas with a Postgres session advisory lock (`StartupLeaderLock`). A replica
+that cannot take the lock within `STARTUP_LEADER_LOCK_WAIT_SECONDS` (default 120 s) fails fast instead of running
+migrations/recovery concurrently; a crashed leader cannot wedge startup because the lock is released when its
+connection dies. Non-Postgres backends run unlocked (single-instance deployments).
 
 If older backtest rows cannot be restarted because the persisted request blob is missing, use
 `python scripts/repair_backtest_requests.py --dry-run` to inspect repairable rows and rerun without `--dry-run` to

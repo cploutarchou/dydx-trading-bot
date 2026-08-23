@@ -588,6 +588,119 @@ Items removed from this plan during the same review — and why — are listed i
       `_reconcile_filled_order -> None`) and `main_instance` (10 sites — all lifecycle methods
       `-> None` incl. the nested `signal_handler(signum: int, frame: Any)` and `async main()`;
       runtime no-ops only). 203 untyped-def sites remain across the 9 exempt modules.
+      **Phase 3e (same day)** — exemption list **9 → 7**: migrated the trading-critical
+      counterpart pair `trading/position_manager` (9 sites: the entry-backoff recorders
+      `-> None`, `_confirm_exchange_flat_after_close`/`_resolve_leg_open_state`/
+      `_close_orphan_exchange_leg`/`_place_reduce_only_close_with_retries` gained
+      `client: Any`, `_get_recent_candles_for_cycle -> Any`, `open_positions(client: Any)`
+      and `manage_trade_exits(client: Any)`) and `trading/account_manager` (18 sites —
+      the whole order-execution seam: `place_market_order -> Tuple[Any, str]` now typed,
+      flowing into `bot_agent`'s pre-declared `order_id: str` unpack and
+      `position_manager`'s `result: tuple[Dict[str, Any], str]` binding;
+      `check_order_status -> str` via a typed local over the indexer payload;
+      `cancel_all_orders -> Optional[List[Any]]` with an explicit trailing `return None`
+      (behaviorally identical — the implicit fall-off returned None already; mypy only
+      allows fall-off for `-> None`/`-> Any`); `place_market_order`'s `Market` local
+      renamed to `market_obj` because it shadowed the newly-typed `market: str` param
+      (runtime-identical local rename). Portfolio risk/accounts, live risk/trade
+      persistence, execution safety, abort cleanup, network-error, and arbitrage
+      observability/cycle-cache suites all green. 174 untyped-def sites remain across
+      the 7 exempt modules.
+      **Phase 3f (2026-08-23)** — exemption list **7 → 5**: migrated the API route pair
+      `api/v1/strategies` (8 routes — `current_user: User` params + `-> JSONResponse`,
+      the established 3c pattern) and `api/v1/bot_realtime` (15 sites — the six
+      session-owning `_*_sync` loaders `-> JSONResponse` so `run_db` threads return the
+      typed envelope, six HTTP routes `-> JSONResponse` (params were already typed), and
+      the three websocket handlers `-> None`). Verified schema-neutral: regenerated
+      `openapi.json` from the live app — zero diff on any strategies/bot_realtime path
+      (Response-subclass returns and Depends params don't affect the contract). The
+      regeneration also surfaced and fixed a docs-sync gap from 3b: the 10 auth paths
+      (legacy `/auth/*` + `/api/v1/auth/*`) had never been regenerated after their
+      `-> dict` annotations, so the committed file still showed `"schema": {}` where the
+      code now declares typed object responses — `openapi.json` updated (50 insertions:
+      `Response_*` object schemas, additive only, no request/status-code changes).
+      144 untyped-def sites remain across the 5 exempt modules.
+      **Phase 3g (2026-08-23) — DONE** — exemption list **5 → 3**: migrated
+      `infrastructure/database` (21 sites — the `ConnectionPoolMonitor` methods
+      `-> None` (start/stop monitoring, `_monitor_pool`/`_collect_metrics`/
+      `_check_alerts`/`_trigger_alert`/`record_connection_*`), the
+      `DatabaseConfig.__init__`, the `DatabaseManager` singleton pair
+      (`__new__(cls) -> "DatabaseManager"` — mypy's Optional narrowing handles the
+      assign-on-miss pattern — and `__init__`), the lifecycle methods
+      (`_initialize`/`create_all_tables`/`ensure_schema_compatibility`/
+      `run_pending_migrations`/`drop_all_tables`/`close`), the module-level DI
+      generator `get_session() -> Iterator[Session]`, and `init_db() -> None`) and
+      `bot_instance_manager` (18 sites — recovery diagnostics loaders, dev-row
+      cleanup helpers (`record: Any`, `session: Any` — ORM rows from the test
+      doubles), DB persistence sync family, `_publish_strategy_status -> None`,
+      log-handle lifecycle, trading-stats refresh, `cleanup_dead_processes`/
+      `_check_liveness_and_degrade`/`shutdown -> None`). Only the three big API
+      monolith files remain exempt (backtests 57, websocket_server 25, server 23 —
+      105 untyped-def sites total); phase 3h+ migrates them, then `strict` becomes
+      the end-state bundle.
+      **Phase 3h (2026-08-23) — DONE** — exemption list **3 → 1**: migrated
+      `api/websocket_server` (25 sites — `ConnectionManager.__init__`/connect/
+      disconnect/`_drop_connection`/`_deliver_local`/`broadcast_to_bot` (a
+      fire-and-forget — `-> None`; mypy caught my first `-> bool` guess by
+      "Missing return statement"), the six `handle_*` event broadcasters,
+      `_resolve_realtime_bot_id(session: Any)`, `handle_connection`/
+      `handle_message`/`send_positions`/`send_stats`/`send_market_data -> None`,
+      and the seven module-level `broadcast_*` helpers) and `api/server`
+      (23 sites — the `_FilteredStderr` wrapper (`write(message: str) -> None`,
+      `__getattr__(name: str) -> Any`), `custom_openapi() -> Any`, the trace
+      middleware (`call_next: Callable[[Request], Awaitable[Response]] -> Response`),
+      `/health`+`/ready` `-> JSONResponse` (strict 503 semantics unchanged),
+      `/metrics` `-> Dict[str, Any]` with `response_model=None` (the proven 2FA
+      pattern; OpenAPI verified byte-identical), capabilities/markets/profile/
+      status/strategy-resolution routes `-> JSONResponse`/`PlainTextResponse`,
+      nested `_registered_routes(routes: Any, ...) -> Iterator[Any]`, and
+      `_bot_manager_monitor_loop -> None`).
+      **Phase 3i (2026-08-23) — DONE — the ratchet is now EMPTY**: migrated the
+      final module `api/v1/backtests` (57 sites in one pass — the two backtest
+      websocket handlers `-> None`, `get_backtest_service() -> BacktestService`,
+      `_run_with_backtest_service` became generic
+      `Callable[[Any], _T] -> _T` (the `run_db` pattern), the 18 `_*_sync`
+      session-owning shims `-> Any`, `_maybe_awaitable(value: Any) -> Any`,
+      nested `_read_logs() -> List[str]`, and all ~32 routes
+      `-> JSONResponse` (incl. `create_backtest`/`run_backtest_compat`, whose
+      decorators already pin `response_model=BacktestResponse` — OpenAPI
+      verified byte-identical). Five compat-seam routes
+      (`interrupted`/`reconcile`/admin aliases/`repair-request-admin`) bind the
+      `_compat(...)` Any through typed `response: JSONResponse` locals.
+      **The `[[tool.mypy.overrides]]` block is deleted from `pyproject.toml` —
+      `disallow_untyped_defs` now applies to every module in `src/` with zero
+      exemptions**, pinned by the ratchet test's empty frozen set: re-adding an
+      entry fails the build. All 97 source files check clean end-to-end.
+      Next tightening decision (not yet taken): `strict = true` — measure its
+      blast radius first (`disallow_any_generics` would flag bare `dict`/`list`
+      annotations; `disallow_untyped_calls` is likely near-zero now).
+      **Phase 4a (2026-08-23) — DONE — `strict = true` is ON.** Measured the
+      strict bundle's blast radius at **101 errors** (87 `disallow_any_generics`,
+      8 `disallow_untyped_calls`, 3 `strict_equality`, 2 `disallow_untyped_decorators`,
+      1 `no_implicit_reexport`) and fixed all of them in one pass, then flipped
+      `strict = true` in `pyproject.toml` (pinned by the ratchet test alongside
+      `disallow_untyped_defs`). The 87 generic sites were parameterized with
+      their real element types — which surfaced two genuinely wrong earlier
+      annotations: `_candles_recent_cache` is keyed by `(market, resolution)`
+      tuples (was flat `dict`), and `BotInstanceManager.processes` holds
+      text-mode `Popen[str]` (was unparameterized; first guess `Popen[bytes]`
+      was corrected against the single `text=True` creation site).
+      `cleanup_cache_entries` widened to `Dict[Any, Any]` — the helper is
+      key-agnostic by design and the tuple-keyed candle cache is a legitimate
+      caller. The 2 `strict_equality` hits are legacy-shape defensive
+      comparisons kept intact behind explicit `Any` locals (documented inline).
+      Third-party seams carry 10 scoped ignores: 8× `# type: ignore[no-untyped-call]`
+      on redis `from_url` sites, 2× `# type: ignore[untyped-decorator]` on Celery
+      `@celery_app.task` functions. The nats `Msg` import moved to its canonical
+      `nats.aio.msg` home (`TYPE_CHECKING`-only; same class verified at runtime).
+      Gates: strict mypy `Success: no issues found in 97 source files`,
+      isort/black/flake8 clean, 16 per-area suites green (323 passed — websocket,
+      broadcast bus, api server, auth contract/utils, monitoring, persistence,
+      database, market sync/cache, cointegration, portfolio risk, NATS consumer,
+      backtest task helpers, dataframe utils, ratchet), full CI-mirror suite
+      1354 passed / 13 skipped / coverage 83.34% ≥ 82. **The type-checking
+      campaign is complete: phase 1 (config + gate) → 2 (body checks) → 3a–3i
+      (annotations, ratchet 24 → 0) → 4a (strict).**
       Not added to pre-commit (mypy needs whole-program context and is slow; CI is the right place for it).
 
 #### **Testing**

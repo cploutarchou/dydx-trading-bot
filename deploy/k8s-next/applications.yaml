@@ -383,7 +383,7 @@ spec:
             - >-
               celery -A src.infrastructure.workers.celery_app:celery_app worker
               --loglevel=${CELERY_LOG_LEVEL:-INFO}
-              --queues=${CELERY_QUEUES:-backtests,default,high_priority,scheduled}
+              --queues=${CELERY_QUEUES:-backtests,default,scheduled}
               --concurrency=${CELERY_CONCURRENCY:-1}
           envFrom:
             - configMapRef:

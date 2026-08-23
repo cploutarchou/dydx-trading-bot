@@ -792,11 +792,30 @@ app = FastAPI(
 # Set custom OpenAPI schema
 app.openapi = custom_openapi  # type: ignore[method-assign]  # FastAPI's documented override pattern
 
+
+def _resolve_cors_settings() -> tuple[list[str], bool]:
+    """Resolve CORS origins/credentials from the environment, fail-safe.
+
+    ``BOT_API_CORS_ORIGINS`` (comma-separated explicit origins) enables the
+    credentialed CORS posture production deployments need. Without it the
+    server serves the spec-compliant wildcard WITHOUT credentials — browsers
+    reject credentialed wildcard responses anyway, and this API authenticates
+    via Authorization headers (not cookies), so no working flow depends on
+    wildcard+credentials.
+    """
+    raw_origins = os.getenv("BOT_API_CORS_ORIGINS", "").strip()
+    origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+    if origins:
+        return origins, True
+    return ["*"], False
+
+
 # Add CORS middleware
+_cors_origins, _cors_allow_credentials = _resolve_cors_settings()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

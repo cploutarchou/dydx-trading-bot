@@ -308,6 +308,12 @@ and `BOT_AUTO_RECOVER_LIVE_RUNTIMES=true` for testnet live bot auto-restart; mai
 `BOT_AUTO_RECOVER_LIVE_MAINNET=true`. Backtest startup recovery waits for `BACKTEST_AUTO_RECOVERY_MIN_AGE_SECONDS`
 before acting so fresh rows from another API worker are not incorrectly failed.
 
+The whole startup critical section — migrations, compatibility schema fixes, backtest recovery, and live-runtime
+recovery — is serialized across API replicas with a Postgres session advisory lock (`StartupLeaderLock`). A replica
+that cannot take the lock within `STARTUP_LEADER_LOCK_WAIT_SECONDS` (default 120 s) fails fast instead of running
+migrations/recovery concurrently; a crashed leader cannot wedge startup because the lock is released when its
+connection dies. Non-Postgres backends run unlocked (single-instance deployments).
+
 If older backtest rows cannot be restarted because the persisted request blob is missing, use
 `python scripts/repair_backtest_requests.py --dry-run` to inspect repairable rows and rerun without `--dry-run` to
 rebuild the restart payload from persisted run fields.

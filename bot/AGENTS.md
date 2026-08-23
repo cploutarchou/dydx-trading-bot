@@ -383,6 +383,9 @@ module `reset_*()` helpers.
   after runtime changes.
 - Use supervised job pattern (`async_job_manager`) for all long-running background work; task state must persist to
   `jobs` table for operator visibility.
+- Startup is replica-safe since 2026-08-23: the lifespan holds the Postgres advisory `StartupLeaderLock`
+  (`src/infrastructure/database.py`) across migrations + startup recovery; lock wait is tunable via
+  `STARTUP_LEADER_LOCK_WAIT_SECONDS` (default 120 s, then fail fast). Non-Postgres backends run unlocked.
 - **Celery and Flower**: Backtest execution is Celery-backed when Valkey/Redis-compatible infrastructure is available;
   `make local-worker` must start before `make local-api`; Flower UI connects to active workers on port 5555.
 - **Backtest logging**: Long-running backtests capture per-job logs to `bot_states/backtest_<run_id>.log`; retrieve via

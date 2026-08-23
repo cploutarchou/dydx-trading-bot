@@ -1,5 +1,61 @@
 # Tasks Log
 
+## 2026-08-23 (pass 14) — DONE
+
+- **Startup leader lock for multi-replica safety** (flows/risks-and-gaps.md row
+  "startup migrations/recovery may execute concurrently on replicas").
+    - `src/infrastructure/database.py`: new `StartupLeaderLock` — Postgres
+      session advisory lock (`pg_try_advisory_lock`/`pg_advisory_unlock`) held
+      on a dedicated connection; polls until deadline, fails open for
+      non-Postgres backends, unlock failures degrade to connection-close (which
+      Postgres auto-releases — a crashed leader cannot wedge startup). Catches
+      are narrow (`SQLAlchemyError`) so the exception ratchet is untouched.
+      Factory `DatabaseManager.startup_leader_lock()` reads
+      `STARTUP_LEADER_LOCK_WAIT_SECONDS` (default 120 s, unparseable → default).
+    - `src/api/server.py` lifespan: the whole startup critical section
+      (migrations → create_all → schema compat → verify → bus start → backtest
+      recovery → bot-manager recovery) runs under the lock; a replica that
+      cannot acquire it fails fast with a RuntimeError instead of running
+      unlocked.
+    - Tests: 6 new (5 database-unit — fail-open non-pg, poll-until-acquired +
+      release SQL/close, timeout closes without unlock, unlock-failure
+      resilience, env wait knob; 1 lifespan — fail-fast leaves the critical
+      section untouched). `_wire_lifespan` fakes the lock; full-startup test
+      asserts acquire/release around the DB sequence.
+    - Validation: strict mypy 0 errors; isort/black/flake8 clean; per-area
+      green (api server unit + database unit 63 passed; instance manager +
+      backtest service unit 170 passed); full CI-mirror suite 1361 passed,
+      13 skipped, coverage 83.37% ≥ 82. Live-boot verification against real
+      Postgres was NOT possible this session (Docker daemon unavailable) — the
+      advisory SQL is pinned by unit tests instead.
+    - Docs: risks-and-gaps row resolved, README startup section, AGENTS.md
+      latest-context line.
+
+## 2026-08-23 (pass 13) — DONE
+
+- **Dead Redis backtest-status pub-sub producer removed** (flows/risks-and-gaps.md
+  row "producer but no subscriber").
+    - Investigation: `_publish_backtest_status` published to
+      `backtest:{run_id}:status` from 7 lifecycle points in the Celery task;
+      repo-wide search found zero subscribers (only the broadcast bus's
+      `ws:broadcast` channel and NATS JetStream consume pub/sub). Backtest
+      websocket clients are pull-based by contract (snapshot on connect +
+      `request_status` refresh via DB reads), and the durable NATS emitter
+      (`publish_backtest_event`) fires in the same task for backend projection —
+      the Redis channel was a legacy pre-NATS path.
+    - Removed: `_publish_backtest_status`, its `_get_redis_client` (lock client
+      is separate and untouched), 7 call sites, the now-unused
+      `redis_host/port/db/password/ssl` imports; 2 obsolete tests dropped, task
+      lifecycle tests re-based onto the NATS event captures.
+    - Exception ratchet tightened in the same change: 297 → 294 (three broad
+      catches went with the dead code), per the ratchet rule.
+    - Docs: risks-and-gaps row struck (resolved-by-removal), flows
+      data-flows/background-tasks/current-business-flows updated.
+    - Validation: strict mypy 0 errors; isort/black/flake8 clean; per-area green
+      (backtest task helpers, failure persistence, NATS consumer + event
+      emitter — 57 passed); full CI-mirror suite 1355 passed, 13 skipped,
+      coverage 83.33% ≥ 82.
+
 ## 2026-08-23 (pass 12) — DONE
 
 - **CORS hardening (flows/risks-and-gaps.md row "CORS wildcard + credentials")** —

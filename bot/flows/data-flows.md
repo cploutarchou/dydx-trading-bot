@@ -125,7 +125,7 @@ producing schemas different from a migration-only deployment.
 | Rate limit           | `ratelimit:<endpoint>:<ip>` sorted set                 | API limiter                | API limiter                            |
 | Recent candles       | key defined by market/resolution in market-data module | market sync / market fetch | live market fetch and realtime service |
 | Backtest lock        | run-specific lock key                                  | Celery backtest task       | Celery backtest task                   |
-| Backtest status      | `backtest:<run_id>:status` channel                     | Celery task                | **No consumer found in this repo**     |
+| Backtest status      | ~~`backtest:<run_id>:status` channel~~ (removed 2026-08-23) | NATS JetStream (`publish_backtest_event`) + DB reads | Backend projector + pull-based websockets |
 | Celery broker/result | Celery-managed keys                                    | API/Beat/workers           | workers/API monitor                    |
 | Token blacklist      | helper-managed keys                                    | `TokenBlacklist` helper    | helper only; logout does not call it   |
 

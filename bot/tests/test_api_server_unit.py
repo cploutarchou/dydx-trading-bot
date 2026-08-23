@@ -499,6 +499,7 @@ class _FakeLifecycleManager:
 class _FakeDbBackend:
     def __init__(self):
         self.calls = []
+        self.startup_lock = _FakeStartupLock()
 
     def health_check(self):
         self.calls.append("health_check")
@@ -515,6 +516,20 @@ class _FakeDbBackend:
 
     def verify_required_tables(self):
         self.calls.append("verify_tables")
+
+
+class _FakeStartupLock:
+    def __init__(self, acquired=True):
+        self.acquired = acquired
+        self.acquire_calls = 0
+        self.release_calls = 0
+
+    def acquire(self):
+        self.acquire_calls += 1
+        return self.acquired
+
+    def release(self):
+        self.release_calls += 1
 
 
 def _config_namespace():
@@ -568,6 +583,9 @@ def _wire_lifespan(
     monkeypatch.setattr(
         server.db, "verify_required_tables", db_backend.verify_required_tables
     )
+    monkeypatch.setattr(
+        server.db, "startup_leader_lock", lambda: db_backend.startup_lock
+    )
     monkeypatch.setattr(server, "validate_auth_bypass_configuration", lambda: None)
     monkeypatch.setattr(server, "is_auth_bypass_enabled", lambda: False)
 
@@ -615,6 +633,8 @@ def test_lifespan_full_startup_and_shutdown(monkeypatch):
         "schema_compat",
         "verify_tables",
     ]
+    assert db_backend.startup_lock.acquire_calls == 1
+    assert db_backend.startup_lock.release_calls == 1
     assert bus.stopped == 1
     assert bus.aclosed == 1
     assert jobs.cancelled == ["api shutdown"]
@@ -1238,3 +1258,22 @@ def test_cors_settings_blank_env_falls_back_to_wildcard(monkeypatch):
     origins, allow_credentials = server._resolve_cors_settings()
     assert origins == ["*"]
     assert allow_credentials is False
+
+
+def test_lifespan_fails_fast_when_leader_lock_unavailable(monkeypatch):
+    manager = _FakeLifecycleManager()
+    bus, jobs, db_backend = _wire_lifespan(
+        monkeypatch, celery_ping=[{"worker1": True}], manager=manager
+    )
+    db_backend.startup_lock.acquired = False
+
+    async def _drive():
+        async with server.lifespan(server.app):
+            raise AssertionError("lifespan must not start serving without the lock")
+
+    with pytest.raises(RuntimeError, match="Startup leader lock not acquired"):
+        asyncio.run(_drive())
+
+    # The critical section never ran and the lock was not released
+    assert db_backend.calls == ["health_check"]
+    assert db_backend.startup_lock.release_calls == 0

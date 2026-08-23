@@ -2,7 +2,7 @@
 
 import asyncio
 import random
-from typing import Any, Optional, cast
+from typing import Any, List, Optional, Tuple, cast
 
 from dydx_v4_client import MAX_CLIENT_ID, OrderFlags
 from dydx_v4_client.indexer.rest.constants import OrderType
@@ -19,7 +19,7 @@ from src.trading.bot_agents_state import clear_tracked_positions
 from src.trading.market_data import get_markets
 
 
-def _resolve_client_address(client) -> str:
+def _resolve_client_address(client: Any) -> str:
     """Resolve the best available wallet address as a concrete string."""
     # Prefer the live wallet address on the client (set when connect_dydx_runtime succeeds)
     if client.wallet is not None:
@@ -36,7 +36,7 @@ def _resolve_client_address(client) -> str:
     return addr
 
 
-def resolve_client_address_or_none(client) -> Optional[str]:
+def resolve_client_address_or_none(client: Any) -> Optional[str]:
     """Non-raising variant of :func:`_resolve_client_address`.
 
     Used by callers that can meaningfully degrade when no address is
@@ -54,7 +54,7 @@ def _resolve_subaccount_number() -> int:
     return int(SUBACCOUNT_NUMBER)
 
 
-async def _get_subaccount_with_metrics(client, address: str) -> dict[str, Any]:
+async def _get_subaccount_with_metrics(client: Any, address: str) -> dict[str, Any]:
     """Fetch subaccount payload and track API/provider metrics."""
     increment_metric("exchange_api_calls_total")
     try:
@@ -69,7 +69,9 @@ async def _get_subaccount_with_metrics(client, address: str) -> dict[str, Any]:
         raise
 
 
-async def _get_perpetual_markets_with_metrics(client, ticker: str) -> dict[str, Any]:
+async def _get_perpetual_markets_with_metrics(
+    client: Any, ticker: str
+) -> dict[str, Any]:
     """Fetch perpetual market metadata directly from provider with metrics."""
     increment_metric("exchange_api_calls_total")
     try:
@@ -82,7 +84,7 @@ async def _get_perpetual_markets_with_metrics(client, ticker: str) -> dict[str, 
         raise
 
 
-async def _get_order_with_metrics(client, order_id: str) -> dict[str, Any]:
+async def _get_order_with_metrics(client: Any, order_id: str) -> dict[str, Any]:
     """Fetch order payload and track API/provider metrics."""
     increment_metric("exchange_api_calls_total")
     try:
@@ -95,7 +97,9 @@ async def _get_order_with_metrics(client, order_id: str) -> dict[str, Any]:
         raise
 
 
-async def _get_subaccount_orders_with_metrics(client, *args, **kwargs) -> Any:
+async def _get_subaccount_orders_with_metrics(
+    client: Any, *args: Any, **kwargs: Any
+) -> Any:
     """Fetch subaccount orders and track API/provider metrics."""
     increment_metric("exchange_api_calls_total")
     try:
@@ -110,7 +114,7 @@ async def _get_subaccount_orders_with_metrics(client, *args, **kwargs) -> Any:
         raise
 
 
-async def cancel_order(client, order_id):
+async def cancel_order(client: Any, order_id: str) -> None:
     """Cancel an existing open order."""
     order = await get_order(client, order_id)
     ticker = str(order["ticker"])
@@ -142,7 +146,7 @@ async def cancel_order(client, order_id):
     )
 
 
-async def get_account(client):
+async def get_account(client: Any) -> Any:
     """Get current account information."""
     # Try client's wallet address first, fall back to configured DYDX_ADDRESS
     address = _resolve_client_address(client)
@@ -154,7 +158,7 @@ async def get_account(client):
     return account["subaccount"]
 
 
-async def get_open_positions(client):
+async def get_open_positions(client: Any) -> Any:
     """Get all open perpetual positions."""
     # Try client's wallet address first, fall back to configured DYDX_ADDRESS
     address = _resolve_client_address(client)
@@ -175,12 +179,14 @@ async def get_open_positions(client):
     return response["subaccount"]["openPerpetualPositions"]
 
 
-async def get_order(client, order_id):
+async def get_order(client: Any, order_id: str) -> dict[str, Any]:
     """Get details of a specific order."""
     return await _get_order_with_metrics(client, order_id)
 
 
-async def get_order_fills(client, order_id, market=None, limit: int = 100):
+async def get_order_fills(
+    client: Any, order_id: str, market: Optional[str] = None, limit: int = 100
+) -> List[Any]:
     """Get recent fills for an order, filtered client-side by order id."""
     address = _resolve_client_address(client)
     fills = await client.indexer_account.account.get_subaccount_fills(
@@ -204,7 +210,7 @@ async def get_order_fills(client, order_id, market=None, limit: int = 100):
     ]
 
 
-async def is_open_positions(client, market):
+async def is_open_positions(client: Any, market: str) -> bool:
     """Check if there are any open positions for a specific market."""
     # Protect API
     if DYDX_API_THROTTLE_SECONDS > 0:
@@ -241,15 +247,24 @@ async def is_open_positions(client, market):
     return False
 
 
-async def check_order_status(client, order_id):
+async def check_order_status(client: Any, order_id: str) -> str:
     """Check the current status of an order."""
     order = await _get_order_with_metrics(client, order_id)
     if order["status"]:
-        return order["status"]
+        # Typed local binds the Any payload value to the -> str contract.
+        status: str = order["status"]
+        return status
     return "FAILED"
 
 
-async def place_market_order(client, market, side, size, price, reduce_only):
+async def place_market_order(
+    client: Any,
+    market: str,
+    side: str,
+    size: Any,
+    price: Any,
+    reduce_only: bool,
+) -> Tuple[Any, str]:
     """
     Place a market order.
 
@@ -272,9 +287,9 @@ async def place_market_order(client, market, side, size, price, reduce_only):
     else:
         markets_payload = await _get_perpetual_markets_with_metrics(client, ticker)
     market_payload = cast(dict[str, Any], markets_payload["markets"][ticker])
-    market = Market(market_payload)
+    market_obj = Market(market_payload)
     address = _resolve_client_address(client)
-    market_order_id = market.order_id(
+    market_order_id = market_obj.order_id(
         address,
         _resolve_subaccount_number(),
         random.randint(0, MAX_CLIENT_ID),
@@ -288,7 +303,7 @@ async def place_market_order(client, market, side, size, price, reduce_only):
     # Place Market Order
     order = await client.node.place_order(
         client.wallet,
-        market.order(
+        market_obj.order(
             market_order_id,
             order_type=OrderType.MARKET,
             side=Order.Side.SIDE_BUY if side == "BUY" else Order.Side.SIDE_SELL,
@@ -345,7 +360,7 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 def _resolve_order_from_snapshot(
     orders: list[dict[str, Any]],
     *,
-    market_order_id,
+    market_order_id: Any,
     expected_side: str,
     expected_size: Any,
     expected_reduce_only: bool,
@@ -406,10 +421,10 @@ def _resolve_order_from_snapshot(
 
 async def _resolve_recent_order_id(
     *,
-    client,
+    client: Any,
     order_lookup_address: str,
     ticker: str,
-    market_order_id,
+    market_order_id: Any,
     expected_side: str,
     expected_size: Any,
     expected_reduce_only: bool,
@@ -490,7 +505,7 @@ async def _resolve_recent_order_id(
     )
 
 
-async def cancel_all_orders(client):
+async def cancel_all_orders(client: Any) -> Optional[List[Any]]:
     """Cancel all open orders."""
     try:
         order_lookup_address = _resolve_client_address(client)
@@ -513,8 +528,10 @@ async def cancel_all_orders(client):
             "Cancellation requests submitted for open orders; verify dashboard before continuing"
         )
 
+    return None
 
-async def abort_all_positions(client):
+
+async def abort_all_positions(client: Any) -> List[Any]:
     """
     Close all open positions by placing offsetting reduce-only orders.
 

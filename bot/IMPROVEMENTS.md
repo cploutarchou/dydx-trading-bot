@@ -588,6 +588,24 @@ Items removed from this plan during the same review — and why — are listed i
       `_reconcile_filled_order -> None`) and `main_instance` (10 sites — all lifecycle methods
       `-> None` incl. the nested `signal_handler(signum: int, frame: Any)` and `async main()`;
       runtime no-ops only). 203 untyped-def sites remain across the 9 exempt modules.
+      **Phase 3e (same day)** — exemption list **9 → 7**: migrated the trading-critical
+      counterpart pair `trading/position_manager` (9 sites: the entry-backoff recorders
+      `-> None`, `_confirm_exchange_flat_after_close`/`_resolve_leg_open_state`/
+      `_close_orphan_exchange_leg`/`_place_reduce_only_close_with_retries` gained
+      `client: Any`, `_get_recent_candles_for_cycle -> Any`, `open_positions(client: Any)`
+      and `manage_trade_exits(client: Any)`) and `trading/account_manager` (18 sites —
+      the whole order-execution seam: `place_market_order -> Tuple[Any, str]` now typed,
+      flowing into `bot_agent`'s pre-declared `order_id: str` unpack and
+      `position_manager`'s `result: tuple[Dict[str, Any], str]` binding;
+      `check_order_status -> str` via a typed local over the indexer payload;
+      `cancel_all_orders -> Optional[List[Any]]` with an explicit trailing `return None`
+      (behaviorally identical — the implicit fall-off returned None already; mypy only
+      allows fall-off for `-> None`/`-> Any`); `place_market_order`'s `Market` local
+      renamed to `market_obj` because it shadowed the newly-typed `market: str` param
+      (runtime-identical local rename). Portfolio risk/accounts, live risk/trade
+      persistence, execution safety, abort cleanup, network-error, and arbitrage
+      observability/cycle-cache suites all green. 174 untyped-def sites remain across
+      the 7 exempt modules.
       Not added to pre-commit (mypy needs whole-program context and is slow; CI is the right place for it).
 
 #### **Testing**

@@ -1,5 +1,34 @@
 # Tasks Log
 
+## 2026-08-22 (pass 7)
+
+- **mypy phase 3e — exemption ratchet 9 → 7 modules** (the trading-critical pair;
+  27 untyped-def sites annotated; gate stays 0 errors).
+    - Migrated: `trading/position_manager` (9 sites — `_record_entry_failure`/
+      `_record_entry_success -> None`, `client: Any` on
+      `_confirm_exchange_flat_after_close`, `_get_recent_candles_for_cycle -> Any`,
+      `_resolve_leg_open_state`, `_place_reduce_only_close_with_retries`,
+      `_close_orphan_exchange_leg`, `open_positions`, `manage_trade_exits`) and
+      `trading/account_manager` (18 sites — full order-execution seam;
+      `place_market_order -> Tuple[Any, str]`, `check_order_status -> str` (typed
+      local over the Any payload), `get_order_fills -> List[Any]`,
+      `is_open_positions -> bool`, `cancel_all_orders -> Optional[List[Any]]`,
+      `abort_all_positions -> List[Any]`, `get_account`/`get_open_positions -> Any`).
+    - Two behavior-preserving fixes mypy forced: (1) `place_market_order`'s
+      `Market(market_payload)` local renamed to `market_obj` — it shadowed the
+      newly-typed `market: str` param (local rename, runtime identical); (2)
+      `cancel_all_orders` gained an explicit trailing `return None` (the implicit
+      fall-off already returned None; mypy only permits fall-off for `-> None`/`-> Any`).
+    - Ratchet: `pyproject.toml` override list + ratchet-test frozen set shrunk to 7;
+      174 untyped-def sites remain (backtests 57, websocket_server 25, server 23,
+      database 21, bot_instance_manager 18, strategies/bot_realtime 15 each).
+    - Validation: mypy 0 errors; isort/black/flake8 clean; per-area suites green
+      (position-manager exit/entry safety, bot-agent emergency cleanup
+      (`make test-execution-safety`), portfolio risk + accounts, live risk controls,
+      live trade persistence, account-manager abort cleanup, trading network errors,
+      arbitrage observability + cycle cache, mypy ratchet — 141 passed); full
+      CI-mirror suite 1354 passed, 13 skipped, coverage 83.32% ≥ 82 floor.
+
 ## 2026-08-22 (pass 6)
 
 - **mypy phase 3d — exemption ratchet 11 → 9 modules** (2 modules, 20 untyped-def sites

@@ -22,7 +22,7 @@ from pathlib import Path
 
 _PYPROJECT = Path(__file__).resolve().parent.parent / "pyproject.toml"
 
-# Frozen exemption set (9 modules after phase 3d, 2026-08-22). Shrinks over
+# Frozen exemption set (7 modules after phase 3e, 2026-08-22). Shrinks over
 # time; NEVER grows without an explicit justification edit here.
 # Phase 3a baseline (2026-08-22): 24 modules.
 # Phase 3b (2026-08-22): -7 (workers/backtest_tasks, trading/portfolio_risk,
@@ -32,6 +32,7 @@ _PYPROJECT = Path(__file__).resolve().parent.parent / "pyproject.toml"
 # api/v1/monitoring, infrastructure/persistence/repository,
 # infrastructure/persistence/repository_realtime, trading/market_data).
 # Phase 3d (2026-08-22): -2 (trading/bot_agent, main_instance).
+# Phase 3e (2026-08-22): -2 (trading/position_manager, trading/account_manager).
 EXPECTED_EXEMPT_MODULES = frozenset(
     {
         "src.api.server",
@@ -41,8 +42,6 @@ EXPECTED_EXEMPT_MODULES = frozenset(
         "src.api.websocket_server",
         "src.bot_instance_manager",
         "src.infrastructure.database",
-        "src.trading.account_manager",
-        "src.trading.position_manager",
     }
 )
 

@@ -1,5 +1,25 @@
 # Tasks Log
 
+## 2026-08-23 (pass 12) — DONE
+
+- **CORS hardening (flows/risks-and-gaps.md row "CORS wildcard + credentials")** —
+  the last verified-open Medium security row from the 2026-06-21 gap audit.
+    - `src/api/server.py`: new `_resolve_cors_settings()` — `BOT_API_CORS_ORIGINS`
+      (comma-separated) → those origins with `allow_credentials=true`; unset/blank
+      → wildcard `["*"]` with `allow_credentials=False`. Rationale: browsers reject
+      credentialed wildcard responses per spec, and this API authenticates via
+      Authorization headers (not cookies), so no working flow depended on the old
+      wildcard+credentials combo — the insecure pairing is gone with zero breakage.
+    - Tests: 3 new cases in `tests/test_api_server_unit.py` (default
+      wildcard/no-credentials, explicit origins parse + credentials on, blank-env
+      fallback).
+    - Docs: README security section (env knob + rationale),
+      `flows/risks-and-gaps.md` row struck through with resolution note,
+      AGENTS.md latest-context line.
+    - Validation: strict mypy 0 errors; isort/black/flake8 clean; per-area green
+      (api server unit, auth contract, service-token overlap — 41 passed); full
+      CI-mirror suite 1357 passed, 13 skipped, coverage 83.34% ≥ 82.
+
 ## 2026-08-23 (pass 11) — DONE — `strict = true` flipped (phase 4a)
 
 - **mypy phase 4a — the strict bundle is ON** (measured 101 errors, fixed all,

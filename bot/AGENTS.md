@@ -376,6 +376,9 @@ module `reset_*()` helpers.
   runtime/backtest contracts.
 - Service-token overlap behavior (`BOT_API_TOKEN`, `BOT_API_TOKEN_PREVIOUS`, `BOT_API_TOKENS`) and readiness semantics
   remain active contracts with backend delegation.
+- CORS is fail-safe since 2026-08-23: wildcard origins are served WITHOUT credentials by default (the API uses
+  Authorization-header auth, not cookies); set `BOT_API_CORS_ORIGINS` (comma-separated) for the credentialed
+  browser-client posture. Seam: `_resolve_cors_settings` in `src/api/server.py`.
 - Strategy runtime websocket expectations remain operator-critical: snapshot on connect plus lifecycle/status updates
   after runtime changes.
 - Use supervised job pattern (`async_job_manager`) for all long-running background work; task state must persist to

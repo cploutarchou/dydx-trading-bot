@@ -1,5 +1,28 @@
 # Tasks Log
 
+## 2026-08-23 (pass 8)
+
+- **mypy phase 3f — exemption ratchet 7 → 5 modules** (the API route pair; 23
+  untyped-def sites annotated; gate stays 0 errors).
+    - Migrated: `api/v1/strategies` (8 routes — `current_user: User = Depends(...)`
+      + `-> JSONResponse`, including the public catalog route) and
+      `api/v1/bot_realtime` (15 sites — six session-owning `_*_sync` loaders and six
+      HTTP routes `-> JSONResponse` (typed returns flow through `run_db`'s generic),
+      three websocket handlers (`websocket_alerts`, `websocket_bot_runtime`,
+      `websocket_strategies`) `-> None`).
+    - Schema-safety check: regenerated `openapi.json` from the live app — zero diff
+      on strategies/bot_realtime paths (annotations schema-neutral as designed);
+      caught a 3b docs-sync gap (10 auth paths missing their `Response_*` schemas
+      after the `-> dict` annotations) and updated `openapi.json` (additive only).
+    - Ratchet: `pyproject.toml` override list + ratchet-test frozen set shrunk to 5;
+      144 untyped-def sites remain (backtests 57, websocket_server 25, server 23,
+      database 21, bot_instance_manager 18).
+    - Validation: mypy 0 errors; isort/black/flake8 clean; per-area suites green
+      (bot realtime routes, realtime positions/repository/pnl/serializers, bot
+      record/lifecycle routes, auth API contract, strategies routes, websocket
+      server, mypy ratchet — 99 passed); full CI-mirror suite 1354 passed,
+      13 skipped, coverage 83.33% ≥ 82 floor.
+
 ## 2026-08-22 (pass 7)
 
 - **mypy phase 3e — exemption ratchet 9 → 7 modules** (the trading-critical pair;

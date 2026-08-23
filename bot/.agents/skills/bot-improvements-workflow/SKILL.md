@@ -63,7 +63,7 @@ fallback assignments need `# type: ignore[assignment,misc]`; mixins declare host
 `warn_redundant_casts`) — never add a `# type: ignore` that isn't needed (unused ones fail the gate).
 Phase-3a options are ON since 2026-08-22 (`warn_return_any`, `warn_unused_configs`,
 `disallow_untyped_defs`): new modules must be fully annotated (bind stub-less lib results through
-typed locals, e.g. `encoded: str = jwt.encode(...)`); the 7 pre-annotation modules are ratchet-exempt (phase 3a baseline was 24)
+typed locals, e.g. `encoded: str = jwt.encode(...)`); the 5 pre-annotation modules are ratchet-exempt (phase 3a baseline was 24)
 in `pyproject.toml` `[[tool.mypy.overrides]]`, pinned by `tests/test_mypy_untyped_defs_ratchet.py` —
 migrate a module by annotating it, then remove its override + frozen-set entry in the same change.
 

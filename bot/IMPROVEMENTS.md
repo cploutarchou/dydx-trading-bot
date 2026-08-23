@@ -606,6 +606,20 @@ Items removed from this plan during the same review — and why — are listed i
       persistence, execution safety, abort cleanup, network-error, and arbitrage
       observability/cycle-cache suites all green. 174 untyped-def sites remain across
       the 7 exempt modules.
+      **Phase 3f (2026-08-23)** — exemption list **7 → 5**: migrated the API route pair
+      `api/v1/strategies` (8 routes — `current_user: User` params + `-> JSONResponse`,
+      the established 3c pattern) and `api/v1/bot_realtime` (15 sites — the six
+      session-owning `_*_sync` loaders `-> JSONResponse` so `run_db` threads return the
+      typed envelope, six HTTP routes `-> JSONResponse` (params were already typed), and
+      the three websocket handlers `-> None`). Verified schema-neutral: regenerated
+      `openapi.json` from the live app — zero diff on any strategies/bot_realtime path
+      (Response-subclass returns and Depends params don't affect the contract). The
+      regeneration also surfaced and fixed a docs-sync gap from 3b: the 10 auth paths
+      (legacy `/auth/*` + `/api/v1/auth/*`) had never been regenerated after their
+      `-> dict` annotations, so the committed file still showed `"schema": {}` where the
+      code now declares typed object responses — `openapi.json` updated (50 insertions:
+      `Response_*` object schemas, additive only, no request/status-code changes).
+      144 untyped-def sites remain across the 5 exempt modules.
       Not added to pre-commit (mypy needs whole-program context and is slow; CI is the right place for it).
 
 #### **Testing**

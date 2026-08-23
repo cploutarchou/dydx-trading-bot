@@ -81,7 +81,7 @@ def _get_redis_client() -> Any:
     try:
         import redis as _redis
 
-        return _redis.from_url(
+        return _redis.from_url(  # type: ignore[no-untyped-call]
             _redis_url(),
             decode_responses=True,
             socket_connect_timeout=1,
@@ -219,7 +219,7 @@ def _run_market_sync() -> Dict[str, Any]:
     return asyncio.run(_sync_market_candles_async())
 
 
-@celery_app.task(name="bot.sync_market_candles")
+@celery_app.task(name="bot.sync_market_candles")  # type: ignore[untyped-decorator]
 def sync_market_candles() -> Dict[str, Any]:
     """Sync active market candles to the shared Redis cache for runtime reuse."""
     if not _enabled():

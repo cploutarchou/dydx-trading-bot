@@ -1,5 +1,32 @@
 # Tasks Log
 
+## 2026-08-23 (pass 11) — DONE — `strict = true` flipped (phase 4a)
+
+- **mypy phase 4a — the strict bundle is ON** (measured 101 errors, fixed all,
+  gate stays 0 errors).
+    - Measurement first: temp config with `strict = true` → 87 `type-arg`
+      (bare generics), 8 `no-untyped-call` (redis `from_url`), 3
+      `comparison-overlap`, 2 `untyped-decorator` (Celery), 1 `attr-defined`
+      (nats implicit re-export).
+    - Fixed: 87 bare `dict`/`list`/`set`/`List`/`Dict`/`Task`/`Popen`/
+      `sessionmaker` annotations parameterized with real element types; 2
+      legacy-shape defensive comparisons bound through explicit `Any` locals
+      (`main_instance` cointegration store check, `position_manager`
+      bot-open guard); nats `Msg` imported from canonical `nats.aio.msg`;
+      10 scoped type-ignores added for third-party seams (8 redis
+      `from_url`, 2 Celery decorators); `cleanup_cache_entries` widened to
+      `Dict[Any, Any]` (key-agnostic helper).
+    - Two earlier annotations corrected by the stricter pass:
+      `_candles_recent_cache` is tuple-keyed
+      (`dict[tuple[str, Any], Any]`), and `processes` holds `Popen[str]`
+      (text mode), not `Popen[bytes]`.
+    - `strict = true` added to `pyproject.toml [tool.mypy]` (explicit phase-2/3
+      flags kept as history); ratchet test now asserts `strict is True`
+      alongside `disallow_untyped_defs`.
+    - Validation: strict mypy `Success: no issues found in 97 source files`;
+      isort/black/flake8 clean; 16 per-area suites green (323 passed);
+      full CI-mirror suite 1354 passed, 13 skipped, coverage 83.34% ≥ 82.
+
 ## 2026-08-23 (pass 10) — DONE — exemption ratchet EMPTY
 
 - **mypy phases 3h + 3i — exemption ratchet 3 → 0 modules** (the final three

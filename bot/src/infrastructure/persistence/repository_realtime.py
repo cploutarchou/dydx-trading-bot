@@ -501,7 +501,7 @@ class AlertRepository:
         alert_type: str,
         severity: str,
         message: str,
-        details: Optional[dict] = None,
+        details: Optional[dict[str, Any]] = None,
     ) -> Alert:
         """Create a new alert"""
         alert = Alert(

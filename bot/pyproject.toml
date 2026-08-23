@@ -92,6 +92,18 @@ ignore_missing_imports = true
 # Skip generated/vendored/cache dirs if mypy follows an import into them.
 exclude = '^(_build|build|dist|\.venv|__pycache__|bot_states)/'
 
+# --- Phase-4: strict = true ENABLED 2026-08-23 (phase 4a) — the end-state bundle ---
+# The full strict bundle is on: disallow_any_generics (bare dict/list/set/Task/
+# Popen/sessionmaker annotations all parameterized — 87 sites), strict_equality
+# (2 legacy-shape defensive comparisons now bound through explicit Any locals),
+# disallow_untyped_calls (8 redis from_url call sites carry scoped
+# `# type: ignore[no-untyped-call]`), disallow_untyped_decorators (2 Celery
+# `@celery_app.task` sites carry `# type: ignore[untyped-decorator]`),
+# no_implicit_reexport (nats Msg imported from its canonical nats.aio.msg home).
+# Measured blast radius was 101 errors; all fixed in one pass. The explicit
+# flags below are kept as history; strict subsumes them.
+strict = true
+
 # --- Phase-2 options ENABLED 2026-08-16 (drove the new count back to 0) ---
 # Bodies of unannotated functions are checked, and stale ignores / redundant
 # casts are flagged so `# type: ignore` debt can't silently accumulate.
@@ -103,10 +115,9 @@ check_untyped_defs = true
 # warn_return_any: Any can no longer leak out of typed signatures (36 sites
 # fixed; several were real seam fixes — api_response, run_db, and
 # _retry_with_backoff gained proper generics/annotations).
-# disallow_untyped_defs: new code must be fully annotated. The modules below
-# still have pre-annotation defs; they are ratchet-exempt — shrink this list
-# as modules are migrated (never grow it; tests/test_mypy_untyped_defs_ratchet.py
-# pins the count). strict remains the end-state bundle after the list is empty.
+# disallow_untyped_defs: enabled globally 2026-08-22 with a 24-module exemption
+# ratchet that shrank to EMPTY by phase 3i (2026-08-23) — see the ratchet
+# history below.
 warn_unused_configs = true
 warn_return_any = true
 disallow_untyped_defs = true
@@ -118,9 +129,8 @@ disallow_untyped_defs = true
 # history: phase 3a baseline (2026-08-22) was 24 exempt modules; 3b -7; 3c -6;
 # 3d -2; 3e -2; 3f -2; 3g -2 (infrastructure/database, bot_instance_manager);
 # 3h -2 (api/server, api/websocket_server); 3i -1 (api/v1/backtests — the final
-# module, 57 sites annotated in one pass). `strict` is the next tightening
-# decision now that the list is empty (measure its blast radius first:
-# disallow_any_generics would flag bare `dict`/`list` annotations).
+# module, 57 sites annotated in one pass). Phase 4a (2026-08-23) then flipped
+# `strict = true` on top of the empty ratchet — measured 101 errors, all fixed.
 
 [tool.bandit]
 # ---------------------------------------------------------------------------

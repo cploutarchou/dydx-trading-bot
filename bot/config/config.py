@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlsplit
 
 from src.shared.env_loader import load_repo_env
@@ -658,7 +658,7 @@ class ConfigurationManager:
             secure=_get_env_bool("BACKTEST_MINIO_SECURE", default=(scheme == "https")),
         )
 
-    def _build_logging_settings(self, data: dict) -> LoggingSettings:
+    def _build_logging_settings(self, data: dict[str, Any]) -> LoggingSettings:
         logging_data = data.get("logging")
         if logging_data is None:
             return LoggingSettings()

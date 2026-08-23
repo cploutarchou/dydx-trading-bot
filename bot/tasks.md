@@ -1,5 +1,31 @@
 # Tasks Log
 
+## 2026-08-23 (pass 15) — DONE
+
+- **Unused `high_priority` Celery queue removed from defaults** (flows/risks-and-gaps.md row
+  "`high_priority` queue is configured but no current task routes there").
+    - Verified no producer routes there: `task_routes` feeds only `backtests` (env-overridable via
+      `BACKTEST_CELERY_QUEUE`) and `scheduled` (opt-in market sync); everything else falls to
+      `task_default_queue="default"`. The per-run queue override seam
+      (`BacktestService._build_task_context` → `send_task(queue=...)`) still allows targeting a
+      custom queue — operators add it to `CELERY_QUEUES` explicitly.
+    - Removed from every default: `DEFAULT_CELERY_QUEUES` in
+      `src/infrastructure/workers/celery_app.py` + `celery_monitor.py`, `worker_entrypoint.py`,
+      bot `Makefile` (`local-worker`), root `Makefile` worker target,
+      `docker-compose.bot-worker.yml`, `deploy/k8s/dydx-trading-bot-staging.yaml`,
+      `deploy/k8s/dydx-trading-bot-production.yaml`, `deploy/k8s-next/applications.yaml`; docs
+      synced (README queue list + custom-queue note, CLAUDE.md env block, AGENTS.md worker
+      entrypoint line, senior-agent quick reference).
+    - Tests: `test_celery_monitor` route assertions now also pin `high_priority` NOT declared;
+      entrypoint/Makefile default-string assertions updated to the 3-queue default.
+    - Validation: per-area 106 passed (worker entrypoint, celery monitor, market sync, backtest
+      service unit); opt-in integration suite 6 passed against live infra — a real Celery worker
+      booted on the new 3-queue default, plus Redis cache/broadcast roundtrips and the live dYdX
+      indexer contract; isort/black/flake8 clean; strict mypy 0 errors; full CI-mirror suite
+      1361 passed, 13 skipped, coverage 83.37% ≥ 82.
+    - Also fixed pre-existing isort import order in `worker_entrypoint.py` (`_run_nats_worker`)
+      while formatting the file this pass touched.
+
 ## 2026-08-23 (pass 14) — DONE
 
 - **Startup leader lock for multi-replica safety** (flows/risks-and-gaps.md row

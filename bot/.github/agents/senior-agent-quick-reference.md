@@ -153,7 +153,7 @@ bot/
 
 ### Backtest System
 - **Celery-backed** asynchronous execution
-- **Multi-queue** support (backtests, default, high_priority, scheduled)
+- **Multi-queue** support (backtests, default, scheduled)
 - **Progress tracking** with throttled DB writes
 - **Artifact storage** via MinIO/S3 (optional)
 - **Analytics writes** to ClickHouse (optional)

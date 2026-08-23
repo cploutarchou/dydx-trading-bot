@@ -47,6 +47,4 @@ def test_worker_entrypoint_defaults_to_all_operational_celery_queues(monkeypatch
 
     assert worker_entrypoint.main() == 0
     assert "--queues" in argv
-    assert argv[argv.index("--queues") + 1] == (
-        "backtests,default,high_priority,scheduled"
-    )
+    assert argv[argv.index("--queues") + 1] == ("backtests,default,scheduled")

@@ -254,7 +254,7 @@ local-worker: ensure-venv ensure-local-infra ## Start a foreground Celery worker
 	@echo "$(CYAN)👷 Starting local Celery worker for strategy backtests$(RESET)"
 	@echo "$(YELLOW)⚠ Stop the supervised worker first with 'make -C .. celery-worker-down' to avoid duplicate consumers.$(RESET)"
 	# On macOS, use spawn instead of fork to avoid Objective-C runtime crashes
-	MP_START_METHOD=$${MP_START_METHOD:-spawn} CELERY_BROKER_URL=$${CELERY_BROKER_URL:-$${REDIS_URL:-$${VALKEY_URL:-redis://localhost:6379/1}}} CELERY_RESULT_BACKEND=$${CELERY_RESULT_BACKEND:-$${REDIS_RESULT_BACKEND_URL:-$${VALKEY_RESULT_BACKEND_URL:-redis://localhost:6379/2}}} CELERY_QUEUES=$${CELERY_QUEUES:-backtests,default,high_priority,scheduled} PYTHON_MULTIPROCESSING_START_METHOD=$${MP_START_METHOD:-spawn} $(VENV_PYTHON) -m celery -A src.infrastructure.workers.celery_app:celery_app worker -l info -Q $${CELERY_QUEUES:-backtests,default,high_priority,scheduled} -E
+	MP_START_METHOD=$${MP_START_METHOD:-spawn} CELERY_BROKER_URL=$${CELERY_BROKER_URL:-$${REDIS_URL:-$${VALKEY_URL:-redis://localhost:6379/1}}} CELERY_RESULT_BACKEND=$${CELERY_RESULT_BACKEND:-$${REDIS_RESULT_BACKEND_URL:-$${VALKEY_RESULT_BACKEND_URL:-redis://localhost:6379/2}}} CELERY_QUEUES=$${CELERY_QUEUES:-backtests,default,scheduled} PYTHON_MULTIPROCESSING_START_METHOD=$${MP_START_METHOD:-spawn} $(VENV_PYTHON) -m celery -A src.infrastructure.workers.celery_app:celery_app worker -l info -Q $${CELERY_QUEUES:-backtests,default,scheduled} -E
 
 .PHONY: dev-detached
 dev-detached: ## Start development environment in background

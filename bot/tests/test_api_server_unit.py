@@ -1211,3 +1211,30 @@ def test_perpetual_markets_route_cache_live_stale_and_failure(monkeypatch):
     failed = asyncio.run(server.list_perpetual_markets())
     assert failed.status_code == 503
     assert _payload(failed)["data"]["error"] == "MARKET_RESOLUTION_FAILED"
+
+
+# --- CORS settings ---------------------------------------------------------------
+
+
+def test_cors_settings_default_to_wildcard_without_credentials(monkeypatch):
+    monkeypatch.delenv("BOT_API_CORS_ORIGINS", raising=False)
+    origins, allow_credentials = server._resolve_cors_settings()
+    assert origins == ["*"]
+    assert allow_credentials is False
+
+
+def test_cors_settings_explicit_origins_enable_credentials(monkeypatch):
+    monkeypatch.setenv(
+        "BOT_API_CORS_ORIGINS",
+        "https://dashboard.example, https://ops.example ",
+    )
+    origins, allow_credentials = server._resolve_cors_settings()
+    assert origins == ["https://dashboard.example", "https://ops.example"]
+    assert allow_credentials is True
+
+
+def test_cors_settings_blank_env_falls_back_to_wildcard(monkeypatch):
+    monkeypatch.setenv("BOT_API_CORS_ORIGINS", " , ,, ")
+    origins, allow_credentials = server._resolve_cors_settings()
+    assert origins == ["*"]
+    assert allow_credentials is False

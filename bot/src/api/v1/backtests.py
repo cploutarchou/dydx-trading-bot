@@ -9,7 +9,17 @@ import threading
 import time
 from collections import deque
 from contextlib import contextmanager
-from typing import Any, Callable, Dict, Generator, List, Mapping, Optional, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generator,
+    List,
+    Mapping,
+    Optional,
+    TypeVar,
+    Union,
+)
 
 from fastapi import APIRouter, Depends, Query, Request, WebSocket
 from fastapi.responses import JSONResponse
@@ -33,6 +43,8 @@ from src.infrastructure.domain.models_backtest import (
 )
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.use_cases.service_backtest import BacktestService
+
+_T = TypeVar("_T")
 from src.middleware.auth_middleware import get_admin_user, get_current_active_user
 from src.shared.time_utils import utc_now_iso
 from src.shared.trading_validators import (
@@ -1071,7 +1083,7 @@ async def _broadcast_backtest_progress(
 
 
 @router.websocket("/api/v1/backtests/{run_id}/live")
-async def websocket_backtest_progress(websocket: WebSocket, run_id: str):
+async def websocket_backtest_progress(websocket: WebSocket, run_id: str) -> None:
     """WebSocket endpoint for live backtest progress updates."""
     if not await _authorize_websocket_connection(websocket):
         return
@@ -1079,14 +1091,14 @@ async def websocket_backtest_progress(websocket: WebSocket, run_id: str):
 
 
 @router.websocket("/ws/backtests/{run_id}")
-async def websocket_backtest_progress_alias(websocket: WebSocket, run_id: str):
+async def websocket_backtest_progress_alias(websocket: WebSocket, run_id: str) -> None:
     """Alias websocket channel for backend integrations consuming backtest runtime events."""
     if not await _authorize_websocket_connection(websocket):
         return
     await WebSocketServer.handle_connection(websocket, f"backtest-{run_id}")
 
 
-def get_backtest_service():
+def get_backtest_service() -> BacktestService:
     """Dependency to get backtest service"""
     db_session = db.get_session()
     repository = BacktestRepository(db_session)
@@ -1125,7 +1137,7 @@ def backtest_service_scope() -> Generator["BacktestService", None, None]:
         close_backtest_service(service)
 
 
-def _run_with_backtest_service(operation):
+def _run_with_backtest_service(operation: Callable[[Any], _T]) -> _T:
     """Execute sync backtest-service work with request-scoped session cleanup."""
     service = _compat("get_backtest_service", get_backtest_service)()
     try:
@@ -1139,7 +1151,7 @@ def _list_backtests_sync(
     offset: int,
     status: Optional[str],
     days: Optional[int],
-):
+) -> Any:
     return _run_with_backtest_service(
         lambda service: service.list_backtest_runs(
             limit=limit,
@@ -1150,13 +1162,13 @@ def _list_backtests_sync(
     )
 
 
-def _get_backtest_details_sync(run_id: str):
+def _get_backtest_details_sync(run_id: str) -> Any:
     return _run_with_backtest_service(
         lambda service: service.get_backtest_details(run_id)
     )
 
 
-def _get_backtest_status_sync(run_id: str):
+def _get_backtest_status_sync(run_id: str) -> Any:
     return _run_with_backtest_service(
         lambda service: service.get_backtest_status(run_id)
     )
@@ -1167,7 +1179,7 @@ def _get_backtest_trades_sync(
     limit: int,
     offset: int,
     winning_only: bool,
-):
+) -> Any:
     return _run_with_backtest_service(
         lambda service: service.get_backtest_trades(
             run_id=run_id,
@@ -1178,7 +1190,7 @@ def _get_backtest_trades_sync(
     )
 
 
-def _get_backtest_analytics_sync(run_id: str):
+def _get_backtest_analytics_sync(run_id: str) -> Any:
     return _run_with_backtest_service(
         lambda service: service.get_comprehensive_analytics(run_id)
     )
@@ -1189,7 +1201,7 @@ def _get_position_snapshots_sync(
     limit: int,
     offset: int,
     market_pair: Optional[str],
-):
+) -> Any:
     return _run_with_backtest_service(
         lambda service: service.get_position_snapshots(
             run_id=run_id,
@@ -1200,27 +1212,27 @@ def _get_position_snapshots_sync(
     )
 
 
-def _get_backtest_summary_stats_sync(days: int):
+def _get_backtest_summary_stats_sync(days: int) -> Any:
     return _run_with_backtest_service(lambda service: service.get_summary_stats(days))
 
 
-def _get_backtest_runtime_health_sync():
+def _get_backtest_runtime_health_sync() -> Any:
     return _run_with_backtest_service(lambda service: service.get_runtime_health())
 
 
-def _compare_backtests_sync(run_ids: List[str], metrics: List[str]):
+def _compare_backtests_sync(run_ids: List[str], metrics: List[str]) -> Any:
     return _run_with_backtest_service(
         lambda service: service.compare_backtests(run_ids, metrics)
     )
 
 
-def _get_advanced_performance_metrics_sync(run_id: str, benchmark: str):
+def _get_advanced_performance_metrics_sync(run_id: str, benchmark: str) -> Any:
     return _run_with_backtest_service(
         lambda service: service.get_advanced_performance_metrics(run_id, benchmark)
     )
 
 
-def _get_live_progress_sync(run_id: str):
+def _get_live_progress_sync(run_id: str) -> Any:
     return _run_with_backtest_service(lambda service: service.get_live_progress(run_id))
 
 
@@ -1229,7 +1241,7 @@ async def create_backtest(
     request: Union[BacktestConfigRequest, BacktestRunRequestCompat],
     _rate: None = Depends(_check_backtest_rate_limit),
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Create and start a new backtest"""
     del current_user
     try:
@@ -1297,7 +1309,7 @@ async def run_backtest_compat(
     request: BacktestRunRequestCompat,
     _rate: None = Depends(_check_backtest_rate_limit),
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Frontend-compatible backtest execution route."""
     del current_user
     try:
@@ -1380,7 +1392,7 @@ async def list_backtests(
     status: Optional[str] = None,
     days: Optional[int] = None,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """List backtest runs with filtering"""
     del current_user
     try:
@@ -1412,17 +1424,18 @@ async def list_backtests(
 async def list_interrupted_backtests(
     limit: int = 50,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Ops visibility for interrupted/orphaned persisted backtest runs."""
     del current_user
-    return await _maybe_awaitable(
+    response: JSONResponse = await _maybe_awaitable(
         _compat(
             "_list_interrupted_backtests_response", _list_interrupted_backtests_response
         )(limit=limit)
     )
+    return response
 
 
-async def _list_interrupted_backtests_response(limit: int):
+async def _list_interrupted_backtests_response(limit: int) -> JSONResponse:
     """Shared response builder for interrupted backtest visibility routes."""
     try:
         report = dict(
@@ -1453,18 +1466,19 @@ async def _list_interrupted_backtests_response(limit: int):
 async def reconcile_interrupted_backtests(
     dry_run: bool = True,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Explicitly reconcile persisted orphaned in-progress runs."""
     del current_user
-    return await _maybe_awaitable(
+    response: JSONResponse = await _maybe_awaitable(
         _compat(
             "_reconcile_interrupted_backtests_response",
             _reconcile_interrupted_backtests_response,
         )(dry_run=dry_run)
     )
+    return response
 
 
-async def _reconcile_interrupted_backtests_response(dry_run: bool):
+async def _reconcile_interrupted_backtests_response(dry_run: bool) -> JSONResponse:
     """Shared response builder for interrupted backtest reconcile routes."""
     report = dict(
         await run_db(
@@ -1487,41 +1501,41 @@ async def _reconcile_interrupted_backtests_response(dry_run: bool):
     )
 
 
-def _cancel_backtest_sync(run_id: str):
+def _cancel_backtest_sync(run_id: str) -> Any:
     return _run_with_backtest_service(lambda service: service.cancel_backtest(run_id))
 
 
-def _pause_backtest_sync(run_id: str):
+def _pause_backtest_sync(run_id: str) -> Any:
     return _run_with_backtest_service(lambda service: service.pause_backtest(run_id))
 
 
-def _resume_backtest_sync(run_id: str):
+def _resume_backtest_sync(run_id: str) -> Any:
     return _run_with_backtest_service(lambda service: service.resume_backtest(run_id))
 
 
-def _delete_backtest_sync(run_id: str):
+def _delete_backtest_sync(run_id: str) -> Any:
     return _run_with_backtest_service(lambda service: service.delete_backtest(run_id))
 
 
-def _repair_backtest_request_sync(run_id: str, dry_run: bool):
+def _repair_backtest_request_sync(run_id: str, dry_run: bool) -> Any:
     return _run_with_backtest_service(
         lambda service: service.repair_backtest_request(run_id, dry_run=dry_run)
     )
 
 
-def _list_interrupted_runs_for_ops_sync(limit: int):
+def _list_interrupted_runs_for_ops_sync(limit: int) -> Any:
     return _run_with_backtest_service(
         lambda service: service.list_interrupted_runs_for_ops(limit=limit)
     )
 
 
-def _reconcile_interrupted_runs_sync(dry_run: bool):
+def _reconcile_interrupted_runs_sync(dry_run: bool) -> Any:
     return _run_with_backtest_service(
         lambda service: service.reconcile_interrupted_runs(dry_run=dry_run)
     )
 
 
-async def _maybe_awaitable(value):
+async def _maybe_awaitable(value: Any) -> Any:
     """Await builder results when the (patchable) builder is async; pass through
     sync results so monkeypatched sync doubles keep working."""
     if inspect.isawaitable(value):
@@ -1529,7 +1543,7 @@ async def _maybe_awaitable(value):
     return value
 
 
-async def _repair_backtest_request_response(run_id: str, dry_run: bool):
+async def _repair_backtest_request_response(run_id: str, dry_run: bool) -> JSONResponse:
     """Shared response builder for request repair routes."""
     report = await run_db(
         _compat("_repair_backtest_request_sync", _repair_backtest_request_sync),
@@ -1555,29 +1569,31 @@ async def _repair_backtest_request_response(run_id: str, dry_run: bool):
 async def list_interrupted_backtests_admin(
     limit: int = 50,
     current_user: User = Depends(get_admin_user),
-):
+) -> JSONResponse:
     """Admin-scoped alias for interrupted/orphaned persisted backtest visibility."""
     _ = current_user
-    return await _maybe_awaitable(
+    response: JSONResponse = await _maybe_awaitable(
         _compat(
             "_list_interrupted_backtests_response", _list_interrupted_backtests_response
         )(limit=limit)
     )
+    return response
 
 
 @router.post("/api/v1/admin/backtests/interrupted/reconcile")
 async def reconcile_interrupted_backtests_admin(
     dry_run: bool = True,
     current_user: User = Depends(get_admin_user),
-):
+) -> JSONResponse:
     """Admin-scoped alias for explicit interrupted backtest reconciliation."""
     _ = current_user
-    return await _maybe_awaitable(
+    response: JSONResponse = await _maybe_awaitable(
         _compat(
             "_reconcile_interrupted_backtests_response",
             _reconcile_interrupted_backtests_response,
         )(dry_run=dry_run)
     )
+    return response
 
 
 @router.post("/api/v1/admin/backtests/{run_id}/repair-request")
@@ -1585,21 +1601,22 @@ async def repair_backtest_request_admin(
     run_id: str,
     dry_run: bool = True,
     current_user: User = Depends(get_admin_user),
-):
+) -> JSONResponse:
     """Admin-scoped repair for legacy backtests missing request payloads."""
     _ = current_user
-    return await _maybe_awaitable(
+    response: JSONResponse = await _maybe_awaitable(
         _compat("_repair_backtest_request_response", _repair_backtest_request_response)(
             run_id=run_id, dry_run=dry_run
         )
     )
+    return response
 
 
 @router.get("/api/v1/backtests/{run_id}", response_model=BacktestDetailResponse)
 async def get_backtest_details(
     run_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get detailed backtest results"""
     del current_user
     result = await run_db(_get_backtest_details_sync, run_id)
@@ -1621,7 +1638,7 @@ async def get_backtest_details(
 async def get_backtest_status(
     run_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get current backtest status and progress"""
     del current_user
     result = await run_db(_get_backtest_status_sync, run_id)
@@ -1651,7 +1668,7 @@ async def update_backtest_metadata(
     run_id: str,
     payload: BacktestMetadataRequest,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Attach or merge structured metadata into a persisted backtest run."""
     del current_user
     with _compat("backtest_service_scope", backtest_service_scope)() as service:
@@ -1679,7 +1696,7 @@ async def update_backtest_metadata(
 async def get_backtest_websocket_metrics(
     run_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get per-run websocket send-failure metrics for reconnect-thrashing alerting."""
     del current_user
     status = await run_db(_get_backtest_status_sync, run_id)
@@ -1707,7 +1724,7 @@ async def create_strategy_from_backtest(
     run_id: str,
     request: BacktestCreateStrategyRequest,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Create a strategy snapshot from an existing backtest."""
     del current_user
     with _compat("backtest_service_scope", backtest_service_scope)() as service:
@@ -1743,7 +1760,7 @@ async def get_backtest_trades(
     offset: int = 0,
     winning_only: bool = False,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get trades for specific backtest run"""
     del current_user
     try:
@@ -1805,7 +1822,7 @@ async def get_backtest_logs(
     run_id: str,
     tail: int = Query(default=1000, ge=1, le=10000),
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Retrieve detailed execution logs for a specific backtest run."""
     del current_user
     log_file = os.path.join("bot_states", f"backtest_{run_id}.log")
@@ -1819,7 +1836,7 @@ async def get_backtest_logs(
 
     try:
 
-        def _read_logs():
+        def _read_logs() -> List[str]:
             with open(log_file, "r", encoding="utf-8", errors="replace") as f:
                 # Efficiently read the last N lines for large log files.
                 lines = f.readlines()
@@ -1849,7 +1866,7 @@ async def get_backtest_logs(
 async def cancel_backtest(
     run_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Cancel running backtest"""
     del current_user
     success = await run_db(
@@ -1871,7 +1888,7 @@ async def cancel_backtest(
 async def pause_backtest(
     run_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Request a cooperative pause for a running backtest."""
     del current_user
     result = await run_db(_compat("_pause_backtest_sync", _pause_backtest_sync), run_id)
@@ -1893,7 +1910,7 @@ async def pause_backtest(
 async def resume_backtest(
     run_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Resume a paused backtest."""
     del current_user
     result = await run_db(
@@ -1917,7 +1934,7 @@ async def resume_backtest(
 async def restart_backtest(
     run_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Cancel the current run if needed and start a fresh run from the same request."""
     del current_user
     try:
@@ -1968,7 +1985,7 @@ async def restart_backtest(
 async def retry_backtest(
     run_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Start a fresh run from the same request payload."""
     del current_user
     try:
@@ -2017,7 +2034,7 @@ async def retry_backtest(
 async def delete_backtest(
     run_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Delete backtest run and all associated data"""
     del current_user
     success = await run_db(
@@ -2037,7 +2054,7 @@ async def delete_backtest(
 async def get_backtest_summary_stats(
     days: int = 30,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get backtest system summary statistics"""
     del current_user
     stats = await run_db(_get_backtest_summary_stats_sync, days)
@@ -2053,7 +2070,7 @@ async def get_backtest_summary_stats(
 async def get_backtest_analytics(
     run_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get comprehensive analytics for a backtest run"""
     del current_user
     try:
@@ -2113,7 +2130,7 @@ async def get_backtest_analytics(
 async def get_backtest_analytics_summary(
     run_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get compact analytics summary for high-frequency dashboard surfaces."""
     del current_user
     try:
@@ -2170,7 +2187,7 @@ async def get_position_snapshots(
     offset: int = 0,
     market_pair: Optional[str] = None,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get position snapshots for real-time backtest tracking"""
     del current_user
     try:
@@ -2205,7 +2222,7 @@ async def get_position_snapshots(
 async def compare_backtests(
     request: BacktestComparisonRequest,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Compare multiple backtest runs with advanced analytics"""
     del current_user
     try:
@@ -2231,7 +2248,7 @@ async def compare_backtests(
 async def backtest_sync_health(
     metrics_only: bool = False,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Backend sync visibility endpoint for run orchestration health."""
     del current_user
     try:
@@ -2267,7 +2284,7 @@ async def backtest_sync_health(
 async def validate_against_dydx_data(
     run_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Validate backtest results against real dYdX market data"""
     del current_user
     try:
@@ -2298,7 +2315,7 @@ async def get_advanced_performance_metrics(
     run_id: str,
     benchmark: str = "BTC-USD",
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get advanced performance metrics with market benchmarking"""
     del current_user
     try:
@@ -2331,7 +2348,7 @@ async def get_advanced_performance_metrics(
 async def get_live_progress(
     run_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get real-time backtest progress with current positions"""
     del current_user
     progress = await run_db(_get_live_progress_sync, run_id)

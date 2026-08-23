@@ -6,6 +6,7 @@ import json
 from typing import Any, Callable, Optional
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from loguru import logger
 
 from src.api.realtime_serializers import (
@@ -105,7 +106,7 @@ def _resolve_realtime_bot_id(session: Any, bot_instance_id: str) -> Optional[int
 router = APIRouter()
 
 
-def _get_current_positions_sync(bot_instance_id: str):
+def _get_current_positions_sync(bot_instance_id: str) -> JSONResponse:
     """Load open positions off the event loop; owns its own DB session."""
     session = None
     try:
@@ -142,7 +143,7 @@ def _get_current_positions_sync(bot_instance_id: str):
 async def get_current_positions(
     bot_instance_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get all currently open positions for a bot"""
     del current_user
     try:
@@ -156,7 +157,7 @@ async def get_current_positions(
         )
 
 
-def _get_position_sync(bot_instance_id: str, position_id: str):
+def _get_position_sync(bot_instance_id: str, position_id: str) -> JSONResponse:
     """Load a single position off the event loop; owns its own DB session."""
     session = None
     try:
@@ -238,7 +239,7 @@ async def get_position(
     bot_instance_id: str,
     position_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get specific position details"""
     del current_user
     try:
@@ -252,7 +253,7 @@ async def get_position(
         )
 
 
-def _get_market_data_sync(bot_instance_id: str):
+def _get_market_data_sync(bot_instance_id: str) -> JSONResponse:
     """Load market data off the event loop; owns its own DB session."""
     session = None
     try:
@@ -309,7 +310,7 @@ def _get_market_data_sync(bot_instance_id: str):
 async def get_market_data(
     bot_instance_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get latest market data for all symbols tracked by bot"""
     del current_user
     try:
@@ -323,7 +324,7 @@ async def get_market_data(
         )
 
 
-def _get_realtime_stats_sync(bot_instance_id: str):
+def _get_realtime_stats_sync(bot_instance_id: str) -> JSONResponse:
     """Load realtime stats off the event loop; owns its own DB session."""
     session = None
     try:
@@ -407,7 +408,7 @@ def _get_realtime_stats_sync(bot_instance_id: str):
 async def get_realtime_stats(
     bot_instance_id: str,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get real-time bot statistics"""
     del current_user
     try:
@@ -421,7 +422,7 @@ async def get_realtime_stats(
         )
 
 
-def _get_alerts_sync(bot_instance_id: str, limit: int):
+def _get_alerts_sync(bot_instance_id: str, limit: int) -> JSONResponse:
     """Load recent alerts off the event loop; owns its own DB session."""
     session = None
     try:
@@ -474,7 +475,7 @@ async def get_alerts(
     bot_instance_id: str,
     limit: int = 50,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get recent alerts for a bot"""
     del current_user
     try:
@@ -488,7 +489,9 @@ async def get_alerts(
         )
 
 
-def _get_position_history_sync(bot_instance_id: str, position_id: str, hours: int):
+def _get_position_history_sync(
+    bot_instance_id: str, position_id: str, hours: int
+) -> JSONResponse:
     """Load position history off the event loop; owns its own DB session."""
     session = None
     try:
@@ -552,7 +555,7 @@ async def get_position_history(
     position_id: str,
     hours: int = 24,
     current_user: User = Depends(get_current_active_user),
-):
+) -> JSONResponse:
     """Get historical P&L snapshots for a position"""
     del current_user
     try:
@@ -598,7 +601,7 @@ async def _authorize_websocket_connection(websocket: WebSocket) -> bool:
 
 
 @router.websocket("/api/v1/bots/{bot_instance_id}/alerts/live")
-async def websocket_alerts(websocket: WebSocket, bot_instance_id: str):
+async def websocket_alerts(websocket: WebSocket, bot_instance_id: str) -> None:
     """WebSocket endpoint for live alerts"""
     if not await _authorize_websocket_connection(websocket):
         return
@@ -606,7 +609,7 @@ async def websocket_alerts(websocket: WebSocket, bot_instance_id: str):
 
 
 @router.websocket("/ws/bots/{bot_instance_id}")
-async def websocket_bot_runtime(websocket: WebSocket, bot_instance_id: str):
+async def websocket_bot_runtime(websocket: WebSocket, bot_instance_id: str) -> None:
     """Alias websocket channel for backend integrations consuming bot runtime events."""
     if not await _authorize_websocket_connection(websocket):
         return
@@ -614,7 +617,7 @@ async def websocket_bot_runtime(websocket: WebSocket, bot_instance_id: str):
 
 
 @router.websocket("/ws/strategies")
-async def websocket_strategies(websocket: WebSocket):
+async def websocket_strategies(websocket: WebSocket) -> None:
     """Frontend strategy status websocket channel."""
     if not await _authorize_websocket_connection(websocket):
         return

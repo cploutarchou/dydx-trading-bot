@@ -16,11 +16,13 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
 from src.api.responses import api_response
 from src.infrastructure.database import db
+from src.infrastructure.domain.models.auth_models import User
 from src.infrastructure.persistence.repository import UnitOfWork
 from src.middleware.auth_middleware import get_current_active_user
 
@@ -180,8 +182,8 @@ router = APIRouter(prefix="/api/v1/strategies", tags=["Strategies"])
 async def list_strategies(
     skip: int = 0,
     limit: int = 50,
-    current_user=Depends(get_current_active_user),
-):
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """List stored strategies for the UI."""
     del current_user
     # The store is sync/session-owning; run it off the event loop.
@@ -194,7 +196,7 @@ async def list_strategies(
 
 
 @router.get("/public")
-async def list_public_strategies():
+async def list_public_strategies() -> JSONResponse:
     """List public strategies (no auth — public catalog)."""
     data = await run_in_threadpool(InMemoryStrategyStore.list_public)
     return api_response(
@@ -207,8 +209,8 @@ async def list_public_strategies():
 @router.post("")
 async def create_strategy(
     request: StrategyRequest,
-    current_user=Depends(get_current_active_user),
-):
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """Create a strategy."""
     del current_user
     strategy = await run_in_threadpool(
@@ -224,8 +226,8 @@ async def create_strategy(
 @router.get("/{strategy_id}")
 async def get_strategy(
     strategy_id: int,
-    current_user=Depends(get_current_active_user),
-):
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """Get one strategy."""
     del current_user
     strategy = await run_in_threadpool(InMemoryStrategyStore.get, strategy_id)
@@ -242,8 +244,8 @@ async def get_strategy(
 async def update_strategy(
     strategy_id: int,
     request: StrategyRequest,
-    current_user=Depends(get_current_active_user),
-):
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """Update one strategy."""
     del current_user
     strategy = await run_in_threadpool(
@@ -261,8 +263,8 @@ async def update_strategy(
 @router.delete("/{strategy_id}")
 async def delete_strategy(
     strategy_id: int,
-    current_user=Depends(get_current_active_user),
-):
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """Delete one strategy."""
     del current_user
     if not await run_in_threadpool(InMemoryStrategyStore.delete, strategy_id):
@@ -277,8 +279,8 @@ async def delete_strategy(
 @router.get("/{strategy_id}/versions")
 async def get_strategy_versions(
     strategy_id: int,
-    current_user=Depends(get_current_active_user),
-):
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """Get in-memory version history for a strategy."""
     del current_user
     versions = await run_in_threadpool(InMemoryStrategyStore.versions, strategy_id)
@@ -294,8 +296,8 @@ async def revert_strategy_version(
     strategy_id: int,
     version_id: int,
     request: StrategyVersionRevertRequest,
-    current_user=Depends(get_current_active_user),
-):
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
     """Revert a strategy to a prior stored version."""
     del request, current_user
     strategy = await run_in_threadpool(

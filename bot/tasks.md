@@ -1,5 +1,26 @@
 # Tasks Log
 
+## 2026-08-23 (pass 9) — DONE
+
+- **mypy phase 3g — exemption ratchet 5 → 3 modules** (infrastructure pair; 39
+  untyped-def sites annotated; gate stays 0 errors).
+    - Migrated: `infrastructure/database` (21 sites — pool-monitor methods,
+      `DatabaseConfig.__init__`, `DatabaseManager.__new__(cls) ->
+      "DatabaseManager"` + `__init__`, engine/migration lifecycle
+      (`_initialize`, `create_all_tables`, `ensure_schema_compatibility`,
+      `run_pending_migrations`, `drop_all_tables`, `close`), module-level
+      `get_session() -> Iterator[Session]`, `init_db() -> None`) and
+      `bot_instance_manager` (18 sites — recovery diagnostics, dev-row cleanup,
+      DB persistence sync family, strategy-status publisher, log handles,
+      trading-stats refresh, dead-process cleanup / liveness degrade / shutdown).
+    - All annotations runtime no-ops; no body changes required this pass.
+    - Ratchet: `pyproject.toml` override list + ratchet-test frozen set shrunk to 3
+      (backtests 57, websocket_server 25, server 23 — 105 sites remain).
+    - Validation: mypy 0 errors; isort/black/flake8 clean; per-area suites green
+      (database unit, persistence repository unit, bot instance manager,
+      monitoring routes, mypy ratchet — 140 passed); full CI-mirror suite
+      1354 passed, 13 skipped, coverage 83.33% ≥ 82 floor.
+
 ## 2026-08-23 (pass 8)
 
 - **mypy phase 3f — exemption ratchet 7 → 5 modules** (the API route pair; 23

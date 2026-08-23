@@ -126,7 +126,7 @@ class ConnectionPoolMonitor:
         self._current_pool_overflow = 0
         self._current_pool_available = 0
 
-    def start_monitoring(self, pool: Pool, engine_name: str = "database"):
+    def start_monitoring(self, pool: Pool, engine_name: str = "database") -> None:
         """Start background monitoring of the connection pool."""
         with self._lock:
             if self._monitoring_active:
@@ -147,7 +147,7 @@ class ConnectionPoolMonitor:
             self._monitoring_thread.start()
             logger.info(f"Started connection pool monitoring for {engine_name}")
 
-    def stop_monitoring(self):
+    def stop_monitoring(self) -> None:
         """Stop background monitoring."""
         with self._lock:
             self._monitoring_active = False
@@ -156,7 +156,7 @@ class ConnectionPoolMonitor:
                 self._monitoring_thread = None
             logger.info("Stopped connection pool monitoring")
 
-    def _monitor_pool(self):
+    def _monitor_pool(self) -> None:
         """Background monitoring loop."""
         while self._monitoring_active:
             try:
@@ -167,7 +167,7 @@ class ConnectionPoolMonitor:
                 logger.error(f"Error in pool monitoring loop: {e}")
                 time.sleep(self.monitoring_interval_seconds)
 
-    def _collect_metrics(self):
+    def _collect_metrics(self) -> None:
         """Collect current pool metrics."""
         try:
             pool = self._pool
@@ -210,7 +210,7 @@ class ConnectionPoolMonitor:
         except Exception as e:
             logger.error(f"Error collecting pool metrics: {e}")
 
-    def _check_alerts(self):
+    def _check_alerts(self) -> None:
         """Check if any alert conditions are met."""
         try:
             with self._lock:
@@ -258,7 +258,7 @@ class ConnectionPoolMonitor:
         except Exception as e:
             logger.error(f"Error checking pool alerts: {e}")
 
-    def _trigger_alert(self, alert_type: str, message: str):
+    def _trigger_alert(self, alert_type: str, message: str) -> None:
         """Trigger an alert."""
         alert_msg = f"🚨 Database Connection Pool Alert [{alert_type}]: {message}"
         logger.warning(alert_msg)
@@ -266,13 +266,13 @@ class ConnectionPoolMonitor:
         # Here you could integrate with external monitoring systems
         # For example: send to metrics system, trigger PagerDuty, etc.
 
-    def record_connection_failure(self, error: Exception):
+    def record_connection_failure(self, error: Exception) -> None:
         """Record a connection failure for alerting."""
         with self._lock:
             self._connection_failures.append(datetime.utcnow())
             logger.warning(f"Database connection failure recorded: {error}")
 
-    def record_connection_timeout(self, timeout_seconds: float):
+    def record_connection_timeout(self, timeout_seconds: float) -> None:
         """Record a connection timeout for alerting."""
         with self._lock:
             self._connection_timeouts.append(
@@ -437,7 +437,7 @@ class DatabaseConfig:
             return default
         return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.cutover_mode = (
             os.getenv("BOT_DB_CUTOVER_MODE", "shared").strip().lower().replace("-", "_")
         )
@@ -810,17 +810,17 @@ class DatabaseManager:
     _fork_hook_registered: bool = False
     _pool_monitor: Optional[ConnectionPoolMonitor] = None
 
-    def __new__(cls):
+    def __new__(cls) -> "DatabaseManager":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self):
+    def __init__(self) -> None:
         if self._engine is None:
             self._initialize()
         self._register_fork_hook()
 
-    def _register_fork_hook(self):
+    def _register_fork_hook(self) -> None:
         if self._fork_hook_registered:
             return
         register_at_fork = getattr(os, "register_at_fork", None)
@@ -830,7 +830,7 @@ class DatabaseManager:
         register_at_fork(after_in_child=self._after_fork_child_reset)
         self._fork_hook_registered = True
 
-    def _after_fork_child_reset(self):
+    def _after_fork_child_reset(self) -> None:
         """Ensure child processes never reuse inherited pooled DB sockets.
 
         Note: With 'spawn' start method (used on macOS), child processes start
@@ -847,7 +847,7 @@ class DatabaseManager:
                 "Failed disposing inherited SQLAlchemy pool in child: {}", exc
             )
 
-    def _initialize(self):
+    def _initialize(self) -> None:
         """Initialize database engine and session factory"""
         config = DatabaseConfig()
         connection_string = config.get_connection_string()
@@ -928,7 +928,7 @@ class DatabaseManager:
         finally:
             session.close()
 
-    def create_all_tables(self):
+    def create_all_tables(self) -> None:
         """Create all database tables from models"""
         from internal.domain import Base
 
@@ -937,7 +937,7 @@ class DatabaseManager:
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created successfully")
 
-    def ensure_schema_compatibility(self):
+    def ensure_schema_compatibility(self) -> None:
         """Apply small backward-compatible schema fixes for existing databases."""
         engine = self.get_engine()
 
@@ -1159,7 +1159,7 @@ class DatabaseManager:
         logger.info("Alembic baseline stamp completed at {}", baseline_revision)
         return "stamped"
 
-    def run_pending_migrations(self):
+    def run_pending_migrations(self) -> None:
         """Apply Alembic migrations against the active database URL."""
         alembic_config = self._build_alembic_config()
         if alembic_config is None:
@@ -1191,7 +1191,7 @@ class DatabaseManager:
         command.upgrade(alembic_config, "head")
         logger.info("Alembic migrations applied successfully")
 
-    def drop_all_tables(self):
+    def drop_all_tables(self) -> None:
         """Drop all database tables (DANGEROUS - use only in development)"""
         from internal.domain import Base
 
@@ -1265,7 +1265,7 @@ class DatabaseManager:
 
         return diagnostics
 
-    def close(self):
+    def close(self) -> None:
         """Close database connection"""
         # Stop pool monitoring
         if self._pool_monitor:
@@ -1280,7 +1280,7 @@ class DatabaseManager:
 db = DatabaseManager()
 
 
-def get_session():
+def get_session() -> Iterator[Session]:
     """Get database session for dependency injection with automatic cleanup"""
     session = db.get_session()
     try:
@@ -1289,7 +1289,7 @@ def get_session():
         session.close()
 
 
-def init_db():
+def init_db() -> None:
     """Initialize database (run on startup)"""
     db.create_all_tables()
     logger.info("Database initialized successfully")

@@ -1036,7 +1036,10 @@ async def open_positions(client: Any) -> None:
                             continue
 
                         # Guard: Handle failure
-                        if bot_open_dict == "failed":
+                        # Defensive legacy-shape check; bind through Any so the
+                        # typed dict contract does not narrow it away.
+                        legacy_open_result: Any = bot_open_dict
+                        if legacy_open_result == "failed":
                             record_rejection("bot_agent_failed")
                             _record_entry_failure(pair_key, "bot_agent returned failed")
                             persist_trade_activity_event(

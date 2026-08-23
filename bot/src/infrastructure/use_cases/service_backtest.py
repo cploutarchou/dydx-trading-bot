@@ -71,7 +71,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
     """Service for backtest operations."""
 
     _runs: Dict[str, Dict[str, Any]] = {}
-    _tasks: Dict[str, asyncio.Task] = {}
+    _tasks: Dict[str, asyncio.Task[None]] = {}
     _TASK_CONTEXT_KEY = "_task_context"
     _TASK_FAILURE_KEY = "_task_failure"
     _DEFAULT_TIMEOUT_SECONDS = 24 * 60 * 60
@@ -3036,7 +3036,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
 
         return _BacktestRunDetails(**run_data)
 
-    def _handle_task_done(self, run_id: str, task: asyncio.Task) -> None:
+    def _handle_task_done(self, run_id: str, task: asyncio.Task[None]) -> None:
         self._tasks.pop(run_id, None)
         if task.cancelled():
             return

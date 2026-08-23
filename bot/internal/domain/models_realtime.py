@@ -4,7 +4,7 @@ Realtime database models for live trading data
 
 import enum
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from sqlalchemy import JSON, Boolean, DateTime, Enum, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -74,7 +74,7 @@ class Position(Base):
 
     # dYdX perpetual-specific fields
     funding_rate: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    dydx_order_ids: Mapped[Optional[List]] = mapped_column(
+    dydx_order_ids: Mapped[Optional[List[str]]] = mapped_column(
         JSON, nullable=True
     )  # list of dYdX order IDs for this position
     dydx_position_id: Mapped[Optional[str]] = mapped_column(
@@ -140,7 +140,7 @@ class Alert(Base):
         Enum(AlertSeverityEnum), nullable=False
     )
     message: Mapped[str] = mapped_column(Text, nullable=False)
-    details: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    details: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     acknowledged: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

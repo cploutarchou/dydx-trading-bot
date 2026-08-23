@@ -11,6 +11,7 @@ Responses use the shared ``api_response`` envelope from :mod:`src.api.responses`
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends
@@ -222,7 +223,7 @@ async def get_portfolio_risk_status(
     )
     from src.trading.portfolio_risk import portfolio_risk_config
 
-    def _load_recent_denials() -> list[dict]:
+    def _load_recent_denials() -> list[dict[str, Any]]:
         """Session-owning closure (run off the event loop; plain dicts out)."""
         session = db.get_session()
         try:
@@ -272,7 +273,7 @@ async def get_portfolio_risk_status(
         }
         for exposure in exposures
     ]
-    aggregate_by_network: dict[str, dict] = {}
+    aggregate_by_network: dict[str, dict[str, Any]] = {}
     for network in ("testnet", "mainnet"):
         network_exposures = tuple(
             exposure for exposure in exposures if exposure.network == network

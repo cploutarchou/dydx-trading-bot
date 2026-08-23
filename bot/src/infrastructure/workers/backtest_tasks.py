@@ -92,7 +92,7 @@ def _get_redis_client() -> Any:
     try:
         explicit_url = redis_url(prefer_celery_broker=True)
         if explicit_url:
-            return _redis.from_url(explicit_url, decode_responses=True)
+            return _redis.from_url(explicit_url, decode_responses=True)  # type: ignore[no-untyped-call]
 
         return _redis.Redis(
             host=redis_host(),
@@ -131,7 +131,7 @@ def _get_lock_redis_client() -> Any:
     url = _redis_lock_url()
     if not url:
         return None
-    return _redis.from_url(
+    return _redis.from_url(  # type: ignore[no-untyped-call]
         url,
         decode_responses=True,
         socket_connect_timeout=1.0,
@@ -365,7 +365,7 @@ def _selected_pairs(data: Dict[str, Any]) -> list[str]:
     return []
 
 
-@celery_app.task(
+@celery_app.task(  # type: ignore[untyped-decorator]
     name="backtests.run",
     bind=True,
     autoretry_for=(),

@@ -52,7 +52,7 @@ except ImportError:
 # lives in nats.js.client, NOT nats.aio.client — the annotations previously pointed
 # at the wrong module, which mypy flagged as name-defined.
 if TYPE_CHECKING:
-    from nats.aio.client import Msg
+    from nats.aio.msg import Msg
     from nats.js.client import JetStreamContext
 
 from src.infrastructure.database import db

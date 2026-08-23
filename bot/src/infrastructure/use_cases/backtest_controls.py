@@ -33,7 +33,7 @@ class BacktestControlMixin:
         # duplicating the implementations; the real definitions live on (and are
         # checked on) the host.
         _runs: Dict[str, Dict[str, Any]]
-        _tasks: Dict[str, asyncio.Task]
+        _tasks: Dict[str, asyncio.Task[None]]
         _TERMINAL_STATUSES: Set[str]
         repository: Any
         _load_run_data: Callable[..., Optional[Dict[str, Any]]]

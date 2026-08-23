@@ -10,7 +10,7 @@ import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from loguru import logger
 
@@ -58,12 +58,12 @@ class CointegrationResult:
         """Returns formatted pair name."""
         return f"{self.base_market}_{self.quote_market}"
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "CointegrationResult":
+    def from_dict(cls, data: dict[str, Any]) -> "CointegrationResult":
         """Create instance from dictionary."""
         return cls(**data)
 
@@ -153,7 +153,7 @@ class PairStorage:
     # DB helpers
     # ------------------------------------------------------------------
 
-    def _db_save(self, storage_data: dict) -> bool:
+    def _db_save(self, storage_data: dict[str, Any]) -> bool:
         """Upsert cointegration results into the database. Returns True on success.
         :rtype: bool
         """
@@ -216,7 +216,7 @@ class PairStorage:
             )
             return False
 
-    def _db_load(self) -> Optional[dict]:
+    def _db_load(self) -> Optional[dict[str, Any]]:
         """Load cointegration results from the database. Returns None if unavailable."""
         try:
             from sqlalchemy import text
@@ -250,7 +250,7 @@ class PairStorage:
     # Public API
     # ------------------------------------------------------------------
 
-    def save_pairs(self, pairs: List[CointegrationResult]) -> dict:
+    def save_pairs(self, pairs: List[CointegrationResult]) -> dict[str, Any]:
         """
         Save cointegration results to storage (DB primary, file fallback).
 

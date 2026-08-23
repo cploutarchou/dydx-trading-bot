@@ -280,7 +280,7 @@ class ConnectionPoolMonitor:
             )
             logger.warning(f"Database connection timeout recorded: {timeout_seconds}s")
 
-    def get_current_metrics(self) -> dict:
+    def get_current_metrics(self) -> dict[str, Any]:
         """Get current pool metrics."""
         with self._lock:
             if not self._metrics_history:
@@ -340,7 +340,7 @@ class ConnectionPoolMonitor:
                 },
             }
 
-    def get_metrics_history(self, limit: int = 50) -> list:
+    def get_metrics_history(self, limit: int = 50) -> list[dict[str, Any]]:
         """Get historical metrics."""
         with self._lock:
             metrics = list(self._metrics_history)
@@ -348,7 +348,7 @@ class ConnectionPoolMonitor:
                 metrics = metrics[-limit:]
             return [{**m, "timestamp": m["timestamp"].isoformat()} for m in metrics]
 
-    def get_health_status(self) -> dict:
+    def get_health_status(self) -> dict[str, Any]:
         """Get pool health status summary."""
         with self._lock:
             if not self._metrics_history:
@@ -666,7 +666,7 @@ class DatabaseConfig:
             self._env_any(("DB_PASSWORD", "POSTGRES_PASSWORD"), ""),
         )
 
-    def to_diagnostics(self) -> dict:
+    def to_diagnostics(self) -> dict[str, Any]:
         """Build a sanitized runtime diagnostics payload without exposing secrets."""
         return {
             "db_type": self.db_type,
@@ -781,7 +781,7 @@ class DatabaseConfig:
             f"@{self.db_host}:{self.db_port}/{self.db_name}?{query}"
         )
 
-    def get_engine_kwargs(self) -> dict:
+    def get_engine_kwargs(self) -> dict[str, Any]:
         """Get SQLAlchemy engine kwargs based on database type."""
         connect_args: dict[str, object] = {
             "connect_timeout": self.timeout_seconds,
@@ -806,7 +806,7 @@ class DatabaseManager:
 
     _instance: Optional["DatabaseManager"] = None
     _engine: Optional[Engine] = None
-    _session_factory: Optional[sessionmaker] = None
+    _session_factory: Optional[sessionmaker[Session]] = None
     _fork_hook_registered: bool = False
     _pool_monitor: Optional[ConnectionPoolMonitor] = None
 
@@ -1087,7 +1087,7 @@ class DatabaseManager:
                            )
                         """))
 
-    def verify_required_tables(self) -> dict:
+    def verify_required_tables(self) -> dict[str, Any]:
         """Verify runtime-critical tables are present in the active bot database."""
         required = {
             "bot_instances",
@@ -1214,7 +1214,7 @@ class DatabaseManager:
                 self._pool_monitor.record_connection_failure(e)
             return False
 
-    def get_pool_metrics(self) -> dict:
+    def get_pool_metrics(self) -> dict[str, Any]:
         """Get current connection pool metrics."""
         if self._pool_monitor is None:
             return {
@@ -1223,7 +1223,7 @@ class DatabaseManager:
             }
         return self._pool_monitor.get_current_metrics()
 
-    def get_pool_health_status(self) -> dict:
+    def get_pool_health_status(self) -> dict[str, Any]:
         """Get connection pool health status."""
         if self._pool_monitor is None:
             return {
@@ -1232,13 +1232,13 @@ class DatabaseManager:
             }
         return self._pool_monitor.get_health_status()
 
-    def get_pool_metrics_history(self, limit: int = 50) -> list:
+    def get_pool_metrics_history(self, limit: int = 50) -> list[dict[str, Any]]:
         """Get historical connection pool metrics."""
         if self._pool_monitor is None:
             return []
         return self._pool_monitor.get_metrics_history(limit)
 
-    def get_diagnostics(self) -> dict:
+    def get_diagnostics(self) -> dict[str, Any]:
         """Get comprehensive database diagnostics including pool metrics."""
         diagnostics = {
             "database": self.config.to_diagnostics() if self.config else {},

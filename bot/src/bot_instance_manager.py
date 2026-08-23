@@ -64,7 +64,7 @@ class BotInstanceManager:
 
         # In-memory instance tracking
         self.instances: Dict[str, BotInstanceState] = {}
-        self.processes: Dict[str, subprocess.Popen] = {}
+        self.processes: Dict[str, subprocess.Popen[str]] = {}
         self.log_handles: Dict[str, TextIO] = {}
         self.instance_locks: Dict[str, asyncio.Lock] = {}
         self.status_event_publisher: Optional[
@@ -650,7 +650,7 @@ class BotInstanceManager:
         event_type: str,
         severity: str,
         message: str,
-        details: Optional[dict] = None,
+        details: Optional[dict[str, Any]] = None,
     ) -> None:
         """Persist runtime events so failures survive process restarts."""
         if not self._db_persistence_enabled():

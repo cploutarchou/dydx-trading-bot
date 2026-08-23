@@ -39,7 +39,8 @@ from alembic import command
 from alembic.config import Config
 from loguru import logger
 from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import Pool, QueuePool
 
@@ -801,6 +802,89 @@ class DatabaseConfig:
         }
 
 
+STARTUP_LEADER_LOCK_KEY = 728381
+
+
+class StartupLeaderLock:
+    """Postgres session advisory lock serializing API startup across replicas.
+
+    Guards schema migration + startup recovery so two API replicas cannot race
+    ``run_pending_migrations``/``create_all`` or double-dispatch recovery. The
+    lock lives on a dedicated connection; Postgres releases it automatically
+    when that connection dies, so a crashed leader cannot wedge startup.
+    Non-Postgres backends fail open (single-instance deployments; the
+    advisory-lock SQL is Postgres-specific).
+    """
+
+    def __init__(
+        self,
+        engine: Optional[Engine],
+        *,
+        lock_key: int = STARTUP_LEADER_LOCK_KEY,
+        wait_seconds: float = 120.0,
+        poll_seconds: float = 1.0,
+    ) -> None:
+        self._engine = engine
+        self._lock_key = lock_key
+        self._wait_seconds = wait_seconds
+        self._poll_seconds = poll_seconds
+        self._connection: Optional[Connection] = None
+
+    def acquire(self) -> bool:
+        if self._connection is not None:
+            return True
+        engine = self._engine
+        if engine is None or engine.dialect.name != "postgresql":
+            logger.info(
+                "Startup leader lock skipped (non-Postgres backend); startup runs unlocked"
+            )
+            return True
+        connection = engine.connect()
+        deadline = time.monotonic() + self._wait_seconds
+        while True:
+            acquired = bool(
+                connection.execute(
+                    text("SELECT pg_try_advisory_lock(:lock_key)"),
+                    {"lock_key": self._lock_key},
+                ).scalar()
+            )
+            if acquired:
+                self._connection = connection
+                logger.info("Startup leader lock acquired (key={})", self._lock_key)
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                connection.close()
+                logger.warning(
+                    "Startup leader lock NOT acquired within {}s (key={}); another replica holds it",
+                    self._wait_seconds,
+                    self._lock_key,
+                )
+                return False
+            time.sleep(min(self._poll_seconds, remaining))
+
+    def release(self) -> None:
+        connection, self._connection = self._connection, None
+        if connection is None:
+            return
+        try:
+            connection.execute(
+                text("SELECT pg_advisory_unlock(:lock_key)"),
+                {"lock_key": self._lock_key},
+            )
+        except SQLAlchemyError as exc:
+            # Best-effort: closing the connection releases the session lock.
+            logger.warning(
+                "Startup leader lock unlock failed (connection close releases it): {}",
+                exc,
+            )
+        finally:
+            try:
+                connection.close()
+            except SQLAlchemyError:
+                pass
+
+
 class DatabaseManager:
     """Database connection and session management"""
 
@@ -1190,6 +1274,21 @@ class DatabaseManager:
 
         command.upgrade(alembic_config, "head")
         logger.info("Alembic migrations applied successfully")
+
+    def startup_leader_lock(self) -> StartupLeaderLock:
+        """Build the cross-replica startup leader lock bound to this engine.
+
+        ``STARTUP_LEADER_LOCK_WAIT_SECONDS`` bounds how long a replica waits
+        for a concurrent leader (default 120 s); unparseable values fall back
+        to the default rather than failing startup.
+        """
+        try:
+            wait_seconds = float(
+                os.getenv("STARTUP_LEADER_LOCK_WAIT_SECONDS", "120") or "120"
+            )
+        except ValueError:
+            wait_seconds = 120.0
+        return StartupLeaderLock(self.get_engine(), wait_seconds=wait_seconds)
 
     def drop_all_tables(self) -> None:
         """Drop all database tables (DANGEROUS - use only in development)"""

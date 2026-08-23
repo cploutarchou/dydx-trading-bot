@@ -66,8 +66,9 @@ NEEDS VALIDATION**.
    Celery `STARTED`/`PROGRESS` metadata.
 5. `execute_existing_backtest` runs the simulation and heartbeat. Lightweight progress checkpoints update only scalar
    columns; trade/snapshot/daily-PnL JSON is persisted on the heavier pair/time cadence.
-6. Status is published on `backtest:{run_id}:status`. No Valkey/Redis pub-sub consumer was found in the API; WebSockets
-   query/poll persisted state or receive API-process callbacks.
+6. ~~Status is published on `backtest:{run_id}:status`.~~ The dead Redis pub-sub producer was removed 2026-08-23
+   (no consumer existed); status reaches consumers via durable NATS JetStream events, and WebSockets query/poll
+   persisted state (snapshot on connect, `request_status` refresh).
 7. Transient HTTP/network failures are retried with bounded exponential delay; validation, timeout and cancellation are
    terminal.
 8. ~~Success enqueues the candle aggregation hook, which currently returns `skipped` and relies on DB fallback.~~ **REMOVED (2026-08-11):** the no-op `backtests.aggregate_candles` stub, its post-backtest call site, and its Celery registration were deleted; chart reads fall back to the DB.

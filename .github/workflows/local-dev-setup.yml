@@ -40,7 +40,7 @@ jobs:
 
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Validate docker-compose.infra.yml
               run: |
@@ -63,7 +63,7 @@ jobs:
 
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Check required Makefile targets exist
               run: |
@@ -100,7 +100,7 @@ jobs:
 
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Check LOCAL_SETUP_GUIDE exists and has content
               run: |
@@ -134,7 +134,7 @@ jobs:
 
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Check infra compose has all required services
               run: |

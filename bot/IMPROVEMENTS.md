@@ -54,6 +54,7 @@ Most of this document is a record of completed work. Everything still pending, i
 | 7 | ~~**Backtest checkpointing**~~ **RESOLVED 2026-08-16** — durable per-pair checkpoints (`backtests/<run_id>/checkpoint.json` in the artifact store) written at the heavy-progress cadence and on pause; Celery redelivery / transient retry / auto-recovery requeue / NATS redelivery all resume from the completed-pair prefix after payload-hash validation (fail-open); terminal completed/cancelled delete the checkpoint | Was compute-cost only: resumed runs skip re-fetch + re-simulation of completed pairs | done |
 | 8 | ~~**Configuration Complexity (database alias family)**~~ **RESOLVED 2026-08-25** — the `BOT_DATABASE_URL`/`DATABASE_URL`/`BOT_DB_*`/`DB_*`/`POSTGRES_*` chains, previously re-implemented inline in six consumers (three of which had silently dropped the `POSTGRES_*` family), now resolve exactly once through `src/shared/db_env.py` (documented precedence `BOT_DB_* > DB_* > POSTGRES_*`; shared-only flavor; single `any_db_connection_configured()` predicate; sanitized `field_sources` provenance in `DatabaseConfig.to_diagnostics()`); pinned by `tests/test_db_env.py` (35 cases) | Aliases are kept (backward compatible) but can no longer drift between consumers; the misdetected-as-DB-less `POSTGRES_*`-only deployments now count | done |
 | 9 | ~~**Database connection pool holding pattern**~~ **RESOLVED 2026-08-25** — root cause verified: worker-held Session + control-flag SELECTs pin pool connections until the next throttled write (and continuously while paused); `_load_fresh_runtime_control` now reads via short-lived sessions (open → read → close), so long backtests only occupy a connection during brief write transactions. `ConnectionPoolMonitor` stays as the detection layer | Long backtests (esp. paused ones) no longer starve the pool | done |
+| 10 | ~~**WebSocket message throttling**~~ **CLOSED 2026-08-25 as stale (verified)** — the cited per-tick emitter (`realtime_data_service`) was deleted 2026-08-11; no periodic emitters exist today (heartbeat-only cadence, request-driven sends, receive-driven WS loops); detection via bus counters + bounded by the publish circuit/dispatch timeout; coalescing is a documented design requirement for any future per-tick re-introduction | No unbounded broadcast path exists to throttle | done |
 
 > **Resolved 2026-08-11:** the former row 1 ("Resolve dead code paths") is done — 2FA router
 > mounted, `realtime_data_service.py` + candle-aggregation stub + `repository_realtime` shim
@@ -255,9 +256,18 @@ Items removed from this plan during the same review — and why — are listed i
     - **Files**: `src/infrastructure/use_cases/service_backtest.py` (`_load_fresh_runtime_control`),
       `src/infrastructure/workers/backtest_tasks.py` + `nats_backtest_consumer.py` (holding pattern, documented)
 
-- **WebSocket Message Throttling**: no rate limiting/coalescing on broadcasts. Matters more once the cross-worker
-  broadcast bus is enabled (`realtime_data_service` emits one broadcast per symbol per tick → N Redis publishes)
-    - **Files**: `src/api/websocket_server.py` — tracked with the broadcast-bus Phase 2 item
+- ~~**WebSocket Message Throttling**~~ **CLOSED 2026-08-25 as stale (verified)** — the premise no longer holds: the
+  per-tick emitter it cited (`realtime_data_service`, one broadcast per symbol per tick) was **deleted 2026-08-11**
+  as dead code and nothing replaced its emission cadence. Verified current state: the position/market/stats/alert
+  broadcast helpers (`websocket_server.py`) have zero production callers (they are the documented re-integration
+  seam); the only continuous emitter is the manager's strategy-status heartbeat — one broadcast per active instance
+  per `BOT_MANAGER_MONITOR_INTERVAL_SECONDS` (default 10 s) plus discrete lifecycle events; backtest WS updates are
+  request-driven single-connection sends; both WS handler loops are receive-driven. Detection already exists for any
+  regression (bus `published`/`dispatch_timeouts` counters on `GET /api/v1/monitoring/ws-broadcast`) and any future
+  hot emitter is bounded by the publish failure circuit + `WS_BROADCAST_DISPATCH_TIMEOUT_SECONDS`.
+  **Re-introduction requirement:** if periodic per-tick realtime WS updates are ever re-implemented, coalescing
+  (keep-latest per channel) must be part of that design — noted in AGENTS.md
+    - **Files**: `src/api/websocket_server.py` (verified), `src/bot_instance_manager.py` (heartbeat cadence)
 
 #### **Low Priority**
 

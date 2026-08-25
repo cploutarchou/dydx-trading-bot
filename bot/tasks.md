@@ -2,6 +2,24 @@
 
 ## 2026-08-25 — DONE
 
+- **WebSocket message throttling — CLOSED as stale after verification (IMPROVEMENTS.md perf moderate)**. No code
+  change: the item's premise no longer holds.
+    - Evidence gathered: (1) the cited per-tick emitter `realtime_data_service` was deleted 2026-08-11 as dead
+      code and nothing replaced its per-symbol-per-tick broadcasts; (2) the position/market/stats/alert broadcast
+      helpers in `websocket_server.py` have zero production callers (they remain the documented re-integration
+      seam, still covered by `tests/test_websocket_server.py`); (3) the only continuous emitter is the manager's
+      strategy-status heartbeat — one broadcast per active instance per `BOT_MANAGER_MONITOR_INTERVAL_SECONDS`
+      (default 10 s) plus discrete lifecycle events; (4) backtest WS updates are request-driven single-connection
+      sends; (5) both WS handler loops are receive-driven (no timers).
+    - Guardrails already in place: bus `published`/`dispatch_timeouts` counters on
+      `GET /api/v1/monitoring/ws-broadcast` detect any volume regression; publish failure circuit +
+      `WS_BROADCAST_DISPATCH_TIMEOUT_SECONDS` bound the cost of a misbehaving emitter.
+    - Docs: IMPROVEMENTS.md item struck (CLOSED as stale, verified) + open-items table row 10; AGENTS.md
+      broadcast-bus section gained the emission-cadence contract with the re-introduction requirement (any future
+      per-tick realtime WS emitter must coalesce keep-latest per channel).
+
+- **Database connection pool holding pattern fixed (IMPROVEMENTS.md "Database Connection Pool Management")** —
+
 - **Database connection pool holding pattern fixed (IMPROVEMENTS.md "Database Connection Pool Management")** —
   the moderate perf issue where long-running backtests could exhaust the pool.
     - Root cause verified (not theorized): both worker backends (Celery `backtest_tasks.py`, NATS

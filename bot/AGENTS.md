@@ -278,6 +278,13 @@ become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown 
 - Operator smoke test: `POST /api/v1/monitoring/ws-broadcast/publish` (auth required) emits a fixed server-built
   `broadcast_test` message via `broadcast_to_bot` to a validated channel; correlate copies across workers by `test_id`.
 - Multi-worker verification: `make test-multiworker` (opt-in; see Testing below).
+- Emission cadence contract (verified 2026-08-25): the only continuous broadcast today is the manager's
+  strategy-status heartbeat (one per active instance per `BOT_MANAGER_MONITOR_INTERVAL_SECONDS`, default 10 s) plus
+  discrete lifecycle events — no per-tick emitters exist (the old `realtime_data_service` cadence was deleted with
+  it). The position/market/stats/alert broadcast helpers in `websocket_server.py` are an unused re-integration
+  seam, not a live path. Any re-introduction of periodic per-tick realtime WS updates MUST include coalescing
+  (keep-latest per channel) — an unbounded per-tick `broadcast_to_bot` means one Redis publish per emission;
+  detect regressions via the bus `published` counter on `/api/v1/monitoring/ws-broadcast`.
 
 **Monitoring routes** (`src/api/v1/monitoring.py`, mounted under `/api/v1/monitoring`, auth required): DataFrame
 memory/cleanup, database pool metrics/health/history/diagnostics, `/circuit-breakers`, `/ws-broadcast` (health),

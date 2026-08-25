@@ -10,7 +10,12 @@ import (
 )
 
 type PartnerRelationshipRepository struct {
-	db *sql.DB
+	db SQLRunner
+}
+
+// WithTx returns a copy of the repository that executes within tx.
+func (r *PartnerRelationshipRepository) WithTx(tx *sql.Tx) *PartnerRelationshipRepository {
+	return &PartnerRelationshipRepository{db: tx}
 }
 
 func NewPartnerRelationshipRepository(db *sql.DB) *PartnerRelationshipRepository {
@@ -29,7 +34,7 @@ func (r *PartnerRelationshipRepository) Upsert(relationship *models.PartnerRelat
 			updated_at
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (sponsor_user_id, partner_user_id) DO UPDATE SET
+		ON CONFLICT (partner_user_id) DO UPDATE SET
 			sponsor_user_id = EXCLUDED.sponsor_user_id,
 			relationship_type = EXCLUDED.relationship_type,
 			source_application_id = EXCLUDED.source_application_id,
@@ -68,7 +73,7 @@ func (r *PartnerRelationshipRepository) List(limit int, offset int) ([]*models.P
 		SELECT id, sponsor_user_id, partner_user_id, relationship_type, source_application_id, is_active, created_at, updated_at
 		FROM partner_relationships
 		ORDER BY updated_at DESC
-		LIMIT $2 OFFSET $3
+		LIMIT $1 OFFSET $2
 	`
 	return r.queryMany(query, limit, offset)
 }

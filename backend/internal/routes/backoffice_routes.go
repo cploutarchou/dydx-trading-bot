@@ -332,7 +332,7 @@ func backofficeAuditLogsHandler(database *sql.DB) gin.HandlerFunc {
 			SELECT id, user_id, action, resource_type, resource_id, details, status, ip_address, created_at
 			FROM audit_logs
 			ORDER BY created_at DESC
-			LIMIT ? OFFSET ?
+			LIMIT $1 OFFSET $2
 		`, limit, offset)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load audit logs: %v", err)})

@@ -41,15 +41,14 @@ func setupBootstrapAdminTestDB(t *testing.T) *sql.DB {
 	return dbConn
 }
 
-func TestEnsureBootstrapAdminCreatesDefaultAdmin(t *testing.T) {
+func TestEnsureBootstrapAdminCreatesAdminWithGeneratedPassword(t *testing.T) {
 	dbConn := setupBootstrapAdminTestDB(t)
-	t.Cleanup(func() {
-		_ = dbConn.Close()
-	})
+	t.Cleanup(func() { _ = dbConn.Close() })
 
 	t.Setenv("BOOTSTRAP_ADMIN_USERNAME", "")
 	t.Setenv("BOOTSTRAP_ADMIN_EMAIL", "")
 	t.Setenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+	t.Setenv("APP_ENV", "development")
 
 	if err := EnsureBootstrapAdmin(dbConn); err != nil {
 		t.Fatalf("EnsureBootstrapAdmin: %v", err)
@@ -65,16 +64,55 @@ func TestEnsureBootstrapAdminCreatesDefaultAdmin(t *testing.T) {
 	if !user.IsAdmin || user.Role != "admin" || !user.IsActive {
 		t.Fatalf("unexpected bootstrap admin flags: role=%s is_admin=%v is_active=%v", user.Role, user.IsAdmin, user.IsActive)
 	}
-	if !user.CheckPassword("admin123") {
-		t.Fatal("expected bootstrap admin password to be admin123")
+	// The well-known historical default must never work again.
+	if user.CheckPassword("admin123") {
+		t.Fatal("bootstrap admin must not use the legacy default password")
+	}
+	if !user.PasswordChangeRequired {
+		t.Fatal("generated bootstrap password must require rotation at first login")
 	}
 }
 
-func TestEnsureBootstrapAdminResetsExistingAdminPassword(t *testing.T) {
+func TestEnsureBootstrapAdminCreatesAdminWithConfiguredPassword(t *testing.T) {
 	dbConn := setupBootstrapAdminTestDB(t)
-	t.Cleanup(func() {
-		_ = dbConn.Close()
-	})
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	t.Setenv("BOOTSTRAP_ADMIN_USERNAME", "")
+	t.Setenv("BOOTSTRAP_ADMIN_EMAIL", "")
+	t.Setenv("BOOTSTRAP_ADMIN_PASSWORD", "explicit-operator-password")
+	t.Setenv("APP_ENV", "development")
+
+	if err := EnsureBootstrapAdmin(dbConn); err != nil {
+		t.Fatalf("EnsureBootstrapAdmin: %v", err)
+	}
+
+	user, err := repository.NewUserRepository(dbConn).GetByUsername("admin")
+	if err != nil {
+		t.Fatalf("GetByUsername(admin): %v", err)
+	}
+	if !user.CheckPassword("explicit-operator-password") {
+		t.Fatal("expected bootstrap admin to use the configured password")
+	}
+	if user.PasswordChangeRequired {
+		t.Fatal("operator-configured password should not require rotation")
+	}
+}
+
+func TestEnsureBootstrapAdminRequiresPasswordInProduction(t *testing.T) {
+	dbConn := setupBootstrapAdminTestDB(t)
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	t.Setenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+	t.Setenv("APP_ENV", "production")
+
+	if err := EnsureBootstrapAdmin(dbConn); err == nil {
+		t.Fatal("expected startup failure when BOOTSTRAP_ADMIN_PASSWORD is unset in production")
+	}
+}
+
+func TestEnsureBootstrapAdminPreservesExistingCredentialsOnRestart(t *testing.T) {
+	dbConn := setupBootstrapAdminTestDB(t)
+	t.Cleanup(func() { _ = dbConn.Close() })
 
 	repo := repository.NewUserRepository(dbConn)
 	existing := &models.User{
@@ -96,6 +134,12 @@ func TestEnsureBootstrapAdminResetsExistingAdminPassword(t *testing.T) {
 		t.Fatalf("seed failed_login_attempts: %v", err)
 	}
 
+	t.Setenv("BOOTSTRAP_ADMIN_USERNAME", "")
+	t.Setenv("BOOTSTRAP_ADMIN_EMAIL", "")
+	t.Setenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+	t.Setenv("BOOTSTRAP_ADMIN_RESET_PASSWORD", "")
+	t.Setenv("APP_ENV", "development")
+
 	if err := EnsureBootstrapAdmin(dbConn); err != nil {
 		t.Fatalf("EnsureBootstrapAdmin: %v", err)
 	}
@@ -107,20 +151,65 @@ func TestEnsureBootstrapAdminResetsExistingAdminPassword(t *testing.T) {
 	if updated == nil {
 		t.Fatal("expected updated admin user")
 	}
-	if !updated.CheckPassword("admin123") {
-		t.Fatal("expected existing admin password to be reset to admin123")
+	// Operator-managed fields must survive restarts.
+	if !updated.CheckPassword("oldpass") {
+		t.Fatal("existing admin password must not be overwritten on restart")
 	}
-	if updated.PasswordChangeRequired {
-		t.Fatal("expected password_change_required=false for bootstrap admin")
+	if updated.Email != "admin@example.local" || updated.FullName != "Existing Admin" {
+		t.Fatalf("operator-managed profile fields were clobbered: email=%s full_name=%s", updated.Email, updated.FullName)
 	}
+	if !updated.PasswordChangeRequired {
+		t.Fatal("existing password_change_required flag must be preserved")
+	}
+	// Privileged flags are re-asserted.
 	if !updated.IsAdmin || updated.Role != "admin" || !updated.IsActive {
 		t.Fatalf("unexpected updated admin flags: role=%s is_admin=%v is_active=%v", updated.Role, updated.IsAdmin, updated.IsActive)
 	}
+	// Lock state is still reset so the bootstrap admin cannot be locked out.
 	var failedAttempts int
 	if err := dbConn.QueryRow(`SELECT failed_login_attempts FROM users WHERE username = ?`, "admin").Scan(&failedAttempts); err != nil {
 		t.Fatalf("query failed_login_attempts: %v", err)
 	}
 	if failedAttempts != 0 {
 		t.Fatalf("failed_login_attempts=%d, want 0", failedAttempts)
+	}
+}
+
+func TestEnsureBootstrapAdminExplicitPasswordReset(t *testing.T) {
+	dbConn := setupBootstrapAdminTestDB(t)
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	repo := repository.NewUserRepository(dbConn)
+	existing := &models.User{
+		Username: "admin",
+		Email:    "admin@example.local",
+		Role:     "admin",
+		IsActive: true,
+		IsAdmin:  true,
+	}
+	if err := existing.SetPassword("oldpass"); err != nil {
+		t.Fatalf("SetPassword(oldpass): %v", err)
+	}
+	if err := repo.Create(existing); err != nil {
+		t.Fatalf("Create(existing): %v", err)
+	}
+
+	t.Setenv("BOOTSTRAP_ADMIN_PASSWORD", "rotated-password")
+	t.Setenv("BOOTSTRAP_ADMIN_RESET_PASSWORD", "true")
+	t.Setenv("APP_ENV", "development")
+
+	if err := EnsureBootstrapAdmin(dbConn); err != nil {
+		t.Fatalf("EnsureBootstrapAdmin: %v", err)
+	}
+
+	updated, err := repo.GetByUsername("admin")
+	if err != nil {
+		t.Fatalf("GetByUsername(admin): %v", err)
+	}
+	if !updated.CheckPassword("rotated-password") {
+		t.Fatal("expected explicit password reset to apply")
+	}
+	if updated.PasswordChangeRequired {
+		t.Fatal("operator-configured reset password should not require rotation")
 	}
 }

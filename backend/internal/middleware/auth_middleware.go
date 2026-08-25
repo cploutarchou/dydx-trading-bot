@@ -3,7 +3,6 @@ package middleware
 import (
 	"errors"
 	"log"
-	"os"
 	"strings"
 	"time"
 
@@ -15,39 +14,29 @@ import (
 var jwtManager *auth.Manager
 var sessionStore *auth.SessionStore
 
-const defaultJWTSecret = "your-super-secret-key-change-in-production"
-
-func resolveJWTSecret(cfg *config.Config) string {
-	if secret := strings.TrimSpace(os.Getenv("JWT_SECRET_KEY")); secret != "" {
-		return secret
-	}
-	if secret := strings.TrimSpace(os.Getenv("SECRET_KEY")); secret != "" {
-		return secret
-	}
-	if cfg != nil {
-		if secret := strings.TrimSpace(cfg.Auth.JWTSecretKey); secret != "" {
-			return secret
-		}
-	}
-	return defaultJWTSecret
-}
-
 func InitAuthMiddleware(cfg *config.Config) {
 	if cfg != nil {
 		config.ConfigInstance = cfg
 	}
+	effective := cfg
+	if effective == nil {
+		effective = config.ConfigInstance
+	}
+	if effective == nil {
+		effective = &config.Config{}
+	}
 
-	expiryHours := (cfg.Auth.AccessTokenExpireMinutes + 59) / 60
+	expiryHours := (effective.Auth.AccessTokenExpireMinutes + 59) / 60
 	if expiryHours <= 0 {
 		expiryHours = 1
 	}
 
 	jwtManager = auth.NewManager(auth.JWTConfig{
-		Secret:            resolveJWTSecret(cfg),
+		Secret:            auth.ResolveSharedJWTSecret(),
 		ExpiryHours:       expiryHours,
-		RefreshExpiryDays: cfg.Auth.RefreshTokenExpireDays,
+		RefreshExpiryDays: effective.Auth.RefreshTokenExpireDays,
 	})
-	sessionStore = auth.NewSessionStore(cfg)
+	sessionStore = auth.NewSessionStore(effective)
 }
 
 func AuthSessionStore() *auth.SessionStore {

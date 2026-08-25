@@ -12,8 +12,13 @@ import (
 )
 
 type PartnerApplicationRepository struct {
-	db       *sql.DB
+	db       SQLRunner
 	dbDriver string
+}
+
+// WithTx returns a copy of the repository that executes within tx.
+func (r *PartnerApplicationRepository) WithTx(tx *sql.Tx) *PartnerApplicationRepository {
+	return &PartnerApplicationRepository{db: tx, dbDriver: r.dbDriver}
 }
 
 func NewPartnerApplicationRepository(db *sql.DB) *PartnerApplicationRepository {

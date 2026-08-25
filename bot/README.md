@@ -37,7 +37,13 @@ py -3.12 -m venv .venv
 
 - API port: `8889`
 - dedicated database: bot PostgreSQL on `5432`
-- database env aliases: `BOT_DATABASE_URL`, `DATABASE_URL`, `BOT_DB_*`, `DB_*`, `POSTGRES_*`
+- database env aliases: `BOT_DATABASE_URL`, `DATABASE_URL`, `BOT_DB_*`, `DB_*`, `POSTGRES_*` — the field chains
+  (`name`/`user`/`password`/`host`/`port`) resolve exactly once through `src/shared/db_env.py` with documented
+  precedence `BOT_DB_* > DB_* > POSTGRES_*` (first non-empty wins); shared-mode resolution uses `DB_* > POSTGRES_*`
+  so dedicated-bot values cannot leak into shared lookups. URL variables (`BOT_DATABASE_URL`/`DATABASE_URL`) follow
+  the `BOT_DB_CUTOVER_MODE` semantics in `DatabaseConfig`. `GET /api/v1/monitoring/database/diagnostics`-style
+  payloads expose sanitized per-field provenance via `field_sources` (which env var supplied each field — names,
+  never values)
 - cache env aliases: `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `REDIS_URL`, `VALKEY_URL`, `REDIS_*`, `VALKEY_*`
 - analytics env aliases for the optional adapter path: `CLICKHOUSE_URL`, `CLICKHOUSE_*`
 - artifact storage env aliases for the optional adapter path: `MINIO_ENDPOINT`, `MINIO_CONSOLE_URL`, `MINIO_BUCKET`,

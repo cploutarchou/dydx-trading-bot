@@ -38,6 +38,7 @@ from src.shared.credentials_cipher import (
     open_config_secrets,
     seal_config_secrets,
 )
+from src.shared.db_env import any_db_connection_configured
 from src.shared.live_risk_controls import assert_supported_live_risk_controls
 
 
@@ -185,15 +186,7 @@ class BotInstanceManager:
 
     @staticmethod
     def _db_persistence_enabled() -> bool:
-        if any(
-            bool(os.getenv(name, "").strip())
-            for name in (
-                "BOT_DATABASE_URL",
-                "DATABASE_URL",
-                "BOT_DB_HOST",
-                "DB_HOST",
-            )
-        ):
+        if any_db_connection_configured():
             return True
         return getattr(db.get_session, "__self__", None) is not db
 

@@ -44,6 +44,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import Pool, QueuePool
 
+from src.shared.db_env import db_field_sources, shared_db_env_value
+
 
 def _pool_metric(pool: Pool, name: str) -> Any | None:
     """Read a QueuePool-style stat defensively (base Pool lacks size/checkedout/overflow)."""
@@ -412,14 +414,6 @@ class DatabaseConfig:
             return fallback
         return str(value)
 
-    @classmethod
-    def _env_any(cls, names: tuple[str, ...], fallback: str = "") -> str:
-        for name in names:
-            value = os.getenv(name)
-            if value not in (None, ""):
-                return str(value)
-        return fallback
-
     @staticmethod
     def _env_int(name: str, default: int) -> int:
         value = os.getenv(name)
@@ -620,11 +614,11 @@ class DatabaseConfig:
                     self.field_source = "shared_database_url"
                     return parsed_fields
             return (
-                self._env_any(("DB_NAME", "POSTGRES_DB"), "dydx_bot"),
-                self._env_any(("DB_HOST", "POSTGRES_HOST"), "localhost"),
-                self._env_any(("DB_PORT", "POSTGRES_PORT"), default_port),
-                self._env_any(("DB_USER", "POSTGRES_USER"), default_user),
-                self._env_any(("DB_PASSWORD", "POSTGRES_PASSWORD"), ""),
+                shared_db_env_value("name", "dydx_bot"),
+                shared_db_env_value("host", "localhost"),
+                shared_db_env_value("port", default_port),
+                shared_db_env_value("user", default_user),
+                shared_db_env_value("password", ""),
             )
 
         if self.cutover_mode == "dedicated":
@@ -660,11 +654,11 @@ class DatabaseConfig:
                 return parsed_fields
         self.field_source = "shared_db_fields"
         return (
-            self._env_any(("DB_NAME", "POSTGRES_DB"), "dydx_bot"),
-            self._env_any(("DB_HOST", "POSTGRES_HOST"), "localhost"),
-            self._env_any(("DB_PORT", "POSTGRES_PORT"), default_port),
-            self._env_any(("DB_USER", "POSTGRES_USER"), default_user),
-            self._env_any(("DB_PASSWORD", "POSTGRES_PASSWORD"), ""),
+            shared_db_env_value("name", "dydx_bot"),
+            shared_db_env_value("host", "localhost"),
+            shared_db_env_value("port", default_port),
+            shared_db_env_value("user", default_user),
+            shared_db_env_value("password", ""),
         )
 
     def to_diagnostics(self) -> dict[str, Any]:
@@ -674,6 +668,7 @@ class DatabaseConfig:
             "cutover_mode": self.cutover_mode,
             "connection_source": self.connection_source,
             "field_source": self.field_source,
+            "field_sources": db_field_sources(),
             "database_url_configured": bool(self.database_url),
             "host": self.db_host,
             "port": self.db_port,
@@ -716,11 +711,11 @@ class DatabaseConfig:
                 return parsed_fields
 
         shared_fields = (
-            self._env_any(("DB_NAME", "POSTGRES_DB"), ""),
-            self._env_any(("DB_HOST", "POSTGRES_HOST"), ""),
-            self._env_any(("DB_PORT", "POSTGRES_PORT"), ""),
-            self._env_any(("DB_USER", "POSTGRES_USER"), ""),
-            self._env_any(("DB_PASSWORD", "POSTGRES_PASSWORD"), ""),
+            shared_db_env_value("name", ""),
+            shared_db_env_value("host", ""),
+            shared_db_env_value("port", ""),
+            shared_db_env_value("user", ""),
+            shared_db_env_value("password", ""),
         )
         if any(bool(str(value).strip()) for value in shared_fields):
             return shared_fields

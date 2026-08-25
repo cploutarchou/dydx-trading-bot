@@ -53,6 +53,10 @@ Repository-level guidance for coding agents working on this project.
       `src/api/start_api.py`, `main.py`, `src/main_instance.py`,
       `src/bot_instance_manager.py`, `worker_entrypoint.py`).
     - Runtime config is structured (`run.json` or `config/profiles/*`), not `bot/.env`.
+    - Database env-alias chains (`BOT_DB_*` > `DB_*` > `POSTGRES_*`; URL variables via `DatabaseConfig` cutover
+      semantics) resolve through `src/shared/db_env.py` — never re-implement an alias chain inline; use
+      `db_env_value` / `shared_db_env_value` / `any_db_connection_configured` so precedence cannot drift between
+      consumers (pinned by `tests/test_db_env.py`).
     - Structured config may be encrypted (`*.config.enc.json`); `load_repo_env` requires the AES-256-GCM key file
       (`.configkey.bin` at the monorepo root, or `APP_CONFIG_KEY_FILE`). Provision it with `make config-keygen`.
 2. **No direct process management outside manager layer**

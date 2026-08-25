@@ -809,8 +809,22 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         return run_data
 
     def _load_fresh_runtime_control(self, run_id: str) -> Dict[str, Any]:
+        # Read control flags through a SHORT-LIVED session when the bound
+        # repository carries the worker's long-lived session: a SELECT on it
+        # opens a transaction that pins a pooled connection until the next
+        # (throttled) write commit — and continuously while paused, because
+        # the pause poll loop only reads. Open → read → close returns the
+        # connection to the pool immediately.
+        persisted: Optional[Dict[str, Any]] = None
         try:
-            persisted = self.repository.get_run_overview(run_id)
+            if self.repository.session is not None:
+                session = db.get_session()
+                try:
+                    persisted = BacktestRepository(session).get_run_overview(run_id)
+                finally:
+                    session.close()
+            else:
+                persisted = self.repository.get_run_overview(run_id)
         except Exception:
             persisted = None
         if persisted:

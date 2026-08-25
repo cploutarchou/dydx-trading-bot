@@ -463,6 +463,89 @@ def test_load_fresh_runtime_control_repo_failure_falls_back_to_cache():
     assert service._load_fresh_runtime_control("missing") == {}
 
 
+class _RecordingSession:
+    """Session double that only records close() — enough for lifecycle pins."""
+
+    def __init__(self) -> None:
+        self.closed = 0
+
+    def close(self) -> None:
+        self.closed += 1
+
+
+def test_load_fresh_runtime_control_bound_session_uses_short_lived_read(monkeypatch):
+    """Worker path: control reads must not run on the long-held session.
+
+    A SELECT on the held repository session pins a pooled connection until the
+    next (throttled) write commit — and continuously while paused, because the
+    pause poll loop only reads. The read must open → read → close instead.
+    """
+    from src.infrastructure.use_cases import service_backtest
+
+    repo = _FakeRepo()
+    repo.session = object()  # bound long-lived worker session
+    service = _make_service(repo)
+
+    bound_calls: List[str] = []
+
+    def _bound_overview(run_id: str) -> Optional[Dict[str, Any]]:
+        bound_calls.append(run_id)
+        return None
+
+    repo.get_run_overview = _bound_overview  # type: ignore[method-assign]
+
+    session = _RecordingSession()
+    stub_sessions: List[_RecordingSession] = []
+
+    class _StubRepo:
+        def __init__(self, sess: _RecordingSession) -> None:
+            stub_sessions.append(sess)
+
+        def get_run_overview(self, run_id: str) -> Optional[Dict[str, Any]]:
+            return {
+                "run_id": run_id,
+                "request": {
+                    "_runtime_control": {"action": "pause", "pause_requested": True}
+                },
+            }
+
+    monkeypatch.setattr(service_backtest, "BacktestRepository", _StubRepo)
+    monkeypatch.setattr(service_backtest.db, "get_session", lambda: session)
+
+    control = service._load_fresh_runtime_control("r1")
+
+    assert control.get("pause_requested") is True
+    assert bound_calls == []  # the bound (held) session was never used
+    assert stub_sessions == [session]  # fresh repository over the short session
+    assert session.closed == 1  # released immediately, not held
+
+
+def test_load_fresh_runtime_control_short_read_failure_falls_back_to_cache(
+    monkeypatch,
+):
+    """A failing short-lived control read degrades to the cached control dict."""
+    from src.infrastructure.use_cases import service_backtest
+
+    repo = _FakeRepo()
+    repo.session = object()
+    service = _make_service(repo)
+    BacktestService._runs["r1"] = _run(
+        "r1", request={"_runtime_control": {"cancel_requested": True}}
+    )
+
+    class _ExplodingRepo:
+        def __init__(self, sess: Any) -> None:
+            pass
+
+        def get_run_overview(self, run_id: str) -> Optional[Dict[str, Any]]:
+            raise RuntimeError("short session read failed")
+
+    monkeypatch.setattr(service_backtest, "BacktestRepository", _ExplodingRepo)
+    monkeypatch.setattr(service_backtest.db, "get_session", _RecordingSession)
+
+    assert service._load_fresh_runtime_control("r1").get("cancel_requested") is True
+
+
 # ---------------------------------------------------------------------------
 # Observability + heartbeat helpers
 # ---------------------------------------------------------------------------

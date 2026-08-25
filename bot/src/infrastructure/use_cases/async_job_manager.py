@@ -15,6 +15,7 @@ from loguru import logger
 
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
+from src.shared.db_env import any_db_connection_configured
 
 
 class AsyncJobManager:
@@ -175,15 +176,7 @@ class AsyncJobManager:
 
     @staticmethod
     def _persistence_configured() -> bool:
-        return any(
-            bool(os.getenv(name, "").strip())
-            for name in (
-                "BOT_DATABASE_URL",
-                "DATABASE_URL",
-                "BOT_DB_HOST",
-                "DB_HOST",
-            )
-        )
+        return any_db_connection_configured()
 
     def create_job(
         self,

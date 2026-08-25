@@ -27,6 +27,7 @@ import logging
 import os
 
 from src.exceptions import ConfigurationError
+from src.shared.db_env import db_env_value
 
 logger = logging.getLogger(__name__)
 
@@ -125,12 +126,8 @@ def _collect_config_problems() -> list[str]:
     # 5. Heuristic: an all-default database (localhost, no password) in production
     #    is almost certainly misconfigured.
     if _is_production():
-        db_host_set = bool(
-            _env("BOT_DB_HOST") or _env("DB_HOST") or _env("POSTGRES_HOST")
-        )
-        db_pwd_set = bool(
-            _env("BOT_DB_PASSWORD") or _env("DB_PASSWORD") or _env("POSTGRES_PASSWORD")
-        )
+        db_host_set = bool(db_env_value("host"))
+        db_pwd_set = bool(db_env_value("password"))
         if not db_host_set and not db_pwd_set:
             problems.append(
                 "Database is using all-default connection params (localhost, no "

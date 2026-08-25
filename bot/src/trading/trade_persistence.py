@@ -9,18 +9,11 @@ from loguru import logger
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
 from src.infrastructure.persistence.repository_realtime import UnitOfWorkRealtime
+from src.shared.db_env import any_db_connection_configured
 
 
 def _db_persistence_enabled() -> bool:
-    if any(
-        bool(os.getenv(name, "").strip())
-        for name in (
-            "BOT_DATABASE_URL",
-            "DATABASE_URL",
-            "BOT_DB_HOST",
-            "DB_HOST",
-        )
-    ):
+    if any_db_connection_configured():
         return True
     return getattr(db.get_session, "__self__", None) is not db
 

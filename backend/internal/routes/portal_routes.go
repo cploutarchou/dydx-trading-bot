@@ -326,7 +326,23 @@ func reviewPartnerApplicationHandler(database *sql.DB) gin.HandlerFunc {
 			}
 			user.Role = application.RequestedRole
 			user.IsAdmin = application.RequestedRole == "admin"
-			if err := userRepo.Update(user); err != nil {
+
+			// Role promotion, hierarchy upsert, and the review status update must
+			// commit atomically: a partial approval would promote a user while the
+			// application still reads "pending".
+			tx, txErr := database.BeginTx(c.Request.Context(), nil)
+			if txErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to open review transaction: %v", txErr)})
+				return
+			}
+			committed := false
+			defer func() {
+				if !committed {
+					_ = tx.Rollback()
+				}
+			}()
+
+			if err := userRepo.WithTx(tx).Update(user); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to promote applicant: %v", err)})
 				return
 			}
@@ -339,16 +355,27 @@ func reviewPartnerApplicationHandler(database *sql.DB) gin.HandlerFunc {
 					SourceApplicationID: &application.ID,
 					IsActive:            true,
 				}
-				if err := relationshipRepo.Upsert(relationship); err != nil {
+				if err := relationshipRepo.WithTx(tx).Upsert(relationship); err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to persist partner hierarchy: %v", err)})
 					return
 				}
 			}
-		}
 
-		if err := appRepo.UpdateReview(application); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to review application: %v", err)})
-			return
+			if err := appRepo.WithTx(tx).UpdateReview(application); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to review application: %v", err)})
+				return
+			}
+
+			if err := tx.Commit(); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to commit review: %v", err)})
+				return
+			}
+			committed = true
+		} else {
+			if err := appRepo.UpdateReview(application); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to review application: %v", err)})
+				return
+			}
 		}
 
 		writeAuditLog(database, c, "crm.application.review", "partner_application", stringPointer(strconv.Itoa(application.ID)), gin.H{
@@ -559,7 +586,7 @@ func crmSecurityEventsHandler(database *sql.DB) gin.HandlerFunc {
 			`SELECT id, user_id, username, event_type, outcome, reason, ip_address, user_agent, created_at
 			 FROM security_login_events
 			 ORDER BY created_at DESC
-			 LIMIT ? OFFSET ?`,
+			 LIMIT $1 OFFSET $2`,
 			limit,
 			offset,
 		)

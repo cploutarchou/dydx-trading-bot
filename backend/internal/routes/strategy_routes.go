@@ -24,6 +24,7 @@ func RegisterStrategyRoutes(router *gin.Engine, database *db.Database) {
 	botInstanceRepo := repository.NewBotInstanceRepository(database.DB)
 	settingsRepo := repository.NewSettingsRepository(database.DB)
 	credentialRepo := repository.NewExternalAPICredentialRepository(database.DB)
+	backtestRepo := repository.NewBacktestRepository(database.DB)
 	strategyService := services.NewStrategyService(strategyRepo)
 	keyService := services.NewKeyManagementService(keyRepo)
 	credentialService := services.NewExternalAPICredentialService(credentialRepo)
@@ -133,7 +134,13 @@ func RegisterStrategyRoutes(router *gin.Engine, database *db.Database) {
 					return
 				}
 
-				requestClient := botAPIClient.WithTraceID(middleware.GetTraceID(c))
+				// The run's strategy snapshot is copied into the caller's new
+				// strategy — verify the caller owns the run before fetching it.
+				if !ensureBacktestRunAccess(c, runID, backtestRepo) {
+					return
+				}
+
+				requestClient := botAPIClient.WithTraceID(middleware.GetTraceID(c)).WithRequestContext(c.Request.Context())
 				if !services.UseConfiguredBotAPIServiceToken() {
 					if token := extractBotAuthToken(c); token != "" {
 						requestClient = requestClient.WithToken(token)

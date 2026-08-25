@@ -678,7 +678,7 @@ func isSchemaEvolutionError(err error) bool {
 
 func readUserLockState(database *sql.DB, userID int) (failedAttempts int, lockedUntil *time.Time, err error) {
 	err = database.QueryRow(
-		`SELECT COALESCE(failed_login_attempts, 0), locked_until FROM users WHERE id = ?`,
+		`SELECT COALESCE(failed_login_attempts, 0), locked_until FROM users WHERE id = $1`,
 		userID,
 	).Scan(&failedAttempts, &lockedUntil)
 	if isSchemaEvolutionError(err) {
@@ -695,13 +695,13 @@ func incrementFailedLogin(database *sql.DB, userID int) {
 		`UPDATE users
 		 SET failed_login_attempts = COALESCE(failed_login_attempts, 0) + 1,
 		     locked_until = CASE
-		         WHEN COALESCE(failed_login_attempts, 0) + 1 >= ? THEN ?
+		         WHEN COALESCE(failed_login_attempts, 0) + 1 >= $1 THEN $2
 		         ELSE locked_until
 		     END
-		 WHERE id = ?`,
-		userID,
+		 WHERE id = $3`,
 		maxFailedLoginAttempts,
 		time.Now().UTC().Add(loginLockoutDuration),
+		userID,
 	)
 	if err != nil && !isSchemaEvolutionError(err) {
 		log.Printf("failed to increment failed login attempts for user_id=%d: %v", userID, err)
@@ -709,7 +709,7 @@ func incrementFailedLogin(database *sql.DB, userID int) {
 }
 
 func resetFailedLogin(database *sql.DB, userID int) {
-	_, err := database.Exec(`UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?`, userID)
+	_, err := database.Exec(`UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = $1`, userID)
 	if err != nil && !isSchemaEvolutionError(err) {
 		log.Printf("failed to reset failed login attempts for user_id=%d: %v", userID, err)
 	}
@@ -723,7 +723,7 @@ func logSecurityLoginEvent(database *sql.DB, userID *int, username, eventType, o
 
 	_, err := database.Exec(
 		`INSERT INTO security_login_events (user_id, username, event_type, outcome, reason, ip_address, user_agent, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		userID,
 		trimmedUsername,
 		eventType,

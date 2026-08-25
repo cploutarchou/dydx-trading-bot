@@ -2,33 +2,11 @@ package services
 
 import (
 	"fmt"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/config"
 	"github.com/dydx-trading-bot/backend-go/internal/auth"
 )
-
-const defaultJWTSecret = "your-super-secret-key-change-in-production"
-
-func resolveJWTSecret() string {
-	if secret := strings.TrimSpace(os.Getenv("JWT_SECRET_KEY")); secret != "" {
-		return secret
-	}
-	if secret := strings.TrimSpace(os.Getenv("SECRET_KEY")); secret != "" {
-		return secret
-	}
-
-	if config.ConfigInstance != nil {
-		secret := strings.TrimSpace(config.ConfigInstance.Auth.JWTSecretKey)
-		if secret != "" {
-			return secret
-		}
-	}
-
-	return defaultJWTSecret
-}
 
 func jwtManager() *auth.Manager {
 	refreshDays := 7
@@ -37,7 +15,7 @@ func jwtManager() *auth.Manager {
 	}
 
 	return auth.NewManager(auth.JWTConfig{
-		Secret:            resolveJWTSecret(),
+		Secret:            auth.ResolveSharedJWTSecret(),
 		ExpiryHours:       1,
 		RefreshExpiryDays: refreshDays,
 	})

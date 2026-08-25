@@ -13,8 +13,13 @@ import (
 
 // UserRepository handles all user-related database operations with pure SQL
 type UserRepository struct {
-	db       *sql.DB
+	db       SQLRunner
 	dbDriver string
+}
+
+// WithTx returns a copy of the repository that executes within tx.
+func (r *UserRepository) WithTx(tx *sql.Tx) *UserRepository {
+	return &UserRepository{db: tx, dbDriver: r.dbDriver}
 }
 
 // NewUserRepository creates a new user repository

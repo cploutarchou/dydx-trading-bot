@@ -112,16 +112,21 @@ func (r *AuditLogRepository) GetAuditLogByID(id int) (*models.AuditLog, error) {
 	return auditLog, nil
 }
 
-// GetAuditLogsByUser retrieves all audit logs for a user
-func (r *AuditLogRepository) GetAuditLogsByUser(userID int) ([]models.AuditLog, error) {
+// GetAuditLogsByUser retrieves audit logs for a user, most recent first.
+// limit must be > 0; callers cap it to keep the response bounded.
+func (r *AuditLogRepository) GetAuditLogsByUser(userID int, limit int) ([]models.AuditLog, error) {
+	if limit <= 0 {
+		limit = 200
+	}
 	query := `
 		SELECT id, user_id, action, resource_type, resource_id, details, status, ip_address, created_at
 		FROM audit_logs
 		WHERE user_id = ?
 		ORDER BY created_at DESC
+		LIMIT ?
 	`
 
-	rows, err := r.db.Query(r.bindQuery(query), userID)
+	rows, err := r.db.Query(r.bindQuery(query), userID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query audit logs: %w", err)
 	}

@@ -25,3 +25,16 @@ var (
 	_ QueryExecutor      = (*sql.Tx)(nil)
 	_ TransactionStarter = (*sql.DB)(nil)
 )
+
+// SQLRunner is the non-context database subset shared by *sql.DB and *sql.Tx,
+// letting repositories execute inside an ambient transaction via WithTx.
+type SQLRunner interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+	QueryRow(query string, args ...interface{}) *sql.Row
+}
+
+var (
+	_ SQLRunner = (*sql.DB)(nil)
+	_ SQLRunner = (*sql.Tx)(nil)
+)

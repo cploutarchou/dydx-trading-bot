@@ -152,9 +152,9 @@ func (r *TradeLogRepository) UpdateTradeLog(tradeLog *models.TradeLog) error {
 		UPDATE trade_logs
 		SET trade_number = ?, entry_price_1 = ?, entry_price_2 = ?,
 		    exit_price_1 = ?, exit_price_2 = ?, quantity_1 = ?, quantity_2 = ?,
-		    side_1 = ?, side_2 = ?, pnl = ?0, pnl_usd = ?1, entry_zscore = ?2,
-		    exit_zscore = ?3, exit_timestamp = ?4
-		WHERE id = ?5
+		    side_1 = ?, side_2 = ?, pnl = ?, pnl_usd = ?, entry_zscore = ?,
+		    exit_zscore = ?, exit_timestamp = ?
+		WHERE id = ?
 	`
 
 	result, err := r.db.Exec(

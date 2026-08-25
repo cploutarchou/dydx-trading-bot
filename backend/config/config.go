@@ -292,7 +292,7 @@ func LoadConfig() error {
 	}
 
 	auth := AuthSettings{
-		JWTSecretKey:             getEnvAny([]string{"JWT_SECRET_KEY", "SECRET_KEY"}, "your-super-secret-key-change-in-production"),
+		JWTSecretKey:             getEnvAny([]string{"JWT_SECRET_KEY", "SECRET_KEY"}, ""),
 		JWTAlgorithm:             getEnv("JWT_ALGORITHM", "HS256"),
 		AccessTokenExpireMinutes: getEnvInt("ACCESS_TOKEN_EXPIRE_MINUTES", 30),
 		RefreshTokenExpireDays:   getEnvInt("REFRESH_TOKEN_EXPIRE_DAYS", 7),

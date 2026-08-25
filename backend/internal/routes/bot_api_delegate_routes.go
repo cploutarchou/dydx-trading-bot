@@ -1111,11 +1111,31 @@ func isUpstreamNotFound(err error) bool {
 
 func ensureBacktestRunAccess(c *gin.Context, runID string, backtestRepo *repository.BacktestRepository) bool {
 	runID = strings.TrimSpace(runID)
-	if runID == "" || backtestRepo == nil {
-		return true
-	}
 	if c.GetBool("is_admin") {
 		return true
+	}
+
+	if runID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success":   false,
+			"message":   "run_id is required",
+			"error":     "run_id is required",
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+			"trace_id":  middleware.GetTraceID(c),
+		})
+		return false
+	}
+	if backtestRepo == nil {
+		// No local run registry available: fail closed for non-admins rather
+		// than proxying unverified run IDs upstream.
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success":   false,
+			"message":   "backtest access verification unavailable",
+			"error":     "backtest access verification unavailable",
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+			"trace_id":  middleware.GetTraceID(c),
+		})
+		return false
 	}
 
 	userIDValue, exists := c.Get("user_id")
@@ -1153,7 +1173,16 @@ func ensureBacktestRunAccess(c *gin.Context, runID string, backtestRepo *reposit
 		return false
 	}
 	if ownerID == nil {
-		return true
+		// Unknown owner (run never synced locally): deny to regular users so a
+		// run belonging to another tenant cannot be reached by ID guessing.
+		c.JSON(http.StatusNotFound, gin.H{
+			"success":   false,
+			"message":   "backtest not found",
+			"error":     "backtest not found",
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+			"trace_id":  middleware.GetTraceID(c),
+		})
+		return false
 	}
 	if *ownerID != userID {
 		c.JSON(http.StatusNotFound, gin.H{

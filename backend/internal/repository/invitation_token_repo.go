@@ -215,7 +215,7 @@ func (r *InvitationTokenRepository) RevokeByTokenCode(tokenCode string) error {
 	`
 
 	now := time.Now().UTC()
-	result, err := r.db.Exec(r.bindQuery(query), now, tokenCode)
+	result, err := r.db.Exec(r.bindQuery(query), now, now, tokenCode)
 	if err != nil {
 		return fmt.Errorf("failed to revoke invitation token: %w", err)
 	}
@@ -247,7 +247,7 @@ func (r *InvitationTokenRepository) Redeem(tokenCode string, usedByUserID int) (
 	`
 
 	now := time.Now().UTC()
-	result, err := r.db.Exec(r.bindQuery(query), now, usedByUserID, tokenCode)
+	result, err := r.db.Exec(r.bindQuery(query), now, usedByUserID, now, tokenCode, now)
 	if err != nil {
 		return false, fmt.Errorf("failed to redeem invitation token: %w", err)
 	}

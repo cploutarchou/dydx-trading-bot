@@ -53,6 +53,7 @@ Most of this document is a record of completed work. Everything still pending, i
 | 6 | ~~**Portfolio-level risk controls**~~ **RESOLVED 2026-08-17** — Phase A entry guard, operator visibility, account-wide drawdown, multi-account aggregation, the advanced concentration set (per-market notional cap, gross-notional leverage cap, correlation buckets, UTC-day loss limit — all individually off), and **Phase B**: a live burn-in harness (`scripts/portfolio_risk_burn_in.py`, `make portfolio-burn-in`, skill `portfolio-risk-burn-in`) produced 20/20 clean cycles against a real funded testnet subaccount (0 read errors, 0 data-unavailable, 0 decision changes; empty account fails closed for the designed reason) and `BOT_PORTFOLIO_RISK_ENABLED` was flipped **default ON** (`=false` restores the old behavior; the suite stays hermetic via a conftest constant patch like the bus flip) | Per-instance limits can each pass while the account is over-exposed | done |
 | 7 | ~~**Backtest checkpointing**~~ **RESOLVED 2026-08-16** — durable per-pair checkpoints (`backtests/<run_id>/checkpoint.json` in the artifact store) written at the heavy-progress cadence and on pause; Celery redelivery / transient retry / auto-recovery requeue / NATS redelivery all resume from the completed-pair prefix after payload-hash validation (fail-open); terminal completed/cancelled delete the checkpoint | Was compute-cost only: resumed runs skip re-fetch + re-simulation of completed pairs | done |
 | 8 | ~~**Configuration Complexity (database alias family)**~~ **RESOLVED 2026-08-25** — the `BOT_DATABASE_URL`/`DATABASE_URL`/`BOT_DB_*`/`DB_*`/`POSTGRES_*` chains, previously re-implemented inline in six consumers (three of which had silently dropped the `POSTGRES_*` family), now resolve exactly once through `src/shared/db_env.py` (documented precedence `BOT_DB_* > DB_* > POSTGRES_*`; shared-only flavor; single `any_db_connection_configured()` predicate; sanitized `field_sources` provenance in `DatabaseConfig.to_diagnostics()`); pinned by `tests/test_db_env.py` (35 cases) | Aliases are kept (backward compatible) but can no longer drift between consumers; the misdetected-as-DB-less `POSTGRES_*`-only deployments now count | done |
+| 9 | ~~**Database connection pool holding pattern**~~ **RESOLVED 2026-08-25** — root cause verified: worker-held Session + control-flag SELECTs pin pool connections until the next throttled write (and continuously while paused); `_load_fresh_runtime_control` now reads via short-lived sessions (open → read → close), so long backtests only occupy a connection during brief write transactions. `ConnectionPoolMonitor` stays as the detection layer | Long backtests (esp. paused ones) no longer starve the pool | done |
 
 > **Resolved 2026-08-11:** the former row 1 ("Resolve dead code paths") is done — 2FA router
 > mounted, `realtime_data_service.py` + candle-aggregation stub + `repository_realtime` shim
@@ -240,9 +241,19 @@ Items removed from this plan during the same review — and why — are listed i
 
 #### **Moderate Issues**
 
-- **Database Connection Pool Management**: potential connection exhaustion when long-running backtests hold
-  sessions. Monitoring/alerting is in place (`ConnectionPoolMonitor`); the underlying holding pattern is not fixed
-    - **Files**: `src/infrastructure/database.py`, `src/infrastructure/persistence/*.py`
+- ~~**Database Connection Pool Management**~~ **RESOLVED 2026-08-25 (connection-occupancy fix)** — the exhaustion
+  mechanism was verified and eliminated at its root: both worker backends (Celery `backtest_tasks.py`, NATS consumer)
+  hold one Session across a multi-hour `execute_existing_backtest`, and the pause/cancel control reads
+  (`_load_fresh_runtime_control` → `get_run_overview`) ran on that held session — a SELECT opens a transaction that
+  **pins a pooled connection until the next (throttled) write commit, and continuously while paused**, because the
+  pause poll loop only reads. Control reads now go through a short-lived session (open → read → close, the pattern
+  `_touch_run_heartbeat` established), so the held Session pins a connection only for the brief span of each
+  write-then-commit and never across idle/paused periods; monitoring (`ConnectionPoolMonitor`) remains in place as
+  the detection layer. Regression-pinned by
+  `tests/test_backtest_service_unit.py::test_load_fresh_runtime_control_bound_session_uses_short_lived_read` (bound
+  session untouched, short session closed) and the failure-fallback sibling test
+    - **Files**: `src/infrastructure/use_cases/service_backtest.py` (`_load_fresh_runtime_control`),
+      `src/infrastructure/workers/backtest_tasks.py` + `nats_backtest_consumer.py` (holding pattern, documented)
 
 - **WebSocket Message Throttling**: no rate limiting/coalescing on broadcasts. Matters more once the cross-worker
   broadcast bus is enabled (`realtime_data_service` emits one broadcast per symbol per tick → N Redis publishes)

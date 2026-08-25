@@ -2,6 +2,29 @@
 
 ## 2026-08-25 — DONE
 
+- **Database connection pool holding pattern fixed (IMPROVEMENTS.md "Database Connection Pool Management")** —
+  the moderate perf issue where long-running backtests could exhaust the pool.
+    - Root cause verified (not theorized): both worker backends (Celery `backtest_tasks.py`, NATS
+      `nats_backtest_consumer.py`) hold one Session across the entire multi-hour `execute_existing_backtest`;
+      the pause/cancel control reads (`_load_fresh_runtime_control` → `repository.get_run_overview`) ran on that
+      held Session, and under `autoflush=False`/`expire_on_commit=False` a SELECT opens a transaction that pins a
+      pooled connection until the next commit — with progress writes throttled, that is minutes at a stretch, and
+      **continuous while paused** because the pause poll loop (~1 s cadence) only reads.
+    - Fix: `_load_fresh_runtime_control` now reads through a short-lived session (open → read → close) whenever the
+      bound repository carries a live session — the exact pattern `_touch_run_heartbeat` established. The held
+      Session now pins a connection only during each brief write-then-commit and never across idle/paused periods.
+      Memory-mode (session-less repositories) behavior unchanged; broad-catch ratchet held (one `except Exception`
+      restructured, none added); `ConnectionPoolMonitor` remains the detection layer.
+    - Tests: +2 regression cases in `tests/test_backtest_service_unit.py` (bound session untouched + short session
+      closed immediately; short-read failure falls back to the cached control dict). Adjacent suites green
+      (backtest task helpers/failure-persistence, API contract, routes unit, NATS consumer service, database unit,
+      exception ratchet — 164 passed). Full CI-mirror suite 1398 passed / 13 skipped, coverage 83.42% ≥ 82;
+      black/isort/flake8 clean; mypy strict 0 errors (98 files).
+    - Docs synced: AGENTS.md backtest section (bounded-occupancy rule for per-cycle DB access), IMPROVEMENTS.md
+      moderate issue + open-items table row 9 marked RESOLVED.
+
+- **Database env-alias consolidation (IMPROVEMENTS.md "Configuration Complexity")** — the
+
 - **Database env-alias consolidation (IMPROVEMENTS.md "Configuration Complexity")** — the
   `BOT_DATABASE_URL` / `DATABASE_URL` / `BOT_DB_*` / `DB_*` / `POSTGRES_*` alias chains were
   re-implemented inline in six places and had already drifted: the three "is DB persistence

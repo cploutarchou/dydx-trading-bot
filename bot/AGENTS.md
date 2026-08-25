@@ -199,6 +199,10 @@ become reachable (default `BACKTEST_WORKER_BACKEND_AUTO_REPROBE=true`, cooldown 
     - Mainnet auto-restart also requires `BOT_AUTO_RECOVER_LIVE_MAINNET=true`
 - Heartbeat keepalive: active backtests refresh heartbeat to avoid being flagged stale; override with
   `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS`
+- Bounded DB occupancy during execution: worker backends hold one Session across a long `execute_existing_backtest`,
+  but every read on that Session pins a pooled connection until the next write commit — so pause/cancel control reads
+  (`_load_fresh_runtime_control`) and heartbeat refreshes go through short-lived sessions (open → read/write → close).
+  Keep any new per-cycle DB access in the execution loop on that short-lived pattern, never on the held Session
 - Checkpoint resume (default on via `BACKTEST_CHECKPOINT_ENABLED`): `_execute_backtest` writes a self-contained
   per-pair checkpoint (`src/infrastructure/use_cases/backtest_checkpoint.py` → `backtests/<run_id>/checkpoint.json` in
   the artifact store) at the heavy-progress cadence and on pause entry; a later execution attempt of the same run

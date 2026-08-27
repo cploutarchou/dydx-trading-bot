@@ -945,12 +945,23 @@ func (s *CodexService) doSingleFlight(key string, fn func() (any, error)) (any, 
 	s.inFlight[key] = call
 	s.inFlightMu.Unlock()
 
-	call.value, call.err = fn()
+	// Deferred cleanup keeps the call completable even if fn panics; without it
+	// every waiter (and every future request for this key) would block forever.
+	defer func() {
+		s.inFlightMu.Lock()
+		delete(s.inFlight, key)
+		close(call.done)
+		s.inFlightMu.Unlock()
+	}()
 
-	s.inFlightMu.Lock()
-	delete(s.inFlight, key)
-	close(call.done)
-	s.inFlightMu.Unlock()
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				call.err = fmt.Errorf("codex singleflight panic: %v", r)
+			}
+		}()
+		call.value, call.err = fn()
+	}()
 
 	return call.value, call.err
 }

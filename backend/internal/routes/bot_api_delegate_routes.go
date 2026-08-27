@@ -1304,10 +1304,12 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 	backtestRepo := (*repository.BacktestRepository)(nil)
 	userRepo := (*repository.UserRepository)(nil)
 	strategyRepo := (*repository.StrategyRepository)(nil)
+	botInstanceRepo := (*repository.BotInstanceRepository)(nil)
 	if backtestSync != nil && backtestSync.DB() != nil {
 		backtestRepo = repository.NewBacktestRepository(backtestSync.DB())
 		userRepo = repository.NewUserRepository(backtestSync.DB())
 		strategyRepo = repository.NewStrategyRepository(backtestSync.DB())
+		botInstanceRepo = repository.NewBotInstanceRepository(backtestSync.DB())
 	}
 	backtestDelegation := NewBacktestDelegationService(backtestSync)
 
@@ -3054,6 +3056,90 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 	botGroup := router.Group("/api/v1/bots")
 	botGroup.Use(middleware.RequireAuth())
 	botGroup.Use(withRequestScopedBotClient)
+	// Enforce Go-side ownership before proxying instance-scoped endpoints
+	// upstream: in service-token mode the caller's identity never reaches the
+	// bot API, so this is the only authorization boundary for these routes.
+	// Semantics mirror ensureBacktestRunAccess: admins bypass, foreign or
+	// unknown instances 404, missing registry fails closed.
+	botGroup.Use(func(c *gin.Context) {
+		instanceID := strings.TrimSpace(c.Param("instance_id"))
+		if instanceID == "" {
+			c.Next()
+			return
+		}
+		if c.GetBool("is_admin") {
+			c.Next()
+			return
+		}
+		if botInstanceRepo == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"success":   false,
+				"message":   "bot instance ownership verification unavailable",
+				"error":     "bot instance ownership verification unavailable",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"trace_id":  middleware.GetTraceID(c),
+			})
+			c.Abort()
+			return
+		}
+
+		userIDValue, exists := c.Get("user_id")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success":   false,
+				"message":   "unauthorized",
+				"error":     "unauthorized",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"trace_id":  middleware.GetTraceID(c),
+			})
+			c.Abort()
+			return
+		}
+		userID, ok := userIDValue.(int)
+		if !ok || userID <= 0 {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success":   false,
+				"message":   "invalid user context",
+				"error":     "invalid user context",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"trace_id":  middleware.GetTraceID(c),
+			})
+			c.Abort()
+			return
+		}
+
+		instance, err := botInstanceRepo.GetBotInstanceByInstanceID(instanceID)
+		if err != nil {
+			// The repository reports missing rows as an error; treat any
+			// "not found" shape as 404 rather than an infrastructure failure.
+			if strings.Contains(strings.ToLower(err.Error()), "not found") {
+				err = nil
+			} else {
+				log.Printf("delegated bot route ownership lookup failed for instance=%s: %v", instanceID, err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success":   false,
+					"message":   "failed to verify bot instance access",
+					"error":     "failed to verify bot instance access",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				c.Abort()
+				return
+			}
+		}
+		if instance == nil || (instance.UserID > 0 && instance.UserID != userID) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success":   false,
+				"message":   "bot instance not found",
+				"error":     "bot instance not found",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"trace_id":  middleware.GetTraceID(c),
+			})
+			c.Abort()
+			return
+		}
+		c.Next()
+	})
 	{
 		// Get current positions
 		botGroup.GET("/:instance_id/positions/current", func(c *gin.Context) {

@@ -52,7 +52,7 @@ Data stores: PostgreSQL (pgx v5 stdlib), Redis (sessions/cache/pubsub), ClickHou
 
 ## 3. Findings summary
 
-Severity counts (see BACKEND_IMPROVEMENT_PLAN.md for full task list): **P0: 5 · P1: 12 · P2: 18 · P3: 9** (44 tasks total — 17 DONE / 1 partial as of 2026-08-27: all P0s, all P1s except TASK-010 remainder)
+Severity counts (see BACKEND_IMPROVEMENT_PLAN.md for full task list): **P0: 5 · P1: 12 · P2: 18 · P3: 9** (44 tasks total — 19 DONE as of 2026-08-27: ALL P0s and ALL P1s complete; P2/P3 backlog remaining)
 
 ### P0 — Critical (verified)
 

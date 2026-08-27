@@ -110,7 +110,7 @@ Risk: Cross-user access to live positions/alerts/jobs; upstream authz bypass; du
 Proposed solution: Ownership lookup (`GetBotInstanceByInstanceID` + owner/admin check) before delegating; restrict service-token fallback to server-initiated calls only; treat fallback status ≥400 as error; retry only idempotent methods on transport errors (or add idempotency keys).
 Affected files: bot_api_client.go, bot_api_delegate_routes.go (+ tests).
 Validation: `go test ./internal/services/... ./internal/routes/...`.
-Estimated complexity: M · Regression risk: Medium · Status: TODO
+Estimated complexity: M · Regression risk: Medium · Status: DONE (2026-08-27; both halves now closed: (1) service-token escalation removed from bot_api_client under TASK-016 work; (2) Go-side ownership middleware on the delegated /api/v1/bots/:instance_id group — admins bypass, foreign/unknown instances 404, nil registry fails closed 503; quick-deploy (no instance_id) unaffected; repo's not-found-as-error quirk mapped to 404. Regression test: TestDelegateBotRoutes_EnforceInstanceOwnership)
 
 ### TASK-011 — Trade-log CRUD: ownership scoping + persist all create fields
 Priority: P1 · Category: Security / Bug
@@ -214,7 +214,7 @@ Risk: Endpoint hard-down from a single panic.
 Proposed solution: `defer` delete+close after registering; add regression test injecting panic.
 Affected files: both services (+ tests).
 Validation: `go test ./internal/services/...`.
-Estimated complexity: XS · Regression risk: Low · Status: TODO
+Estimated complexity: XS · Regression risk: Low · Status: DONE (2026-08-27; deferred delete+close runs after registering the call, and fn executes under a recover that converts panics into errors — waiters and future requests for the key can no longer block forever, and a panicking fetch surfaces as a 500 instead of an empty success)
 
 ### TASK-021 — Candle prefetch: singleflight + bounded memory
 Priority: P2 · Category: Performance
@@ -264,7 +264,7 @@ Risk: Corrupt data displayed instead of clear error.
 Proposed solution: Use `::text` or drop the compat path (migration 000022 guarantees schema).
 Affected files: bot_instance_repository.go (+ test).
 Validation: `go test ./internal/repository/...`.
-Estimated complexity: XS · Regression risk: Low · Status: TODO
+Estimated complexity: XS · Regression risk: Low · Status: DONE (2026-08-27; CAST(... AS CHAR) → CAST(... AS TEXT); Postgres CHAR defaults to length 1, silently truncating status/config to one character on the drifted-schema fallback path)
 
 ### TASK-026 — Task commands: idempotent create + pending reconciler
 Priority: P2 · Category: Reliability
@@ -474,7 +474,7 @@ Estimated complexity: L · Regression risk: None (test-only) · Status: TODO
 | TASK-007 | DONE | Upsert → ON CONFLICT (partner_user_id) matching existing UNIQUE constraint (zero-migration-risk); List placeholders fixed; regression tests for upsert idempotency + pagination. |
 | TASK-008 | DONE | SQLRunner interface + WithTx on 3 repos; approval flow (role promotion + hierarchy upsert + review status) now single transaction with rollback-on-error; non-approve path unchanged. |
 | TASK-009 | DONE (partial — /compare body enforcement deferred, see task entry) | ensureBacktestRunAccess fails closed: nil repo → 503, unknown owner → 404 (admins bypass); create-strategy enforces ownership + gains request-context cancellation. NOTE: coverage was better than audited — group middleware already guarded all :run_id param routes. |
-| TASK-010 | PARTIAL | Service-token escalation removed from bot_api_client (401 on user token is never retried as service identity); fallback upstream errors no longer masked as success; fallback retries restricted to idempotent methods. REMAINING: Go-side ownership lookup on delegated /bots/:instance_id routes. |
+| TASK-010 | DONE | Service-token escalation removed from bot_api_client (401 on user token never retried as service identity); fallback errors surfaced; non-idempotent retries removed. Ownership middleware added to delegated /api/v1/bots/:instance_id routes (admin bypass; foreign/unknown 404; nil registry 503); regression test covers foreign/unknown/owner/admin. |
 | TASK-015 | DONE | Per-user audit-log listing bounded (limit param, default 200, cap 1000) end-to-end. |
 | TASK-016 | DONE | All 40 upstream endpoint constructions wrap path params in url.PathEscape; response bodies capped at 16MB via LimitReader with explicit oversize error. |
 | TASK-005 | DONE | Login-time MFA challenge implemented: SessionData gained MFARequired/MFAVerifiedAt (+MFAPending()); RequireAuth rejects pending sessions everywhere with 401 code=mfa_challenge_required (the code the frontend already handles on privileged routes); new POST /api/v1/auth/2fa/challenge (RequireAuthAllowPendingMFA) verifies TOTP, promotes the session to the full TTL, and only then issues the refresh cookie/login response that the MFA login branch deliberately withheld; pending sessions live max 5 minutes and burn after 5 bad codes; users without MFA log in exactly as before. 5 end-to-end tests in auth_routes_login_mfa_test.go. Also fixed 5 pre-existing `:=` compile errors in integration-tagged test files that blocked `go vet -tags integration`. Validation: full go test ./... green, -race green, integration-tagged 2FA tests green. FRONTEND FOLLOW-UP REQUIRED: login page must handle `mfa_required: true` responses by prompting for the 6-digit code and posting to /api/v1/auth/2fa/challenge. |
@@ -483,3 +483,6 @@ Estimated complexity: L · Regression risk: None (test-only) · Status: TODO
 | TASK-013 | DONE | Malformed JetStream envelopes now terminal (Ack + dead-letter) instead of infinite NAK hot-loop; NakWithDelay exponential backoff from NumDelivered (0.5s→30s cap); durable consumer provisioned with AckWait 60s/MaxDeliver 16/MaxAckPending 256; ack failures logged. |
 | TASK-014 | DONE | Push hub rewritten: per-subscriber buffered channel + dedicated writer goroutine (single writer per conn — fixes concurrent-write frame corruption); non-blocking sends disconnect slow subscribers instead of stalling projection; Stop() for shutdown; race detector clean. |
 | TASK-017 | DONE | WS relay: DialContext bound to request ctx, read deadlines + pong handlers both directions, write deadlines on all frames, 30s WriteControl keepalive pings with dual-close on failure; backtest status-push handler reaps dead clients the same way. |
+| TASK-010 | DONE (fully, 2026-08-27) | Ownership middleware on delegated /api/v1/bots/:instance_id group: admins bypass, foreign/unknown instances 404, nil registry 503, quick-deploy unaffected; repo not-found-as-error mapped to 404. TestDelegateBotRoutes_EnforceInstanceOwnership covers foreign/unknown/owner/admin. |
+| TASK-020 | DONE | News/codex singleflight made panic-safe: deferred cleanup + recover→error; a panicking fetch no longer wedges the key or returns empty success to waiters. |
+| TASK-025 | DONE | bot_instances compat fallback: CAST AS CHAR → CAST AS TEXT (length-1 truncation on Postgres fixed). |

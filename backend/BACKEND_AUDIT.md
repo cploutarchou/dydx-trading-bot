@@ -52,7 +52,7 @@ Data stores: PostgreSQL (pgx v5 stdlib), Redis (sessions/cache/pubsub), ClickHou
 
 ## 3. Findings summary
 
-Severity counts (see BACKEND_IMPROVEMENT_PLAN.md for full task list): **P0: 5 · P1: 12 · P2: 18 · P3: 9**
+Severity counts (see BACKEND_IMPROVEMENT_PLAN.md for full task list): **P0: 5 · P1: 12 · P2: 18 · P3: 9** (44 tasks total — 17 DONE / 1 partial as of 2026-08-27: all P0s, all P1s except TASK-010 remainder)
 
 ### P0 — Critical (verified)
 
@@ -113,7 +113,8 @@ SQL injection surface (parameterized queries throughout; dynamic fragments are s
 
 ## 5. Remaining risks after fixes (to track)
 
-- TASK-005 (MFA login challenge) is the outstanding P0 — not yet implemented; MFA remains enrollment-only.
+- MFA is now enforced at login (TASK-005 DONE): pending sessions are rejected everywhere except POST /api/v1/auth/2fa/challenge. FRONTEND FOLLOW-UP: the login page must handle `mfa_required: true` (prompt for TOTP, POST /auth/2fa/challenge); until then, TOTP-enrolled users cannot complete browser login.
+- Refresh-token path does not re-challenge MFA (legacy refresh cookies issued before the change, or bearer fallback mode, still exchange without TOTP) — pair with TASK-031 session/refresh revocation work.
 - TASK-010 remainder: delegated `/api/v1/bots/:instance_id/*` routes still lack a Go-side ownership check (service-token escalation path removed, which materially reduces the risk).
 - `POST /api/v1/backtests/compare` accepts run ids in its body (upstream-defined shape); ownership not enforced there.
 - Runs created before backend-sync existed (unknown local owner) are now admin-only on delegated routes — intentional fail-closed; may surface as 404s for legacy tenant users.

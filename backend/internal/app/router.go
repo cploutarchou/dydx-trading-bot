@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -28,6 +29,17 @@ type Dependencies struct {
 	BacktestPushHub *services.BacktestPushHub
 	BotAPIURL       string
 	StartTime       time.Time
+	// RootContext bounds background workers (event consumer, outbox ticker,
+	// push hub). Nil defaults to context.Background() (workers run forever).
+	RootContext context.Context
+}
+
+// rootContext returns the effective worker context for this build.
+func (d *Dependencies) rootContext() context.Context {
+	if d.RootContext != nil {
+		return d.RootContext
+	}
+	return context.Background()
 }
 
 func ResolveBotAPIURL() string {
@@ -114,6 +126,15 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 		)
 	}
 
+	// Disconnect push subscribers when the process lifecycle ends.
+	if deps.BacktestPushHub != nil {
+		hub := deps.BacktestPushHub
+		go func() {
+			<-deps.rootContext().Done()
+			hub.Stop()
+		}()
+	}
+
 	registerHealthRoutes(router, cfg, deps.Database, deps.BotAPIURL, deps.StartTime)
 	// Phase 4: NATS JetStream publisher and task repository for dual-write wiring
 	taskRepo := repository.NewTaskRepository(deps.Database.DB)
@@ -129,14 +150,14 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 			cfg.NATS.URL, services.NewBacktestEventProjector(deps.BacktestPushHub),
 		); eventConsumer != nil {
 			go func() {
-				if err := eventConsumer.Run(context.Background()); err != nil {
+				if err := eventConsumer.Run(deps.rootContext()); err != nil && deps.rootContext().Err() == nil {
 					log.Printf("backtest event consumer stopped: %v", err)
 				}
 			}()
 		}
 	}
 
-	registerFeatureRoutes(router, deps.Database, deps.BotAPIClient, deps.CacheService, deps.BacktestPushHub, taskRepo, natsPublisher, natsCommandService)
+	registerFeatureRoutes(deps.rootContext(), router, deps.Database, deps.BotAPIClient, deps.CacheService, deps.BacktestPushHub, taskRepo, natsPublisher, natsCommandService)
 	registerDebugRoutes(router, deps.Database)
 
 	// Backend-owned ClickHouse read models. Each reader is nil when ClickHouse is
@@ -154,7 +175,7 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 	return router, nil
 }
 
-func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient *services.BotAPIClient, cacheService *services.CacheService, backtestPushHub *services.BacktestPushHub, taskRepo *repository.TaskRepository, natsPublisher *nats.Publisher, natsCommandService *services.NATSCommandService) {
+func registerFeatureRoutes(workerCtx context.Context, router *gin.Engine, database *db.Database, apiClient *services.BotAPIClient, cacheService *services.CacheService, backtestPushHub *services.BacktestPushHub, taskRepo *repository.TaskRepository, natsPublisher *nats.Publisher, natsCommandService *services.NATSCommandService) {
 	routes.RegisterAuthRoutes(router, database.DB)
 	routes.RegisterAdminUserRoutes(router, database.DB)
 	routes.RegisterBackofficeRoutes(router, database.DB)
@@ -164,7 +185,7 @@ func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient 
 	routes.RegisterSettingsRoutes(router, database)
 	routes.RegisterICOPublicRoutes(router, database.DB)
 	routes.RegisterICOAdminRoutes(router, database.DB)
-	startICOEmailOutboxWorker(database.DB)
+	startICOEmailOutboxWorker(workerCtx, database.DB)
 
 	router.Use(middleware.ComingSoonMiddleware(database.DB))
 
@@ -186,7 +207,7 @@ func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient 
 	routes.RegisterAuditLogRoutes(router, database)
 }
 
-func startICOEmailOutboxWorker(sqlDB *sql.DB) {
+func startICOEmailOutboxWorker(workerCtx context.Context, sqlDB *sql.DB) {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("ICO_EMAIL_OUTBOX_WORKER_ENABLED")), "false") {
 		log.Printf("ICO email outbox worker disabled by configuration")
 		return
@@ -202,13 +223,22 @@ func startICOEmailOutboxWorker(sqlDB *sql.DB) {
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
-		for {
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			if _, err := outboxService.ProcessPending(ctx, 25); err != nil {
+		// Run one sweep immediately so outbox emails are not delayed by a full
+		// tick after startup.
+		for first := true; ; first = false {
+			if !first {
+				select {
+				case <-workerCtx.Done():
+					log.Printf("ICO email outbox worker stopped")
+					return
+				case <-ticker.C:
+				}
+			}
+			ctx, cancel := context.WithTimeout(workerCtx, 20*time.Second)
+			if _, err := outboxService.ProcessPending(ctx, 25); err != nil && ctx.Err() == nil {
 				log.Printf("ICO email outbox worker error: %v", err)
 			}
 			cancel()
-			<-ticker.C
 		}
 	}()
 	log.Printf("ICO email outbox worker started")
@@ -314,7 +344,7 @@ func registerDebugRoutes(router *gin.Engine, database *db.Database) {
 	})
 }
 
-func RunServer(router *gin.Engine, port string) error {
+func RunServer(ctx context.Context, router *gin.Engine, port string) error {
 	if strings.TrimSpace(port) == "" {
 		port = "8888"
 	}
@@ -323,6 +353,36 @@ func RunServer(router *gin.Engine, port string) error {
 		log.Printf("Registered route: %s %s", route.Method, route.Path)
 	}
 
-	log.Printf("Backend server starting on port %s", port)
-	return router.Run(fmt.Sprintf(":%s", port))
+	// WriteTimeout is intentionally unset: SSE streams and WebSocket relays are
+	// long-lived by design. The other timeouts close slowloris vectors.
+	server := &http.Server{
+		Addr:              fmt.Sprintf(":%s", port),
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	serverErr := make(chan error, 1)
+	go func() {
+		log.Printf("Backend server starting on port %s", port)
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
+		}
+	}()
+
+	select {
+	case err := <-serverErr:
+		return err
+	case <-ctx.Done():
+		// Drain in-flight requests before returning; new connections are refused.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Graceful shutdown exceeded drain window: %v", err)
+			return fmt.Errorf("shutdown: %w", err)
+		}
+		log.Printf("Backend server drained and stopped")
+		return nil
+	}
 }

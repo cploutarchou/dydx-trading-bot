@@ -56,7 +56,7 @@ Risk: Password alone compromises accounts with TOTP configured — including adm
 Proposed solution: When `user.MFAEnabled`: issue short-lived pre-auth session (or step-up token) limited to `/api/v1/auth/2fa/challenge`; verify TOTP there, then promote session to full auth (`mfa_verified_at` claim); `RequireMFA` checks `mfa_verified_at` within TTL for privileged routes. Backward-compatible: users without MFA unaffected.
 Affected files: internal/routes/auth_routes.go, internal/auth/session_store.go, internal/middleware/mfa_middleware.go (+ tests).
 Validation: `go test ./internal/routes/... ./internal/middleware/...`; new login-MFA flow tests.
-Estimated complexity: L · Regression risk: Medium (frontend login flow must handle challenge step) · Status: TODO
+Estimated complexity: L · Regression risk: Medium (frontend login flow must handle challenge step) · Status: DONE (2026-08-26)
 
 ---
 
@@ -120,7 +120,7 @@ Risk: Any user reads/tampers/deletes any other user's trade logs (PnL integrity)
 Proposed solution: Thread userID through service/repo; scope every query via join to owning run/result (owner or admin bypass); persist full field set on create.
 Affected files: tradelog_handler.go, tradelog_service.go, tradelog_repo.go (+ tests).
 Validation: `go test ./internal/...`; cross-user denial tests.
-Estimated complexity: M · Regression risk: Medium (response semantics change to truthful values) · Status: TODO
+Estimated complexity: M · Regression risk: Medium (response semantics change to truthful values) · Status: DONE (2026-08-26; owner scoping threaded through handler/service/repo via trade_logs→backtest_results→backtest_runs.user_id joins; admin bypass (scope 0); Create persists the full field set and returns truthful stored values; fixed latent br.run_id→run_id_fk column bug; sentinel errors map foreign/missing logs to 404; TestTradeLogOwnershipScoping added)
 
 ### TASK-012 — Graceful shutdown + HTTP server timeouts
 Priority: P1 · Category: Reliability / DevOps
@@ -130,7 +130,7 @@ Risk: Request drops on deploy/SIGTERM; leaked goroutines/connections; slowloris 
 Proposed solution: Root context cancelled on SIGTERM/SIGINT; `http.Server{ReadHeaderTimeout, ReadTimeout, IdleTimeout}` + `Shutdown(ctx)` drain; worker `Run(ctx)` + WaitGroup; close Redis/NATS/ClickHouse clients; make deferred DB close reachable.
 Affected files: cmd/server/main.go, internal/app/router.go, consumer/hub/outbox services (+ tests).
 Validation: `go test ./...`; manual SIGTERM drain test.
-Estimated complexity: M · Regression risk: Low · Status: TODO
+Estimated complexity: M · Regression risk: Low · Status: DONE (2026-08-26; signal.NotifyContext root ctx; http.Server with ReadHeaderTimeout 10s/ReadTimeout 60s/IdleTimeout 120s (WriteTimeout deliberately unset for SSE/WS); Shutdown drains 15s; Dependencies.RootContext wires event consumer + ICO outbox worker + hub Stop; TestRunServer_GracefulShutdownOnContextCancel added)
 
 ### TASK-013 — JetStream consumer: backoff, MaxDeliver/DLQ, ack hygiene
 Priority: P1 · Category: Reliability
@@ -140,7 +140,7 @@ Risk: Pipeline wedge, CPU/log flood, duplicated WS events.
 Proposed solution: `NakWithDelay` exponential backoff; terminal handling for decode errors (Ack + dead-letter metric/log); explicit AckWait/MaxDeliver durable options; log ack failures with sequence.
 Affected files: backtest_event_consumer.go (+ tests).
 Validation: `go test ./internal/services/... -run Consumer`.
-Estimated complexity: S · Regression risk: Low · Status: TODO
+Estimated complexity: S · Regression risk: Low · Status: DONE (2026-08-26; malformed envelopes terminal (Ack+dead-letter) instead of infinite NAK; NakWithDelay exponential backoff from NumDelivered capped 30s; ensureEventConsumer provisions AckWait 60s/MaxDeliver 16/MaxAckPending 256 with add-or-update; ack failures logged)
 
 ### TASK-014 — Push hub: serialize per-connection writes
 Priority: P1 · Category: Concurrency
@@ -150,7 +150,7 @@ Risk: Corrupted WS streams for real users; projection stalls under slow clients.
 Proposed solution: Per-subscriber buffered send channel + dedicated writer goroutine (or per-conn mutex); non-blocking send drops/disconnects slowest subscribers.
 Affected files: backtest_push_hub.go (+ tests).
 Validation: `go test -race ./internal/services/... -run Hub`.
-Estimated complexity: M · Regression risk: Medium (push path) · Status: TODO
+Estimated complexity: M · Regression risk: Low · Status: DONE (2026-08-26; hub rewritten with per-subscriber buffered channel (16) + dedicated writer goroutine — single-writer per conn fixes concurrent-write corruption; non-blocking sends disconnect slow subscribers instead of stalling the Redis subscriber/JetStream Fetch loop; Stop() disconnects everyone on shutdown; ctx-aware backoff; race detector clean)
 
 ### TASK-015 — Bound unbounded queries (candles, audit logs, positions)
 Priority: P1 · Category: Performance / Database
@@ -170,7 +170,7 @@ Risk: Upstream path manipulation (paired with TASK-010 service-token issue = adm
 Proposed solution: `url.PathEscape` every path segment (or validate IDs against `^[A-Za-z0-9_-]+$`); `url.Values.Encode()` for queries; `io.LimitReader` (e.g. 8MB like clickhouse_reader).
 Affected files: bot_api_client.go, bot_api_client_extended.go (+ tests).
 Validation: `go test ./internal/services/... -run BotAPIClient`.
-Estimated complexity: S · Regression risk: Low · Status: TODO
+Estimated complexity: S · Regression risk: Low · Status: DONE (2026-08-26; 40 endpoint sites wrapped in url.PathEscape, 16MB LimitReader cap, fallback errors surfaced, non-idempotent retries removed — service-token escalation removal recorded under TASK-010)
 
 ### TASK-017 — WebSocket relay + status push keepalive (deadlines, ping/pong)
 Priority: P1 · Category: Reliability
@@ -180,7 +180,7 @@ Risk: Goroutine/FD exhaustion under network churn.
 Proposed solution: Standard gorilla keepalive: ping ticker (~30s), `SetReadDeadline(now+60s)` extended on pong/read both directions, `SetWriteDeadline` before relayed writes; use `DialContext` bound to request ctx.
 Affected files: bot_api_delegate_routes.go (+ tests).
 Validation: `go test ./internal/routes/...`; race test.
-Estimated complexity: S · Regression risk: Low · Status: TODO
+Estimated complexity: S · Regression risk: Low · Status: DONE (2026-08-26; relay uses DialContext bound to request ctx; read deadlines + pong handlers on both peers; write deadlines on every relayed frame; 30s WriteControl pings from a relay pinger that closes both conns on failure; status-push handler got the same keepalive so dead clients are reaped)
 
 ---
 
@@ -477,3 +477,9 @@ Estimated complexity: L · Regression risk: None (test-only) · Status: TODO
 | TASK-010 | PARTIAL | Service-token escalation removed from bot_api_client (401 on user token is never retried as service identity); fallback upstream errors no longer masked as success; fallback retries restricted to idempotent methods. REMAINING: Go-side ownership lookup on delegated /bots/:instance_id routes. |
 | TASK-015 | DONE | Per-user audit-log listing bounded (limit param, default 200, cap 1000) end-to-end. |
 | TASK-016 | DONE | All 40 upstream endpoint constructions wrap path params in url.PathEscape; response bodies capped at 16MB via LimitReader with explicit oversize error. |
+| TASK-005 | DONE | Login-time MFA challenge implemented: SessionData gained MFARequired/MFAVerifiedAt (+MFAPending()); RequireAuth rejects pending sessions everywhere with 401 code=mfa_challenge_required (the code the frontend already handles on privileged routes); new POST /api/v1/auth/2fa/challenge (RequireAuthAllowPendingMFA) verifies TOTP, promotes the session to the full TTL, and only then issues the refresh cookie/login response that the MFA login branch deliberately withheld; pending sessions live max 5 minutes and burn after 5 bad codes; users without MFA log in exactly as before. 5 end-to-end tests in auth_routes_login_mfa_test.go. Also fixed 5 pre-existing `:=` compile errors in integration-tagged test files that blocked `go vet -tags integration`. Validation: full go test ./... green, -race green, integration-tagged 2FA tests green. FRONTEND FOLLOW-UP REQUIRED: login page must handle `mfa_required: true` responses by prompting for the 6-digit code and posting to /api/v1/auth/2fa/challenge. |
+| TASK-011 | DONE | Trade-log CRUD fully owner-scoped (handler→service→repo) via run-ownership joins with admin bypass; Create persists all fields (phantom-response bug fixed); latent `br.run_id` column bug fixed; ownership scoping test added. |
+| TASK-012 | DONE | SIGTERM/SIGINT → root ctx; http.Server timeouts (ReadHeader 10s/Read 60s/Idle 120s; no Write for SSE/WS); 15s Shutdown drain; event consumer, ICO outbox worker, push hub all stop on ctx cancellation; graceful-shutdown regression test added. |
+| TASK-013 | DONE | Malformed JetStream envelopes now terminal (Ack + dead-letter) instead of infinite NAK hot-loop; NakWithDelay exponential backoff from NumDelivered (0.5s→30s cap); durable consumer provisioned with AckWait 60s/MaxDeliver 16/MaxAckPending 256; ack failures logged. |
+| TASK-014 | DONE | Push hub rewritten: per-subscriber buffered channel + dedicated writer goroutine (single writer per conn — fixes concurrent-write frame corruption); non-blocking sends disconnect slow subscribers instead of stalling projection; Stop() for shutdown; race detector clean. |
+| TASK-017 | DONE | WS relay: DialContext bound to request ctx, read deadlines + pong handlers both directions, write deadlines on all frames, 30s WriteControl keepalive pings with dual-close on failure; backtest status-push handler reaps dead clients the same way. |

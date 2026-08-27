@@ -86,7 +86,7 @@ func seedAdminUser(t *testing.T, dbConn *sql.DB, username, email, role string, i
 	}
 
 	now := time.Now().UTC()
-	_, err := dbConn.Exec(
+	_, err = dbConn.Exec(
 		`INSERT INTO users (username, email, role, full_name, avatar, hashed_password, is_active, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		username,
 		email,

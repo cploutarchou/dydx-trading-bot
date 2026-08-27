@@ -79,7 +79,7 @@ func setupAuthMFATestRouter(t *testing.T) (*gin.Engine, *sql.DB, int) {
 	}
 
 	now := time.Now().UTC()
-	_, err := dbConn.Exec(
+	_, err = dbConn.Exec(
 		`INSERT INTO users (username, email, role, full_name, avatar, hashed_password, is_active, is_admin, mfa_enabled, password_change_required, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		"alice",
 		"alice@example.local",

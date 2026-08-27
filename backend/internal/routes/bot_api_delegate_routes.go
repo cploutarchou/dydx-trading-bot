@@ -23,11 +23,20 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var websocketUpgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
+var websocketUpgrader = websocket.Upgrader{	CheckOrigin: func(r *http.Request) bool {
 		return middleware.IsAllowedBrowserOrigin(r.Header.Get("Origin"))
 	},
 }
+
+// WebSocket keepalive parameters: pings are sent via WriteControl (safe to
+// call concurrently with data writes), and read deadlines are extended by the
+// pong handler. Without them, silently dead peers leave relay goroutines
+// blocked in ReadMessage for the process lifetime.
+const (
+	wsPongWait   = 60 * time.Second
+	wsPingPeriod = 30 * time.Second // must stay below wsPongWait
+	wsWriteWait  = 5 * time.Second
+)
 
 func extractBotAuthToken(c *gin.Context) string {
 	return middleware.ExtractRequestAccessToken(c)
@@ -1251,6 +1260,30 @@ func RegisterBotAPIDelegateRoutesWithSyncCacheAndPush(
 		if err != nil {
 			return
 		}
+		// Keepalive: reap silently dead clients instead of keeping their
+		// handler goroutine and hub subscription alive forever.
+		_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
+		conn.SetPongHandler(func(string) error {
+			return conn.SetReadDeadline(time.Now().Add(wsPongWait))
+		})
+		pingerDone := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(wsPingPeriod)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-pingerDone:
+					return
+				case <-ticker.C:
+					if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(wsWriteWait)); err != nil {
+						_ = conn.Close()
+						return
+					}
+				}
+			}
+		}()
+		defer close(pingerDone)
+
 		pushHub.Subscribe(runID, conn)
 		defer func() {
 			pushHub.Unsubscribe(runID, conn)
@@ -1370,7 +1403,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			requestHeaders.Set(middleware.TraceIDHeader, traceID)
 		}
 
-		upstreamConn, upstreamResp, err := websocket.DefaultDialer.Dial(upstreamWSURL, requestHeaders)
+		upstreamConn, upstreamResp, err := websocket.DefaultDialer.DialContext(c.Request.Context(), upstreamWSURL, requestHeaders)
 		if upstreamResp != nil && upstreamResp.Body != nil {
 			defer func() { _ = upstreamResp.Body.Close() }()
 		}
@@ -1383,18 +1416,29 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		}
 		defer func() { _ = upstreamConn.Close() }()
 
+		// Extend read deadlines on pong so live peers keep the relay open and
+		// dead peers surface as timeout errors instead of blocked goroutines.
+		for _, relayConn := range []*websocket.Conn{clientConn, upstreamConn} {
+			_ = relayConn.SetReadDeadline(time.Now().Add(wsPongWait))
+			relayConn.SetPongHandler(func(string) error {
+				return relayConn.SetReadDeadline(time.Now().Add(wsPongWait))
+			})
+		}
+
 		forward := func(src *websocket.Conn, dst *websocket.Conn, done chan<- struct{}) {
 			defer func() { done <- struct{}{} }()
 			for {
 				messageType, payload, readErr := src.ReadMessage()
 				if readErr != nil {
-					_ = dst.WriteMessage(
+					_ = dst.WriteControl(
 						websocket.CloseMessage,
 						websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+						time.Now().Add(wsWriteWait),
 					)
 					return
 				}
 
+				_ = dst.SetWriteDeadline(time.Now().Add(wsWriteWait))
 				if writeErr := dst.WriteMessage(messageType, payload); writeErr != nil {
 					return
 				}
@@ -1402,10 +1446,38 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		}
 
 		done := make(chan struct{}, 2)
+
+		// Relay keepalive: ping both peers; a failed ping closes both conns so
+		// the forward goroutines unblock instead of leaking on dead peers.
+		pingerDone := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(wsPingPeriod)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-pingerDone:
+					return
+				case <-ticker.C:
+					deadline := time.Now().Add(wsWriteWait)
+					if err := clientConn.WriteControl(websocket.PingMessage, nil, deadline); err != nil {
+						_ = clientConn.Close()
+						_ = upstreamConn.Close()
+						return
+					}
+					if err := upstreamConn.WriteControl(websocket.PingMessage, nil, deadline); err != nil {
+						_ = clientConn.Close()
+						_ = upstreamConn.Close()
+						return
+					}
+				}
+			}
+		}()
+
 		go forward(clientConn, upstreamConn, done)
 		go forward(upstreamConn, clientConn, done)
 
 		<-done
+		close(pingerDone)
 	}
 
 	withRequestScopedBotClient := func(c *gin.Context) {

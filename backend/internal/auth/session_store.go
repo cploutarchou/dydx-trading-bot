@@ -25,13 +25,33 @@ const SessionCookieName = "dydx_session"
 var ErrSessionNotFound = errors.New("session not found")
 
 type SessionData struct {
-	UserID    int       `json:"user_id"`
-	Username  string    `json:"username"`
-	Email     string    `json:"email"`
-	Role      string    `json:"role"`
-	IsAdmin   bool      `json:"is_admin"`
-	CreatedAt time.Time `json:"created_at"`
-	ExpiresAt time.Time `json:"expires_at"`
+	UserID    int    `json:"user_id"`
+	Username  string `json:"username"`
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+	IsAdmin   bool   `json:"is_admin"`
+	// MFARequired marks a session created by a password-only login for a user
+	// with TOTP enrolled: the session stays unusable (MFAPending) until the
+	// 2FA challenge endpoint records MFAVerifiedAt.
+	MFARequired bool `json:"mfa_required,omitempty"`
+	// MFAVerifiedAt records when the TOTP challenge completed for this session.
+	MFAVerifiedAt *time.Time `json:"mfa_verified_at,omitempty"`
+	// ChallengeAttempts counts failed TOTP challenges against a pending
+	// session; the session is deleted once it reaches maxMFAPreAuthAttempts.
+	ChallengeAttempts int       `json:"challenge_attempts,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	ExpiresAt         time.Time `json:"expires_at"`
+}
+
+// MaxMFAPreAuthAttempts bounds how many TOTP codes may be tried against a
+// single pending login session before the user must authenticate again.
+const MaxMFAPreAuthAttempts = 5
+
+// MFAPending reports whether the session still awaits a successful TOTP
+// challenge. Sessions issued before login-time MFA enforcement (or when the
+// user has no MFA enrolled) are never pending.
+func (d *SessionData) MFAPending() bool {
+	return d != nil && d.MFARequired && d.MFAVerifiedAt == nil
 }
 
 type memorySession struct {
@@ -167,6 +187,18 @@ func (s *SessionStore) Refresh(ctx context.Context, token string, ttl time.Durat
 		return nil, err
 	}
 	return data, nil
+}
+
+// Update persists modified session data under the existing token. The TTL is
+// derived from the record's own ExpiresAt, so callers control the resulting
+// lifetime explicitly (e.g. failed-challenge counters keep the original
+// expiry, while MFA promotion extends to the full session TTL).
+func (s *SessionStore) Update(ctx context.Context, token string, data SessionData) error {
+	ttl := time.Until(data.ExpiresAt)
+	if ttl <= 0 {
+		return ErrSessionNotFound
+	}
+	return s.save(ctx, token, data, ttl)
 }
 
 func (s *SessionStore) Delete(ctx context.Context, token string) error {

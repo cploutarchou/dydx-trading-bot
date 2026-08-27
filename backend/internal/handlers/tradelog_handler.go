@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 	"github.com/gin-gonic/gin"
 )
@@ -22,7 +24,41 @@ func NewTradeLogHandler(service *services.TradeLogService) *TradeLogHandler {
 	}
 }
 
-// CreateTradeLog creates a new trade log entry
+// tradeLogScopeUserID returns the owner scope for the request: 0 for admins
+// (unscoped), otherwise the authenticated user's id.
+func tradeLogScopeUserID(c *gin.Context) (int, bool) {
+	if c.GetBool("is_admin") {
+		return 0, true
+	}
+	userIDValue, exists := c.Get("user_id")
+	if !exists {
+		return 0, false
+	}
+	userID, ok := userIDValue.(int)
+	if !ok || userID <= 0 {
+		return 0, false
+	}
+	return userID, true
+}
+
+func (h *TradeLogHandler) respondTradeLogError(c *gin.Context, err error, action string) {
+	if errors.Is(err, services.ErrTradeLogNotFound) || errors.Is(err, services.ErrResultNotFound) {
+		c.JSON(http.StatusNotFound, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "Trade log not found",
+		})
+		return
+	}
+	c.JSON(http.StatusInternalServerError, APIResponse{
+		Success:   false,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Error:     fmt.Sprintf("Failed to %s: %v", action, err),
+	})
+}
+
+// CreateTradeLog creates a new trade log entry for a result the caller owns.
+// All supplied fields are persisted; the response reflects stored values.
 func (h *TradeLogHandler) CreateTradeLog(c *gin.Context) {
 	var req struct {
 		ResultIDFK  int      `json:"result_id_fk" binding:"required"`
@@ -50,27 +86,36 @@ func (h *TradeLogHandler) CreateTradeLog(c *gin.Context) {
 		return
 	}
 
-	tradeLog, err := h.service.CreateTradeLog(req.ResultIDFK, req.TradeNumber, req.EntryPrice1, req.EntryPrice2)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, APIResponse{
+	scopeUserID, ok := tradeLogScopeUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     fmt.Sprintf("Failed to create trade log: %v", err),
+			Error:     "Unauthorized",
 		})
 		return
 	}
 
-	// Update with additional fields
-	tradeLog.ExitPrice1 = req.ExitPrice1
-	tradeLog.ExitPrice2 = req.ExitPrice2
-	tradeLog.Quantity1 = req.Quantity1
-	tradeLog.Quantity2 = req.Quantity2
-	tradeLog.Side1 = req.Side1
-	tradeLog.Side2 = req.Side2
-	tradeLog.Pnl = req.Pnl
-	tradeLog.PnlUSD = req.PnlUSD
-	tradeLog.EntryZScore = req.EntryZScore
-	tradeLog.ExitZScore = req.ExitZScore
+	tradeLog, err := h.service.CreateTradeLog(scopeUserID, &models.TradeLog{
+		ResultIDFK:  req.ResultIDFK,
+		TradeNumber: req.TradeNumber,
+		EntryPrice1: req.EntryPrice1,
+		EntryPrice2: req.EntryPrice2,
+		ExitPrice1:  req.ExitPrice1,
+		ExitPrice2:  req.ExitPrice2,
+		Quantity1:   req.Quantity1,
+		Quantity2:   req.Quantity2,
+		Side1:       req.Side1,
+		Side2:       req.Side2,
+		Pnl:         req.Pnl,
+		PnlUSD:      req.PnlUSD,
+		EntryZScore: req.EntryZScore,
+		ExitZScore:  req.ExitZScore,
+	})
+	if err != nil {
+		h.respondTradeLogError(c, err, "create trade log")
+		return
+	}
 
 	c.JSON(http.StatusCreated, APIResponse{
 		Success:   true,
@@ -92,22 +137,19 @@ func (h *TradeLogHandler) GetTradeLog(c *gin.Context) {
 		return
 	}
 
-	tradeLog, err := h.service.GetTradeLog(id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, APIResponse{
+	scopeUserID, ok := tradeLogScopeUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     fmt.Sprintf("Failed to get trade log: %v", err),
+			Error:     "Unauthorized",
 		})
 		return
 	}
 
-	if tradeLog == nil {
-		c.JSON(http.StatusNotFound, APIResponse{
-			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     "Trade log not found",
-		})
+	tradeLog, err := h.service.GetTradeLog(scopeUserID, id)
+	if err != nil {
+		h.respondTradeLogError(c, err, "get trade log")
 		return
 	}
 
@@ -131,13 +173,19 @@ func (h *TradeLogHandler) ListTradeLogsByResult(c *gin.Context) {
 		return
 	}
 
-	tradeLogs, err := h.service.ListTradeLogsByResult(resultID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, APIResponse{
+	scopeUserID, ok := tradeLogScopeUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     fmt.Sprintf("Failed to list trade logs: %v", err),
+			Error:     "Unauthorized",
 		})
+		return
+	}
+
+	tradeLogs, err := h.service.ListTradeLogsByResult(scopeUserID, resultID)
+	if err != nil {
+		h.respondTradeLogError(c, err, "list trade logs")
 		return
 	}
 
@@ -169,13 +217,19 @@ func (h *TradeLogHandler) ListTradeLogsByBacktestRun(c *gin.Context) {
 		return
 	}
 
-	tradeLogs, err := h.service.ListTradeLogsByBacktestRun(runID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, APIResponse{
+	scopeUserID, ok := tradeLogScopeUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     fmt.Sprintf("Failed to list trade logs: %v", err),
+			Error:     "Unauthorized",
 		})
+		return
+	}
+
+	tradeLogs, err := h.service.ListTradeLogsByBacktestRun(scopeUserID, runID)
+	if err != nil {
+		h.respondTradeLogError(c, err, "list trade logs")
 		return
 	}
 
@@ -207,22 +261,19 @@ func (h *TradeLogHandler) UpdateTradeLog(c *gin.Context) {
 		return
 	}
 
-	tradeLog, err := h.service.GetTradeLog(id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, APIResponse{
+	scopeUserID, ok := tradeLogScopeUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     fmt.Sprintf("Failed to get trade log: %v", err),
+			Error:     "Unauthorized",
 		})
 		return
 	}
 
-	if tradeLog == nil {
-		c.JSON(http.StatusNotFound, APIResponse{
-			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     "Trade log not found",
-		})
+	tradeLog, err := h.service.GetTradeLog(scopeUserID, id)
+	if err != nil {
+		h.respondTradeLogError(c, err, "get trade log")
 		return
 	}
 
@@ -266,12 +317,8 @@ func (h *TradeLogHandler) UpdateTradeLog(c *gin.Context) {
 		}
 	}
 
-	if err := h.service.UpdateTradeLog(tradeLog); err != nil {
-		c.JSON(http.StatusInternalServerError, APIResponse{
-			Success:   false,
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     fmt.Sprintf("Failed to update trade log: %v", err),
-		})
+	if err := h.service.UpdateTradeLog(scopeUserID, tradeLog); err != nil {
+		h.respondTradeLogError(c, err, "update trade log")
 		return
 	}
 
@@ -295,12 +342,18 @@ func (h *TradeLogHandler) DeleteTradeLog(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.DeleteTradeLog(id); err != nil {
-		c.JSON(http.StatusInternalServerError, APIResponse{
+	scopeUserID, ok := tradeLogScopeUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     fmt.Sprintf("Failed to delete trade log: %v", err),
+			Error:     "Unauthorized",
 		})
+		return
+	}
+
+	if err := h.service.DeleteTradeLog(scopeUserID, id); err != nil {
+		h.respondTradeLogError(c, err, "delete trade log")
 		return
 	}
 

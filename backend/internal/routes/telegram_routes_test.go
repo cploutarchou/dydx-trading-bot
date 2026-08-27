@@ -106,7 +106,7 @@ func seedTelegramUserWithID(t *testing.T, dbConn *sql.DB, username string, email
 		t.Fatalf("hash password: %v", err)
 	}
 	now := time.Now().UTC()
-	_, err := dbConn.Exec(
+	_, err = dbConn.Exec(
 		`INSERT INTO users (username, email, role, full_name, avatar, hashed_password, is_active, is_admin, password_change_required, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		username,

@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -57,11 +58,20 @@ func APIRequestEventsMiddleware(cfg *config.Config) gin.HandlerFunc {
 			rateLimited = 1
 		}
 
-		// Extract user ID if available
+		// Extract user ID if available. RequireAuth stores user_id as an int;
+		// a string is tolerated defensively for any non-standard setter.
 		var userID *string
 		if userIDVal, exists := c.Get("user_id"); exists && userIDVal != nil {
-			if uid, ok := userIDVal.(string); ok && uid != "" {
-				userID = &uid
+			switch uid := userIDVal.(type) {
+			case int:
+				if uid > 0 {
+					formatted := strconv.Itoa(uid)
+					userID = &formatted
+				}
+			case string:
+				if uid != "" {
+					userID = &uid
+				}
 			}
 		}
 
@@ -171,6 +181,8 @@ func APIRequestEventsMiddlewareWithWriter(writer *services.APIRequestWriter) gin
 // APIRequestEventBatchWriter provides batching for API request events
 // to reduce ClickHouse load from high-volume endpoints.
 type APIRequestEventBatchWriter struct {
+	flusherDone chan struct{}
+	closeOnce   sync.Once
 	writer        *services.APIRequestWriter
 	buffer        []services.APIRequestEvent
 	bufferMux     sync.Mutex
@@ -186,6 +198,12 @@ func NewAPIRequestEventBatchWriter(writer *services.APIRequestWriter, batchSize 
 		return nil
 	}
 
+	if flushInterval <= 0 {
+		flushInterval = 5 * time.Second
+	}
+	if batchSize <= 0 {
+		batchSize = 64
+	}
 	bw := &APIRequestEventBatchWriter{
 		writer:        writer,
 		buffer:        make([]services.APIRequestEvent, 0, batchSize),
@@ -193,6 +211,7 @@ func NewAPIRequestEventBatchWriter(writer *services.APIRequestWriter, batchSize 
 		flushInterval: flushInterval,
 		lastFlush:     time.Now(),
 		stopChan:      make(chan struct{}),
+		flusherDone:   make(chan struct{}),
 	}
 
 	// Start background flusher
@@ -202,6 +221,8 @@ func NewAPIRequestEventBatchWriter(writer *services.APIRequestWriter, batchSize 
 }
 
 func (bw *APIRequestEventBatchWriter) backgroundFlush() {
+	defer close(bw.flusherDone)
+
 	ticker := time.NewTicker(bw.flushInterval / 2)
 	defer ticker.Stop()
 
@@ -210,7 +231,8 @@ func (bw *APIRequestEventBatchWriter) backgroundFlush() {
 		case <-ticker.C:
 			bw.maybeFlush()
 		case <-bw.stopChan:
-			bw.ForceFlush()
+			// Synchronous final flush so shutdown cannot drop buffered events.
+			bw.flushSynchronously()
 			return
 		}
 	}
@@ -275,9 +297,33 @@ func (bw *APIRequestEventBatchWriter) ForceFlush() {
 	bw.bufferMux.Unlock()
 }
 
-// Close stops the background flusher and flushes remaining events.
+// Close stops the background flusher, flushes remaining events, and waits
+// for the flusher to finish. Safe to call multiple times.
 func (bw *APIRequestEventBatchWriter) Close() {
-	close(bw.stopChan)
+	bw.closeOnce.Do(func() {
+		close(bw.stopChan)
+	})
+	<-bw.flusherDone
+}
+
+// flushSynchronously writes buffered events on the calling goroutine.
+func (bw *APIRequestEventBatchWriter) flushSynchronously() {
+	bw.bufferMux.Lock()
+	defer bw.bufferMux.Unlock()
+
+	if len(bw.buffer) == 0 {
+		return
+	}
+	events := make([]services.APIRequestEvent, len(bw.buffer))
+	copy(events, bw.buffer)
+	bw.buffer = bw.buffer[:0]
+	bw.lastFlush = time.Now()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, event := range events {
+		_ = bw.writer.WriteEvent(ctx, event)
+	}
 }
 
 // APIRequestEventsMiddlewareWithBatchWriter uses a batching writer for high-volume scenarios.

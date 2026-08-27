@@ -31,6 +31,15 @@ const (
 	defaultEventFetchBatch     = 64
 	defaultEventFetchWait      = 2 * time.Second
 	eventReconnectWait         = 5 * time.Second
+
+	// eventConsumerAckWait bounds how long an unacked message waits before
+	// redelivery; it must exceed the slowest legitimate projection.
+	eventConsumerAckWait = 60 * time.Second
+	// eventConsumerMaxDeliver caps redeliveries of a failing message; past it
+	// the message is dropped (with a dead-letter record) instead of looping.
+	eventConsumerMaxDeliver = 16
+	eventNakBaseDelay       = 500 * time.Millisecond
+	eventNakMaxDelay        = 30 * time.Second
 )
 
 // BacktestEventConsumer consumes durable backtest events and projects them.
@@ -108,6 +117,9 @@ func (c *BacktestEventConsumer) runOnce(ctx context.Context) error {
 	if err := ensureEventStream(js); err != nil {
 		return err
 	}
+	if err := ensureEventConsumer(js); err != nil {
+		return err
+	}
 
 	sub, err := js.PullSubscribe(
 		backtestEventStreamSubject,
@@ -154,16 +166,75 @@ func (c *BacktestEventConsumer) handleMessage(msg *natsclient.Msg) {
 	}
 	c.lastMessageAt = now
 
-	if err := c.ProcessRaw(msg.Data); err != nil {
-		slog.Warn("backtest_event_consumer project failed; NAK", "error", err, "subject", msg.Subject)
-		_ = msg.Nak()
-		// Record dead letter for failed projections
-		if c.metrics != nil {
-			c.metrics.RecordDeadLetter()
-		}
+	// A message that cannot be decoded can never succeed on redelivery;
+	// retrying it forever would wedge the pipeline in a hot loop. Treat
+	// undecodable envelopes as terminal: acknowledge and dead-letter.
+	var env nats.Envelope
+	if err := json.Unmarshal(msg.Data, &env); err != nil {
+		slog.Error("backtest_event_consumer dropping malformed envelope",
+			"error", err, "subject", msg.Subject, "size", len(msg.Data))
+		c.dropMessage(msg, "malformed envelope")
 		return
 	}
-	_ = msg.Ack()
+
+	if err := c.projector.ProcessEnvelope(env); err != nil {
+		if c.exceededMaxDeliveries(msg) {
+			slog.Error("backtest_event_consumer message exceeded max deliveries; dropping",
+				"error", err, "subject", msg.Subject, "max_deliver", eventConsumerMaxDeliver)
+			c.dropMessage(msg, "max deliveries exceeded")
+			return
+		}
+		delay := eventNakDelay(msg)
+		slog.Warn("backtest_event_consumer project failed; NAK with backoff",
+			"error", err, "subject", msg.Subject, "retry_in", delay)
+		_ = msg.NakWithDelay(delay)
+		return
+	}
+	if err := msg.Ack(); err != nil {
+		// A failed ack means the message will be redelivered; projection must
+		// tolerate that (broadcast consumers are at-least-once).
+		slog.Warn("backtest_event_consumer ack failed; message will be redelivered",
+			"error", err, "subject", msg.Subject)
+	}
+}
+
+// dropMessage terminally acknowledges a message and records it as dead-lettered.
+func (c *BacktestEventConsumer) dropMessage(msg *natsclient.Msg, reason string) {
+	if c.metrics != nil {
+		c.metrics.RecordDeadLetter()
+	}
+	if err := msg.Ack(); err != nil {
+		slog.Warn("backtest_event_consumer terminal ack failed; message will be redelivered",
+			"error", err, "subject", msg.Subject, "reason", reason)
+	}
+}
+
+// exceededMaxDeliveries reports whether the message has exhausted its
+// redelivery budget.
+func (c *BacktestEventConsumer) exceededMaxDeliveries(msg *natsclient.Msg) bool {
+	meta, err := msg.Metadata()
+	if err != nil {
+		return false
+	}
+	return meta.NumDelivered >= eventConsumerMaxDeliver
+}
+
+// eventNakDelay derives an exponential backoff from the delivery count:
+// 0.5s, 1s, 2s, ... capped at 30s.
+func eventNakDelay(msg *natsclient.Msg) time.Duration {
+	meta, err := msg.Metadata()
+	if err != nil || meta.NumDelivered <= 1 {
+		return eventNakBaseDelay
+	}
+	shift := meta.NumDelivered - 2
+	if shift > 20 {
+		shift = 20
+	}
+	delay := eventNakBaseDelay << shift
+	if delay <= 0 || delay > eventNakMaxDelay {
+		return eventNakMaxDelay
+	}
+	return delay
 }
 
 func (c *BacktestEventConsumer) connect() (*natsclient.Conn, natsclient.JetStreamContext, error) {
@@ -209,6 +280,36 @@ func ensureEventStream(js natsclient.JetStreamContext) error {
 
 func isAlreadyExists(err error) bool {
 	return err != nil && strings.Contains(strings.ToLower(err.Error()), "already in use")
+}
+
+// ensureEventConsumer idempotently provisions the durable consumer with
+// explicit AckWait/MaxDeliver/MaxAckPending so poison messages back off and
+// eventually dead-letter instead of hot-looping on immediate redelivery.
+func ensureEventConsumer(js natsclient.JetStreamContext) error {
+	want := &natsclient.ConsumerConfig{
+		Durable:       defaultEventConsumerName,
+		FilterSubject: backtestEventStreamSubject,
+		AckPolicy:     natsclient.AckExplicitPolicy,
+		AckWait:       eventConsumerAckWait,
+		MaxDeliver:    eventConsumerMaxDeliver,
+		MaxAckPending: 256,
+	}
+
+	if _, err := js.ConsumerInfo(backtestEventStreamName, defaultEventConsumerName); err == nil {
+		if _, err := js.UpdateConsumer(backtestEventStreamName, want); err != nil {
+			// An existing durable with immutable-field drift keeps its config;
+			// the consumer still works with the previous delivery semantics.
+			slog.Warn("backtest_event_consumer unable to update durable config; keeping existing",
+				"error", err, "consumer", defaultEventConsumerName)
+		}
+		return nil
+	}
+
+	_, err := js.AddConsumer(backtestEventStreamName, want)
+	if err != nil && !isAlreadyExists(err) {
+		return err
+	}
+	return nil
 }
 
 // sleepCtx sleeps for d or returns false when ctx is cancelled.

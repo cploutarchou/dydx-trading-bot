@@ -304,12 +304,6 @@ func resolveBotAPIRequestTimeout() time.Duration {
 }
 
 // SetToken sets the authentication token
-func (c *BotAPIClient) SetToken(token string) {
-	token = strings.TrimSpace(token)
-	c.token = token
-	c.fallbackToken = token
-}
-
 // BaseURL returns the configured upstream bot API base URL.
 func (c *BotAPIClient) BaseURL() string {
 	return c.baseURL

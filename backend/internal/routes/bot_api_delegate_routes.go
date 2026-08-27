@@ -23,11 +23,24 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var websocketUpgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
+var websocketUpgrader = websocket.Upgrader{	CheckOrigin: func(r *http.Request) bool {
 		return middleware.IsAllowedBrowserOrigin(r.Header.Get("Origin"))
 	},
 }
+
+// realtimeStatsSingleflight coalesces concurrent realtime-stats cache misses
+// per bot so TTL expiry under dashboard polling does not stampede the bot API.
+var realtimeStatsSingleflight = services.NewSingleFlight[map[string]interface{}]()
+
+// WebSocket keepalive parameters: pings are sent via WriteControl (safe to
+// call concurrently with data writes), and read deadlines are extended by the
+// pong handler. Without them, silently dead peers leave relay goroutines
+// blocked in ReadMessage for the process lifetime.
+const (
+	wsPongWait   = 60 * time.Second
+	wsPingPeriod = 30 * time.Second // must stay below wsPongWait
+	wsWriteWait  = 5 * time.Second
+)
 
 func extractBotAuthToken(c *gin.Context) string {
 	return middleware.ExtractRequestAccessToken(c)
@@ -1251,6 +1264,30 @@ func RegisterBotAPIDelegateRoutesWithSyncCacheAndPush(
 		if err != nil {
 			return
 		}
+		// Keepalive: reap silently dead clients instead of keeping their
+		// handler goroutine and hub subscription alive forever.
+		_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
+		conn.SetPongHandler(func(string) error {
+			return conn.SetReadDeadline(time.Now().Add(wsPongWait))
+		})
+		pingerDone := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(wsPingPeriod)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-pingerDone:
+					return
+				case <-ticker.C:
+					if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(wsWriteWait)); err != nil {
+						_ = conn.Close()
+						return
+					}
+				}
+			}
+		}()
+		defer close(pingerDone)
+
 		pushHub.Subscribe(runID, conn)
 		defer func() {
 			pushHub.Unsubscribe(runID, conn)
@@ -1271,10 +1308,12 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 	backtestRepo := (*repository.BacktestRepository)(nil)
 	userRepo := (*repository.UserRepository)(nil)
 	strategyRepo := (*repository.StrategyRepository)(nil)
+	botInstanceRepo := (*repository.BotInstanceRepository)(nil)
 	if backtestSync != nil && backtestSync.DB() != nil {
 		backtestRepo = repository.NewBacktestRepository(backtestSync.DB())
 		userRepo = repository.NewUserRepository(backtestSync.DB())
 		strategyRepo = repository.NewStrategyRepository(backtestSync.DB())
+		botInstanceRepo = repository.NewBotInstanceRepository(backtestSync.DB())
 	}
 	backtestDelegation := NewBacktestDelegationService(backtestSync)
 
@@ -1370,7 +1409,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			requestHeaders.Set(middleware.TraceIDHeader, traceID)
 		}
 
-		upstreamConn, upstreamResp, err := websocket.DefaultDialer.Dial(upstreamWSURL, requestHeaders)
+		upstreamConn, upstreamResp, err := websocket.DefaultDialer.DialContext(c.Request.Context(), upstreamWSURL, requestHeaders)
 		if upstreamResp != nil && upstreamResp.Body != nil {
 			defer func() { _ = upstreamResp.Body.Close() }()
 		}
@@ -1383,18 +1422,29 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		}
 		defer func() { _ = upstreamConn.Close() }()
 
+		// Extend read deadlines on pong so live peers keep the relay open and
+		// dead peers surface as timeout errors instead of blocked goroutines.
+		for _, relayConn := range []*websocket.Conn{clientConn, upstreamConn} {
+			_ = relayConn.SetReadDeadline(time.Now().Add(wsPongWait))
+			relayConn.SetPongHandler(func(string) error {
+				return relayConn.SetReadDeadline(time.Now().Add(wsPongWait))
+			})
+		}
+
 		forward := func(src *websocket.Conn, dst *websocket.Conn, done chan<- struct{}) {
 			defer func() { done <- struct{}{} }()
 			for {
 				messageType, payload, readErr := src.ReadMessage()
 				if readErr != nil {
-					_ = dst.WriteMessage(
+					_ = dst.WriteControl(
 						websocket.CloseMessage,
 						websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+						time.Now().Add(wsWriteWait),
 					)
 					return
 				}
 
+				_ = dst.SetWriteDeadline(time.Now().Add(wsWriteWait))
 				if writeErr := dst.WriteMessage(messageType, payload); writeErr != nil {
 					return
 				}
@@ -1402,10 +1452,38 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		}
 
 		done := make(chan struct{}, 2)
+
+		// Relay keepalive: ping both peers; a failed ping closes both conns so
+		// the forward goroutines unblock instead of leaking on dead peers.
+		pingerDone := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(wsPingPeriod)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-pingerDone:
+					return
+				case <-ticker.C:
+					deadline := time.Now().Add(wsWriteWait)
+					if err := clientConn.WriteControl(websocket.PingMessage, nil, deadline); err != nil {
+						_ = clientConn.Close()
+						_ = upstreamConn.Close()
+						return
+					}
+					if err := upstreamConn.WriteControl(websocket.PingMessage, nil, deadline); err != nil {
+						_ = clientConn.Close()
+						_ = upstreamConn.Close()
+						return
+					}
+				}
+			}
+		}()
+
 		go forward(clientConn, upstreamConn, done)
 		go forward(upstreamConn, clientConn, done)
 
 		<-done
+		close(pingerDone)
 	}
 
 	withRequestScopedBotClient := func(c *gin.Context) {
@@ -2260,9 +2338,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			requestClient := getRequestBotAPIClient(c, apiClient)
 			days := 30
 			if d := c.Query("days"); d != "" {
-				if v, err := parseIntQuery(d, &days); err == nil {
-					days = v
-				}
+				days = parseBoundedIntQuery(c, "days", days, 1, 365)
 			}
 			result, err := requestClient.GetBacktestSummaryStats(days)
 			if err != nil {
@@ -2524,9 +2600,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			winningOnly := false
 
 			if l := c.Query("limit"); l != "" {
-				if v, err := parseIntQuery(l, &limit); err == nil {
-					limit = v
-				}
+				limit = parseBoundedIntQuery(c, "limit", limit, 1, 1000)
 			}
 			if o := c.Query("offset"); o != "" {
 				if v, err := parseIntQuery(o, &offset); err == nil {
@@ -2763,9 +2837,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			var marketPair *string
 
 			if l := c.Query("limit"); l != "" {
-				if v, err := parseIntQuery(l, &limit); err == nil {
-					limit = v
-				}
+				limit = parseBoundedIntQuery(c, "limit", limit, 1, 1000)
 			}
 			if o := c.Query("offset"); o != "" {
 				if v, err := parseIntQuery(o, &offset); err == nil {
@@ -2982,6 +3054,90 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 	botGroup := router.Group("/api/v1/bots")
 	botGroup.Use(middleware.RequireAuth())
 	botGroup.Use(withRequestScopedBotClient)
+	// Enforce Go-side ownership before proxying instance-scoped endpoints
+	// upstream: in service-token mode the caller's identity never reaches the
+	// bot API, so this is the only authorization boundary for these routes.
+	// Semantics mirror ensureBacktestRunAccess: admins bypass, foreign or
+	// unknown instances 404, missing registry fails closed.
+	botGroup.Use(func(c *gin.Context) {
+		instanceID := strings.TrimSpace(c.Param("instance_id"))
+		if instanceID == "" {
+			c.Next()
+			return
+		}
+		if c.GetBool("is_admin") {
+			c.Next()
+			return
+		}
+		if botInstanceRepo == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"success":   false,
+				"message":   "bot instance ownership verification unavailable",
+				"error":     "bot instance ownership verification unavailable",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"trace_id":  middleware.GetTraceID(c),
+			})
+			c.Abort()
+			return
+		}
+
+		userIDValue, exists := c.Get("user_id")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success":   false,
+				"message":   "unauthorized",
+				"error":     "unauthorized",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"trace_id":  middleware.GetTraceID(c),
+			})
+			c.Abort()
+			return
+		}
+		userID, ok := userIDValue.(int)
+		if !ok || userID <= 0 {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success":   false,
+				"message":   "invalid user context",
+				"error":     "invalid user context",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"trace_id":  middleware.GetTraceID(c),
+			})
+			c.Abort()
+			return
+		}
+
+		instance, err := botInstanceRepo.GetBotInstanceByInstanceID(instanceID)
+		if err != nil {
+			// The repository reports missing rows as an error; treat any
+			// "not found" shape as 404 rather than an infrastructure failure.
+			if strings.Contains(strings.ToLower(err.Error()), "not found") {
+				err = nil
+			} else {
+				log.Printf("delegated bot route ownership lookup failed for instance=%s: %v", instanceID, err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success":   false,
+					"message":   "failed to verify bot instance access",
+					"error":     "failed to verify bot instance access",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				c.Abort()
+				return
+			}
+		}
+		if instance == nil || (instance.UserID > 0 && instance.UserID != userID) {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success":   false,
+				"message":   "bot instance not found",
+				"error":     "bot instance not found",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"trace_id":  middleware.GetTraceID(c),
+			})
+			c.Abort()
+			return
+		}
+		c.Next()
+	})
 	{
 		// Get current positions
 		botGroup.GET("/:instance_id/positions/current", func(c *gin.Context) {
@@ -3015,9 +3171,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			positionID := c.Param("position_id")
 			hours := 24
 			if h := c.Query("hours"); h != "" {
-				if v, err := parseIntQuery(h, &hours); err == nil {
-					hours = v
-				}
+				hours = parseBoundedIntQuery(c, "hours", hours, 1, 720)
 			}
 			result, err := requestClient.GetPositionHistory(botID, positionID, hours)
 			if err != nil {
@@ -3060,9 +3214,12 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 				}
 			}
 
-			// Cache miss — delegate to Python bot API
+			// Cache miss — delegate to Python bot API, coalescing concurrent
+			// dashboard polls for the same bot into one upstream request.
 			requestClient := getRequestBotAPIClient(c, apiClient)
-			result, delegateErr := requestClient.GetRealtimeStats(botID)
+			result, delegateErr := realtimeStatsSingleflight.Do(cacheKey, func() (map[string]interface{}, error) {
+				return requestClient.GetRealtimeStats(botID)
+			})
 			if delegateErr != nil {
 				respondBotAPIError(c, delegateErr)
 				return
@@ -3086,9 +3243,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			}
 			limit := 50
 			if l := c.Query("limit"); l != "" {
-				if v, err := parseIntQuery(l, &limit); err == nil {
-					limit = v
-				}
+				limit = parseBoundedIntQuery(c, "limit", limit, 1, 1000)
 			}
 			result, err := requestClient.GetAlerts(botID, limit)
 			if err != nil {
@@ -3103,9 +3258,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			instanceID := c.Param("instance_id")
 			days := 7
 			if d := c.Query("days"); d != "" {
-				if v, err := parseIntQuery(d, &days); err == nil {
-					days = v
-				}
+				days = parseBoundedIntQuery(c, "days", days, 1, 365)
 			}
 			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
 				return requestClient.GetBotHistory(instanceID, days)
@@ -3117,9 +3270,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			instanceID := c.Param("instance_id")
 			days := 7
 			if d := c.Query("days"); d != "" {
-				if v, err := parseIntQuery(d, &days); err == nil {
-					days = v
-				}
+				days = parseBoundedIntQuery(c, "days", days, 1, 365)
 			}
 			requestClient := getRequestBotAPIClient(c, apiClient)
 			result, err := requestClient.GetBotJobs(instanceID, days)
@@ -3228,6 +3379,27 @@ func parseIntQuery(s string, target *int) (int, error) {
 		*target = i
 	}
 	return i, err
+}
+
+// parseBoundedIntQuery reads an integer query parameter clamped to [min, max];
+// invalid or empty values fall back to def. Prevents negative/oversized limits
+// and windows from reaching SQL or upstream scans.
+func parseBoundedIntQuery(c *gin.Context, name string, def, min, max int) int {
+	raw := strings.TrimSpace(c.Query(name))
+	if raw == "" {
+		return def
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil {
+		return def
+	}
+	if parsed < min {
+		return min
+	}
+	if parsed > max {
+		return max
+	}
+	return parsed
 }
 
 func parseBacktestListOffset(c *gin.Context) int {

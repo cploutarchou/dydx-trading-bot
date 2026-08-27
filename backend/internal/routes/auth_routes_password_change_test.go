@@ -73,7 +73,7 @@ func TestChangePassword_ClearsRotationRequirement(t *testing.T) {
 	}
 
 	now := time.Now().UTC()
-	_, err := dbConn.Exec(
+	_, err = dbConn.Exec(
 		`INSERT INTO users (username, email, role, full_name, avatar, hashed_password, is_active, is_admin, password_change_required, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		"admin",

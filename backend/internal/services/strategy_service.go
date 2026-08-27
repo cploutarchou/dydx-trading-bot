@@ -64,8 +64,8 @@ func (s *StrategyService) CreateStrategy(userID int, name, description, category
 		RiskFreeRate:           0.02,
 		InitialAmount:          1000.0,
 		UsageCount:             0,
-		CreatedAt:              time.Now(),
-		UpdatedAt:              time.Now(),
+		CreatedAt:              time.Now().UTC(),
+		UpdatedAt:              time.Now().UTC(),
 	}
 
 	if err := s.repo.CreateStrategy(strategy); err != nil {
@@ -110,7 +110,7 @@ func (s *StrategyService) UpdateStrategy(strategy *models.BacktestStrategy) erro
 		return fmt.Errorf("invalid strategy id")
 	}
 
-	strategy.UpdatedAt = time.Now()
+	strategy.UpdatedAt = time.Now().UTC()
 	strategy.UsageCount++
 
 	if err := s.repo.UpdateStrategy(strategy); err != nil {
@@ -160,8 +160,8 @@ func (s *StrategyService) CreateExecutionState(strategyID int) (*models.Strategy
 	state := &models.StrategyExecutionState{
 		StrategyID: strategyID,
 		IsRunning:  false,
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
+		CreatedAt:  time.Now().UTC(),
+		UpdatedAt:  time.Now().UTC(),
 	}
 
 	if err := s.repo.CreateExecutionState(state); err != nil {
@@ -177,7 +177,7 @@ func (s *StrategyService) UpdateExecutionState(state *models.StrategyExecutionSt
 		return fmt.Errorf("invalid state or strategy id")
 	}
 
-	state.UpdatedAt = time.Now()
+	state.UpdatedAt = time.Now().UTC()
 
 	if err := s.repo.UpdateExecutionState(state); err != nil {
 		return fmt.Errorf("failed to update execution state: %w", err)
@@ -199,8 +199,8 @@ func (s *StrategyService) CreateVersionHistory(strategyID int, createdByUserID i
 		CreatedByUserID: createdByUserID,
 		Version:         versionNumber,
 		ChangeLog:       changeLog,
-		CreatedAt:       time.Now(),
-		UpdatedAt:       time.Now(),
+		CreatedAt:       time.Now().UTC(),
+		UpdatedAt:       time.Now().UTC(),
 	}
 
 	if err := s.repo.CreateVersionHistory(history); err != nil {

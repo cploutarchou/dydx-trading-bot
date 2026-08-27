@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,13 +26,36 @@ const SessionCookieName = "dydx_session"
 var ErrSessionNotFound = errors.New("session not found")
 
 type SessionData struct {
-	UserID    int       `json:"user_id"`
-	Username  string    `json:"username"`
-	Email     string    `json:"email"`
-	Role      string    `json:"role"`
-	IsAdmin   bool      `json:"is_admin"`
-	CreatedAt time.Time `json:"created_at"`
-	ExpiresAt time.Time `json:"expires_at"`
+	UserID    int    `json:"user_id"`
+	Username  string `json:"username"`
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+	IsAdmin   bool   `json:"is_admin"`
+	// MFARequired marks a session created by a password-only login for a user
+	// with TOTP enrolled: the session stays unusable (MFAPending) until the
+	// 2FA challenge endpoint records MFAVerifiedAt.
+	MFARequired bool `json:"mfa_required,omitempty"`
+	// MFAVerifiedAt records when the TOTP challenge completed for this session.
+	MFAVerifiedAt *time.Time `json:"mfa_verified_at,omitempty"`
+	// ChallengeAttempts counts failed TOTP challenges against a pending
+	// session; the session is deleted once it reaches maxMFAPreAuthAttempts.
+	ChallengeAttempts int `json:"challenge_attempts,omitempty"`
+	// Generation is the user's session generation at issuance; bumping the
+	// user's generation (e.g. on password change) invalidates older sessions.
+	Generation int64     `json:"generation,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	ExpiresAt  time.Time `json:"expires_at"`
+}
+
+// MaxMFAPreAuthAttempts bounds how many TOTP codes may be tried against a
+// single pending login session before the user must authenticate again.
+const MaxMFAPreAuthAttempts = 5
+
+// MFAPending reports whether the session still awaits a successful TOTP
+// challenge. Sessions issued before login-time MFA enforcement (or when the
+// user has no MFA enrolled) are never pending.
+func (d *SessionData) MFAPending() bool {
+	return d != nil && d.MFARequired && d.MFAVerifiedAt == nil
 }
 
 type memorySession struct {
@@ -44,12 +68,16 @@ type SessionStore struct {
 	prefix      string
 	mu          sync.RWMutex
 	memory      map[string]memorySession
+
+	genMu     sync.RWMutex
+	genMemory map[int]int64
 }
 
 func NewSessionStore(cfg *config.Config) *SessionStore {
 	store := &SessionStore{
-		prefix: "auth:session:",
-		memory: make(map[string]memorySession),
+		prefix:    "auth:session:",
+		memory:    make(map[string]memorySession),
+		genMemory: make(map[int]int64),
 	}
 
 	if cfg == nil || !cfg.Redis.Enabled {
@@ -109,6 +137,7 @@ func (s *SessionStore) Create(ctx context.Context, data SessionData, ttl time.Du
 	now := time.Now().UTC()
 	data.CreatedAt = now
 	data.ExpiresAt = now.Add(ttl)
+	data.Generation = s.userGeneration(ctx, data.UserID)
 
 	if err := s.save(ctx, token, data, ttl); err != nil {
 		return "", SessionData{}, err
@@ -136,7 +165,7 @@ func (s *SessionStore) Get(ctx context.Context, token string) (*SessionData, err
 		if err := json.Unmarshal([]byte(raw), &data); err != nil {
 			return nil, err
 		}
-		if time.Now().UTC().After(data.ExpiresAt) {
+		if time.Now().UTC().After(data.ExpiresAt) || s.sessionRevoked(ctx, data) {
 			_ = s.Delete(ctx, token)
 			return nil, ErrSessionNotFound
 		}
@@ -146,7 +175,7 @@ func (s *SessionStore) Get(ctx context.Context, token string) (*SessionData, err
 	s.mu.RLock()
 	item, ok := s.memory[key]
 	s.mu.RUnlock()
-	if !ok || time.Now().UTC().After(item.expiresAt) {
+	if !ok || time.Now().UTC().After(item.expiresAt) || s.sessionRevoked(ctx, item.data) {
 		if ok {
 			_ = s.Delete(ctx, token)
 		}
@@ -154,6 +183,51 @@ func (s *SessionStore) Get(ctx context.Context, token string) (*SessionData, err
 	}
 	data := item.data
 	return &data, nil
+}
+
+// BumpUserGeneration invalidates every currently issued session for the user
+// (used on password change). Sessions minted afterwards carry the new
+// generation and remain valid.
+func (s *SessionStore) BumpUserGeneration(ctx context.Context, userID int) error {
+	if s == nil || userID <= 0 {
+		return nil
+	}
+	if s.redisClient != nil {
+		return s.redisClient.Incr(ctx, s.generationKey(userID)).Err()
+	}
+	s.genMu.Lock()
+	s.genMemory[userID]++
+	s.genMu.Unlock()
+	return nil
+}
+
+func (s *SessionStore) generationKey(userID int) string {
+	return fmt.Sprintf("auth:sessiongen:%d", userID)
+}
+
+func (s *SessionStore) userGeneration(ctx context.Context, userID int) int64 {
+	if s.redisClient != nil {
+		raw, err := s.redisClient.Get(ctx, s.generationKey(userID)).Result()
+		if err == nil {
+			if gen, parseErr := strconv.ParseInt(raw, 10, 64); parseErr == nil {
+				return gen
+			}
+		}
+		return 0
+	}
+	s.genMu.RLock()
+	defer s.genMu.RUnlock()
+	return s.genMemory[userID]
+}
+
+// sessionRevoked reports whether the session predates the user's current
+// generation counter.
+func (s *SessionStore) sessionRevoked(ctx context.Context, data SessionData) bool {
+	if data.UserID <= 0 {
+		return false
+	}
+	current := s.userGeneration(ctx, data.UserID)
+	return current > 0 && data.Generation < current
 }
 
 func (s *SessionStore) Refresh(ctx context.Context, token string, ttl time.Duration) (*SessionData, error) {
@@ -167,6 +241,18 @@ func (s *SessionStore) Refresh(ctx context.Context, token string, ttl time.Durat
 		return nil, err
 	}
 	return data, nil
+}
+
+// Update persists modified session data under the existing token. The TTL is
+// derived from the record's own ExpiresAt, so callers control the resulting
+// lifetime explicitly (e.g. failed-challenge counters keep the original
+// expiry, while MFA promotion extends to the full session TTL).
+func (s *SessionStore) Update(ctx context.Context, token string, data SessionData) error {
+	ttl := time.Until(data.ExpiresAt)
+	if ttl <= 0 {
+		return ErrSessionNotFound
+	}
+	return s.save(ctx, token, data, ttl)
 }
 
 func (s *SessionStore) Delete(ctx context.Context, token string) error {

@@ -35,21 +35,7 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 }
 
 func (r *UserRepository) bindQuery(query string) string {
-	if r == nil || !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
-		return query
-	}
-	var b strings.Builder
-	b.Grow(len(query) + 16)
-	idx := 1
-	for i := 0; i < len(query); i++ {
-		if query[i] == '?' {
-			b.WriteString(fmt.Sprintf("$%d", idx))
-			idx++
-			continue
-		}
-		b.WriteByte(query[i])
-	}
-	return b.String()
+	return bindPlaceholders(r.dbDriver, query)
 }
 
 func (r *UserRepository) hasPasswordChangeRequiredColumn() bool {
@@ -89,31 +75,12 @@ func (r *UserRepository) hasLastLoginColumn() bool {
 }
 
 func (r *UserRepository) hasUserColumn(columnName string) bool {
-	rows, err := r.db.Query(`SELECT * FROM users LIMIT 0`)
+	columns, err := cachedTableColumns(r.db, "users")
 	if err != nil {
 		return false
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("failed to close user schema rows: %v", closeErr)
-		}
-	}()
-
-	columns, err := rows.Columns()
-	if err != nil {
-		return false
-	}
-	if err := rows.Err(); err != nil {
-		return false
-	}
-
-	for _, column := range columns {
-		if strings.EqualFold(column, columnName) {
-			return true
-		}
-	}
-
-	return false
+	_, ok := columns[strings.ToLower(strings.TrimSpace(columnName))]
+	return ok
 }
 
 func (r *UserRepository) selectUserColumns() string {

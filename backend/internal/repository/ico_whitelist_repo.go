@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -29,21 +28,7 @@ func NewICOWhitelistRepository(db *sql.DB) *ICOWhitelistRepository {
 }
 
 func (r *ICOWhitelistRepository) bindQuery(query string) string {
-	if r == nil || !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
-		return query
-	}
-	var b strings.Builder
-	b.Grow(len(query) + 16)
-	idx := 1
-	for i := 0; i < len(query); i++ {
-		if query[i] == '?' {
-			b.WriteString(fmt.Sprintf("$%d", idx))
-			idx++
-			continue
-		}
-		b.WriteByte(query[i])
-	}
-	return b.String()
+	return bindPlaceholders(r.dbDriver, query)
 }
 
 type ICOWhitelistCreateParams struct {
@@ -426,6 +411,9 @@ func (r *ICOWhitelistRepository) ListPendingOutbox(ctx context.Context, limit in
 }
 
 func (r *ICOWhitelistRepository) MarkOutboxSent(ctx context.Context, id int64, providerMessageID string, now time.Time) error {
+	// Guarded by status so two pollers processing the same entry cannot both
+	// flip a terminal state (delivery is at-least-once; the guard makes the
+	// bookkeeping single-writer).
 	_, err := r.db.ExecContext(ctx, r.bindQuery(`
 		UPDATE ico_email_outbox
 		SET status = 'sent',
@@ -433,7 +421,7 @@ func (r *ICOWhitelistRepository) MarkOutboxSent(ctx context.Context, id int64, p
 		    provider_message_id = ?,
 		    sent_at = ?,
 		    updated_at = ?
-		WHERE id = ?
+		WHERE id = ? AND status IN ('pending', 'retry')
 	`), providerMessageID, now, now, id)
 	if err != nil {
 		return fmt.Errorf("failed to mark ICO email outbox sent: %w", err)
@@ -457,7 +445,7 @@ func (r *ICOWhitelistRepository) MarkOutboxFailed(ctx context.Context, id int64,
 		    last_error = ?,
 		    scheduled_at = ?,
 		    updated_at = ?
-		WHERE id = ?
+		WHERE id = ? AND status IN ('pending', 'retry')
 	`), status, message, nextScheduledAt, now, id)
 	if err != nil {
 		return fmt.Errorf("failed to mark ICO email outbox failed: %w", err)

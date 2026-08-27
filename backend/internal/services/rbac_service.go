@@ -17,6 +17,7 @@ func NewRBACService(repo *repository.RBACRepository) *RBACService {
 
 var fallbackPermissionsByRole = map[string]map[string]struct{}{
 	"admin": {
+		"analytics.read":       {},
 		"crm.read":             {},
 		"crm.write":            {},
 		"users.read":           {},
@@ -32,6 +33,7 @@ var fallbackPermissionsByRole = map[string]map[string]struct{}{
 		"crm.admin.manage":     {},
 	},
 	"super_admin": {
+		"analytics.read":       {},
 		"crm.read":             {},
 		"crm.write":            {},
 		"users.read":           {},

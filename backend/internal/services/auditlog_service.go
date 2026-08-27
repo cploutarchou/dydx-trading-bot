@@ -29,7 +29,7 @@ func (s *AuditLogService) CreateAuditLog(userID *int, action, resourceType strin
 	}
 
 	status := "success"
-	now := time.Now()
+	now := time.Now().UTC()
 
 	auditLog := &models.AuditLog{
 		UserID:       userID,

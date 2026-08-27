@@ -42,8 +42,11 @@ func (r *TaskRepository) CreateTaskCommand(ctx context.Context, commandType, own
 	id := uuid.New().String()
 	now := time.Now().UTC()
 
+	// Idempotent create: a retry carrying the same idempotency key returns the
+	// existing command instead of failing on the unique constraint.
 	query := `INSERT INTO task_commands (id, command_type, owner_type, owner_id, idempotency_key, requested_by_user_id, payload_json, status, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (idempotency_key) DO NOTHING
 		RETURNING id, command_type, owner_type, owner_id, idempotency_key, requested_by_user_id, payload_json, status, created_at`
 
 	var taskCmd models.TaskCommand
@@ -53,10 +56,15 @@ func (r *TaskRepository) CreateTaskCommand(ctx context.Context, commandType, own
 		&taskCmd.ID, &taskCmd.CommandType, &taskCmd.OwnerType, &taskCmd.OwnerID, &taskCmd.IdempotencyKey,
 		&taskCmd.RequestedByUserID, &taskCmd.PayloadJSON, &taskCmd.Status, &taskCmd.CreatedAt,
 	)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("failed to create task command: %w", err)
+	if errors.Is(err, sql.ErrNoRows) {
+		// Conflict: another execution already created this command.
+		existing, getErr := r.GetTaskCommandByIdempotencyKey(ctx, idempotencyKey)
+		if getErr != nil {
+			return nil, fmt.Errorf("create task command: conflict, and reading existing failed: %w", getErr)
 		}
+		return existing, nil
+	}
+	if err != nil {
 		return nil, fmt.Errorf("create task command: %w", err)
 	}
 
@@ -109,6 +117,44 @@ func (r *TaskRepository) GetTaskCommandByIdempotencyKey(ctx context.Context, ide
 	}
 
 	return &taskCmd, nil
+}
+
+// ListTaskCommandsPendingSince returns commands still in "pending" state that
+// were created before the cutoff — i.e. publishes that never completed (NATS
+// down, process restart mid-publish). The reconciler re-publishes them; the
+// JetStream Msg-Id dedupe makes re-publish safe.
+func (r *TaskRepository) ListTaskCommandsPendingSince(ctx context.Context, cutoff time.Time, limit int) ([]*models.TaskCommand, error) {
+	if r.db == nil {
+		return nil, errors.New("task repository: nil db")
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+
+	query := `SELECT id, command_type, owner_type, owner_id, idempotency_key, requested_by_user_id, payload_json, status, created_at
+		FROM task_commands
+		WHERE status = $1 AND created_at < $2
+		ORDER BY created_at ASC
+		LIMIT $3`
+
+	rows, err := r.db.QueryContext(ctx, query, TaskCommandStatusPending, cutoff, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list pending task commands: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var commands []*models.TaskCommand
+	for rows.Next() {
+		var taskCmd models.TaskCommand
+		if err := rows.Scan(
+			&taskCmd.ID, &taskCmd.CommandType, &taskCmd.OwnerType, &taskCmd.OwnerID, &taskCmd.IdempotencyKey,
+			&taskCmd.RequestedByUserID, &taskCmd.PayloadJSON, &taskCmd.Status, &taskCmd.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan pending task command: %w", err)
+		}
+		commands = append(commands, &taskCmd)
+	}
+	return commands, rows.Err()
 }
 
 // UpdateTaskCommandStatus updates the status of a task command.

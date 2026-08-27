@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -31,21 +30,7 @@ func NewAuditLogRepository(db *sql.DB) *AuditLogRepository {
 }
 
 func (r *AuditLogRepository) bindQuery(query string) string {
-	if r == nil || !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
-		return query
-	}
-	var builder strings.Builder
-	builder.Grow(len(query) + 16)
-	argIndex := 1
-	for i := 0; i < len(query); i++ {
-		if query[i] == '?' {
-			builder.WriteString(fmt.Sprintf("$%d", argIndex))
-			argIndex++
-			continue
-		}
-		builder.WriteByte(query[i])
-	}
-	return builder.String()
+	return bindPlaceholders(r.dbDriver, query)
 }
 
 // CreateAuditLog creates a new audit log entry

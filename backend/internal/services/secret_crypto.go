@@ -114,8 +114,10 @@ func maskSecretValue(plaintext string) string {
 		return ""
 	}
 	runes := []rune(trimmed)
-	if len(runes) <= 8 {
+	if len(runes) <= 4 {
 		return strings.Repeat("*", len(runes))
 	}
-	return string(runes[:4]) + strings.Repeat("*", len(runes)-8) + string(runes[len(runes)-4:])
+	// Only the tail is revealed: mnemonics and API keys must not disclose
+	// their (often structured, guessable) prefixes.
+	return strings.Repeat("*", len(runes)-4) + string(runes[len(runes)-4:])
 }

@@ -176,16 +176,25 @@ func (r *PartnerCommissionMetricRepository) AggregateByUsers(userIDs []int) (*mo
 		args = append(args, userID)
 	}
 
+	// Sum only the latest period per user: repeated ingests for the same
+	// logical window create multiple rows (unique on exact period bounds), and
+	// summing every row would overstate commissions.
 	query := fmt.Sprintf(`
 		SELECT
-			COALESCE(SUM(direct_clients), 0),
-			COALESCE(SUM(sub_ib_count), 0),
-			COALESCE(SUM(notional_volume_usd), 0),
-			COALESCE(SUM(gross_commission_usd), 0),
-			COALESCE(SUM(rebate_usd), 0),
-			COALESCE(SUM(net_commission_usd), 0)
-		FROM partner_commission_metrics
-		WHERE user_id IN (%s)
+			COALESCE(SUM(latest.direct_clients), 0),
+			COALESCE(SUM(latest.sub_ib_count), 0),
+			COALESCE(SUM(latest.notional_volume_usd), 0),
+			COALESCE(SUM(latest.gross_commission_usd), 0),
+			COALESCE(SUM(latest.rebate_usd), 0),
+			COALESCE(SUM(latest.net_commission_usd), 0)
+		FROM (
+			SELECT DISTINCT ON (user_id)
+				user_id, direct_clients, sub_ib_count,
+				notional_volume_usd, gross_commission_usd, rebate_usd, net_commission_usd
+			FROM partner_commission_metrics
+			WHERE user_id IN (%s)
+			ORDER BY user_id, period_end DESC, period_start DESC
+		) AS latest
 	`, joinComma(placeholders))
 
 	aggregate := &models.PartnerCommissionMetric{}

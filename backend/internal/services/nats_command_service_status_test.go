@@ -54,6 +54,10 @@ func (f *fakeTaskStore) CreateTaskRun(_ context.Context, commandID, taskType str
 	return &models.TaskRun{ID: uuid.New().String(), CommandID: commandID, TaskType: taskType, MaxRetries: maxRetries}, nil
 }
 
+func (f *fakeTaskStore) ListTaskCommandsPendingSince(_ context.Context, _ time.Time, _ int) ([]*models.TaskCommand, error) {
+	return nil, nil
+}
+
 func (f *fakeTaskStore) hasPublished() bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()

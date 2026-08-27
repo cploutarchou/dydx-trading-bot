@@ -176,11 +176,12 @@ func (d *Database) Close() error {
 	if d.DB != nil {
 		log.Println("🔌 Closing database connection...")
 		if err := d.DB.Close(); err != nil {
+			d.closed = true
 			return fmt.Errorf("failed to close database: %w", err)
 		}
-		d.closed = true
-		log.Println("✅ Database connection closed successfully")
 	}
+	d.closed = true
+	log.Println("✅ Database connection closed successfully")
 	return nil
 }
 
@@ -241,8 +242,13 @@ func (d *Database) Driver() string {
 	return d.config.Driver
 }
 
-// Query executes a SELECT query with timeout and validation
-func (d *Database) Query(query string, args ...interface{}) (*sql.Rows, error) {
+// Query executes a SELECT query using the caller's context, so lazy Rows
+// consumption is bounded by the caller's cancellation. (A previous version
+// cancelled its own timeout before callers could read the rows.)
+func (d *Database) Query(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
@@ -252,21 +258,17 @@ func (d *Database) Query(query string, args ...interface{}) (*sql.Rows, error) {
 	if d.DB == nil {
 		return nil, ErrNilConnection
 	}
-
-	timeout := d.config.QueryTimeout
-	if timeout == 0 {
-		timeout = 30 * time.Second
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
 
 	//nolint:sqlclosecheck // callers own the returned *sql.Rows lifecycle
 	return d.DB.QueryContext(ctx, query, args...)
 }
 
-// QueryRow executes a SELECT query returning a single row
-func (d *Database) QueryRow(query string, args ...interface{}) (*sql.Row, error) {
+// QueryRow executes a SELECT query returning a single row using the caller's
+// context (a self-cancelling wrapper killed the row before Scan ran).
+func (d *Database) QueryRow(ctx context.Context, query string, args ...interface{}) (*sql.Row, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
@@ -276,20 +278,15 @@ func (d *Database) QueryRow(query string, args ...interface{}) (*sql.Row, error)
 	if d.DB == nil {
 		return nil, ErrNilConnection
 	}
-
-	timeout := d.config.QueryTimeout
-	if timeout == 0 {
-		timeout = 30 * time.Second
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
 
 	return d.DB.QueryRowContext(ctx, query, args...), nil
 }
 
-// Exec executes an INSERT, UPDATE, or DELETE query
-func (d *Database) Exec(query string, args ...interface{}) (sql.Result, error) {
+// Exec executes an INSERT, UPDATE, or DELETE query using the caller's context.
+func (d *Database) Exec(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
@@ -299,14 +296,6 @@ func (d *Database) Exec(query string, args ...interface{}) (sql.Result, error) {
 	if d.DB == nil {
 		return nil, ErrNilConnection
 	}
-
-	timeout := d.config.QueryTimeout
-	if timeout == 0 {
-		timeout = 30 * time.Second
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
 
 	return d.DB.ExecContext(ctx, query, args...)
 }
@@ -324,9 +313,7 @@ func (d *Database) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, e
 	}
 
 	if ctx == nil {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+		ctx = context.Background()
 	}
 
 	return d.DB.BeginTx(ctx, opts)
@@ -417,35 +404,7 @@ func runMigrations(cfg Config) error {
 
 	m, err := migrate.New(sourceURL, dbURL)
 	if err != nil {
-		// If there's an error creating the migrate instance, it might be due to an invalid migration state
-		// Try to recover by forcing the version
-		errStr := err.Error()
-		if strings.Contains(strings.ToLower(errStr), "no migration found") {
-			log.Printf("⚠️  Migration state issue detected: %v. Attempting recovery...", err)
-			// Create a temporary instance just to fix the state
-			tempM, tempErr := migrate.New(sourceURL, dbURL)
-			if tempErr == nil {
-				defer func(tempM *migrate.Migrate) {
-					err, _ := tempM.Close()
-					if err != nil {
-						log.Printf("⚠️  Failed to close temporary migrate instance: %v", err)
-					}
-				}(tempM)
-				// Get current version
-				ver, _, verErr := tempM.Version()
-				if verErr == nil {
-					log.Printf("⚠️  Forcing version %d to resolve migration state...", ver)
-					if fErr := tempM.Force(int(ver)); fErr == nil {
-						log.Printf("✅ Migration state recovered. Retrying...")
-						// Retry creating the migrated instance
-						m, err = migrate.New(sourceURL, dbURL)
-					}
-				}
-			}
-		}
-		if err != nil {
-			return fmt.Errorf("failed to create migrate instance: %w", err)
-		}
+		return fmt.Errorf("failed to create migrate instance: %w", err)
 	}
 	defer func() {
 		srcErr, dbErr := m.Close()

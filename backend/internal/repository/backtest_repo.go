@@ -580,31 +580,8 @@ func (r *BacktestRepository) detectRunFKColumn(tableName string) (string, error)
 	return "", fmt.Errorf("table %s has no run foreign-key column", tableName)
 }
 
-func (r *BacktestRepository) getTableColumns(tableName string) (_ map[string]struct{}, err error) {
-	rows, err := r.db.Query(fmt.Sprintf("SELECT * FROM %s LIMIT 0", tableName))
-	if err != nil {
-		return nil, fmt.Errorf("failed to inspect table %s: %w", tableName, err)
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("failed to close schema rows for %s: %w", tableName, closeErr)
-		}
-	}()
-
-	columnNames, err := rows.Columns()
-	if err != nil {
-		return nil, fmt.Errorf("failed to inspect columns for %s: %w", tableName, err)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to inspect schema rows for %s: %w", tableName, err)
-	}
-
-	columns := make(map[string]struct{}, len(columnNames))
-	for _, name := range columnNames {
-		columns[strings.ToLower(strings.TrimSpace(name))] = struct{}{}
-	}
-
-	return columns, nil
+func (r *BacktestRepository) getTableColumns(tableName string) (map[string]struct{}, error) {
+	return cachedTableColumns(r.db, tableName)
 }
 
 func (r *BacktestRepository) GetRunsByUserID(userID int, skip int, limit int) ([]models.BacktestRun, error) {
@@ -941,7 +918,7 @@ func (r *BacktestRepository) GetRunsByStrategyID(userID int, strategyID int, lim
 		FROM backtest_runs
 		WHERE user_id = ?
 		  AND strategy_id = ?
-		  AND LOWER(COALESCE(status, '')) IN ('completed', 'finished', 'done', 'success', 'succeeded')
+		  AND COALESCE(status, '') IN ('completed', 'finished', 'done', 'success', 'succeeded')
 		ORDER BY created_at DESC
 		LIMIT ?
 	`
@@ -985,7 +962,7 @@ func (r *BacktestRepository) CountActiveRunsByUserID(userID int) (int, error) {
 			SELECT COUNT(*)
 			FROM backtest_runs
 			WHERE user_id = ?
-			  AND LOWER(COALESCE(status, '')) IN (
+			  AND COALESCE(status, '') IN (
 				'pending', 'queued', 'created', 'scheduled',
 				'running', 'in_progress', 'processing', 'active',
 				'paused', 'retry', 'retrying'

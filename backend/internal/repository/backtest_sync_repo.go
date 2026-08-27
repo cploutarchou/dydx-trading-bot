@@ -620,33 +620,16 @@ func (r *BacktestSyncRepository) getRunPrimaryKey(runID string) (int, error) {
 	return id, nil
 }
 
-func (r *BacktestSyncRepository) detectFKColumn(tableName string) (_ string, err error) {
-	rows, err := r.db.Query(fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName))
+func (r *BacktestSyncRepository) detectFKColumn(tableName string) (string, error) {
+	columns, err := cachedTableColumns(r.db, tableName)
 	if err != nil {
 		return "", fmt.Errorf("failed to inspect table %s: %w", tableName, err)
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("failed to close inspection rows for %s: %w", tableName, closeErr)
-		}
-	}()
-
-	columns, err := rows.Columns()
-	if err != nil {
-		return "", fmt.Errorf("failed to inspect columns for %s: %w", tableName, err)
+	if _, ok := columns["run_id_fk"]; ok {
+		return "run_id_fk", nil
 	}
-	if err := rows.Err(); err != nil {
-		return "", fmt.Errorf("failed to inspect rows for %s: %w", tableName, err)
-	}
-	for _, column := range columns {
-		if strings.EqualFold(column, "run_id_fk") {
-			return "run_id_fk", nil
-		}
-	}
-	for _, column := range columns {
-		if strings.EqualFold(column, "run_id") {
-			return "run_id", nil
-		}
+	if _, ok := columns["run_id"]; ok {
+		return "run_id", nil
 	}
 	return "", fmt.Errorf("table %s has no run foreign-key column (run_id_fk/run_id)", tableName)
 }
@@ -659,22 +642,49 @@ func (r *BacktestSyncRepository) GetSyncHealthByRun(userID int, runID string, li
 		limit = 20
 	}
 
-	query := `
-		SELECT id, run_id, COALESCE(status, ''), created_at
-		FROM backtest_runs
-		WHERE user_id = ?
-	`
+	// Resolve the per-table run FK columns once (schema-cached) and compute all
+	// counts in a single query: the previous per-run helper calls issued up to
+	// ~13 queries per run (limit 200 → ~2,600 queries per request).
+	fkTrades, err := r.detectFKColumn("backtest_trades")
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve trades FK: %w", err)
+	}
+	fkPositions, err := r.detectFKColumn("backtest_positions")
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve positions FK: %w", err)
+	}
+	fkCandles, err := r.detectFKColumn("backtest_candles")
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve candles FK: %w", err)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT r.id, r.run_id, COALESCE(r.status, ''), r.created_at,
+		       COALESCE(r.total_trades, 0),
+		       (SELECT COUNT(*) FROM backtest_trades t WHERE t.%s = r.id),
+		       (SELECT COUNT(*) FROM backtest_positions p WHERE p.%s = r.id),
+		       (SELECT COUNT(*) FROM backtest_candles k WHERE k.%s = r.id),
+		       (SELECT COUNT(*) FROM backtest_trades t WHERE t.%s = r.id AND (t.market_1 = 'UNKNOWN' OR t.market_2 = 'UNKNOWN')),
+		       (SELECT COUNT(*) FROM backtest_positions p WHERE p.%s = r.id AND (p.market_1 = 'UNKNOWN' OR p.market_2 = 'UNKNOWN')),
+		       (SELECT COUNT(*) FROM backtest_candles k WHERE k.%s = r.id AND k.market = 'UNKNOWN'),
+		       (SELECT MAX(t.entry_timestamp) FROM backtest_trades t WHERE t.%s = r.id),
+		       (SELECT MAX(p.entry_timestamp) FROM backtest_positions p WHERE p.%s = r.id),
+		       (SELECT MAX(k.timestamp) FROM backtest_candles k WHERE k.%s = r.id)
+		FROM backtest_runs r
+		WHERE r.user_id = ?
+	`, fkTrades, fkPositions, fkCandles, fkTrades, fkPositions, fkCandles, fkTrades, fkPositions, fkCandles)
+
 	args := []interface{}{userID}
 	if strings.TrimSpace(runID) != "" {
-		query += " AND run_id = ?"
+		query += " AND r.run_id = ?"
 		args = append(args, runID)
 	}
-	query += " ORDER BY created_at DESC LIMIT ?"
+	query += " ORDER BY r.created_at DESC LIMIT ?"
 	args = append(args, limit)
 
 	rows, err := r.db.Query(r.bindQuery(query), args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query backtest runs for sync health: %w", err)
+		return nil, fmt.Errorf("failed to query sync health: %w", err)
 	}
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil {
@@ -685,52 +695,50 @@ func (r *BacktestSyncRepository) GetSyncHealthByRun(userID int, runID string, li
 	health := make([]BacktestSyncHealth, 0)
 	for rows.Next() {
 		var (
-			runPK     int
-			runIDVal  string
-			status    string
-			createdAt sql.NullTime
+			runPK            int
+			runIDVal         string
+			status           string
+			createdAt        sql.NullTime
+			delegatedTrades  int
+			mirroredTrades   int
+			positions        int
+			candles          int
+			qualityTrades    int
+			qualityPositions int
+			qualityCandles   int
+			lastTradeTS      sql.NullTime
+			lastPosTS        sql.NullTime
+			lastCandleTS     sql.NullTime
 		)
-		if err := rows.Scan(&runPK, &runIDVal, &status, &createdAt); err != nil {
-			return nil, fmt.Errorf("failed to scan sync health run row: %w", err)
+		if err := rows.Scan(
+			&runPK, &runIDVal, &status, &createdAt,
+			&delegatedTrades, &mirroredTrades, &positions, &candles,
+			&qualityTrades, &qualityPositions, &qualityCandles,
+			&lastTradeTS, &lastPosTS, &lastCandleTS,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan sync health row: %w", err)
 		}
-
 		_ = runPK
-		backendMirroredTrades, err := r.countRowsForRunByRunID("backtest_trades", runIDVal, userID)
-		if err != nil {
-			backendMirroredTrades = 0
-		}
-		positions, err := r.countRowsForRunByRunID("backtest_positions", runIDVal, userID)
-		if err != nil {
-			positions = 0
-		}
-		candles, err := r.countRowsForRunByRunID("backtest_candles", runIDVal, userID)
-		if err != nil {
-			candles = 0
-		}
-		qualityIssues, err := r.countDataQualityIssuesByRunID(runIDVal, userID)
-		if err != nil {
-			qualityIssues = 0
-		}
-		lastSyncedAt, err := r.getLastSyncedAtByRunID(runIDVal, userID)
-		if err != nil {
-			lastSyncedAt = nil
-		}
 
-		// Get delegated trades count from backtest_runs table which contains the total_trades from bot
-		// This represents artifact-backed trade availability
-		delegatedTrades, err := r.getDelegatedTradesCountByRunID(runIDVal, userID)
-		if err != nil {
-			delegatedTrades = 0
+		var lastSyncedAt *time.Time
+		for _, ts := range []sql.NullTime{lastTradeTS, lastPosTS, lastCandleTS} {
+			if !ts.Valid {
+				continue
+			}
+			current := ts.Time.UTC()
+			if lastSyncedAt == nil || current.After(*lastSyncedAt) {
+				lastSyncedAt = &current
+			}
 		}
 
 		item := BacktestSyncHealth{
 			RunID:                 runIDVal,
 			Status:                status,
-			Trades:                delegatedTrades,       // Primary: delegated artifact-backed
-			BackendMirroredTrades: backendMirroredTrades, // Debug: legacy backend DB mirror
+			Trades:                delegatedTrades,
+			BackendMirroredTrades: mirroredTrades,
 			Positions:             positions,
 			Candles:               candles,
-			QualityIssues:         qualityIssues,
+			QualityIssues:         qualityTrades + qualityPositions + qualityCandles,
 		}
 		if createdAt.Valid {
 			created := createdAt.Time.UTC()
@@ -753,104 +761,9 @@ func (r *BacktestSyncRepository) GetSyncHealthByRun(userID int, runID string, li
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed iterating sync health runs: %w", err)
+		return nil, fmt.Errorf("failed iterating sync health rows: %w", err)
 	}
 
 	return health, nil
 }
 
-func (r *BacktestSyncRepository) countRowsForRunByRunID(tableName string, runID string, userID int) (int, error) {
-	columns := []string{"run_id_fk", "run_id"}
-	var lastErr error
-	for _, fkColumn := range columns {
-		query := fmt.Sprintf(`
-			SELECT COUNT(*)
-			FROM %s c
-			JOIN backtest_runs r ON c.%s = r.id
-			WHERE r.run_id = ? AND r.user_id = ?
-		`, tableName, fkColumn)
-		var count int
-		err := r.db.QueryRow(r.bindQuery(query), runID, userID).Scan(&count)
-		if err == nil {
-			return count, nil
-		}
-		lower := strings.ToLower(err.Error())
-		if strings.Contains(lower, "no such column") || strings.Contains(lower, "undefined column") || strings.Contains(lower, "does not exist") {
-			lastErr = err
-			continue
-		}
-		return 0, fmt.Errorf("failed counting rows for %s by run_id: %w", tableName, err)
-	}
-	if lastErr != nil {
-		return 0, fmt.Errorf("failed counting rows for %s by run_id: %w", tableName, lastErr)
-	}
-	return 0, fmt.Errorf("failed counting rows for %s by run_id", tableName)
-}
-
-func (r *BacktestSyncRepository) countDataQualityIssuesByRunID(runID string, userID int) (int, error) {
-	queries := []string{
-		`SELECT COUNT(*) FROM backtest_trades c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = ? AND r.user_id = ? AND (c.market_1 = 'UNKNOWN' OR c.market_2 = 'UNKNOWN')`,
-		`SELECT COUNT(*) FROM backtest_positions c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = ? AND r.user_id = ? AND (c.market_1 = 'UNKNOWN' OR c.market_2 = 'UNKNOWN')`,
-		`SELECT COUNT(*) FROM backtest_candles c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = ? AND r.user_id = ? AND c.market = 'UNKNOWN'`,
-	}
-	total := 0
-	for _, query := range queries {
-		var count int
-		err := r.db.QueryRow(r.bindQuery(query), runID, userID).Scan(&count)
-		if err != nil {
-			lower := strings.ToLower(err.Error())
-			if strings.Contains(lower, "no such column") || strings.Contains(lower, "undefined column") || strings.Contains(lower, "does not exist") {
-				continue
-			}
-			return 0, err
-		}
-		total += count
-	}
-	return total, nil
-}
-
-func (r *BacktestSyncRepository) getLastSyncedAtByRunID(runID string, userID int) (*time.Time, error) {
-	candidates := []string{
-		`SELECT MAX(c.entry_timestamp) FROM backtest_trades c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = ? AND r.user_id = ?`,
-		`SELECT MAX(c.entry_timestamp) FROM backtest_positions c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = ? AND r.user_id = ?`,
-		`SELECT MAX(c.timestamp) FROM backtest_candles c JOIN backtest_runs r ON c.run_id_fk = r.id WHERE r.run_id = ? AND r.user_id = ?`,
-	}
-	var latest time.Time
-	found := false
-	for _, query := range candidates {
-		var ts sql.NullTime
-		err := r.db.QueryRow(r.bindQuery(query), runID, userID).Scan(&ts)
-		if err != nil {
-			lower := strings.ToLower(err.Error())
-			if strings.Contains(lower, "no such column") || strings.Contains(lower, "undefined column") || strings.Contains(lower, "does not exist") {
-				continue
-			}
-			return nil, err
-		}
-		if ts.Valid {
-			current := ts.Time.UTC()
-			if !found || current.After(latest) {
-				latest = current
-				found = true
-			}
-		}
-	}
-	if !found {
-		return nil, nil
-	}
-	return &latest, nil
-}
-
-func (r *BacktestSyncRepository) getDelegatedTradesCountByRunID(runID string, userID int) (int, error) {
-	// Get total_trades from backtest_runs table which stores the delegated bot API response
-	query := `SELECT COALESCE(total_trades, 0) FROM backtest_runs WHERE run_id = ? AND user_id = ? LIMIT 1`
-	var count int
-	err := r.db.QueryRow(r.bindQuery(query), runID, userID).Scan(&count)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("failed to get delegated trades count: %w", err)
-	}
-	return count, nil
-}

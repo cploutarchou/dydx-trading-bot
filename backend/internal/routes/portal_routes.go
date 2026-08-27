@@ -675,17 +675,25 @@ func upsertCommissionMetricsHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		periodStart := time.Now().UTC().AddDate(0, 0, -30)
-		periodEnd := time.Now().UTC()
+		// Periods are bucketed to UTC day boundaries: the upsert conflicts on
+		// exact (user, period_start, period_end), so unbucketed timestamps
+		// would insert a new row per ingest for the same logical window and
+		// inflate downstream commission aggregation.
+		periodStart := time.Now().UTC().AddDate(0, 0, -30).Truncate(24 * time.Hour)
+		periodEnd := time.Now().UTC().Truncate(24 * time.Hour)
 		if strings.TrimSpace(req.PeriodStart) != "" {
 			if parsed, parseErr := time.Parse(time.RFC3339, req.PeriodStart); parseErr == nil {
-				periodStart = parsed.UTC()
+				periodStart = parsed.UTC().Truncate(24 * time.Hour)
 			}
 		}
 		if strings.TrimSpace(req.PeriodEnd) != "" {
 			if parsed, parseErr := time.Parse(time.RFC3339, req.PeriodEnd); parseErr == nil {
-				periodEnd = parsed.UTC()
+				periodEnd = parsed.UTC().Truncate(24 * time.Hour)
 			}
+		}
+		if !periodStart.Before(periodEnd) {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "period_start must be before period_end"})
+			return
 		}
 
 		metric := &models.PartnerCommissionMetric{

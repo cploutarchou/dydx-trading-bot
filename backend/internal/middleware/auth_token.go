@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -21,11 +22,24 @@ func ResolveRequestAuthHeader(c *gin.Context) (string, string) {
 		}
 	}
 
-	if queryToken := strings.TrimSpace(c.Query("access_token")); queryToken != "" {
-		return "Bearer " + queryToken, "query:access_token"
+	// The query-string fallback is restricted to WebSocket upgrades: browsers
+	// cannot set headers on WS handshakes, so the frontend appends the token
+	// there. Everywhere else query strings would leak tokens into server logs,
+	// browser history, and Referer headers, so they are rejected.
+	if isBrowserWebSocketUpgrade(c.Request) {
+		if queryToken := strings.TrimSpace(c.Query("access_token")); queryToken != "" {
+			return "Bearer " + queryToken, "query:access_token"
+		}
 	}
 
 	return "", ""
+}
+
+// isBrowserWebSocketUpgrade reports whether the request is a WebSocket
+// handshake (the only context where a query-string token is accepted).
+func isBrowserWebSocketUpgrade(request *http.Request) bool {
+	return strings.EqualFold(strings.TrimSpace(request.Header.Get("Upgrade")), "websocket") &&
+	 strings.Contains(strings.ToLower(strings.TrimSpace(request.Header.Get("Connection"))), "upgrade")
 }
 
 // ExtractRequestAccessToken returns the bearer token accepted for the request.

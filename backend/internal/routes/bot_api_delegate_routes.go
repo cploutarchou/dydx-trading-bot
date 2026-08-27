@@ -28,6 +28,10 @@ var websocketUpgrader = websocket.Upgrader{	CheckOrigin: func(r *http.Request) b
 	},
 }
 
+// realtimeStatsSingleflight coalesces concurrent realtime-stats cache misses
+// per bot so TTL expiry under dashboard polling does not stampede the bot API.
+var realtimeStatsSingleflight = services.NewSingleFlight[map[string]interface{}]()
+
 // WebSocket keepalive parameters: pings are sent via WriteControl (safe to
 // call concurrently with data writes), and read deadlines are extended by the
 // pong handler. Without them, silently dead peers leave relay goroutines
@@ -2334,9 +2338,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			requestClient := getRequestBotAPIClient(c, apiClient)
 			days := 30
 			if d := c.Query("days"); d != "" {
-				if v, err := parseIntQuery(d, &days); err == nil {
-					days = v
-				}
+				days = parseBoundedIntQuery(c, "days", days, 1, 365)
 			}
 			result, err := requestClient.GetBacktestSummaryStats(days)
 			if err != nil {
@@ -2598,9 +2600,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			winningOnly := false
 
 			if l := c.Query("limit"); l != "" {
-				if v, err := parseIntQuery(l, &limit); err == nil {
-					limit = v
-				}
+				limit = parseBoundedIntQuery(c, "limit", limit, 1, 1000)
 			}
 			if o := c.Query("offset"); o != "" {
 				if v, err := parseIntQuery(o, &offset); err == nil {
@@ -2837,9 +2837,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			var marketPair *string
 
 			if l := c.Query("limit"); l != "" {
-				if v, err := parseIntQuery(l, &limit); err == nil {
-					limit = v
-				}
+				limit = parseBoundedIntQuery(c, "limit", limit, 1, 1000)
 			}
 			if o := c.Query("offset"); o != "" {
 				if v, err := parseIntQuery(o, &offset); err == nil {
@@ -3173,9 +3171,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			positionID := c.Param("position_id")
 			hours := 24
 			if h := c.Query("hours"); h != "" {
-				if v, err := parseIntQuery(h, &hours); err == nil {
-					hours = v
-				}
+				hours = parseBoundedIntQuery(c, "hours", hours, 1, 720)
 			}
 			result, err := requestClient.GetPositionHistory(botID, positionID, hours)
 			if err != nil {
@@ -3218,9 +3214,12 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 				}
 			}
 
-			// Cache miss — delegate to Python bot API
+			// Cache miss — delegate to Python bot API, coalescing concurrent
+			// dashboard polls for the same bot into one upstream request.
 			requestClient := getRequestBotAPIClient(c, apiClient)
-			result, delegateErr := requestClient.GetRealtimeStats(botID)
+			result, delegateErr := realtimeStatsSingleflight.Do(cacheKey, func() (map[string]interface{}, error) {
+				return requestClient.GetRealtimeStats(botID)
+			})
 			if delegateErr != nil {
 				respondBotAPIError(c, delegateErr)
 				return
@@ -3244,9 +3243,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			}
 			limit := 50
 			if l := c.Query("limit"); l != "" {
-				if v, err := parseIntQuery(l, &limit); err == nil {
-					limit = v
-				}
+				limit = parseBoundedIntQuery(c, "limit", limit, 1, 1000)
 			}
 			result, err := requestClient.GetAlerts(botID, limit)
 			if err != nil {
@@ -3261,9 +3258,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			instanceID := c.Param("instance_id")
 			days := 7
 			if d := c.Query("days"); d != "" {
-				if v, err := parseIntQuery(d, &days); err == nil {
-					days = v
-				}
+				days = parseBoundedIntQuery(c, "days", days, 1, 365)
 			}
 			delegateJSON(c, apiClient, func(requestClient *services.BotAPIClient) (map[string]interface{}, error) {
 				return requestClient.GetBotHistory(instanceID, days)
@@ -3275,9 +3270,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			instanceID := c.Param("instance_id")
 			days := 7
 			if d := c.Query("days"); d != "" {
-				if v, err := parseIntQuery(d, &days); err == nil {
-					days = v
-				}
+				days = parseBoundedIntQuery(c, "days", days, 1, 365)
 			}
 			requestClient := getRequestBotAPIClient(c, apiClient)
 			result, err := requestClient.GetBotJobs(instanceID, days)
@@ -3386,6 +3379,27 @@ func parseIntQuery(s string, target *int) (int, error) {
 		*target = i
 	}
 	return i, err
+}
+
+// parseBoundedIntQuery reads an integer query parameter clamped to [min, max];
+// invalid or empty values fall back to def. Prevents negative/oversized limits
+// and windows from reaching SQL or upstream scans.
+func parseBoundedIntQuery(c *gin.Context, name string, def, min, max int) int {
+	raw := strings.TrimSpace(c.Query(name))
+	if raw == "" {
+		return def
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil {
+		return def
+	}
+	if parsed < min {
+		return min
+	}
+	if parsed > max {
+		return max
+	}
+	return parsed
 }
 
 func parseBacktestListOffset(c *gin.Context) int {

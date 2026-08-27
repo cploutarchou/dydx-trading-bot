@@ -143,6 +143,10 @@ type Publisher struct {
 	conn   *natsclient.Conn
 	js     natsclient.JetStreamContext
 	closed bool
+
+	// ensuredStreams caches streams already created via AddStream so steady-state
+	// publishes do not pay a server round-trip per message.
+	ensuredStreams map[string]struct{}
 }
 
 // NewPublisher returns nil when NATS reads/publishes are not enabled, mirroring
@@ -153,7 +157,7 @@ func NewPublisher(settings config.NATSSettings) *Publisher {
 	if !settings.Enabled {
 		return nil
 	}
-	return &Publisher{settings: settings}
+	return &Publisher{settings: settings, ensuredStreams: make(map[string]struct{})}
 }
 
 // Publish marshals the envelope, ensures a connection and the covering stream
@@ -164,6 +168,12 @@ func (p *Publisher) Publish(ctx context.Context, env Envelope) (*PublishResult, 
 	if p == nil {
 		return nil, ErrPublisherDisabled
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("publish %s: %w", env.Subject, err)
+	}
 	if err := env.Validate(); err != nil {
 		return nil, err
 	}
@@ -173,13 +183,16 @@ func (p *Publisher) Publish(ctx context.Context, env Envelope) (*PublishResult, 
 	if err := p.ensureStream(env.Subject); err != nil {
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("publish %s: %w", env.Subject, err)
+	}
 
 	data, err := json.Marshal(env)
 	if err != nil {
 		return nil, fmt.Errorf("marshal envelope: %w", err)
 	}
 
-	ack, err := p.js.Publish(env.Subject, data, natsclient.MsgId(env.IdempotencyKey))
+	ack, err := p.js.Publish(env.Subject, data, natsclient.MsgId(env.IdempotencyKey), natsclient.Context(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("publish %s: %w", env.Subject, err)
 	}
@@ -259,11 +272,22 @@ func (p *Publisher) ensureStream(subject string) error {
 		return fmt.Errorf("no stream mapping for subject %q", subject)
 	}
 
+	p.mu.Lock()
+	if _, ok := p.ensuredStreams[stream]; ok {
+		p.mu.Unlock()
+		return nil
+	}
 	cfg := streamConfig(stream, subject)
-	if _, err := p.js.AddStream(cfg); err != nil {
+	_, addErr := p.js.AddStream(cfg)
+	if addErr == nil {
+		p.ensuredStreams[stream] = struct{}{}
+	}
+	p.mu.Unlock()
+
+	if addErr != nil {
 		// AddStream is idempotent only across identical configs; a config drift
 		// surfaces an error that operators should resolve, but it must not crash.
-		return fmt.Errorf("ensure stream %s: %w", stream, err)
+		return fmt.Errorf("ensure stream %s: %w", stream, addErr)
 	}
 	return nil
 }

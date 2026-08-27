@@ -52,7 +52,7 @@ Data stores: PostgreSQL (pgx v5 stdlib), Redis (sessions/cache/pubsub), ClickHou
 
 ## 3. Findings summary
 
-Severity counts (see BACKEND_IMPROVEMENT_PLAN.md for full task list): **P0: 5 · P1: 12 · P2: 18 · P3: 9** (44 tasks total — 19 DONE as of 2026-08-27: ALL P0s and ALL P1s complete; P2/P3 backlog remaining)
+Severity counts (see BACKEND_IMPROVEMENT_PLAN.md for full task list): **P0: 5 · P1: 12 · P2: 18 · P3: 9** (44 tasks total — 34 DONE as of 2026-08-27: ALL P0s, ALL P1s, and 15/16 P2s; TASK-018 (ctx-through-repos) deliberately deferred with a phase plan; P3 backlog remains)
 
 ### P0 — Critical (verified)
 
@@ -121,5 +121,7 @@ SQL injection surface (parameterized queries throughout; dynamic fragments are s
 - Encryption-key KDF hardening deferred: changing derivation would make existing stored credentials undecryptable; requires a re-encryption migration (pair with TASK-039 NUMERIC work).
 - Full ctx-through-repos refactor (TASK-018) is the largest outstanding reliability item.
 - NUMERIC money migration (TASK-039) requires coordinated data backfill.
-- Session revocation infrastructure (TASK-035) likely needs a server-side token registry.
+- Password change now revokes all sessions via generation counters (TASK-031); legacy refresh-JWT revocation still needs a server-side registry.
+- Query-string access_token is now accepted only on WebSocket upgrade requests (frontend WS URLs depend on it); CORS defaults to loopback-only when unconfigured.
+- Analytics routes now require the analytics.read permission (admins have it by default).
 - Multi-replica rate limiting and lockout require shared storage (Redis) — design decision pending.

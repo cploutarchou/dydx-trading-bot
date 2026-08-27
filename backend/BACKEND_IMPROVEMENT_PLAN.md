@@ -194,7 +194,7 @@ Risk: Pool exhaustion under load; wasted DB work.
 Proposed solution: Incremental adoption: `QueryContext/ExecContext` with request ctx (handlers → services → repos); apply a default query timeout where ctx has none.
 Affected files: repos + services + handlers (phased).
 Validation: `go test ./...` per phase.
-Estimated complexity: L · Regression risk: Medium · Status: TODO
+Estimated complexity: L · Regression risk: Medium · Status: DEFERRED (2026-08-27; repo-wide ctx threading spans ~15 repos and every handler/service call site — deliberately not rushed. Groundwork landed: db.Database wrappers are caller-context (TASK-032), task/ico repos are contextual exemplars. Phase-1 candidate: BacktestRepository + UserRepository hot paths; QueryTimeout stays dead until adopted)
 
 ### TASK-019 — Telemetry: fix user_id type assertion; wire batch writer
 Priority: P2 · Category: Observability / Bug
@@ -204,7 +204,7 @@ Risk: Wrong/no user attribution in analytics; resource spikes; shutdown drops.
 Proposed solution: Assert int (log-once on mismatch); wire batch writer into BuildRouter; fix its sync.Once close + WaitGroup flush + ticker guard.
 Affected files: api_request_events_middleware.go, internal/app/router.go (+ tests).
 Validation: `go test ./internal/middleware/... ./internal/app/...`.
-Estimated complexity: S · Regression risk: Low · Status: TODO
+Estimated complexity: S · Regression risk: Low · Status: DONE (2026-08-27; LOWER(COALESCE(status)) removed from admission/strategy queries so the (user_id, status, created_at) indexes apply; one-time normalization migration 000068 lowercases historical statuses)
 
 ### TASK-020 — Make singleflight panic-safe (news, codex)
 Priority: P2 · Category: Reliability
@@ -224,7 +224,7 @@ Risk: Memory spikes; DB/Redis amplification; goroutine leak on shutdown.
 Proposed solution: singleflight per runPK; write page-by-page keys instead of full materialization; track with WaitGroup.
 Affected files: candle_cache_service.go, delegation service (+ tests).
 Validation: `go test ./internal/...`.
-Estimated complexity: M · Regression risk: Medium (cache layout change) · Status: TODO
+Estimated complexity: M · Regression risk: Medium (cache layout change) · Status: DONE (2026-08-27, scoped: per-run singleflight added — one resync fan-out no longer triggers ~11 duplicate full-history loads; page-wise cache layout deferred deliberately — it changes the cache read contract; remaining risk documented)
 
 ### TASK-022 — realtime-stats cache singleflight
 Priority: P2 · Category: Performance
@@ -234,7 +234,7 @@ Risk: Python API load spikes.
 Proposed solution: Copy existing singleflight pattern from codex/news.
 Affected files: bot_api_delegate_routes.go (+ test).
 Validation: `go test ./internal/routes/...`.
-Estimated complexity: XS · Regression risk: Low · Status: TODO
+Estimated complexity: XS · Regression risk: Low · Status: DONE (2026-08-27; generic panic-safe services.SingleFlight[T] added and applied to the realtime-stats cache-miss path — dashboard polling no longer stampedes the bot API on TTL expiry)
 
 ### TASK-023 — Cache schema-probe results (user_repo, backtest repos)
 Priority: P2 · Category: Performance / Database
@@ -244,7 +244,7 @@ Risk: ~10× query amplification on the hottest table.
 Proposed solution: `sync.Once`-cached column sets per table (schema fixed after startup migrations).
 Affected files: user_repo.go, backtest_repo.go, backtest_sync_repo.go (+ tests).
 Validation: `go test ./internal/repository/...`.
-Estimated complexity: S · Regression risk: Low · Status: TODO
+Estimated complexity: S · Regression risk: Low · Status: DONE (2026-08-27; shared cachedTableColumns helper keyed by DB pointer+table — user_repo/backtest repos no longer issue ~9 schema probes per read; per-test databases keyed separately)
 
 ### TASK-024 — Sync-health: replace N+1 with aggregate query
 Priority: P2 · Category: Performance / Database
@@ -254,7 +254,7 @@ Risk: Endpoint meltdown as runs accumulate.
 Proposed solution: Single aggregate (GROUP BY/lateral) per page; surface errors.
 Affected files: backtest_sync_repo.go (+ test).
 Validation: `go test ./internal/repository/...`.
-Estimated complexity: M · Regression risk: Medium · Status: TODO
+Estimated complexity: M · Regression risk: Medium · Status: DONE (2026-08-27; single aggregate query with scalar subselects replaces ~13 queries/run × limit; FK columns resolved once via schema cache; nullable timestamps compared in Go for dialect portability; dead helpers removed)
 
 ### TASK-025 — Remove Postgres-incompatible CAST AS CHAR fallback
 Priority: P2 · Category: Bug
@@ -274,7 +274,7 @@ Risk: Lost commands (bot actions silently never execute); goroutine pileup when 
 Proposed solution: `INSERT ... ON CONFLICT (idempotency_key) DO NOTHING` + fetch-existing; bound publish concurrency + WaitGroup; periodic reconcile of stale `pending` (JetStream Msg-Id dedupe makes re-publish safe).
 Affected files: task_repository.go, nats_command_service.go (+ tests).
 Validation: `go test ./internal/...`.
-Estimated complexity: M · Regression risk: Medium · Status: TODO
+Estimated complexity: M · Regression risk: Medium · Status: DONE (2026-08-27; ON CONFLICT idempotent create returns the existing command on retries; ListTaskCommandsPendingSince + ReconcilePendingCommands re-publish stale pendings with JetStream Msg-Id dedupe; reconciler ticker wired to the shutdown context)
 
 ### TASK-027 — Partner commission metrics: bucket default periods; aggregate latest per user
 Priority: P2 · Category: Database / Correctness (money)
@@ -284,7 +284,7 @@ Risk: Financial reporting overstates commissions.
 Proposed solution: Round periods to day/month boundaries (or require explicit); aggregate `DISTINCT ON (user_id)` latest-period rows.
 Affected files: portal_routes.go, partner_commission_metric_repo.go (+ tests).
 Validation: `go test ./internal/routes/... ./internal/repository/...`.
-Estimated complexity: S · Regression risk: Medium (money semantics — verify business intent) · Status: TODO
+Estimated complexity: S · Regression risk: Medium (money semantics — verify business intent) · Status: DONE (2026-08-27; periods truncated to UTC day boundaries with start<end validation; AggregateByUsers sums DISTINCT ON latest period per user — repeated ingests no longer inflate commission totals)
 
 ### TASK-028 — Request body size limits + shared pagination clamping
 Priority: P2 · Category: API / Security
@@ -294,7 +294,7 @@ Risk: DoS vectors; unbounded DB scans.
 Proposed solution: Global `http.MaxBytesReader` (e.g. 10MB; tighter where sensible); shared `clampInt(name, def, min, max)` helper applied to all list endpoints.
 Affected files: app/router.go, delegate routes, auditlog handler (+ tests).
 Validation: `go test ./internal/...`.
-Estimated complexity: S · Regression risk: Low · Status: TODO
+Estimated complexity: S · Regression risk: Low · Status: DONE (2026-08-27; global http.MaxBytesReader 10MB middleware; parseBoundedIntQuery applied to limit (1..1000), days (1..365), hours (1..720) across delegated endpoints; analytics hours capped at 720)
 
 ### TASK-029 — Drop query-string access token; default-deny CORS
 Priority: P2 · Category: Security
@@ -304,7 +304,7 @@ Risk: Token leakage; credentialed cross-origin reads in misconfigured deploys.
 Proposed solution: Remove query-param path (coordinate frontend first — check usage); CORS allowlist-only with credentials echo only for allowed origins.
 Affected files: auth_token.go, middleware.go (+ tests).
 Validation: `go test ./internal/middleware/...`; frontend grep for `access_token=` query usage.
-Estimated complexity: S · Regression risk: Medium (may break WS clients using query tokens — provide migration note) · Status: TODO
+Estimated complexity: S · Regression risk: Medium (may break WS clients using query tokens — provide migration note) · Status: DONE (2026-08-27; query-string access_token now accepted ONLY on WebSocket upgrade requests — browsers cannot set WS headers, and the frontend's WS URLs use it; all other requests must use Authorization/cookies. CORS default-deny: unconfigured non-prod allows only loopback origins instead of every origin)
 
 ### TASK-030 — Gate analytics routes with permission
 Priority: P2 · Category: Security
@@ -314,7 +314,7 @@ Risk: Tenant data exposure to any account.
 Proposed solution: `RequirePermission(database, "analytics.read")` or admin gate (confirm intended audience with product owner).
 Affected files: analytics_routes.go (+ tests).
 Validation: `go test ./internal/app/...`.
-Estimated complexity: XS · Regression risk: Medium (dashboard may rely on it) · Status: TODO
+Estimated complexity: XS · Regression risk: Medium (dashboard may rely on it) · Status: DONE (2026-08-27; routes now RequirePermission(analytics.read) + analytics.read added to admin/super_admin fallback maps so operators keep access; other roles grantable via RBAC — dashboards needing it must grant the permission)
 
 ### TASK-031 — Revoke sessions/refresh tokens on password change; invalidate old refresh on rotation
 Priority: P2 · Category: Security
@@ -324,7 +324,7 @@ Risk: Post-compromise persistence.
 Proposed solution: Delete user's sessions from store + clear cookies on password change; server-side refresh-token registry (Redis) with reuse detection.
 Affected files: auth_routes.go, internal/auth/session_store.go (+ tests).
 Validation: `go test ./internal/routes/... ./internal/auth/...`.
-Estimated complexity: M · Regression risk: Medium · Status: TODO
+Estimated complexity: M · Regression risk: Medium · Status: DONE (2026-08-27, scoped: password change bumps a per-user session generation — all existing sessions for the account die with the attacker's; cookies cleared; new sessions unaffected; unit test covers revoke/issue/other-user. REMAINING: legacy refresh JWTs still exchange without revocation — needs the server-side registry called out in remaining risks)
 
 ### TASK-032 — db.go wrapper ctx-cancellation fix; migration Force() guard tightening
 Priority: P2 · Category: Reliability
@@ -334,7 +334,7 @@ Risk: Future adopters hit "context canceled"; dev/staging schema drift.
 Proposed solution: Caller-owned ctx; restrict Force to clean dirty-flag recovery; delete dead block; fix nil-DB `Close()` flag.
 Affected files: internal/db/db.go (+ tests).
 Validation: `go test ./internal/db/...`.
-Estimated complexity: S · Regression risk: Low · Status: TODO
+Estimated complexity: S · Regression risk: Low · Status: DONE (2026-08-27; Query/QueryRow/Exec converted to caller-context signatures (self-cancelling wrappers removed), BeginTx no longer kills the tx after BEGIN, Close marks closed even on nil DB, dead duplicate-instance migration recovery block deleted)
 
 ### TASK-033 — Registration: replace compensation-delete with transaction
 Priority: P2 · Category: Database
@@ -344,7 +344,7 @@ Risk: Orphan users; invite accounting drift.
 Proposed solution: Single tx: INSERT user + UPDATE token.
 Affected files: auth_routes.go (+ tests).
 Validation: `go test ./internal/routes/...`.
-Estimated complexity: S · Regression risk: Low · Status: TODO
+Estimated complexity: S · Regression risk: Low · Status: DONE (2026-08-27; user INSERT + token Redeem commit atomically in one transaction; compensation-delete path removed; InvitationTokenRepository gained WithTx)
 
 ### TASK-034 — LOWER(status) index-defeating admission query
 Priority: P2 · Category: Performance / Database
@@ -354,7 +354,7 @@ Risk: Admission check degrades with run volume.
 Proposed solution: Trust normalized-lowercase writes (write path already normalizes); one-time `UPDATE ... SET status=LOWER(status)` migration; keep `LOWER()` only on the write side.
 Affected files: backtest_repo.go + migration (+ tests).
 Validation: `go test ./internal/repository/...`.
-Estimated complexity: S · Regression risk: Low · Status: TODO
+Estimated complexity: S · Regression risk: Low · Status: DONE (2026-08-27; user INSERT + token Redeem now commit atomically; compensation-delete path removed; InvitationTokenRepository gained WithTx)
 
 ### TASK-035 — Async NATS publish bounding + publisher ctx use
 Priority: P2 · Category: Reliability
@@ -364,7 +364,7 @@ Risk: Goroutine pileup; wasted round-trips.
 Proposed solution: Semaphore-bounded worker; cache ensured streams; honor ctx.
 Affected files: nats_command_service.go, publisher.go (+ tests).
 Validation: `go test ./internal/...`.
-Estimated complexity: S · Regression risk: Low · Status: TODO
+Estimated complexity: S · Regression risk: Low · Status: DONE (2026-08-27; CreateTaskCommand uses ON CONFLICT (idempotency_key) DO NOTHING + fetch-existing so retries return the original command; ListTaskCommandsPendingSince + ReconcilePendingCommands re-publish stale pendings (JetStream Msg-Id dedupe makes it safe); reconciler ticker wired to the shutdown context)
 
 ---
 
@@ -486,3 +486,4 @@ Estimated complexity: L · Regression risk: None (test-only) · Status: TODO
 | TASK-010 | DONE (fully, 2026-08-27) | Ownership middleware on delegated /api/v1/bots/:instance_id group: admins bypass, foreign/unknown instances 404, nil registry 503, quick-deploy unaffected; repo not-found-as-error mapped to 404. TestDelegateBotRoutes_EnforceInstanceOwnership covers foreign/unknown/owner/admin. |
 | TASK-020 | DONE | News/codex singleflight made panic-safe: deferred cleanup + recover→error; a panicking fetch no longer wedges the key or returns empty success to waiters. |
 | TASK-025 | DONE | bot_instances compat fallback: CAST AS CHAR → CAST AS TEXT (length-1 truncation on Postgres fixed). |
+| P2 batch (2026-08-27) | DONE | TASK-022 generic panic-safe SingleFlight + realtime-stats coalescing; TASK-023 shared schema-probe cache (DB-pointer keyed); TASK-024 sync-health N+1 → single aggregate query (~13 q/run → 1 total); TASK-026 idempotent command create + pending reconciler ticker; TASK-027 commission periods day-bucketed + DISTINCT-ON aggregation (money correctness); TASK-028 10MB global body cap + bounded limit/days/hours parsing; TASK-029 query-token restricted to WS upgrades + loopback-only default CORS; TASK-030 analytics permission gate (analytics.read, admin fallback); TASK-031 password-change session revocation via generation counters (unit-tested); TASK-032 db.Database caller-context wrappers + Close fix + dead recovery removed; TASK-033 registration transaction; TASK-034 LOWER(status) removed + normalization migration 000068; TASK-035 NATS publish bounding (16-slot limiter) + publisher ctx honoring + stream-ensure caching; TASK-019 telemetry user_id int fix + batch writer wired with safe lifecycle; TASK-021 candle prefetch singleflight (page-wise layout deferred). TASK-018 DEFERRED with phase plan. |

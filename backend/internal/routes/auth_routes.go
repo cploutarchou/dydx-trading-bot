@@ -623,42 +623,68 @@ func registerHandler(database *sql.DB) gin.HandlerFunc {
 			PasswordChangeRequired: false,
 		}
 
-		err = userRepo.Create(user)
-		if err != nil {
-			log.Printf("Failed to create user: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{
-				"success": false,
-				"error":   "User already exists",
-			})
-			return
-		}
-
+		// User creation and one-time invitation redemption must commit
+		// atomically: the historical compensation-delete could itself fail and
+		// leave an orphan user with a consumed-or-not invite.
 		if requiresOneTimeTokenRedemption {
+			tx, txErr := database.BeginTx(c.Request.Context(), nil)
+			if txErr != nil {
+				log.Printf("Failed to open registration transaction: %v", txErr)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"error":   "Failed to register user",
+				})
+				return
+			}
+			committed := false
+			defer func() {
+				if !committed {
+					_ = tx.Rollback()
+				}
+			}()
+
+			if err := userRepo.WithTx(tx).Create(user); err != nil {
+				log.Printf("Failed to create user: %v", err)
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success": false,
+					"error":   "User already exists",
+				})
+				return
+			}
+
 			invitationRepo := repository.NewInvitationTokenRepository(database)
-			redeemed, redeemErr := invitationRepo.Redeem(providedCode, user.ID)
+			redeemed, redeemErr := invitationRepo.WithTx(tx).Redeem(providedCode, user.ID)
 			if redeemErr != nil {
-				log.Printf("Failed to redeem invitation token after user creation: %v", redeemErr)
-				_ = userRepo.Delete(user.ID)
+				log.Printf("Failed to redeem invitation token: %v", redeemErr)
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"success": false,
 					"error":   "Failed to validate invitation token",
 				})
 				return
 			}
-
 			if !redeemed {
-				if deleteErr := userRepo.Delete(user.ID); deleteErr != nil {
-					log.Printf("Failed to rollback user after invalid invitation token redemption: %v", deleteErr)
-					c.JSON(http.StatusInternalServerError, gin.H{
-						"success": false,
-						"error":   "Invitation token validation failed and rollback was incomplete",
-					})
-					return
-				}
-
 				c.JSON(http.StatusForbidden, gin.H{
 					"success": false,
 					"error":   "Invitation code is invalid or already used",
+				})
+				return
+			}
+			if commitErr := tx.Commit(); commitErr != nil {
+				log.Printf("Failed to commit registration transaction: %v", commitErr)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"error":   "Failed to register user",
+				})
+				return
+			}
+			committed = true
+		} else {
+			err = userRepo.Create(user)
+			if err != nil {
+				log.Printf("Failed to create user: %v", err)
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success": false,
+					"error":   "User already exists",
 				})
 				return
 			}
@@ -1178,6 +1204,17 @@ func changePasswordHandler(database *sql.DB) gin.HandlerFunc {
 			})
 			return
 		}
+
+		// A password change revokes every session issued for the account (an
+		// attacker holding an active session is logged out with the victim);
+		// the client must sign in again. Legacy refresh JWTs are not covered —
+		// they need the server-side registry tracked in the improvement plan.
+		if store := middleware.AuthSessionStore(); store != nil {
+			if err := store.BumpUserGeneration(c.Request.Context(), user.ID); err != nil {
+				log.Printf("changePasswordHandler: failed to revoke sessions for user=%d: %v", user.ID, err)
+			}
+		}
+		clearAuthCookies(c)
 
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,

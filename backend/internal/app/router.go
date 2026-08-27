@@ -22,6 +22,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// maxRequestBodyBytes caps how much any single request may read into memory.
+const maxRequestBodyBytes = 10 << 20
+
 type Dependencies struct {
 	Database        *db.Database
 	BotAPIClient    *services.BotAPIClient
@@ -91,14 +94,30 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 
 	router.Use(middleware.RequestTraceMiddleware())
 	router.Use(middleware.ErrorHandlingMiddleware())
+	// Cap request bodies globally: unauthenticated JSON endpoints must not be
+	// usable as memory-exhaustion vectors. Legitimate backtest/strategy
+	// payloads fit well below the cap.
+	router.Use(func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBodyBytes)
+		c.Next()
+	})
 	router.Use(middleware.CORSMiddleware())
 	router.Use(middleware.HeaderLoggingMiddleware())
 	router.Use(middleware.RequestLoggingMiddleware())
 	router.Use(middleware.RateLimitMiddleware(100, 200))
 
-	// API request events middleware - captures telemetry for ClickHouse (best effort)
+	// API request events middleware - captures telemetry for ClickHouse (best
+	// effort) through a bounded batching writer instead of one goroutine+INSERT
+	// per request; the writer drains when the process lifecycle ends.
 	if cfg.ClickHouse.Enabled {
-		router.Use(middleware.APIRequestEventsMiddleware(cfg))
+		clickHouseReader := services.NewClickHouseReader(cfg.ClickHouse)
+		batchWriter := middleware.NewAPIRequestEventBatchWriter(
+			services.NewAPIRequestWriter(clickHouseReader), 64, 5*time.Second)
+		router.Use(middleware.APIRequestEventsMiddlewareWithBatchWriter(batchWriter))
+		go func() {
+			<-deps.rootContext().Done()
+			batchWriter.Close()
+		}()
 	}
 	router.Use(gzip.Gzip(
 		gzip.DefaultCompression,
@@ -158,13 +177,34 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 	}
 
 	registerFeatureRoutes(deps.rootContext(), router, deps.Database, deps.BotAPIClient, deps.CacheService, deps.BacktestPushHub, taskRepo, natsPublisher, natsCommandService)
+
+	// Periodically re-publish task commands stuck in "pending" (lost publishes
+	// from NATS outages or restarts). JetStream's Msg-Id dedupe makes this safe.
+	if natsCommandService != nil {
+		go func() {
+			ticker := time.NewTicker(time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-deps.rootContext().Done():
+					return
+				case <-ticker.C:
+					ctx, cancel := context.WithTimeout(deps.rootContext(), 30*time.Second)
+					if _, err := natsCommandService.ReconcilePendingCommands(ctx, 2*time.Minute, 50); err != nil {
+						log.Printf("NATS pending-command reconciler error: %v", err)
+					}
+					cancel()
+				}
+			}
+		}()
+	}
 	registerDebugRoutes(router, deps.Database)
 
 	// Backend-owned ClickHouse read models. Each reader is nil when ClickHouse is
 	// disabled (the checked-in default), in which case analytics routes fail
 	// closed with enabled=false instead of erroring.
 	clickHouseReader := services.NewClickHouseReader(cfg.ClickHouse)
-	registerAnalyticsRoutes(router,
+	registerAnalyticsRoutes(router, deps.Database.DB,
 		services.NewLivePositionReader(clickHouseReader),
 		services.NewLiveTradeSummaryReader(clickHouseReader),
 		services.NewLivePairBreakdownReader(clickHouseReader),

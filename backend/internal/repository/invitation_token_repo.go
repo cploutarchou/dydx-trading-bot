@@ -13,8 +13,13 @@ import (
 
 // InvitationTokenRepository manages one-time / limited-use registration invitation tokens.
 type InvitationTokenRepository struct {
-	db       *sql.DB
+	db       SQLRunner
 	dbDriver string
+}
+
+// WithTx returns a copy of the repository that executes within tx.
+func (r *InvitationTokenRepository) WithTx(tx *sql.Tx) *InvitationTokenRepository {
+	return &InvitationTokenRepository{db: tx, dbDriver: r.dbDriver}
 }
 
 func NewInvitationTokenRepository(db *sql.DB) *InvitationTokenRepository {

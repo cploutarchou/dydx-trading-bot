@@ -71,7 +71,7 @@ func authSessionHandler(database *sql.DB) gin.HandlerFunc {
 type RegisterRequest struct {
 	Username       string `json:"username" binding:"required"`
 	Email          string `json:"email" binding:"required,email"`
-	Password       string `json:"password" binding:"required,min=6"`
+	Password       string `json:"password" binding:"required,min=8"`
 	InvitationCode string `json:"invitation_code"`
 }
 
@@ -935,7 +935,7 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 		requestIP := c.ClientIP()
 		userAgent := c.GetHeader("User-Agent")
 		if err != nil {
-			log.Printf("User not found: %s, error: %v", req.Username, err)
+			log.Printf("login failed: unknown username (error: %v)", err)
 			logSecurityLoginEvent(database, nil, req.Username, "login", "failure", "invalid_credentials", requestIP, userAgent)
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success": false,
@@ -945,7 +945,7 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		if user == nil {
-			log.Printf("User not found: %s", req.Username)
+			log.Printf("login failed: unknown username")
 			logSecurityLoginEvent(database, nil, req.Username, "login", "failure", "invalid_credentials", requestIP, userAgent)
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success": false,
@@ -983,7 +983,7 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 
 		err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password))
 		if err != nil {
-			log.Printf("Password mismatch for user: %s", req.Username)
+			log.Printf("login failed: password mismatch")
 			incrementFailedLogin(database, user.ID)
 			logSecurityLoginEvent(database, &user.ID, user.Username, "login", "failure", "invalid_credentials", requestIP, userAgent)
 			if failedAttempts+1 >= maxFailedLoginAttempts {

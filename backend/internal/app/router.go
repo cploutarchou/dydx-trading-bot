@@ -287,6 +287,15 @@ func startICOEmailOutboxWorker(workerCtx context.Context, sqlDB *sql.DB) {
 func registerDebugRoutes(router *gin.Engine, database *db.Database) {
 	debug := router.Group("/api/v1/debug")
 	debug.Use(middleware.RequireAuth())
+	// Debug echo endpoints can surface request internals; restrict to admins.
+	debug.Use(func(c *gin.Context) {
+		if !c.GetBool("is_admin") {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "admin only"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	})
 
 	debug.GET("/headers", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{

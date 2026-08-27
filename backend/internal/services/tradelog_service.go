@@ -39,7 +39,7 @@ func (s *TradeLogService) CreateTradeLog(ownerUserID int, tradeLog *models.Trade
 		return nil, fmt.Errorf("invalid result_id_fk")
 	}
 	if tradeLog.EntryTimestamp == nil {
-		now := time.Now().UTC()
+		now := time.Now().UTC().UTC()
 		tradeLog.EntryTimestamp = &now
 	}
 

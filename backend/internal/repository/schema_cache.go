@@ -50,3 +50,30 @@ func cachedTableColumns(db SQLRunner, table string) (map[string]struct{}, error)
 	schemaColumnsMu.Unlock()
 	return cols, nil
 }
+
+// bindPlaceholders rewrites ?-style positional placeholders to PostgreSQL $n
+// form, skipping ? characters inside single-quoted string literals. It is the
+// single shared implementation behind every repository's bindQuery method.
+func bindPlaceholders(driver, query string) string {
+	if !strings.Contains(strings.ToLower(driver), "postgres") {
+		return query
+	}
+	var b strings.Builder
+	b.Grow(len(query) + 16)
+	idx := 1
+	inLiteral := false
+	for i := 0; i < len(query); i++ {
+		ch := query[i]
+		switch {
+		case ch == '\'' && (i == 0 || query[i-1] != '\\'):
+			inLiteral = !inLiteral
+			b.WriteByte(ch)
+		case ch == '?' && !inLiteral:
+			b.WriteString(fmt.Sprintf("$%d", idx))
+			idx++
+		default:
+			b.WriteByte(ch)
+		}
+	}
+	return b.String()
+}

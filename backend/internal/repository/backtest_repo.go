@@ -67,24 +67,7 @@ func isAdvisoryLockUnsupportedError(err error) bool {
 }
 
 func (r *BacktestRepository) bindQuery(query string) string {
-	if r == nil {
-		return query
-	}
-	if !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
-		return query
-	}
-	var builder strings.Builder
-	builder.Grow(len(query) + 16)
-	argIndex := 1
-	for i := 0; i < len(query); i++ {
-		if query[i] == '?' {
-			builder.WriteString(fmt.Sprintf("$%d", argIndex))
-			argIndex++
-			continue
-		}
-		builder.WriteByte(query[i])
-	}
-	return builder.String()
+	return bindPlaceholders(r.dbDriver, query)
 }
 
 func (r *BacktestRepository) withInProcessAdmissionLock(userID int, fn func() error) error {

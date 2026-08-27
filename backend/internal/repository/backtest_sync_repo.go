@@ -185,24 +185,7 @@ func (r *BacktestSyncRepository) DB() *sql.DB {
 }
 
 func (r *BacktestSyncRepository) bindQuery(query string) string {
-	if r == nil {
-		return query
-	}
-	if !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
-		return query
-	}
-	var builder strings.Builder
-	builder.Grow(len(query) + 16)
-	argIndex := 1
-	for i := 0; i < len(query); i++ {
-		if query[i] == '?' {
-			builder.WriteString(fmt.Sprintf("$%d", argIndex))
-			argIndex++
-			continue
-		}
-		builder.WriteByte(query[i])
-	}
-	return builder.String()
+	return bindPlaceholders(r.dbDriver, query)
 }
 
 func (r *BacktestSyncRepository) runExists(runID string) (bool, error) {
@@ -342,6 +325,19 @@ func (r *BacktestSyncRepository) UpsertBacktestTrades(runID string, items []Back
 			return err
 		}
 
+		// One transaction per batch so a mid-list failure cannot leave a
+		// partially materialized run visible to readers.
+		tx, txErr := r.db.Begin()
+		if txErr != nil {
+			return fmt.Errorf("failed to open %s sync transaction: %w", "trades", txErr)
+		}
+		committed := false
+		defer func() {
+			if !committed {
+				_ = tx.Rollback()
+			}
+		}()
+
 		for _, item := range items {
 			if strings.TrimSpace(item.TradeID) == "" {
 				continue
@@ -401,7 +397,7 @@ func (r *BacktestSyncRepository) UpsertBacktestTrades(runID string, items []Back
 				slippage = EXCLUDED.slippage
 		`, fkColumn, fkColumn, fkColumn)
 
-			if _, err := r.db.Exec(
+			if _, err := tx.Exec(
 				r.bindQuery(upsertQuery),
 				runPK,
 				item.TradeID,
@@ -430,6 +426,10 @@ func (r *BacktestSyncRepository) UpsertBacktestTrades(runID string, items []Back
 			}
 		}
 
+		if commitErr := tx.Commit(); commitErr != nil {
+			return fmt.Errorf("failed to commit %s sync: %w", "trades", commitErr)
+		}
+		committed = true
 		return nil
 	})
 }
@@ -443,6 +443,19 @@ func (r *BacktestSyncRepository) UpsertBacktestPositions(runID string, items []B
 		if err != nil {
 			return err
 		}
+
+		// One transaction per batch so a mid-list failure cannot leave a
+		// partially materialized run visible to readers.
+		tx, txErr := r.db.Begin()
+		if txErr != nil {
+			return fmt.Errorf("failed to open %s sync transaction: %w", "positions", txErr)
+		}
+		committed := false
+		defer func() {
+			if !committed {
+				_ = tx.Rollback()
+			}
+		}()
 
 		for _, item := range items {
 			if strings.TrimSpace(item.PositionID) == "" {
@@ -506,7 +519,7 @@ func (r *BacktestSyncRepository) UpsertBacktestPositions(runID string, items []B
 				realized_pnl = EXCLUDED.realized_pnl
 		`, fkColumn, fkColumn, fkColumn)
 
-			if _, err := r.db.Exec(
+			if _, err := tx.Exec(
 				r.bindQuery(upsertQuery),
 				runPK,
 				item.PositionID,
@@ -533,6 +546,10 @@ func (r *BacktestSyncRepository) UpsertBacktestPositions(runID string, items []B
 			}
 		}
 
+		if commitErr := tx.Commit(); commitErr != nil {
+			return fmt.Errorf("failed to commit %s sync: %w", "positions", commitErr)
+		}
+		committed = true
 		return nil
 	})
 }
@@ -546,6 +563,19 @@ func (r *BacktestSyncRepository) UpsertBacktestCandles(runID string, items []Bac
 		if err != nil {
 			return err
 		}
+
+		// One transaction per batch so a mid-list failure cannot leave a
+		// partially materialized run visible to readers.
+		tx, txErr := r.db.Begin()
+		if txErr != nil {
+			return fmt.Errorf("failed to open %s sync transaction: %w", "candles", txErr)
+		}
+		committed := false
+		defer func() {
+			if !committed {
+				_ = tx.Rollback()
+			}
+		}()
 
 		for _, item := range items {
 			if item.Timestamp == nil || strings.TrimSpace(item.Market) == "" {
@@ -571,7 +601,7 @@ func (r *BacktestSyncRepository) UpsertBacktestCandles(runID string, items []Bac
 				volume = EXCLUDED.volume,
 				trades_count = EXCLUDED.trades_count
 		`, fkColumn, fkColumn)
-			if _, err := r.db.Exec(
+			if _, err := tx.Exec(
 				r.bindQuery(upsertQuery),
 				runPK,
 				item.Market,
@@ -589,6 +619,10 @@ func (r *BacktestSyncRepository) UpsertBacktestCandles(runID string, items []Bac
 			}
 		}
 
+		if commitErr := tx.Commit(); commitErr != nil {
+			return fmt.Errorf("failed to commit %s sync: %w", "candles", commitErr)
+		}
+		committed = true
 		return nil
 	})
 }

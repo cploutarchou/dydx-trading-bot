@@ -218,10 +218,14 @@ func (cs *CacheService) GetCacheStats() map[string]interface{} {
 	info := cs.client.Info(ctx, "stats")
 	keys := cs.client.DBSize(ctx)
 
+	status := "operational"
+	if info.Err() != nil || keys.Err() != nil {
+		status = "degraded"
+	}
 	return map[string]interface{}{
 		"info":    info.Val(),
 		"db_size": keys.Val(),
-		"status":  "operational",
+		"status":  status,
 	}
 }
 

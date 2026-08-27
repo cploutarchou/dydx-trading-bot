@@ -106,7 +106,8 @@ func (h *ICOMailgunWebhookHandler) verify(timestamp, token, signature string) bo
 	if err != nil {
 		return false
 	}
-	if h.now().Sub(time.Unix(parsedTimestamp, 0)) > 15*time.Minute {
+	// Two-sided window: future-dated signed replays must fail too.
+	if age := h.now().Sub(time.Unix(parsedTimestamp, 0)); age > 15*time.Minute || age < -5*time.Minute {
 		return false
 	}
 	mac := hmac.New(sha256.New, []byte(key))

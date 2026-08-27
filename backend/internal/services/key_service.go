@@ -88,8 +88,8 @@ func (s *KeyManagementService) CreateKey(userID int, network string, chainAddres
 		SecretHash:      hashSecretValue(secretPhrase),
 		SecretMasked:    maskSecretValue(secretPhrase),
 		IsActive:        true,
-		CreatedAt:       time.Now(),
-		UpdatedAt:       time.Now(),
+		CreatedAt:       time.Now().UTC(),
+		UpdatedAt:       time.Now().UTC(),
 	}
 
 	if err := s.repo.CreateKey(key); err != nil {

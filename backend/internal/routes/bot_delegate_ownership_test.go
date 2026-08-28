@@ -23,6 +23,11 @@ func setupDelegateBotOwnershipRouter(t *testing.T) (*gin.Engine, *sql.DB) {
 	gin.SetMode(gin.TestMode)
 
 	t.Setenv("JWT_SECRET_KEY", delegateOwnershipTestJWTSecret)
+	// Pin SECRET_KEY too: constructing a BotAPIClient triggers the structured
+	// config auto-load, which persistently exports any *empty* env var from
+	// the (now decryptable) dev profile — unpinned secrets would leak into
+	// every later test in this package.
+	t.Setenv("SECRET_KEY", delegateOwnershipTestJWTSecret)
 	t.Setenv("APP_ENV", "development")
 	t.Setenv("AUTH_RETURN_LEGACY_TOKENS", "false")
 	if err := config.LoadConfig(); err != nil {

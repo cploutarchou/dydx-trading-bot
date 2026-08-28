@@ -149,10 +149,17 @@ type CandleFilter struct {
 }
 
 func (r *BacktestRepository) GetRunByID(runID string) (*models.BacktestRun, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultQueryTimeout)
+	defer cancel()
+	return r.GetRunByIDContext(ctx, runID)
+}
+
+// GetRunByIDContext loads a run stub by its public run id, honouring cancellation.
+func (r *BacktestRepository) GetRunByIDContext(ctx context.Context, runID string) (*models.BacktestRun, error) {
 	query := "SELECT id FROM backtest_runs WHERE run_id = ? LIMIT 1"
 
 	run := &models.BacktestRun{}
-	err := r.db.QueryRow(r.bindQuery(query), runID).Scan(&run.ID)
+	err := r.db.QueryRowContext(ctx, r.bindQuery(query), runID).Scan(&run.ID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -164,10 +171,17 @@ func (r *BacktestRepository) GetRunByID(runID string) (*models.BacktestRun, erro
 }
 
 func (r *BacktestRepository) GetRunOwnerID(runID string) (*int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultQueryTimeout)
+	defer cancel()
+	return r.GetRunOwnerIDContext(ctx, runID)
+}
+
+// GetRunOwnerIDContext resolves a run's owner, honouring cancellation.
+func (r *BacktestRepository) GetRunOwnerIDContext(ctx context.Context, runID string) (*int, error) {
 	query := "SELECT user_id FROM backtest_runs WHERE run_id = ? LIMIT 1"
 
 	var owner sql.NullInt64
-	err := r.db.QueryRow(r.bindQuery(query), runID).Scan(&owner)
+	err := r.db.QueryRowContext(ctx, r.bindQuery(query), runID).Scan(&owner)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -568,6 +582,13 @@ func (r *BacktestRepository) getTableColumns(tableName string) (map[string]struc
 }
 
 func (r *BacktestRepository) GetRunsByUserID(userID int, skip int, limit int) ([]models.BacktestRun, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultQueryTimeout)
+	defer cancel()
+	return r.GetRunsByUserIDContext(ctx, userID, skip, limit)
+}
+
+// GetRunsByUserIDContext lists a user's runs, honouring cancellation.
+func (r *BacktestRepository) GetRunsByUserIDContext(ctx context.Context, userID int, skip int, limit int) ([]models.BacktestRun, error) {
 	// Excludes heavy JSON blobs (config, strategy_snapshot) — these are only needed on the detail
 	// view and can easily double/triple per-row payload size for large backtests.
 	query := `
@@ -583,7 +604,7 @@ func (r *BacktestRepository) GetRunsByUserID(userID int, skip int, limit int) ([
 		LIMIT ? OFFSET ?
 	`
 
-	rows, err := r.db.Query(r.bindQuery(query), userID, limit, skip)
+	rows, err := r.db.QueryContext(ctx, r.bindQuery(query), userID, limit, skip)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query backtest runs: %w", err)
 	}
@@ -643,8 +664,15 @@ func (r *BacktestRepository) GetRunsByUserID(userID int, skip int, limit int) ([
 }
 
 func (r *BacktestRepository) CountRunsByUserID(userID int) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultQueryTimeout)
+	defer cancel()
+	return r.CountRunsByUserIDContext(ctx, userID)
+}
+
+// CountRunsByUserIDContext counts a user's runs, honouring cancellation.
+func (r *BacktestRepository) CountRunsByUserIDContext(ctx context.Context, userID int) (int, error) {
 	var count int
-	if err := r.db.QueryRow(r.bindQuery(`SELECT COUNT(*) FROM backtest_runs WHERE user_id = ?`), userID).Scan(&count); err != nil {
+	if err := r.db.QueryRowContext(ctx, r.bindQuery(`SELECT COUNT(*) FROM backtest_runs WHERE user_id = ?`), userID).Scan(&count); err != nil {
 		return 0, fmt.Errorf("failed to count backtest runs: %w", err)
 	}
 	return count, nil
@@ -941,6 +969,14 @@ func (r *BacktestRepository) GetRunsByStrategyID(userID int, strategyID int, lim
 }
 
 func (r *BacktestRepository) CountActiveRunsByUserID(userID int) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultQueryTimeout)
+	defer cancel()
+	return r.CountActiveRunsByUserIDContext(ctx, userID)
+}
+
+// CountActiveRunsByUserIDContext counts a user's in-flight runs (admission
+// check on every backtest submission), honouring cancellation.
+func (r *BacktestRepository) CountActiveRunsByUserIDContext(ctx context.Context, userID int) (int, error) {
 	query := `
 			SELECT COUNT(*)
 			FROM backtest_runs
@@ -953,7 +989,7 @@ func (r *BacktestRepository) CountActiveRunsByUserID(userID int) (int, error) {
 		`
 
 	var count int
-	if err := r.db.QueryRow(r.bindQuery(query), userID).Scan(&count); err != nil {
+	if err := r.db.QueryRowContext(ctx, r.bindQuery(query), userID).Scan(&count); err != nil {
 		return 0, fmt.Errorf("failed to count active backtest runs: %w", err)
 	}
 	return count, nil

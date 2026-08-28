@@ -684,6 +684,53 @@ jobs:
     # ---------------------------------------------------------------------------
     # Gate — all checks must pass
     # ---------------------------------------------------------------------------
+    backend-tests:
+        name: Backend tests (Go)
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        services:
+            postgres:
+                # Enables the env-gated Postgres critical-path harness
+                # (POSTGRES_TEST_DSN) that guards placeholder/argument drift —
+                # the bug class sqlite/sqlmock tests cannot catch.
+                image: postgres:15.18-bookworm
+                env:
+                    POSTGRES_USER: dydx_bot
+                    POSTGRES_PASSWORD: change-me-db-password
+                    POSTGRES_DB: dydx_bot
+                ports:
+                    - 127.0.0.1:5432:5432
+                options: >-
+                    --health-cmd "pg_isready -U dydx_bot -d dydx_bot"
+                    --health-interval 5s
+                    --health-timeout 5s
+                    --health-retries 20
+        env:
+            POSTGRES_TEST_DSN: postgres://dydx_bot:change-me-db-password@127.0.0.1:5432/dydx_bot?sslmode=disable
+        defaults:
+            run:
+                working-directory: backend
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v7
+
+            - name: Set up Go
+              uses: actions/setup-go@v7
+              with:
+                  go-version-file: backend/go.mod
+                  cache: true
+                  cache-dependency-path: backend/go.sum
+
+            - name: Build
+              run: go build ./...
+
+            - name: Vet
+              run: go vet ./... && go vet -tags integration ./internal/routes/
+
+            - name: Unit tests
+              run: go test -race -count=1 ./...
+
     quality-gate:
         name: Quality gate
         runs-on: ubuntu-latest
@@ -693,6 +740,7 @@ jobs:
             - bot-typecheck
             - bot-multiworker
             - bot-integration
+            - backend-tests
             - docker-compose-validate
             - k8s-secret-scan
             - kustomize-validate

@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -220,7 +221,18 @@ func (r *UserRepository) Create(user *models.User) error {
 }
 
 // GetByID retrieves a user by ID
+// defaultQueryTimeout bounds context-less repository calls so the configured
+// QueryTimeout applies even before all callers propagate request contexts.
+const defaultQueryTimeout = 30 * time.Second
+
 func (r *UserRepository) GetByID(id int) (*models.User, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultQueryTimeout)
+	defer cancel()
+	return r.GetByIDContext(ctx, id)
+}
+
+// GetByIDContext retrieves a user by id, honouring the caller's cancellation.
+func (r *UserRepository) GetByIDContext(ctx context.Context, id int) (*models.User, error) {
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM users
@@ -228,7 +240,7 @@ func (r *UserRepository) GetByID(id int) (*models.User, error) {
 	`, r.selectUserColumns())
 
 	user := &models.User{}
-	err := r.db.QueryRow(r.bindQuery(query), id).Scan(
+	err := r.db.QueryRowContext(ctx, r.bindQuery(query), id).Scan(
 		&user.ID,
 		&user.Username,
 		&user.Email,
@@ -260,6 +272,13 @@ func (r *UserRepository) GetByID(id int) (*models.User, error) {
 
 // GetByUsername retrieves a user by username
 func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultQueryTimeout)
+	defer cancel()
+	return r.GetByUsernameContext(ctx, username)
+}
+
+// GetByUsernameContext retrieves a user by username, honouring cancellation.
+func (r *UserRepository) GetByUsernameContext(ctx context.Context, username string) (*models.User, error) {
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM users
@@ -267,7 +286,7 @@ func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
 	`, r.selectUserColumns())
 
 	user := &models.User{}
-	err := r.db.QueryRow(r.bindQuery(query), username).Scan(
+	err := r.db.QueryRowContext(ctx, r.bindQuery(query), username).Scan(
 		&user.ID,
 		&user.Username,
 		&user.Email,
@@ -299,6 +318,13 @@ func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
 
 // GetByEmail retrieves a user by email
 func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultQueryTimeout)
+	defer cancel()
+	return r.GetByEmailContext(ctx, email)
+}
+
+// GetByEmailContext retrieves a user by email, honouring cancellation.
+func (r *UserRepository) GetByEmailContext(ctx context.Context, email string) (*models.User, error) {
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM users
@@ -306,7 +332,7 @@ func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
 	`, r.selectUserColumns())
 
 	user := &models.User{}
-	err := r.db.QueryRow(r.bindQuery(query), email).Scan(
+	err := r.db.QueryRowContext(ctx, r.bindQuery(query), email).Scan(
 		&user.ID,
 		&user.Username,
 		&user.Email,

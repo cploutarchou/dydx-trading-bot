@@ -194,7 +194,7 @@ Risk: Pool exhaustion under load; wasted DB work.
 Proposed solution: Incremental adoption: `QueryContext/ExecContext` with request ctx (handlers → services → repos); apply a default query timeout where ctx has none.
 Affected files: repos + services + handlers (phased).
 Validation: `go test ./...` per phase.
-Estimated complexity: L · Regression risk: Medium · Status: DEFERRED (2026-08-27; repo-wide ctx threading spans ~15 repos and every handler/service call site — deliberately not rushed. Groundwork landed: db.Database wrappers are caller-context (TASK-032), task/ico repos are contextual exemplars. Phase-1 candidate: BacktestRepository + UserRepository hot paths; QueryTimeout stays dead until adopted)
+Estimated complexity: L · Regression risk: Medium · Status: IN_PROGRESS → Phase 1 DONE (2026-08-28; ctx-accepting variants (GetX…Context) added for the hot read paths of UserRepository (GetByID/GetByUsername/GetByEmail) and BacktestRepository (GetRunByID/GetRunOwnerID/GetRunsByUserID/CountRunsByUserID/CountActiveRunsByUserID); SQLRunner extended with the context trio; request-scoped callers migrated (login, MFA middleware, backtest list/admission/ownership); legacy signatures delegate via Background()+30s so QueryTimeout is no longer dead config. Phase 2 (write paths + remaining repos) remains open., task/ico repos are contextual exemplars. Phase-1 candidate: BacktestRepository + UserRepository hot paths; QueryTimeout stays dead until adopted)
 
 ### TASK-019 — Telemetry: fix user_id type assertion; wire batch writer
 Priority: P2 · Category: Observability / Bug
@@ -378,7 +378,7 @@ Risk: Future wiring introduces panics/IDOR.
 Proposed solution: Delete dead files/functions or wire intentionally with ownership checks (coordinate TASK-009 first).
 Affected files: backtest_routes.go, backtest_handler.go dead paths, bot_api_client.go.
 Validation: `go build ./... && go test ./...`.
-Estimated complexity: XS · Regression risk: Low · Status: TODO
+Estimated complexity: XS · Regression risk: Low · Status: DONE (2026-08-28; unwired backtest_routes.go + dead backtest_handler.go deleted (APIResponse preserved in its own file), BotAPIClient.SetToken removed)
 
 ### TASK-037 — Unify response envelopes + stop leaking internal errors
 Priority: P3 · Category: API
@@ -388,7 +388,7 @@ Risk: Client integration fragility; information disclosure.
 Proposed solution: Domain-by-domain normalization to `{success,message,data,timestamp}` + generic 500 text with trace_id; classify 4xx vs 5xx via sentinel errors.
 Affected files: multiple handlers/routes (phased).
 Validation: `go test ./...` + contract-lock tests.
-Estimated complexity: L · Regression risk: Medium · Status: TODO
+Estimated complexity: L · Regression risk: Medium · Status: DONE (2026-08-28, scoped: 32 five-hundred-response sites across portal/backoffice/admin routes no longer echo internal error detail — detail goes to server logs, clients get the fixed message; full envelope unification DEFERRED as frontend-breaking, tracked in remaining risks)
 
 ### TASK-038 — Time/UTC consistency + candle end-date boundary
 Priority: P3 · Category: Bug
@@ -398,7 +398,7 @@ Risk: Off-by-one-day filters; inconsistent records.
 Proposed solution: `.UTC()` everywhere; end-date `+24h` exclusive bound; document timestamp contract with Python API.
 Affected files: services + repos (+ tests).
 Validation: `go test ./internal/...`.
-Estimated complexity: S · Regression risk: Low · Status: TODO
+Estimated complexity: S · Regression risk: Low · Status: DONE (2026-08-28; service-layer timestamps normalized to UTC (12 sites); candle end-date boundary had no live path after TASK-036 removed the dead handler — documented)
 
 ### TASK-039 — Migrate USD money columns to NUMERIC (phased)
 Priority: P3 · Category: Database / Correctness (money)
@@ -408,7 +408,7 @@ Risk: Financial reporting drift.
 Proposed solution: Phase 1: new/edited columns NUMERIC(20,8); Phase 2: ALTER ... USING on hottest aggregates (commissions, total_pnl_usd, bot_trades.pnl) with backfill verification; scan via decimal type where precision matters.
 Affected files: migrations, models, repos (phased).
 Validation: migration rehearsal on staging snapshot; value-equality checks.
-Estimated complexity: XL · Regression risk: High (data migration) · Status: TODO
+Estimated complexity: XL · Regression risk: High (data migration) · Status: DONE (2026-08-28, Phase 1: migration 000069 converts the payout-critical partner_commission_metrics USD columns DOUBLE PRECISION → NUMERIC(20,8) with reversible down; models keep float64 scanning. Phase 2 (backtest_runs/bot_trades REAL columns) deferred pending staging rehearsal)
 
 ### TASK-040 — bindQuery hardening / retirement
 Priority: P3 · Category: Maintainability
@@ -418,7 +418,7 @@ Risk: Repeat incidents.
 Proposed solution: Central shared implementation with literal-aware scanning; lint rule/tests asserting no `?\d` patterns; long-term migrate query strings to `$n` natively.
 Affected files: repos (+ shared helper + tests).
 Validation: `go test ./internal/repository/...`.
-Estimated complexity: M · Regression risk: Low · Status: TODO
+Estimated complexity: M · Regression risk: Low · Status: DONE (2026-08-28; single literal-aware bindPlaceholders implementation shared by all 15 repository bindQuery methods — ? inside string literals no longer corrupts, and the ?0-style accident class is centralized for future retirement)
 
 ### TASK-041 — Misc security/ops polish
 Priority: P3 · Category: Security / Observability
@@ -428,7 +428,7 @@ Risk: Low individually; hardening debt.
 Proposed solution: Item-by-item small fixes as listed in audit.
 Affected files: as listed.
 Validation: `go test ./internal/...`.
-Estimated complexity: M · Regression risk: Low · Status: TODO
+Estimated complexity: M · Regression risk: Low · Status: DONE (2026-08-28; secret masks show last-4 only; Mailgun webhook window two-sided; Telegram API calls bounded by a 10s client; rate-limiter cleanup interval const (race removed); GetCacheStats truthful degraded status; debug routes admin-gated; registration password min aligned to 8; usernames dropped from failed-login logs)
 
 ### TASK-042 — Backtest sync: batch upserts in transactions; per-run lock note
 Priority: P3 · Category: Database
@@ -438,7 +438,7 @@ Risk: Slow syncs; cross-replica interleaving.
 Proposed solution: `BeginTx` per batch or multi-row INSERT via unnest; document/accept lock scope.
 Affected files: backtest_sync_repo.go (+ tests).
 Validation: `go test ./internal/repository/...`.
-Estimated complexity: M · Regression risk: Medium · Status: TODO
+Estimated complexity: M · Regression risk: Medium · Status: DONE (2026-08-28; trades/positions/candles sync batches each commit in one transaction — mid-list failures can no longer leave partially materialized runs)
 
 ### TASK-043 — ICO outbox hardening (claim semantics, doc at-least-once)
 Priority: P3 · Category: Reliability
@@ -448,7 +448,7 @@ Risk: Duplicate emails (already possible); multi-replica double-send.
 Proposed solution: Claim column or SKIP LOCKED; per-entry timeout; document at-least-once.
 Affected files: ico_whitelist_repo.go, outbox service (+ tests).
 Validation: `go test ./internal/...`.
-Estimated complexity: S · Regression risk: Low · Status: TODO
+Estimated complexity: S · Regression risk: Low · Status: DONE (2026-08-28; outbox sent/failed transitions guarded by status IN ('pending','retry') so bookkeeping is single-writer across pollers; at-least-once delivery documented)
 
 ### TASK-044 — Add Postgres-backed integration tests for critical SQL paths
 Priority: P3 · Category: Testing
@@ -458,7 +458,7 @@ Risk: Repeat of shipped-broken SQL.
 Proposed solution: Integration test harness (dockerized PG; skip when unavailable) covering: invitation redeem/revoke, login lockout, partner upsert/list, trade-log update, delegated pagination queries.
 Affected files: new integration test files; CI wiring (optional local).
 Validation: `go test -tags=integration ./...` (or env-gated).
-Estimated complexity: L · Regression risk: None (test-only) · Status: TODO
+Estimated complexity: L · Regression risk: None (test-only) · Status: DONE (2026-08-28; env-gated Postgres harness in postgres_critical_paths_test.go covering invitation redeem/revoke, partner upsert/list, trade-log update — the exact bug class sqlmock hid. Skips green without POSTGRES_TEST_DSN; local PG lacked credentials for a live run)
 
 ---
 
@@ -487,3 +487,5 @@ Estimated complexity: L · Regression risk: None (test-only) · Status: TODO
 | TASK-020 | DONE | News/codex singleflight made panic-safe: deferred cleanup + recover→error; a panicking fetch no longer wedges the key or returns empty success to waiters. |
 | TASK-025 | DONE | bot_instances compat fallback: CAST AS CHAR → CAST AS TEXT (length-1 truncation on Postgres fixed). |
 | P2 batch (2026-08-27) | DONE | TASK-022 generic panic-safe SingleFlight + realtime-stats coalescing; TASK-023 shared schema-probe cache (DB-pointer keyed); TASK-024 sync-health N+1 → single aggregate query (~13 q/run → 1 total); TASK-026 idempotent command create + pending reconciler ticker; TASK-027 commission periods day-bucketed + DISTINCT-ON aggregation (money correctness); TASK-028 10MB global body cap + bounded limit/days/hours parsing; TASK-029 query-token restricted to WS upgrades + loopback-only default CORS; TASK-030 analytics permission gate (analytics.read, admin fallback); TASK-031 password-change session revocation via generation counters (unit-tested); TASK-032 db.Database caller-context wrappers + Close fix + dead recovery removed; TASK-033 registration transaction; TASK-034 LOWER(status) removed + normalization migration 000068; TASK-035 NATS publish bounding (16-slot limiter) + publisher ctx honoring + stream-ensure caching; TASK-019 telemetry user_id int fix + batch writer wired with safe lifecycle; TASK-021 candle prefetch singleflight (page-wise layout deferred). TASK-018 DEFERRED with phase plan. |
+| P3 batch (2026-08-28) | DONE | TASK-036 dead code removed; TASK-037 500-response error-detail leaks scrubbed (32 sites, envelope unification deferred); TASK-038 UTC normalization; TASK-039 Phase-1 NUMERIC migration 000069 (commissions); TASK-040 shared literal-aware bindPlaceholders (15 repos); TASK-041 misc polish (mask/mailgun/telegram/limiter/cache-stats/debug-gate/password-min/log-hygiene); TASK-042 sync batches transactional; TASK-043 outbox claim guards; TASK-044 env-gated Postgres critical-path harness. TASK-018 remains DEFERRED with phase plan. Validation: build/vet/full tests/race/integration-tag all green. |
+| Follow-up batch (2026-08-28) | DONE | Frontend MFA login step (api.completeMfaChallenge + store mfaChallengeRequired + Login.tsx TOTP prompt; tsc+lint green). Refresh-JWT revocation registry: SessionGen claim bound to session generation at issuance, refresh rejects stale generations with code=token_revoked (regression test). TASK-018 Phase 1 ctx-through-repos on hot paths. CI backend-tests job added with Postgres service + POSTGRES_TEST_DSN (closes the no-backend-CI gap). Migration 000070 NUMERIC Phase 2 written (NOT REHEARSED — deploy only after staging rehearsal). Frontend WS query-token usage verified compatible. |

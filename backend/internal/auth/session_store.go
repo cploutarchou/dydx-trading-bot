@@ -201,6 +201,12 @@ func (s *SessionStore) BumpUserGeneration(ctx context.Context, userID int) error
 	return nil
 }
 
+// CurrentUserGeneration returns the user's session generation counter.
+// Tokens minted with an older generation are considered revoked.
+func (s *SessionStore) CurrentUserGeneration(ctx context.Context, userID int) int64 {
+	return s.userGeneration(ctx, userID)
+}
+
 func (s *SessionStore) generationKey(userID int) string {
 	return fmt.Sprintf("auth:sessiongen:%d", userID)
 }

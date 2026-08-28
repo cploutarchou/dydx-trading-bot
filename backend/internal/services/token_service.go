@@ -51,7 +51,13 @@ func GenerateRefreshToken(userID int, username string) (string, error) {
 }
 
 func GenerateRefreshTokenWithRole(userID int, username string, isAdmin bool, role string) (string, error) {
-	tokenString, _, err := jwtManager().CreateRefreshTokenWithRole(userID, username, "", isAdmin, role)
+	return GenerateRefreshTokenWithGeneration(userID, username, isAdmin, role, 0)
+}
+
+// GenerateRefreshTokenWithGeneration binds the refresh token to the user's
+// session generation so it stops working after a password change.
+func GenerateRefreshTokenWithGeneration(userID int, username string, isAdmin bool, role string, sessionGen int64) (string, error) {
+	tokenString, _, err := jwtManager().CreateRefreshTokenWithGeneration(userID, username, "", isAdmin, role, sessionGen)
 	if err != nil {
 		return "", fmt.Errorf("failed to create refresh token: %w", err)
 	}

@@ -75,6 +75,19 @@ func setupPostgresFixture(t *testing.T, db *sql.DB) {
 			created_at TIMESTAMPTZ NOT NULL,
 			updated_at TIMESTAMPTZ NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS backtest_runs (
+			id BIGSERIAL PRIMARY KEY,
+			user_id BIGINT NOT NULL,
+			run_id TEXT,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`CREATE TABLE IF NOT EXISTS backtest_results (
+			id BIGSERIAL PRIMARY KEY,
+			run_id_fk BIGINT NOT NULL,
+			market_1 TEXT NOT NULL DEFAULT '',
+			market_2 TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMPTZ DEFAULT now()
+		)`,
 		`CREATE TABLE IF NOT EXISTS trade_logs (
 			id SERIAL PRIMARY KEY,
 			result_id_fk INTEGER NOT NULL,
@@ -166,14 +179,27 @@ func TestPostgres_UpdateTradeLog(t *testing.T) {
 	db := openPostgresTestDB(t)
 	setupPostgresFixture(t, db)
 
+	// Seed the ownership chain the scoped read joins through.
+	var runPK int
+	if err := db.QueryRow(
+		`INSERT INTO backtest_runs (user_id) VALUES (900999) RETURNING id`).Scan(&runPK); err != nil {
+		t.Fatalf("seed backtest run: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM trade_logs WHERE result_id_fk = $1`, 900100)
+		_, _ = db.Exec(`DELETE FROM backtest_results WHERE id = $1`, 900100)
+		_, _ = db.Exec(`DELETE FROM backtest_runs WHERE id = $1`, runPK)
+	})
+	if _, err := db.Exec(
+		`INSERT INTO backtest_results (id, run_id_fk) VALUES (900100, $1)`, runPK); err != nil {
+		t.Fatalf("seed backtest result: %v", err)
+	}
+
 	repo := NewTradeLogRepository(db)
 	now := time.Now().UTC()
 	tradeNumber := 1
 	entryPrice := 100.5
 	created := newTestTradeLog(900100, tradeNumber, entryPrice, &now)
-	t.Cleanup(func() {
-		_, _ = db.Exec(`DELETE FROM trade_logs WHERE id = $1`, created.ID)
-	})
 	if err := repo.CreateTradeLog(created); err != nil {
 		t.Fatalf("CreateTradeLog on PostgreSQL: %v", err)
 	}

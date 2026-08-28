@@ -60,7 +60,7 @@ func RequireMFA(database *sql.DB) gin.HandlerFunc {
 		}
 
 		userID := c.GetInt("user_id")
-		user, err := userRepo.GetByID(userID)
+		user, err := userRepo.GetByIDContext(c.Request.Context(), userID)
 		if err != nil || user == nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "User not found"})
 			c.Abort()

@@ -113,16 +113,15 @@ SQL injection surface (parameterized queries throughout; dynamic fragments are s
 
 ## 5. Remaining risks after fixes (to track)
 
-- MFA is now enforced at login (TASK-005 DONE): pending sessions are rejected everywhere except POST /api/v1/auth/2fa/challenge. FRONTEND FOLLOW-UP: the login page must handle `mfa_required: true` (prompt for TOTP, POST /auth/2fa/challenge); until then, TOTP-enrolled users cannot complete browser login.
-- Refresh-token path does not re-challenge MFA (legacy refresh cookies issued before the change, or bearer fallback mode, still exchange without TOTP) — pair with TASK-031 session/refresh revocation work.
+- MFA enforced at login AND the frontend challenge step has shipped (Login.tsx TOTP prompt → POST /auth/2fa/challenge); legacy refresh JWTs are now revocable via the SessionGen registry.
 - `POST /api/v1/backtests/compare` accepts run ids in its body (upstream-defined shape); ownership not enforced there.
 - Runs created before backend-sync existed (unknown local owner) are now admin-only on delegated routes — intentional fail-closed; may surface as 404s for legacy tenant users.
 - Encryption-key KDF hardening deferred: changing derivation would make existing stored credentials undecryptable; requires a re-encryption migration (pair with TASK-039 NUMERIC work).
 - Full ctx-through-repos refactor (TASK-018) is the largest outstanding reliability item.
-- NUMERIC money migration Phase 1 landed (migration 000069, commission columns); Phase 2 (backtest_runs/bot_trades REAL columns) needs staging rehearsal.
+- NUMERIC Phase 1 landed (000069); Phase 2 migration written (000070) but NOT REHEARSED — deploy only after a staging rehearsal with production-sized data.
 - Response envelopes remain intentionally non-uniform (TASK-037 envelope unification deferred as frontend-breaking); 500s no longer leak internal detail.
-- The Postgres critical-path harness needs POSTGRES_TEST_DSN to execute in CI.
-- Password change now revokes all sessions via generation counters (TASK-031); legacy refresh-JWT revocation still needs a server-side registry.
+- CI now runs backend Go tests (new backend-tests job) with a Postgres service and POSTGRES_TEST_DSN wired — the no-backend-CI gap that let the SQL bugs ship is closed.
+- Password change revokes sessions AND refresh JWTs (SessionGen registry); TASK-018 Phase 1 gives hot paths request cancellation.
 - Query-string access_token is now accepted only on WebSocket upgrade requests (frontend WS URLs depend on it); CORS defaults to loopback-only when unconfigured.
 - Analytics routes now require the analytics.read permission (admins have it by default).
 - Multi-replica rate limiting and lockout require shared storage (Redis) — design decision pending.

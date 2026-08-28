@@ -1174,7 +1174,7 @@ func ensureBacktestRunAccess(c *gin.Context, runID string, backtestRepo *reposit
 		return false
 	}
 
-	ownerID, err := backtestRepo.GetRunOwnerID(runID)
+	ownerID, err := backtestRepo.GetRunOwnerIDContext(c.Request.Context(), runID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success":   false,
@@ -1366,7 +1366,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		// After candles are synced, prefetch into Redis in the background so the
 		// first chart render is served from cache rather than the DB.
 		if candleCache != nil {
-			run, err := backtestRepo.GetRunByID(runID)
+			run, err := backtestRepo.GetRunByIDContext(c.Request.Context(), runID)
 			if err == nil && run != nil && strings.EqualFold(run.Status, "completed") {
 				go func(runPK int) {
 					if prefetchErr := candleCache.PrefetchCandlesForRun(runPK, 0); prefetchErr != nil {
@@ -1774,7 +1774,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			defer cancel()
 
 			admissionErr := backtestRepo.WithUserAdmissionLock(lockCtx, admissionUserID, func() error {
-				count, countErr := backtestRepo.CountActiveRunsByUserID(admissionUserID)
+				count, countErr := backtestRepo.CountActiveRunsByUserIDContext(c.Request.Context(), admissionUserID)
 				if countErr != nil {
 					return countErr
 				}
@@ -2164,7 +2164,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 				limit = 100
 			}
 
-			runs, err := backtestRepo.GetRunsByUserID(userID, 0, limit)
+			runs, err := backtestRepo.GetRunsByUserIDContext(c.Request.Context(), userID, 0, limit)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"success":   false,
@@ -2248,7 +2248,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 				return
 			}
 
-			runs, err := backtestRepo.GetRunsByUserID(userID, offset, limit)
+			runs, err := backtestRepo.GetRunsByUserIDContext(c.Request.Context(), userID, offset, limit)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"success":   false,
@@ -2259,7 +2259,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 				})
 				return
 			}
-			total, err := backtestRepo.CountRunsByUserID(userID)
+			total, err := backtestRepo.CountRunsByUserIDContext(c.Request.Context(), userID)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"success":   false,
@@ -2465,7 +2465,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			runID := c.Param("run_id")
 			runPrimaryKey := 0
 			if backtestRepo != nil {
-				if run, lookupErr := backtestRepo.GetRunByID(runID); lookupErr == nil && run != nil {
+				if run, lookupErr := backtestRepo.GetRunByIDContext(c.Request.Context(), runID); lookupErr == nil && run != nil {
 					runPrimaryKey = run.ID
 				}
 			}

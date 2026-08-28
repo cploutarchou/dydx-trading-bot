@@ -268,6 +268,16 @@ func requestSessionToken(c *gin.Context) string {
 	return ""
 }
 
+// generateRefreshTokenForUser mints a refresh JWT bound to the user's current
+// session generation, so a password-change bump invalidates it.
+func generateRefreshTokenForUser(c *gin.Context, user *models.User, role string) (string, error) {
+	gen := int64(0)
+	if store := middleware.AuthSessionStore(); store != nil {
+		gen = store.CurrentUserGeneration(c.Request.Context(), user.ID)
+	}
+	return services.GenerateRefreshTokenWithGeneration(user.ID, user.Username, user.IsAdmin, role, gen)
+}
+
 func createSessionForUser(c *gin.Context, user *models.User, role string) (string, auth.SessionData, error) {
 	store := middleware.AuthSessionStore()
 	if store == nil {
@@ -500,7 +510,7 @@ func mfaChallengeHandler(database *sql.DB) gin.HandlerFunc {
 
 		// Issue the refresh cookie that login withheld until the second factor
 		// completed (mirrors the post-password login path).
-		jwtRefreshToken, rtErr := services.GenerateRefreshTokenWithRole(user.ID, user.Username, user.IsAdmin, sessionData.Role)
+		jwtRefreshToken, rtErr := generateRefreshTokenForUser(c, user, sessionData.Role)
 		if rtErr != nil {
 			log.Printf("mfaChallengeHandler: failed to generate refresh token cookie: %v", rtErr)
 		}
@@ -931,7 +941,7 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 
 		// Get user from database
 		userRepo := repository.NewUserRepository(database)
-		user, err := userRepo.GetByUsername(req.Username)
+		user, err := userRepo.GetByUsernameContext(c.Request.Context(), req.Username)
 		requestIP := c.ClientIP()
 		userAgent := c.GetHeader("User-Agent")
 		if err != nil {
@@ -1068,7 +1078,7 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 		// Always issue a refresh_token HttpOnly cookie so the JWT refresh path
 		// remains available even if the session store is cleared (e.g., restart
 		// without Redis). The cookie is never exposed to JS.
-		jwtRefreshToken, rtErr := services.GenerateRefreshTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
+		jwtRefreshToken, rtErr := generateRefreshTokenForUser(c, user, role)
 		if rtErr != nil {
 			log.Printf("loginHandler: failed to generate refresh token cookie: %v", rtErr)
 		}
@@ -1315,6 +1325,22 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		// Generation registry: a refresh token minted before the user's latest
+		// generation bump (password change) is revoked.
+		if store := middleware.AuthSessionStore(); store != nil && claims.SessionGen >= 0 {
+			currentGen := store.CurrentUserGeneration(c.Request.Context(), claims.UserID)
+			if currentGen > 0 && claims.SessionGen < currentGen {
+				log.Printf("refreshHandler: rejected revoked refresh token for user=%d (gen %d < %d)",
+					claims.UserID, claims.SessionGen, currentGen)
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"success": false,
+					"error":   "refresh token revoked",
+					"code":    "token_revoked",
+				})
+				return
+			}
+		}
+
 		userID := claims.UserID
 
 		userRepo := repository.NewUserRepository(database)
@@ -1338,7 +1364,7 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		// Rotate the refresh_token cookie so session can survive future store clears.
-		newJWTRefreshToken, rtErr := services.GenerateRefreshTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
+		newJWTRefreshToken, rtErr := generateRefreshTokenForUser(c, user, role)
 		if rtErr != nil {
 			log.Printf("refreshHandler: failed to rotate refresh token cookie: %v", rtErr)
 		}

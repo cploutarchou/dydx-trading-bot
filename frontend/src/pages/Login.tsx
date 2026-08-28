@@ -19,10 +19,12 @@ const AUTH_ERROR_COPY =
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
-  const { login, loading, error } = useAuthStore();
+  const { login, loading, error, mfaChallengeRequired, completeMfaChallenge, cancelMfaChallenge } =
+    useAuthStore();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [mfaCode, setMfaCode] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const usernameInputRef = useRef<HTMLInputElement | null>(null);
   const errorAlertRef = useRef<HTMLDivElement | null>(null);
@@ -87,6 +89,111 @@ export const LoginPage: React.FC = () => {
       // The auth store owns state; avoid logging credential-related responses here.
     }
   };
+
+  const handleMfaSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const code = mfaCode.replace(/\D/g, '');
+    if (code.length !== 6) {
+      return;
+    }
+    try {
+      await completeMfaChallenge(code);
+
+      const authenticatedUser = useAuthStore.getState().user;
+      const workspaceRole = getUserWorkspaceRole(authenticatedUser);
+
+      if (BACKOFFICE_ROLES.includes(workspaceRole)) {
+        navigate('/admin');
+        return;
+      }
+      if (IB_ROLES.includes(workspaceRole)) {
+        navigate('/ib-portal');
+        return;
+      }
+      navigate('/dashboard');
+    } catch {
+      // Store surfaces the invalid-code message; keep values for retry.
+    }
+  };
+
+  if (mfaChallengeRequired) {
+    return (
+      <main className="public-page-shell relative isolate flex min-h-screen items-start overflow-x-hidden bg-[#050816] px-4 py-8 text-white sm:px-6">
+        <CryptoBackground variant="login" />
+        <section className="auth-column relative z-10 mx-auto w-full">
+          <Link to="/" className="inline-flex">
+            <BrandMark subtitle="Controlled access" />
+          </Link>
+
+          <div className="mt-7 public-auth-panel">
+            <PublicStatusPill tone="info" icon={LockKeyhole}>
+              Two-factor verification
+            </PublicStatusPill>
+
+            <div className="mt-6">
+              <h1 className="text-[clamp(2.25rem,5vw,2.75rem)] font-semibold leading-tight tracking-normal text-white">
+                Enter your authenticator code
+              </h1>
+              <p className="mt-3 text-base leading-7 text-slate-300">
+                Enter the 6-digit code from your authenticator app to finish signing in.
+              </p>
+            </div>
+
+            {error && (
+              <div
+                ref={errorAlertRef}
+                tabIndex={-1}
+                role="alert"
+                aria-live="assertive"
+                className="mt-5 rounded-lg border border-rose-500/35 bg-rose-950/55 p-4 text-sm leading-6 text-rose-100"
+              >
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleMfaSubmit} className="mt-6 space-y-5" noValidate>
+              <FormField
+                id="login-mfa-code"
+                label="Authenticator code"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={mfaCode}
+                onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="123456"
+                disabled={loading}
+                autoFocus
+                required
+              />
+
+              <PrimaryButton
+                type="submit"
+                disabled={loading || mfaCode.replace(/\D/g, '').length !== 6}
+                loading={loading}
+                className="min-h-12 w-full"
+              >
+                {loading ? 'Verifying...' : 'Verify and sign in'}
+              </PrimaryButton>
+            </form>
+
+            <div className="mt-5 text-sm">
+              <button
+                type="button"
+                onClick={() => {
+                  cancelMfaChallenge();
+                  setMfaCode('');
+                }}
+                className="font-medium text-slate-300 hover:text-white"
+              >
+                &larr; Back to sign in
+              </button>
+            </div>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="public-page-shell relative isolate flex min-h-screen items-start overflow-x-hidden bg-[#050816] px-4 py-8 text-white sm:px-6">

@@ -224,6 +224,9 @@ interface Token extends Record<string, unknown> {
   token_type: string;
   expires_in: number;
   session_expires_at?: string;
+  /** Present when the backend requires a TOTP challenge before login completes. */
+  mfa_required?: boolean;
+  code?: string;
 }
 
 interface LoginRequest {
@@ -2273,6 +2276,13 @@ class ApiClient {
       // Extract token payload from nested data when present
       const payload = (response.data?.data || response.data) as Token;
 
+      if (payload?.mfa_required) {
+        // Password accepted, but a TOTP challenge must complete before any
+        // session exists. Do NOT mark a session as established.
+        console.debug('Login requires an MFA challenge');
+        return payload;
+      }
+
       if (payload) {
         this.markSessionEstablished();
       }
@@ -2296,6 +2306,32 @@ class ApiClient {
     } catch (error: unknown) {
       const status = error instanceof AxiosError ? error.response?.status : undefined;
       console.error('❌ api.ts: login failed', status ? { status } : undefined);
+      throw error;
+    }
+  }
+
+  /**
+   * Completes the login-time TOTP challenge for accounts with MFA enrolled.
+   * The pending (password-only) session cookie set by login() authorizes this
+   * call; on success the backend promotes the session and sets the refresh
+   * cookie, returning the normal login payload.
+   */
+  async completeMfaChallenge(token: string): Promise<Token> {
+    try {
+      const response = await this.client.post<ApiResponse<Token>>(
+        '/api/v1/auth/2fa/challenge',
+        { token }
+      );
+      const payload = (response.data?.data || response.data) as Token;
+      if (payload) {
+        this.markSessionEstablished();
+      }
+      if (payload?.access_token) {
+        this.setToken(payload.access_token);
+      }
+      return payload;
+    } catch (error: unknown) {
+      console.error('❌ api.ts: MFA challenge failed');
       throw error;
     }
   }

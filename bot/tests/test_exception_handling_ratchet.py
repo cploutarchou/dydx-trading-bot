@@ -88,7 +88,14 @@ from pathlib import Path
 #   - minio_artifact_store.py `_ensure_bucket` probe guard: records the
 #     failed-probe timestamp for the cooldown; any transport/S3/url error
 #     takes the same local-fallback path (module is documented best-effort).
-BROAD_CATCH_BASELINE = 304
+# 2026-08-29 (batch 2): +2 — exit-path hardening in position_manager.py:
+#   - `_exit_price_from_fills` fetch guard: an unavailable fills endpoint
+#     must fall back to the accept-band price, never abort the exit
+#     persistence (P&L recording continues with a recorded price source).
+#   - pre-close aggregate snapshot guard: a failed snapshot only degrades
+#     shared-subaccount confirmation to legacy semantics; the close itself
+#     must proceed.
+BROAD_CATCH_BASELINE = 306
 
 # Matches "except Exception", "except Exception as e", "except Exception:" and bare "except:".
 _BROAD_CATCH_RE = re.compile(r"\bexcept\s+(Exception|BaseException)\b|^\s*except\s*:")

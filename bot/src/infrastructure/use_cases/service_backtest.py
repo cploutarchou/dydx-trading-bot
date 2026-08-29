@@ -2025,9 +2025,20 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         if var_b <= 1e-12:
             return [], [], {}
 
+        # Calibration/trade split (look-ahead removal): the hedge ratio and
+        # intercept are fit ONLY on the calibration window, and trading
+        # starts after it. Fitting on the full sample lets bar t's z-score
+        # use a regression estimated on data through the END of the sample —
+        # classic look-ahead that overstates backtest performance.
+        calibration_end = max(2 * stats_window, len(prices_a) // 2)
+        if len(prices_a) <= calibration_end + stats_window:
+            return [], [], {}
+
         # Fit the same mean-reverting residual the live pipeline trades:
         # OLS of prices_a on prices_b with a constant, spread = residual.
-        poly_coeffs = np.polyfit(prices_b, prices_a, 1)
+        poly_coeffs = np.polyfit(
+            prices_b[:calibration_end], prices_a[:calibration_end], 1
+        )
         hedge_ratio = float(poly_coeffs[0])
         intercept = float(poly_coeffs[1])
 
@@ -2043,7 +2054,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             self._SIMULATION_YIELD_EVERY_STEPS,
         )
 
-        for idx in range(stats_window, len(spread)):
+        for idx in range(calibration_end, len(spread)):
             if idx % yield_every_steps == 0:
                 await asyncio.sleep(0)
                 if heartbeat_callback is not None:
@@ -2406,11 +2417,19 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                         market_history_cache[market] = {}
 
             if not resumed and not explicit_pair_selection:
+                # Rank pairs on the CALIBRATION half of the history only, so
+                # pair selection and trading are out-of-sample relative to
+                # each other (ranking on the full sample then trading the
+                # same sample is in-sample selection bias).
+                selection_history = {
+                    market: _pair_selection._truncate_history_for_selection(history)
+                    for market, history in market_history_cache.items()
+                }
                 pair_markets = self._prioritize_pairs(
                     pair_markets=pair_markets,
                     mode=pair_selection_mode,
                     market_map=market_map,
-                    history_by_market=market_history_cache,
+                    history_by_market=selection_history,
                 )
 
                 if max_pairs is not None:

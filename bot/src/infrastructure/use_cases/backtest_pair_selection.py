@@ -275,3 +275,20 @@ def _prioritize_pairs(
     if normalized_mode == "cointegration":
         return _prioritize_pairs_by_cointegration(pair_markets, history_by_market)
     return _prioritize_pairs_by_liquidity(pair_markets, market_map)
+
+
+def _truncate_history_for_selection(
+    history: Dict[str, float],
+) -> Dict[str, float]:
+    """Keep only the first half (by timestamp order) of a market's history.
+
+    Pair ranking must run on the calibration window so selection is
+    out-of-sample relative to the simulated trading window; ranking on the
+    full sample and then trading the same sample is in-sample selection
+    bias that overstates backtest results.
+    """
+    if not history:
+        return {}
+    ordered = sorted(history.items(), key=lambda item: item[0])
+    cut = max(1, len(ordered) // 2)
+    return dict(ordered[:cut])

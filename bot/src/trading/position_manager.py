@@ -256,6 +256,7 @@ def _remaining_leg_size(
 def _classify_exit_confirmation_state(
     position: Dict[str, Any],
     exchange_positions: Dict[str, Any],
+    pre_close_sizes: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     market_1 = str(position.get("market_1") or "")
     market_2 = str(position.get("market_2") or "")
@@ -271,6 +272,31 @@ def _classify_exit_confirmation_state(
     original_size_m2 = abs(float(position.get("order_m2_size") or 0.0))
     remaining_size_m1 = _remaining_leg_size(exchange_m1, position.get("order_m1_size"))
     remaining_size_m2 = _remaining_leg_size(exchange_m2, position.get("order_m2_size"))
+
+    # Shared-subaccount support: when another instance holds the same market,
+    # the account aggregate never drops to zero after OUR close — flat for us
+    # means "the aggregate decreased by at least our tracked size". Without a
+    # pre-close snapshot (legacy callers) only full absence confirms.
+    def _leg_closed_by_us(market_open: bool, market: str, our_size: float) -> bool:
+        if not market_open:
+            return True
+        if not pre_close_sizes or market not in pre_close_sizes:
+            return False
+        if our_size <= 0.0:
+            return False
+        current_agg = _remaining_leg_size(exchange_positions.get(market), None)
+        closed_amount = pre_close_sizes[market] - current_agg
+        return closed_amount + 1e-9 >= our_size - 1e-9
+
+    if _leg_closed_by_us(open_m1, market_1, original_size_m1) and _leg_closed_by_us(
+        open_m2, market_2, original_size_m2
+    ):
+        return {
+            "pair_status": "CLOSE_CONFIRMED",
+            "flat_confirmed": True,
+            "shared_subaccount_confirmed": True,
+        }
+
     size_tolerance = 1e-12
     partial_m1 = open_m1 and remaining_size_m1 + size_tolerance < original_size_m1
     partial_m2 = open_m2 and remaining_size_m2 + size_tolerance < original_size_m2
@@ -296,6 +322,7 @@ async def _confirm_exchange_flat_after_close(
     *,
     position: Dict[str, Any],
     close_order_ids: Dict[str, str],
+    pre_close_sizes: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     last_state: Dict[str, Any] = {
         "pair_status": "CLOSE_SUBMITTED",
@@ -304,7 +331,9 @@ async def _confirm_exchange_flat_after_close(
     for attempt in range(1, _exit_confirm_max_attempts() + 1):
         await asyncio.sleep(_exit_confirm_delay_seconds())
         exchange_positions = await get_open_positions(client)
-        last_state = _classify_exit_confirmation_state(position, exchange_positions)
+        last_state = _classify_exit_confirmation_state(
+            position, exchange_positions, pre_close_sizes=pre_close_sizes
+        )
         last_state["attempt"] = attempt
         last_state["close_order_ids"] = dict(close_order_ids)
         if bool(last_state.get("flat_confirmed")):
@@ -326,6 +355,48 @@ async def _confirm_exchange_flat_after_close(
     last_state["fill_counts"] = fills_summary
     last_state["timed_out"] = True
     return last_state
+
+
+async def _exit_price_from_fills(
+    client: Any, order_id: str, market: str, fallback: str
+) -> tuple[str, str]:
+    """Resolve the execution price for a close order from its fills.
+
+    Returns (price, source). The recorded exit price must be what the close
+    actually filled at (VWAP across fills); the accept-band price (±5% off
+    market when the order was submitted) systematically misstates realized
+    P&L by up to 5% of notional per leg, so it is only a fallback when the
+    fills endpoint is unavailable.
+    """
+    try:
+        fills = await get_order_fills(client, order_id, market=market)
+    except Exception as exc:
+        logger.warning(
+            "Could not fetch fills for close order {} on {}: {}",
+            order_id,
+            market,
+            exc,
+        )
+        return fallback, "accept_band_fallback"
+
+    total_size = 0.0
+    total_notional = 0.0
+    for fill in fills:
+        if not isinstance(fill, dict):
+            continue
+        price = fill.get("price")
+        size = fill.get("size")
+        if price in (None, "") or size in (None, ""):
+            continue
+        try:
+            fill_size = abs(float(size))
+            total_size += fill_size
+            total_notional += float(price) * fill_size
+        except (TypeError, ValueError):
+            continue
+    if total_size <= 0:
+        return fallback, "accept_band_fallback"
+    return str(total_notional / total_size), "fills_vwap"
 
 
 async def _get_recent_candles_for_cycle(
@@ -419,18 +490,38 @@ def _opposite_order_side(side: str) -> str:
 def _close_side_from_exchange_position(
     position: Dict[str, Any], fallback_side: str
 ) -> str:
+    # Prefer THIS instance's tracked side: on a shared subaccount the
+    # aggregate net side can be dominated by another instance's opposite
+    # position, and closing "the aggregate direction" would INCREASE our
+    # exposure (audit F6). Exchange side is only a fallback when tracked
+    # side metadata is missing/unparseable.
+    try:
+        return _opposite_order_side(fallback_side)
+    except ValueError:
+        pass
     exchange_side = str(position.get("side", "")).upper()
     if exchange_side == "LONG":
         return "SELL"
     if exchange_side == "SHORT":
         return "BUY"
-    return _opposite_order_side(fallback_side)
+    raise ValueError(
+        f"Cannot determine close side: tracked side={fallback_side!r}, "
+        f"exchange side={exchange_side!r}"
+    )
 
 
 def _close_size_from_exchange_position(
     position: Dict[str, Any], fallback_size: Any
 ) -> Any:
-    return position.get("sumOpen") or position.get("size") or fallback_size
+    # Prefer THIS instance's tracked size over the account aggregate
+    # (sumOpen): on a shared subaccount the aggregate includes other
+    # instances' positions, and a reduce-only close for the aggregate size
+    # would flatten THEIR exposure too (audit F6). Aggregate is only a
+    # fallback for legacy rows without tracked sizes.
+    tracked = fallback_size
+    if tracked not in (None, "", 0, "0", 0.0):
+        return tracked
+    return position.get("sumOpen") or position.get("size")
 
 
 def _failsafe_close_price(
@@ -1515,6 +1606,28 @@ async def manage_trade_exits(client: Any) -> str | None:
                         position_market_m1,
                     )
 
+                    # Snapshot the account aggregates BEFORE our closes so
+                    # confirmation can attribute our share on a shared
+                    # subaccount (flat-for-us = aggregate dropped by our
+                    # tracked size, not aggregate == 0).
+                    try:
+                        pre_close_exchange = await get_open_positions(client)
+                        pre_close_sizes = {
+                            market_key: _remaining_leg_size(
+                                pre_close_exchange.get(market_key), None
+                            )
+                            for market_key in (position_market_m1, position_market_m2)
+                        }
+                    except Exception as snapshot_error:
+                        pre_close_sizes = {}
+                        logger.warning(
+                            "Could not snapshot pre-close aggregate sizes for "
+                            "{} / {}: {}",
+                            position_market_m1,
+                            position_market_m2,
+                            snapshot_error,
+                        )
+
                     close_order_m1, close_order_m1_id = (
                         await _place_reduce_only_close_with_retries(
                             client,
@@ -1559,6 +1672,7 @@ async def manage_trade_exits(client: Any) -> str | None:
                             "market_1": close_order_m1_id,
                             "market_2": close_order_m2_id,
                         },
+                        pre_close_sizes=pre_close_sizes or None,
                     )
                     position.update(close_confirmation)
 
@@ -1579,10 +1693,30 @@ async def manage_trade_exits(client: Any) -> str | None:
                         messenger.send_trade_closed_message(
                             trade_info, exit_reason_text
                         )
+                        # Record what the close actually filled at, not the
+                        # accept-band price used at submission time.
+                        exit_price_m1, exit_price_m1_source = (
+                            await _exit_price_from_fills(
+                                client,
+                                close_order_m1_id,
+                                position_market_m1,
+                                accept_price_m1_formatted,
+                            )
+                        )
+                        exit_price_m2, exit_price_m2_source = (
+                            await _exit_price_from_fills(
+                                client,
+                                close_order_m2_id,
+                                position_market_m2,
+                                accept_price_m2_formatted,
+                            )
+                        )
+                        position["exit_price_m1_source"] = exit_price_m1_source
+                        position["exit_price_m2_source"] = exit_price_m2_source
                         persisted_trade_id = persist_live_trade_closed(
                             position,
-                            exit_price1=accept_price_m1_formatted,
-                            exit_price2=accept_price_m2_formatted,
+                            exit_price1=exit_price_m1,
+                            exit_price2=exit_price_m2,
                             exit_size1=position_size_m1,
                             exit_size2=position_size_m2,
                         )
@@ -1601,8 +1735,10 @@ async def manage_trade_exits(client: Any) -> str | None:
                                 "close_order_m2_side": side_m2,
                                 "close_order_m1_size": position_size_m1,
                                 "close_order_m2_size": position_size_m2,
-                                "close_order_m1_price": accept_price_m1_formatted,
-                                "close_order_m2_price": accept_price_m2_formatted,
+                                "close_order_m1_price": exit_price_m1,
+                                "close_order_m2_price": exit_price_m2,
+                                "close_order_m1_price_source": exit_price_m1_source,
+                                "close_order_m2_price_source": exit_price_m2_source,
                                 "close_order_time_m1": close_order_time_m1,
                                 "close_order_time_m2": close_order_time_m2,
                                 "z_score": float(z_score_current),

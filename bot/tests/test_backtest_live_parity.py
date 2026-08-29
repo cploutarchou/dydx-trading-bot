@@ -68,8 +68,11 @@ def test_simulate_pair_zscores_match_live_calculate_zscore():
     assert trades, "expected at least one synthetic trade"
 
     # Recompute the simulation's spread the same way it fits it (OLS with
-    # intercept) and derive z-scores with the LIVE rolling function.
-    coeffs = np.polyfit(prices_b, prices_a, 1)
+    # intercept on the CALIBRATION window) and derive z-scores with the LIVE
+    # rolling function.
+    stats_window = 21
+    calibration_end = max(2 * stats_window, len(prices_a) // 2)
+    coeffs = np.polyfit(prices_b[:calibration_end], prices_a[:calibration_end], 1)
     spread = prices_a - (coeffs[0] * prices_b) - coeffs[1]
     live_z = calculate_zscore(pd.Series(spread)).to_numpy()
 

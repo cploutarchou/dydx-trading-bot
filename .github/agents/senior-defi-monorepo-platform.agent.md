@@ -154,7 +154,7 @@ Tech stack: React 19, TypeScript 6, Vite 8, TanStack Query v5, Zustand 5, Tailwi
 
 - `config/profiles/*.config.enc.json` — encrypted runtime profiles (source of truth)
 - `run.json` — generated runtime config (do not edit directly)
-- `platform.yml` — Docker Compose stack definition
+- `docker-compose.stack.yml` / `docker-compose.infra.yml` — Docker Compose stack definitions
 - `docker/` — per-service Dockerfiles
 - `deploy/` — rendered deployment output and deployment history
 - `Makefile` — canonical stack commands: `make stack-up-dev`, `make infra-up`, `make dev-config`, `make config-keygen`

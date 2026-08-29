@@ -77,6 +77,14 @@ func setupDelegateBotOwnershipRouter(t *testing.T) (*gin.Engine, *sql.DB) {
 	); err != nil {
 		t.Fatalf("seed bot instance: %v", err)
 	}
+	// Legacy unattributed row (user_id = 0): previously accessible by ANY
+	// authenticated user; must now be admin-only.
+	if _, err := dbConn.Exec(
+		`INSERT INTO bot_instances (instance_id, instance_name, user_id, status, network, strategy, total_trades, created_at, updated_at) VALUES (?, ?, 0, 'running', 'testnet', 'pairs', 0, ?, ?)`,
+		"bot-legacy-0", "unattributed instance", now, now,
+	); err != nil {
+		t.Fatalf("seed legacy bot instance: %v", err)
+	}
 
 	router := gin.New()
 	// Point upstream at an unreachable address: after ownership passes, the
@@ -147,5 +155,28 @@ func TestDelegateBotRoutes_EnforceInstanceOwnership(t *testing.T) {
 	admin := doDelegateBotRequest(router, delegateOwnershipBearer(t, 99, true))
 	if admin.Code == http.StatusNotFound {
 		t.Fatalf("admin must bypass the ownership gate, got 404 body=%s", admin.Body.String())
+	}
+}
+
+// Unattributed legacy rows (user_id = 0) must be denied for regular users
+// (fail closed) and remain reachable for admins.
+func TestDelegateBotRoutes_DenyUnattributedLegacyInstances(t *testing.T) {
+	router, _ := setupDelegateBotOwnershipRouter(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/bots/bot-legacy-0/positions/current", nil)
+
+	req.Header.Set("Authorization", delegateOwnershipBearer(t, 8, false))
+	regular := httptest.NewRecorder()
+	router.ServeHTTP(regular, req)
+	if regular.Code != http.StatusNotFound {
+		t.Fatalf("regular user on user_id=0 instance expected 404, got %d body=%s", regular.Code, regular.Body.String())
+	}
+
+	adminReq := httptest.NewRequest(http.MethodGet, "/api/v1/bots/bot-legacy-0/positions/current", nil)
+	adminReq.Header.Set("Authorization", delegateOwnershipBearer(t, 99, true))
+	adminRes := httptest.NewRecorder()
+	router.ServeHTTP(adminRes, adminReq)
+	if adminRes.Code == http.StatusNotFound {
+		t.Fatalf("admin must reach user_id=0 instance past the ownership gate, got 404 body=%s", adminRes.Body.String())
 	}
 }

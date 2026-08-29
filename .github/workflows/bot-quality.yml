@@ -7,6 +7,7 @@ on:
             - main
         paths:
             - "bot/**"
+            - "frontend/**"
             - "deploy/k8s-next/**"
             - "deploy/k8s/**"
             - "docker-compose.infra.yml"
@@ -19,6 +20,7 @@ on:
             - main
         paths:
             - "bot/**"
+            - "frontend/**"
             - "deploy/k8s-next/**"
             - "deploy/k8s/**"
             - "docker-compose.infra.yml"
@@ -731,6 +733,63 @@ jobs:
             - name: Unit tests
               run: go test -race -count=1 ./...
 
+    # ---------------------------------------------------------------------------
+    # Frontend quality — lint + typecheck + contract tests + build
+    # ---------------------------------------------------------------------------
+    # frontend/.github/workflows/ci.yml is NOT executed by GitHub Actions (only
+    # repo-root .github/workflows/ is loaded), so this root job is the effective
+    # frontend gate. Commands mirror frontend/package.json scripts exactly.
+    frontend-quality:
+        name: Frontend quality (lint + typecheck + contracts + build)
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        env:
+            # vite.config.ts loads the structured config at startup; without a
+            # plain run-config file it tries to decrypt config/profiles with
+            # the repo-secret .configkey.bin (absent on CI runners). Same
+            # hermetic mechanism as the bot jobs.
+            APP_RUN_CONFIG_FILE: ${{ github.workspace }}/.ci-run.json
+        defaults:
+            run:
+                working-directory: frontend
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v7
+
+            - name: Set up Node
+              uses: actions/setup-node@v7
+              with:
+                  node-version: "24"
+                  cache: npm
+                  cache-dependency-path: frontend/package-lock.json
+
+            - name: Prepare CI runtime config
+              run: |
+                  cat > "$APP_RUN_CONFIG_FILE" <<'JSON'
+                  {
+                    "shared": {
+                      "APP_ENV": "development",
+                      "ENVIRONMENT": "development"
+                    }
+                  }
+                  JSON
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Lint
+              run: npm run lint
+
+            - name: Type check
+              run: npm run typecheck
+
+            - name: Contract tests
+              run: npm run test:contracts
+
+            - name: Build
+              run: npm run build
+
     quality-gate:
         name: Quality gate
         runs-on: ubuntu-latest
@@ -741,6 +800,7 @@ jobs:
             - bot-multiworker
             - bot-integration
             - backend-tests
+            - frontend-quality
             - docker-compose-validate
             - k8s-secret-scan
             - kustomize-validate

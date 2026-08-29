@@ -1,5 +1,5 @@
 ---
-agent: agent
+agent: 'Senior DeFi Monorepo Platform'
 name: defi-risk-review
 description: "Perform a focused risk review for Python DeFi trading changes (execution safety, exposure, slippage, liquidity, funding, and failure handling). Use this for pre-merge or pre-deploy safety checks."
 argument-hint: "What change, PR, file, or behavior should be risk-reviewed?"

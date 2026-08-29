@@ -2,7 +2,7 @@
 description: "Team prompt to improve the dYdX bot with prioritized, safe, validated changes"
 name: "Improve Project (Team)"
 argument-hint: "Focus area: reliability, strategy, API, DB, security, performance, tests"
-agent: "agent"
+agent: "Senior Python DeFi Runtime"
 ---
 
 Improve this dYdX trading bot project in a focused, high-impact way.

@@ -256,6 +256,7 @@ def _remaining_leg_size(
 def _classify_exit_confirmation_state(
     position: Dict[str, Any],
     exchange_positions: Dict[str, Any],
+    pre_close_sizes: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     market_1 = str(position.get("market_1") or "")
     market_2 = str(position.get("market_2") or "")
@@ -271,6 +272,31 @@ def _classify_exit_confirmation_state(
     original_size_m2 = abs(float(position.get("order_m2_size") or 0.0))
     remaining_size_m1 = _remaining_leg_size(exchange_m1, position.get("order_m1_size"))
     remaining_size_m2 = _remaining_leg_size(exchange_m2, position.get("order_m2_size"))
+
+    # Shared-subaccount support: when another instance holds the same market,
+    # the account aggregate never drops to zero after OUR close — flat for us
+    # means "the aggregate decreased by at least our tracked size". Without a
+    # pre-close snapshot (legacy callers) only full absence confirms.
+    def _leg_closed_by_us(market_open: bool, market: str, our_size: float) -> bool:
+        if not market_open:
+            return True
+        if not pre_close_sizes or market not in pre_close_sizes:
+            return False
+        if our_size <= 0.0:
+            return False
+        current_agg = _remaining_leg_size(exchange_positions.get(market), None)
+        closed_amount = pre_close_sizes[market] - current_agg
+        return closed_amount + 1e-9 >= our_size - 1e-9
+
+    if _leg_closed_by_us(open_m1, market_1, original_size_m1) and _leg_closed_by_us(
+        open_m2, market_2, original_size_m2
+    ):
+        return {
+            "pair_status": "CLOSE_CONFIRMED",
+            "flat_confirmed": True,
+            "shared_subaccount_confirmed": True,
+        }
+
     size_tolerance = 1e-12
     partial_m1 = open_m1 and remaining_size_m1 + size_tolerance < original_size_m1
     partial_m2 = open_m2 and remaining_size_m2 + size_tolerance < original_size_m2
@@ -296,6 +322,7 @@ async def _confirm_exchange_flat_after_close(
     *,
     position: Dict[str, Any],
     close_order_ids: Dict[str, str],
+    pre_close_sizes: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     last_state: Dict[str, Any] = {
         "pair_status": "CLOSE_SUBMITTED",
@@ -304,7 +331,9 @@ async def _confirm_exchange_flat_after_close(
     for attempt in range(1, _exit_confirm_max_attempts() + 1):
         await asyncio.sleep(_exit_confirm_delay_seconds())
         exchange_positions = await get_open_positions(client)
-        last_state = _classify_exit_confirmation_state(position, exchange_positions)
+        last_state = _classify_exit_confirmation_state(
+            position, exchange_positions, pre_close_sizes=pre_close_sizes
+        )
         last_state["attempt"] = attempt
         last_state["close_order_ids"] = dict(close_order_ids)
         if bool(last_state.get("flat_confirmed")):
@@ -326,6 +355,48 @@ async def _confirm_exchange_flat_after_close(
     last_state["fill_counts"] = fills_summary
     last_state["timed_out"] = True
     return last_state
+
+
+async def _exit_price_from_fills(
+    client: Any, order_id: str, market: str, fallback: str
+) -> tuple[str, str]:
+    """Resolve the execution price for a close order from its fills.
+
+    Returns (price, source). The recorded exit price must be what the close
+    actually filled at (VWAP across fills); the accept-band price (±5% off
+    market when the order was submitted) systematically misstates realized
+    P&L by up to 5% of notional per leg, so it is only a fallback when the
+    fills endpoint is unavailable.
+    """
+    try:
+        fills = await get_order_fills(client, order_id, market=market)
+    except Exception as exc:
+        logger.warning(
+            "Could not fetch fills for close order {} on {}: {}",
+            order_id,
+            market,
+            exc,
+        )
+        return fallback, "accept_band_fallback"
+
+    total_size = 0.0
+    total_notional = 0.0
+    for fill in fills:
+        if not isinstance(fill, dict):
+            continue
+        price = fill.get("price")
+        size = fill.get("size")
+        if price in (None, "") or size in (None, ""):
+            continue
+        try:
+            fill_size = abs(float(size))
+            total_size += fill_size
+            total_notional += float(price) * fill_size
+        except (TypeError, ValueError):
+            continue
+    if total_size <= 0:
+        return fallback, "accept_band_fallback"
+    return str(total_notional / total_size), "fills_vwap"
 
 
 async def _get_recent_candles_for_cycle(
@@ -419,18 +490,38 @@ def _opposite_order_side(side: str) -> str:
 def _close_side_from_exchange_position(
     position: Dict[str, Any], fallback_side: str
 ) -> str:
+    # Prefer THIS instance's tracked side: on a shared subaccount the
+    # aggregate net side can be dominated by another instance's opposite
+    # position, and closing "the aggregate direction" would INCREASE our
+    # exposure (audit F6). Exchange side is only a fallback when tracked
+    # side metadata is missing/unparseable.
+    try:
+        return _opposite_order_side(fallback_side)
+    except ValueError:
+        pass
     exchange_side = str(position.get("side", "")).upper()
     if exchange_side == "LONG":
         return "SELL"
     if exchange_side == "SHORT":
         return "BUY"
-    return _opposite_order_side(fallback_side)
+    raise ValueError(
+        f"Cannot determine close side: tracked side={fallback_side!r}, "
+        f"exchange side={exchange_side!r}"
+    )
 
 
 def _close_size_from_exchange_position(
     position: Dict[str, Any], fallback_size: Any
 ) -> Any:
-    return position.get("sumOpen") or position.get("size") or fallback_size
+    # Prefer THIS instance's tracked size over the account aggregate
+    # (sumOpen): on a shared subaccount the aggregate includes other
+    # instances' positions, and a reduce-only close for the aggregate size
+    # would flatten THEIR exposure too (audit F6). Aggregate is only a
+    # fallback for legacy rows without tracked sizes.
+    tracked = fallback_size
+    if tracked not in (None, "", 0, "0", 0.0):
+        return tracked
+    return position.get("sumOpen") or position.get("size")
 
 
 def _failsafe_close_price(
@@ -651,6 +742,12 @@ async def open_positions(client: Any) -> None:
         try:
             hedge_ratio = _as_float(row["hedge_ratio"], field_name="hedge_ratio")
             half_life = _as_float(row["half_life"], field_name="half_life")
+            # Pairs stored before the intercept field existed fall back to 0.0,
+            # which reproduces the legacy (intercept-free) spread.
+            intercept = _as_float(
+                row.get("intercept", 0.0) if hasattr(row, "get") else 0.0,
+                field_name="intercept",
+            )
         except ValueError as exc:
             increment_metric("pair_candidates_skipped_total")
             logger.warning(
@@ -717,7 +814,9 @@ async def open_positions(client: Any) -> None:
                 )
                 continue
 
-            spread = series_1_numeric - (hedge_ratio * series_2_numeric)
+            # Spread must match the fitted relationship used for pair
+            # selection: series_1 - hedge_ratio*series_2 - intercept.
+            spread = series_1_numeric - (hedge_ratio * series_2_numeric) - intercept
             try:
                 z_score = _as_float(
                     calculate_zscore(spread).values.tolist()[-1],
@@ -995,6 +1094,7 @@ async def open_positions(client: Any) -> None:
                             z_score=z_score,
                             half_life=half_life,
                             hedge_ratio=hedge_ratio,
+                            intercept=intercept,
                         )
 
                         # Open Trades
@@ -1236,412 +1336,540 @@ async def manage_trade_exits(client: Any) -> str | None:
     # Check all saved positions match order record
     # Exit trade according to any exit trade rules
     for position in open_positions_dict:
+        try:
 
-        # Initialize is_close trigger
-        is_close = False
+            # Initialize is_close trigger
+            is_close = False
 
-        # Extract position matching information from file - market 1
-        position_market_m1 = position["market_1"]
-        position_size_m1 = position["order_m1_size"]
-        position_side_m1 = position["order_m1_side"]
+            # Extract position matching information from file - market 1
+            position_market_m1 = position["market_1"]
+            position_size_m1 = position["order_m1_size"]
+            position_side_m1 = position["order_m1_side"]
 
-        # Extract position matching information from file - market 2
-        position_market_m2 = position["market_2"]
-        position_size_m2 = position["order_m2_size"]
-        position_side_m2 = position["order_m2_side"]
+            # Extract position matching information from file - market 2
+            position_market_m2 = position["market_2"]
+            position_size_m2 = position["order_m2_size"]
+            position_side_m2 = position["order_m2_side"]
 
-        # Protect API
-        await asyncio.sleep(0.5)
+            # Protect API
+            await asyncio.sleep(0.5)
 
-        # Get order info m1 per exchange
-        order_m1 = await get_order(client, position["order_id_m1"])
-        order_market_m1 = order_m1["ticker"]
-        order_size_m1 = order_m1["size"]
-        order_side_m1 = order_m1["side"]
+            # Get order info m1 per exchange
+            order_m1 = await get_order(client, position["order_id_m1"])
+            order_market_m1 = order_m1["ticker"]
+            order_size_m1 = order_m1["size"]
+            order_side_m1 = order_m1["side"]
 
-        # Protect API Rate limits
-        await asyncio.sleep(0.5)
+            # Protect API Rate limits
+            await asyncio.sleep(0.5)
 
-        # Get order info m2 per exchange
-        order_m2 = await get_order(client, position["order_id_m2"])
-        order_market_m2 = order_m2["ticker"]
-        order_size_m2 = order_m2["size"]
-        order_side_m2 = order_m2["side"]
+            # Get order info m2 per exchange
+            order_m2 = await get_order(client, position["order_id_m2"])
+            order_market_m2 = order_m2["ticker"]
+            order_size_m2 = order_m2["size"]
+            order_side_m2 = order_m2["side"]
 
-        ## New: Ensure sizes match what was sent to the exchange
-        # Override size to match what DYDX exchange has
-        position_size_m1 = order_m1["size"]
-        position_size_m2 = order_m2["size"]
-
-        # Perform matching checks
-        check_m1 = (
-            position_market_m1 == order_market_m1
-            and position_size_m1 == order_size_m1
-            and position_side_m1 == order_side_m1
-        )
-        check_m2 = (
-            position_market_m2 == order_market_m2
-            and position_size_m2 == order_size_m2
-            and position_side_m2 == order_side_m2
-        )
-        m1_live = position_market_m1 in markets_live
-        m2_live = position_market_m2 in markets_live
-        check_live = m1_live and m2_live
-
-        # Guard: If not all match exit with error
-        if not check_m1 or not check_m2 or not check_live:
-            if check_m1 and check_m2 and (m1_live != m2_live):
-                orphan_market = position_market_m1 if m1_live else position_market_m2
-                orphan_side = position_side_m1 if m1_live else position_side_m2
-                orphan_size = position_size_m1 if m1_live else position_size_m2
-                logger.critical(
-                    "Detected one-sided orphaned exposure for {} / {}; attempting reduce-only close on {}",
-                    position_market_m1,
-                    position_market_m2,
-                    orphan_market,
-                )
-                recovered = await _close_orphan_exchange_leg(
-                    client,
-                    tracked_position=position,
-                    exchange_positions=exchange_pos,
-                    orphan_market=orphan_market,
-                    fallback_side=orphan_side,
-                    fallback_size=orphan_size,
-                    messenger=messenger,
-                )
-                if not recovered:
-                    save_output.append(position)
-                continue
-
-            if check_m1 and check_m2 and not m1_live and not m2_live:
+            ## Ensure sizes match what was sent to the exchange
+            # Size drift (partial-fill reconciliation, manual resize) is a warning;
+            # market/side identity mismatches below remain hard failures.
+            if str(position_size_m1) != str(order_size_m1):
                 logger.warning(
-                    "Tracked pair {} / {} is no longer open on exchange; removing local state",
+                    "Tracked size {} for {} diverges from exchange order size {}",
+                    position_size_m1,
                     position_market_m1,
-                    position_market_m2,
+                    order_size_m1,
                 )
-                continue
-
-            logger.error(
-                "Position mismatch for {} / {}; local state diverged from exchange",
-                position_market_m1,
-                position_market_m2,
-            )
-            logger.error(
-                "Program does not recognise some open positions. Manual intervention required."
-            )
-            raise RuntimeError(
-                f"Exchange/local state mismatch for {position_market_m1}/{position_market_m2}"
-            )
-
-        # Get prices
-        series_1 = await get_candles_recent(client, position_market_m1)
-        if DYDX_API_THROTTLE_SECONDS > 0:
-            await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
-        series_2 = await get_candles_recent(client, position_market_m2)
-        if DYDX_API_THROTTLE_SECONDS > 0:
-            await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
-
-        series_1_numeric = _as_numeric_series(series_1, field_name="series_1_exit")
-        series_2_numeric = _as_numeric_series(series_2, field_name="series_2_exit")
-
-        # Get markets for reference of tick size
-        markets = await get_markets(client)
-        z_score_traded: float = _as_float(
-            position["z_score"], field_name="z_score_traded"
-        )
-        z_score_current: float = z_score_traded
-
-        # Protect API
-        if DYDX_API_THROTTLE_SECONDS > 0:
-            await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
-
-        price_m1 = _as_float(series_1_numeric.iloc[-1], field_name="price_m1")
-        price_m2 = _as_float(series_2_numeric.iloc[-1], field_name="price_m2")
-        unrealized_pnl_pct = 0.0
-        if STOP_LOSS_PCT > 0 or TAKE_PROFIT_PCT > 0:
-            try:
-                unrealized_pnl_pct = _pair_unrealized_pnl_pct(
-                    position,
-                    current_price1=price_m1,
-                    current_price2=price_m2,
-                )
-            except Exception as exc:
+            if str(position_size_m2) != str(order_size_m2):
                 logger.warning(
-                    "Unable to evaluate PnL-based exit controls for {} / {}: {}",
-                    position_market_m1,
+                    "Tracked size {} for {} diverges from exchange order size {}",
+                    position_size_m2,
                     position_market_m2,
-                    exc,
+                    order_size_m2,
                 )
-                position["last_exit_warning"] = str(exc)
-                position["last_exit_warning_at"] = _utc_now_iso()
-        position_age_hours = _position_open_age_hours(position)
+            # Override size to match what DYDX exchange has (authoritative for exits)
+            position_size_m1 = order_m1["size"]
+            position_size_m2 = order_m2["size"]
 
-        if CLOSE_AT_ZSCORE_CROSS:
-            hedge_ratio = _as_float(position["hedge_ratio"], field_name="hedge_ratio")
-            if len(series_1_numeric) > 0 and len(series_1_numeric) == len(
-                series_2_numeric
-            ):
-                spread = series_1_numeric - (hedge_ratio * series_2_numeric)
-                z_score_current = _as_float(
-                    calculate_zscore(spread).values.tolist()[-1],
-                    field_name="z_score_current",
-                )
-
-        exit_reason = _resolve_exit_reason(
-            z_score_current=z_score_current,
-            z_score_traded=z_score_traded,
-            unrealized_pnl_pct=unrealized_pnl_pct,
-            position_age_hours=position_age_hours,
-        )
-        is_close = exit_reason is not None
-
-        # Close positions if triggered
-        if is_close:
-
-            # Determine side - m1
-            side_m1 = "SELL"
-            if position_side_m1 == "SELL":
-                side_m1 = "BUY"
-
-            # Determine side - m2
-            side_m2 = "SELL"
-            if position_side_m2 == "SELL":
-                side_m2 = "BUY"
-
-            accept_price_m1 = price_m1 * 1.05 if side_m1 == "BUY" else price_m1 * 0.95
-            accept_price_m2 = price_m2 * 1.05 if side_m2 == "BUY" else price_m2 * 0.95
-            tick_size_m1 = markets["markets"][position_market_m1]["tickSize"]
-            tick_size_m2 = markets["markets"][position_market_m2]["tickSize"]
-            accept_price_m1_formatted = format_number(accept_price_m1, tick_size_m1)
-            accept_price_m2_formatted = format_number(accept_price_m2, tick_size_m2)
-
-            # Close positions
-            close_order_m1 = None
-            close_order_m2 = None
-            close_order_m1_id = ""
-            close_order_m2_id = ""
-            close_order_time_m1 = ""
-            close_order_time_m2 = ""
-            exit_reason_key = str(exit_reason or "exit_signal")
-            exit_reason_text = _exit_reason_label(exit_reason_key)
-            position["pair_status"] = "CLOSE_SUBMITTED"
-            position["last_exit_reason"] = exit_reason_key
-            position["last_exit_signal_at"] = _utc_now_iso()
-            persist_trade_activity_event(
-                "trade_exit_attempt_started",
-                (
-                    f"Exit trigger ({exit_reason_key}) for "
-                    f"{position_market_m1} / {position_market_m2}"
-                ),
-                details={
-                    "market_1": position_market_m1,
-                    "market_2": position_market_m2,
-                    "z_score_current": float(z_score_current),
-                    "z_score_traded": float(z_score_traded),
-                    "exit_reason": exit_reason_key,
-                    "unrealized_pnl_pct": float(unrealized_pnl_pct),
-                    "position_age_hours": float(position_age_hours),
-                },
+            # Perform matching checks
+            check_m1 = (
+                position_market_m1 == order_market_m1
+                and position_side_m1 == order_side_m1
             )
-            try:
-                logger.info(
-                    "Closing position for {} (subaccount inferred)",
-                    position_market_m1,
-                )
+            check_m2 = (
+                position_market_m2 == order_market_m2
+                and position_side_m2 == order_side_m2
+            )
+            m1_live = position_market_m1 in markets_live
+            m2_live = position_market_m2 in markets_live
+            check_live = m1_live and m2_live
 
-                close_order_m1, close_order_m1_id = (
-                    await _place_reduce_only_close_with_retries(
-                        client,
-                        market=position_market_m1,
-                        side=side_m1,
-                        size=position_size_m1,
-                        price=accept_price_m1_formatted,
-                        attempts=3,
+            # Guard: If not all match exit with error
+            if not check_m1 or not check_m2 or not check_live:
+                if check_m1 and check_m2 and (m1_live != m2_live):
+                    orphan_market = (
+                        position_market_m1 if m1_live else position_market_m2
                     )
-                )
-
-                logger.debug("Close order m1 id: {}", close_order_m1.get("id"))
-                position["close_order_m1_id"] = close_order_m1_id
-                close_order_time_m1 = _utc_now_iso()
-
-                # Close position for market 2
-                logger.info(
-                    "Closing position for {} (subaccount inferred)",
-                    position_market_m2,
-                )
-
-                close_order_m2, close_order_m2_id = (
-                    await _place_reduce_only_close_with_retries(
-                        client,
-                        market=position_market_m2,
-                        side=side_m2,
-                        size=position_size_m2,
-                        price=accept_price_m2_formatted,
-                        attempts=3,
+                    orphan_side = position_side_m1 if m1_live else position_side_m2
+                    orphan_size = position_size_m1 if m1_live else position_size_m2
+                    logger.critical(
+                        "Detected one-sided orphaned exposure for {} / {}; attempting reduce-only close on {}",
+                        position_market_m1,
+                        position_market_m2,
+                        orphan_market,
                     )
-                )
+                    recovered = await _close_orphan_exchange_leg(
+                        client,
+                        tracked_position=position,
+                        exchange_positions=exchange_pos,
+                        orphan_market=orphan_market,
+                        fallback_side=orphan_side,
+                        fallback_size=orphan_size,
+                        messenger=messenger,
+                    )
+                    if not recovered:
+                        save_output.append(position)
+                    continue
 
-                logger.debug("Close order m2 id: {}", close_order_m2.get("id"))
-                position["close_order_m2_id"] = close_order_m2_id
-                close_order_time_m2 = _utc_now_iso()
-                position["pair_status"] = "CLOSING"
-
-                close_confirmation = await _confirm_exchange_flat_after_close(
-                    client,
-                    position=position,
-                    close_order_ids={
-                        "market_1": close_order_m1_id,
-                        "market_2": close_order_m2_id,
-                    },
-                )
-                position.update(close_confirmation)
-
-                if bool(close_confirmation.get("flat_confirmed")):
-                    position["pair_status"] = "CLOSE_CONFIRMED"
-                    trade_info = {
-                        "pair": f"{position_market_m1} / {position_market_m2}",
-                        "base_market": position_market_m1,
-                        "quote_market": position_market_m2,
-                        "base_side": side_m1,
-                        "quote_side": side_m2,
-                        "base_size": position_size_m1,
-                        "quote_size": position_size_m2,
-                        "z_score": z_score_current,
-                        "close_order_m1_id": close_order_m1_id,
-                        "close_order_m2_id": close_order_m2_id,
-                    }
-                    messenger.send_trade_closed_message(trade_info, exit_reason_text)
+                if check_m1 and check_m2 and not m1_live and not m2_live:
+                    logger.warning(
+                        "Tracked pair {} / {} is no longer open on exchange; removing local state",
+                        position_market_m1,
+                        position_market_m2,
+                    )
+                    # Both legs are flat on-exchange but this code path never
+                    # persisted the close (e.g. closed manually, close-order
+                    # confirmation raced a fill, or liquidation). Persist the
+                    # close and emit an audit event so trade history and the
+                    # realtime positions view stay truthful instead of reporting
+                    # a permanently-open trade.
+                    position["pair_status"] = "CLOSE_CONFIRMED_EXTERNAL"
+                    position["last_exit_reason"] = "external_close"
                     persisted_trade_id = persist_live_trade_closed(
                         position,
-                        exit_price1=accept_price_m1_formatted,
-                        exit_price2=accept_price_m2_formatted,
+                        exit_price1=position.get("order_m1_price"),
+                        exit_price2=position.get("order_m2_price"),
                         exit_size1=position_size_m1,
                         exit_size2=position_size_m2,
                     )
                     persist_trade_activity_event(
-                        "trade_exit_close_confirmed",
+                        "trade_exit_close_confirmed_external",
                         (
-                            f"Confirmed flat exchange state for {position_market_m1} / "
-                            f"{position_market_m2}"
+                            f"Tracked pair {position_market_m1} / {position_market_m2} "
+                            "found flat on exchange without a bot-submitted close"
                         ),
+                        severity="warning",
                         details={
                             "market_1": position_market_m1,
                             "market_2": position_market_m2,
-                            "close_order_m1_id": close_order_m1_id,
-                            "close_order_m2_id": close_order_m2_id,
-                            "close_order_m1_side": side_m1,
-                            "close_order_m2_side": side_m2,
-                            "close_order_m1_size": position_size_m1,
-                            "close_order_m2_size": position_size_m2,
-                            "close_order_m1_price": accept_price_m1_formatted,
-                            "close_order_m2_price": accept_price_m2_formatted,
-                            "close_order_time_m1": close_order_time_m1,
-                            "close_order_time_m2": close_order_time_m2,
-                            "z_score": float(z_score_current),
-                            "exit_reason": exit_reason_key,
-                            "confirmation_attempts": int(
-                                close_confirmation.get("attempt", 0) or 0
-                            ),
+                            "exit_reason": "external_close",
                         },
                         related_trade_id=persisted_trade_id,
                     )
                     continue
 
-                confirmation_state = str(
-                    close_confirmation.get("pair_status") or "CLOSING"
-                )
-                confirmation_detail = (
-                    f"Close submitted for {position_market_m1} / {position_market_m2} "
-                    f"but flat state was not confirmed. state={confirmation_state}"
-                )
-                messenger.send_error_message(
-                    f"CRITICAL: Exit Not Confirmed ({confirmation_state})",
-                    confirmation_detail,
-                    is_critical=True,
-                    category="execution_exit_confirmation_failed",
-                )
-                logger.critical(confirmation_detail)
-                persist_trade_activity_event(
-                    "trade_exit_confirmation_failed",
-                    confirmation_detail,
-                    severity="critical",
-                    details={
-                        "market_1": position_market_m1,
-                        "market_2": position_market_m2,
-                        "close_order_m1_id": close_order_m1_id,
-                        "close_order_m2_id": close_order_m2_id,
-                        "exit_reason": exit_reason_key,
-                        "confirmation_state": confirmation_state,
-                        "confirmation_details": close_confirmation,
-                    },
-                )
-                save_output.append(position)
-                continue
-
-            except Exception as exc:
-                logger.exception(
-                    "Exit failed for {} / {}",
+                logger.error(
+                    "Position mismatch for {} / {}; local state diverged from exchange",
                     position_market_m1,
                     position_market_m2,
                 )
-                if close_order_m1 is not None and close_order_m2 is None:
-                    position["pair_status"] = "ORPHANED_EXIT_FAILED"
-                    position["orphaned_market"] = position_market_m2
-                    position["close_order_m1_id"] = close_order_m1_id
-                    position["last_exit_error"] = str(exc)
-                    position["last_exit_error_at"] = _utc_now_iso()
-                    critical_detail = (
-                        f"Submitted close for {position_market_m1} but failed to close "
-                        f"{position_market_m2}: {exc}"
+                logger.error(
+                    "Program does not recognise some open positions. Manual intervention required."
+                )
+                raise RuntimeError(
+                    f"Exchange/local state mismatch for {position_market_m1}/{position_market_m2}"
+                )
+
+            # Get prices
+            series_1 = await get_candles_recent(client, position_market_m1)
+            if DYDX_API_THROTTLE_SECONDS > 0:
+                await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
+            series_2 = await get_candles_recent(client, position_market_m2)
+            if DYDX_API_THROTTLE_SECONDS > 0:
+                await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
+
+            series_1_numeric = _as_numeric_series(series_1, field_name="series_1_exit")
+            series_2_numeric = _as_numeric_series(series_2, field_name="series_2_exit")
+
+            # Get markets for reference of tick size
+            markets = await get_markets(client)
+            z_score_traded: float = _as_float(
+                position["z_score"], field_name="z_score_traded"
+            )
+            z_score_current: float = z_score_traded
+
+            # Protect API
+            if DYDX_API_THROTTLE_SECONDS > 0:
+                await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
+
+            price_m1 = _as_float(series_1_numeric.iloc[-1], field_name="price_m1")
+            price_m2 = _as_float(series_2_numeric.iloc[-1], field_name="price_m2")
+            unrealized_pnl_pct = 0.0
+            if STOP_LOSS_PCT > 0 or TAKE_PROFIT_PCT > 0:
+                try:
+                    unrealized_pnl_pct = _pair_unrealized_pnl_pct(
+                        position,
+                        current_price1=price_m1,
+                        current_price2=price_m2,
                     )
-                    messenger.send_error_message(
-                        "CRITICAL: Partial Close Exposure",
-                        critical_detail,
-                        is_critical=True,
-                        category="execution_partial_close_failed",
-                    )
-                    logger.critical(
-                        "First close leg succeeded for {} / {}, second leg failed; orphaned {} exposure remains",
+                except Exception as exc:
+                    logger.warning(
+                        "Unable to evaluate PnL-based exit controls for {} / {}: {}",
                         position_market_m1,
                         position_market_m2,
+                        exc,
+                    )
+                    position["last_exit_warning"] = str(exc)
+                    position["last_exit_warning_at"] = _utc_now_iso()
+            position_age_hours = _position_open_age_hours(position)
+
+            if CLOSE_AT_ZSCORE_CROSS:
+                hedge_ratio = _as_float(
+                    position["hedge_ratio"], field_name="hedge_ratio"
+                )
+                intercept = _as_float(
+                    position.get("intercept", 0.0), field_name="intercept"
+                )
+                if len(series_1_numeric) > 0 and len(series_1_numeric) == len(
+                    series_2_numeric
+                ):
+                    spread = (
+                        series_1_numeric - (hedge_ratio * series_2_numeric) - intercept
+                    )
+                    z_score_current = _as_float(
+                        calculate_zscore(spread).values.tolist()[-1],
+                        field_name="z_score_current",
+                    )
+
+            exit_reason = _resolve_exit_reason(
+                z_score_current=z_score_current,
+                z_score_traded=z_score_traded,
+                unrealized_pnl_pct=unrealized_pnl_pct,
+                position_age_hours=position_age_hours,
+            )
+            is_close = exit_reason is not None
+
+            # Close positions if triggered
+            if is_close:
+
+                # Determine side - m1
+                side_m1 = "SELL"
+                if position_side_m1 == "SELL":
+                    side_m1 = "BUY"
+
+                # Determine side - m2
+                side_m2 = "SELL"
+                if position_side_m2 == "SELL":
+                    side_m2 = "BUY"
+
+                accept_price_m1 = (
+                    price_m1 * 1.05 if side_m1 == "BUY" else price_m1 * 0.95
+                )
+                accept_price_m2 = (
+                    price_m2 * 1.05 if side_m2 == "BUY" else price_m2 * 0.95
+                )
+                tick_size_m1 = markets["markets"][position_market_m1]["tickSize"]
+                tick_size_m2 = markets["markets"][position_market_m2]["tickSize"]
+                accept_price_m1_formatted = format_number(accept_price_m1, tick_size_m1)
+                accept_price_m2_formatted = format_number(accept_price_m2, tick_size_m2)
+
+                # Close positions
+                close_order_m1 = None
+                close_order_m2 = None
+                close_order_m1_id = ""
+                close_order_m2_id = ""
+                close_order_time_m1 = ""
+                close_order_time_m2 = ""
+                exit_reason_key = str(exit_reason or "exit_signal")
+                exit_reason_text = _exit_reason_label(exit_reason_key)
+                position["pair_status"] = "CLOSE_SUBMITTED"
+                position["last_exit_reason"] = exit_reason_key
+                position["last_exit_signal_at"] = _utc_now_iso()
+                persist_trade_activity_event(
+                    "trade_exit_attempt_started",
+                    (
+                        f"Exit trigger ({exit_reason_key}) for "
+                        f"{position_market_m1} / {position_market_m2}"
+                    ),
+                    details={
+                        "market_1": position_market_m1,
+                        "market_2": position_market_m2,
+                        "z_score_current": float(z_score_current),
+                        "z_score_traded": float(z_score_traded),
+                        "exit_reason": exit_reason_key,
+                        "unrealized_pnl_pct": float(unrealized_pnl_pct),
+                        "position_age_hours": float(position_age_hours),
+                    },
+                )
+                try:
+                    logger.info(
+                        "Closing position for {} (subaccount inferred)",
+                        position_market_m1,
+                    )
+
+                    # Snapshot the account aggregates BEFORE our closes so
+                    # confirmation can attribute our share on a shared
+                    # subaccount (flat-for-us = aggregate dropped by our
+                    # tracked size, not aggregate == 0).
+                    try:
+                        pre_close_exchange = await get_open_positions(client)
+                        pre_close_sizes = {
+                            market_key: _remaining_leg_size(
+                                pre_close_exchange.get(market_key), None
+                            )
+                            for market_key in (position_market_m1, position_market_m2)
+                        }
+                    except Exception as snapshot_error:
+                        pre_close_sizes = {}
+                        logger.warning(
+                            "Could not snapshot pre-close aggregate sizes for "
+                            "{} / {}: {}",
+                            position_market_m1,
+                            position_market_m2,
+                            snapshot_error,
+                        )
+
+                    close_order_m1, close_order_m1_id = (
+                        await _place_reduce_only_close_with_retries(
+                            client,
+                            market=position_market_m1,
+                            side=side_m1,
+                            size=position_size_m1,
+                            price=accept_price_m1_formatted,
+                            attempts=3,
+                        )
+                    )
+
+                    logger.debug("Close order m1 id: {}", close_order_m1.get("id"))
+                    position["close_order_m1_id"] = close_order_m1_id
+                    close_order_time_m1 = _utc_now_iso()
+
+                    # Close position for market 2
+                    logger.info(
+                        "Closing position for {} (subaccount inferred)",
                         position_market_m2,
                     )
+
+                    close_order_m2, close_order_m2_id = (
+                        await _place_reduce_only_close_with_retries(
+                            client,
+                            market=position_market_m2,
+                            side=side_m2,
+                            size=position_size_m2,
+                            price=accept_price_m2_formatted,
+                            attempts=3,
+                        )
+                    )
+
+                    logger.debug("Close order m2 id: {}", close_order_m2.get("id"))
+                    position["close_order_m2_id"] = close_order_m2_id
+                    close_order_time_m2 = _utc_now_iso()
+                    position["pair_status"] = "CLOSING"
+
+                    close_confirmation = await _confirm_exchange_flat_after_close(
+                        client,
+                        position=position,
+                        close_order_ids={
+                            "market_1": close_order_m1_id,
+                            "market_2": close_order_m2_id,
+                        },
+                        pre_close_sizes=pre_close_sizes or None,
+                    )
+                    position.update(close_confirmation)
+
+                    if bool(close_confirmation.get("flat_confirmed")):
+                        position["pair_status"] = "CLOSE_CONFIRMED"
+                        trade_info = {
+                            "pair": f"{position_market_m1} / {position_market_m2}",
+                            "base_market": position_market_m1,
+                            "quote_market": position_market_m2,
+                            "base_side": side_m1,
+                            "quote_side": side_m2,
+                            "base_size": position_size_m1,
+                            "quote_size": position_size_m2,
+                            "z_score": z_score_current,
+                            "close_order_m1_id": close_order_m1_id,
+                            "close_order_m2_id": close_order_m2_id,
+                        }
+                        messenger.send_trade_closed_message(
+                            trade_info, exit_reason_text
+                        )
+                        # Record what the close actually filled at, not the
+                        # accept-band price used at submission time.
+                        exit_price_m1, exit_price_m1_source = (
+                            await _exit_price_from_fills(
+                                client,
+                                close_order_m1_id,
+                                position_market_m1,
+                                accept_price_m1_formatted,
+                            )
+                        )
+                        exit_price_m2, exit_price_m2_source = (
+                            await _exit_price_from_fills(
+                                client,
+                                close_order_m2_id,
+                                position_market_m2,
+                                accept_price_m2_formatted,
+                            )
+                        )
+                        position["exit_price_m1_source"] = exit_price_m1_source
+                        position["exit_price_m2_source"] = exit_price_m2_source
+                        persisted_trade_id = persist_live_trade_closed(
+                            position,
+                            exit_price1=exit_price_m1,
+                            exit_price2=exit_price_m2,
+                            exit_size1=position_size_m1,
+                            exit_size2=position_size_m2,
+                        )
+                        persist_trade_activity_event(
+                            "trade_exit_close_confirmed",
+                            (
+                                f"Confirmed flat exchange state for {position_market_m1} / "
+                                f"{position_market_m2}"
+                            ),
+                            details={
+                                "market_1": position_market_m1,
+                                "market_2": position_market_m2,
+                                "close_order_m1_id": close_order_m1_id,
+                                "close_order_m2_id": close_order_m2_id,
+                                "close_order_m1_side": side_m1,
+                                "close_order_m2_side": side_m2,
+                                "close_order_m1_size": position_size_m1,
+                                "close_order_m2_size": position_size_m2,
+                                "close_order_m1_price": exit_price_m1,
+                                "close_order_m2_price": exit_price_m2,
+                                "close_order_m1_price_source": exit_price_m1_source,
+                                "close_order_m2_price_source": exit_price_m2_source,
+                                "close_order_time_m1": close_order_time_m1,
+                                "close_order_time_m2": close_order_time_m2,
+                                "z_score": float(z_score_current),
+                                "exit_reason": exit_reason_key,
+                                "confirmation_attempts": int(
+                                    close_confirmation.get("attempt", 0) or 0
+                                ),
+                            },
+                            related_trade_id=persisted_trade_id,
+                        )
+                        continue
+
+                    confirmation_state = str(
+                        close_confirmation.get("pair_status") or "CLOSING"
+                    )
+                    confirmation_detail = (
+                        f"Close submitted for {position_market_m1} / {position_market_m2} "
+                        f"but flat state was not confirmed. state={confirmation_state}"
+                    )
+                    messenger.send_error_message(
+                        f"CRITICAL: Exit Not Confirmed ({confirmation_state})",
+                        confirmation_detail,
+                        is_critical=True,
+                        category="execution_exit_confirmation_failed",
+                    )
+                    logger.critical(confirmation_detail)
                     persist_trade_activity_event(
-                        "trade_exit_orphaned",
-                        critical_detail,
+                        "trade_exit_confirmation_failed",
+                        confirmation_detail,
                         severity="critical",
                         details={
                             "market_1": position_market_m1,
                             "market_2": position_market_m2,
                             "close_order_m1_id": close_order_m1_id,
-                            "close_order_m1_side": side_m1,
-                            "close_order_m1_size": position_size_m1,
-                            "close_order_m1_price": accept_price_m1_formatted,
-                            "close_order_time_m1": close_order_time_m1,
+                            "close_order_m2_id": close_order_m2_id,
                             "exit_reason": exit_reason_key,
-                            "error": str(exc),
+                            "confirmation_state": confirmation_state,
+                            "confirmation_details": close_confirmation,
                         },
                     )
                     save_output.append(position)
                     continue
 
-                position["last_exit_error"] = str(exc)
-                position["last_exit_error_at"] = _utc_now_iso()
-                persist_trade_activity_event(
-                    "trade_exit_attempt_failed",
-                    f"Exit failed for {position_market_m1} / {position_market_m2}: {exc}",
-                    severity="error",
-                    details={
-                        "market_1": position_market_m1,
-                        "market_2": position_market_m2,
-                        "error": str(exc),
-                    },
-                )
+                except Exception as exc:
+                    logger.exception(
+                        "Exit failed for {} / {}",
+                        position_market_m1,
+                        position_market_m2,
+                    )
+                    if close_order_m1 is not None and close_order_m2 is None:
+                        position["pair_status"] = "ORPHANED_EXIT_FAILED"
+                        position["orphaned_market"] = position_market_m2
+                        position["close_order_m1_id"] = close_order_m1_id
+                        position["last_exit_error"] = str(exc)
+                        position["last_exit_error_at"] = _utc_now_iso()
+                        critical_detail = (
+                            f"Submitted close for {position_market_m1} but failed to close "
+                            f"{position_market_m2}: {exc}"
+                        )
+                        messenger.send_error_message(
+                            "CRITICAL: Partial Close Exposure",
+                            critical_detail,
+                            is_critical=True,
+                            category="execution_partial_close_failed",
+                        )
+                        logger.critical(
+                            "First close leg succeeded for {} / {}, second leg failed; orphaned {} exposure remains",
+                            position_market_m1,
+                            position_market_m2,
+                            position_market_m2,
+                        )
+                        persist_trade_activity_event(
+                            "trade_exit_orphaned",
+                            critical_detail,
+                            severity="critical",
+                            details={
+                                "market_1": position_market_m1,
+                                "market_2": position_market_m2,
+                                "close_order_m1_id": close_order_m1_id,
+                                "close_order_m1_side": side_m1,
+                                "close_order_m1_size": position_size_m1,
+                                "close_order_m1_price": accept_price_m1_formatted,
+                                "close_order_time_m1": close_order_time_m1,
+                                "exit_reason": exit_reason_key,
+                                "error": str(exc),
+                            },
+                        )
+                        save_output.append(position)
+                        continue
+
+                    position["last_exit_error"] = str(exc)
+                    position["last_exit_error_at"] = _utc_now_iso()
+                    persist_trade_activity_event(
+                        "trade_exit_attempt_failed",
+                        f"Exit failed for {position_market_m1} / {position_market_m2}: {exc}",
+                        severity="error",
+                        details={
+                            "market_1": position_market_m1,
+                            "market_2": position_market_m2,
+                            "error": str(exc),
+                        },
+                    )
+                    save_output.append(position)
+
+            # Keep record if items and save
+            else:
                 save_output.append(position)
 
-        # Keep record if items and save
-        else:
+        except Exception as exc:
+            # One unreadable or diverged position must not block exit
+            # management (stops, z-score exits) for every other tracked
+            # position: keep it tracked, alert, and continue the pass.
+            position["last_exit_error"] = str(exc)
+            position["last_exit_error_at"] = _utc_now_iso()
+            logger.exception(
+                "Exit management failed for tracked position {} / {}",
+                position.get("market_1", "?"),
+                position.get("market_2", "?"),
+            )
+            messenger.send_error_message(
+                "CRITICAL: Exit Management Failed",
+                (
+                    f"Exit management failed for {position.get('market_1', '?')} / "
+                    f"{position.get('market_2', '?')}: {exc}. "
+                    "Position remains tracked; manual verification required."
+                ),
+                is_critical=True,
+                category="exit_management_failed",
+            )
             save_output.append(position)
+            continue
 
     # Save remaining items
     logger.info("{} items remaining; persisting {}", len(save_output), BOT_AGENTS_PATH)

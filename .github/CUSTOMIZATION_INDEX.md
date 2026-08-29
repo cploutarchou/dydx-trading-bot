@@ -83,8 +83,18 @@ Root-agent selection:
 
 ## Workflow automation
 
-- `.github/workflows/ci.yml`
-  CI checks for Python lint/tests, Go WS smoke tests, and Docker image smoke validation.
+GitHub Actions only loads workflows from the repo-root `.github/workflows/` (service-level
+`backend/.github/workflows/` and `frontend/.github/workflows/` are not executed; see
+those files before adding anything new there):
+
+- `.github/workflows/bot-quality.yml`
+  Python lint/type/tests/security/deps/multiworker/integration, k8s secret scan, compose/kustomize validation, backend Go tests, coverage floor (82%).
+
+- `.github/workflows/container-images.yml`
+  Docker Compose validation and service image build/publish pipeline.
+
+- `.github/workflows/local-dev-setup.yml`
+  Makefile target, setup-guide, and infrastructure-config validation for local onboarding.
 
 ## Additional repo guidance
 

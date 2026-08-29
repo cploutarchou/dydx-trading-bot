@@ -29,7 +29,7 @@ Produce a tested, minimal-risk code change that:
 ## Decision Logic
 
 1. **Is this config-related?**
-   - Yes -> Add key in `config.yaml`, update dataclass in `config.py`, export in `constants.py`, consume constants in runtime code.
+   - Yes -> Add key to the encrypted profile (`config/profiles/*.config.enc.json` via `make dev-config`), update the dataclass in `bot/config/config.py`, export in `bot/src/constants.py`, consume constants in runtime code.
    - No -> Continue.
 
 2. **Does this touch order placement or close logic?**
@@ -144,7 +144,7 @@ Produce a tested, minimal-risk code change that:
 
 ## Quality Gates (Must Pass)
 
-- [ ] Config flow follows single-source pattern (`config.yaml` -> `config.py` -> `constants.py`)
+- [ ] Config flow follows single-source pattern (`config/profiles/*.config.enc.json` -> generated `run.json` -> `config/config.py` -> `constants.py`)
 - [ ] No repeated runtime parsing pattern introduced
 - [ ] All relevant datetimes are timezone-aware UTC
 - [ ] Atomic paired execution safety maintained

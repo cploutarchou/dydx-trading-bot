@@ -1,5 +1,5 @@
 ---
-agent: agent
+agent: 'Senior DeFi Monorepo Platform'
 name: codex-dydx-strategy-suggestions
 description: "Tune AI strategy suggestions to be dYdX-specific, risk-aware, and grounded in the selected strategy configuration and backtest evidence."
 argument-hint: "Paste strategy config + recent backtest outcomes + current runtime issue (if any)."

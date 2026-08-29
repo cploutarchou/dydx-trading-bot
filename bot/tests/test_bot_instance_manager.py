@@ -2961,3 +2961,94 @@ def test_instance_log_handle_and_tail_readers(tmp_path):
     # A directory where the log file belongs makes the tail read fail cleanly.
     (tmp_path / "bot_bot-log-2.log").mkdir()
     assert manager._read_recent_log_tail("bot-log-2") == ""
+
+
+def test_start_instance_injects_per_instance_trading_params_env(tmp_path, monkeypatch):
+    """Per-instance trading params must reach the worker as BOT_* env vars.
+
+    Regression for audit F7: the live trading core reads BotSettings.from_env()
+    at import time inside the worker; without this injection operators'
+    per-instance usdPerTrade / maxPositions / stopLossPct / subaccountNumber
+    were silently replaced by the global structured-config values.
+    """
+    monkeypatch.setenv("BOT_STARTUP_GRACE_SECONDS", "0")
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+    config = _strategy_config("strategy-params-1")
+    config.trading_params.subaccount_number = 2
+    config.trading_params.usd_per_trade = 42.5
+    config.trading_params.max_positions = 7
+    config.trading_params.stop_loss_pct = 3.25
+    config.trading_params.take_profit_pct = 9.5
+    config.trading_params.stats_window = 33
+    config.trading_params.zscore_threshold = 2.1
+    config.trading_params.position_timeout_hours = 48
+    config.trading_params.close_at_zscore_cross = False
+    config.trading_params.selected_markets = ["BTC-USD", "ETH-USD"]
+    asyncio.run(manager.create_instance(config))
+
+    monkeypatch.setattr(
+        bot_instance_manager_module, "async_job_manager", _FakeJobManager()
+    )
+    process = _FakeSubprocess(pid=999)
+    popen_kwargs = {}
+
+    def _fake_popen(*args, **kwargs):
+        popen_kwargs.update(kwargs)
+        return process
+
+    monkeypatch.setattr(bot_instance_manager_module.subprocess, "Popen", _fake_popen)
+
+    result = asyncio.run(manager.start_instance("strategy-params-1"))
+
+    assert result.success is True
+    env = popen_kwargs["env"]
+    assert env["BOT_SUBACCOUNT_NUMBER"] == "2"
+    assert env["BOT_USD_PER_TRADE"] == "42.5"
+    assert env["BOT_MAX_POSITIONS"] == "7"
+    assert env["BOT_STOP_LOSS_PCT"] == "3.25"
+    assert env["BOT_TAKE_PROFIT_PCT"] == "9.5"
+    assert env["BOT_STATS_WINDOW"] == "33"
+    assert env["BOT_ZSCORE_THRESHOLD"] == "2.1"
+    assert env["BOT_POSITION_TIMEOUT_HOURS"] == "48"
+    assert env["BOT_CLOSE_AT_ZSCORE_CROSS"] == "false"
+    assert env["BOT_SELECTED_MARKETS"] == "BTC-USD,ETH-USD"
+    assert env["BOT_MANAGE_EXITS"] == "false"
+    assert env["BOT_PLACE_TRADES"] == "false"
+    # Network selection stays with the credentials path: the injection map
+    # itself must never carry IS_TESTNET (inherited parent values are a
+    # separate, pre-existing concern).
+    assert "IS_TESTNET" not in bot_instance_manager_module.trading_params_env(
+        config.trading_params
+    )
+
+
+def test_trading_params_env_round_trips_through_bot_settings_from_env(
+    tmp_path, monkeypatch
+):
+    """The injected env must parse back into BotSettings unchanged."""
+    from config.config import BotSettings
+
+    config = _strategy_config("strategy-params-2")
+    config.trading_params.usd_per_trade = 17.25
+    config.trading_params.max_positions = 4
+    config.trading_params.subaccount_number = 1
+    config.trading_params.stop_loss_pct = 1.5
+    config.trading_params.stats_window = 26
+    config.trading_params.zscore_threshold = 1.75
+    config.trading_params.selected_markets = ["SOL-USD"]
+
+    for key, value in bot_instance_manager_module.trading_params_env(
+        config.trading_params
+    ).items():
+        monkeypatch.setenv(key, value)
+
+    parsed = BotSettings.from_env()
+
+    assert parsed.usdPerTrade == pytest.approx(17.25)
+    assert parsed.maxPositions == 4
+    assert parsed.subaccountNumber == 1
+    assert parsed.stopLossPct == pytest.approx(1.5)
+    assert parsed.statsWindow == 26
+    assert parsed.ZScoreThreshold == pytest.approx(1.75)
+    assert parsed.selectedMarkets == ["SOL-USD"]
+    assert parsed.closeAtZscoreCross == config.trading_params.close_at_zscore_cross

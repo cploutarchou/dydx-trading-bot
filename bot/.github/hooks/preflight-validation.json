@@ -1,12 +1,12 @@
 {
   "name": "Preflight Validation Hooks",
-  "description": "Auto-run safety checks before shipping changes to bot runtime or trading logic",
+  "description": "Safety checks for bot runtime / trading logic edits. NOTE: no agent runtime auto-loads .github/hooks/ — wire these commands into your tooling (or run them manually) before relying on them. FILE_PATH must be provided by the invoking runtime as an env var; hooks that receive paths on stdin JSON should extract it before invoking.",
   "hooks": {
     "PreToolUse": [
       {
         "type": "command",
-        "command": "bash -c 'if [[ \"$FILE_PATH\" =~ src/(trading|api|bot_instance_manager|main_instance)\\.py ]]; then echo \"Preflight: Checking imports and syntax...\"; .venv/bin/python -m py_compile \"$FILE_PATH\" 2>&1 | head -20 || exit 1; fi'",
-        "description": "Validate Python syntax for runtime files",
+        "command": "bash -c 'FILE_PATH=\"${CLAUDE_FILE_PATHS:-$FILE_PATH}\"; first=$(printf \"%s\" \"$FILE_PATH\" | awk \"{print \\$1}\"); if [[ \"$first\" =~ src/(trading|api|bot_instance_manager|main_instance)\\.py ]]; then echo \"Preflight: Checking syntax for $first\"; err=$( .venv/bin/python -m py_compile \"$first\" 2>&1 ); rc=$?; printf \"%s\\n\" \"$err\" | head -20; if [[ $rc -ne 0 ]]; then exit 1; fi; fi'",
+        "description": "Validate Python syntax for runtime files (fails closed on py_compile error)",
         "timeout": 10,
         "cwd": "/home/chris/workspace/dydx-trading-bot/bot"
       }
@@ -14,8 +14,8 @@
     "PostToolUse": [
       {
         "type": "command",
-        "command": "bash -c 'if [[ \"$FILE_PATH\" =~ src/.*\\.py ]]; then echo \"Preflight: Running import check...\"; .venv/bin/python -c \"import ast; ast.parse(open(\\\"$FILE_PATH\\\").read())\" 2>&1 || echo \"WARNING: Syntax check failed\"; fi'",
-        "description": "Validate AST parsing after edits",
+        "command": "bash -c 'FILE_PATH=\"${CLAUDE_FILE_PATHS:-$FILE_PATH}\"; first=$(printf \"%s\" \"$FILE_PATH\" | awk \"{print \\$1}\"); if [[ \"$first\" =~ src/.*\\.py ]]; then echo \"Preflight: Running AST parse for $first\"; if ! .venv/bin/python -c \"import ast,sys; ast.parse(open(sys.argv[1]).read())\" \"$first\" 2>&1; then echo \"ERROR: Syntax check failed\"; exit 1; fi; fi'",
+        "description": "Validate AST parsing after edits (fails closed on parse error)",
         "timeout": 10,
         "cwd": "/home/chris/workspace/dydx-trading-bot/bot"
       }

@@ -19,6 +19,27 @@ _ensure_path(BOT_ROOT)
 
 
 # ============================================================================
+# Import-time environment hermeticity (MUST run before any src import)
+# ============================================================================
+#
+# The database manager singleton builds its engine at src-import time from the
+# structured config (run.json exports BOT_DATABASE_URL etc. via load_repo_env),
+# so fixture-level env patching is too late. With the local dev stack running,
+# tests would otherwise connect to the shared dev Postgres (retry storms on
+# auth failures, stale rows, and writes into live state). Point the suite at
+# the same hermetic run config CI uses (.ci-run.json: no database section),
+# and force the default DB to a closed port so connections fail fast and code
+# falls back to the in-memory/file stores — the suite's supported mode.
+_ci_run_config = REPO_ROOT / ".ci-run.json"
+if _ci_run_config.exists() and not os.environ.get("BOT_TESTS_KEEP_RUN_CONFIG"):
+    os.environ["APP_RUN_CONFIG_FILE"] = str(_ci_run_config)
+os.environ.setdefault("DB_PORT", "5439")
+os.environ.setdefault("BOT_DB_PORT", "5439")
+os.environ.pop("DATABASE_URL", None)
+os.environ.pop("BOT_DATABASE_URL", None)
+
+
+# ============================================================================
 # Market-data shared (L2) cache isolation
 # ============================================================================
 #
@@ -58,6 +79,90 @@ def _isolate_circuit_breakers(monkeypatch):
     resilience.reset_breakers()
     for service in ("DYDX_INDEXER", "TELEGRAM", "LOKI"):
         monkeypatch.setenv(f"{service}_CIRCUIT_ENABLED", "false")
+
+
+# ============================================================================
+# Backtest artifact-store isolation
+# ============================================================================
+#
+# The local artifact fallback defaults to the shared runtime directory
+# ``bot_states/backtest_artifacts``. Tests must never read or write that
+# directory: doing so pollutes the working tree with generated run
+# directories (the class of accidental artifact commits seen on master) and
+# can couple tests to leftover artifacts from earlier runs. A test that wants
+# a specific root sets BACKTEST_ARTIFACTS_DIR itself after this fixture.
+@pytest.fixture(autouse=True)
+def _isolate_backtest_artifact_store(monkeypatch, tmp_path):
+    monkeypatch.setenv("BACKTEST_ARTIFACTS_DIR", str(tmp_path / "backtest_artifacts"))
+
+
+# ============================================================================
+# Tracked-position store isolation (file mode)
+# ============================================================================
+#
+# bot_agents_state persists tracked positions DB-first. With the local dev
+# docker stack running (real Postgres on 5432) tests would otherwise read
+# leftover rows from the shared database and — worse — writes/deletes
+# (append/save/clear during exit and abort flows) would mutate the state of
+# any live worker pointed at the same database. Force file mode suite-wide;
+# a dedicated DB-mode test would override these with its own monkeypatch.
+# ============================================================================
+# Database hermeticity
+# ============================================================================
+#
+# The suite's supported mode is "database unavailable" (that is exactly how
+# CI runs it: repositories fall back to in-memory/file stores). With the
+# local dev docker stack running, a real Postgres listens on 5432 and tests
+# would silently read/write the SHARED dev database — stale rows break
+# DB-backed tests and writes pollute (or worse, mutate) the running
+# worker/API state. Point the default DB at a closed port; tests that
+# deliberately exercise a real database opt back in via their own env.
+# ============================================================================
+# External artifact-backend isolation
+# ============================================================================
+#
+# The structured config exports MINIO_ENABLED / BACKTEST_ARTIFACT_STORAGE_ENABLED
+# / CLICKHOUSE_ENABLED into os.environ; with the local dev stack running,
+# backtest persistence would write REAL artifacts to the dev MinIO/ClickHouse
+# (slow, and pollutes shared infra). Tests exercise the local fallback stores;
+# dedicated MinIO/ClickHouse tests inject their own doubles.
+@pytest.fixture(autouse=True)
+def _disable_external_artifact_backends(monkeypatch):
+    for gate in (
+        "BACKTEST_MINIO_ARTIFACTS_ENABLED",
+        "BACKTEST_MINIO_ENABLED",
+        "MINIO_ENABLED",
+        "BACKTEST_ARTIFACT_STORAGE_ENABLED",
+        "BACKTEST_CLICKHOUSE_WRITES_ENABLED",
+        "BACKTEST_CLICKHOUSE_ENABLED",
+        "CLICKHOUSE_ENABLED",
+    ):
+        monkeypatch.setenv(gate, "false")
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_database(monkeypatch):
+    monkeypatch.setenv("DB_PORT", "5439")
+    monkeypatch.setenv("BOT_DB_PORT", "5439")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("BOT_DATABASE_URL", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _force_file_mode_tracked_state(monkeypatch):
+    from src.trading import bot_agents_state
+
+    monkeypatch.setattr(bot_agents_state, "_db_load_positions", lambda: None)
+
+    def _no_save(_positions):
+        return None
+
+    monkeypatch.setattr(bot_agents_state, "_db_save_positions", _no_save)
+
+    def _no_delete():
+        return None
+
+    monkeypatch.setattr(bot_agents_state, "_db_delete_positions", _no_delete)
 
 
 # ============================================================================

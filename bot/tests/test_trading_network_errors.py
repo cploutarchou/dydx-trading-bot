@@ -146,22 +146,20 @@ class TestAccountManagerNetworkFailures:
         assert exc_info.value.response.status_code == 429
 
     @pytest.mark.asyncio
-    async def test_get_account_fallback_on_404(self, mock_client):
-        """Test get_account falls back to DYDX_ADDRESS on 404 for primary address."""
-        # Primary address returns 404, secondary succeeds
+    async def test_get_account_404_propagates(self, mock_client):
+        """get_account must fail closed: no silent cross-account fallback reads."""
         error_response_404 = httpx.Response(404, json={"error": "Not found"})
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
-            side_effect=[
-                httpx.HTTPStatusError(
-                    "Not found", request=MagicMock(), response=error_response_404
-                ),
-                {"subaccount": {"address": "0xFallback"}},
-            ]
+            side_effect=httpx.HTTPStatusError(
+                "Not found", request=MagicMock(), response=error_response_404
+            )
         )
 
-        # Should succeed with fallback
-        result = await account_manager.get_account(mock_client)
-        assert result["address"] == "0xFallback"
+        # A 404 on the resolved address is an error for get_account: falling
+        # back to a globally configured address could return ANOTHER
+        # account's equity/positions into risk decisions.
+        with pytest.raises(httpx.HTTPStatusError):
+            await account_manager.get_account(mock_client)
 
     @pytest.mark.asyncio
     async def test_get_open_positions_connection_error(self, mock_client):
@@ -426,17 +424,71 @@ class TestBotAgentNetworkFailures:
             hedge_ratio=1.0,
         )
 
-        # Mock the place_market_order to fail with connection error
+        # Mock the place_market_order to fail with connection error. The
+        # placement outcome is unknown (the tx may have landed), so cleanup
+        # is attempted; the cleanup placement fails too, which must escalate
+        # rather than return quietly.
         with patch.object(
             bot_agent,
             "place_market_order",
             AsyncMock(side_effect=ConnectionError("Failed to connect")),
         ):
+            with pytest.raises(
+                RuntimeError, match="Unexpected emergency closure error"
+            ):
+                await agent.open_trades()
+
+    @pytest.mark.asyncio
+    async def test_bot_agent_open_trades_connection_error_cleans_up(
+        self, mock_client_with_wallet
+    ):
+        """Unknown first-leg outcome is emergency-closed when the network recovers."""
+        from src.trading import bot_agent
+
+        agent = bot_agent.BotAgent(
+            client=mock_client_with_wallet,
+            market_1="BTC-USD",
+            market_2="ETH-USD",
+            base_side="BUY",
+            base_size=1.0,
+            base_price=100.0,
+            quote_side="SELL",
+            quote_size=1.0,
+            quote_price=200.0,
+            accept_failsafe_base_price=95.0,
+            z_score=2.0,
+            half_life=3600.0,
+            hedge_ratio=1.0,
+        )
+
+        calls = []
+
+        async def fake_place_market_order(
+            client, market, side, size, price, reduce_only
+        ):
+            calls.append({"market": market, "side": side, "reduce_only": reduce_only})
+            if len(calls) == 1:
+                raise ConnectionError("Failed to connect")
+            return ({"ok": True}, "m1-close-order")
+
+        async def fake_check_order_status(client, order_id):
+            return "FILLED"
+
+        async def _fast_sleep(_seconds):
+            return None
+
+        with (
+            patch.object(bot_agent, "place_market_order", fake_place_market_order),
+            patch.object(bot_agent, "check_order_status", fake_check_order_status),
+            patch.object(bot_agent.asyncio, "sleep", _fast_sleep),
+        ):
             result = await agent.open_trades()
 
-            # The exception is caught and stored in order_dict
-            assert result["pair_status"] == "ERROR"
-            assert "Failed to connect" in result["comments"]
+        assert result["pair_status"] == "ERROR"
+        assert "Failed to connect" in result["comments"]
+        # The unknown-outcome first leg was reduce-only closed.
+        assert calls[-1]["market"] == "BTC-USD"
+        assert calls[-1]["reduce_only"] is True
 
     @pytest.mark.asyncio
     async def test_bot_agent_check_order_status_by_id_connection_error(
@@ -551,42 +603,31 @@ class TestMixedErrorScenarios:
     """Test complex error scenarios combining multiple failure modes."""
 
     @pytest.mark.asyncio
-    async def test_get_account_primary_timeout_secondary_connection_error(
-        self, mock_client
-    ):
-        """Test get_account with timeout on primary and connection error on secondary."""
+    async def test_get_account_timeout_propagates_directly(self, mock_client):
+        """get_account has no secondary address: the primary error surfaces as-is."""
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
-            side_effect=[
-                asyncio.TimeoutError("Primary timeout"),
-                ConnectionError("Secondary connection failed"),
-            ]
+            side_effect=asyncio.TimeoutError("Primary timeout"),
         )
 
-        with pytest.raises(ConnectionError, match="Secondary connection failed"):
+        with pytest.raises(asyncio.TimeoutError, match="Primary timeout"):
             await account_manager.get_account(mock_client)
 
     @pytest.mark.asyncio
-    async def test_is_open_positions_404_then_500(self, mock_client):
-        """Test is_open_positions with 404 on primary and 500 on secondary."""
+    async def test_is_open_positions_404_returns_false(self, mock_client):
+        """A 404 subaccount means no position; non-404 failures propagate."""
         error_404 = httpx.Response(404, json={"error": "Not found"})
-        error_500 = httpx.Response(500, json={"error": "Internal Server Error"})
 
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
-            side_effect=[
-                httpx.HTTPStatusError(
-                    "Not found", request=MagicMock(), response=error_404
-                ),
-                httpx.HTTPStatusError(
-                    "Internal Server Error", request=MagicMock(), response=error_500
-                ),
-            ]
+            side_effect=httpx.HTTPStatusError(
+                "Not found", request=MagicMock(), response=error_404
+            )
         )
 
-        # Should propagate the 500 error since it's not a 404
-        with pytest.raises(httpx.HTTPStatusError) as exc_info:
-            await account_manager.is_open_positions(mock_client, "BTC-USD")
-
-        assert exc_info.value.response.status_code == 500
+        # 404 on the resolved address is handled without any cross-address
+        # retry; the fetch was attempted exactly once.
+        result = await account_manager.is_open_positions(mock_client, "BTC-USD")
+        assert result is False
+        assert mock_client.indexer_account.account.get_subaccount.await_count == 1
 
     @pytest.mark.asyncio
     async def test_sequential_api_calls_with_intermittent_failures(self, mock_client):

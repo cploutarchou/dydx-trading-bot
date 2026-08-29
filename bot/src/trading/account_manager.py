@@ -18,6 +18,12 @@ from src.trading.arbitrage_runtime_config import is_arbitrage_improvements_enabl
 from src.trading.bot_agents_state import clear_tracked_positions
 from src.trading.market_data import get_markets
 
+# Upper bound for direct node (cometbft gRPC) calls. These have no internal
+# deadline; without one a hung RPC would block the single-threaded trading
+# loop indefinitely. Placing is followed by an indexer order-id resolution
+# pass, so abandoning a slow response is recoverable.
+NODE_CALL_TIMEOUT_SECONDS = 30.0
+
 
 def _resolve_client_address(client: Any) -> str:
     """Resolve the best available wallet address as a concrete string."""
@@ -134,10 +140,15 @@ async def cancel_order(client: Any, order_id: str) -> None:
     )
     market_order_id.client_id = int(order["clientId"])
     market_order_id.clob_pair_id = int(order["clobPairId"])
-    current_block = await client.node.latest_block_height()
+    current_block = await asyncio.wait_for(
+        client.node.latest_block_height(), timeout=NODE_CALL_TIMEOUT_SECONDS
+    )
     good_til_block = current_block + 1 + 10
-    cancel = await client.node.cancel_order(
-        client.wallet, market_order_id, good_til_block=good_til_block
+    cancel = await asyncio.wait_for(
+        client.node.cancel_order(
+            client.wallet, market_order_id, good_til_block=good_til_block
+        ),
+        timeout=NODE_CALL_TIMEOUT_SECONDS,
     )
     logger.info("Cancel order response: {}", cancel)
     logger.warning(
@@ -148,40 +159,47 @@ async def cancel_order(client: Any, order_id: str) -> None:
 
 async def get_account(client: Any) -> Any:
     """Get current account information."""
-    # Try client's wallet address first, fall back to configured DYDX_ADDRESS
+    # _resolve_client_address already falls back to the configured address
+    # when the client has no wallet; a second cross-address retry here would
+    # silently return ANOTHER account's equity/positions whenever the two
+    # addresses differ, so failures propagate (fail-closed) instead.
     address = _resolve_client_address(client)
-    try:
-        account = await _get_subaccount_with_metrics(client, address)
-    except Exception:
-        # Fallback to configured DYDX_ADDRESS
-        account = await _get_subaccount_with_metrics(client, DYDX_ADDRESS)
+    account = await _get_subaccount_with_metrics(client, address)
     return account["subaccount"]
 
 
 async def get_open_positions(client: Any) -> Any:
     """Get all open perpetual positions."""
-    # Try client's wallet address first, fall back to configured DYDX_ADDRESS
     address = _resolve_client_address(client)
     try:
         response = await _get_subaccount_with_metrics(client, address)
-    except Exception:
-        # If primary address fails (likely 404 for fresh account), try configured address
-        try:
-            response = await _get_subaccount_with_metrics(client, DYDX_ADDRESS)
-        except Exception as e2:
-            # Both addresses failed - likely fresh testnet account with no trading history
-            import httpx
+    except Exception as e:
+        # A missing subaccount (404) genuinely means no positions; any other
+        # failure must propagate so risk/exit decisions fail closed.
+        import httpx
 
-            if isinstance(e2, httpx.HTTPStatusError) and e2.response.status_code == 404:
-                logger.debug("No subaccount found (404) - likely fresh testnet account")
-                return {}
-            raise e2
+        if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 404:
+            logger.debug("No subaccount found (404) - likely fresh testnet account")
+            return {}
+        raise
     return response["subaccount"]["openPerpetualPositions"]
 
 
+def _unwrap_order_payload(payload: Any) -> dict[str, Any]:
+    """Normalize an indexer order payload.
+
+    The dYdX v4 indexer GET /v4/orders/{id} response wraps the order record in
+    an ``"order"`` key; some older code paths return the flat record. Accept
+    both so downstream field access cannot raise KeyError on the nested shape.
+    """
+    if isinstance(payload, dict) and isinstance(payload.get("order"), dict):
+        return cast(dict[str, Any], payload["order"])
+    return cast(dict[str, Any], payload)
+
+
 async def get_order(client: Any, order_id: str) -> dict[str, Any]:
-    """Get details of a specific order."""
-    return await _get_order_with_metrics(client, order_id)
+    """Get details of a specific order (unwrapped to a flat order record)."""
+    return _unwrap_order_payload(await _get_order_with_metrics(client, order_id))
 
 
 async def get_order_fills(
@@ -216,24 +234,20 @@ async def is_open_positions(client: Any, market: str) -> bool:
     if DYDX_API_THROTTLE_SECONDS > 0:
         await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
 
-    # Get positions (try wallet address then configured address)
+    # Get positions (fail-closed: no cross-address fallback — see get_account)
     address = _resolve_client_address(client)
     try:
         response = await _get_subaccount_with_metrics(client, address)
-    except Exception:
-        try:
-            response = await _get_subaccount_with_metrics(client, DYDX_ADDRESS)
-        except Exception as e:
-            # Both addresses failed - likely fresh testnet account
-            import httpx
+    except Exception as e:
+        import httpx
 
-            if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 404:
-                logger.debug(
-                    "No subaccount found (404) for market {} - likely fresh testnet account",
-                    market,
-                )
-                return False
-            raise e
+        if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 404:
+            logger.debug(
+                "No subaccount found (404) for market {} - likely fresh testnet account",
+                market,
+            )
+            return False
+        raise
 
     open_positions = response["subaccount"]["openPerpetualPositions"]
 
@@ -249,12 +263,16 @@ async def is_open_positions(client: Any, market: str) -> bool:
 
 async def check_order_status(client: Any, order_id: str) -> str:
     """Check the current status of an order."""
-    order = await _get_order_with_metrics(client, order_id)
-    if order["status"]:
+    order = _unwrap_order_payload(await _get_order_with_metrics(client, order_id))
+    status = order.get("status") if isinstance(order, dict) else None
+    if status:
         # Typed local binds the Any payload value to the -> str contract.
-        status: str = order["status"]
-        return status
-    return "FAILED"
+        status_str: str = str(status)
+        return status_str
+    # A missing/unreadable status is NOT evidence of failure — reporting
+    # FAILED here would let callers skip hedging a leg that actually filled.
+    # UNKNOWN routes callers into their cancel-then-verify-fills path instead.
+    return "UNKNOWN"
 
 
 async def place_market_order(
@@ -281,7 +299,10 @@ async def place_market_order(
     """
     # Initialize
     ticker = str(market)
-    current_block = await client.node.latest_block_height()
+    # Bounded node calls: a hung RPC must not stall the trading loop forever.
+    current_block = await asyncio.wait_for(
+        client.node.latest_block_height(), timeout=NODE_CALL_TIMEOUT_SECONDS
+    )
     if is_arbitrage_improvements_enabled():
         markets_payload = await get_markets(client)
     else:
@@ -301,18 +322,21 @@ async def place_market_order(
     time_in_force = Order.TIME_IN_FORCE_UNSPECIFIED
 
     # Place Market Order
-    order = await client.node.place_order(
-        client.wallet,
-        market_obj.order(
-            market_order_id,
-            order_type=OrderType.MARKET,
-            side=Order.Side.SIDE_BUY if side == "BUY" else Order.Side.SIDE_SELL,
-            size=float(size),
-            price=float(price),
-            time_in_force=time_in_force,
-            reduce_only=reduce_only,
-            good_til_block=good_til_block,
+    order = await asyncio.wait_for(
+        client.node.place_order(
+            client.wallet,
+            market_obj.order(
+                market_order_id,
+                order_type=OrderType.MARKET,
+                side=Order.Side.SIDE_BUY if side == "BUY" else Order.Side.SIDE_SELL,
+                size=float(size),
+                price=float(price),
+                time_in_force=time_in_force,
+                reduce_only=reduce_only,
+                good_til_block=good_til_block,
+            ),
         ),
+        timeout=NODE_CALL_TIMEOUT_SECONDS,
     )
 
     order_lookup_address = _resolve_client_address(client)
@@ -506,39 +530,77 @@ async def _resolve_recent_order_id(
 
 
 async def cancel_all_orders(client: Any) -> Optional[List[Any]]:
-    """Cancel all open orders."""
+    """Cancel all open orders.
+
+    Returns the list of cancelled order ids (empty when none were open).
+    Raises after best-effort cancellation when any individual cancel fails or
+    the open-orders fetch fails for a non-404 reason, so callers can alert —
+    unknown live orders must never be treated as cancelled.
+    """
     try:
         order_lookup_address = _resolve_client_address(client)
-        orders = await _get_subaccount_orders_with_metrics(
+        raw_orders = await _get_subaccount_orders_with_metrics(
             client, order_lookup_address, _resolve_subaccount_number(), status="OPEN"
         )
     except Exception as e:
-        # If the account doesn't exist on the indexer (404) treat as no open orders
-        logger.warning("Could not fetch open orders: {}", e)
+        # A missing subaccount (404) genuinely means no open orders; any other
+        # failure must fail closed — proceeding with unknown live orders would
+        # let them fill during/after an emergency abort.
+        import httpx
+
+        if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 404:
+            logger.warning("No subaccount on indexer (404); assuming no open orders")
+            return []
+        logger.error("Could not fetch open orders during cancel-all: {}", e)
+        raise
+
+    # The indexer returns {"orders": [...]}; normalize before iterating so the
+    # loop sees order dicts, not the payload's keys.
+    orders = _normalize_orders_payload(raw_orders)
+    if not orders:
         return []
 
-    if len(orders) > 0:
-        for order in orders:
-            await cancel_order(client, order["id"])
+    cancelled: List[str] = []
+    failures: List[str] = []
+    for order in orders:
+        order_id = str(order.get("id", ""))
+        try:
+            await cancel_order(client, order_id)
+            cancelled.append(order_id)
             logger.warning(
                 "Open order {} may persist; verify cancellation on the dashboard",
-                order["id"],
+                order_id,
             )
-        raise RuntimeError(
-            "Cancellation requests submitted for open orders; verify dashboard before continuing"
-        )
+        except Exception as e:
+            failures.append(order_id or "<unknown-id>")
+            logger.error("Failed to cancel open order {}: {}", order_id or "?", e)
 
-    return None
+    if failures:
+        raise RuntimeError(
+            "cancel-all: cancellation failed for order id(s) "
+            f"{', '.join(failures)}; manual verification required before continuing"
+        )
+    return cancelled
 
 
 async def abort_all_positions(client: Any) -> List[Any]:
     """
     Close all open positions by placing offsetting reduce-only orders.
 
-    This is used for emergency shutdown or mode switch.
+    This is used for emergency shutdown or mode switch. Fail-closed design:
+    positions are always flattened best-effort (a failed cancel-all or a
+    single failed close must not skip the remaining closes), tracked state is
+    cleared, and any failure is re-raised afterwards so the caller aborts
+    with a CRITICAL signal instead of silently continuing.
     """
-    # Cancel all orders
-    await cancel_all_orders(client)
+    cleanup_errors: List[str] = []
+
+    # Cancel all orders (best-effort; failures surface after flattening)
+    try:
+        await cancel_all_orders(client)
+    except Exception as e:
+        cleanup_errors.append(f"cancel_all_orders: {e}")
+        logger.critical("cancel-all failed during abort; continuing to flatten: {}", e)
 
     # Protect API
     await asyncio.sleep(0.5)
@@ -555,47 +617,62 @@ async def abort_all_positions(client: Any) -> List[Any]:
     except Exception as e:
         # If the indexer returns 404 or similar, assume no positions for this test account
         logger.warning("Could not fetch open positions: {}", e)
-        return []
+        positions = {}
 
     # Handle open positions
     close_orders = []
     if len(positions) > 0:
 
-        # Loop through each position
+        # Loop through each position; isolate failures so every position gets
+        # a close attempt.
         for item in positions.keys():
 
             # Get Position
             pos = positions[item]
 
-            # Determine Market
-            market = pos["market"]
+            try:
+                # Determine Market
+                market = pos["market"]
 
-            # Determine Side
-            side = "BUY"
-            if pos["side"] == "LONG":
-                side = "SELL"
+                # Determine Side
+                side = "BUY"
+                if pos["side"] == "LONG":
+                    side = "SELL"
 
-            # Get Price
-            price = float(pos["entryPrice"])
-            accept_price = (
-                price * 1.7 if side == "BUY" else price * 0.3
-            )  # Helps towards ensuring order will be filled
-            tick_size = markets["markets"][market]["tickSize"]
-            accept_price_formatted = format_number(accept_price, tick_size)
+                # Get Price
+                price = float(pos["entryPrice"])
+                accept_price = (
+                    price * 1.7 if side == "BUY" else price * 0.3
+                )  # Helps towards ensuring order will be filled
+                tick_size = markets["markets"][market]["tickSize"]
+                accept_price_formatted = format_number(accept_price, tick_size)
 
-            # Place order to close
-            order, order_id = await place_market_order(
-                client, market, side, pos["sumOpen"], accept_price_formatted, True
-            )
+                # Place order to close
+                order, order_id = await place_market_order(
+                    client, market, side, pos["sumOpen"], accept_price_formatted, True
+                )
 
-            # Append the result
-            close_orders.append(order)
+                # Append the result
+                close_orders.append(order)
+            except Exception as e:
+                cleanup_errors.append(f"close {pos.get('market', item)}: {e}")
+                logger.critical(
+                    "Failed to place close order for {} during abort: {}",
+                    pos.get("market", item),
+                    e,
+                )
 
             # Protect API
             if DYDX_API_THROTTLE_SECONDS > 0:
                 await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
 
     await clear_tracked_positions()
+
+    if cleanup_errors:
+        raise RuntimeError(
+            "abort_all_positions completed best-effort cleanup with failures: "
+            + "; ".join(cleanup_errors)
+        )
 
     # Return closed orders
     return close_orders

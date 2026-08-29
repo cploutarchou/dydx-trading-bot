@@ -107,15 +107,19 @@ def test_calculate_zscore_shapes_and_values():
 def test_calculate_cointegration_detects_synthetic_cointegrated_pair():
     series_1, series_2 = _cointegrated_pair()
 
-    flag, hedge_ratio, half_life = calculate_cointegration(series_1, series_2)
+    flag, hedge_ratio, half_life, intercept, p_value = calculate_cointegration(
+        series_1, series_2
+    )
 
     assert flag == 1
     assert float(hedge_ratio) == pytest.approx(0.8, abs=0.05)
     assert half_life > 0
+    assert np.isfinite(intercept)
+    assert 0.0 <= p_value < 0.05
 
 
 def test_calculate_cointegration_rejects_independent_random_walks():
-    flag, hedge_ratio, _ = calculate_cointegration(*_random_walks())
+    flag, hedge_ratio, _, _, _ = calculate_cointegration(*_random_walks())
 
     assert flag == 0
     assert np.isfinite(hedge_ratio)

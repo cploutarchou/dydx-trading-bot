@@ -124,7 +124,7 @@ The bot service is a **multi-instance Python trading platform** that:
 - **Position Manager** (`src/trading/position_manager.py`) - Trade execution and monitoring
 - **Arbitrage Observability** (`src/trading/arbitrage_observability.py`) - Decision audit trail
 - **Pair Priority** (`src/trading/pair_priority.py`) - Pair ranking engine
-- **Realtime Data Service** (`src/trading/realtime_data_service.py`) - Real-time feed integration
+- **Market Data** (`src/trading/market_data.py`) - Candle/market REST feeds with L1/L2 caching
 - **Trade Persistence** (`src/trading/trade_persistence.py`) - Live trade records
 
 #### Infrastructure Components
@@ -181,8 +181,8 @@ make preflight-testnet          # Standard preflight checks
 make preflight-testnet-strict   # Release-grade validation
 
 # Docker
-make docker-build              # Build Docker image
-make docker-run                # Run containerized application
+make images-build             # Build all service images (root Makefile)
+make docker-up                # Start with Docker Compose (bot Makefile)
 ```
 
 #### Python Environment
@@ -199,7 +199,7 @@ make docker-run                # Run containerized application
 3. **Async Safety**: NEVER use `time.sleep(...)` inside async workflows
 4. **Error Propagation**: Reserve `sys.exit(...)` for top-level entrypoints only
 5. **Interpreter Consistency**: Use project `.venv` consistently across all operations
-6. **Documentation Sync**: Update README, openapi.json, OPERATIONS.md, tasks.md in same change
+6. **Documentation Sync**: Update README.md, openapi.json, docs/BOT_FLOWS.md, tasks.md in the same change (there is no OPERATIONS.md in this repo)
 7. **API Contracts**: Preserve `api_response(...)` envelope and auth patterns
 8. **Service Token Overlap**: Maintain support for multiple service tokens
 9. **Readiness Semantics**: `/ready` returns `200` only when bot manager is available
@@ -355,7 +355,7 @@ make docker-run                # Run containerized application
 
 ### Adding a New Trading Strategy
 1. **Design Phase**: Define strategy logic, risk parameters, entry/exit conditions
-2. **Implementation**: Create strategy class in `src/trading/strategies/`
+2. **Implementation**: Implement decision logic in `src/trading/` (there is no `src/trading/strategies/` package; entry decisions live in `position_manager.open_positions`)
 3. **Configuration**: Add strategy config to domain models
 4. **API Integration**: Add strategy endpoints if needed
 5. **Testing**: Create unit and integration tests

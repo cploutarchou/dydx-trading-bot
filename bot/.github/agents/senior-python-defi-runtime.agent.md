@@ -78,7 +78,7 @@ When behavior or operations change, **update in same change**:
 
 - `README.md`
 - `openapi.json`
-- `../docs/OPERATIONS.md`
+- `docs/BOT_FLOWS.md` (there is no `../docs/OPERATIONS.md` in this repo)
 - `tasks.md`
 
 ### 8. Secrets and Safety
@@ -169,7 +169,7 @@ make preflight-testnet-strict # Release-grade validation
 When completing work:
 
 1. **Confirm all validations passed** (unit, integration, preflight)
-2. **Link to updated docs** (README, openapi.json, OPERATIONS.md)
+2. **Link to updated docs** (README.md, openapi.json, docs/BOT_FLOWS.md — there is no OPERATIONS.md)
 3. **Provide rollback/incident plan** for safety-impacting changes
 4. **Flag new observability** (new metrics, alerts, or log markers)
 5. **Note any breaking changes** to API, auth, or instance lifecycle

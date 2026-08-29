@@ -2008,6 +2008,15 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         )
         transaction_fee = float(params.get("transaction_fee", 0.0) or 0.0)
         slippage = float(params.get("slippage", 0.0) or 0.0)
+        # Exit controls mirror the live ladder in
+        # position_manager._resolve_exit_reason; defaults follow src/constants.py
+        # (stopLossPct=2.0, takeProfitPct=5.0, positionTimeoutHours=72) so a
+        # backtest books exits the live bot would actually take.
+        stop_loss_pct = float(params.get("stop_loss_pct", 2.0) or 0.0)
+        take_profit_pct = float(params.get("take_profit_pct", 5.0) or 0.0)
+        position_timeout_hours = float(
+            params.get("position_timeout_hours", 72.0) or 0.0
+        )
 
         if len(prices_a) <= stats_window + 1:
             return [], [], {}
@@ -2015,9 +2024,25 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         var_b = float(np.var(prices_b))
         if var_b <= 1e-12:
             return [], [], {}
-        hedge_ratio = float(np.cov(prices_a, prices_b)[0, 1] / var_b)
 
-        spread = prices_a - (hedge_ratio * prices_b)
+        # Calibration/trade split (look-ahead removal): the hedge ratio and
+        # intercept are fit ONLY on the calibration window, and trading
+        # starts after it. Fitting on the full sample lets bar t's z-score
+        # use a regression estimated on data through the END of the sample —
+        # classic look-ahead that overstates backtest performance.
+        calibration_end = max(2 * stats_window, len(prices_a) // 2)
+        if len(prices_a) <= calibration_end + stats_window:
+            return [], [], {}
+
+        # Fit the same mean-reverting residual the live pipeline trades:
+        # OLS of prices_a on prices_b with a constant, spread = residual.
+        poly_coeffs = np.polyfit(
+            prices_b[:calibration_end], prices_a[:calibration_end], 1
+        )
+        hedge_ratio = float(poly_coeffs[0])
+        intercept = float(poly_coeffs[1])
+
+        spread = prices_a - (hedge_ratio * prices_b) - intercept
         trades: List[Dict[str, Any]] = []
         snapshots: List[Dict[str, Any]] = []
         daily_pnl: Dict[str, float] = {}
@@ -2029,7 +2054,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             self._SIMULATION_YIELD_EVERY_STEPS,
         )
 
-        for idx in range(stats_window, len(spread)):
+        for idx in range(calibration_end, len(spread)):
             if idx % yield_every_steps == 0:
                 await asyncio.sleep(0)
                 if heartbeat_callback is not None:
@@ -2046,9 +2071,13 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                             exc,
                         )
 
-            window = spread[idx - stats_window : idx]
+            # Same rolling window semantics as the live calculate_zscore:
+            # window INCLUDES the current bar and std is sample std (ddof=1,
+            # matching pandas rolling.std), so backtest z-scores equal the
+            # z-scores the live decision path would compute on the same data.
+            window = spread[idx - stats_window + 1 : idx + 1]
             mean = float(np.mean(window))
-            std = float(np.std(window))
+            std = float(np.std(window, ddof=1))
             if std <= 1e-12:
                 continue
             z = (float(spread[idx]) - mean) / std
@@ -2075,13 +2104,45 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                     }
                 continue
 
-            should_close = abs(z) <= 0.25
-            if close_on_cross and open_pos is not None:
-                if open_pos["side"] == "short_spread" and z <= 0:
-                    should_close = True
-                if open_pos["side"] == "long_spread" and z >= 0:
-                    should_close = True
+            # Mirror the live exit ladder (position_manager._resolve_exit_reason):
+            # stop-loss, then take-profit, then timeout, then z-score
+            # reversion — which requires BOTH a sign cross AND
+            # |z_now| >= |z_entry|, not merely |z| decaying under 0.25.
+            exit_reason: Optional[str] = None
+            if open_pos is not None:
+                ep1_chk = float(open_pos["entry_p1"])
+                ep2_chk = float(open_pos["entry_p2"])
+                move = (float(prices_a[idx]) - ep1_chk) - hedge_ratio * (
+                    float(prices_b[idx]) - ep2_chk
+                )
+                if open_pos["side"] == "short_spread":
+                    move *= -1.0
+                notional_chk = max(1e-9, abs(ep1_chk) + abs(hedge_ratio * ep2_chk))
+                unrealized_pnl_pct = (move / notional_chk) * 100.0
 
+                entry_dt_chk = datetime.fromisoformat(
+                    open_pos["entry_ts"].replace("Z", "+00:00")
+                )
+                exit_dt_chk = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                age_hours = max(
+                    0.0, (exit_dt_chk - entry_dt_chk).total_seconds() / 3600.0
+                )
+
+                if stop_loss_pct > 0 and unrealized_pnl_pct <= -stop_loss_pct:
+                    exit_reason = "stop_loss"
+                elif take_profit_pct > 0 and unrealized_pnl_pct >= take_profit_pct:
+                    exit_reason = "take_profit"
+                elif position_timeout_hours > 0 and age_hours >= position_timeout_hours:
+                    exit_reason = "timeout"
+                elif close_on_cross:
+                    z_cross = (z < 0 < open_pos["entry_z"]) or (
+                        z > 0 > open_pos["entry_z"]
+                    )
+                    z_level = abs(z) >= abs(open_pos["entry_z"])
+                    if z_cross and z_level:
+                        exit_reason = "zscore_reversion"
+
+            should_close = exit_reason is not None
             if not should_close or open_pos is None:
                 continue
 
@@ -2125,6 +2186,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                     "pnl_usd": round(float(pnl), 4),
                     "pnl_pct": round(float(pnl_pct), 4),
                     "duration_hours": round(duration_hours, 3),
+                    "exit_reason": exit_reason,
                     "win": bool(pnl > 0),
                 }
             )
@@ -2355,11 +2417,19 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                         market_history_cache[market] = {}
 
             if not resumed and not explicit_pair_selection:
+                # Rank pairs on the CALIBRATION half of the history only, so
+                # pair selection and trading are out-of-sample relative to
+                # each other (ranking on the full sample then trading the
+                # same sample is in-sample selection bias).
+                selection_history = {
+                    market: _pair_selection._truncate_history_for_selection(history)
+                    for market, history in market_history_cache.items()
+                }
                 pair_markets = self._prioritize_pairs(
                     pair_markets=pair_markets,
                     mode=pair_selection_mode,
                     market_map=market_map,
-                    history_by_market=market_history_cache,
+                    history_by_market=selection_history,
                 )
 
                 if max_pairs is not None:

@@ -2,7 +2,7 @@
 name: "Delegated Bot API Review"
 description: "Review delegated bot API routes, upstream proxy logic, auth forwarding, service-token behavior, WebSocket relays, retries, timeout handling, and caller compatibility in this dYdX backend. Use when auditing delegated bot API behavior, upstream integrations, or proxy-style route changes."
 argument-hint: "Describe the delegated route, upstream integration, file, diff, or behavior to review"
-agent: "agent"
+agent: "Senior Go DeFi Backend"
 ---
 
 Perform a focused delegated bot API review for this repository.

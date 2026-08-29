@@ -70,7 +70,25 @@ from pathlib import Path
 # anywhere (NATS JetStream events are the sanctioned status path and websocket
 # clients are DB-pull-based), so the two broad catches in the publisher and one
 # in the client factory went with it.
-BROAD_CATCH_BASELINE = 294
+# 2026-08-29: +10 — order-lifecycle fail-closed hardening (P0/P1 audit fixes).
+# All ten are best-effort *safety* boundaries where narrowing to a specific
+# exception type would let an unexpected error bypass emergency cleanup and
+# leave untracked live exposure — the exact failure class being fixed:
+#   - bot_agent.py `_cleanup_after_unfilled_or_unknown_leg1` + the four
+#     leg-close handlers in `open_trades` (unknown-outcome status checks,
+#     partial second-leg fills): ANY failure while closing a filled leg must
+#     be captured and escalated as telemetry, not escape the cleanup path.
+#   - account_manager.py `cancel_all_orders` per-order catch + the two
+#     `abort_all_positions` catches (cancel-all failure, per-position close
+#     isolation): emergency flatten must continue with remaining orders/
+#     positions and report failures afterwards.
+#   - position_manager.py per-position exit-management isolation: one
+#     unreadable/diverged position must not block stop-loss/z-score exits
+#     for every other tracked position.
+#   - minio_artifact_store.py `_ensure_bucket` probe guard: records the
+#     failed-probe timestamp for the cooldown; any transport/S3/url error
+#     takes the same local-fallback path (module is documented best-effort).
+BROAD_CATCH_BASELINE = 304
 
 # Matches "except Exception", "except Exception as e", "except Exception:" and bare "except:".
 _BROAD_CATCH_RE = re.compile(r"\bexcept\s+(Exception|BaseException)\b|^\s*except\s*:")

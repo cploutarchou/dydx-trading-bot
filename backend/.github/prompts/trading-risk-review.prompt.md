@@ -2,7 +2,7 @@
 name: "Trading Risk Review"
 description: "Review Go backend changes in this dYdX backend for trading risk, execution safety, precision issues, retries, idempotency, exchange integration hazards, and database consistency problems. Use when auditing bot, backtest, order, position, or delegated bot API behavior."
 argument-hint: "Describe the feature, file, diff, endpoint, or trading workflow to review"
-agent: "agent"
+agent: "Senior Go DeFi Backend"
 ---
 
 Perform a focused trading risk review for this repository.

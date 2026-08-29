@@ -324,15 +324,30 @@ func TestDelegateInterruptedBacktestsRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile request: %v", err)
 	}
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("non-admin non-dry-run reconcile must be forbidden, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	// Non-admins may still request the read-only dry-run preview.
+	req, err = http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/interrupted/reconcile?dry_run=true", nil)
+	if err != nil {
+		t.Fatalf("build dry-run reconcile request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+userToken)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("dry-run reconcile request: %v", err)
+	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("unexpected reconcile status: %d", resp.StatusCode)
+		t.Fatalf("unexpected dry-run reconcile status: %d", resp.StatusCode)
 	}
 
 	select {
 	case dryRun := <-dryRunQuery:
-		if dryRun != "false" {
-			t.Fatalf("expected dry_run=false upstream, got %q", dryRun)
+		if dryRun != "true" {
+			t.Fatalf("expected dry_run=true upstream, got %q", dryRun)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for reconcile dry_run query")

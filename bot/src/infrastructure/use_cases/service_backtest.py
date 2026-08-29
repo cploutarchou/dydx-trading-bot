@@ -315,6 +315,15 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
 
         return dict(cached) if cached is not None else None
 
+    async def _persist_run_data_async(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Off-thread persist for async callers.
+
+        ``save_run`` performs synchronous DB/MinIO/ClickHouse I/O; running it
+        on the event loop starves API health checks and status polls whenever
+        an artifact backend is slow or unreachable.
+        """
+        return await asyncio.to_thread(self._persist_run_data, run_data)
+
     def _persist_run_data(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
         existing = None
         run_id = str(run_data.get("run_id") or "").strip()
@@ -1285,7 +1294,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 "updated_at": now,
             }
         )
-        run_data = self._persist_run_data(run_data)
+        run_data = await self._persist_run_data_async(run_data)
         # Entering a pause is a likely precursor to an operator restart —
         # persist a resume point covering the completed prefix while the
         # in-memory state is still warm. The writer never raises.
@@ -1323,13 +1332,13 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                         "updated_at": now,
                     }
                 )
-                return self._persist_run_data(run_data)
+                return await self._persist_run_data_async(run_data)
 
             now = datetime.now(timezone.utc).isoformat()
             run_data.update(
                 {"status": "paused", "current_task": "paused", "updated_at": now}
             )
-            run_data = self._persist_run_data(run_data)
+            run_data = await self._persist_run_data_async(run_data)
 
     async def execute_existing_backtest(
         self,
@@ -2008,6 +2017,15 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         )
         transaction_fee = float(params.get("transaction_fee", 0.0) or 0.0)
         slippage = float(params.get("slippage", 0.0) or 0.0)
+        # Exit controls mirror the live ladder in
+        # position_manager._resolve_exit_reason; defaults follow src/constants.py
+        # (stopLossPct=2.0, takeProfitPct=5.0, positionTimeoutHours=72) so a
+        # backtest books exits the live bot would actually take.
+        stop_loss_pct = float(params.get("stop_loss_pct", 2.0) or 0.0)
+        take_profit_pct = float(params.get("take_profit_pct", 5.0) or 0.0)
+        position_timeout_hours = float(
+            params.get("position_timeout_hours", 72.0) or 0.0
+        )
 
         if len(prices_a) <= stats_window + 1:
             return [], [], {}
@@ -2015,9 +2033,14 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         var_b = float(np.var(prices_b))
         if var_b <= 1e-12:
             return [], [], {}
-        hedge_ratio = float(np.cov(prices_a, prices_b)[0, 1] / var_b)
 
-        spread = prices_a - (hedge_ratio * prices_b)
+        # Fit the same mean-reverting residual the live pipeline trades:
+        # OLS of prices_a on prices_b with a constant, spread = residual.
+        poly_coeffs = np.polyfit(prices_b, prices_a, 1)
+        hedge_ratio = float(poly_coeffs[0])
+        intercept = float(poly_coeffs[1])
+
+        spread = prices_a - (hedge_ratio * prices_b) - intercept
         trades: List[Dict[str, Any]] = []
         snapshots: List[Dict[str, Any]] = []
         daily_pnl: Dict[str, float] = {}
@@ -2046,9 +2069,13 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                             exc,
                         )
 
-            window = spread[idx - stats_window : idx]
+            # Same rolling window semantics as the live calculate_zscore:
+            # window INCLUDES the current bar and std is sample std (ddof=1,
+            # matching pandas rolling.std), so backtest z-scores equal the
+            # z-scores the live decision path would compute on the same data.
+            window = spread[idx - stats_window + 1 : idx + 1]
             mean = float(np.mean(window))
-            std = float(np.std(window))
+            std = float(np.std(window, ddof=1))
             if std <= 1e-12:
                 continue
             z = (float(spread[idx]) - mean) / std
@@ -2075,13 +2102,45 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                     }
                 continue
 
-            should_close = abs(z) <= 0.25
-            if close_on_cross and open_pos is not None:
-                if open_pos["side"] == "short_spread" and z <= 0:
-                    should_close = True
-                if open_pos["side"] == "long_spread" and z >= 0:
-                    should_close = True
+            # Mirror the live exit ladder (position_manager._resolve_exit_reason):
+            # stop-loss, then take-profit, then timeout, then z-score
+            # reversion — which requires BOTH a sign cross AND
+            # |z_now| >= |z_entry|, not merely |z| decaying under 0.25.
+            exit_reason: Optional[str] = None
+            if open_pos is not None:
+                ep1_chk = float(open_pos["entry_p1"])
+                ep2_chk = float(open_pos["entry_p2"])
+                move = (float(prices_a[idx]) - ep1_chk) - hedge_ratio * (
+                    float(prices_b[idx]) - ep2_chk
+                )
+                if open_pos["side"] == "short_spread":
+                    move *= -1.0
+                notional_chk = max(1e-9, abs(ep1_chk) + abs(hedge_ratio * ep2_chk))
+                unrealized_pnl_pct = (move / notional_chk) * 100.0
 
+                entry_dt_chk = datetime.fromisoformat(
+                    open_pos["entry_ts"].replace("Z", "+00:00")
+                )
+                exit_dt_chk = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                age_hours = max(
+                    0.0, (exit_dt_chk - entry_dt_chk).total_seconds() / 3600.0
+                )
+
+                if stop_loss_pct > 0 and unrealized_pnl_pct <= -stop_loss_pct:
+                    exit_reason = "stop_loss"
+                elif take_profit_pct > 0 and unrealized_pnl_pct >= take_profit_pct:
+                    exit_reason = "take_profit"
+                elif position_timeout_hours > 0 and age_hours >= position_timeout_hours:
+                    exit_reason = "timeout"
+                elif close_on_cross:
+                    z_cross = (z < 0 < open_pos["entry_z"]) or (
+                        z > 0 > open_pos["entry_z"]
+                    )
+                    z_level = abs(z) >= abs(open_pos["entry_z"])
+                    if z_cross and z_level:
+                        exit_reason = "zscore_reversion"
+
+            should_close = exit_reason is not None
             if not should_close or open_pos is None:
                 continue
 
@@ -2125,6 +2184,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                     "pnl_usd": round(float(pnl), 4),
                     "pnl_pct": round(float(pnl_pct), 4),
                     "duration_hours": round(duration_hours, 3),
+                    "exit_reason": exit_reason,
                     "win": bool(pnl > 0),
                 }
             )
@@ -2215,7 +2275,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 started_at=started_at.isoformat(),
             )
             run_data["updated_at"] = started_at.isoformat()
-            run_data = self._persist_run_data(run_data)
+            run_data = await self._persist_run_data_async(run_data)
             # mark_running is handled by create_supervised_task; do not call it here.
 
             params = request_payload.get("trading_parameters") or {}
@@ -2647,7 +2707,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                         run_data,
                         history_fetch_telemetry,
                     )
-                    run_data = self._persist_run_data(run_data)
+                    run_data = await self._persist_run_data_async(run_data)
                     # Durable resume point: everything through pair ``idx`` is
                     # complete and persisted, so a retry/redelivery can skip it.
                     _save_run_checkpoint(idx + 1)
@@ -2714,7 +2774,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 worker_backend=run_data.get("worker_backend") or "asyncio",
                 worker_task_id=run_data.get("worker_task_id") or run_id,
             )
-            run_data = self._persist_run_data(run_data)
+            run_data = await self._persist_run_data_async(run_data)
             async_job_manager.mark_completed(
                 run_id,
                 result={
@@ -2781,7 +2841,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 run_data,
                 history_fetch_telemetry,
             )
-            run_data = self._persist_run_data(run_data)
+            run_data = await self._persist_run_data_async(run_data)
             async_job_manager.mark_cancelled(run_id, reason="Backtest cancelled")
             # Operator-intentional terminal state — drop the resume point.
             _delete_run_checkpoint()
@@ -2959,7 +3019,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             worker_task_id=run_id,
             created_at=now,
         )
-        run_data = self._persist_run_data(run_data)
+        run_data = await self._persist_run_data_async(run_data)
 
         if worker_backend == "celery":
             try:
@@ -2982,7 +3042,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 run_data["worker_backend"] = "celery"
                 run_data["worker_task_id"] = task_id
                 run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-                run_data = self._persist_run_data(run_data)
+                run_data = await self._persist_run_data_async(run_data)
                 return _BacktestRunDetails(**self._resolve_stale_run_data(run_data))
             except Exception as exc:
                 logger.exception(
@@ -3015,7 +3075,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             run_data["worker_backend"] = "nats"
             run_data["worker_task_id"] = run_id
             run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-            run_data = self._persist_run_data(run_data)
+            run_data = await self._persist_run_data_async(run_data)
             logger.info(
                 "Backtest %s persisted for NATS (JetStream) execution; "
                 "waiting for backtest.command.start consumer",
@@ -3046,7 +3106,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         )
         run_data["status"] = "running"
         run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-        run_data = self._persist_run_data(run_data)
+        run_data = await self._persist_run_data_async(run_data)
 
         return _BacktestRunDetails(**run_data)
 

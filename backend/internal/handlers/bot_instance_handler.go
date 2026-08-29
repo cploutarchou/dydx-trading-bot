@@ -216,7 +216,8 @@ func NewBotInstanceHandlerWithCache(
 }
 
 // authorizeInstanceAccess ensures the requesting user can access the target
-// bot instance. Legacy compat rows with user_id=0 are allowed.
+// bot instance. Unattributed legacy rows (user_id=0) are admin-only: fail
+// closed rather than letting any authenticated user control them.
 func (h *BotInstanceHandler) authorizeInstanceAccess(c *gin.Context, instanceID string) (*models.BotInstance, bool) {
 	userIDValue, exists := c.Get("user_id")
 	if !exists {
@@ -249,7 +250,7 @@ func (h *BotInstanceHandler) authorizeInstanceAccess(c *gin.Context, instanceID 
 	}
 
 	isAdmin := c.GetBool("is_admin")
-	if instance.UserID > 0 && instance.UserID != userID && !isAdmin {
+	if (instance.UserID <= 0 || instance.UserID != userID) && !isAdmin {
 		c.JSON(http.StatusForbidden, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),

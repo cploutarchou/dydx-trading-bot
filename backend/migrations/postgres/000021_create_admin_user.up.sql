@@ -13,6 +13,12 @@ WHERE role IS NULL OR BTRIM(role) = '';
 
 -- Insert admin user (password is bcrypt hash of "admin123")
 -- Hash generated using: bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
+-- SECURITY: DO NOT "heal" this conflict clause into an UPDATE of
+-- hashed_password. Re-running migrations must never reset an operator's
+-- rotated admin password back to the repo-known default. Fresh installs
+-- get the seeded admin (password_change_required=true forces rotation);
+-- existing rows are left untouched. Production bootstrap is handled by
+-- EnsureBootstrapAdmin (BOOTSTRAP_ADMIN_PASSWORD), not this seed.
 INSERT INTO users (username, email, role, full_name, avatar, is_active, is_admin, password_change_required, hashed_password, created_at, updated_at)
 VALUES ('admin',
         'admin@dydx-trading-bot.local',
@@ -27,8 +33,7 @@ VALUES ('admin',
         CURRENT_TIMESTAMP)
 ON CONFLICT
   (username)
-  DO UPDATE SET hashed_password = EXCLUDED.hashed_password,
-                password_change_required = EXCLUDED.password_change_required;
+  DO NOTHING;
 
 -- Create index on username for faster lookups
 CREATE INDEX IF NOT EXISTS idx_users_username_lookup ON users(username);

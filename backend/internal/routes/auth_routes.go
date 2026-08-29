@@ -1419,6 +1419,21 @@ func logoutHandler() gin.HandlerFunc {
 			}
 		}
 
+		// Logout is the user's explicit revocation action: bump the session
+		// generation so stateless refresh JWTs (7-day cookies) cannot keep
+		// minting new sessions after logout, mirroring password-change
+		// semantics. Requires the caller to be authenticated; an anonymous
+		// logout keeps its current cookie-clearing behavior.
+		if userIDValue, exists := c.Get("user_id"); exists {
+			if userID, ok := userIDValue.(int); ok && userID > 0 {
+				if store := middleware.AuthSessionStore(); store != nil {
+					if err := store.BumpUserGeneration(c.Request.Context(), userID); err != nil {
+						log.Printf("logoutHandler: failed to revoke sessions for user=%d: %v", userID, err)
+					}
+				}
+			}
+		}
+
 		clearAuthCookies(c)
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,

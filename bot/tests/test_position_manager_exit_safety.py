@@ -421,3 +421,108 @@ def test_manage_trade_exits_marks_orphan_when_second_leg_close_fails(
     assert persisted == []
     assert remaining[0]["pair_status"] == "ORPHANED_EXIT_FAILED"
     assert remaining[0]["orphaned_market"] == "ETH-USD"
+
+
+def test_manage_trade_exits_isolates_poisoned_position(monkeypatch, tmp_path):
+    """A position whose order records are unreadable must not block exits for others."""
+
+    class DummyMessenger:
+        def __init__(self):
+            self.errors = []
+            self.closed = []
+
+        def send_trade_closed_message(self, trade_info, reason):
+            self.closed.append((trade_info, reason))
+
+        def send_error_message(self, *args, **kwargs):
+            self.errors.append((args, kwargs))
+
+    messenger = DummyMessenger()
+
+    def make_position(m1, m2, id1, id2):
+        return {
+            "market_1": m1,
+            "market_2": m2,
+            "order_id_m1": id1,
+            "order_id_m2": id2,
+            "order_m1_size": "0.1",
+            "order_m2_size": "1.0",
+            "order_m1_side": "BUY",
+            "order_m2_side": "SELL",
+            "z_score": -1.5,
+            "hedge_ratio": 1.0,
+            "pair_status": "LIVE",
+        }
+
+    bot_agents_path = tmp_path / "bot_agents.json"
+    bot_agents_path.write_text(
+        json.dumps(
+            [
+                make_position("POISON-USD", "ETH-USD", "bad-m1", "bad-m2"),
+                make_position("BTC-USD", "ETH-USD", "good-m1", "good-m2"),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(bot_agents_state, "BOT_AGENTS_PATH", bot_agents_path)
+    monkeypatch.setattr(position_manager, "BOT_AGENTS_PATH", bot_agents_path)
+    monkeypatch.setattr(position_manager, "TelegramMessenger", lambda: messenger)
+
+    async def fake_get_open_positions(_client):
+        return {
+            "POISON-USD": {"market": "POISON-USD", "side": "LONG", "sumOpen": "0.1"},
+            "BTC-USD": {"market": "BTC-USD", "side": "LONG", "sumOpen": "0.1"},
+            "ETH-USD": {"market": "ETH-USD", "side": "SHORT", "sumOpen": "1.0"},
+        }
+
+    async def fake_get_order(_client, order_id):
+        if order_id.startswith("bad"):
+            raise ConnectionError("indexer 500")
+        orders = {
+            "good-m1": {"ticker": "BTC-USD", "size": "0.1", "side": "BUY"},
+            "good-m2": {"ticker": "ETH-USD", "size": "1.0", "side": "SELL"},
+        }
+        return orders[order_id]
+
+    async def fake_get_candles_recent(_client, _market):
+        return pd.Series([100.0, 101.0, 102.0])
+
+    async def fake_get_markets(_client):
+        return {
+            "markets": {
+                "BTC-USD": {"tickSize": "0.1"},
+                "ETH-USD": {"tickSize": "0.01"},
+            }
+        }
+
+    async def fake_sleep(_seconds):
+        return None
+
+    def fake_calculate_zscore(_spread):
+        return pd.Series([2.0])
+
+    closes = []
+
+    async def fake_place_market_order(_client, market, side, size, price, reduce_only):
+        closes.append({"market": market, "reduce_only": reduce_only})
+        return {"id": f"close-{market}"}, f"close-{market}"
+
+    monkeypatch.setattr(position_manager, "get_open_positions", fake_get_open_positions)
+    monkeypatch.setattr(position_manager, "get_order", fake_get_order)
+    monkeypatch.setattr(position_manager, "get_candles_recent", fake_get_candles_recent)
+    monkeypatch.setattr(position_manager, "get_markets", fake_get_markets)
+    monkeypatch.setattr(position_manager, "calculate_zscore", fake_calculate_zscore)
+    monkeypatch.setattr(position_manager, "place_market_order", fake_place_market_order)
+    monkeypatch.setattr(position_manager.asyncio, "sleep", fake_sleep)
+
+    asyncio.run(position_manager.manage_trade_exits(object()))
+
+    # The healthy BTC/ETH pair was still exit-managed (both legs closed).
+    closed_markets = {c["market"] for c in closes}
+    assert {"BTC-USD", "ETH-USD"} <= closed_markets
+    # The poisoned position stays tracked and raised a critical alert.
+    remaining = json.loads(bot_agents_path.read_text(encoding="utf-8"))
+    poison = [p for p in remaining if p["market_1"] == "POISON-USD"]
+    assert len(poison) == 1
+    assert poison[0]["last_exit_error"]
+    assert any(kwargs.get("is_critical") for _args, kwargs in messenger.errors)

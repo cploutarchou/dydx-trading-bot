@@ -30,7 +30,10 @@ func RegisterKeyRoutes(router *gin.Engine, database *db.Database) {
 			keys.GET("/:network", keyHandler.GetKeyInfo)
 
 			// GET /api/v1/keys/{network}/secret - Get full key with decrypted secret
-			keys.GET("/:network/secret", keyHandler.GetKeyWithSecret)
+			// This returns the decrypted wallet secret over HTTP; require a
+			// recent MFA step-up (same policy as admin settings) so a stolen
+			// base session cookie cannot exfiltrate trading credentials.
+			keys.GET("/:network/secret", middleware.RequireMFA(database.DB), keyHandler.GetKeyWithSecret)
 
 			// DELETE /api/v1/keys/{network} - Delete (deactivate) a key
 			keys.DELETE("/:network", keyHandler.DeleteKey)

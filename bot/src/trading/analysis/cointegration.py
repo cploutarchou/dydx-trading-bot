@@ -80,12 +80,15 @@ def calculate_zscore(spread: Any) -> pd.Series:
     return zscore
 
 
-def calculate_cointegration(series_1: Any, series_2: Any) -> Tuple[int, float, float]:
+def calculate_cointegration(
+    series_1: Any, series_2: Any
+) -> Tuple[int, float, float, float, float]:
     """
     Test cointegration between two price series.
 
     Returns:
-        Tuple of (coint_flag, hedge_ratio, half_life)
+        Tuple of (coint_flag, hedge_ratio, half_life, intercept, p_value)
+        where intercept is the OLS constant of series_1 ~ const + hedge_ratio * series_2.
     """
     # Local imports to avoid heavy startup time when main merely loads modules
     import statsmodels.api as sm
@@ -127,7 +130,7 @@ def calculate_cointegration(series_1: Any, series_2: Any) -> Tuple[int, float, f
     half_life = half_life_mean_reversion(spread)
     t_check = coint_t < critical_value
     coint_flag = 1 if p_value < 0.05 and t_check else 0
-    return coint_flag, hedge_ratio, half_life
+    return coint_flag, hedge_ratio, half_life, intercept, p_value
 
 
 def count_zero_crossings(series: Any) -> int:
@@ -213,9 +216,13 @@ def store_cointegration_results(df_market_prices: pd.DataFrame) -> dict[str, Any
 
                 # Check cointegration
                 try:
-                    coint_flag, hedge_ratio, half_life = calculate_cointegration(
-                        series_1, series_2
-                    )
+                    (
+                        coint_flag,
+                        hedge_ratio,
+                        half_life,
+                        intercept,
+                        p_value,
+                    ) = calculate_cointegration(series_1, series_2)
                 except SmartError as e:
                     logger.debug(
                         "Skipping pair {} / {}: {}", base_market, quote_market, e
@@ -234,8 +241,10 @@ def store_cointegration_results(df_market_prices: pd.DataFrame) -> dict[str, Any
                         spread_series = None
                         z_scores_series = None
 
-                        spread_series = pd.Series(series_1) - hedge_ratio * pd.Series(
-                            series_2
+                        spread_series = (
+                            pd.Series(series_1)
+                            - hedge_ratio * pd.Series(series_2)
+                            - intercept
                         )
                         z_scores_series = calculate_zscore(spread_series)
 
@@ -244,7 +253,7 @@ def store_cointegration_results(df_market_prices: pd.DataFrame) -> dict[str, Any
 
                         # Calculate confidence score
                         confidence = calculate_confidence_score(
-                            p_value=0.01,
+                            p_value=p_value,
                             half_life=half_life,
                             zero_crossings=zero_crossings,
                         )
@@ -256,11 +265,12 @@ def store_cointegration_results(df_market_prices: pd.DataFrame) -> dict[str, Any
                             hedge_ratio=hedge_ratio,
                             half_life=half_life,
                             zero_crossings=zero_crossings,
-                            p_value=0.01,
+                            p_value=float(p_value),
                             z_score_mean=float(z_scores_series.mean()),
                             z_score_std=float(z_scores_series.std()),
                             analysis_timestamp=datetime.now(timezone.utc).isoformat(),
                             confidence_score=confidence,
+                            intercept=float(intercept),
                         )
 
                         criteria_met_pairs.append(cointegration_result)
@@ -280,11 +290,12 @@ def store_cointegration_results(df_market_prices: pd.DataFrame) -> dict[str, Any
                             hedge_ratio=hedge_ratio,
                             half_life=half_life,
                             zero_crossings=0,
-                            p_value=0.01,
+                            p_value=float(p_value),
                             z_score_mean=0.0,
                             z_score_std=1.0,
                             analysis_timestamp=datetime.now(timezone.utc).isoformat(),
                             confidence_score=0.5,
+                            intercept=float(intercept),
                         )
                         criteria_met_pairs.append(basic_result)
 

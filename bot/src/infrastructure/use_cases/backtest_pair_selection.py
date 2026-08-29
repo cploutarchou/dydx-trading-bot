@@ -197,6 +197,17 @@ def _pair_cointegration_score(
             if coint_pvalue > 0.10 or adf_pvalue > 0.10:
                 return -100.0 - float(coint_pvalue) - float(adf_pvalue)
 
+            # Half-life gate for live/backtest parity: the live pipeline
+            # (cointegration.store_cointegration_results) only accepts pairs
+            # with 0 < half_life <= MAX_HALF_LIFE. Pairs the live bot would
+            # never trade must not rank as tradable in backtests.
+            from src.constants import MAX_HALF_LIFE
+
+            if not np.isfinite(half_life) or not (
+                0 < half_life <= float(MAX_HALF_LIFE)
+            ):
+                return -50.0 - (0.0 if not np.isfinite(half_life) else float(half_life))
+
             coint_score = 1.0 - _clamp01(float(coint_pvalue))
             adf_score = 1.0 - _clamp01(float(adf_pvalue))
             half_life_score = (

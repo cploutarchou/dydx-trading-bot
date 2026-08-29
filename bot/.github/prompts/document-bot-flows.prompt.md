@@ -2,7 +2,7 @@
 description: "Generate complete bot flow documentation: system/runtime flow, business logic flow, and application flow with diagrams and validation notes"
 name: "Document Bot Flows"
 argument-hint: "Scope: full system, API lifecycle, strategy runtime, or specific feature"
-agent: "agent"
+agent: "Senior Python DeFi Runtime"
 ---
 
 Document the bot flows end-to-end with production-grade clarity.

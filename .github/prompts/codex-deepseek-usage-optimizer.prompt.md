@@ -1,5 +1,5 @@
 ---
-agent: agent
+agent: 'Senior DeFi Monorepo Platform'
 name: codex-deepseek-usage-optimizer
 description: "Audit and improve how this monorepo uses DeepSeek models (quality, reliability, and cost) and where needed upgrade full UX/UI user experience using AI-driven recommendations, then produce concrete, repo-specific implementation steps or patches."
 argument-hint: "Paste target scope (files/services), current pain points, and any latency/cost/quality goals."

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -23,9 +24,9 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var websocketUpgrader = websocket.Upgrader{	CheckOrigin: func(r *http.Request) bool {
-		return middleware.IsAllowedBrowserOrigin(r.Header.Get("Origin"))
-	},
+var websocketUpgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool {
+	return middleware.IsAllowedBrowserOrigin(r.Header.Get("Origin"))
+},
 }
 
 // realtimeStatsSingleflight coalesces concurrent realtime-stats cache misses
@@ -82,7 +83,15 @@ func respondBotAPIError(c *gin.Context, err error) {
 		c.JSON(status, gin.H{"error": message, "message": message, "trace_id": traceID})
 		return
 	}
-	c.JSON(http.StatusBadGateway, gin.H{"error": err.Error(), "message": err.Error(), "trace_id": traceID})
+	// Unclassified errors (DB driver messages, URL parse failures, file
+	// paths) must not leak to clients; log the detail server-side and return
+	// a generic message with the trace id for correlation.
+	log.Printf("unclassified bot API delegate error trace_id=%s: %v", traceID, err)
+	c.JSON(http.StatusBadGateway, gin.H{
+		"error":    "upstream bot API request failed",
+		"message":  "upstream bot API request failed",
+		"trace_id": traceID,
+	})
 }
 
 func delegateJSON(c *gin.Context, fallback *services.BotAPIClient, call func(*services.BotAPIClient) (map[string]interface{}, error)) {
@@ -1859,6 +1868,20 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			if raw := strings.TrimSpace(c.Query("dry_run")); raw != "" {
 				dryRun = !strings.EqualFold(raw, "false")
 			}
+			if !admin && !dryRun {
+				// A non-dry-run reconcile mutates interrupted runs platform
+				// wide; in service-token mode there is no upstream user
+				// identity to scope it. Restrict the state-changing form to
+				// the admin route (/api/v1/admin/backtests/interrupted/...).
+				c.JSON(http.StatusForbidden, gin.H{
+					"success":   false,
+					"message":   "non-dry-run reconciliation requires admin access",
+					"error":     "non-dry-run reconciliation requires admin access",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
 
 			result, err := requestClient.ReconcileInterruptedBacktests(dryRun, admin)
 			if err != nil {
@@ -3006,6 +3029,9 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		backtestGroup.GET("/:run_id/live", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)
 			runID := c.Param("run_id")
+			if !ensureSafeUpstreamPathSegment(c, runID) {
+				return
+			}
 			upstreamEndpoint := fmt.Sprintf("/api/v1/backtests/%s/live", runID)
 			proxyWebSocket(c, requestClient, upstreamEndpoint)
 		})
@@ -3059,85 +3085,7 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 	// bot API, so this is the only authorization boundary for these routes.
 	// Semantics mirror ensureBacktestRunAccess: admins bypass, foreign or
 	// unknown instances 404, missing registry fails closed.
-	botGroup.Use(func(c *gin.Context) {
-		instanceID := strings.TrimSpace(c.Param("instance_id"))
-		if instanceID == "" {
-			c.Next()
-			return
-		}
-		if c.GetBool("is_admin") {
-			c.Next()
-			return
-		}
-		if botInstanceRepo == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"success":   false,
-				"message":   "bot instance ownership verification unavailable",
-				"error":     "bot instance ownership verification unavailable",
-				"timestamp": time.Now().UTC().Format(time.RFC3339),
-				"trace_id":  middleware.GetTraceID(c),
-			})
-			c.Abort()
-			return
-		}
-
-		userIDValue, exists := c.Get("user_id")
-		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"success":   false,
-				"message":   "unauthorized",
-				"error":     "unauthorized",
-				"timestamp": time.Now().UTC().Format(time.RFC3339),
-				"trace_id":  middleware.GetTraceID(c),
-			})
-			c.Abort()
-			return
-		}
-		userID, ok := userIDValue.(int)
-		if !ok || userID <= 0 {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"success":   false,
-				"message":   "invalid user context",
-				"error":     "invalid user context",
-				"timestamp": time.Now().UTC().Format(time.RFC3339),
-				"trace_id":  middleware.GetTraceID(c),
-			})
-			c.Abort()
-			return
-		}
-
-		instance, err := botInstanceRepo.GetBotInstanceByInstanceID(instanceID)
-		if err != nil {
-			// The repository reports missing rows as an error; treat any
-			// "not found" shape as 404 rather than an infrastructure failure.
-			if strings.Contains(strings.ToLower(err.Error()), "not found") {
-				err = nil
-			} else {
-				log.Printf("delegated bot route ownership lookup failed for instance=%s: %v", instanceID, err)
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"success":   false,
-					"message":   "failed to verify bot instance access",
-					"error":     "failed to verify bot instance access",
-					"timestamp": time.Now().UTC().Format(time.RFC3339),
-					"trace_id":  middleware.GetTraceID(c),
-				})
-				c.Abort()
-				return
-			}
-		}
-		if instance == nil || (instance.UserID > 0 && instance.UserID != userID) {
-			c.JSON(http.StatusNotFound, gin.H{
-				"success":   false,
-				"message":   "bot instance not found",
-				"error":     "bot instance not found",
-				"timestamp": time.Now().UTC().Format(time.RFC3339),
-				"trace_id":  middleware.GetTraceID(c),
-			})
-			c.Abort()
-			return
-		}
-		c.Next()
-	})
+	botGroup.Use(requireBotInstanceOwnership(botInstanceRepo))
 	{
 		// Get current positions
 		botGroup.GET("/:instance_id/positions/current", func(c *gin.Context) {
@@ -3305,6 +3253,9 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		botGroup.GET("/:instance_id/positions/live", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)
 			instanceID := c.Param("instance_id")
+			if !ensureSafeUpstreamPathSegment(c, instanceID) {
+				return
+			}
 			upstreamEndpoint := fmt.Sprintf("/api/v1/bots/%s/positions/live", instanceID)
 			proxyWebSocket(c, requestClient, upstreamEndpoint)
 		})
@@ -3312,6 +3263,9 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		botGroup.GET("/:instance_id/market/live", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)
 			instanceID := c.Param("instance_id")
+			if !ensureSafeUpstreamPathSegment(c, instanceID) {
+				return
+			}
 			upstreamEndpoint := fmt.Sprintf("/api/v1/bots/%s/market/live", instanceID)
 			proxyWebSocket(c, requestClient, upstreamEndpoint)
 		})
@@ -3319,6 +3273,9 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		botGroup.GET("/:instance_id/alerts/live", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)
 			instanceID := c.Param("instance_id")
+			if !ensureSafeUpstreamPathSegment(c, instanceID) {
+				return
+			}
 			upstreamEndpoint := fmt.Sprintf("/api/v1/bots/%s/alerts/live", instanceID)
 			proxyWebSocket(c, requestClient, upstreamEndpoint)
 		})
@@ -3347,6 +3304,10 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 	wsGroup := router.Group("/ws")
 	wsGroup.Use(middleware.RequireAuth())
 	wsGroup.Use(withRequestScopedBotClient)
+	// /ws/bots/:instance_id streams a specific instance's channel: the same
+	// ownership check as the REST bot routes applies, otherwise any
+	// authenticated user could subscribe to another user's bot stream.
+	wsGroup.Use(requireBotInstanceOwnership(botInstanceRepo))
 	{
 		wsGroup.GET("/strategies", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)
@@ -3359,6 +3320,9 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 			if !ensureBacktestRunAccess(c, runID, backtestRepo) {
 				return
 			}
+			if !ensureSafeUpstreamPathSegment(c, runID) {
+				return
+			}
 			upstreamEndpoint := fmt.Sprintf("/ws/backtests/%s", runID)
 			proxyWebSocket(c, requestClient, upstreamEndpoint)
 		})
@@ -3366,6 +3330,9 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 		wsGroup.GET("/bots/:instance_id", func(c *gin.Context) {
 			requestClient := getRequestBotAPIClient(c, apiClient)
 			instanceID := c.Param("instance_id")
+			if !ensureSafeUpstreamPathSegment(c, instanceID) {
+				return
+			}
 			upstreamEndpoint := fmt.Sprintf("/ws/bots/%s", instanceID)
 			proxyWebSocket(c, requestClient, upstreamEndpoint)
 		})
@@ -3373,6 +3340,122 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 }
 
 // Helper functions
+
+// upstreamPathSegmentRe constrains user-supplied path parameters that are
+// interpolated into proxied upstream URLs. Anything outside this set could
+// alter the upstream path (`/`, `..`, `?`, `#`) and must be rejected before
+// proxying rather than escaped into an unpredictable upstream route.
+var upstreamPathSegmentRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// ensureSafeUpstreamPathSegment aborts with 400 unless the value is a single
+// safe path segment. Returns false when the request was rejected.
+func ensureSafeUpstreamPathSegment(c *gin.Context, value string) bool {
+	if upstreamPathSegmentRe.MatchString(value) {
+		return true
+	}
+	c.JSON(http.StatusBadRequest, gin.H{
+		"success":   false,
+		"message":   "invalid path parameter",
+		"error":     "invalid path parameter",
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+		"trace_id":  middleware.GetTraceID(c),
+	})
+	c.Abort()
+	return false
+}
+
+// requireBotInstanceOwnership enforces Go-side user ownership of an
+// instance-scoped route before any upstream proxying: in service-token mode
+// the caller's identity never reaches the bot API, so this is the only
+// authorization boundary for these routes. Admins bypass; foreign, unknown,
+// or unverifiable instances fail closed (404/503). Routes without an
+// instance_id path parameter pass through untouched.
+func requireBotInstanceOwnership(botInstanceRepo *repository.BotInstanceRepository) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		instanceID := strings.TrimSpace(c.Param("instance_id"))
+		if instanceID == "" {
+			c.Next()
+			return
+		}
+		if c.GetBool("is_admin") {
+			c.Next()
+			return
+		}
+		if botInstanceRepo == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"success":   false,
+				"message":   "bot instance ownership verification unavailable",
+				"error":     "bot instance ownership verification unavailable",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"trace_id":  middleware.GetTraceID(c),
+			})
+			c.Abort()
+			return
+		}
+
+		userIDValue, exists := c.Get("user_id")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success":   false,
+				"message":   "unauthorized",
+				"error":     "unauthorized",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"trace_id":  middleware.GetTraceID(c),
+			})
+			c.Abort()
+			return
+		}
+		userID, ok := userIDValue.(int)
+		if !ok || userID <= 0 {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success":   false,
+				"message":   "invalid user context",
+				"error":     "invalid user context",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"trace_id":  middleware.GetTraceID(c),
+			})
+			c.Abort()
+			return
+		}
+
+		instance, err := botInstanceRepo.GetBotInstanceByInstanceID(instanceID)
+		if err != nil {
+			// The repository reports missing rows as an error; treat any
+			// "not found" shape as 404 rather than an infrastructure failure.
+			if strings.Contains(strings.ToLower(err.Error()), "not found") {
+				err = nil
+			} else {
+				log.Printf("delegated bot route ownership lookup failed for instance=%s: %v", instanceID, err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success":   false,
+					"message":   "failed to verify bot instance access",
+					"error":     "failed to verify bot instance access",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				c.Abort()
+				return
+			}
+		}
+		// Fail closed: unattributed legacy rows (user_id = 0) must not be
+		// controllable by arbitrary authenticated users — in service-token
+		// mode this check is the only ownership boundary for start/stop and
+		// live-position reads on those instances. Admins bypass above.
+		if instance == nil || instance.UserID != userID {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success":   false,
+				"message":   "bot instance not found",
+				"error":     "bot instance not found",
+				"timestamp": time.Now().UTC().Format(time.RFC3339),
+				"trace_id":  middleware.GetTraceID(c),
+			})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
 func parseIntQuery(s string, target *int) (int, error) {
 	i, err := strconv.Atoi(s)
 	if err == nil {

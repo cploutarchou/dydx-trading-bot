@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import logging
+import time
 from collections.abc import Mapping
 from pathlib import PurePosixPath
 from typing import Any
@@ -38,6 +39,10 @@ class MinIOArtifactStore(ArtifactStore):
     This ensures production environments fail visibly when object storage is unavailable.
     """
 
+    # After a failed connectivity probe, skip re-probing for this long so
+    # writes fall back locally instead of repeating the transport retry storm.
+    _BUCKET_PROBE_COOLDOWN_SECONDS = 60.0
+
     def __init__(
         self,
         *,
@@ -56,6 +61,7 @@ class MinIOArtifactStore(ArtifactStore):
         self.extra_config = dict(extra_config or {})
         self.strict_mode = bool(self.extra_config.get("strict_mode", False))
         self._bucket_ready = False
+        self._bucket_probe_failed_at: float | None = None
         self._client = self._build_client()
 
     @staticmethod
@@ -130,14 +136,30 @@ class MinIOArtifactStore(ArtifactStore):
     def _ensure_bucket(self) -> None:
         if self._client is None or self._bucket_ready:
             return
-        auto_create_bucket = bool(self.extra_config.get("auto_create_bucket", True))
-        if self._client.bucket_exists(self.bucket):
+        # Fail fast while the endpoint is unreachable: the minio client's
+        # transport retries a dead connection for tens of seconds, and
+        # without a cooldown EVERY artifact write would repeat that full
+        # retry cycle (the bucket probe never turns ready on failure).
+        now = time.monotonic()
+        if (
+            self._bucket_probe_failed_at is not None
+            and now - self._bucket_probe_failed_at < self._BUCKET_PROBE_COOLDOWN_SECONDS
+        ):
+            raise RuntimeError(
+                "MinIO endpoint unreachable (bucket probe cooldown active)"
+            )
+        try:
+            auto_create_bucket = bool(self.extra_config.get("auto_create_bucket", True))
+            if self._client.bucket_exists(self.bucket):
+                self._bucket_ready = True
+                return
+            if not auto_create_bucket:
+                raise RuntimeError(f"MinIO bucket does not exist: {self.bucket}")
+            self._client.make_bucket(self.bucket)
             self._bucket_ready = True
-            return
-        if not auto_create_bucket:
-            raise RuntimeError(f"MinIO bucket does not exist: {self.bucket}")
-        self._client.make_bucket(self.bucket)
-        self._bucket_ready = True
+        except Exception:
+            self._bucket_probe_failed_at = now
+            raise
 
     def health_check(self) -> dict[str, Any]:
         """Return sanitized connectivity/bucket readiness diagnostics."""

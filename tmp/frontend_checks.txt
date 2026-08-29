@@ -1,0 +1,15 @@
+npm notice run dydx-backtest-ui@1.0.0 lint
+npm notice run eslint src --ext .ts,.tsx
+=== TYPECHECK ===
+npm notice run dydx-backtest-ui@1.0.0 typecheck
+npm notice run tsc --noEmit
+=== TEST ===
+      Tests  8 passed (8)
+   Start at  16:44:25
+   Duration  221ms (transform 20ms, setup 0ms, import 29ms, tests 5ms, environment 0ms)
+
+=== BUILD ===
+dist/assets/index-HCK64eS6.js                        217.53 kB │ gzip: 57.73 kB
+
+✓ built in 659ms
+DONE

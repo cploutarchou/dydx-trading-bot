@@ -1,0 +1,10 @@
+=========================== short test summary info ============================
+FAILED tests/test_backtest_service.py::test_parameter_changes_produce_distinct_real_results
+FAILED tests/test_database_unit.py::test_database_config_connection_string_and_engine_kwargs
+FAILED tests/test_database_unit.py::test_database_config_to_diagnostics_shape
+FAILED tests/test_exception_handling_ratchet.py::test_broad_catch_count_does_not_exceed_baseline
+FAILED tests/test_exception_handling_ratchet.py::test_broad_catch_baseline_is_tight
+5 failed, 1407 passed, 13 skipped, 55 warnings in 36.77s
+2026-08-29 16:48:56.579 | DEBUG    | module=logging | func=callHandlers | line=1762 | process=46869 | trace_id= | Context insert response code: 200, content: b''
+SUITE-EXIT: 0
+FINISHED

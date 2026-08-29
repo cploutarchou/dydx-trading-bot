@@ -72,9 +72,7 @@ def _isolate_circuit_breakers(monkeypatch):
 # a specific root sets BACKTEST_ARTIFACTS_DIR itself after this fixture.
 @pytest.fixture(autouse=True)
 def _isolate_backtest_artifact_store(monkeypatch, tmp_path):
-    monkeypatch.setenv(
-        "BACKTEST_ARTIFACTS_DIR", str(tmp_path / "backtest_artifacts")
-    )
+    monkeypatch.setenv("BACKTEST_ARTIFACTS_DIR", str(tmp_path / "backtest_artifacts"))
 
 
 # ============================================================================

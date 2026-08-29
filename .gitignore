@@ -252,6 +252,10 @@ deploy/k8s-next/*.local-secrets.yaml
 
 # Generated backtest artifacts are test/runtime outputs, not source files
 bot/bot_states/backtest_artifacts/
+bot_states/backtest_artifacts/
+
+# Local scratch output (agent/tool transcripts, ad-hoc logs)
+tmp/
 
 # Local ad-hoc deployment/incident reports (can contain infra details)
 report.md

@@ -61,6 +61,23 @@ def _isolate_circuit_breakers(monkeypatch):
 
 
 # ============================================================================
+# Backtest artifact-store isolation
+# ============================================================================
+#
+# The local artifact fallback defaults to the shared runtime directory
+# ``bot_states/backtest_artifacts``. Tests must never read or write that
+# directory: doing so pollutes the working tree with generated run
+# directories (the class of accidental artifact commits seen on master) and
+# can couple tests to leftover artifacts from earlier runs. A test that wants
+# a specific root sets BACKTEST_ARTIFACTS_DIR itself after this fixture.
+@pytest.fixture(autouse=True)
+def _isolate_backtest_artifact_store(monkeypatch, tmp_path):
+    monkeypatch.setenv(
+        "BACKTEST_ARTIFACTS_DIR", str(tmp_path / "backtest_artifacts")
+    )
+
+
+# ============================================================================
 # Cross-worker WebSocket broadcast bus isolation
 # ============================================================================
 #

@@ -315,15 +315,6 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
 
         return dict(cached) if cached is not None else None
 
-    async def _persist_run_data_async(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Off-thread persist for async callers.
-
-        ``save_run`` performs synchronous DB/MinIO/ClickHouse I/O; running it
-        on the event loop starves API health checks and status polls whenever
-        an artifact backend is slow or unreachable.
-        """
-        return await asyncio.to_thread(self._persist_run_data, run_data)
-
     def _persist_run_data(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
         existing = None
         run_id = str(run_data.get("run_id") or "").strip()
@@ -1294,7 +1285,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 "updated_at": now,
             }
         )
-        run_data = await self._persist_run_data_async(run_data)
+        run_data = self._persist_run_data(run_data)
         # Entering a pause is a likely precursor to an operator restart —
         # persist a resume point covering the completed prefix while the
         # in-memory state is still warm. The writer never raises.
@@ -1332,13 +1323,13 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                         "updated_at": now,
                     }
                 )
-                return await self._persist_run_data_async(run_data)
+                return self._persist_run_data(run_data)
 
             now = datetime.now(timezone.utc).isoformat()
             run_data.update(
                 {"status": "paused", "current_task": "paused", "updated_at": now}
             )
-            run_data = await self._persist_run_data_async(run_data)
+            run_data = self._persist_run_data(run_data)
 
     async def execute_existing_backtest(
         self,
@@ -2275,7 +2266,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 started_at=started_at.isoformat(),
             )
             run_data["updated_at"] = started_at.isoformat()
-            run_data = await self._persist_run_data_async(run_data)
+            run_data = self._persist_run_data(run_data)
             # mark_running is handled by create_supervised_task; do not call it here.
 
             params = request_payload.get("trading_parameters") or {}
@@ -2707,7 +2698,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                         run_data,
                         history_fetch_telemetry,
                     )
-                    run_data = await self._persist_run_data_async(run_data)
+                    run_data = self._persist_run_data(run_data)
                     # Durable resume point: everything through pair ``idx`` is
                     # complete and persisted, so a retry/redelivery can skip it.
                     _save_run_checkpoint(idx + 1)
@@ -2774,7 +2765,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 worker_backend=run_data.get("worker_backend") or "asyncio",
                 worker_task_id=run_data.get("worker_task_id") or run_id,
             )
-            run_data = await self._persist_run_data_async(run_data)
+            run_data = self._persist_run_data(run_data)
             async_job_manager.mark_completed(
                 run_id,
                 result={
@@ -2841,7 +2832,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 run_data,
                 history_fetch_telemetry,
             )
-            run_data = await self._persist_run_data_async(run_data)
+            run_data = self._persist_run_data(run_data)
             async_job_manager.mark_cancelled(run_id, reason="Backtest cancelled")
             # Operator-intentional terminal state — drop the resume point.
             _delete_run_checkpoint()
@@ -3019,7 +3010,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             worker_task_id=run_id,
             created_at=now,
         )
-        run_data = await self._persist_run_data_async(run_data)
+        run_data = self._persist_run_data(run_data)
 
         if worker_backend == "celery":
             try:
@@ -3042,7 +3033,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 run_data["worker_backend"] = "celery"
                 run_data["worker_task_id"] = task_id
                 run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-                run_data = await self._persist_run_data_async(run_data)
+                run_data = self._persist_run_data(run_data)
                 return _BacktestRunDetails(**self._resolve_stale_run_data(run_data))
             except Exception as exc:
                 logger.exception(
@@ -3075,7 +3066,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             run_data["worker_backend"] = "nats"
             run_data["worker_task_id"] = run_id
             run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-            run_data = await self._persist_run_data_async(run_data)
+            run_data = self._persist_run_data(run_data)
             logger.info(
                 "Backtest %s persisted for NATS (JetStream) execution; "
                 "waiting for backtest.command.start consumer",
@@ -3106,7 +3097,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         )
         run_data["status"] = "running"
         run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-        run_data = await self._persist_run_data_async(run_data)
+        run_data = self._persist_run_data(run_data)
 
         return _BacktestRunDetails(**run_data)
 

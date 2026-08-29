@@ -144,7 +144,13 @@ func enrollMFA(t *testing.T, router *gin.Engine, userID int) string {
 		t.Fatalf("decode setup response: %v", err)
 	}
 
-	code, err := totp.GenerateCode(setupBody.Data.Secret, time.Now().UTC())
+	// Enroll with the PREVIOUS window's code (valid under the ±2 skew):
+	// verification is one-code-per-window now, so burning the current
+	// window here would force the login challenge below to wait ~30s for
+	// the next one.
+	code, err := totp.GenerateCode(
+		setupBody.Data.Secret, time.Now().UTC().Add(-30*time.Second),
+	)
 	if err != nil {
 		t.Fatalf("generate totp code: %v", err)
 	}

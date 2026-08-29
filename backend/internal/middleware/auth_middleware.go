@@ -212,6 +212,9 @@ func RequireAuth() gin.HandlerFunc {
 		if !authenticateRequest(c, true) {
 			return
 		}
+		if !enforcePasswordChangeCleared(c) {
+			return
+		}
 		c.Next()
 	}
 }

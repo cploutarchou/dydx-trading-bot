@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -150,6 +151,14 @@ func (s *MFAService) Setup(user *models.User) (*MFASetupResult, error) {
 	return &MFASetupResult{Secret: key.Secret(), QRCode: qrCode, BackupCodes: backupCodes}, nil
 }
 
+// totpPeriodSeconds matches the TOTP configuration used everywhere in this
+// service (GenerateOpts/ValidateOpts Period: 30).
+const totpPeriodSeconds int64 = 30
+
+// totpSkewWindows mirrors the historical ValidateCustom skew of 2 (a code
+// from up to two windows in the past/future remains valid for clock drift).
+const totpSkewWindows int64 = 2
+
 func (s *MFAService) Verify(userID int, token string) error {
 	credential, err := s.repo.GetByUserID(userID)
 	if err != nil {
@@ -165,23 +174,110 @@ func (s *MFAService) Verify(userID int, token string) error {
 	}
 
 	trimmedToken := strings.TrimSpace(token)
-	valid, err := totp.ValidateCustom(trimmedToken, secret, time.Now().UTC(), totp.ValidateOpts{
-		Period:    30,
-		Skew:      2,
-		Digits:    otp.DigitsSix,
-		Algorithm: otp.AlgorithmSHA1,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to validate token: %w", err)
-	}
-	if !valid {
+	if trimmedToken == "" {
 		return fmt.Errorf("invalid authenticator code (use the latest 6-digit code and ensure your device time is automatic)")
 	}
 
-	if err := s.repo.MarkVerified(userID, time.Now().UTC()); err != nil {
-		return err
+	now := time.Now().UTC()
+	currentWindow := now.Unix() / totpPeriodSeconds
+
+	// Replay protection: enumerate valid windows newest-first and accept the
+	// match only if its window is strictly newer than the last used one.
+	// ValidateCustom alone accepted any in-skew code indefinitely within its
+	// ~90s validity, so an observed code could be replayed.
+	var lastUsedWindow int64 = -1
+	if credential.LastUsedAt != nil {
+		lastUsedWindow = credential.LastUsedAt.UTC().Unix() / totpPeriodSeconds
 	}
-	return nil
+
+	opts := totp.ValidateOpts{
+		Period:    uint(totpPeriodSeconds),
+		Skew:      uint(totpSkewWindows),
+		Digits:    otp.DigitsSix,
+		Algorithm: otp.AlgorithmSHA1,
+	}
+
+	for offset := int64(0); offset <= totpSkewWindows; offset++ {
+		for _, sign := range []int64{1, -1} {
+			w := currentWindow + sign*offset
+			if offset == 0 && sign == -1 {
+				continue
+			}
+			if w <= lastUsedWindow {
+				continue
+			}
+			expected, genErr := totp.GenerateCodeCustom(secret, time.Unix(w*totpPeriodSeconds, 0).UTC(), opts)
+			if genErr != nil {
+				return fmt.Errorf("failed to validate token: %w", genErr)
+			}
+			if subtle.ConstantTimeCompare([]byte(expected), []byte(trimmedToken)) == 1 {
+				if err := s.repo.MarkUsed(userID, w); err != nil {
+					return err
+				}
+				return nil
+			}
+		}
+	}
+
+	// Backup codes: one-time recovery codes from setup. Each accepted code
+	// is removed so it cannot be reused.
+	if matched, err := s.consumeBackupCode(credential, trimmedToken, currentWindow); err != nil {
+		return err
+	} else if matched {
+		return nil
+	}
+
+	return fmt.Errorf("invalid authenticator code (use the latest 6-digit code and ensure your device time is automatic)")
+}
+
+// consumeBackupCode checks the token against the stored (encrypted) backup
+// codes; on a match it removes that code, persists the remainder, and burns
+// the TOTP window so the used backup code and a replayed TOTP code cannot
+// both succeed around the same moment.
+func (s *MFAService) consumeBackupCode(
+	credential *models.UserMFA,
+	token string,
+	currentWindow int64,
+) (bool, error) {
+	if strings.TrimSpace(credential.EncryptedBackupCodes) == "" {
+		return false, nil
+	}
+	decrypted, err := decryptString(s.secret, credential.EncryptedBackupCodes)
+	if err != nil {
+		return false, nil // undecryptable store behaves as "no backup codes"
+	}
+	var codes []string
+	if err := json.Unmarshal([]byte(decrypted), &codes); err != nil {
+		return false, nil
+	}
+
+	matchIdx := -1
+	for idx, code := range codes {
+		if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(code)), []byte(token)) == 1 {
+			matchIdx = idx
+			break
+		}
+	}
+	if matchIdx < 0 {
+		return false, nil
+	}
+
+	remaining := append(codes[:matchIdx:matchIdx], codes[matchIdx+1:]...)
+	payload, err := json.Marshal(remaining)
+	if err != nil {
+		return false, fmt.Errorf("failed to encode remaining backup codes: %w", err)
+	}
+	encryptedRemaining, err := encryptString(s.secret, string(payload))
+	if err != nil {
+		return false, fmt.Errorf("failed to encrypt remaining backup codes: %w", err)
+	}
+	if err := s.repo.UpdateBackupCodes(credential.UserID, encryptedRemaining); err != nil {
+		return false, err
+	}
+	if err := s.repo.MarkUsed(credential.UserID, currentWindow); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func generateBackupCodes(count int) ([]string, error) {

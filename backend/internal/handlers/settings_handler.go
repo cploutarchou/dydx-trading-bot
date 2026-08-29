@@ -145,6 +145,23 @@ func isSensitiveSettingsKey(section, key string) bool {
 	return false
 }
 
+// maskedSettingDict copies a setting dict and replaces sensitive values with
+// a sentinel. GET responses must never return stored secrets (Redis
+// passwords, Telegram bot tokens, invitation codes) — even to admins: the
+// values are replayable credentials, and session theft must not become
+// secret exfiltration.
+func maskedSettingDict(section string, dict map[string]interface{}) map[string]interface{} {
+	masked := make(map[string]interface{}, len(dict))
+	for key, value := range dict {
+		if isSensitiveSettingsKey(section, key) && value != nil && value != "" {
+			masked[key] = "********"
+			continue
+		}
+		masked[key] = value
+	}
+	return masked
+}
+
 func comingSoonSettingPayload(setting *models.BotSetting, enabled bool) map[string]interface{} {
 	payload := map[string]interface{}{
 		"section":             "platform",
@@ -391,7 +408,7 @@ func (h *SettingsHandler) GetBotSetting(c *gin.Context) {
 
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
-		Data:      setting.ToDict(),
+		Data:      maskedSettingDict("redis", setting.ToDict()),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
@@ -421,6 +438,12 @@ func (h *SettingsHandler) GetBotSettingsBySection(c *gin.Context) {
 
 	var result []map[string]interface{}
 	for _, s := range settings {
+		// Sensitive values (tokens/passwords/keys) are never returned by the
+		// section listing — same policy as GetSettings; arbitrary section
+		// names previously exposed every secret in the table.
+		if isSensitiveSettingsKey(s.Section, s.Key) {
+			continue
+		}
 		result = append(result, s.ToDict())
 	}
 
@@ -448,6 +471,9 @@ func (h *SettingsHandler) ListAllBotSettings(c *gin.Context) {
 
 	var result []map[string]interface{}
 	for _, s := range settings {
+		if isSensitiveSettingsKey(s.Section, s.Key) {
+			continue
+		}
 		result = append(result, s.ToDict())
 	}
 
@@ -593,7 +619,7 @@ func (h *SettingsHandler) UpdateRedisSetting(c *gin.Context) {
 
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
-		Data:      setting.ToDict(),
+		Data:      maskedSettingDict("redis", setting.ToDict()),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }

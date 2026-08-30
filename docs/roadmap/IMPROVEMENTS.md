@@ -6,9 +6,10 @@ index; detailed working lists live in the services.
 ## Open workstreams (2026-08)
 
 - **Trading-core hardening** — the 2026-08 audit follow-ups: cancel
-  verification, wallet-derivation fail-closed, per-instance DB runtime-config
-  parity for credentials, exit-slippage budget tuning. Status and evidence in
-  `bot/tasks.md` and `bot/IMPROVEMENTS.md`.
+  verification, wallet-derivation fail-closed, untracked-exposure
+  reconciliation sweep, per-instance abort scoping, quick-deploy quota, and
+  stop-exit slippage bands landed (commit `13b6b76e`). Remaining:
+  per-instance DB runtime-config parity for credentials.
 - **Backtest validity** — calibration/trade split landed (no full-sample
   look-ahead, out-of-sample pair ranking). Remaining: walk-forward hedge
   estimation (rolling refits), realistic fee defaults anchored to dYdX taker
@@ -23,7 +24,9 @@ index; detailed working lists live in the services.
 
 - 2026-08: order-lifecycle fail-closed hardening (emergency cleanup on any
   post-fill failure, partial-fill recovery, abort-all redesign); shared-
-  subaccount attribution; live/backtest decision parity; suite hermeticity.
+  subaccount attribution; live/backtest decision parity; suite hermeticity;
+  verified cancels, wallet fail-closed, exposure sweep, scoped abort,
+  quick-deploy quota, sizing/precision fixes (`13b6b76e`).
 - Earlier service-level histories: [root improvements log](../../improvements-0.1.md),
   [bot improvements](../../bot/IMPROVEMENTS.md),
   [implementation progress summary](../IMPLEMENTATION_PROGRESS_SUMMARY.md).

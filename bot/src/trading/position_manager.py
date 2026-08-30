@@ -4,7 +4,7 @@ import asyncio
 import os
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 import pandas as pd
@@ -28,7 +28,7 @@ from src.shared.dataframe_utils import (
     unregister_dataframe,
 )
 from src.shared.notifications import TelegramMessenger
-from src.shared.utils import format_number
+from src.shared.utils import format_number, format_size_down
 from src.trading.account_manager import (
     get_account,
     get_open_positions,
@@ -229,6 +229,23 @@ def _exit_confirm_max_attempts() -> int:
         return 6
 
 
+def _exit_buffer_pct() -> float:
+    """Accept-price band for discretionary exits (default 5%)."""
+    try:
+        return max(0.1, float(os.getenv("EXIT_ACCEPT_PRICE_BUFFER_PCT", "5.0")))
+    except (TypeError, ValueError):
+        return 5.0
+
+
+def _stop_exit_buffer_pct() -> float:
+    """Accept-price band for stop-loss exits (default 15%, wider: stops are
+    time-critical and must not sit unfilled)."""
+    try:
+        return max(0.1, float(os.getenv("EXIT_STOP_ACCEPT_PRICE_BUFFER_PCT", "15.0")))
+    except (TypeError, ValueError):
+        return 15.0
+
+
 def _exit_confirm_delay_seconds() -> float:
     raw = os.getenv("BOT_EXIT_CONFIRM_DELAY_SECONDS", "2.0")
     try:
@@ -355,6 +372,80 @@ async def _confirm_exchange_flat_after_close(
     last_state["fill_counts"] = fills_summary
     last_state["timed_out"] = True
     return last_state
+
+
+# ---------------------------------------------------------------------------
+# Untracked-exposure reconciliation sweep
+# ---------------------------------------------------------------------------
+
+_UNTRACKED_ALERT_COOLDOWN_SECONDS = 3600.0
+_untracked_alert_last_sent: Dict[str, float] = {}
+
+
+def _untracked_exposure_alerts_enabled() -> bool:
+    raw = os.getenv("UNTRACKED_EXPOSURE_ALERTS_ENABLED", "true")
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+async def detect_untracked_exchange_exposure(
+    exchange_positions: Dict[str, Any],
+    tracked_positions: List[Dict[str, Any]],
+    messenger: TelegramMessenger,
+) -> List[str]:
+    """Alert on exchange positions no tracked pair accounts for.
+
+    This is the reconciliation backstop for unknown-outcome entries: if an
+    order landed despite a "failed" entry (or a partial fill escaped cleanup),
+    the position shows up here as exposure with no owner. Detection only —
+    closing is deliberately left to the operator, because on a shared
+    subaccount "untracked by this instance" may mean "owned by another
+    instance" (set UNTRACKED_EXPOSURE_ALERTS_ENABLED=false for such
+    deployments).
+    """
+    tracked_markets = set()
+    for position in tracked_positions:
+        if not isinstance(position, dict):
+            continue
+        for key in ("market_1", "market_2"):
+            market = str(position.get(key) or "").strip()
+            if market:
+                tracked_markets.add(market)
+
+    untracked = []
+    now = time.monotonic()
+    for market, pos in (exchange_positions or {}).items():
+        if market in tracked_markets:
+            continue
+        untracked.append(market)
+        increment_metric("untracked_exposure_detected_total")
+        if not _untracked_exposure_alerts_enabled():
+            continue
+        last = _untracked_alert_last_sent.get(market)
+        if last is not None and now - last < _UNTRACKED_ALERT_COOLDOWN_SECONDS:
+            continue
+        _untracked_alert_last_sent[market] = now
+        increment_metric("untracked_exposure_alerted_total")
+        side = str((pos or {}).get("side") or "?")
+        size = str((pos or {}).get("sumOpen") or "?")
+        detail = (
+            f"Exchange reports a {side} position of {size} on {market} that no "
+            "tracked pair accounts for. Possible escaped fill or foreign "
+            "instance on a shared subaccount. Manual verification required."
+        )
+        logger.critical("Untracked exchange exposure: {}", detail)
+        messenger.send_error_message(
+            "CRITICAL: Untracked Exchange Exposure",
+            detail,
+            is_critical=True,
+            category="reconciliation_untracked_exposure",
+        )
+        persist_trade_activity_event(
+            "reconciliation_untracked_exposure",
+            detail,
+            severity="critical",
+            details={"market": market, "side": side, "size": size},
+        )
+    return untracked
 
 
 async def _exit_price_from_fills(
@@ -1016,9 +1107,10 @@ async def open_positions(client: Any) -> None:
                     base_step_size = markets["markets"][base_market]["stepSize"]
                     quote_step_size = markets["markets"][quote_market]["stepSize"]
 
-                    # Format sizes
-                    base_size = format_number(base_quantity, base_step_size)
-                    quote_size = format_number(quote_quantity, quote_step_size)
+                    # Format sizes — floored to the step: sizes must never
+                    # round UP past the intended notional.
+                    base_size = format_size_down(base_quantity, base_step_size)
+                    quote_size = format_size_down(quote_quantity, quote_step_size)
 
                     # Ensure size (minimum order size greater than $1 according to V4 documentation)
                     base_min_order_size = 1 / float(
@@ -1028,9 +1120,11 @@ async def open_positions(client: Any) -> None:
                         markets["markets"][quote_market]["oraclePrice"]
                     )
 
-                    # Combine checks
-                    check_base = float(base_quantity) > base_min_order_size
-                    check_quote = float(quote_quantity) > quote_min_order_size
+                    # Combine checks — against the FORMATTED size, not the raw
+                    # quantity: a size that floors below the $1 minimum would
+                    # only fail at the exchange.
+                    check_base = float(base_size) > base_min_order_size
+                    check_quote = float(quote_size) > quote_min_order_size
 
                     # If checks pass, place trades
                     if check_base and check_quote:
@@ -1319,13 +1413,18 @@ async def manage_trade_exits(client: Any) -> str | None:
         logger.info("No {} found; nothing to close", BOT_AGENTS_PATH)
         return "complete"
 
+    # Reconciliation sweep BEFORE the empty-state early return: exposure
+    # with an empty tracked state is exactly the escaped-fill scenario this
+    # exists to catch, and the early return below would otherwise skip it.
+    exchange_pos = await get_open_positions(client)
+    logger.debug("Exchange reports {} open positions", len(exchange_pos))
+    await detect_untracked_exchange_exposure(
+        exchange_pos, open_positions_dict, messenger
+    )
+
     # Guard: Exit if no open positions in file
     if len(open_positions_dict) < 1:
         return "complete"
-
-    # Get all open positions per trading platform
-    exchange_pos = await get_open_positions(client)
-    logger.debug("Exchange reports {} open positions", len(exchange_pos))
 
     # Create live position tickers list
     markets_live = list(exchange_pos.keys())
@@ -1561,11 +1660,24 @@ async def manage_trade_exits(client: Any) -> str | None:
                 if position_side_m2 == "SELL":
                     side_m2 = "BUY"
 
+                # Accept-price band scales with exit urgency: stop-losses
+                # must fill NOW (a 5% band lets them sit unfilled through
+                # good-til-block expiry in fast markets); discretionary
+                # exits keep the tighter band.
+                exit_reason_key = str(exit_reason or "exit_signal")
+                if exit_reason_key == "stop_loss":
+                    _exit_buffer = 1.0 + _stop_exit_buffer_pct() / 100.0
+                else:
+                    _exit_buffer = 1.0 + _exit_buffer_pct() / 100.0
                 accept_price_m1 = (
-                    price_m1 * 1.05 if side_m1 == "BUY" else price_m1 * 0.95
+                    price_m1 * _exit_buffer
+                    if side_m1 == "BUY"
+                    else price_m1 * (2.0 - _exit_buffer)
                 )
                 accept_price_m2 = (
-                    price_m2 * 1.05 if side_m2 == "BUY" else price_m2 * 0.95
+                    price_m2 * _exit_buffer
+                    if side_m2 == "BUY"
+                    else price_m2 * (2.0 - _exit_buffer)
                 )
                 tick_size_m1 = markets["markets"][position_market_m1]["tickSize"]
                 tick_size_m2 = markets["markets"][position_market_m2]["tickSize"]
@@ -1579,7 +1691,6 @@ async def manage_trade_exits(client: Any) -> str | None:
                 close_order_m2_id = ""
                 close_order_time_m1 = ""
                 close_order_time_m2 = ""
-                exit_reason_key = str(exit_reason or "exit_signal")
                 exit_reason_text = _exit_reason_label(exit_reason_key)
                 position["pair_status"] = "CLOSE_SUBMITTED"
                 position["last_exit_reason"] = exit_reason_key

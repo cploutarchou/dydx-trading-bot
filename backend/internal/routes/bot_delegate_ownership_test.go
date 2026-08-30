@@ -3,8 +3,10 @@ package routes
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -178,5 +180,68 @@ func TestDelegateBotRoutes_DenyUnattributedLegacyInstances(t *testing.T) {
 	router.ServeHTTP(adminRes, adminReq)
 	if adminRes.Code == http.StatusNotFound {
 		t.Fatalf("admin must reach user_id=0 instance past the ownership gate, got 404 body=%s", adminRes.Body.String())
+	}
+}
+
+// Quick-deploy must enforce the per-user instance quota (audit P1-1): it
+// spawns a real auto-started instance upstream and previously bypassed both
+// the quota and user attribution entirely.
+func TestQuickDeploy_EnforcesUserQuota(t *testing.T) {
+	router, dbConn := setupDelegateBotOwnershipRouter(t)
+
+	if _, err := dbConn.Exec(`
+	CREATE TABLE IF NOT EXISTS users (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		username TEXT NOT NULL UNIQUE,
+		email TEXT NOT NULL UNIQUE,
+		role TEXT NOT NULL DEFAULT 'client',
+		full_name TEXT,
+		avatar TEXT,
+		hashed_password TEXT NOT NULL,
+		is_active BOOLEAN NOT NULL DEFAULT 1,
+		is_admin BOOLEAN NOT NULL DEFAULT 0,
+		mfa_enabled BOOLEAN NOT NULL DEFAULT 0,
+		password_change_required BOOLEAN NOT NULL DEFAULT 0,
+		max_bot_instances INTEGER,
+		last_login DATETIME,
+		created_at DATETIME NOT NULL,
+		updated_at DATETIME NOT NULL
+	);`); err != nil {
+		t.Fatalf("create users schema: %v", err)
+	}
+	// Seed instances until user 7 hits the DEFAULT quota of 10 (the
+	// per-user max_bot_instances override relies on schema-column probing
+	// that is cached package-wide, so the default quota is the reliable
+	// path in tests).
+	now := time.Now().UTC()
+	for i := 0; i < 10; i++ {
+		if _, err := dbConn.Exec(
+			`INSERT INTO bot_instances (instance_id, instance_name, user_id, status, network, strategy, total_trades, created_at, updated_at)
+			 VALUES (?, ?, 7, 'running', 'testnet', 'pairs', 0, ?, ?)`,
+			fmt.Sprintf("bot-quota-%d", i), fmt.Sprintf("quota instance %d", i), now, now,
+		); err != nil {
+			t.Fatalf("seed quota instance: %v", err)
+		}
+	}
+	// User 7 now owns ten instances (one from setup + nine here) with a
+	// default quota of 10: quick-deploy must be rejected with 429.
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/bots/quick-deploy?instance_name=over-quota", strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", delegateOwnershipBearer(t, 7, false))
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusTooManyRequests {
+		t.Fatalf("over-quota quick-deploy expected 429, got %d body=%s", res.Code, res.Body.String())
+	}
+
+	// A user under quota passes the gate and fails at the (unreachable)
+	// upstream instead of at the quota check.
+	underReq := httptest.NewRequest(http.MethodPost, "/api/v1/bots/quick-deploy?instance_name=ok", strings.NewReader("{}"))
+	underReq.Header.Set("Content-Type", "application/json")
+	underReq.Header.Set("Authorization", delegateOwnershipBearer(t, 8, false))
+	underRes := httptest.NewRecorder()
+	router.ServeHTTP(underRes, underReq)
+	if underRes.Code == http.StatusTooManyRequests || underRes.Code == http.StatusUnauthorized {
+		t.Fatalf("under-quota quick-deploy must pass the gate, got %d body=%s", underRes.Code, underRes.Body.String())
 	}
 }

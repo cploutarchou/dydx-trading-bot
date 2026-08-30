@@ -2,7 +2,7 @@
 
 import asyncio
 import random
-from typing import Any, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from dydx_v4_client import MAX_CLIENT_ID, OrderFlags
 from dydx_v4_client.indexer.rest.constants import OrderType
@@ -157,6 +157,45 @@ async def cancel_order(client: Any, order_id: str) -> None:
     )
 
 
+# Order statuses that mean the order can no longer fill. Anything else
+# (OPEN, PENDING, UNTRIGGERED, UNKNOWN from an unreadable payload) keeps the
+# verification loop retrying — fail-closed for live orders.
+_CANCEL_TERMINAL_STATUSES = {
+    "FILLED",
+    "CANCELED",
+    "CANCELLED",
+    "BEST_EFFORT_CANCELED",
+    "IB_CANCELED",
+    "REJECTED",
+    "EXPIRED",
+}
+
+
+async def cancel_order_verified(client: Any, order_id: str, attempts: int = 3) -> str:
+    """Cancel an order and VERIFY it can no longer fill.
+
+    A submitted cancel can fail silently (node rejection, good-til-block
+    already lapsed): without a status re-read the order stays live and can
+    fill later, untracked. Re-reads the order after each cancel attempt and
+    retries while the status is not terminal. Returns the final status.
+    """
+    status = str(await check_order_status(client, order_id) or "").strip().upper()
+    for attempt in range(1, attempts + 1):
+        if status in _CANCEL_TERMINAL_STATUSES:
+            return status
+        logger.warning(
+            "Verified cancel attempt {}/{} for order {} (status={})",
+            attempt,
+            attempts,
+            order_id,
+            status or "unknown",
+        )
+        await cancel_order(client, order_id)
+        await asyncio.sleep(1.0)
+        status = str(await check_order_status(client, order_id) or "").strip().upper()
+    return status
+
+
 async def get_account(client: Any) -> Any:
     """Get current account information."""
     # _resolve_client_address already falls back to the configured address
@@ -203,26 +242,62 @@ async def get_order(client: Any, order_id: str) -> dict[str, Any]:
 
 
 async def get_order_fills(
-    client: Any, order_id: str, market: Optional[str] = None, limit: int = 100
+    client: Any,
+    order_id: str,
+    market: Optional[str] = None,
+    limit: int = 100,
+    max_pages: int = 5,
 ) -> List[Any]:
-    """Get recent fills for an order, filtered client-side by order id."""
+    """Get fills for an order, filtered client-side by order id.
+
+    Paginates backwards via created_before_or_at (up to max_pages pages) so a
+    busy subaccount's recent fills do not hide an older order's fills — the
+    previous single-page read capped at 100 fills, which truncated VWAP and
+    partial-fill verification on active accounts.
+    """
     address = _resolve_client_address(client)
-    fills = await client.indexer_account.account.get_subaccount_fills(
-        address,
-        _resolve_subaccount_number(),
-        ticker=market,
-        limit=limit,
-    )
-    if isinstance(fills, dict):
-        fills = fills.get("fills", [])
-    if not isinstance(fills, list):
-        return []
+    collected: List[Any] = []
+    seen_fill_ids: set[str] = set()
+    cursor: Optional[str] = None
+
+    for _page in range(max(1, max_pages)):
+        cursor_kwargs: Dict[str, Any] = {}
+        if cursor:
+            cursor_kwargs["created_before_or_at"] = cursor
+        fills = await client.indexer_account.account.get_subaccount_fills(
+            address,
+            _resolve_subaccount_number(),
+            ticker=market,
+            limit=limit,
+            **cursor_kwargs,
+        )
+        if isinstance(fills, dict):
+            fills = fills.get("fills", [])
+        if not isinstance(fills, list) or not fills:
+            break
+
+        page_cursor: Optional[str] = None
+        for fill in fills:
+            if not isinstance(fill, dict):
+                continue
+            fill_id = str(fill.get("id") or fill.get("uuid") or "")
+            if fill_id and fill_id in seen_fill_ids:
+                continue
+            if fill_id:
+                seen_fill_ids.add(fill_id)
+            collected.append(fill)
+            if page_cursor is None:
+                page_cursor = (
+                    str(fill.get("createdAt") or fill.get("created_at") or "") or None
+                )
+        cursor = page_cursor
+        if len(fills) < limit:
+            break
 
     order_id_text = str(order_id)
     return [
         fill
-        for fill in fills
-        if isinstance(fill, dict)
+        for fill in collected
         if str(fill.get("orderId") or fill.get("order_id") or fill.get("orderID") or "")
         == order_id_text
     ]
@@ -529,18 +604,29 @@ async def _resolve_recent_order_id(
     )
 
 
-async def cancel_all_orders(client: Any) -> Optional[List[Any]]:
-    """Cancel all open orders.
+async def cancel_all_orders(
+    client: Any, markets: Optional[List[str]] = None
+) -> Optional[List[Any]]:
+    """Cancel all open orders, optionally scoped to specific markets.
 
     Returns the list of cancelled order ids (empty when none were open).
     Raises after best-effort cancellation when any individual cancel fails or
     the open-orders fetch fails for a non-404 reason, so callers can alert —
     unknown live orders must never be treated as cancelled.
+
+    ``markets`` scopes both the order lookup and the cancels: on a shared
+    subaccount an instance must not cancel other instances' orders.
     """
+    market_filter = (
+        {str(m).strip() for m in markets if str(m).strip()} if markets else None
+    )
     try:
         order_lookup_address = _resolve_client_address(client)
         raw_orders = await _get_subaccount_orders_with_metrics(
-            client, order_lookup_address, _resolve_subaccount_number(), status="OPEN"
+            client,
+            order_lookup_address,
+            _resolve_subaccount_number(),
+            status="OPEN",
         )
     except Exception as e:
         # A missing subaccount (404) genuinely means no open orders; any other
@@ -557,6 +643,12 @@ async def cancel_all_orders(client: Any) -> Optional[List[Any]]:
     # The indexer returns {"orders": [...]}; normalize before iterating so the
     # loop sees order dicts, not the payload's keys.
     orders = _normalize_orders_payload(raw_orders)
+    if market_filter is not None:
+        orders = [
+            order
+            for order in orders
+            if str(order.get("ticker") or "").strip() in market_filter
+        ]
     if not orders:
         return []
 
@@ -565,12 +657,18 @@ async def cancel_all_orders(client: Any) -> Optional[List[Any]]:
     for order in orders:
         order_id = str(order.get("id", ""))
         try:
-            await cancel_order(client, order_id)
-            cancelled.append(order_id)
-            logger.warning(
-                "Open order {} may persist; verify cancellation on the dashboard",
-                order_id,
-            )
+            final_status = await cancel_order_verified(client, order_id)
+            if final_status in _CANCEL_TERMINAL_STATUSES:
+                cancelled.append(order_id)
+            else:
+                # The cancel was submitted but the order still reports a
+                # fillable state — treat as failed so the caller alerts.
+                failures.append(order_id or "<unknown-id>")
+                logger.error(
+                    "Order {} still reports status {} after verified cancels",
+                    order_id,
+                    final_status or "unknown",
+                )
         except Exception as e:
             failures.append(order_id or "<unknown-id>")
             logger.error("Failed to cancel open order {}: {}", order_id or "?", e)
@@ -583,21 +681,32 @@ async def cancel_all_orders(client: Any) -> Optional[List[Any]]:
     return cancelled
 
 
-async def abort_all_positions(client: Any) -> List[Any]:
+async def abort_all_positions(
+    client: Any, markets: Optional[List[str]] = None
+) -> List[Any]:
     """
-    Close all open positions by placing offsetting reduce-only orders.
+    Close open positions by placing offsetting reduce-only orders.
 
     This is used for emergency shutdown or mode switch. Fail-closed design:
-    positions are always flattened best-effort (a failed cancel-all or a
-    single failed close must not skip the remaining closes), tracked state is
+    positions are always flattened best-effort (a failed cancel or a single
+    failed close must not skip the remaining closes), tracked state is
     cleared, and any failure is re-raised afterwards so the caller aborts
     with a CRITICAL signal instead of silently continuing.
+
+    ``markets`` scopes the abort to this instance's tracked markets: orders
+    are cancelled and positions closed only on those markets, so on a shared
+    subaccount one instance's abort does not flatten other instances'
+    positions. ``None`` (default) keeps the legacy whole-subaccount kill
+    switch semantics.
     """
     cleanup_errors: List[str] = []
+    market_scope: Optional[set[str]] = (
+        {str(m).strip() for m in markets if str(m).strip()} if markets else None
+    )
 
-    # Cancel all orders (best-effort; failures surface after flattening)
+    # Cancel open orders (best-effort; failures surface after flattening)
     try:
-        await cancel_all_orders(client)
+        await cancel_all_orders(client, markets=markets)
     except Exception as e:
         cleanup_errors.append(f"cancel_all_orders: {e}")
         logger.critical("cancel-all failed during abort; continuing to flatten: {}", e)
@@ -605,8 +714,9 @@ async def abort_all_positions(client: Any) -> List[Any]:
     # Protect API
     await asyncio.sleep(0.5)
 
-    # Get markets for reference of tick size
-    markets = await get_markets(client)
+    # Get markets metadata for reference of tick size (the ``markets``
+    # parameter holds the market-scope list; keep the names distinct).
+    markets_meta = await get_markets(client)
 
     # Protect API
     await asyncio.sleep(0.5)
@@ -630,6 +740,13 @@ async def abort_all_positions(client: Any) -> List[Any]:
             # Get Position
             pos = positions[item]
 
+            if market_scope is not None and str(item).strip() not in market_scope:
+                logger.info(
+                    "Skipping {} during scoped abort (not tracked by this instance)",
+                    item,
+                )
+                continue
+
             try:
                 # Determine Market
                 market = pos["market"]
@@ -644,7 +761,7 @@ async def abort_all_positions(client: Any) -> List[Any]:
                 accept_price = (
                     price * 1.7 if side == "BUY" else price * 0.3
                 )  # Helps towards ensuring order will be filled
-                tick_size = markets["markets"][market]["tickSize"]
+                tick_size = markets_meta["markets"][market]["tickSize"]
                 accept_price_formatted = format_number(accept_price, tick_size)
 
                 # Place order to close

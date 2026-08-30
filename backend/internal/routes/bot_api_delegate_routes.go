@@ -3240,6 +3240,82 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body", "message": err.Error()})
 				return
 			}
+			if config == nil {
+				config = map[string]interface{}{}
+			}
+
+			// Quota + attribution parity with CreateBotInstance (audit P1-1):
+			// quick-deploy spawns a real auto-started instance upstream and
+			// previously skipped the per-user instance quota entirely, and
+			// the resulting instance had no user attribution — making it a
+			// user_id=0 row any user could control.
+			userIDValue, exists := c.Get("user_id")
+			if !exists {
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"success":   false,
+					"error":     "unauthorized",
+					"message":   "unauthorized",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+			userID, ok := userIDValue.(int)
+			if !ok || userID <= 0 {
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"success":   false,
+					"error":     "invalid user context",
+					"message":   "invalid user context",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+
+			if botInstanceRepo == nil || userRepo == nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{
+					"success":   false,
+					"error":     "bot instance quota verification unavailable",
+					"message":   "bot instance quota verification unavailable",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+
+			maxBotInstances := 10
+			if user, userErr := userRepo.GetByID(userID); userErr == nil && user != nil && user.MaxBotInstances > 0 {
+				maxBotInstances = user.MaxBotInstances
+			}
+			currentBotInstances, countErr := botInstanceRepo.CountBotInstancesByUserID(userID)
+			if countErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success":   false,
+					"error":     "failed to enforce bot instance quota",
+					"message":   "failed to enforce bot instance quota",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+			if currentBotInstances >= maxBotInstances {
+				c.JSON(http.StatusTooManyRequests, gin.H{
+					"success": false,
+					"error": fmt.Sprintf(
+						"Bot instance limit reached for this account (%d/%d). Ask an admin to increase your bot quota.",
+						currentBotInstances,
+						maxBotInstances,
+					),
+					"message":   "bot instance limit reached",
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
+				return
+			}
+
+			// Force server-side attribution; a caller-supplied value is
+			// ignored so the spawned instance is attributable to this user.
+			config["requested_by_user_id"] = userID
 
 			result, err := requestClient.QuickDeployBot(instanceName, autoStart, config)
 			if err != nil {

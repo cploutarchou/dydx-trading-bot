@@ -13,6 +13,18 @@ const hasResponseStatus = (error: unknown, status: number): boolean => {
   return (response as { status?: unknown }).status === status;
 };
 
+// True when the error carries any HTTP status. Status-bearing failures (4xx/5xx)
+// are deterministic for the current poll cycle: operator surfaces re-poll on
+// 10-30s intervals, so retrying them immediately only duplicates load (and
+// amplifies outages into retry storms). Transport failures (no status: network
+// drop, timeout, abort) still benefit from backoff retries.
+const hasAnyResponseStatus = (error: unknown): boolean => {
+  if (typeof error !== 'object' || error === null) return false;
+  const response = (error as { response?: unknown }).response;
+  if (typeof response !== 'object' || response === null) return false;
+  return typeof (response as { status?: unknown }).status === 'number';
+};
+
 // Query keys for consistent caching
 export const queryKeys = {
   // Auth
@@ -70,10 +82,14 @@ export const queryClient = new QueryClient({
       staleTime: 5 * 60 * 1000,
       // Keep cached data for 10 minutes
       gcTime: 10 * 60 * 1000,
-      // Retry failed requests 3 times with exponential backoff
+      // Retry failed requests up to 3 times with exponential backoff, but only
+      // for transport-level failures. See hasAnyResponseStatus for rationale.
       retry: (failureCount, error) => {
         if (hasResponseStatus(error, 401) || hasResponseStatus(error, 403)) {
           return false; // Don't retry auth errors
+        }
+        if (hasAnyResponseStatus(error)) {
+          return false; // Deterministic HTTP failure; next poll will retry naturally
         }
         return failureCount < 3;
       },

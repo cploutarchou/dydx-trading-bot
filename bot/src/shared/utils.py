@@ -26,6 +26,26 @@ def format_number(curr_num: Any, match_num: Any) -> str:
         return f"{int(curr_num)}"
 
 
+def format_size_down(number: Any, step: Any) -> str:
+    """
+    Format an order SIZE to the step's decimal precision, rounding DOWN.
+
+    Sizes must never round up: a rounded-up size exceeds the intended
+    notional exposure (the exchange clamps today, but the intent should be
+    explicit at format time).
+    """
+    from decimal import ROUND_DOWN, Decimal
+
+    step_string = f"{step}"
+    if "." in step_string:
+        decimals = len(step_string.split(".")[1])
+        exponent = Decimal(1).scaleb(-decimals)
+    else:
+        exponent = Decimal(1)
+    quantized = Decimal(f"{number}").quantize(exponent, rounding=ROUND_DOWN)
+    return f"{quantized:f}"
+
+
 def format_time(timestamp: datetime) -> str:
     """Format timestamp to ISO 8601 UTC string with Z suffix and no microseconds."""
     return (

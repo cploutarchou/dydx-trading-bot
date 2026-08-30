@@ -94,6 +94,19 @@ func main() {
 	}
 
 	middleware.InitAuthMiddleware(config.ConfigInstance)
+	// DB-backed password_change_required lookup for the server-side rotation
+	// gate (users flagged for rotation — seeded/recovered accounts — are
+	// blocked from normal endpoints until they change their password).
+	middleware.SetPasswordChangeLookup(func(userID int) (bool, error) {
+		var required bool
+		if err := conn.QueryRow(
+			`SELECT COALESCE(password_change_required, FALSE) FROM users WHERE id = $1`,
+			userID,
+		).Scan(&required); err != nil {
+			return false, err
+		}
+		return required, nil
+	})
 	if config.ConfigInstance.Auth.JWTSecretKey != "" {
 		log.Printf("Auth middleware initialized (JWT secret length=%d)", len(config.ConfigInstance.Auth.JWTSecretKey))
 	} else {

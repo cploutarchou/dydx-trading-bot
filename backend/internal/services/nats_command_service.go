@@ -7,10 +7,10 @@ package services
 
 import (
 	"context"
-	"sync"
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/config"
@@ -90,9 +90,9 @@ func NewNATSCommandService(
 		clock:     time.Now,
 		metrics:   GetAsyncMetrics(),
 		// 16 concurrent publishes; a full channel drops the publish and leaves the
-	// command "pending" (the documented truthful-status failure semantic).
-	publishSlots: make(chan struct{}, 16),
-}
+		// command "pending" (the documented truthful-status failure semantic).
+		publishSlots: make(chan struct{}, 16),
+	}
 }
 
 // PublishBacktestCommand creates a task command for a backtest and optionally publishes
@@ -381,7 +381,6 @@ func (s *NATSCommandService) HealthCheck() error {
 	}
 	return nil
 }
-
 
 // ReconcilePendingCommands re-publishes task commands stuck in "pending"
 // (publish lost to a NATS outage or a process restart mid-publish). The

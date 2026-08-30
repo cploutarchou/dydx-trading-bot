@@ -8,6 +8,9 @@ on:
         paths:
             - "bot/**"
             - "frontend/**"
+            - "backend/**"
+            - "docs/**"
+            - "README.md"
             - "deploy/k8s-next/**"
             - "deploy/k8s/**"
             - "docker-compose.infra.yml"
@@ -21,6 +24,9 @@ on:
         paths:
             - "bot/**"
             - "frontend/**"
+            - "backend/**"
+            - "docs/**"
+            - "README.md"
             - "deploy/k8s-next/**"
             - "deploy/k8s/**"
             - "docker-compose.infra.yml"
@@ -784,11 +790,78 @@ jobs:
             - name: Type check
               run: npm run typecheck
 
-            - name: Contract tests
-              run: npm run test:contracts
+            - name: Unit and contract tests
+              run: npm test
 
             - name: Build
               run: npm run build
+
+    # ---------------------------------------------------------------------------
+    # Documentation governance (canonical docs + link validation)
+    # ---------------------------------------------------------------------------
+    docs-governance:
+        name: Docs governance (canonical tree + links)
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v7
+
+            - name: Set up Python
+              uses: actions/setup-python@v7
+              with:
+                  python-version: "3.12"
+
+            - name: Validate canonical docs and links
+              run: |
+                  set -euo pipefail
+                  python3 scripts/validate_docs_governance.py
+                  echo "Docs governance validated." >> "$GITHUB_STEP_SUMMARY"
+
+    # ---------------------------------------------------------------------------
+    # golangci-lint — phase 1: NON-BLOCKING
+    # ---------------------------------------------------------------------------
+    # The repo's full .golangci.yml (v2) currently reports ~2.1k findings
+    # (largely errcheck style). Reporting-only mirrors bandit/pip-audit phase
+    # precedent; drive findings down (or tune the config) and then promote
+    # this job into the quality-gate needs.
+    backend-lint:
+        name: Backend lint (golangci-lint, phase 1)
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        defaults:
+            run:
+                working-directory: backend
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v7
+
+            - name: Set up Go
+              uses: actions/setup-go@v7
+              with:
+                  go-version-file: backend/go.mod
+                  cache: true
+                  cache-dependency-path: backend/go.sum
+
+            - name: Install golangci-lint
+              run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.0
+
+            - name: Run golangci-lint
+              continue-on-error: true # phase 1: reporting-only, does not gate
+              run: |
+                  set -o pipefail
+                  golangci-lint run ./... 2>&1 | tee golangci-output.txt
+
+            - name: Publish lint summary
+              if: always()
+              run: |
+                  echo "### 🧹 Backend lint (golangci-lint — phase 1, non-blocking)" >> "$GITHUB_STEP_SUMMARY"
+                  if [ -f golangci-output.txt ]; then
+                    echo '```' >> "$GITHUB_STEP_SUMMARY"
+                    tail -20 golangci-output.txt >> "$GITHUB_STEP_SUMMARY"
+                    echo '```' >> "$GITHUB_STEP_SUMMARY"
+                  fi
 
     quality-gate:
         name: Quality gate
@@ -796,6 +869,7 @@ jobs:
         needs:
             - bot-tests
             - bot-lint
+            - docs-governance
             - bot-typecheck
             - bot-multiworker
             - bot-integration

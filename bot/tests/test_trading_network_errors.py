@@ -808,3 +808,103 @@ class TestConcurrentNetworkFailures:
         # But due to the fallback, we'll get 20 calls total, but only 10 results
         assert len(rate_limited) == 10
         assert len(results) == 10
+
+
+class TestGetOrderFillsPagination:
+    """get_order_fills must page through subaccount fills so older fills of
+    the target order are not truncated by the 100-per-page indexer limit."""
+
+    @pytest.mark.asyncio
+    async def test_get_order_fills_pages_until_order_found(self, mock_client):
+        target_id = "order-old"
+        # Page 1: 100 newer fills for OTHER orders; page 2: the target's
+        # fills plus older unrelated fills (short page ends pagination).
+        page1 = [
+            {
+                "id": f"f1-{i}",
+                "orderId": f"other-{i}",
+                "price": "100",
+                "size": "1",
+                "createdAt": f"2026-01-01T00:00:{i % 60:02d}Z",
+            }
+            for i in range(100)
+        ]
+        page2 = [
+            {
+                "id": "f2-0",
+                "orderId": target_id,
+                "price": "101",
+                "size": "2",
+                "createdAt": "2025-12-31T23:59:00Z",
+            },
+            {
+                "id": "f2-1",
+                "orderId": target_id,
+                "price": "102",
+                "size": "3",
+                "createdAt": "2025-12-31T23:59:01Z",
+            },
+        ]
+
+        pages = [page1, page2]
+        calls = []
+
+        async def fake_fills(_address, _subaccount, ticker=None, limit=None, **kwargs):
+            calls.append(
+                {
+                    "ticker": ticker,
+                    "limit": limit,
+                    "cursor": kwargs.get("created_before_or_at"),
+                }
+            )
+            page = pages.pop(0)
+            # Cursor must point at the previous page's newest fill timestamp.
+            return {"fills": list(page)}
+
+        class _Account:
+            get_subaccount_fills = staticmethod(fake_fills)
+
+        class _IndexerAccount:
+            account = _Account()
+
+        class _Wallet:
+            address = "0xTest"
+
+        mock_client.indexer_account = _IndexerAccount()
+        mock_client.wallet = _Wallet()
+
+        from src.trading.account_manager import get_order_fills
+
+        fills = await get_order_fills(mock_client, target_id, market="BTC-USD")
+
+        assert [f["id"] for f in fills] == ["f2-0", "f2-1"]
+        assert len(calls) == 2
+        assert calls[0]["cursor"] is None
+        assert calls[1]["cursor"] == "2026-01-01T00:00:00Z"
+
+    @pytest.mark.asyncio
+    async def test_get_order_fills_stops_on_short_page(self, mock_client):
+        # A partial page ends pagination without extra requests.
+        async def fake_fills(_address, _subaccount, ticker=None, limit=None, **kwargs):
+            return {
+                "fills": [
+                    {"id": "s-1", "orderId": "x", "createdAt": "2026-01-01T00:00:00Z"}
+                ]
+            }
+
+        class _Account:
+            get_subaccount_fills = staticmethod(fake_fills)
+
+        class _IndexerAccount:
+            account = _Account()
+
+        class _Wallet:
+            address = "0xTest"
+
+        mock_client.indexer_account = _IndexerAccount()
+        mock_client.wallet = _Wallet()
+
+        from src.trading.account_manager import get_order_fills
+
+        fills = await get_order_fills(mock_client, "missing-order")
+        assert fills == []

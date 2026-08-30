@@ -551,6 +551,10 @@ def test_check_order_status_cancels_non_filled_second_probe(monkeypatch):
         _ = client
         cancelled.append(order_id)
 
+    async def fake_cancel_order_verified(client, order_id, attempts=3):
+        cancelled.append(order_id)
+        return "CANCELED"
+
     async def fake_get_order_fills(client, order_id, market=None):
         return []
 
@@ -562,6 +566,9 @@ def test_check_order_status_cancels_non_filled_second_probe(monkeypatch):
         "src.trading.bot_agent.check_order_status", fake_check_order_status
     )
     monkeypatch.setattr("src.trading.bot_agent.cancel_order", fake_cancel_order)
+    monkeypatch.setattr(
+        "src.trading.bot_agent.cancel_order_verified", fake_cancel_order_verified
+    )
     monkeypatch.setattr("src.trading.bot_agent.get_order_fills", fake_get_order_fills)
     monkeypatch.setattr("src.trading.bot_agent.asyncio.sleep", _fast_sleep)
 

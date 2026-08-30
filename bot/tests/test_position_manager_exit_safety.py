@@ -649,3 +649,100 @@ def test_manage_trade_exits_persists_fills_vwap_not_accept_price(monkeypatch, tm
     # Neither leg recorded its ±5% accept-band submission price.
     assert float(persisted["exit_price1"]) != pytest.approx(float(accepts["BTC-USD"]))
     assert float(persisted["exit_price2"]) != pytest.approx(float(accepts["ETH-USD"]))
+
+
+def test_detect_untracked_exchange_exposure_alerts_and_dedupes(monkeypatch):
+    """Escaped-fill backstop: exchange positions with no tracked owner alert
+    once per cooldown, and empty tracked state still sweeps."""
+    from src.trading import position_manager as pm
+
+    class DummyMessenger:
+        def __init__(self):
+            self.errors = []
+
+        def send_error_message(self, *args, **kwargs):
+            self.errors.append((args, kwargs))
+
+    messenger = DummyMessenger()
+    events = []
+    monkeypatch.setattr(
+        pm, "persist_trade_activity_event", lambda *a, **k: events.append(a)
+    )
+    # Reset dedupe state so the test is order-independent.
+    pm._untracked_alert_last_sent.clear()
+
+    exchange_positions = {
+        "BTC-USD": {"market": "BTC-USD", "side": "LONG", "sumOpen": "0.1"},
+        "ORPHAN-USD": {"market": "ORPHAN-USD", "side": "SHORT", "sumOpen": "5.0"},
+    }
+    tracked = [
+        {"market_1": "BTC-USD", "market_2": "ETH-USD"},
+    ]
+
+    untracked = asyncio.run(
+        pm.detect_untracked_exchange_exposure(exchange_positions, tracked, messenger)
+    )
+
+    assert untracked == ["ORPHAN-USD"]
+    assert len(messenger.errors) == 1
+    assert messenger.errors[0][1].get("is_critical") is True
+    assert events, "expected an audit event"
+
+    # Second sweep within the cooldown: still detected, but not re-alerted.
+    untracked_again = asyncio.run(
+        pm.detect_untracked_exchange_exposure(exchange_positions, tracked, messenger)
+    )
+    assert untracked_again == ["ORPHAN-USD"]
+    assert len(messenger.errors) == 1
+
+    # Alerting can be disabled for shared-subaccount deployments.
+    monkeypatch.setenv("UNTRACKED_EXPOSURE_ALERTS_ENABLED", "false")
+    pm._untracked_alert_last_sent.clear()
+    messenger.errors.clear()
+    detected = asyncio.run(
+        pm.detect_untracked_exchange_exposure(exchange_positions, tracked, messenger)
+    )
+    assert detected == ["ORPHAN-USD"]
+    assert messenger.errors == []
+
+
+def test_manage_trade_exits_sweeps_even_with_empty_tracked_state(monkeypatch, tmp_path):
+    """The escaped-fill scenario is an EMPTY tracked state with live exposure."""
+    from src.trading import position_manager as pm
+
+    class DummyMessenger:
+        def send_error_message(self, *args, **kwargs):
+            pass
+
+    bot_agents_path = tmp_path / "bot_agents.json"
+    bot_agents_path.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(bot_agents_state, "BOT_AGENTS_PATH", bot_agents_path)
+    monkeypatch.setattr(pm, "BOT_AGENTS_PATH", bot_agents_path)
+    monkeypatch.setattr(pm, "TelegramMessenger", lambda: DummyMessenger())
+
+    swept = {}
+
+    async def fake_get_open_positions(_client):
+        return {
+            "ESCAPED-USD": {
+                "market": "ESCAPED-USD",
+                "side": "LONG",
+                "sumOpen": "3.0",
+            }
+        }
+
+    async def fake_detect(exchange_positions, tracked_positions, messenger):
+        swept["markets"] = list(exchange_positions.keys())
+        return []
+
+    async def fake_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(pm, "get_open_positions", fake_get_open_positions)
+    monkeypatch.setattr(pm, "detect_untracked_exchange_exposure", fake_detect)
+    monkeypatch.setattr(pm.asyncio, "sleep", fake_sleep)
+
+    result = asyncio.run(pm.manage_trade_exits(object()))
+
+    assert result == "complete"  # nothing tracked: nothing to exit-manage
+    assert swept.get("markets") == ["ESCAPED-USD"]  # but the sweep ran

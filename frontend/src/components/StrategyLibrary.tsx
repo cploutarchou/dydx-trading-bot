@@ -347,9 +347,9 @@ export default function StrategyLibrary() {
         <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
             <div className="premium-kicker">Strategy Library</div>
-            <h1 className="mt-4 text-3xl font-bold text-white sm:text-4xl">
+            <h2 className="mt-4 text-3xl font-bold text-white sm:text-4xl">
               Build, compare, and launch strategies that look ready for real capital.
-            </h1>
+            </h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
               Your strategy workspace now feels like an operating system, not a form. Search faster,
               inspect risk posture at a glance, and move directly into live runtime or backtesting.

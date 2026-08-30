@@ -144,7 +144,13 @@ func enrollMFA(t *testing.T, router *gin.Engine, userID int) string {
 		t.Fatalf("decode setup response: %v", err)
 	}
 
-	code, err := totp.GenerateCode(setupBody.Data.Secret, time.Now().UTC())
+	// Enroll with the PREVIOUS window's code (valid under the ±2 skew):
+	// verification is one-code-per-window now, so burning the current
+	// window here would force the login challenge below to wait ~30s for
+	// the next one.
+	code, err := totp.GenerateCode(
+		setupBody.Data.Secret, time.Now().UTC().Add(-30*time.Second),
+	)
 	if err != nil {
 		t.Fatalf("generate totp code: %v", err)
 	}
@@ -425,5 +431,38 @@ func TestLogin_WithoutMFA_RemainsDirect(t *testing.T) {
 	router.ServeHTTP(meRes, meReq)
 	if meRes.Code != http.StatusOK {
 		t.Fatalf("expected 200 on /users/me, got %d body=%s", meRes.Code, meRes.Body.String())
+	}
+}
+
+// Regression test (review P1): the 2FA endpoints bound token with len=6,
+// which rejected the 11-character backup-code format at binding time and
+// made the implemented backup-code recovery path unreachable over HTTP.
+func TestMFAHandlers_AcceptBackupCodeShape(t *testing.T) {
+	router, dbConn, userID := setupLoginMFATestRouter(t)
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	// validMFACodeShape contract
+	for _, ok := range []string{"123456", "ABCDE-FGHIJ"} {
+		if !validMFACodeShape(ok) {
+			t.Fatalf("expected %q to be a valid MFA code shape", ok)
+		}
+	}
+	for _, bad := range []string{"", "12345", "1234567", "abcdef", "ABC-DEFGHIJ", "ABCDEFGHIJ-", "ABCDEFGHIJK"} {
+		if validMFACodeShape(bad) {
+			t.Fatalf("expected %q to be rejected", bad)
+		}
+	}
+
+	// HTTP layer: a backup-code-shaped token must pass binding (it will fail
+	// verification only after enrollment exists, not with a 400 shape error).
+	bearer := "Bearer " + issueLoginMFATestToken(t, userID, "mfauser", "client")
+	payload, _ := json.Marshal(map[string]string{"token": "ABCDE-FGHIJ"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/2fa/verify", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", bearer)
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code == http.StatusBadRequest {
+		t.Fatalf("backup-code shape must not be rejected at binding, got 400 body=%s", res.Body.String())
 	}
 }

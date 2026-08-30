@@ -5,6 +5,7 @@ import api, {
     type ArbitrageImprovementMetricsResponse,
     type ArbitragePairPriorityItem,
 } from '../api';
+import { humanizeApiError } from '../utils/apiErrors';
 
 const metricValue = (
   metrics: ArbitrageImprovementMetricsResponse | undefined,
@@ -82,14 +83,10 @@ export function ArbitrageImprovementPanel() {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 6);
 
+  const errorSource =
+    metricsQuery.error ?? priorityQuery.error ?? explainQuery.error ?? null;
   const errorText =
-    metricsQuery.error instanceof Error
-      ? metricsQuery.error.message
-      : priorityQuery.error instanceof Error
-        ? priorityQuery.error.message
-        : explainQuery.error instanceof Error
-          ? explainQuery.error.message
-          : '';
+    errorSource === null ? '' : humanizeApiError(errorSource, 'Arbitrage intelligence');
 
   return (
     <section className="operator-section-card p-5">

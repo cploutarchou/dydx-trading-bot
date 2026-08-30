@@ -199,11 +199,21 @@ async def connect_dydx_runtime(address: str, mnemonic: str, is_testnet: bool) ->
         try:
             wallet = await Wallet.from_mnemonic(node, mnemonic, address)
             logger.info("Loaded wallet for address {}", address)
-        except Exception:
-            logger.warning(
-                "Failed to derive wallet for address {}. Continuing without wallet.",
+        except Exception as exc:
+            # Real credentials that fail to derive are a configuration error:
+            # continuing with a wallet-less client would cache a half-broken
+            # trading client (every order failing per-call) for the whole
+            # cache TTL. Fail closed at startup instead.
+            logger.critical(
+                "Failed to derive wallet for address {}: {}. Refusing to "
+                "continue with signing credentials that do not match the "
+                "configured address.",
                 address,
+                exc,
             )
+            raise RuntimeError(
+                f"Wallet derivation failed for configured address {address}: {exc}"
+            ) from exc
     else:
         logger.info("Wallet creation skipped (missing runtime credential material)")
 

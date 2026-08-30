@@ -26,6 +26,7 @@ from src.shared.logging_setup import setup_logging
 from src.shared.notifications import TelegramMessenger
 from src.trading.account_manager import abort_all_positions
 from src.trading.analysis.cointegration import store_cointegration_results
+from src.trading.bot_agents_state import load_tracked_positions
 from src.trading.dydx_client import connect_dydx_runtime
 from src.trading.market_data import construct_market_prices
 from src.trading.position_manager import manage_trade_exits, open_positions
@@ -663,11 +664,31 @@ class BotInstance:
             # Get bot settings
             bot_settings = runtime_config.botSettings
 
-            # Abort all open positions if requested
+            # Abort open positions if requested. Scoped to THIS instance's
+            # tracked markets so that on a shared subaccount one instance's
+            # abort does not flatten other instances' positions (whole-
+            # subaccount kill switch remains available by passing None).
             if bot_settings.abortAllPositions:
-                runtime_logger.info("Closing open positions...")
-                await self._maybe_await(abort_all_positions(self.client))
-                runtime_logger.info("All positions closed")
+                runtime_logger.info("Closing tracked positions...")
+                tracked = await self._maybe_await(load_tracked_positions())
+                abort_markets = sorted(
+                    {
+                        market
+                        for position in tracked
+                        if isinstance(position, dict)
+                        for market in (
+                            str(position.get("market_1") or "").strip(),
+                            str(position.get("market_2") or "").strip(),
+                        )
+                        if market
+                    }
+                )
+                await self._maybe_await(
+                    abort_all_positions(self.client, markets=abort_markets)
+                )
+                runtime_logger.info(
+                    "Positions closed for tracked markets {}", abort_markets
+                )
 
             # Find cointegrated pairs if requested
             if bot_settings.findCointegratedPairs:

@@ -10,6 +10,7 @@ from loguru import logger
 from src.shared.notifications import TelegramMessenger
 from src.trading.account_manager import (
     cancel_order,
+    cancel_order_verified,
     check_order_status,
     get_order,
     get_order_fills,
@@ -287,9 +288,23 @@ class BotAgent:
                 self.order_dict["pair_status"] = "FAILED"
                 return "failed"
 
-            # Guard: If not filled, cancel order
+            # Guard: If not filled, cancel order and verify it cannot fill
             if order_status != "FILLED":
-                await cancel_order(self.client, order_id)
+                final_cancel_status = await cancel_order_verified(self.client, order_id)
+                if final_cancel_status not in {
+                    "FILLED",
+                    "CANCELED",
+                    "CANCELLED",
+                    "BEST_EFFORT_CANCELED",
+                    "IB_CANCELED",
+                    "REJECTED",
+                    "EXPIRED",
+                }:
+                    logger.critical(
+                        "Order {} may still be live after cancel (status={})",
+                        order_id,
+                        final_cancel_status or "unknown",
+                    )
                 self.order_dict["pair_status"] = "ERROR"
                 logger.error(
                     "{} vs {} - Order error. Cancellation request sent, verify open orders",

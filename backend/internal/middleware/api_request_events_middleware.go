@@ -181,8 +181,8 @@ func APIRequestEventsMiddlewareWithWriter(writer *services.APIRequestWriter) gin
 // APIRequestEventBatchWriter provides batching for API request events
 // to reduce ClickHouse load from high-volume endpoints.
 type APIRequestEventBatchWriter struct {
-	flusherDone chan struct{}
-	closeOnce   sync.Once
+	flusherDone   chan struct{}
+	closeOnce     sync.Once
 	writer        *services.APIRequestWriter
 	buffer        []services.APIRequestEvent
 	bufferMux     sync.Mutex

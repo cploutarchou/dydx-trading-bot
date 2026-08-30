@@ -195,7 +195,7 @@ export const AdminHubPage = () => {
             >
               Open IB Portal
             </a>
-            <Link to="/settings" className="platform-button platform-button-secondary">
+            <Link to="/admin/settings" className="platform-button platform-button-secondary">
               Open Settings
             </Link>
             <Link to="/admin/ico" className="platform-button platform-button-secondary">

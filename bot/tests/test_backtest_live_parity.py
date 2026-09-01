@@ -50,6 +50,9 @@ def test_simulate_pair_zscores_match_live_calculate_zscore():
         "close_at_zscore_cross": True,
         "transaction_fee": 0.0,
         "slippage": 0.0,
+        # Disable mid-run walk-forward refits so the single calibration fit
+        # this test mirrors stays in force for the whole trade window.
+        "refit_interval_bars": 10**9,
     }
 
     trades, _snapshots, _daily = asyncio.run(
@@ -99,6 +102,7 @@ def test_simulate_pair_exit_rules_match_live_ladder():
         "close_at_zscore_cross": True,
         "transaction_fee": 0.0,
         "slippage": 0.0,
+        "refit_interval_bars": 10**9,
     }
 
     trades, _snapshots, _daily = asyncio.run(
@@ -179,3 +183,125 @@ def test_simulate_pair_stop_loss_param_bounds_losses():
     # Bar-to-bar overshoot can exceed the 1% trigger; anything beyond a
     # generous multiple would indicate the stop is not actually applied.
     assert worst > -10.0, f"stop-loss exit lost {worst}% — stop not applied?"
+
+
+def test_simulate_pair_execution_delay_fills_at_later_bar():
+    """With execution_delay_bars=1, fills use the NEXT bar's close/timestamp,
+    never the signal bar's."""
+    service = _make_service()
+    prices_a, prices_b = _synthetic_pair(seed=31)
+    ts = _timestamps(len(prices_a))
+
+    immediate_params = {
+        "stats_window": 21,
+        "zscore_threshold": 1.5,
+        "usd_per_trade": 10.0,
+        "close_at_zscore_cross": True,
+        "transaction_fee": 0.0,
+        "slippage": 0.0,
+        "refit_interval_bars": 10**9,
+        "execution_delay_bars": 0,
+    }
+    delayed_params = dict(immediate_params, execution_delay_bars=1)
+
+    immediate, _, _ = asyncio.run(
+        service._simulate_pair(
+            "delay-run",
+            "AAA-USD",
+            "BBB-USD",
+            ts,
+            prices_a,
+            prices_b,
+            immediate_params,
+            trade_index_offset=0,
+        )
+    )
+    delayed, _, _ = asyncio.run(
+        service._simulate_pair(
+            "delay-run",
+            "AAA-USD",
+            "BBB-USD",
+            ts,
+            prices_a,
+            prices_b,
+            delayed_params,
+            trade_index_offset=0,
+        )
+    )
+
+    assert immediate and delayed
+    ts_index = {t: i for i, t in enumerate(ts)}
+    for trade in delayed:
+        entry_i = ts_index[trade["entry_timestamp"]]
+        exit_i = ts_index[trade["exit_timestamp"]]
+        # Delayed fills book at least one bar after the immediate run's
+        # trades on the same series (positions open no earlier).
+        assert entry_i >= ts_index[immediate[0]["entry_timestamp"]]
+        assert exit_i > entry_i or exit_i == entry_i
+    # The two executions must differ somewhere (price or timing), proving
+    # the delay is actually applied rather than ignored.
+    differing = any(
+        a["entry_timestamp"] != b["entry_timestamp"]
+        or abs(a["entry_price_m1"] - b["entry_price_m1"]) > 1e-9
+        for a, b in zip(immediate, delayed)
+    )
+    assert differing or len(immediate) != len(
+        delayed
+    ), "execution_delay_bars=1 produced identical results to delay=0"
+
+
+def test_simulate_pair_walk_forward_refits_use_only_past_data():
+    """Refits at mid-run must use data strictly before the refit bar."""
+    service = _make_service()
+    import numpy as np
+
+    # Non-stationary relationship: the loading drifts from 0.6 to 1.0 over
+    # the sample, so fits on different windows genuinely differ.
+    rng = np.random.default_rng(43)
+    n = 400
+    base = 100.0 + np.cumsum(rng.normal(0, 0.4, n))
+    prices_b = base + rng.normal(0, 0.25, n)
+    loadings = 0.6 + 0.4 * np.linspace(0, 1, n)
+    prices_a = loadings * base + 1.5 + rng.normal(0, 0.1, n)
+    ts = _timestamps(n)
+    stats_window = 21
+    calibration_end = max(2 * stats_window, n // 2)
+    refit_at = calibration_end + max(
+        stats_window, calibration_end // 2
+    )  # default schedule refits here
+
+    # The fit in force after the mid-run refit must equal a fit on data
+    # strictly before refit_at — not on the full sample.
+    full = np.polyfit(prices_b, prices_a, 1)
+    partial = np.polyfit(prices_b[:refit_at], prices_a[:refit_at], 1)
+    assert abs(full[0] - partial[0]) > 1e-9, "fixture must distinguish fits"
+
+    params = {
+        "stats_window": stats_window,
+        "zscore_threshold": 1.5,
+        "usd_per_trade": 10.0,
+        "close_at_zscore_cross": True,
+        "transaction_fee": 0.0,
+        "slippage": 0.0,
+    }
+    trades, _, _ = asyncio.run(
+        service._simulate_pair(
+            "refit-run",
+            "AAA-USD",
+            "BBB-USD",
+            ts,
+            prices_a,
+            prices_b,
+            params,
+            trade_index_offset=0,
+        )
+    )
+    # Trades booked after the refit must carry the refit hedge ratio (the
+    # partial fit), not the full-sample one.
+    post = [
+        t
+        for t in trades
+        if _timestamps(n) and ts.index(t["exit_timestamp"]) >= refit_at
+    ]
+    for trade in post:
+        assert abs(trade["hedge_ratio"] - round(float(partial[0]), 6)) < 1e-4

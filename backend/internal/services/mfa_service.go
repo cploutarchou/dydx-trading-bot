@@ -10,6 +10,7 @@ import (
 	"image/png"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -154,6 +155,55 @@ func (s *MFAService) Setup(user *models.User) (*MFASetupResult, error) {
 // totpPeriodSeconds matches the TOTP configuration used everywhere in this
 // service (GenerateOpts/ValidateOpts Period: 30).
 const totpPeriodSeconds int64 = 30
+
+// Attempt bounding for standalone TOTP verification: after this many
+// consecutive failures the account is locked out of verification for
+// totpLockoutDuration. /auth/2fa/verify was previously unbounded, allowing
+// unlimited code guessing.
+const (
+	totpMaxFailedAttempts = 5
+	totpLockoutDuration   = 5 * time.Minute
+)
+
+type totpFailureState struct {
+	mu          sync.Mutex
+	count       int
+	lockedUntil time.Time
+}
+
+var totpFailures sync.Map // userID -> *totpFailureState
+
+// VerifyBounded wraps Verify with per-user failed-attempt bounding.
+func (s *MFAService) VerifyBounded(userID int, token string) error {
+	if state, ok := totpFailures.Load(userID); ok {
+		failure := state.(*totpFailureState)
+		failure.mu.Lock()
+		locked := failure.lockedUntil
+		failure.mu.Unlock()
+		if until := locked; time.Now().UTC().Before(until) {
+			return fmt.Errorf(
+				"too many invalid verification attempts; retry after %s",
+				until.Format(time.RFC3339),
+			)
+		}
+	}
+
+	if err := s.Verify(userID, token); err != nil {
+		stateAny, _ := totpFailures.LoadOrStore(userID, &totpFailureState{})
+		failure := stateAny.(*totpFailureState)
+		failure.mu.Lock()
+		failure.count++
+		if failure.count >= totpMaxFailedAttempts {
+			failure.lockedUntil = time.Now().UTC().Add(totpLockoutDuration)
+			failure.count = 0
+		}
+		failure.mu.Unlock()
+		return err
+	}
+
+	totpFailures.Delete(userID)
+	return nil
+}
 
 // totpSkewWindows mirrors the historical ValidateCustom skew of 2 (a code
 // from up to two windows in the past/future remains valid for clock drift).

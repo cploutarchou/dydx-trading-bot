@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -291,10 +292,11 @@ func (h *BotInstanceHandler) ListBotInstances(c *gin.Context) {
 
 	instances, err := h.repo.ListBotInstancesByUserID(userID.(int), limit, skip)
 	if err != nil {
+		log.Printf("bot_instance_handler: failed to retrieve bot instances: %v", err)
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     fmt.Sprintf("Failed to retrieve bot instances: %v", err),
+			Error:     "Failed to retrieve bot instances",
 		})
 		return
 	}
@@ -454,10 +456,11 @@ func (h *BotInstanceHandler) CreateBotInstance(c *gin.Context) {
 
 	service := h.service.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c))
 	if err := service.CreateBotInstanceWithConfig(instance, createPayload); err != nil {
+		log.Printf("bot_instance_handler: failed to create bot instance: %v", err)
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     fmt.Sprintf("Failed to create bot instance: %v", err),
+			Error:     "Failed to create bot instance",
 		})
 		return
 	}
@@ -478,10 +481,11 @@ func (h *BotInstanceHandler) StartBotInstance(c *gin.Context) {
 	service := h.service.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c))
 
 	if err := service.StartBotInstance(instanceID); err != nil {
+		log.Printf("bot_instance_handler: failed to start bot instance: %v", err)
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     fmt.Sprintf("Failed to start bot instance: %v", err),
+			Error:     "Failed to start bot instance",
 		})
 		return
 	}
@@ -505,10 +509,11 @@ func (h *BotInstanceHandler) StopBotInstance(c *gin.Context) {
 	force, _ := strconv.ParseBool(c.DefaultQuery("force", "false"))
 
 	if err := service.StopBotInstanceWithForce(instanceID, force); err != nil {
+		log.Printf("bot_instance_handler: failed to stop bot instance: %v", err)
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     fmt.Sprintf("Failed to stop bot instance: %v", err),
+			Error:     "Failed to stop bot instance",
 		})
 		return
 	}
@@ -531,10 +536,11 @@ func (h *BotInstanceHandler) RestartBotInstance(c *gin.Context) {
 	service := h.service.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c))
 
 	if err := service.RestartBotInstance(instanceID); err != nil {
+		log.Printf("bot_instance_handler: failed to restart bot instance: %v", err)
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     fmt.Sprintf("Failed to restart bot instance: %v", err),
+			Error:     "Failed to restart bot instance",
 		})
 		return
 	}
@@ -557,10 +563,11 @@ func (h *BotInstanceHandler) DeleteBotInstance(c *gin.Context) {
 
 	service := h.service.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c))
 	if err := service.DeleteBotInstance(instanceID); err != nil {
+		log.Printf("bot_instance_handler: failed to delete bot instance: %v", err)
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     fmt.Sprintf("Failed to delete bot instance: %v", err),
+			Error:     "Failed to delete bot instance",
 		})
 		return
 	}
@@ -612,10 +619,11 @@ func (h *BotInstanceHandler) GetBotInstanceStats(c *gin.Context) {
 			return
 		}
 
+		log.Printf("bot_instance_handler: failed to get bot instance stats: %v", err)
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     fmt.Sprintf("Failed to get bot instance stats: %v", err),
+			Error:     "Failed to get bot instance stats",
 		})
 		return
 	}
@@ -647,10 +655,11 @@ func (h *BotInstanceHandler) GetBotInstanceTrades(c *gin.Context) {
 
 	trades, err := service.GetBotInstanceTrades(instanceID, status, &limit, &offset)
 	if err != nil {
+		log.Printf("bot_instance_handler: failed to get bot instance trades: %v", err)
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     fmt.Sprintf("Failed to get bot instance trades: %v", err),
+			Error:     "Failed to get bot instance trades",
 		})
 		return
 	}

@@ -387,7 +387,7 @@ func verify2FAHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		mfaService := services.NewMFAService(repository.NewUserMFARepository(database))
-		if err := mfaService.Verify(userID, req.Token); err != nil {
+		if err := mfaService.VerifyBounded(userID, req.Token); err != nil {
 			writeAuditLog(database, c, "auth.mfa.verify", "user", stringPointer(strconv.Itoa(userID)), gin.H{"result": "failed"}, "failure")
 			c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": err.Error()})
 			return
@@ -452,7 +452,7 @@ func mfaChallengeHandler(database *sql.DB) gin.HandlerFunc {
 		userAgent := c.GetHeader("User-Agent")
 
 		mfaService := services.NewMFAService(repository.NewUserMFARepository(database))
-		if err := mfaService.Verify(userID, req.Token); err != nil {
+		if err := mfaService.VerifyBounded(userID, req.Token); err != nil {
 			writeAuditLog(database, c, "auth.mfa.challenge", "user", stringPointer(strconv.Itoa(userID)), gin.H{"result": "failed"}, "failure")
 
 			// Bound guessing: burn the pending session after too many bad codes.

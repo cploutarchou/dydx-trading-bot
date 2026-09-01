@@ -72,6 +72,7 @@ func setupMailgunRouter(t *testing.T) (*gin.Engine, *sql.DB) {
 			label TEXT NOT NULL DEFAULT '',
 			encrypted_api_key TEXT NOT NULL,
 			api_key_hash TEXT NOT NULL DEFAULT '',
+			api_key_salt TEXT NOT NULL DEFAULT '',
 			api_key_masked TEXT NOT NULL DEFAULT '',
 			is_active BOOLEAN NOT NULL DEFAULT 1,
 			created_at DATETIME NOT NULL,

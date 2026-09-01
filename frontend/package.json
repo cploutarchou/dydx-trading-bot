@@ -56,7 +56,7 @@
     "build:backoffice": "cross-env NODE_OPTIONS=--no-deprecation VITE_APP_PORTAL_TYPE=backoffice vite build --outDir dist/backoffice",
     "build:ib": "cross-env NODE_OPTIONS=--no-deprecation VITE_APP_PORTAL_TYPE=ib vite build --outDir dist/ib-portal",
     "preview": "cross-env NODE_OPTIONS=--no-deprecation vite preview",
-    "lint": "eslint src --ext .ts,.tsx",
+    "lint": "eslint src --ext .ts,.tsx --max-warnings 0",
     "typecheck": "tsc --noEmit",
     "test:contracts": "cross-env NODE_OPTIONS=--no-deprecation vitest run src/api/contractGuards.test.ts",
     "qa:screenshots:plan": "node ./scripts/capture-responsive-screenshots.mjs --dry-run",

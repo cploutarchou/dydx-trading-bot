@@ -56,12 +56,17 @@ func (s *ExternalAPICredentialService) Save(userID int, provider string, apiKey 
 		return nil, fmt.Errorf("failed to encrypt api key: %w", err)
 	}
 
+	salt, saltErr := generateSecretSalt()
+	if saltErr != nil {
+		return nil, fmt.Errorf("failed to generate api key salt: %w", saltErr)
+	}
 	credential := &models.ExternalAPICredential{
 		UserID:          userID,
 		Provider:        provider,
 		Label:           strings.TrimSpace(label),
 		EncryptedAPIKey: encryptedKey,
-		APIKeyHash:      hashSecretValue(apiKey),
+		APIKeySalt:      salt,
+		APIKeyHash:      hashSecretValueSalted(apiKey, salt),
 		APIKeyMasked:    maskSecretValue(apiKey),
 		IsActive:        true,
 	}

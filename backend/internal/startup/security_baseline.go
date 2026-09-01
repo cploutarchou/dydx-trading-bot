@@ -15,7 +15,11 @@ func ValidateSecurityBaseline(cfg *config.Config) error {
 	if cfg == nil {
 		return fmt.Errorf("missing config")
 	}
-	if !isProductionEnvironment() {
+	// The baseline applies to production as before AND to any environment
+	// label that is not explicitly development-ish: "staging"/"qa"/"uat"
+	// previously slipped through and silently accepted placeholder
+	// credentials and wildcard CORS.
+	if !isProductionEnvironment() && isDevelopmentEnvironment() {
 		return nil
 	}
 
@@ -38,6 +42,17 @@ func ValidateSecurityBaseline(cfg *config.Config) error {
 	}
 
 	return nil
+}
+
+func isDevelopmentEnvironment() bool {
+	for _, key := range []string{"APP_ENV", "ENVIRONMENT"} {
+		raw := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+		switch raw {
+		case "", "dev", "development", "test", "testing", "local", "ci":
+			return true
+		}
+	}
+	return false
 }
 
 func isProductionEnvironment() bool {

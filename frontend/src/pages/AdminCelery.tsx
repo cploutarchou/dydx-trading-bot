@@ -347,7 +347,7 @@ export const AdminCeleryPage: React.FC = () => {
   if (!isStrictAdmin) {
     return (
       <div className="min-h-[60vh] px-6 py-8 text-slate-200">
-        <h2 className="text-2xl font-semibold">Forbidden</h2>
+        <h1 className="text-2xl font-semibold">Forbidden</h1>
         <p className="mt-2 text-sm text-slate-400">Admin access is required.</p>
       </div>
     );
@@ -358,7 +358,7 @@ export const AdminCeleryPage: React.FC = () => {
       <div className="mx-auto max-w-7xl space-y-5">
         <div className="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-2xl font-semibold tracking-normal">Celery Operations</h2>
+            <h1 className="text-2xl font-semibold tracking-normal">Celery Operations</h1>
             <p className="mt-1 text-sm text-slate-400">
               Admin task inspection, worker health, queue pressure, and faster failure triage.
             </p>

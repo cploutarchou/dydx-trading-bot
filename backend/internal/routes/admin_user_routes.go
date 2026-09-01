@@ -2,11 +2,11 @@
 package routes
 
 import (
+	"log"
 	"context"
 	"crypto/rand"
 	"database/sql"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -862,7 +862,7 @@ func resetAdminUserPasswordHandler(database *sql.DB) gin.HandlerFunc {
 		user.PasswordChangeRequired = true
 		if err := userRepo.Update(user); err != nil {
 			log.Printf("Failed to reset password: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to reset password"})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to reset password"})
 			return
 		}
 

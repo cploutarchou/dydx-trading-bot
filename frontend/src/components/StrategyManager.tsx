@@ -1477,9 +1477,9 @@ export default function StrategyManager() {
         <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
             <div className="premium-kicker">Strategy Runtime</div>
-            <h2 className="mt-4 text-3xl font-bold text-white sm:text-4xl">
+            <h1 className="mt-4 text-3xl font-bold text-white sm:text-4xl">
               Operate live strategies with cleaner signal and less operator friction.
-            </h2>
+            </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
               Start, stop, benchmark, and tune strategies from one premium control surface with
               backend-synced runtime state and market context beside each setup.

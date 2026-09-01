@@ -114,12 +114,12 @@ func (m *Manager) CreateRefreshTokenWithGeneration(userID int, username, email s
 	}
 
 	claims := TokenClaims{
-		UserID:     userID,
-		Username:   username,
-		Email:      email,
-		IsAdmin:    isAdmin,
-		Role:       role,
-		Type:       "refresh",
+		UserID:    userID,
+		Username:  username,
+		Email:     email,
+		IsAdmin:   isAdmin,
+		Role:      role,
+		Type:      "refresh",
 		SessionGen: sessionGen,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expiresAt),

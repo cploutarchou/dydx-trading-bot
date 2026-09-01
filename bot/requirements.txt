@@ -25,7 +25,7 @@ email-validator==2.3.0
 # Data science and analytics (for comprehensive backtest analytics)
 numpy==2.5.0
 pandas>=2.3.0
-scipy>=1.18.1
+scipy>=1.12.0
 statsmodels>=0.14.0,<0.15.0
 # dYdX V4 Client (for trading and market data)
 dydx-v4-client==1.1.6
@@ -33,7 +33,7 @@ dydx-v4-client==1.1.6
 bip-utils==2.12.1
 crcmod==1.7
 # WebSocket support (for real-time data streaming)
-websockets==17.1
+websockets==16.0
 requests==2.34.2
 minio==7.2.20
 clickhouse-connect==1.3.0
@@ -49,13 +49,13 @@ celery[redis]>=5.6.3,<6.0
 redis>=5.0,<7.0
 flower>=2.0,<3.0
 aiolimiter>=1.2.1,<2.0
-pybreaker>=1.4.1,<2.0
+pybreaker>=1.2,<2.0
 pandas-stubs==3.0.5.260730
-types-psutil==7.2.2.20260827
+types-psutil==7.2.2.20260518
 types-requests==2.33.0.20260712
 types-PyYAML==6.0.12.20260815
 black==26.5.1
-isort==9.0.0
+isort==6.0.1
 pre-commit==4.6.2
 mypy==2.3.1
 bandit==1.9.4

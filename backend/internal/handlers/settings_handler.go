@@ -408,7 +408,7 @@ func (h *SettingsHandler) GetBotSetting(c *gin.Context) {
 
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
-		Data:      maskedSettingDict(section, setting.ToDict()),
+		Data:      maskedSettingDict("redis", setting.ToDict()),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }
@@ -582,7 +582,7 @@ func (h *SettingsHandler) GetRedisSetting(c *gin.Context) {
 
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
-		Data:      maskedSettingDict("redis", setting.ToDict()),
+		Data:      setting.ToDict(),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }

@@ -800,3 +800,4 @@ func (r *BacktestSyncRepository) GetSyncHealthByRun(userID int, runID string, li
 
 	return health, nil
 }
+

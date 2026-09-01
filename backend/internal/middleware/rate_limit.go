@@ -17,20 +17,20 @@ type tokenBucket struct {
 }
 
 type RateLimiter struct {
-	mu              sync.RWMutex
-	buckets         map[string]*tokenBucket
-	rps             float64
-	capacity        int
-	lastCleanupUnix int64
-	requestCount    uint64
+	mu                sync.RWMutex
+	buckets           map[string]*tokenBucket
+	rps               float64
+	capacity          int
+	lastCleanupUnix   int64
+	requestCount uint64
 }
 
 func NewRateLimiter(rps float64, capacity int) *RateLimiter {
 	return &RateLimiter{
-		buckets:         make(map[string]*tokenBucket),
-		rps:             rps,
-		capacity:        capacity,
-		lastCleanupUnix: time.Now().Unix(),
+		buckets:           make(map[string]*tokenBucket),
+		rps:               rps,
+		capacity:          capacity,
+		lastCleanupUnix:   time.Now().Unix(),
 	}
 }
 

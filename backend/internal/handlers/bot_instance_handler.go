@@ -252,12 +252,10 @@ func (h *BotInstanceHandler) authorizeInstanceAccess(c *gin.Context, instanceID 
 
 	isAdmin := c.GetBool("is_admin")
 	if (instance.UserID <= 0 || instance.UserID != userID) && !isAdmin {
-		// 404 (matching the delegated tree's ownership middleware) so foreign
-		// instance IDs do not disclose existence.
-		c.JSON(http.StatusNotFound, APIResponse{
+		c.JSON(http.StatusForbidden, APIResponse{
 			Success:   false,
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Error:     "Bot instance not found",
+			Error:     "Forbidden: you do not own this bot instance",
 		})
 		return nil, false
 	}

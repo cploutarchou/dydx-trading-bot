@@ -81,9 +81,7 @@ export class WebSocketManager {
       maxReconnectAttempts: config.maxReconnectAttempts || 10,
       heartbeatInterval: config.heartbeatInterval || 30000,
       queueMaxSize: config.queueMaxSize || 100,
-      // Logging (which includes full message payloads) is opt-in so trading
-      // data stays out of production consoles by default.
-      debug: config.debug ?? import.meta.env.DEV,
+      debug: config.debug ?? true,
     };
 
     // Auto-connect when authenticated

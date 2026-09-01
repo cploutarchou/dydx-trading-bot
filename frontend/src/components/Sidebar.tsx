@@ -79,7 +79,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
             <BrandMark compact />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <p className="truncate text-lg font-semibold text-white">ExecutionLab</p>
+                <h1 className="truncate text-lg font-semibold text-white">ExecutionLab</h1>
                 <span
                   className="rounded-full bg-cyan-400/80 p-1"
                   title={t('Ready', 'Έτοιμο')}
@@ -226,12 +226,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
               <p className="text-[10px] uppercase text-slate-500">
                 {t('Signed in as', 'Συνδεδεμένος ως')}
               </p>
-              <p className="truncate text-sm font-semibold text-white" title={user?.full_name || user?.username || undefined}>
+              <p className="truncate text-sm font-semibold text-white">
                 {user?.full_name || user?.username}
               </p>
-              <p className="truncate text-xs text-slate-500" title={user?.email || undefined}>
-                {user?.email}
-              </p>
+              <p className="truncate text-xs text-slate-500">{user?.email}</p>
             </div>
             {user?.role && (
               <span className="rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-2 py-1 text-[10px] font-semibold uppercase text-cyan-300">

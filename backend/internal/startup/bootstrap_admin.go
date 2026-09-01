@@ -116,12 +116,12 @@ func EnsureBootstrapAdmin(conn *sql.DB) error {
 	}
 
 	user := &models.User{
-		Username: username,
-		Email:    email,
-		Role:     "admin",
-		FullName: defaultBootstrapAdminName,
-		IsActive: true,
-		IsAdmin:  true,
+		Username:  username,
+		Email:     email,
+		Role:      "admin",
+		FullName:  defaultBootstrapAdminName,
+		IsActive:  true,
+		IsAdmin:   true,
 		// Generated credentials must be rotated at first login; an explicitly
 		// configured password is operator-known and does not require rotation.
 		PasswordChangeRequired: generated,

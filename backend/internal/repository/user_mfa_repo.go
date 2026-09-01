@@ -78,10 +78,25 @@ func (r *UserMFARepository) Upsert(credential *models.UserMFA) error {
 	return nil
 }
 
+func (r *UserMFARepository) MarkVerified(userID int, verifiedAt time.Time) error {
+	now := time.Now().UTC()
+	_, err := r.db.Exec(
+		`UPDATE user_mfa_credentials SET enabled = TRUE, verified_at = $1, last_used_at = $2, updated_at = $3 WHERE user_id = $4`,
+		verifiedAt,
+		now,
+		now,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to mark mfa verified: %w", err)
+	}
+	return nil
+}
+
 // MarkUsed records a successful verification at a specific TOTP window.
 // last_used_at stores the window's canonical timestamp (window*30) so the
 // replay guard can reject any window <= the last used one, while keeping the
-// enabled/verified semantics.
+// enabled/verified semantics of MarkVerified.
 func (r *UserMFARepository) MarkUsed(userID int, window int64) error {
 	now := time.Now().UTC()
 	_, err := r.db.Exec(

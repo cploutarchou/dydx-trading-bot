@@ -39,7 +39,7 @@ func ResolveRequestAuthHeader(c *gin.Context) (string, string) {
 // handshake (the only context where a query-string token is accepted).
 func isBrowserWebSocketUpgrade(request *http.Request) bool {
 	return strings.EqualFold(strings.TrimSpace(request.Header.Get("Upgrade")), "websocket") &&
-		strings.Contains(strings.ToLower(strings.TrimSpace(request.Header.Get("Connection"))), "upgrade")
+	 strings.Contains(strings.ToLower(strings.TrimSpace(request.Header.Get("Connection"))), "upgrade")
 }
 
 // ExtractRequestAccessToken returns the bearer token accepted for the request.

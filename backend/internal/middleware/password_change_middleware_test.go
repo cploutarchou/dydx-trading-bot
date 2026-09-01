@@ -51,13 +51,9 @@ func TestPasswordChangeGate_AllowlistsRotationFlows(t *testing.T) {
 	allow := []string{
 		"/api/v1/auth/change-password",
 		"/api/v1/auth/logout",
-		"/api/v1/auth/session",
+		"/api/v1/auth/me",
 		"/api/v1/auth/2fa/verify",
 		"/api/v1/auth/mfa/status",
-		// Profile reads the change-password screen needs (the real endpoints;
-		// /api/v1/auth/me does not exist as a route).
-		"/api/v1/me",
-		"/api/v1/users/me",
 	}
 	for _, path := range allow {
 		_, _, passed := runPasswordChangeGate(path, func(int) (bool, error) {

@@ -4,10 +4,8 @@ import (
 	"database/sql"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/dydx-trading-bot/backend-go/config"
-	"github.com/dydx-trading-bot/backend-go/internal/auth"
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 	"github.com/gin-gonic/gin"
@@ -80,73 +78,4 @@ func RequireMFA(database *sql.DB) gin.HandlerFunc {
 		})
 		c.Abort()
 	}
-}
-
-// RequireRecentMFA demands that the current SESSION has completed a TOTP
-// verification within maxAge. This is a true step-up: unlike RequireMFA
-// (which only checks enrollment), a stolen base session cookie cannot pass
-// without the authenticator. Bearer-JWT requests have no session record of
-// recent verification and always fail — callers must use the session flow.
-func RequireRecentMFA(maxAge time.Duration) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		store := AuthSessionStore()
-		if store == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"success": false,
-				"message": "session store unavailable; cannot verify recent MFA",
-				"code":    "mfa_step_up_unavailable",
-			})
-			c.Abort()
-			return
-		}
-
-		token := sessionTokenFromRequest(c)
-		if token == "" {
-			c.JSON(http.StatusForbidden, gin.H{
-				"success": false,
-				"message": "recent multi-factor verification required",
-				"code":    "mfa_step_up_required",
-			})
-			c.Abort()
-			return
-		}
-
-		sessionData, err := store.Get(c.Request.Context(), token)
-		if err != nil || sessionData == nil {
-			c.JSON(http.StatusForbidden, gin.H{
-				"success": false,
-				"message": "recent multi-factor verification required",
-				"code":    "mfa_step_up_required",
-			})
-			c.Abort()
-			return
-		}
-
-		if sessionData.MFAVerifiedAt == nil ||
-			time.Since(sessionData.MFAVerifiedAt.UTC()) > maxAge {
-			c.JSON(http.StatusForbidden, gin.H{
-				"success": false,
-				"message": "recent multi-factor verification required",
-				"code":    "mfa_step_up_required",
-			})
-			c.Abort()
-			return
-		}
-
-		c.Next()
-	}
-}
-
-// sessionTokenFromRequest resolves the opaque session token the auth
-// middleware would have accepted (cookie first, bearer fallback).
-func sessionTokenFromRequest(c *gin.Context) string {
-	if v, err := c.Cookie(auth.SessionCookieName); err == nil && strings.TrimSpace(v) != "" {
-		return strings.TrimSpace(v)
-	}
-	header := strings.TrimSpace(c.GetHeader("Authorization"))
-	parts := strings.SplitN(header, " ", 2)
-	if len(parts) == 2 && strings.EqualFold(strings.TrimSpace(parts[0]), "Bearer") {
-		return strings.TrimSpace(parts[1])
-	}
-	return ""
 }

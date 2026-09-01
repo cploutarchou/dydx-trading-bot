@@ -213,11 +213,9 @@ The current UI direction is production DeFi:
   - live/realtime: cyan
   - warning/recovering: amber
   - negative/failure: rose/red
-- theme selection supports Dark and System modes through
+- theme selection supports Light, Dark, and System modes through
   `src/store/uiPreferences.ts`, `src/components/ThemeProvider.tsx`, and the
-  header `ThemeToggle`. Light mode is implemented in CSS but temporarily
-  disabled (`FORCE_DARK_THEME` in `uiPreferences.ts`); the toggle hides it
-  until it ships. The selected preference is stored in `localStorage`
+  header `ThemeToggle`. The selected preference is stored in `localStorage`
   under `ui.theme`; no backend storage is used because the current backend
   settings endpoints are platform/admin/trading settings rather than per-user
   visual preferences.

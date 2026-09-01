@@ -44,10 +44,10 @@ func TestPartnerRelationshipUpsert_InsertsThenUpdates(t *testing.T) {
 	repo := NewPartnerRelationshipRepository(db)
 
 	rel := &models.PartnerRelationship{
-		SponsorUserID:    1,
-		PartnerUserID:    2,
+		SponsorUserID:   1,
+		PartnerUserID:   2,
 		RelationshipType: "ib",
-		IsActive:         true,
+		IsActive:        true,
 	}
 	if err := repo.Upsert(rel); err != nil {
 		t.Fatalf("Upsert (insert): %v", err)

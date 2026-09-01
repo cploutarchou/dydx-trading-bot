@@ -27,13 +27,10 @@ func SetPasswordChangeLookup(f func(userID int) (bool, error)) {
 var passwordChangeAllowPathPrefixes = []string{
 	"/api/v1/auth/change-password",
 	"/api/v1/auth/logout",
+	"/api/v1/auth/me",
 	"/api/v1/auth/session",
 	"/api/v1/auth/2fa",
 	"/api/v1/auth/mfa",
-	// Profile reads the change-password screen itself needs; /api/v1/auth/me
-	// does not exist as a route (the real endpoints are these two).
-	"/api/v1/me",
-	"/api/v1/users/me",
 }
 
 // enforcePasswordChangeCleared blocks authenticated requests from users whose

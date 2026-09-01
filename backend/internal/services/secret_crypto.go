@@ -103,6 +103,11 @@ func decryptString(secret string, encryptedText string) (string, error) {
 	return string(plaintext), nil
 }
 
+func hashSecretValue(plaintext string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(plaintext)))
+	return hex.EncodeToString(sum[:])
+}
+
 // generateSecretSalt returns a fresh 16-byte hex salt for salted secret
 // hashes. Unsalted hashes are brute-forceable from a database dump because
 // the input space (mnemonics, API keys) is guessable; a per-row salt makes

@@ -26,11 +26,11 @@ const SessionCookieName = "dydx_session"
 var ErrSessionNotFound = errors.New("session not found")
 
 type SessionData struct {
-	UserID   int    `json:"user_id"`
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Role     string `json:"role"`
-	IsAdmin  bool   `json:"is_admin"`
+	UserID    int    `json:"user_id"`
+	Username  string `json:"username"`
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+	IsAdmin   bool   `json:"is_admin"`
 	// MFARequired marks a session created by a password-only login for a user
 	// with TOTP enrolled: the session stays unusable (MFAPending) until the
 	// 2FA challenge endpoint records MFAVerifiedAt.

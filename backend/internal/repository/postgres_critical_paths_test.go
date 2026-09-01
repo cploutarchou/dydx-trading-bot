@@ -225,10 +225,10 @@ type testPartnerRelationship struct {
 
 func (t *testPartnerRelationship) model() *models.PartnerRelationship {
 	return &models.PartnerRelationship{
-		SponsorUserID:    t.sponsor,
-		PartnerUserID:    t.partner,
+		SponsorUserID:   t.sponsor,
+		PartnerUserID:   t.partner,
 		RelationshipType: t.relType,
-		IsActive:         true,
+		IsActive:        true,
 	}
 }
 
@@ -247,3 +247,4 @@ func newTestTradeLog(resultIDFK, tradeNumber int, entryPrice float64, at *time.T
 		EntryTimestamp: at,
 	}
 }
+

@@ -10,9 +10,6 @@ import (
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
 )
 
-// settingsMaskSentinel is the masked value read endpoints return for secrets.
-const settingsMaskSentinel = "********"
-
 func isDuplicateBotSettingError(err error) bool {
 	if err == nil {
 		return false
@@ -288,15 +285,12 @@ func (s *SettingsService) UpdateRedisSetting(enabled bool, host string, port int
 		return s.CreateRedisSetting(enabled, host, port, db, password, ssl)
 	}
 
-	// Update fields. The masked sentinel ("********") echoed back from a
-	// pre-filled form must never overwrite the stored password.
+	// Update fields
 	setting.Enabled = enabled
 	setting.Host = host
 	setting.Port = port
 	setting.Db = db
-	if password != settingsMaskSentinel {
-		setting.Password = password
-	}
+	setting.Password = password
 	setting.SSL = ssl
 
 	if err := s.repo.UpdateRedisSetting(setting); err != nil {

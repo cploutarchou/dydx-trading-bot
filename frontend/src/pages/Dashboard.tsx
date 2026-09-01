@@ -420,7 +420,7 @@ export const DashboardPage: React.FC = () => {
   const countTotal = useCountUp(stats.total);
 
   const fmtPnl = (v: number) =>
-    (v > 0 ? '+' : '') + '$' + Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 2 });
+    (v >= 0 ? '+' : '') + '$' + Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 2 });
   const fmtPct = (v: number) => v.toFixed(1) + '%';
   const fmtN = (v: number) => Math.round(v).toLocaleString('en-US');
 
@@ -505,9 +505,9 @@ export const DashboardPage: React.FC = () => {
               <Sparkles className="h-3.5 w-3.5" />
               Execution cockpit
             </div>
-            <h2 className="mt-4 max-w-3xl text-2xl font-bold text-white sm:text-3xl">
+            <h1 className="mt-4 max-w-3xl text-2xl font-bold text-white sm:text-3xl">
               {greeting}, {user?.username ?? 'Trader'}
-            </h2>
+            </h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
               A simple operating view for the current workspace: live activity, portfolio P&amp;L,
               backtest status, and anything that needs attention.
@@ -522,11 +522,7 @@ export const DashboardPage: React.FC = () => {
                   </p>
                   <p
                     className={`mt-1 text-3xl font-bold tabular-nums sm:text-4xl ${
-                      stats.totalPnl > 0
-                        ? 'text-emerald-300'
-                        : stats.totalPnl < 0
-                          ? 'text-rose-400'
-                          : 'text-slate-300'
+                      stats.totalPnl >= 0 ? 'text-emerald-300' : 'text-rose-400'
                     }`}
                   >
                     {fmtPnl(stats.totalPnl)}

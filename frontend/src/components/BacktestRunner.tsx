@@ -94,15 +94,6 @@ const extractRunId = (result: unknown): string | null => {
   return typeof nested.run_id === 'string' ? nested.run_id : null;
 };
 
-// Default research window: the trailing `days` days ending today, so new runs
-// always reflect recent market structure instead of a frozen historical range.
-const trailingWindowIsoDates = (days: number): { start: string; end: string } => {
-  const end = new Date();
-  const start = new Date(end.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
-  const toIsoDate = (d: Date) => d.toISOString().slice(0, 10);
-  return { start: toIsoDate(start), end: toIsoDate(end) };
-};
-
 export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   onBacktestComplete,
 }) => {
@@ -115,27 +106,24 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   const warningToast = useToastStore((state) => state.warning);
   const [useStrategy, setUseStrategy] = useState(false);
   const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(null);
-  const [formData, setFormData] = useState<BacktestRunRequest>(() => {
-    const { start, end } = trailingWindowIsoDates(90);
-    return {
-      start_date: start,
-      end_date: end,
-      name: 'ui-backtest',
-      initial_balance: 1000,
-      max_pairs: 0,
+  const [formData, setFormData] = useState<BacktestRunRequest>({
+    start_date: '2024-01-01',
+    end_date: '2024-03-31',
+    name: 'ui-backtest',
+    initial_balance: 1000,
+    max_pairs: 0,
+    pair_selection_mode: 'liquidity',
+    trading_parameters: {
+      resolution: '1HOUR',
+      zscore_threshold: 1.5,
+      stats_window: 21,
+      usd_per_trade: 10,
+      transaction_fee: 0.0005,
+      slippage: 0.001,
+      risk_free_rate: 0.02,
+      max_history_days: 90,
       pair_selection_mode: 'liquidity',
-      trading_parameters: {
-        resolution: '1HOUR',
-        zscore_threshold: 1.5,
-        stats_window: 21,
-        usd_per_trade: 10,
-        transaction_fee: 0.0005,
-        slippage: 0.001,
-        risk_free_rate: 0.02,
-        max_history_days: 90,
-        pair_selection_mode: 'liquidity',
-      },
-    };
+    },
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

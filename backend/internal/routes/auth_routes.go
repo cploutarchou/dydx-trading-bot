@@ -373,16 +373,33 @@ func setup2FAHandler(database *sql.DB) gin.HandlerFunc {
 	}
 }
 
+
+// validMFACodeShape accepts a 6-digit TOTP or an 11-character backup code
+// (XXXXX-XXXXX). Handler-level binding previously enforced len=6, which made
+// the implemented backup-code recovery path unreachable over HTTP.
+func validMFACodeShape(token string) bool {
+	token = strings.TrimSpace(token)
+	if len(token) == 6 {
+		for _, r := range token {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+		return true
+	}
+	return len(token) == 11 && token[5] == '-'
+}
+
 func verify2FAHandler(database *sql.DB) gin.HandlerFunc {
 	type verify2FARequest struct {
-		Token string `json:"token" binding:"required,len=6"`
+		Token string `json:"token" binding:"required"`
 	}
 
 	return func(c *gin.Context) {
 		userID := c.GetInt("user_id")
 		var req verify2FARequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid request payload", "error": err.Error()})
+		if err := c.ShouldBindJSON(&req); err != nil || !validMFACodeShape(req.Token) {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Token must be a 6-digit code or a backup code (XXXXX-XXXXX)"})
 			return
 		}
 
@@ -415,13 +432,13 @@ func verify2FAHandler(database *sql.DB) gin.HandlerFunc {
 // that the login handler deliberately withheld.
 func mfaChallengeHandler(database *sql.DB) gin.HandlerFunc {
 	type mfaChallengeRequest struct {
-		Token string `json:"token" binding:"required,len=6"`
+		Token string `json:"token" binding:"required"`
 	}
 
 	return func(c *gin.Context) {
 		var req mfaChallengeRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid request payload", "error": err.Error()})
+		if err := c.ShouldBindJSON(&req); err != nil || !validMFACodeShape(req.Token) {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Token must be a 6-digit code or a backup code (XXXXX-XXXXX)"})
 			return
 		}
 

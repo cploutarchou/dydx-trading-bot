@@ -125,3 +125,17 @@ SQL injection surface (parameterized queries throughout; dynamic fragments are s
 - Query-string access_token is now accepted only on WebSocket upgrade requests (frontend WS URLs depend on it); CORS defaults to loopback-only when unconfigured.
 - Analytics routes now require the analytics.read permission (admins have it by default).
 - Multi-replica rate limiting and lockout require shared storage (Redis) — design decision pending.
+
+## 6. Senior-agent review (2026-09-02) — post-hardening pass
+
+Verdict was FIX-FIRST on the newer hardening commits; both blockers and the P2 batch were fixed the same day (see plan log). Residual items:
+
+- `/api/v1/keys/:network/secret` still has NO true MFA step-up — RequireMFA checks enrollment only. A stolen session cookie of an MFA-enrolled user can still read decrypted mnemonics. Needs a re-challenge flow for promoted sessions (recent-MFAVerifiedAt window); comment on the route is now honest about this.
+- Settings masking is row-preserving for single gets but row-omitting for section/list reads (two semantics); frontend should be checked for reliance on listed sensitive rows.
+- Password-change gate runs one uncached `password_change_required` SELECT per authenticated request (acceptable now; cache if hot).
+- TOTP lockout state is per-process (resets on restart, not shared across replicas); future-skew codes can burn the next current-window code (~60s UX edge).
+- Quick-deploy quota is count-then-spawn without locking (parallel deploys can both pass); attribution assumes the Python side honors `requested_by_user_id` into `bot_instances`.
+- Quota/ownership contracts duplicated between handler and delegate trees (403 vs 404 divergence for foreign instances) — consolidation candidate.
+- Dead code from the newer commits: `UserMFARepository.MarkVerified`, `hashSecretValue` (zero callers).
+- Migration 000070 remains NOT REHEARSED (production gate); 000072 now flags pre-existing seeded accounts so the password gate has effect on older DBs.
+- `gofmt -l` flags 14 pre-existing files — cosmetic cleanup commit recommended.

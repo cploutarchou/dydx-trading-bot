@@ -37,6 +37,10 @@ func RegisterAuthRoutes(router *gin.Engine, database *sql.DB) {
 		// Completes the login-time TOTP challenge for users with MFA enrolled.
 		// The only route that accepts sessions still pending their challenge.
 		authRoutes.POST("/2fa/challenge", middleware.RequireAuthAllowPendingMFA(), mfaChallengeHandler(database))
+		// Re-verifies TOTP for an already-authenticated session, refreshing the
+		// session's MFAVerifiedAt window that RequireRecentMFA-protected routes
+		// (e.g. GET /keys/:network/secret) demand.
+		authRoutes.POST("/2fa/step-up", middleware.RequireAuth(), mfaStepUpHandler(database))
 		authRoutes.PUT("/change-password", middleware.RequireAuth(), changePasswordHandler(database))
 	}
 
@@ -119,6 +123,10 @@ const maxSessionTTL = 24 * time.Hour
 // mfaChallengeTTL bounds the lifetime of a password-only login session that is
 // still awaiting its TOTP challenge.
 const mfaChallengeTTL = 5 * time.Minute
+
+// mfaStepUpWindow is how long a step-up verification stays valid for
+// RequireRecentMFA-protected routes.
+const mfaStepUpWindow = 15 * time.Minute
 
 // sessionTTL returns the configured session lifetime capped at maxSessionTTL (1 day).
 // It reads SESSION_TTL_HOURS first, then falls back to REFRESH_TOKEN_EXPIRE_DAYS converted
@@ -373,7 +381,6 @@ func setup2FAHandler(database *sql.DB) gin.HandlerFunc {
 	}
 }
 
-
 // validMFACodeShape accepts a 6-digit TOTP or an 11-character backup code
 // (XXXXX-XXXXX). Handler-level binding previously enforced len=6, which made
 // the implemented backup-code recovery path unreachable over HTTP.
@@ -556,6 +563,68 @@ func mfaChallengeHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, response)
+	}
+}
+
+// mfaStepUpHandler re-verifies TOTP for a fully authenticated session and
+// stamps MFAVerifiedAt, opening the RequireRecentMFA window (15 minutes on
+// sensitive routes). Unlike the login challenge it never demotes the session:
+// other tabs keep working while the reveal flow re-authenticates.
+func mfaStepUpHandler(database *sql.DB) gin.HandlerFunc {
+	type stepUpRequest struct {
+		Token string `json:"token" binding:"required"`
+	}
+
+	return func(c *gin.Context) {
+		var req stepUpRequest
+		if err := c.ShouldBindJSON(&req); err != nil || !validMFACodeShape(req.Token) {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Token must be a 6-digit code or a backup code (XXXXX-XXXXX)"})
+			return
+		}
+
+		userID := c.GetInt("user_id")
+
+		store := middleware.AuthSessionStore()
+		if store == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Session store unavailable"})
+			return
+		}
+		sessionToken := requestSessionToken(c)
+		if sessionToken == "" {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "Session authentication required for step-up", "code": "mfa_step_up_required"})
+			return
+		}
+		sessionData, err := store.Get(c.Request.Context(), sessionToken)
+		if err != nil || sessionData == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Session expired, sign in again"})
+			return
+		}
+
+		mfaService := services.NewMFAService(repository.NewUserMFARepository(database))
+		if err := mfaService.VerifyBounded(userID, req.Token); err != nil {
+			writeAuditLog(database, c, "auth.mfa.step_up", "user", stringPointer(strconv.Itoa(userID)), gin.H{"result": "failed"}, "failure")
+			c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Invalid authenticator code", "code": "invalid_mfa_code"})
+			return
+		}
+
+		now := time.Now().UTC()
+		sessionData.MFAVerifiedAt = &now
+		// Keep MFARequired set (it denotes TOTP enrollment on the session) so
+		// future step-ups remain meaningful; Update derives TTL from ExpiresAt,
+		// so the session lifetime is unchanged by a step-up.
+		if updateErr := store.Update(c.Request.Context(), sessionToken, *sessionData); updateErr != nil {
+			log.Printf("mfaStepUpHandler: failed to stamp session: %v", updateErr)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to record verification"})
+			return
+		}
+
+		writeAuditLog(database, c, "auth.mfa.step_up", "user", stringPointer(strconv.Itoa(userID)), gin.H{"result": "verified"}, "success")
+		c.JSON(http.StatusOK, gin.H{
+			"success":       true,
+			"message":       "Multi-factor verification confirmed",
+			"verified_at":   now.Format(time.RFC3339),
+			"valid_for_sec": int(mfaStepUpWindow.Seconds()),
+		})
 	}
 }
 

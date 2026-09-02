@@ -30,14 +30,11 @@ func RegisterKeyRoutes(router *gin.Engine, database *db.Database) {
 			keys.GET("/:network", keyHandler.GetKeyInfo)
 
 			// GET /api/v1/keys/{network}/secret - Get full key with decrypted secret
-			// This returns the decrypted wallet secret over HTTP. RequireMFA
-			// enforces *enrollment* for privileged roles (platform setting
-			// platform.require_privileged_mfa, production-default on) — it is
-			// NOT a per-request step-up: a stolen session cookie of an
-			// MFA-enrolled user can still read this. A true step-up (recent
-			// session MFAVerifiedAt + re-challenge flow for promoted sessions)
-			// is tracked as a remaining risk in BACKEND_AUDIT.md.
-			keys.GET("/:network/secret", middleware.RequireMFA(database.DB), keyHandler.GetKeyWithSecret)
+			// True step-up: RequireRecentMFA demands a TOTP verification on the
+			// current session within the last 15 minutes (POST /auth/2fa/step-up
+			// refreshes it), so a stolen base session cookie cannot exfiltrate
+			// the decrypted mnemonic even for MFA-enrolled accounts.
+			keys.GET("/:network/secret", middleware.RequireMFA(database.DB), middleware.RequireRecentMFA(mfaStepUpWindow), keyHandler.GetKeyWithSecret)
 
 			// DELETE /api/v1/keys/{network} - Delete (deactivate) a key
 			keys.DELETE("/:network", keyHandler.DeleteKey)

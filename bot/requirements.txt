@@ -51,7 +51,7 @@ flower>=2.0,<3.0
 aiolimiter>=1.2.1,<2.0
 pybreaker>=1.2,<2.0
 pandas-stubs==3.0.5.260730
-types-psutil==7.2.2.20260518
+types-psutil==7.2.2.20260827
 types-requests==2.33.0.20260712
 types-PyYAML==6.0.12.20260815
 black==26.5.1

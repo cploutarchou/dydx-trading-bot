@@ -17,7 +17,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api, { type BacktestExperimentGroup } from '../api';
 import { enhancedApiClient } from '../api/enhancedClient';
-import { resolveBackendWebSocketUrl } from '../api/origin';
 import { BacktestList } from '../components/BacktestList';
 import { BacktestRunner } from '../components/BacktestRunner';
 import { CodexAssetIntelStrip } from '../components/CodexAssetIntelStrip';
@@ -707,12 +706,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     // Open sockets for newly active runs
     for (const runId of activeIds) {
       if (wsRefs.current.has(runId)) continue;
-      const token = localStorage.getItem('token') || undefined;
-      const wsUrl = resolveBackendWebSocketUrl(
-        `/api/v1/backtests/${encodeURIComponent(runId)}/push`,
-        token
-      );
-      const ws = new WebSocket(wsUrl);
+      const ws = api.connectSocket(`/api/v1/backtests/${encodeURIComponent(runId)}/push`);
       ws.addEventListener('message', () => {
         void queryClient.invalidateQueries({ queryKey: ['backtests', 'active-statuses'] });
         void queryClient.invalidateQueries({ queryKey: ['backtests'] });
@@ -1029,9 +1023,9 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
                 <PlusCircle className="h-3.5 w-3.5" />
                 New Backtest
               </div>
-              <h1 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
+              <h2 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
                 Create a focused validation run before a strategy reaches Bots.
-              </h1>
+              </h2>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
                 Keep setup and launch separate from analytics. Pick a strategy/configuration, define
                 the historical window, and start the run from one purpose-built page.
@@ -1107,7 +1101,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
       return (
         <PageContainer size="wide" className={pageSpacingClass}>
           <div className="rounded-2xl border border-red-700/60 bg-red-950/30 p-6">
-            <h1 className="text-xl font-semibold text-white">Backtest Experiments Unavailable</h1>
+            <h2 className="text-xl font-semibold text-white">Backtest Experiments Unavailable</h2>
             <p className="mt-2 text-sm text-red-200">{message}</p>
             <div className="mt-4 flex flex-wrap gap-3">
               <button
@@ -1143,10 +1137,10 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
             <Layers3 className="h-3.5 w-3.5" />
             Backtest Experiments
           </div>
-          <h1 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
+          <h2 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
             Experiment groups by{' '}
             <code className="rounded bg-slate-900/80 px-1 py-0.5 text-cyan-300">experiment_id</code>
-          </h1>
+          </h2>
           <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
             Grouped directly from persisted DB metadata so operators can inspect A/B cohorts
             quickly.
@@ -1367,7 +1361,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     return (
       <PageContainer size="wide" className={pageSpacingClass}>
         <div className="rounded-2xl border border-red-700/60 bg-red-950/30 p-6">
-          <h1 className="text-xl font-semibold text-white">Backtest Intelligence Unavailable</h1>
+          <h2 className="text-xl font-semibold text-white">Backtest Intelligence Unavailable</h2>
           <p className="mt-2 text-sm text-red-200">{message}</p>
           <div className="mt-4 flex flex-wrap gap-3">
             <button
@@ -1409,11 +1403,11 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
               )}
               {view === 'runs' ? 'Backtest Runs' : 'Backtest Dashboard'}
             </div>
-            <h1 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
+            <h2 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
               {view === 'runs'
                 ? 'Review every historical run without crowding the analytics dashboard.'
                 : 'See validation quality, then decide which strategy deserves trust.'}
-            </h1>
+            </h2>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
               {view === 'runs'
                 ? 'This archive is for run-by-run inspection, progress, and report entry points. Use the dashboard for high-level decision stats.'

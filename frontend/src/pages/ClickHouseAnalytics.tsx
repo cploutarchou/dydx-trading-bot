@@ -473,7 +473,7 @@ const ClickHouseAnalytics: React.FC = () => {
           <div className="flex items-center space-x-3">
             <Database className="h-8 w-8 text-blue-400" />
             <div>
-              <h1 className="text-2xl font-bold">ClickHouse Analytics</h1>
+              <h2 className="text-2xl font-bold">ClickHouse Analytics</h2>
               <p className="text-sm text-slate-400">Live analytical data from ClickHouse</p>
             </div>
           </div>

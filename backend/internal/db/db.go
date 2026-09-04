@@ -346,7 +346,15 @@ func validateConfig(cfg *Config) error {
 	}
 
 	if cfg.MaxIdleConns > cfg.MaxOpenConns && cfg.MaxOpenConns > 0 {
-		return errors.New("MaxIdleConns cannot exceed MaxOpenConns")
+		// Generated dev profiles can ship pool sizes derived from the server's
+		// max_connections budget (e.g. 105 idle vs 100 open). Clamping keeps the
+		// service bootable; a hard error here bricks local startup before
+		// setConfigDefaults can run.
+		log.Printf(
+			"⚠️  DB pool config: MaxIdleConns (%d) exceeds MaxOpenConns (%d); clamping idle connections to %d",
+			cfg.MaxIdleConns, cfg.MaxOpenConns, cfg.MaxOpenConns,
+		)
+		cfg.MaxIdleConns = cfg.MaxOpenConns
 	}
 
 	return nil

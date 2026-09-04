@@ -816,7 +816,7 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
                 <Zap className="h-3.5 w-3.5" />
                 Bots desk
               </div>
-              <h1 className="mt-5 text-3xl font-bold text-white sm:text-4xl">Bots</h1>
+              <h2 className="mt-5 text-3xl font-bold text-white sm:text-4xl">Bots</h2>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
                 Manage live instances like an operator surface, not a settings form: health and
                 degraded-state signals first, actions close to each runtime, and clearer create-flow

@@ -9,7 +9,7 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 |---|---|
 | 2026-09-04 | FE-005, FE-001, FE-004a (`npm test` + full suite in CI; full Playwright/jsdom foundation still open under FE-004), FE-011, FE-012, FE-013 (hidden Light option; full light mode still deferred), FE-010, FE-014, FE-031, FE-007, FE-027, FE-026 |
 | 2026-09-05 (pass 3) | FE-006 (Field primitive + both financial forms), FE-022 (started: shared format util + Dashboard), FE-018 (partial: referrer meta), FE-028 (CSV injection guard), FE-029 (partial: https allowlist + host suffix guard) |
-| 2026-09-05 (pass 8) | FE-033a (eslint full coverage + prettier; new FE-038 lint-debt item, 238 findings), FE-036b (glossary), FE-030b (nav links), FE-022b (6 formatters), FE-019 (verified + documented), FE-002 + FE-003 (cookie-first auth, verified live) |
+| 2026-09-05 (pass 8) | FE-033a (eslint full coverage + prettier), FE-036 (complete), FE-030 (complete), FE-022b (6 formatters), FE-019, FE-002 + FE-003 (cookie-first auth, verified live), FE-015 (scoped: shim deleted), FE-024 (complete within tooling limits); NEW FE-038 lint debt (238); backend CI test fix for c70cc809's fixture seeding (0879b268) |
 | 2026-09-05 (pass 7) | FE-032 (complete: −33% eager JS, event-driven WS auth sync) |
 | 2026-09-05 (pass 6) | FE-025 (complete), FE-036 (partial: first-run card; skeletons verified already present; terminology open) |
 | 2026-09-05 (pass 5) | FE-023 (partial: 5 components to React Query), FE-008 (P&L direction arrows) |
@@ -48,7 +48,7 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 | ✅ FE-021 | Deps | Unused prod deps (framer-motion, @headlessui, @react-buddy, date-fns, recharts-via-dead-page); react-hook-form 1-file usage | Bundle/supply chain | S | FE-016 first — **done: 5 deps removed; vite/tailwindcss/@tailwindcss/forms moved to devDependencies** |
 | 🟡 FE-022 | Code quality | 65 local formatters/172 toFixed/date-fns-unused — money formatting not centralized | Inconsistent money display | M | none — **started: `src/utils/format.ts` (+5 tests) adopted on Dashboard; remaining surfaces migrate opportunistically** |
 | 🟡 FE-023 | Code quality | 21 manual loading/error useState files vs React Query (half-finished migration) | Duplicated state bugs | M | none — **5 standalone components migrated (SummaryCard, PerformanceMetrics, TradeHistory, RedisSettings, AdminComingSoonSettings) + new useBacktestSummary hook; SyncHealthPanel stays manual by design (adaptive 10s→60s backoff); BacktestList/BacktestDetailsV2/Settings deferred to the FE-015 window** |
-| 🟡 FE-024 | QA process | Responsive QA checklists `[x]` with zero evidence files; CI test gate mismatch | False confidence | S | re-run capture suite — **CI gate half fixed by FE-004a; screenshot evidence still stale** |
+| ✅ FE-024 | QA process | Responsive QA checklists `[x]` with zero evidence files; CI test gate mismatch | False confidence | S | re-run capture suite — **CI gate half fixed by FE-004a; screenshot evidence refreshed: 24 public-route captures on QA machine + checklist regenerated to match the tool (PNGs uncommitted per root .gitignore policy)** |
 | ✅ FE-025 | UX/UI | Mobile KPI squeeze + table scroll affordance + sidebar description noise | Mobile operator polish | S | none — **done: KPI grids 1-col <400px (Dashboard + BotManager, verified live), `.scroll-shadow-x` right-edge fade on wide tables (computed style verified), sidebar descriptions gated to xl+ with hover title** |
 
 ## P3 — backlog
@@ -59,7 +59,7 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 | ✅ FE-027 | Security | WS debug:true logs payloads in prod → default now `import.meta.env.DEV` | XS |
 | ✅ FE-028 | Security | CSV formula-injection neutralization — **done: `utils/csv.ts` sanitizeCsvCell/toCsvCell (+4 tests) wired into BacktestComparator + TableControls; numeric cells preserved** | XS |
 | FE-029 | Security | Avatar MIME client-only; news URL scheme allowlist; sanitizeHost suffix allowlist | S |
-| 🟡 FE-030 | A11y | Unnamed icon buttons (camera, devtools); unnamed settings searchbox; skip-link; nav-as-links | S | — **done: search box + avatar controls named & keyboard-accessible, skip-to-content link added; nav-buttons→links still open** |
+| ✅ FE-030 | A11y | Unnamed icon buttons; unnamed settings searchbox; skip-link; nav-as-links | S | — **done: all four (sidebar nav now real <Link> elements, verified live)** |
 | ✅ FE-031 | UX | Zero-P&L now `$0` neutral slate (verified live); sidebar identity + email tooltips; wrong-portal redirect shows explanatory toast | XS |
 | ✅ FE-032 | Perf | index-*.js 217KB eager-import audit; Landing lazy-fication; WS 1s auth watcher event-driven | M | — **done: sourcemap-attributed composition; Landing/Pricing/PublicServicePage/Register route-split → index 227KB→151KB (gzip 60→40KB, −33%); WS auth watcher now event-driven via `auth:changed` events (no more perpetual 1s interval). api.ts (45.6KB eager) remains — bundled with FE-015** |
 | FE-033 | Code | StrictMode inversion; tailwind.config vestigial; eslint flat+legacy duplication; prettier not installed; tsconfig `noUncheckedIndexedAccess` | S |
@@ -79,3 +79,19 @@ BE token endpoints ──► FE-009 (password reset)
 ```
 
 Suggested slicing: 6 PR-able units max in flight; each P1 item lands with its regression test (Tier 3/4 per 18).
+
+
+## FE-038 — lint debt burn-down (new, discovered 2026-09-05)
+
+Enabling the full recommended lint rule sets revealed 238 pre-existing violations
+(the legacy config was dead, so these rules never ran). Carved out explicitly in
+`eslint.config.cjs` until burned down per category:
+
+| Rule | Count | Fix pattern |
+|---|---:|---|
+| jsx-a11y/label-has-associated-control | 91 | migrate remaining forms to the `Field` primitive (FE-006 pattern) |
+| react-hooks/set-state-in-effect | 53 | derive state during render or move to event handlers |
+| react-hooks/exhaustive-deps | 36 | case-by-case dependency review |
+| import/no-named-as-default (+member) | 24 | rename default exports or import named |
+| jsx-a11y interaction rules | 14 | keyboard handlers/roles on interactive divs |
+| react-hooks (compiler: static-components, purity, immutability, preserve-manual-memoization) | 15 | component-extraction review |

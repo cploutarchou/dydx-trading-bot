@@ -9,6 +9,7 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 |---|---|
 | 2026-09-04 | FE-005, FE-001, FE-004a (`npm test` + full suite in CI; full Playwright/jsdom foundation still open under FE-004), FE-011, FE-012, FE-013 (hidden Light option; full light mode still deferred), FE-010, FE-014, FE-031, FE-007, FE-027, FE-026 |
 | 2026-09-05 (pass 3) | FE-006 (Field primitive + both financial forms), FE-022 (started: shared format util + Dashboard), FE-018 (partial: referrer meta), FE-028 (CSV injection guard), FE-029 (partial: https allowlist + host suffix guard) |
+| 2026-09-05 (pass 7) | FE-032 (complete: −33% eager JS, event-driven WS auth sync) |
 | 2026-09-05 (pass 6) | FE-025 (complete), FE-036 (partial: first-run card; skeletons verified already present; terminology open) |
 | 2026-09-05 (pass 5) | FE-023 (partial: 5 components to React Query), FE-008 (P&L direction arrows) |
 | 2026-09-05 (pass 4) | FE-030 (partial: naming + keyboard + skip link), FE-033 (partial: StrictMode, tailwind config, eslint comment), FE-035 |
@@ -59,7 +60,7 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 | FE-029 | Security | Avatar MIME client-only; news URL scheme allowlist; sanitizeHost suffix allowlist | S |
 | 🟡 FE-030 | A11y | Unnamed icon buttons (camera, devtools); unnamed settings searchbox; skip-link; nav-as-links | S | — **done: search box + avatar controls named & keyboard-accessible, skip-to-content link added; nav-buttons→links still open** |
 | ✅ FE-031 | UX | Zero-P&L now `$0` neutral slate (verified live); sidebar identity + email tooltips; wrong-portal redirect shows explanatory toast | XS |
-| ⬜ FE-032 | Perf | index-*.js 217KB eager-import audit; Landing lazy-fication; WS 1s auth watcher event-driven | M |
+| ✅ FE-032 | Perf | index-*.js 217KB eager-import audit; Landing lazy-fication; WS 1s auth watcher event-driven | M | — **done: sourcemap-attributed composition; Landing/Pricing/PublicServicePage/Register route-split → index 227KB→151KB (gzip 60→40KB, −33%); WS auth watcher now event-driven via `auth:changed` events (no more perpetual 1s interval). api.ts (45.6KB eager) remains — bundled with FE-015** |
 | FE-033 | Code | StrictMode inversion; tailwind.config vestigial; eslint flat+legacy duplication; prettier not installed; tsconfig `noUncheckedIndexedAccess` | S |
 | FE-034 | i18n | EN/EL claims vs 3-component reality — either scope down README or invest in catalog | M |
 | FE-035 | Docs | `.env.example` missing VITE_LIVE_URL/VITE_FLOWER_URL; stale "many anys" comment in eslint config | XS |

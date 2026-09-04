@@ -26,11 +26,16 @@ import { MainLayout } from './components/MainLayout';
 import { RegistrationDisabledLoginGate } from './components/RegistrationDisabledLoginGate';
 import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import { ThemeProvider } from './components/ThemeProvider';
-import { LandingPage } from './pages/Landing';
 import { LoginPage } from './pages/Login';
-import { PricingPage } from './pages/Pricing';
-import { PublicServicePage } from './pages/PublicServicePage';
-import { RegisterPage } from './pages/Register';
+
+// Public marketing/auth pages are route-split like the workspace pages so the
+// eager bundle stays focused on the authenticated shell (audit FE-032).
+const LandingPage = lazy(() => import('./pages/Landing').then((m) => ({ default: m.LandingPage })));
+const PricingPage = lazy(() => import('./pages/Pricing').then((m) => ({ default: m.PricingPage })));
+const PublicServicePage = lazy(() =>
+  import('./pages/PublicServicePage').then((m) => ({ default: m.PublicServicePage }))
+);
+const RegisterPage = lazy(() => import('./pages/Register').then((m) => ({ default: m.RegisterPage })));
 import { useAuthStore } from './store/auth';
 import { useUIPreferencesStore } from './store/uiPreferences';
 

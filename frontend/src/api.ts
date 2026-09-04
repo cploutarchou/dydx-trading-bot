@@ -1974,6 +1974,11 @@ class ApiClient {
         console.warn('❌ api.ts: Failed to persist token to localStorage', e);
       }
     }
+    // Event-driven auth observers (e.g. the WS manager) sync on this instead
+    // of polling.
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('auth:changed', { detail: { authenticated: true } }));
+    }
   }
 
   private markSessionEstablished(): void {
@@ -2163,6 +2168,9 @@ class ApiClient {
       } catch (e) {
         console.warn('❌ api.ts: Failed to clear token from localStorage during logout', e);
       }
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('auth:changed', { detail: { authenticated: false } }));
     }
 
     void axios.post(`${API_BASE_URL}/api/v1/auth/logout`, {}, { withCredentials: true });

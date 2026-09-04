@@ -50,6 +50,20 @@ func stringsFirstNonEmpty(values ...string) string {
 func setupPostgresFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
 	for _, ddl := range []string{
+		// Minimal users table: the CI test database starts empty (no
+		// migrations), so seedPostgresUser needs the table to exist here.
+		// CREATE TABLE IF NOT EXISTS keeps fully-migrated schemas untouched.
+		`CREATE TABLE IF NOT EXISTS users (
+			id BIGSERIAL PRIMARY KEY,
+			username TEXT NOT NULL UNIQUE,
+			email TEXT NOT NULL UNIQUE,
+			role TEXT NOT NULL DEFAULT 'client',
+			hashed_password TEXT NOT NULL DEFAULT '',
+			is_active BOOLEAN NOT NULL DEFAULT TRUE,
+			is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
 		`CREATE TABLE IF NOT EXISTS invitation_tokens (
 			id BIGSERIAL PRIMARY KEY,
 			token_code TEXT NOT NULL UNIQUE,
@@ -80,6 +94,11 @@ func setupPostgresFixture(t *testing.T, db *sql.DB) {
 			id BIGSERIAL PRIMARY KEY,
 			user_id BIGINT NOT NULL,
 			run_id TEXT,
+			status TEXT NOT NULL DEFAULT '',
+			start_date TEXT NOT NULL DEFAULT '',
+			end_date TEXT NOT NULL DEFAULT '',
+			num_pairs INTEGER NOT NULL DEFAULT 0,
+			total_markets INTEGER NOT NULL DEFAULT 0,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`,
 		`CREATE TABLE IF NOT EXISTS backtest_results (

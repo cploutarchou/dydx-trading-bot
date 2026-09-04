@@ -9,6 +9,7 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 |---|---|
 | 2026-09-04 | FE-005, FE-001, FE-004a (`npm test` + full suite in CI; full Playwright/jsdom foundation still open under FE-004), FE-011, FE-012, FE-013 (hidden Light option; full light mode still deferred), FE-010, FE-014, FE-031, FE-007, FE-027, FE-026 |
 | 2026-09-05 (pass 3) | FE-006 (Field primitive + both financial forms), FE-022 (started: shared format util + Dashboard), FE-018 (partial: referrer meta), FE-028 (CSV injection guard), FE-029 (partial: https allowlist + host suffix guard) |
+| 2026-09-05 (pass 5) | FE-023 (partial: 5 components to React Query), FE-008 (P&L direction arrows) |
 | 2026-09-05 (pass 4) | FE-030 (partial: naming + keyboard + skip link), FE-033 (partial: StrictMode, tailwind config, eslint comment), FE-035 |
 | 2026-09-05 | FE-016 (7 dead files + `src/dev` deleted), FE-021 (framer-motion/@headlessui/@react-buddy/date-fns/recharts removed; vite+tailwindcss+forms → devDeps), FE-017 (roleMatches fail-closed + tests), FE-020 (RouteErrorBoundary via pathless errorElement), FE-004 **complete** (jsdom + Testing Library + Playwright, 2 component tests, 7 backend-free E2E smoke specs, CI runs unit+e2e; suite now 21 files / 116 tests + 7 e2e) |
 
@@ -28,7 +29,7 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 | ✅ FE-005 | Environment | run.json `DB_POOL_SIZE(105)>DB_MAX_CONNECTIONS(100)` hard-fails backend startup (validate-before-clamp); bot API logs same | Every new dev blocked | S | BE (clamp or fix profile) — **done in BE: `db.go` now clamps with warning; backend boots on stock run.json (verified live)** |
 | ✅ FE-006 | A11y | Financial forms lack label association (names from placeholders) — BacktestRunner, BotManager | SR users locked out of core flows | M | none — **done: `Field` primitive (label/hint/error + aria wiring) + 5 component tests; 12 BacktestRunner + 7 BotManager fields migrated; verified live: 15/15 controls label-associated on /backtests/new** |
 | ✅ FE-007 | A11y/UI | Multiple h1 per page (3 on dashboard) | Navigation semantics | S | none — **done: sidebar brand → p, all main-content h1 → h2, banner is canonical h1 (verified: exactly 1 h1 on dashboard & backtests/new)** |
-| ⬜ FE-008 | A11y | P&L color-only signaling | Colorblind operators | S | U4.3 formatter |
+| ✅ FE-008 | A11y | P&L color-only signaling | Colorblind operators | S | U4.3 formatter — **done: ▲/▼ direction glyphs on signed P&L via shared formatter (Dashboard hero, avg, lifetime inherit)** |
 | ⬜ FE-009 | UX | No self-serve password reset (mailto only) | Lockout = support ticket | M | BE (token endpoints) |
 | ✅ FE-010 | UX | Raw axios strings in operator surfaces (Bots 502 case) | Trust, actionability | S | none — **done: `src/utils/apiErrors.ts` (+8 tests) applied to Arbitrage panel; adopt gradually elsewhere** |
 | ✅ FE-011 | UX | Backtest defaults frozen at 2024-01→03 | Stale research defaults | XS | none — **done: trailing 90-day window (verified live: 2026-06-07→2026-09-04)** |
@@ -43,7 +44,7 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 | ✅ FE-020 | Reliability | Single global ErrorBoundary; no per-route `errorElement` | One crash = blank app | S | none — **done: `RouteErrorBoundary` on pathless wrapper route (in-place reload/dashboard recovery)** |
 | ✅ FE-021 | Deps | Unused prod deps (framer-motion, @headlessui, @react-buddy, date-fns, recharts-via-dead-page); react-hook-form 1-file usage | Bundle/supply chain | S | FE-016 first — **done: 5 deps removed; vite/tailwindcss/@tailwindcss/forms moved to devDependencies** |
 | 🟡 FE-022 | Code quality | 65 local formatters/172 toFixed/date-fns-unused — money formatting not centralized | Inconsistent money display | M | none — **started: `src/utils/format.ts` (+5 tests) adopted on Dashboard; remaining surfaces migrate opportunistically** |
-| ⬜ FE-023 | Code quality | 21 manual loading/error useState files vs React Query (half-finished migration) | Duplicated state bugs | M | none |
+| 🟡 FE-023 | Code quality | 21 manual loading/error useState files vs React Query (half-finished migration) | Duplicated state bugs | M | none — **5 standalone components migrated (SummaryCard, PerformanceMetrics, TradeHistory, RedisSettings, AdminComingSoonSettings) + new useBacktestSummary hook; SyncHealthPanel stays manual by design (adaptive 10s→60s backoff); BacktestList/BacktestDetailsV2/Settings deferred to the FE-015 window** |
 | 🟡 FE-024 | QA process | Responsive QA checklists `[x]` with zero evidence files; CI test gate mismatch | False confidence | S | re-run capture suite — **CI gate half fixed by FE-004a; screenshot evidence still stale** |
 | ⬜ FE-025 | UX/UI | Mobile KPI squeeze + table scroll affordance + sidebar description noise | Mobile operator polish | S | none |
 

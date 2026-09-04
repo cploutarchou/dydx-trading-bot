@@ -8,8 +8,8 @@
  * - Configuration used
  */
 
-import React, { useEffect, useState } from 'react';
-import apiClient from '../api';
+import React from 'react';
+import { useBacktestSummary } from '../api/hooks';
 
 interface SummaryData {
   run_id: string;
@@ -32,34 +32,12 @@ interface SummaryCardProps {
   runId: string;
 }
 
-const getErrorMessage = (error: unknown, fallback: string): string =>
-  error instanceof Error ? error.message : fallback;
-
 export const SummaryCard: React.FC<SummaryCardProps> = ({ runId }) => {
-  const [summary, setSummary] = useState<SummaryData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchSummary();
-  }, [runId]);
-
-  const fetchSummary = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await apiClient.getBacktestSummary(runId);
-      if (response.success && response.data) {
-        setSummary(response.data as unknown as SummaryData);
-      } else {
-        setError(response.message || 'Failed to load summary');
-      }
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, 'Error loading summary'));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const summaryQuery = useBacktestSummary(runId);
+  const summary = summaryQuery.data as unknown as SummaryData | undefined;
+  const loading = summaryQuery.isLoading;
+  const error =
+    summaryQuery.error instanceof Error ? summaryQuery.error.message : summaryQuery.isError ? 'Error loading summary' : null;
 
   const formatDate = (dateString?: string) => {
     if (!dateString) {

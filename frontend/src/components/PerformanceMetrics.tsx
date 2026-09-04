@@ -7,8 +7,8 @@
  * - Trade duration statistics
  */
 
-import React, { useEffect, useState } from 'react';
-import apiClient from '../api';
+import React from 'react';
+import { useBacktestMetrics } from '../api/hooks';
 
 interface PerformanceData {
   run_id: string;
@@ -29,34 +29,16 @@ interface PerformanceMetricsProps {
   runId: string;
 }
 
-const getErrorMessage = (error: unknown, fallback: string): string =>
-  error instanceof Error ? error.message : fallback;
-
 export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ runId }) => {
-  const [metrics, setMetrics] = useState<PerformanceData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchPerformanceData();
-  }, [runId]);
-
-  const fetchPerformanceData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await apiClient.getBacktestPerformance(runId);
-      if (response.success && response.data) {
-        setMetrics(response.data);
-      } else {
-        setError(response.message || 'Failed to load performance metrics');
-      }
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, 'Error loading performance metrics'));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const performanceQuery = useBacktestMetrics(runId);
+  const metrics = performanceQuery.data as unknown as PerformanceData | undefined;
+  const loading = performanceQuery.isLoading;
+  const error =
+    performanceQuery.error instanceof Error
+      ? performanceQuery.error.message
+      : performanceQuery.isError
+        ? 'Failed to load performance metrics'
+        : null;
 
   if (loading) {
     return (

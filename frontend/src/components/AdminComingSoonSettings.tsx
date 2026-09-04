@@ -1,6 +1,8 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Eye, EyeOff, Loader2, RefreshCw, ShieldCheck } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import apiClient, { type ComingSoonSettingResponse } from '../api';
+import { useEffect, useMemo, useState } from 'react';
+import apiClient from '../api';
+import { queryKeys } from '../api/queryClient';
 import { useToastStore } from './ErrorBoundary';
 import { ActionDialog, InlineNotice, PlatformPanel, StatusBadge } from './ui/PlatformUI';
 
@@ -8,13 +10,34 @@ const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : 'Unable to update Coming Soon mode';
 
 export const AdminComingSoonSettings = () => {
-  const [setting, setSetting] = useState<ComingSoonSettingResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const settingQuery = useQuery({
+    queryKey: queryKeys.comingSoonSetting,
+    queryFn: async () => {
+      const response = await apiClient.getComingSoonSetting();
+      if (!response.success || !response.data) {
+        throw new Error(response.message || 'Coming Soon setting was not returned');
+      }
+      return response.data;
+    },
+  });
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [pendingValue, setPendingValue] = useState<boolean | null>(null);
   const successToast = useToastStore((state) => state.success);
   const errorToast = useToastStore((state) => state.error);
+
+  const setting = settingQuery.data ?? null;
+  const loading = settingQuery.isLoading || settingQuery.isFetching;
+  const loadError =
+    settingQuery.error instanceof Error ? settingQuery.error.message : null;
+  const error = saveError ?? loadError;
+
+  useEffect(() => {
+    if (loadError) {
+      errorToast('Coming Soon setting unavailable', loadError);
+    }
+  }, [loadError, errorToast]);
 
   const enabled = Boolean(setting?.coming_soon_enabled);
   const nextValue = pendingValue ?? !enabled;
@@ -38,39 +61,17 @@ export const AdminComingSoonSettings = () => {
     [nextValue]
   );
 
-  const loadSetting = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await apiClient.getComingSoonSetting();
-      if (!response.success || !response.data) {
-        throw new Error(response.message || 'Coming Soon setting was not returned');
-      }
-      setSetting(response.data);
-    } catch (loadError) {
-      const message = getErrorMessage(loadError);
-      setError(message);
-      errorToast('Coming Soon setting unavailable', message);
-    } finally {
-      setLoading(false);
-    }
-  }, [errorToast]);
-
-  useEffect(() => {
-    void loadSetting();
-  }, [loadSetting]);
-
   const confirmChange = async () => {
     if (pendingValue === null || saving) return;
 
     try {
       setSaving(true);
-      setError(null);
+      setSaveError(null);
       const response = await apiClient.updateComingSoonSetting(pendingValue);
       if (!response.success || !response.data) {
         throw new Error(response.message || 'Coming Soon setting was not updated');
       }
-      setSetting(response.data);
+      queryClient.setQueryData(queryKeys.comingSoonSetting, response.data);
       successToast(
         pendingValue ? 'Coming Soon enabled' : 'Coming Soon disabled',
         pendingValue
@@ -78,9 +79,9 @@ export const AdminComingSoonSettings = () => {
           : 'Public client access has been restored.'
       );
       setPendingValue(null);
-    } catch (saveError) {
-      const message = getErrorMessage(saveError);
-      setError(message);
+    } catch (saveErrorCaught) {
+      const message = getErrorMessage(saveErrorCaught);
+      setSaveError(message);
       errorToast('Failed to update Coming Soon mode', message);
     } finally {
       setSaving(false);
@@ -95,7 +96,7 @@ export const AdminComingSoonSettings = () => {
         action={
           <button
             type="button"
-            onClick={() => void loadSetting()}
+            onClick={() => void settingQuery.refetch()}
             disabled={loading || saving}
             className="platform-button platform-button-secondary disabled:cursor-not-allowed disabled:opacity-50"
           >

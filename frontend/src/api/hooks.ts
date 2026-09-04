@@ -963,6 +963,26 @@ export function useBacktestMetrics(runId: string, enabled: boolean = true) {
   });
 }
 
+/**
+ * Backtest run summary (status, timestamps, trade totals, configuration).
+ * Throws on non-success envelopes so React Query's error state engages.
+ */
+export function useBacktestSummary(runId: string) {
+  return useQuery({
+    queryKey: queryKeys.backtestSummary(runId),
+    queryFn: async () => {
+      const response = await api.getBacktestSummary(runId);
+      if (!response.success || !response.data) {
+        throw new Error(response.message || 'Failed to load backtest summary');
+      }
+      return response.data;
+    },
+    ...queryConfigs.historical,
+    enabled: !!runId,
+  });
+}
+
+
 export function useCreateBacktest() {
   return useMutation({
     mutationFn: (config: BacktestConfig) => apiClient.createBacktest(config),

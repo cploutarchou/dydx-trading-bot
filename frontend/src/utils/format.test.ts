@@ -8,9 +8,9 @@ describe('shared formatters', () => {
     expect(formatUsd(-42)).toBe('$42');
   });
 
-  it('formatSignedUsd signs gains/losses and keeps zero neutral', () => {
-    expect(formatSignedUsd(12.5)).toBe('+$12.5');
-    expect(formatSignedUsd(-4)).toBe('-$4');
+  it('formatSignedUsd adds direction arrows and keeps zero neutral', () => {
+    expect(formatSignedUsd(12.5)).toBe('▲ +$12.5');
+    expect(formatSignedUsd(-4)).toBe('▼ -$4');
     expect(formatSignedUsd(0)).toBe('$0');
     expect(formatSignedUsd(Number.NaN)).toBe('$0');
   });
@@ -27,8 +27,8 @@ describe('shared formatters', () => {
   });
 
   it('formatSignedUsdCompact keeps sign and compacts magnitude', () => {
-    expect(formatSignedUsdCompact(1500)).toBe('+$1.5K');
-    expect(formatSignedUsdCompact(-2500000)).toBe('-$2.5M');
+    expect(formatSignedUsdCompact(1500)).toBe('▲ +$1.5K');
+    expect(formatSignedUsdCompact(-2500000)).toBe('▼ -$2.5M');
     expect(formatSignedUsdCompact(0)).toBe('$0');
   });
 });

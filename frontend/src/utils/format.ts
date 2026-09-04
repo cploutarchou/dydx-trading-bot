@@ -14,11 +14,12 @@ export const formatUsd = (value: number, maximumFractionDigits = 2): string =>
     ? `$${usdFormatter(maximumFractionDigits).format(Math.abs(value))}`
     : '$0';
 
-/** `+$12.5` / `-$4` / `$0` — signed P&L; exactly zero renders neutral (`$0`). */
+/** `▲ +$12.5` / `▼ -$4` / `$0` — signed P&L with a direction glyph so the
+ *  signal survives color-blindness and grayscale (WCAG 1.4.1). Zero is neutral. */
 export const formatSignedUsd = (value: number, maximumFractionDigits = 2): string => {
-  if (!Number.isFinite(value)) return '$0';
-  const sign = value > 0 ? '+' : value < 0 ? '-' : '';
-  return `${sign}$${usdFormatter(maximumFractionDigits).format(Math.abs(value))}`;
+  if (!Number.isFinite(value) || value === 0) return '$0';
+  const direction = value > 0 ? '▲ +' : '▼ -';
+  return `${direction}$${usdFormatter(maximumFractionDigits).format(Math.abs(value))}`;
 };
 
 /** `12.3%` — percentage with fixed digits. */
@@ -36,5 +37,5 @@ export const formatSignedUsdCompact = (value: number): string => {
     notation: 'compact',
     maximumFractionDigits: 1,
   }).format(Math.abs(value));
-  return `${value > 0 ? '+' : '-'}$${compact}`;
+  return `${value > 0 ? '▲ +' : '▼ -'}$${compact}`;
 };

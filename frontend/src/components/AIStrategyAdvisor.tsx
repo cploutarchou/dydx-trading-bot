@@ -77,7 +77,7 @@ export function AIStrategyAdvisor({
     }
 
     if (!availableProviders.includes(provider)) {
-      setProvider(availableProviders[0]);
+      setProvider((availableProviders[0] ?? availableProviders[0]!));
     }
   }, [availableProviders, provider]);
 
@@ -213,12 +213,12 @@ export function AIStrategyAdvisor({
       const valueMatch = line.match(/suggested\s*([-+]?[^\s,;)]*%?)/i);
       if (!keyMatch || !valueMatch) continue;
 
-      const key = normalizeSuggestionKey(keyMatch[1]);
+      const key = normalizeSuggestionKey(keyMatch[1] ?? '');
       if (!key || seen.has(key)) continue;
 
       parsed.push({
         key,
-        value: parseSuggestedValue(valueMatch[1]),
+        value: parseSuggestedValue(valueMatch[1] ?? ''),
         raw: line,
       });
       seen.add(key);

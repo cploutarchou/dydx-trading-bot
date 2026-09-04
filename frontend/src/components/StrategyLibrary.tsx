@@ -218,8 +218,8 @@ export default function StrategyLibrary() {
     const endDate = new Date();
     const startDate = new Date(endDate);
     startDate.setDate(startDate.getDate() - 30);
-    setBacktestStartDate(startDate.toISOString().split('T')[0]);
-    setBacktestEndDate(endDate.toISOString().split('T')[0]);
+    setBacktestStartDate(startDate.toISOString().split('T')[0] ?? '');
+    setBacktestEndDate(endDate.toISOString().split('T')[0] ?? '');
   };
 
   const buildRunPayload = (): StrategyBacktestRunPayload | null => {

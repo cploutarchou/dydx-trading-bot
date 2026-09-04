@@ -395,6 +395,7 @@ const filterChartPointsByRange = (
   }
 
   const latestPoint = points[points.length - 1];
+  if (!latestPoint) return points;
   const latestDate = new Date(`${latestPoint.time}T00:00:00Z`);
   if (Number.isNaN(latestDate.getTime())) {
     return points;
@@ -829,7 +830,7 @@ export const BacktestDetailsV2: React.FC = () => {
     }
 
     if (!selectedMarket || !markets.includes(selectedMarket)) {
-      setSelectedMarket(markets[0]);
+      setSelectedMarket(markets[0] ?? null);
     }
   }, [markets, selectedMarket]);
 
@@ -1074,7 +1075,8 @@ export const BacktestDetailsV2: React.FC = () => {
     setLiveLogs((previous) => {
       if (previous[0] && previous[0].message === message && previous[0].level === level) {
         const updated = [...previous];
-        updated[0] = { ...updated[0], created_at: createdAt };
+        const head = updated[0];
+        if (head) updated[0] = { ...head, created_at: createdAt };
         return updated;
       }
 
@@ -1472,7 +1474,7 @@ export const BacktestDetailsV2: React.FC = () => {
     liveBacktest.profit_factor ??
     (grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? grossProfit : 0);
   const capitalEfficiencyPct = (totalPnl / initialCapital) * 100;
-  const topPairAbsPnl = topPairs.length > 0 ? Math.abs(topPairs[0].pnl) : 0;
+  const topPairAbsPnl = topPairs.length > 0 ? Math.abs(topPairs[0]!.pnl) : 0;
   const aggregatePairAbsPnl = pairBreakdown.reduce((sum, pair) => sum + Math.abs(pair.pnl), 0);
   const pairConcentrationPct =
     aggregatePairAbsPnl > 0 ? (topPairAbsPnl / aggregatePairAbsPnl) * 100 : 0;

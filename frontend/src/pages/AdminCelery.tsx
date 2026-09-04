@@ -307,8 +307,7 @@ export const AdminCeleryPage: React.FC = () => {
       const raw =
         String(task.error_code || '').trim() ||
         String(task.error_message || '')
-          .split('\n')[0]
-          .trim() ||
+          .split('\n')[0]?.trim() ||
         'unknown';
       const key = raw.length > 80 ? `${raw.slice(0, 77)}...` : raw;
       counter.set(key, (counter.get(key) || 0) + 1);

@@ -37,25 +37,25 @@ export const AuthSettingsComponent: React.FC = () => {
 
     if (e.key === 'ArrowRight') {
       e.preventDefault();
-      setActiveTab(authTabs[(currentIndex + 1) % authTabs.length]);
+      setActiveTab(authTabs[(currentIndex + 1) % authTabs.length] ?? authTabs[0]!);
       return;
     }
 
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      setActiveTab(authTabs[(currentIndex - 1 + authTabs.length) % authTabs.length]);
+      setActiveTab(authTabs[(currentIndex - 1 + authTabs.length) % authTabs.length] ?? authTabs[0]!);
       return;
     }
 
     if (e.key === 'Home') {
       e.preventDefault();
-      setActiveTab(authTabs[0]);
+      setActiveTab(authTabs[0]!);
       return;
     }
 
     if (e.key === 'End') {
       e.preventDefault();
-      setActiveTab(authTabs[authTabs.length - 1]);
+      setActiveTab(authTabs[authTabs.length - 1] ?? authTabs[0]!);
     }
   };
 

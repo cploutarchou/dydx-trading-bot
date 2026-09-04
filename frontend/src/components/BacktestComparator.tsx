@@ -293,8 +293,9 @@ export const BacktestComparator: React.FC = () => {
   // Calculate delta between first and other backtests
   const getDelta = (metric: keyof BacktestResult, index: number) => {
     if (index === 0 || selectedBacktests.length === 0) return null;
-    const baseline = selectedBacktests[0].data[metric] as number;
-    const current = selectedBacktests[index].data[metric] as number;
+    const baseline = selectedBacktests[0]!.data[metric] as number;
+    const current = selectedBacktests[index]?.data[metric] as number | undefined;
+    if (current === undefined) return null;
     const delta = current - baseline;
     const deltaPercent = Math.abs(baseline) > 0 ? (delta / Math.abs(baseline)) * 100 : 0;
     return { delta, deltaPercent };

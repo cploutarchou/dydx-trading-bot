@@ -9,6 +9,7 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 |---|---|
 | 2026-09-04 | FE-005, FE-001, FE-004a (`npm test` + full suite in CI; full Playwright/jsdom foundation still open under FE-004), FE-011, FE-012, FE-013 (hidden Light option; full light mode still deferred), FE-010, FE-014, FE-031, FE-007, FE-027, FE-026 |
 | 2026-09-05 (pass 3) | FE-006 (Field primitive + both financial forms), FE-022 (started: shared format util + Dashboard), FE-018 (partial: referrer meta), FE-028 (CSV injection guard), FE-029 (partial: https allowlist + host suffix guard) |
+| 2026-09-05 (pass 9) | FE-018 (nginx CSP + hardening headers), FE-029 (backend avatar validation + tests), FE-033 (noUncheckedIndexedAccess enabled, 50 fixed) |
 | 2026-09-05 (pass 8) | FE-033a (eslint full coverage + prettier), FE-036 (complete), FE-030 (complete), FE-022b (6 formatters), FE-019, FE-002 + FE-003 (cookie-first auth, verified live), FE-015 (scoped: shim deleted), FE-024 (complete within tooling limits); NEW FE-038 lint debt (238); backend CI test fix for c70cc809's fixture seeding (0879b268) |
 | 2026-09-05 (pass 7) | FE-032 (complete: −33% eager JS, event-driven WS auth sync) |
 | 2026-09-05 (pass 6) | FE-025 (complete), FE-036 (partial: first-run card; skeletons verified already present; terminology open) |

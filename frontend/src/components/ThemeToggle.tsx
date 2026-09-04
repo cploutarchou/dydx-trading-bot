@@ -21,7 +21,10 @@ export const ThemeToggle: React.FC = () => {
   const theme = useUIPreferencesStore((state) => state.theme);
   const setTheme = useUIPreferencesStore((state) => state.setTheme);
   const { t } = useI18n();
-  const activeOption = themeOptions.find((option) => option.value === theme) ?? themeOptions[0];
+  const activeOption =
+    themeOptions.find((option) => option.value === theme) ??
+    allThemeOptions.find((option) => option.value === theme) ??
+    themeOptions[0]!;
   const ActiveIcon = activeOption.icon;
 
   const labels: Record<ThemeMode, string> = {

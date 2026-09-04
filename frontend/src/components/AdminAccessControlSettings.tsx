@@ -596,8 +596,8 @@ export function AdminAccessControlSettings() {
   }, [permissions]);
   const rolePermissionSet = useMemo(() => {
     return rolePermissions.reduce<Record<string, Set<string>>>((acc, row) => {
-      acc[row.role] = acc[row.role] || new Set<string>();
-      acc[row.role].add(row.permission_key);
+      const permissionSet = (acc[row.role] ??= new Set<string>());
+      permissionSet.add(row.permission_key);
       return acc;
     }, {});
   }, [rolePermissions]);
@@ -727,8 +727,8 @@ export function AdminAccessControlSettings() {
   };
 
   const activeSubmenuItem =
-    ACCESS_CONTROL_SUBMENU_ITEMS.find((item) => item.key === activeSubmenu) ||
-    ACCESS_CONTROL_SUBMENU_ITEMS[0];
+    ACCESS_CONTROL_SUBMENU_ITEMS.find((item) => item.key === activeSubmenu) ??
+    ACCESS_CONTROL_SUBMENU_ITEMS[0]!;
 
   return (
     <div className="space-y-6">

@@ -177,7 +177,7 @@ export default function StrategyBuilder() {
     }
 
     if (!availableAIProviders.includes(aiMarketProvider)) {
-      setAIMarketProvider(availableAIProviders[0]);
+      setAIMarketProvider((availableAIProviders[0] ?? availableAIProviders[0]!));
     }
   }, [aiMarketProvider, availableAIProviders]);
 

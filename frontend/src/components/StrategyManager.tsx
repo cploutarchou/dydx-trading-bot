@@ -517,7 +517,7 @@ export default function StrategyManager() {
     }
 
     const nextStatuses = runtimeQueries.map((query, index) => {
-      const strategyId = strategyIds[index];
+      const strategyId = strategyIds[index]!;
       if (query.isSuccess && query.data) {
         return toStrategyStatus(
           strategyId,
@@ -1179,8 +1179,8 @@ export default function StrategyManager() {
         strategy_id: strategy.id,
         name: `${strategy.name} Backtest`,
         description: strategy.description || '',
-        start_date: startDate.toISOString().split('T')[0],
-        end_date: endDate.toISOString().split('T')[0],
+        start_date: startDate.toISOString().split('T')[0] ?? '',
+        end_date: endDate.toISOString().split('T')[0] ?? '',
         initial_balance: initialBalance,
         max_pairs: selectedMarkets.length,
         pair_selection_mode: pairSelectionMode,
@@ -2721,7 +2721,7 @@ export default function StrategyManager() {
                             checked={Boolean(editingConfig[field as keyof Strategy])}
                             onChange={(e) =>
                               updateEditingConfig({
-                                [field]: e.target.checked,
+                                [String(field)]: e.target.checked,
                               } as Partial<Strategy>)
                             }
                             className="h-4 w-4 rounded border-slate-500 bg-slate-800"

@@ -19,7 +19,7 @@ describe('extractPositionSnapshots', () => {
   it('reads data.snapshots (not data.positions)', () => {
     const env = ok({ snapshots: [{ position_id: 'p1', snapshot_time: '2024-01-01T00:00:00Z' }], count: 1 });
     expect(extractPositionSnapshots(env)).toHaveLength(1);
-    expect(extractPositionSnapshots(env)[0].position_id).toBe('p1');
+    expect(extractPositionSnapshots(env)[0]!.position_id).toBe('p1');
   });
 
   it('returns [] when disabled envelope has empty snapshots', () => {
@@ -61,7 +61,7 @@ describe('extractPairBreakdown', () => {
     const env = ok({ instance_id: 'i', hours: 24, pairs: [{ pair1: 'BTC', pair2: 'USD', trades_closed: 2 }] });
     const pairs: PairBreakdown[] = extractPairBreakdown(env);
     expect(pairs).toHaveLength(1);
-    expect(pairs[0].pair2).toBe('USD');
+    expect(pairs[0]!.pair2).toBe('USD');
   });
 
   it('returns [] when pairs absent', () => {
@@ -73,7 +73,7 @@ describe('extractWorkerMetrics', () => {
   it('reads data.metrics', () => {
     const env = ok({ metrics: [{ worker_id: 'w1', metric_name: 'tasks_completed', metric_value: 5 }], count: 1 });
     const metrics: WorkerMetric[] = extractWorkerMetrics(env);
-    expect(metrics[0].metric_name).toBe('tasks_completed');
+    expect(metrics[0]!.metric_name).toBe('tasks_completed');
   });
 
   it('returns [] for the summary envelope (which has throughput, not metrics)', () => {
@@ -92,8 +92,8 @@ describe('extractAPIRequestSummary', () => {
     });
     const rows: APIRequestSummaryRow[] = extractAPIRequestSummary(env);
     expect(rows).toHaveLength(1);
-    expect(rows[0].request_count).toBe(100);
-    expect(rows[0].error_count).toBe(2);
+    expect(rows[0]!.request_count).toBe(100);
+    expect(rows[0]!.error_count).toBe(2);
   });
 
   it('returns [] when summary is not an array', () => {

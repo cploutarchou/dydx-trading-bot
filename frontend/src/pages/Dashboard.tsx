@@ -307,7 +307,8 @@ const buildPnlSeries = (runs: BacktestRunSummary[]): PnlPoint[] => {
   const seenDates = new Set<string>();
 
   for (let i = 0; i < sorted.length; i += 1) {
-    const r = sorted[i];
+    const r = sorted[i]!;
+    if (!r) continue;
     const ts = getRunTimestamp(r);
     const fallbackTs = Date.now() - (sorted.length - i) * 24 * 60 * 60 * 1000;
     const dateStr = new Date(ts ?? fallbackTs).toISOString().substring(0, 10);

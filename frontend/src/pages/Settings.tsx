@@ -319,7 +319,7 @@ const buildFieldErrors = (
         nextErrors[section.section] = {};
       }
 
-      nextErrors[section.section][field.key] = error;
+      nextErrors[section.section]![field.key] = error;
     });
   });
 
@@ -517,7 +517,8 @@ export default function Settings() {
     }
 
     if (!sidebarSections.some((section) => section.section === activeSection)) {
-      setActiveSection(sidebarSections[0].section);
+      const firstSection = sidebarSections[0];
+      if (firstSection) setActiveSection(firstSection.section);
     }
   }, [activeSection, sidebarSections]);
 
@@ -608,10 +609,10 @@ export default function Settings() {
     if (hasAnyFieldErrors(nextErrors)) {
       const firstInvalidSection = schema.sections.find(
         (section) =>
-          nextErrors[section.section] && Object.keys(nextErrors[section.section]).length > 0
+          nextErrors[section.section] && Object.keys(nextErrors[section.section]!).length > 0
       );
       if (firstInvalidSection) {
-        const firstInvalidFieldKey = Object.keys(nextErrors[firstInvalidSection.section] || {})[0];
+        const firstInvalidFieldKey = Object.keys(nextErrors[firstInvalidSection.section] || {})[0] ?? '';
         if (firstInvalidFieldKey) {
           setPendingFocusTarget({
             section: firstInvalidSection.section,

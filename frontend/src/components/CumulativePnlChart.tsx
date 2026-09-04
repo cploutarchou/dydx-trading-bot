@@ -174,6 +174,8 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
 
   const activePoint = hoverPoint ?? normalizedData[normalizedData.length - 1];
 
+  if (!activePoint) return null;
+
   return (
     <div className="relative w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80">
       <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-lg border border-slate-800/90 bg-slate-950/85 px-3 py-2 backdrop-blur">

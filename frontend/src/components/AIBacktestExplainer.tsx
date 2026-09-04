@@ -48,7 +48,7 @@ export function AIBacktestExplainer({
 
   useEffect(() => {
     if (availableProviders.length > 0 && !availableProviders.includes(provider)) {
-      setProvider(availableProviders[0]);
+      setProvider((availableProviders[0] ?? availableProviders[0]!));
     }
   }, [availableProviders, provider]);
 

@@ -16,7 +16,6 @@ ALTER TABLE backtest_trades
     ALTER COLUMN exit_price_1 TYPE REAL USING exit_price_1::REAL,
     ALTER COLUMN exit_price_2 TYPE REAL USING exit_price_2::REAL,
     ALTER COLUMN pnl TYPE REAL USING pnl::REAL,
-    ALTER COLUMN pnl_usd TYPE REAL USING pnl_usd::REAL,
     ALTER COLUMN transaction_fee TYPE REAL USING transaction_fee::REAL,
     ALTER COLUMN slippage TYPE REAL USING slippage::REAL;
 

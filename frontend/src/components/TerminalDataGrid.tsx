@@ -193,7 +193,7 @@ export function TerminalDataGrid<T>({
         <div className="px-4 py-10 sm:px-5">{emptyState}</div>
       ) : (
         <>
-          <div className="overflow-auto">
+          <div className="scroll-shadow-x overflow-auto">
             <table className="min-w-full text-sm">
               <thead>
                 <tr>

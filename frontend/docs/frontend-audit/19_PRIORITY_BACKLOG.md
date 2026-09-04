@@ -9,6 +9,7 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 |---|---|
 | 2026-09-04 | FE-005, FE-001, FE-004a (`npm test` + full suite in CI; full Playwright/jsdom foundation still open under FE-004), FE-011, FE-012, FE-013 (hidden Light option; full light mode still deferred), FE-010, FE-014, FE-031, FE-007, FE-027, FE-026 |
 | 2026-09-05 (pass 3) | FE-006 (Field primitive + both financial forms), FE-022 (started: shared format util + Dashboard), FE-018 (partial: referrer meta), FE-028 (CSV injection guard), FE-029 (partial: https allowlist + host suffix guard) |
+| 2026-09-05 (pass 6) | FE-025 (complete), FE-036 (partial: first-run card; skeletons verified already present; terminology open) |
 | 2026-09-05 (pass 5) | FE-023 (partial: 5 components to React Query), FE-008 (P&L direction arrows) |
 | 2026-09-05 (pass 4) | FE-030 (partial: naming + keyboard + skip link), FE-033 (partial: StrictMode, tailwind config, eslint comment), FE-035 |
 | 2026-09-05 | FE-016 (7 dead files + `src/dev` deleted), FE-021 (framer-motion/@headlessui/@react-buddy/date-fns/recharts removed; vite+tailwindcss+forms → devDeps), FE-017 (roleMatches fail-closed + tests), FE-020 (RouteErrorBoundary via pathless errorElement), FE-004 **complete** (jsdom + Testing Library + Playwright, 2 component tests, 7 backend-free E2E smoke specs, CI runs unit+e2e; suite now 21 files / 116 tests + 7 e2e) |
@@ -46,7 +47,7 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 | 🟡 FE-022 | Code quality | 65 local formatters/172 toFixed/date-fns-unused — money formatting not centralized | Inconsistent money display | M | none — **started: `src/utils/format.ts` (+5 tests) adopted on Dashboard; remaining surfaces migrate opportunistically** |
 | 🟡 FE-023 | Code quality | 21 manual loading/error useState files vs React Query (half-finished migration) | Duplicated state bugs | M | none — **5 standalone components migrated (SummaryCard, PerformanceMetrics, TradeHistory, RedisSettings, AdminComingSoonSettings) + new useBacktestSummary hook; SyncHealthPanel stays manual by design (adaptive 10s→60s backoff); BacktestList/BacktestDetailsV2/Settings deferred to the FE-015 window** |
 | 🟡 FE-024 | QA process | Responsive QA checklists `[x]` with zero evidence files; CI test gate mismatch | False confidence | S | re-run capture suite — **CI gate half fixed by FE-004a; screenshot evidence still stale** |
-| ⬜ FE-025 | UX/UI | Mobile KPI squeeze + table scroll affordance + sidebar description noise | Mobile operator polish | S | none |
+| ✅ FE-025 | UX/UI | Mobile KPI squeeze + table scroll affordance + sidebar description noise | Mobile operator polish | S | none — **done: KPI grids 1-col <400px (Dashboard + BotManager, verified live), `.scroll-shadow-x` right-edge fade on wide tables (computed style verified), sidebar descriptions gated to xl+ with hover title** |
 
 ## P3 — backlog
 

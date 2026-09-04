@@ -7429,3 +7429,21 @@ textarea:disabled {
     break-inside: avoid;
   }
 }
+
+/* Horizontal scroll affordance for wide data tables (audit FE-025):
+   thin scrollbar plus a right-edge fade that hints at clipped columns. */
+.scroll-shadow-x {
+  position: relative;
+  scrollbar-width: thin;
+}
+.scroll-shadow-x::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  background: linear-gradient(to left, var(--app-bg, #0c0a09), transparent);
+  pointer-events: none;
+  z-index: 1;
+}

@@ -178,6 +178,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
                             openWorkspace(item.path);
                             onClose?.();
                           }}
+                          title={tr(item.description)}
                           className={`group flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-all ${
                             active
                               ? 'border border-teal-400/30 bg-teal-500/16 text-white shadow-lg shadow-teal-500/10'
@@ -194,7 +195,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium">{tr(item.label)}</p>
                             <p
-                              className={`truncate text-xs ${active ? 'text-teal-100/80' : 'text-slate-500'}`}
+                              className={`hidden truncate text-xs xl:block ${active ? 'text-teal-100/80' : 'text-slate-500'}`}
                             >
                               {tr(item.description)}
                             </p>

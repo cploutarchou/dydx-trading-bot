@@ -375,7 +375,7 @@ const BotCard: React.FC<BotCardProps> = ({
           className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-2 sm:grid-cols-4">
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
               <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">P&amp;L</p>
               <p
@@ -878,7 +878,7 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
       )}
 
       {!embedded && (
-        <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <section className="grid grid-cols-1 gap-4 min-[400px]:grid-cols-2 xl:grid-cols-4">
           <div className="operator-stat-card p-5">
             <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Running</p>
             <p className="mt-2 text-2xl font-semibold text-emerald-300">{runningBots}</p>

@@ -319,7 +319,7 @@ export const IBNetwork = () => {
             <p className="mt-1 text-xs text-slate-500">Try clearing or broadening your filters.</p>
           </div>
         ) : (
-          <div className="mt-4 overflow-auto rounded-xl border border-slate-700/60">
+          <div className="scroll-shadow-x mt-4 overflow-auto rounded-xl border border-slate-700/60">
             {filteredRows.map((row) => (
               <PyramidRow
                 key={`${row.node.user_id}-${row.depth}`}

@@ -599,7 +599,7 @@ export const BacktestList: React.FC<{
             ))}
           </div>
         </div>
-        <div className="overflow-x-auto">
+        <div className="scroll-shadow-x overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-b border-slate-700 bg-stone-950/95">
               <tr>
@@ -1048,7 +1048,7 @@ export const BacktestList: React.FC<{
             })}
           </div>
 
-          <div className="hidden overflow-x-auto md:block">
+          <div className="scroll-shadow-x hidden overflow-x-auto md:block">
           <table className="w-full text-sm text-gray-300">
             <thead className="sticky top-0 z-10 border-b border-slate-700 bg-stone-950/95">
               <tr>

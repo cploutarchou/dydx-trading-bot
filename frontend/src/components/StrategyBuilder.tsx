@@ -1041,9 +1041,9 @@ export default function StrategyBuilder() {
     <PageContainer size="narrow">
       {/* Header */}
       <div className="mb-6">
-        <h1 className="mb-2 text-3xl font-bold text-white">
+        <h2 className="mb-2 text-3xl font-bold text-white">
           {isEditMode ? 'Edit Strategy' : 'Create New Strategy'}
-        </h1>
+        </h2>
         <p className="max-w-2xl text-sm leading-6 text-slate-500">
           {isEditMode
             ? 'Update your trading strategy parameters'

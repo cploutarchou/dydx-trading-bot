@@ -790,8 +790,8 @@ jobs:
             - name: Type check
               run: npm run typecheck
 
-            - name: Contract tests
-              run: npm run test:contracts
+            - name: Unit and contract tests
+              run: npm test
 
             - name: Build
               run: npm run build

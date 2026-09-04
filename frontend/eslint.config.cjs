@@ -25,7 +25,6 @@ module.exports = [
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
       ],
-      // Legacy codebase currently uses many explicit anys; keep visible as warnings for cleanup.
       '@typescript-eslint/no-explicit-any': 'warn',
       // Keep signal without blocking for common JSX text and placeholder blocks.
       'react/no-unescaped-entities': 'warn',

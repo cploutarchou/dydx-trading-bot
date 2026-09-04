@@ -838,6 +838,7 @@ export default function Settings() {
                 <input
                   type="search"
                   placeholder="Search…"
+                  aria-label="Search settings sections"
                   value={sectionSearchQuery}
                   onChange={(e) => setSectionSearchQuery(e.target.value)}
                   className="premium-input py-2 pl-9 pr-3 text-sm"

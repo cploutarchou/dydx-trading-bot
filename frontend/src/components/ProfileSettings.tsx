@@ -154,8 +154,17 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
           {/* Avatar Display */}
           <div className="relative">
             <div
+              role="button"
+              tabIndex={0}
+              aria-label="Upload profile picture"
               onClick={handleAvatarClick}
-              className="flex h-32 w-32 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-linear-to-br from-cyan-500 to-blue-600 transition-opacity hover:opacity-85"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  handleAvatarClick();
+                }
+              }}
+              className="flex h-32 w-32 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-linear-to-br from-cyan-500 to-blue-600 transition-opacity hover:opacity-85 focus:outline-none focus:ring-2 focus:ring-cyan-400"
             >
               {avatar ? (
                 <img src={avatar} alt="Avatar" className="w-full h-full object-cover" />
@@ -173,6 +182,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
             <button
               type="button"
               onClick={handleAvatarClick}
+              aria-label="Upload profile picture"
               className="absolute bottom-0 right-0 rounded-full bg-cyan-500 p-2 text-slate-900 shadow-lg transition-colors hover:bg-cyan-400"
             >
               <Upload className="w-4 h-4" />

@@ -514,9 +514,10 @@ const syncAuthState = (authenticated?: boolean): void => {
 };
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('auth:changed', ((event: CustomEvent<{ authenticated?: boolean }>) => {
-    syncAuthState(event.detail?.authenticated);
-  }) as EventListener);
+  window.addEventListener('auth:changed', (event) => {
+    const detail = (event as CustomEvent<{ authenticated?: boolean }>).detail;
+    syncAuthState(detail?.authenticated);
+  });
   window.addEventListener('auth:session-expired', () => syncAuthState(false));
 }
 

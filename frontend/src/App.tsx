@@ -27,7 +27,6 @@ import { RegistrationDisabledLoginGate } from './components/RegistrationDisabled
 import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import { ThemeProvider } from './components/ThemeProvider';
 import { LoginPage } from './pages/Login';
-
 // Public marketing/auth pages are route-split like the workspace pages so the
 // eager bundle stays focused on the authenticated shell (audit FE-032).
 const LandingPage = lazy(() => import('./pages/Landing').then((m) => ({ default: m.LandingPage })));

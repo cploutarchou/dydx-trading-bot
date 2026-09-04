@@ -12,6 +12,7 @@ import {
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api, { type AIBacktestExplainRequest } from '../api';
 import { getAIProviderDisplayName, useAIProviderAvailability } from '../features/ai/providerAvailability';
+import { toCsvCell } from '../utils/csv';
 import { PageContainer } from './PageContainer';
 
 interface BacktestResult {
@@ -327,7 +328,7 @@ export const BacktestComparator: React.FC = () => {
       bt.data.end_date || 'N/A',
     ]);
 
-    const csv = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
+    const csv = [headers.map(toCsvCell).join(','), ...rows.map((row) => row.map(toCsvCell).join(','))].join('\n');
 
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);

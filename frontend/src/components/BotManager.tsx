@@ -24,6 +24,7 @@ import {
 	useStopBotInstance,
 } from '../api/hooks';
 import { ArbitrageImprovementPanel } from './ArbitrageImprovementPanel';
+import { Field } from './ui/Field';
 import { useToastStore } from './ErrorBoundary';
 import { PageContainer } from './PageContainer';
 import { ActionDialog, EmptyState, InlineNotice } from './ui/PlatformUI';
@@ -1038,8 +1039,7 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
           />
 
           <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Instance ID *</label>
+            <Field label="Instance ID" required labelClassName="block text-sm font-medium text-slate-300 mb-1">
               <input
                 type="text"
                 placeholder="e.g., btc-eth-bot-01"
@@ -1047,10 +1047,9 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
                 onChange={(e) => setCreateForm({ ...createForm, instance_id: e.target.value })}
                 className="premium-input"
               />
-            </div>
+            </Field>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Chain ID</label>
+            <Field label="Chain ID" labelClassName="block text-sm font-medium text-slate-300 mb-1">
               <select
                 value={createForm.chain_id}
                 onChange={(e) => setCreateForm({ ...createForm, chain_id: e.target.value })}
@@ -1059,10 +1058,9 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
                 <option value="dydx-mainnet-1">dYdX Mainnet</option>
                 <option value="dydx-testnet-4">dYdX Testnet</option>
               </select>
-            </div>
+            </Field>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Address *</label>
+            <Field label="Address" required labelClassName="block text-sm font-medium text-slate-300 mb-1">
               <input
                 type="text"
                 placeholder="dydx1..."
@@ -1070,10 +1068,14 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
                 onChange={(e) => setCreateForm({ ...createForm, address: e.target.value })}
                 className="premium-input"
               />
-            </div>
+            </Field>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Mnemonic *</label>
+            <Field
+              label="Mnemonic"
+              required
+              labelClassName="block text-sm font-medium text-slate-300 mb-1"
+              hint="Operational secret — masked while typing."
+            >
               <input
                 type="password"
                 placeholder="Your seed phrase..."
@@ -1081,12 +1083,9 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
                 onChange={(e) => setCreateForm({ ...createForm, mnemonic: e.target.value })}
                 className="premium-input"
               />
-            </div>
+            </Field>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">
-                Z-Score Threshold
-              </label>
+            <Field label="Z-Score Threshold" labelClassName="block text-sm font-medium text-slate-300 mb-1">
               <input
                 type="number"
                 step="0.1"
@@ -1096,12 +1095,12 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
                 }
                 className="premium-input"
               />
-            </div>
+            </Field>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">
-                Max Half-Life (hours)
-              </label>
+            <Field
+              label="Max Half-Life (hours)"
+              labelClassName="block text-sm font-medium text-slate-300 mb-1"
+            >
               <input
                 type="number"
                 value={createForm.max_half_life}
@@ -1110,10 +1109,9 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
                 }
                 className="premium-input"
               />
-            </div>
+            </Field>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">USD Per Trade</label>
+            <Field label="USD Per Trade" labelClassName="block text-sm font-medium text-slate-300 mb-1">
               <input
                 type="number"
                 step="0.01"
@@ -1123,7 +1121,7 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
                 }
                 className="premium-input"
               />
-            </div>
+            </Field>
 
             <div>
               <label className="mt-6 flex items-center gap-2 text-sm font-medium text-slate-300">

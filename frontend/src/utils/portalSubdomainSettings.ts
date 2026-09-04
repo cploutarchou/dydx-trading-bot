@@ -1,3 +1,5 @@
+import { platformHost } from './urlSafety';
+
 export type PortalKind = 'crm' | 'ib' | 'client';
 
 interface PortalSubdomainConfig {
@@ -43,15 +45,9 @@ const parseBoolean = (value: string | null | undefined, fallback: boolean): bool
   return fallback;
 };
 
-const sanitizeHost = (host: string, fallback: string): string => {
-  const normalized = host
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\//, '')
-    .replace(/\/$/, '');
-  if (!normalized) return fallback;
-  return normalized;
-};
+// Admin-configured hosts must stay on platform-owned domains; anything else
+// falls back to the built-in default (audit FE-029).
+const sanitizeHost = (host: string, fallback: string): string => platformHost(host, fallback);
 
 export const getPortalSubdomainConfig = (portal: PortalKind): PortalSubdomainConfig => {
   const defaults = DEFAULTS[portal];

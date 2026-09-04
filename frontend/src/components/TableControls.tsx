@@ -4,6 +4,7 @@
  */
 
 import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { toCsvCell } from '../utils/csv';
 
 export type TableDensity = 'comfortable' | 'compact' | 'dense';
 
@@ -197,8 +198,8 @@ export function exportTableAsCSV(
     columns
       .map((col) => {
         const val = row[col];
-        if (typeof val === 'string' && val.includes(',')) {
-          return `"${val}"`;
+        if (typeof val === 'string') {
+          return toCsvCell(val);
         }
         if (typeof val === 'number' || typeof val === 'boolean') {
           return String(val);

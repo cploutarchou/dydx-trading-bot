@@ -184,6 +184,7 @@ export default defineConfig(({ mode }) => {
       environment: 'node',
       environmentMatchGlob: [['**/*.dom.test.tsx', 'jsdom']],
       include: ['src/**/*.test.{ts,tsx}'],
+      setupFiles: ['src/test-setup.ts'],
     },
     server: {
       host: '0.0.0.0',

@@ -11,6 +11,7 @@ import api, {
 import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/intelligence';
 import { useStrategyStore } from '../store/strategies';
 import { useToastStore } from './ErrorBoundary';
+import { Field } from './ui/Field';
 import { InlineNotice } from './ui/PlatformUI';
 
 interface TradingParameters {
@@ -756,8 +757,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className={labelClass}>Start Date</label>
+          <Field label="Start Date" required labelClassName={labelClass}>
             <input
               type="date"
               name="start_date"
@@ -766,10 +766,9 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               className={inputClass}
               required
             />
-          </div>
+          </Field>
 
-          <div>
-            <label className={labelClass}>End Date</label>
+          <Field label="End Date" required labelClassName={labelClass}>
             <input
               type="date"
               name="end_date"
@@ -778,10 +777,13 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               className={inputClass}
               required
             />
-          </div>
+          </Field>
 
-          <div>
-            <label className={labelClass}>Number of Markets (0 = All)</label>
+          <Field
+            label="Number of Markets (0 = All)"
+            hint="Set to 0 to scan opportunities across all available markets."
+            labelClassName={labelClass}
+          >
             <input
               type="number"
               name="max_pairs"
@@ -791,12 +793,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               max="50"
               className={inputClass}
             />
-            <p className="mt-1 text-xs text-gray-400">
-              Set to 0 to scan opportunities across all available markets.
-            </p>
-          </div>
-          <div>
-            <label className={labelClass}>Pair Selection Mode</label>
+          </Field>
+          <Field label="Pair Selection Mode" labelClassName={labelClass}>
             <select
               name="pair_selection_mode"
               value={formData.trading_parameters.pair_selection_mode || 'liquidity'}
@@ -822,7 +820,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               <option value="volatility">Volatility (highest movement first)</option>
               <option value="input">Input order (no ranking)</option>
             </select>
-          </div>
+          </Field>
           <div className="md:col-span-2">
             <div className="mb-2 flex items-center justify-between gap-3">
               <label className="block text-xs font-semibold uppercase text-slate-400">
@@ -906,8 +904,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               </div>
             )}
           </div>
-          <div>
-            <label className={labelClass}>Z-Score Threshold</label>
+          <Field label="Z-Score Threshold" labelClassName={labelClass}>
             <input
               type="number"
               name="zscore_threshold"
@@ -918,9 +915,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               max="3"
               className={inputClass}
             />
-          </div>
-          <div>
-            <label className={labelClass}>Stats Window (days)</label>
+          </Field>
+          <Field label="Stats Window (days)" labelClassName={labelClass}>
             <input
               type="number"
               name="stats_window"
@@ -930,9 +926,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               max="60"
               className={inputClass}
             />
-          </div>
-          <div>
-            <label className={labelClass}>USD Per Trade</label>
+          </Field>
+          <Field label="USD Per Trade" labelClassName={labelClass}>
             <input
               type="number"
               name="usd_per_trade"
@@ -943,9 +938,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               max="1000"
               className={inputClass}
             />
-          </div>
-          <div>
-            <label className={labelClass}>Starting Balance</label>
+          </Field>
+          <Field label="Starting Balance" labelClassName={labelClass}>
             <input
               type="number"
               name="initial_balance"
@@ -955,9 +949,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               min="100"
               className={inputClass}
             />
-          </div>
-          <div>
-            <label className={labelClass}>Candle Resolution</label>
+          </Field>
+          <Field label="Candle Resolution" labelClassName={labelClass}>
             <select
               name="resolution"
               value={normalizeDydxCandleResolution(
@@ -980,9 +973,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
                 </option>
               ))}
             </select>
-          </div>
-          <div>
-            <label className={labelClass}>Transaction Fee</label>
+          </Field>
+          <Field label="Transaction Fee" labelClassName={labelClass}>
             <input
               type="number"
               name="transaction_fee"
@@ -992,9 +984,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               min="0"
               className={inputClass}
             />
-          </div>
-          <div>
-            <label className={labelClass}>Slippage</label>
+          </Field>
+          <Field label="Slippage" labelClassName={labelClass}>
             <input
               type="number"
               name="slippage"
@@ -1004,9 +995,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               min="0"
               className={inputClass}
             />
-          </div>
-          <div>
-            <label className={labelClass}>Risk-Free Rate</label>
+          </Field>
+          <Field label="Risk-Free Rate" labelClassName={labelClass}>
             <input
               type="number"
               name="risk_free_rate"
@@ -1016,9 +1006,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               min="0"
               className={inputClass}
             />
-          </div>
-          <div>
-            <label className={labelClass}>Max History Days</label>
+          </Field>
+          <Field label="Max History Days" labelClassName={labelClass}>
             <input
               type="number"
               name="max_history_days"
@@ -1028,7 +1017,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               max="3650"
               className={inputClass}
             />
-          </div>
+          </Field>
         </div>
 
         <InlineNotice

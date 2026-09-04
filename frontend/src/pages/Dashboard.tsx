@@ -31,6 +31,7 @@ import { PageContainer } from '../components/PageContainer';
 import { EmptyState, InlineNotice } from '../components/ui/PlatformUI';
 import type { BacktestRun } from '../features/backtests/intelligence';
 import { useAuthStore } from '../store/auth';
+import { formatCount, formatPct, formatSignedUsd } from '../utils/format';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -419,10 +420,9 @@ export const DashboardPage: React.FC = () => {
   // Animated counters
   const countTotal = useCountUp(stats.total);
 
-  const fmtPnl = (v: number) =>
-    (v > 0 ? '+' : '') + '$' + Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 2 });
-  const fmtPct = (v: number) => v.toFixed(1) + '%';
-  const fmtN = (v: number) => Math.round(v).toLocaleString('en-US');
+  const fmtPnl = (v: number) => formatSignedUsd(v);
+  const fmtPct = (v: number) => formatPct(v);
+  const fmtN = (v: number) => formatCount(v);
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';

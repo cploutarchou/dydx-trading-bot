@@ -36,12 +36,14 @@
     "autoprefixer": "^10.4.16",
     "cross-env": "^10.1.0",
     "eslint": "^9.15.0",
+    "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
     "jsdom": "^30.0.1",
     "postcss": "^8.5.15",
+    "prettier": "^3.9.6",
     "tailwindcss": "^4.1.14",
     "typescript": "6.0.3",
     "vite": "^8.0.16",
@@ -66,7 +68,9 @@
     "qa:screenshots:plan": "node ./scripts/capture-responsive-screenshots.mjs --dry-run",
     "qa:screenshots:capture": "node ./scripts/capture-responsive-screenshots.mjs",
     "qa:screenshots:sync": "node ./scripts/update-responsive-screenshot-checklist.mjs",
-    "qa:crypto-background": "node ./scripts/verify-crypto-background-browser.mjs"
+    "qa:crypto-background": "node ./scripts/verify-crypto-background-browser.mjs",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\""
   },
   "browserslist": [
     "Firefox >= 110",

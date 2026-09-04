@@ -1712,6 +1712,9 @@ export default function StrategyManager() {
             return (
               <div
                 key={strategy.id}
+                // Card is intentionally focusable so keyboard operators can
+                // select a strategy before triggering its actions.
+                // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
                 tabIndex={0}
                 onFocus={() => {
                   setFocusedCardId(strategy.id);

@@ -746,6 +746,9 @@ export const BacktestList: React.FC<{
 
   return (
     <div
+      // Deliberate focusable region: the archive exposes keyboard shortcuts
+      // (archive/cancel) on the container itself.
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
       tabIndex={0}
       onKeyDown={handleArchiveKeyDown}
       aria-label="Backtest run archive"

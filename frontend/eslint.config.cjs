@@ -1,7 +1,9 @@
-// eslint.config.cjs - Flat config that loads existing .eslintrc via FlatCompat
+// Flat ESLint config — single source of truth (legacy .eslintrc.cjs removed).
+// FlatCompat translates the classic plugin recommended configs into flat
+// format; the full set from the old legacy file is loaded here so
+// react-hooks / jsx-a11y / import rules actually run.
 const { FlatCompat } = require('@eslint/eslintrc');
 const js = require('@eslint/js');
-const path = require('path');
 
 const compat = new FlatCompat({
   baseDirectory: __dirname,
@@ -10,14 +12,29 @@ const compat = new FlatCompat({
 });
 
 module.exports = [
-  // Translate our existing .eslintrc.cjs extensions/plugins/rules into flat format
-  ...compat.extends('plugin:react/recommended', 'plugin:@typescript-eslint/recommended', 'eslint:recommended'),
-  ...compat.plugins('react', '@typescript-eslint', 'react-hooks', 'jsx-a11y', 'import'),
-  ...compat.config({
-    env: { browser: true, node: true, es2024: true },
-    parser: '@typescript-eslint/parser',
-    parserOptions: { ecmaVersion: 2024, sourceType: 'module', ecmaFeatures: { jsx: true } },
-    settings: { react: { version: 'detect' } },
+  {
+    ignores: ['dist/**', 'coverage/**', 'playwright-report/**', 'test-results/**', 'e2e/**'],
+  },
+  ...compat.extends(
+    'eslint:recommended',
+    'plugin:@typescript-eslint/recommended',
+    'plugin:react/recommended',
+    'plugin:react-hooks/recommended',
+    'plugin:jsx-a11y/recommended',
+    'plugin:import/errors',
+    'plugin:import/warnings',
+    'plugin:import/typescript'
+  ),
+  {
+    settings: {
+      react: { version: 'detect' },
+      'import/resolver': { typescript: {} },
+    },
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: 'module',
+      parserOptions: { ecmaFeatures: { jsx: true } },
+    },
     rules: {
       // Prefer TS-aware unused var checks and allow underscore-prefixed placeholders.
       'no-unused-vars': 'off',
@@ -26,13 +43,32 @@ module.exports = [
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
       ],
       '@typescript-eslint/no-explicit-any': 'warn',
-      // Keep signal without blocking for common JSX text and placeholder blocks.
       'react/no-unescaped-entities': 'warn',
       'no-empty': 'warn',
       '@typescript-eslint/explicit-module-boundary-types': 'off',
       'react/react-in-jsx-scope': 'off',
       'import/order': ['warn', { 'newlines-between': 'never' }],
     },
-  }),
+  },
+  {
+    // Debt carve-out (audit FE-038): enabling the full react-hooks v7 and
+    // jsx-a11y recommended sets surfaced 238 pre-existing violations
+    // (91 label-has-associated-control, ~104 react-hooks, 24 import naming).
+    // These specific rules stay off until their categories are burned down;
+    // everything else from the recommended sets runs at full severity.
+    rules: {
+      'jsx-a11y/label-has-associated-control': 'off',
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/exhaustive-deps': 'off',
+      'react-hooks/static-components': 'off',
+      'react-hooks/preserve-manual-memoization': 'off',
+      'react-hooks/immutability': 'off',
+      'react-hooks/purity': 'off',
+      'import/no-named-as-default': 'off',
+      'import/no-named-as-default-member': 'off',
+      'jsx-a11y/no-static-element-interactions': 'off',
+      'jsx-a11y/click-events-have-key-events': 'off',
+      'jsx-a11y/no-noninteractive-element-interactions': 'off',
+    },
+  },
 ];
-

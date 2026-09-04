@@ -163,6 +163,9 @@ export const LoginPage: React.FC = () => {
                 onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
                 placeholder="123456"
                 disabled={loading}
+                // Focusing the one-time code is the intended landing point
+                // after the MFA challenge appears.
+                // eslint-disable-next-line jsx-a11y/no-autofocus
                 autoFocus
                 required
               />

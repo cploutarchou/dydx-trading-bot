@@ -266,6 +266,9 @@ export default function StrategyBuilder() {
     },
   });
 
+  // react-hook-form's watch() is not React-Compiler-optimizable; that is
+  // expected for this form library and only skips compilation for this file.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const formValues = watch();
   const fieldLabelClass = 'mb-2 block text-sm font-semibold text-slate-200';
   const helperTextClass = 'mt-2 text-xs leading-5 text-slate-500';

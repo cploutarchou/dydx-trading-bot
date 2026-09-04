@@ -137,6 +137,9 @@ export const AuthSettingsComponent: React.FC = () => {
 
       {/* Tabs */}
       <div className="premium-panel overflow-hidden p-0">
+        {/* Keyboard arrow handling for the tab list lives here; the tabs
+            themselves are the focusable elements, not the list container. */}
+        {/* eslint-disable-next-line jsx-a11y/interactive-supports-focus */}
         <div
           className="flex border-b border-slate-700/60"
           role="tablist"

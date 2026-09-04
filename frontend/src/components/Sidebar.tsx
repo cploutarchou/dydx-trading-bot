@@ -1,6 +1,6 @@
 import { Command, LogOut, Search, X } from 'lucide-react';
 import React from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { getUserWorkspaceRole } from '../auth/roles';
 import { useI18n } from '../i18n/useI18n';
 import {
@@ -42,10 +42,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
     };
 
     return labels[section];
-  };
-
-  const openWorkspace = (path: string) => {
-    navigate(path);
   };
 
   const handleLogout = () => {
@@ -133,13 +129,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
               {visibleQuickActions.slice(0, 3).map((item) => {
                 const Icon = item.icon;
                 return (
-                  <button
+                  <Link
                     key={`quick-${item.path}`}
-                    type="button"
-                    onClick={() => {
-                      openWorkspace(item.path);
-                      onClose?.();
-                    }}
+                    to={item.path}
+                    onClick={onClose}
                     className="flex min-h-22 flex-col items-start justify-between rounded-lg border border-slate-800 bg-stone-950/78 p-3 text-left text-slate-300 transition hover:border-cyan-500/30 hover:bg-stone-900 hover:text-white"
                     title={tr(item.description)}
                   >
@@ -149,7 +142,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
                     <p className="mt-2 text-xs font-semibold leading-4 text-slate-100">
                       {tr(item.label)}
                     </p>
-                  </button>
+                  </Link>
                 );
               })}
             </div>
@@ -171,13 +164,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
                       const Icon = item.icon;
 
                       return (
-                        <button
+                        <Link
                           key={item.path}
-                          type="button"
-                          onClick={() => {
-                            openWorkspace(item.path);
-                            onClose?.();
-                          }}
+                          to={item.path}
+                          onClick={onClose}
                           title={tr(item.description)}
                           className={`group flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-all ${
                             active
@@ -208,7 +198,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
                           {active && (
                             <div className="ml-auto h-1.5 w-1.5 rounded-full bg-white/70" />
                           )}
-                        </button>
+                        </Link>
                       );
                     })}
                   </div>

@@ -59,12 +59,6 @@ const BACKOFFICE_ALIASES = new Set([
   'security_analyst',
 ]);
 
-const BUILT_IN_ROLES = new Set<string>([
-  ...BACKOFFICE_ROLES,
-  ...CLIENT_ROLES,
-  ...IB_ROLES,
-]);
-
 export const normalizeWorkspaceRole = (role?: string, isAdmin?: boolean): WorkspaceRole => {
   const normalized = (role || '').trim().toLowerCase();
   if (isAdmin) {
@@ -108,11 +102,9 @@ export const roleMatches = (role: WorkspaceRole, allowedRoles?: WorkspaceRole[])
   if (allowedRoles.includes('backoffice') && BACKOFFICE_ROLES.includes(role)) {
     return true;
   }
-  const isCustomRole = !BUILT_IN_ROLES.has(role);
-  const allowsBackoffice = allowedRoles.some((allowedRole) => BACKOFFICE_ROLES.includes(allowedRole));
-  if (isCustomRole && allowsBackoffice) {
-    return true;
-  }
+  // Unknown/custom roles fail closed: they only pass when explicitly listed.
+  // (The backend remains the authorization boundary; this keeps the UI from
+  // granting unrecognised roles a backoffice surface by default.)
   return allowedRoles.includes(role);
 };
 

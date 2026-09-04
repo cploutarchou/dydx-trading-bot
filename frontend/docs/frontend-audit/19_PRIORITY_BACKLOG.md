@@ -8,6 +8,7 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 | Date | Completed |
 |---|---|
 | 2026-09-04 | FE-005, FE-001, FE-004a (`npm test` + full suite in CI; full Playwright/jsdom foundation still open under FE-004), FE-011, FE-012, FE-013 (hidden Light option; full light mode still deferred), FE-010, FE-014, FE-031, FE-007, FE-027, FE-026 |
+| 2026-09-05 | FE-016 (7 dead files + `src/dev` deleted), FE-021 (framer-motion/@headlessui/@react-buddy/date-fns/recharts removed; vite+tailwindcss+forms → devDeps), FE-017 (roleMatches fail-closed + tests), FE-020 (RouteErrorBoundary via pathless errorElement), FE-004 **complete** (jsdom + Testing Library + Playwright, 2 component tests, 7 backend-free E2E smoke specs, CI runs unit+e2e; suite now 21 files / 116 tests + 7 e2e) |
 
 ## P1 — correctness & security high
 
@@ -33,12 +34,12 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 | ✅ FE-013 | UX | Theme combobox shows disabled "Light" (FORCE_DARK_THEME) | Visible dead control; README drift | XS (hide) / M (ship light) | product decision — **done (hide); full light mode deferred** |
 | ✅ FE-014 | Network | Duplicate codex market-overview fetch on Market Intel | Wasted calls, slower paint | S | none — **root cause was React Query retrying deterministic 503s; retry now skips any HTTP-status error (transport errors still back off)** |
 | ⬜ FE-015 | Architecture | Dual HTTP stacks (axios api.ts 4,822ln vs fetch enhancedClient) with duplicated refresh logic; ambiguous `api/client.ts` shim | Every auth bug fixed twice | L | none (staged consolidation) |
-| ⬜ FE-016 | Dead code | ~3,650 lines dead pages + components (BotDashboard, CRM, IBPortal, BacktestDetails cluster, hooks/useBacktestProgress) | Maintenance drag | S | none |
-| ⬜ FE-017 | Security | `roleMatches` fail-open for unknown/custom roles on backoffice lists | Wrong-role UI exposure (backend still 403s) | S | none |
+| ✅ FE-016 | Dead code | ~3,650 lines dead pages + components (BotDashboard, CRM, IBPortal, BacktestDetails cluster, hooks/useBacktestProgress) | Maintenance drag | S | none — **done: 7 files + src/dev deleted, zero-importer verified, build/lint green** |
+| ✅ FE-017 | Security | `roleMatches` fail-open for unknown/custom roles on backoffice lists | Wrong-role UI exposure (backend still 403s) | S | none — **done: fail-closed, custom roles need explicit allow-listing; 3 regression tests** |
 | ⬜ FE-018 | Security | No CSP/Referrer-Policy/frame-ancestors (meta+server) | Clickjacking/referrer leakage | S | BE/infra headers |
 | ⬜ FE-019 | Security | CSRF posture undocumented for cookie-authenticated mutations (SameSite=None assumption) | Needs verification | S | BE verify Origin checks |
-| ⬜ FE-020 | Reliability | Single global ErrorBoundary; no per-route `errorElement` | One crash = blank app | S | none |
-| ⬜ FE-021 | Deps | Unused prod deps (framer-motion, @headlessui, @react-buddy, date-fns, recharts-via-dead-page); react-hook-form 1-file usage | Bundle/supply chain | S | FE-016 first |
+| ✅ FE-020 | Reliability | Single global ErrorBoundary; no per-route `errorElement` | One crash = blank app | S | none — **done: `RouteErrorBoundary` on pathless wrapper route (in-place reload/dashboard recovery)** |
+| ✅ FE-021 | Deps | Unused prod deps (framer-motion, @headlessui, @react-buddy, date-fns, recharts-via-dead-page); react-hook-form 1-file usage | Bundle/supply chain | S | FE-016 first — **done: 5 deps removed; vite/tailwindcss/@tailwindcss/forms moved to devDependencies** |
 | ⬜ FE-022 | Code quality | 65 local formatters/172 toFixed/date-fns-unused — money formatting not centralized | Inconsistent money display | M | none |
 | ⬜ FE-023 | Code quality | 21 manual loading/error useState files vs React Query (half-finished migration) | Duplicated state bugs | M | none |
 | 🟡 FE-024 | QA process | Responsive QA checklists `[x]` with zero evidence files; CI test gate mismatch | False confidence | S | re-run capture suite — **CI gate half fixed by FE-004a; screenshot evidence still stale** |

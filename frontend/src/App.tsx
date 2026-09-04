@@ -24,6 +24,7 @@ import {
 } from './components/ErrorBoundary';
 import { MainLayout } from './components/MainLayout';
 import { RegistrationDisabledLoginGate } from './components/RegistrationDisabledLoginGate';
+import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import { ThemeProvider } from './components/ThemeProvider';
 import { LandingPage } from './pages/Landing';
 import { LoginPage } from './pages/Login';
@@ -266,6 +267,9 @@ export const App: React.FC = () => {
             <Suspense fallback={<AuthSkeleton />}>
               <ComingSoonGate>
                 <Routes>
+                  {/* Pathless wrapper: any render/loader error below renders
+                      RouteErrorBoundary in place instead of a blank app. */}
+                  <Route errorElement={<RouteErrorBoundary />}>
                   <Route
                     path="/"
                     element={
@@ -311,6 +315,7 @@ export const App: React.FC = () => {
                   ))}
 
                   <Route path="*" element={<Navigate to="/unauthorized" replace />} />
+                  </Route>
                 </Routes>
               </ComingSoonGate>
             </Suspense>

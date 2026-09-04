@@ -1,11 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { formatCount, formatPct, formatSignedUsd, formatSignedUsdCompact, formatUsd } from './format';
+import {
+  formatCount,
+  formatPct,
+  formatSignedUsd,
+  formatSignedUsdCompact,
+  formatUsd,
+  formatUsdFixed,
+} from './format';
 
 describe('shared formatters', () => {
   it('formatUsd renders grouped absolute amounts', () => {
     expect(formatUsd(1234.5)).toBe('$1,234.5');
     expect(formatUsd(0)).toBe('$0');
     expect(formatUsd(-42)).toBe('$42');
+  });
+
+  it('formatUsdFixed keeps exactly two decimals for ledger surfaces', () => {
+    expect(formatUsdFixed(100)).toBe('$100.00');
+    expect(formatUsdFixed(1234.5)).toBe('$1,234.50');
+    expect(formatUsdFixed(Number.NaN)).toBe('$0.00');
+    expect(formatUsdFixed(undefined)).toBe('$0.00');
+    expect(formatUsdFixed(null)).toBe('$0.00');
   });
 
   it('formatSignedUsd adds direction arrows and keeps zero neutral', () => {

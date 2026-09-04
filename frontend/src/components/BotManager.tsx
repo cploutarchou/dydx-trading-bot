@@ -23,6 +23,7 @@ import {
 	useStartBotInstance,
 	useStopBotInstance,
 } from '../api/hooks';
+import { formatSignedUsd } from '../utils/format';
 import { ArbitrageImprovementPanel } from './ArbitrageImprovementPanel';
 import { Field } from './ui/Field';
 import { useToastStore } from './ErrorBoundary';
@@ -241,11 +242,6 @@ const toOperatorErrorMessage = (error: unknown, fallback: string): string => {
   return error instanceof Error ? error.message : fallback;
 };
 
-const formatUsd = (value: number): string =>
-  `${value >= 0 ? '+' : '-'}$${Math.abs(value).toLocaleString('en-US', {
-    maximumFractionDigits: 2,
-  })}`;
-
 const formatDateTime = (value?: string): string => {
   if (!value) return 'N/A';
   const parsed = new Date(value);
@@ -381,7 +377,7 @@ const BotCard: React.FC<BotCardProps> = ({
               <p
                 className={`mt-1 text-sm font-semibold ${stats.total_pnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}
               >
-                {formatUsd(stats.total_pnl)}
+                {formatSignedUsd(stats.total_pnl)}
               </p>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
@@ -472,7 +468,7 @@ const BotCard: React.FC<BotCardProps> = ({
               <p
                 className={`text-lg font-semibold ${stats.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
               >
-                {formatUsd(stats.total_pnl)}
+                {formatSignedUsd(stats.total_pnl)}
               </p>
             </div>
             <div className="metric-tile p-3">

@@ -22,6 +22,16 @@ export const formatSignedUsd = (value: number, maximumFractionDigits = 2): strin
   return `${direction}$${usdFormatter(maximumFractionDigits).format(Math.abs(value))}`;
 };
 
+/** `$1,234.50` — USD with exactly two decimals (ledgers, commissions).
+ * Accepts undefined/null so optional API fields render as `$0.00`. */
+export const formatUsdFixed = (value: number | undefined | null): string =>
+  typeof value === 'number' && Number.isFinite(value)
+    ? `$${Math.abs(value).toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`
+    : '$0.00';
+
 /** `12.3%` — percentage with fixed digits. */
 export const formatPct = (value: number, fractionDigits = 1): string =>
   `${Number.isFinite(value) ? value.toFixed(fractionDigits) : '0.0'}%`;

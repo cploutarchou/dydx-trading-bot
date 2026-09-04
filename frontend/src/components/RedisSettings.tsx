@@ -305,8 +305,8 @@ const RedisSettings: React.FC = () => {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-slate-300 text-sm font-medium mb-2">Host</label>
-                <input
+                <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="host">Host</label>
+                <input id="host"
                   type="text"
                   value={editedSettings.host || ''}
                   onChange={(e) =>
@@ -319,8 +319,8 @@ const RedisSettings: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-slate-300 text-sm font-medium mb-2">Port</label>
-                <input
+                <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="port">Port</label>
+                <input id="port"
                   type="number"
                   value={editedSettings.port || ''}
                   onChange={(e) =>
@@ -333,8 +333,8 @@ const RedisSettings: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-slate-300 text-sm font-medium mb-2">Database</label>
-                <input
+                <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="database">Database</label>
+                <input id="database"
                   type="number"
                   value={editedSettings.database || ''}
                   onChange={(e) =>
@@ -347,10 +347,8 @@ const RedisSettings: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-slate-300 text-sm font-medium mb-2">
-                  Timeout (seconds)
-                </label>
-                <input
+                <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="timeout-seconds">Timeout (seconds)</label>
+                <input id="timeout-seconds"
                   type="number"
                   value={editedSettings.timeout || ''}
                   onChange={(e) =>
@@ -363,8 +361,8 @@ const RedisSettings: React.FC = () => {
                 />
               </div>
               <div className="col-span-2">
-                <label className="block text-slate-300 text-sm font-medium mb-2">Password</label>
-                <input
+                <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="password">Password</label>
+                <input id="password"
                   type="password"
                   value={editedSettings.password || ''}
                   onChange={(e) =>
@@ -381,10 +379,8 @@ const RedisSettings: React.FC = () => {
 
             {/* Cache TTL */}
             <div>
-              <label className="block text-slate-300 text-sm font-medium mb-2">
-                Cache TTL (seconds)
-              </label>
-              <input
+              <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="cache-ttl-seconds">Cache TTL (seconds)</label>
+              <input id="cache-ttl-seconds"
                 type="number"
                 value={editedSettings.cache_ttl_seconds || ''}
                 onChange={(e) =>

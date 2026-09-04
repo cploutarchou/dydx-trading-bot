@@ -243,9 +243,9 @@ export const AuthSettingsComponent: React.FC = () => {
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-300">
+                <p className="mb-2 block text-sm font-medium text-slate-300">
                   Account Status
-                </label>
+                </p>
                 <div className="flex items-center gap-2">
                   <CheckCircle className="h-5 w-5 text-emerald-400" />
                   <span className="font-medium text-slate-200">

@@ -1023,10 +1023,8 @@ export function AdminAccessControlSettings() {
 
             {registrationModeDraft === 'invitation_only' && (
               <div className="mt-4 grid gap-2">
-                <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Invitation code
-                </label>
-                <input
+                <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="invitation-code">Invitation code</label>
+                <input id="invitation-code"
                   value={invitationCodeDraft}
                   onChange={(event) => setInvitationCodeDraft(event.target.value)}
                   placeholder="Set invitation code"
@@ -1096,10 +1094,8 @@ export function AdminAccessControlSettings() {
                     Enabled
                   </label>
                 </div>
-                <label className="mt-3 block text-xs uppercase tracking-[0.14em] text-slate-500">
-                  Host
-                </label>
-                <input
+                <label className="mt-3 block text-xs uppercase tracking-[0.14em] text-slate-500" htmlFor="crm-subdomain-host">Host</label>
+                <input id="crm-subdomain-host"
                   value={crmSubdomainHostDraft}
                   onChange={(event) => setCrmSubdomainHostDraft(event.target.value)}
                   placeholder="crm.localhost"
@@ -1122,10 +1118,8 @@ export function AdminAccessControlSettings() {
                     Enabled
                   </label>
                 </div>
-                <label className="mt-3 block text-xs uppercase tracking-[0.14em] text-slate-500">
-                  Host
-                </label>
-                <input
+                <label className="mt-3 block text-xs uppercase tracking-[0.14em] text-slate-500" htmlFor="ib-subdomain-host">Host</label>
+                <input id="ib-subdomain-host"
                   value={ibSubdomainHostDraft}
                   onChange={(event) => setIbSubdomainHostDraft(event.target.value)}
                   placeholder="ib-portal.localhost"
@@ -1478,10 +1472,8 @@ export function AdminAccessControlSettings() {
 
                     <div className="mt-4 grid gap-4 md:grid-cols-2">
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          Email
-                        </label>
-                        <input
+                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="email">Email</label>
+                        <input id="email"
                           value={draft.email}
                           onChange={(event) =>
                             handleDraftChange(user.id, 'email', event.target.value)
@@ -1490,10 +1482,8 @@ export function AdminAccessControlSettings() {
                         />
                       </div>
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          Full name
-                        </label>
-                        <input
+                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="full-name">Full name</label>
+                        <input id="full-name"
                           value={draft.full_name}
                           onChange={(event) =>
                             handleDraftChange(user.id, 'full_name', event.target.value)
@@ -1502,10 +1492,8 @@ export function AdminAccessControlSettings() {
                         />
                       </div>
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          Role
-                        </label>
-                        <select
+                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="role">Role</label>
+                        <select id="role"
                           value={draft.role}
                           onChange={(event) =>
                             handleDraftChange(user.id, 'role', event.target.value)
@@ -1521,9 +1509,9 @@ export function AdminAccessControlSettings() {
                         </select>
                       </div>
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        <p className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                           Account status
-                        </label>
+                        </p>
                         <label className="flex items-center gap-3 rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-slate-300">
                           <input
                             type="checkbox"
@@ -1540,10 +1528,8 @@ export function AdminAccessControlSettings() {
                         </label>
                       </div>
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          Max active backtests
-                        </label>
-                        <input
+                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="max-active-backtests">Max active backtests</label>
+                        <input id="max-active-backtests"
                           type="number"
                           min={1}
                           max={1000}
@@ -1559,10 +1545,8 @@ export function AdminAccessControlSettings() {
                         />
                       </div>
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          Max strategies
-                        </label>
-                        <input
+                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="max-strategies">Max strategies</label>
+                        <input id="max-strategies"
                           type="number"
                           min={1}
                           max={1000}
@@ -1578,10 +1562,8 @@ export function AdminAccessControlSettings() {
                         />
                       </div>
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          Max bot instances
-                        </label>
-                        <input
+                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="max-bot-instances">Max bot instances</label>
+                        <input id="max-bot-instances"
                           type="number"
                           min={1}
                           max={1000}

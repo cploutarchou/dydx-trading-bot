@@ -273,7 +273,7 @@ export const DYDXKeyManager: React.FC = () => {
 
           {/* Network Selection */}
           <div className="mb-6">
-            <label className="mb-3 block font-medium text-white">Select Network</label>
+            <p className="mb-3 block font-medium text-white">Select Network</p>
             <div className="grid grid-cols-2 gap-4">
               {(['testnet', 'mainnet'] as const).map((net) => (
                 <label
@@ -316,11 +316,9 @@ export const DYDXKeyManager: React.FC = () => {
 
           {/* Chain Address */}
           <div className="mb-6">
-            <label className="mb-2 block font-medium text-white">
-              Chain Address
-              <span className="text-red-400 ml-1">*</span>
-            </label>
-            <input
+            <label className="mb-2 block font-medium text-white" htmlFor="chain-address">Chain Address
+              <span className="text-red-400 ml-1">*</span></label>
+            <input id="chain-address"
               type="text"
               placeholder="dydx1xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
               value={formData.chain_address}
@@ -348,7 +346,7 @@ export const DYDXKeyManager: React.FC = () => {
 
           {/* Secret Phrase */}
           <div className="mb-6">
-            <label className="mb-2 block font-medium text-white">
+            <label className="mb-2 block font-medium text-white" htmlFor="secret-phrase">
               Secret Phrase / Mnemonic
               <span className="text-red-400 ml-1">*</span>
             </label>
@@ -356,6 +354,7 @@ export const DYDXKeyManager: React.FC = () => {
                 phrases are operational secrets and should not render on screen. */}
             <div className="relative">
               <input
+                id="secret-phrase"
                 type={showMnemonic ? 'text' : 'password'}
                 autoComplete="off"
                 spellCheck={false}

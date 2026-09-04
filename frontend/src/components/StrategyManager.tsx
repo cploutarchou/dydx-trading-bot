@@ -2210,10 +2210,8 @@ export default function StrategyManager() {
               <div className="space-y-6 px-6 py-6">
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-200">
-                      Environment
-                    </label>
-                    <select
+                    <label className="mb-2 block text-sm font-medium text-slate-200" htmlFor="environment">Environment</label>
+                    <select id="environment"
                       ref={startDialogNetworkRef}
                       value={startDialogNetwork}
                       onChange={(event) =>
@@ -2516,8 +2514,8 @@ export default function StrategyManager() {
                   </div>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
-                      <label className="mb-2 block text-white font-medium">Name</label>
-                      <input
+                      <label className="mb-2 block text-white font-medium" htmlFor="name">Name</label>
+                      <input id="name"
                         ref={configNameInputRef}
                         type="text"
                         value={editingConfig.name || ''}
@@ -2526,8 +2524,8 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Category</label>
-                      <input
+                      <label className="mb-2 block text-white font-medium" htmlFor="category">Category</label>
+                      <input id="category"
                         type="text"
                         value={editingConfig.category || ''}
                         onChange={(e) => updateEditingConfig({ category: e.target.value })}
@@ -2535,8 +2533,8 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div className="md:col-span-2">
-                      <label className="mb-2 block text-white font-medium">Description</label>
-                      <textarea
+                      <label className="mb-2 block text-white font-medium" htmlFor="description">Description</label>
+                      <textarea id="description"
                         value={editingConfig.description || ''}
                         onChange={(e) => updateEditingConfig({ description: e.target.value })}
                         rows={3}
@@ -2553,8 +2551,8 @@ export default function StrategyManager() {
                   </div>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
-                      <label className="mb-2 block text-white font-medium">Runtime strategy</label>
-                      <select
+                      <label className="mb-2 block text-white font-medium" htmlFor="runtime-strategy">Runtime strategy</label>
+                      <select id="runtime-strategy"
                         value={editingConfig.runtime_strategy || 'cointegration'}
                         onChange={(e) => updateEditingConfig({ runtime_strategy: e.target.value })}
                         className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
@@ -2567,8 +2565,8 @@ export default function StrategyManager() {
                       </select>
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Runtime network</label>
-                      <select
+                      <label className="mb-2 block text-white font-medium" htmlFor="runtime-network">Runtime network</label>
+                      <select id="runtime-network"
                         value={editingConfig.runtime_network ?? 'testnet'}
                         onChange={(e) =>
                           updateEditingConfig({
@@ -2582,10 +2580,8 @@ export default function StrategyManager() {
                       </select>
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">
-                        Runtime subaccount
-                      </label>
-                      <input
+                      <label className="mb-2 block text-white font-medium" htmlFor="runtime-subaccount">Runtime subaccount</label>
+                      <input id="runtime-subaccount"
                         type="number"
                         min="0"
                         step="1"
@@ -2603,8 +2599,8 @@ export default function StrategyManager() {
                       </p>
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Resolution</label>
-                      <select
+                      <label className="mb-2 block text-white font-medium" htmlFor="resolution">Resolution</label>
+                      <select id="resolution"
                         value={normalizeDydxCandleResolution(
                           editingConfig.candle_resolution || editingConfig.resolution || '1HOUR'
                         )}
@@ -2645,8 +2641,8 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Stats window</label>
-                      <input
+                      <label className="mb-2 block text-white font-medium" htmlFor="stats-window">Stats window</label>
+                      <input id="stats-window"
                         type="number"
                         min="5"
                         max="365"
@@ -2658,8 +2654,8 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Max half-life</label>
-                      <input
+                      <label className="mb-2 block text-white font-medium" htmlFor="max-half-life">Max half-life</label>
+                      <input id="max-half-life"
                         type="number"
                         min="1"
                         value={editingConfig.max_half_life ?? 24}
@@ -2690,10 +2686,8 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">
-                        USD min collateral
-                      </label>
-                      <input
+                      <label className="mb-2 block text-white font-medium" htmlFor="usd-min-collateral">USD min collateral</label>
+                      <input id="usd-min-collateral"
                         type="number"
                         step="1"
                         min="0"
@@ -2740,8 +2734,8 @@ export default function StrategyManager() {
                   </div>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
-                      <label className="mb-2 block text-white font-medium">Max positions</label>
-                      <input
+                      <label className="mb-2 block text-white font-medium" htmlFor="max-positions">Max positions</label>
+                      <input id="max-positions"
                         type="number"
                         min="1"
                         max="100"
@@ -2774,8 +2768,8 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Stop loss %</label>
-                      <input
+                      <label className="mb-2 block text-white font-medium" htmlFor="stop-loss">Stop loss %</label>
+                      <input id="stop-loss"
                         type="number"
                         step="0.1"
                         min="0"
@@ -2787,8 +2781,8 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Take profit %</label>
-                      <input
+                      <label className="mb-2 block text-white font-medium" htmlFor="take-profit">Take profit %</label>
+                      <input id="take-profit"
                         type="number"
                         step="0.1"
                         min="0"
@@ -2800,8 +2794,8 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Trailing stop %</label>
-                      <input
+                      <label className="mb-2 block text-white font-medium" htmlFor="trailing-stop">Trailing stop %</label>
+                      <input id="trailing-stop"
                         type="number"
                         step="0.1"
                         min="0"
@@ -2813,10 +2807,8 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">
-                        Rebalance interval (hours)
-                      </label>
-                      <input
+                      <label className="mb-2 block text-white font-medium" htmlFor="rebalance-interval-hours">Rebalance interval (hours)</label>
+                      <input id="rebalance-interval-hours"
                         type="number"
                         min="1"
                         value={editingConfig.rebalance_interval_hours ?? 24}
@@ -2829,10 +2821,8 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">
-                        Position timeout (hours)
-                      </label>
-                      <input
+                      <label className="mb-2 block text-white font-medium" htmlFor="position-timeout-hours">Position timeout (hours)</label>
+                      <input id="position-timeout-hours"
                         type="number"
                         min="1"
                         value={editingConfig.position_timeout_hours ?? 72}
@@ -2919,8 +2909,8 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Max history days</label>
-                      <input
+                      <label className="mb-2 block text-white font-medium" htmlFor="max-history-days">Max history days</label>
+                      <input id="max-history-days"
                         type="number"
                         min="1"
                         max="3650"
@@ -2932,8 +2922,8 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Risk-free rate</label>
-                      <input
+                      <label className="mb-2 block text-white font-medium" htmlFor="risk-free-rate">Risk-free rate</label>
+                      <input id="risk-free-rate"
                         type="number"
                         step="0.001"
                         min="0"

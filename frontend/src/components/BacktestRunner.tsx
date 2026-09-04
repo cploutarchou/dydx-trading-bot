@@ -823,9 +823,9 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
           </Field>
           <div className="md:col-span-2">
             <div className="mb-2 flex items-center justify-between gap-3">
-              <label className="block text-xs font-semibold uppercase text-slate-400">
+              <p className="block text-xs font-semibold uppercase text-slate-400">
                 dYdX Markets
-              </label>
+              </p>
               <span
                 className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${marketSourceBadge.className}`}
                 title="Market data source health"

@@ -51,13 +51,18 @@ module.exports = [
     },
   },
   {
-    // Debt carve-out (audit FE-038): enabling the full react-hooks v7 and
-    // jsx-a11y recommended sets surfaced 238 pre-existing violations
-    // (91 label-has-associated-control, ~104 react-hooks, 24 import naming).
-    // These specific rules stay off until their categories are burned down;
-    // everything else from the recommended sets runs at full severity.
+    // Depth 4 lets the label rule see text nested inside wrapping spans
+    // (consent checkboxes, toggle rows) — those were false negatives before.
     rules: {
-      'jsx-a11y/label-has-associated-control': 'off',
+      'jsx-a11y/label-has-associated-control': ['error', { depth: 4 }],
+    },
+  },
+  {
+    // Debt carve-out (audit FE-038): enabling the full react-hooks v7 and
+    // jsx-a11y recommended sets surfaced pre-existing violations (react-hooks
+    // and import-naming categories). These rules stay off until their
+    // categories are burned down; everything else runs at full severity.
+    rules: {
       'react-hooks/set-state-in-effect': 'off',
       'react-hooks/exhaustive-deps': 'off',
       'react-hooks/static-components': 'off',

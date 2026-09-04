@@ -9,6 +9,7 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 |---|---|
 | 2026-09-04 | FE-005, FE-001, FE-004a (`npm test` + full suite in CI; full Playwright/jsdom foundation still open under FE-004), FE-011, FE-012, FE-013 (hidden Light option; full light mode still deferred), FE-010, FE-014, FE-031, FE-007, FE-027, FE-026 |
 | 2026-09-05 (pass 3) | FE-006 (Field primitive + both financial forms), FE-022 (started: shared format util + Dashboard), FE-018 (partial: referrer meta), FE-028 (CSV injection guard), FE-029 (partial: https allowlist + host suffix guard) |
+| 2026-09-05 (pass 9b) | FE-038 label category burned down (91→0, rule on) |
 | 2026-09-05 (pass 9) | FE-018 (nginx CSP + hardening headers), FE-029 (backend avatar validation + tests), FE-033 (noUncheckedIndexedAccess enabled, 50 fixed) |
 | 2026-09-05 (pass 8) | FE-033a (eslint full coverage + prettier), FE-036 (complete), FE-030 (complete), FE-022b (6 formatters), FE-019, FE-002 + FE-003 (cookie-first auth, verified live), FE-015 (scoped: shim deleted), FE-024 (complete within tooling limits); NEW FE-038 lint debt (238); backend CI test fix for c70cc809's fixture seeding (0879b268) |
 | 2026-09-05 (pass 7) | FE-032 (complete: −33% eager JS, event-driven WS auth sync) |
@@ -90,7 +91,7 @@ Enabling the full recommended lint rule sets revealed 238 pre-existing violation
 
 | Rule | Count | Fix pattern |
 |---|---:|---|
-| jsx-a11y/label-has-associated-control | 91 | migrate remaining forms to the `Field` primitive (FE-006 pattern) |
+| ~~jsx-a11y/label-has-associated-control~~ | ~~91~~ → **0 (2026-09-05: all 91 associated via htmlFor/id pairs, group captions converted to <p>, rule enabled at error level with depth 4; verified live — zero orphaned refs)** |
 | react-hooks/set-state-in-effect | 53 | derive state during render or move to event handlers |
 | react-hooks/exhaustive-deps | 36 | case-by-case dependency review |
 | import/no-named-as-default (+member) | 24 | rename default exports or import named |

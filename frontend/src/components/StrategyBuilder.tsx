@@ -1072,7 +1072,7 @@ export default function StrategyBuilder() {
       <form onSubmit={handleSubmit(onSubmit)} className="premium-panel space-y-6 sm:space-y-7">
         {/* Strategy Name */}
         <div>
-          <label className={fieldLabelClass}>
+          <label htmlFor="name" className={fieldLabelClass}>
             Strategy Name <span className="text-red-400">*</span>
           </label>
           <Controller
@@ -1085,6 +1085,7 @@ export default function StrategyBuilder() {
             }}
             render={({ field }) => (
               <input
+                id="name"
                 {...field}
                 type="text"
                 placeholder="e.g., Aggressive BTC/ETH Pair"
@@ -1097,14 +1098,12 @@ export default function StrategyBuilder() {
 
         {/* Category */}
         <div>
-          <label className={fieldLabelClass}>
-            Category <span className="text-red-400">*</span>
-          </label>
+          <label className={fieldLabelClass} htmlFor="category">Category <span className="text-red-400">*</span></label>
           <Controller
             name="category"
             control={control}
             render={({ field }) => (
-              <select {...field} className={`${compactInputClass} pr-10`}>
+              <select id="category" {...field} className={`${compactInputClass} pr-10`}>
                 <option value="pairs_trading">Pairs Trading (Cointegration)</option>
                 <option value="momentum">Momentum</option>
                 <option value="mean_reversion">Mean Reversion</option>
@@ -1115,9 +1114,7 @@ export default function StrategyBuilder() {
 
         {/* Candle Resolution */}
         <div>
-          <label className={fieldLabelClass}>
-            Candle Resolution <span className="text-red-400">*</span>
-          </label>
+          <label className={fieldLabelClass} htmlFor="resolution">Candle Resolution <span className="text-red-400">*</span></label>
           <Controller
             name="resolution"
             control={control}
@@ -1125,7 +1122,7 @@ export default function StrategyBuilder() {
               required: 'Candle resolution is required',
             }}
             render={({ field }) => (
-              <select
+              <select id="resolution"
                 {...field}
                 value={normalizeDydxCandleResolution(field.value)}
                 onChange={(event) =>
@@ -1155,12 +1152,13 @@ export default function StrategyBuilder() {
 
         {/* Description */}
         <div>
-          <label className={fieldLabelClass}>Description</label>
+          <label className={fieldLabelClass} htmlFor="description">Description</label>
           <Controller
             name="description"
             control={control}
             render={({ field }) => (
               <textarea
+                id="description"
                 {...field}
                 placeholder="Describe your strategy..."
                 rows={3}
@@ -1178,7 +1176,7 @@ export default function StrategyBuilder() {
 
         {/* Initial Investment Amount */}
         <div>
-          <label className={fieldLabelClass}>
+          <label htmlFor="initial_amount" className={fieldLabelClass}>
             Initial Investment Amount (USD) <span className="text-red-400">*</span>
           </label>
           <Controller
@@ -1192,6 +1190,7 @@ export default function StrategyBuilder() {
               <div className="flex items-center gap-3">
                 <span className="text-sm font-semibold text-slate-400">$</span>
                 <input
+                  id="initial_amount"
                   {...field}
                   type="number"
                   max="1000000"
@@ -1212,12 +1211,12 @@ export default function StrategyBuilder() {
 
         <div className="grid gap-6 md:grid-cols-2">
           <div>
-            <label className={fieldLabelClass}>Runtime Network</label>
+            <label className={fieldLabelClass} htmlFor="runtime_network">Runtime Network</label>
             <Controller
               name="runtime_network"
               control={control}
               render={({ field }) => (
-                <select {...field} className={`${compactInputClass} pr-10`}>
+                <select id="runtime_network" {...field} className={`${compactInputClass} pr-10`}>
                   <option value="testnet">dYdX Testnet</option>
                   <option value="mainnet">dYdX Mainnet</option>
                 </select>
@@ -1228,7 +1227,7 @@ export default function StrategyBuilder() {
             </p>
           </div>
           <div>
-            <label className={fieldLabelClass}>Runtime Subaccount</label>
+            <label className={fieldLabelClass} htmlFor="runtime_subaccount">Runtime Subaccount</label>
             <Controller
               name="runtime_subaccount"
               control={control}
@@ -1236,7 +1235,7 @@ export default function StrategyBuilder() {
                 min: { value: 0, message: 'Subaccount must be 0 or higher' },
               }}
               render={({ field }) => (
-                <input
+                <input id="runtime_subaccount"
                   {...field}
                   type="number"
                   min="0"
@@ -1259,7 +1258,7 @@ export default function StrategyBuilder() {
         <div>
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <label className={fieldLabelClass}>dYdX Market Universe</label>
+              <label htmlFor="selected_markets" className={fieldLabelClass}>dYdX Market Universe</label>
               <p className={helperTextClass}>
                 Choose 2-150 markets to constrain live pair discovery and strategy backtests.
               </p>
@@ -1274,6 +1273,7 @@ export default function StrategyBuilder() {
                     <label className="flex h-10 items-center gap-2 rounded-lg border border-slate-700/80 bg-slate-950/70 px-3 text-xs font-semibold text-slate-300">
                       <span>Auto select</span>
                       <input
+                        id="selected_markets"
                         type="number"
                         min={2}
                         max={MAX_SELECTED_MARKETS}
@@ -1608,7 +1608,7 @@ export default function StrategyBuilder() {
           {/* Z-Score Threshold */}
           <div className="mb-6">
             <div className="flex justify-between items-center mb-2">
-              <label className="text-sm font-semibold text-slate-200">
+              <label htmlFor="zscore_threshold" className="text-sm font-semibold text-slate-200">
                 Z-Score Threshold <span className="text-red-400">*</span>
               </label>
               <span className={inlineValueClass}>{formValues.zscore_threshold}</span>
@@ -1622,7 +1622,7 @@ export default function StrategyBuilder() {
                 max: { value: 5.0, message: 'Must not exceed 5.0' },
               }}
               render={({ field }) => (
-                <input
+                <input id="zscore_threshold"
                   {...field}
                   type="range"
                   min="0.5"
@@ -1641,7 +1641,7 @@ export default function StrategyBuilder() {
           {/* Stats Window */}
           <div className="mb-6">
             <div className="flex justify-between items-center mb-2">
-              <label className="text-sm font-semibold text-slate-200">
+              <label htmlFor="stats_window" className="text-sm font-semibold text-slate-200">
                 Stats Window (hours) <span className="text-red-400">*</span>
               </label>
               <span className={inlineValueClass}>{formValues.stats_window}</span>
@@ -1655,7 +1655,7 @@ export default function StrategyBuilder() {
                 max: { value: 120, message: 'Must not exceed 120' },
               }}
               render={({ field }) => (
-                <input
+                <input id="stats_window"
                   {...field}
                   type="range"
                   min="8"
@@ -1676,7 +1676,7 @@ export default function StrategyBuilder() {
           {/* Max Half-Life */}
           <div className="mb-6">
             <div className="flex justify-between items-center mb-2">
-              <label className="text-sm font-semibold text-slate-200">
+              <label htmlFor="max_half_life" className="text-sm font-semibold text-slate-200">
                 Max Half-Life (hours) <span className="text-red-400">*</span>
               </label>
               <span className={inlineValueClass}>{formValues.max_half_life}</span>
@@ -1690,7 +1690,7 @@ export default function StrategyBuilder() {
                 max: { value: 72, message: 'Must not exceed 72' },
               }}
               render={({ field }) => (
-                <input
+                <input id="max_half_life"
                   {...field}
                   type="range"
                   min="1"
@@ -1712,7 +1712,7 @@ export default function StrategyBuilder() {
 
         {/* Preset Buttons */}
         <div>
-          <label className="mb-3 block text-sm font-semibold text-slate-200">Quick Presets</label>
+          <p className="mb-3 block text-sm font-semibold text-slate-200">Quick Presets</p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <button
               type="button"
@@ -1761,7 +1761,7 @@ export default function StrategyBuilder() {
                   {/* Max Positions */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label className="text-sm font-semibold text-slate-200">Max Positions</label>
+                      <label htmlFor="max_positions" className="text-sm font-semibold text-slate-200">Max Positions</label>
                       <span className="text-sm text-cyan-300">{formValues.max_positions}</span>
                     </div>
                     <Controller
@@ -1786,7 +1786,7 @@ export default function StrategyBuilder() {
                   {/* Max Drawdown % */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label className="text-sm font-semibold text-slate-200">Max Drawdown %</label>
+                      <label htmlFor="max_drawdown_pct" className="text-sm font-semibold text-slate-200">Max Drawdown %</label>
                       <span className="text-sm text-cyan-300">{formValues.max_drawdown_pct}%</span>
                     </div>
                     <Controller
@@ -1808,7 +1808,7 @@ export default function StrategyBuilder() {
                   {/* Stop Loss % */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label className="text-sm font-semibold text-slate-200">Stop Loss %</label>
+                      <label htmlFor="stop_loss_pct" className="text-sm font-semibold text-slate-200">Stop Loss %</label>
                       <span className="text-sm text-cyan-300">{formValues.stop_loss_pct}%</span>
                     </div>
                     <Controller
@@ -1830,7 +1830,7 @@ export default function StrategyBuilder() {
                   {/* Take Profit % */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label className="text-sm font-semibold text-slate-200">Take Profit %</label>
+                      <label htmlFor="take_profit_pct" className="text-sm font-semibold text-slate-200">Take Profit %</label>
                       <span className="text-sm text-cyan-300">{formValues.take_profit_pct}%</span>
                     </div>
                     <Controller
@@ -1852,7 +1852,7 @@ export default function StrategyBuilder() {
                   {/* Trailing Stop % */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label className="text-sm font-semibold text-slate-200">
+                      <label htmlFor="trailing_stop_pct" className="text-sm font-semibold text-slate-200">
                         Trailing Stop %
                       </label>
                       <span className="text-sm text-cyan-300">{formValues.trailing_stop_pct}%</span>
@@ -1882,7 +1882,7 @@ export default function StrategyBuilder() {
                   {/* Amount Per Trade */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label className="text-sm font-semibold text-slate-200">
+                      <label htmlFor="usd_per_trade" className="text-sm font-semibold text-slate-200">
                         Amount Per Trade ($)
                       </label>
                       <span className="text-sm text-cyan-300">${formValues.usd_per_trade}</span>
@@ -1909,7 +1909,7 @@ export default function StrategyBuilder() {
                   {/* Rebalance Interval */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label className="text-sm font-semibold text-slate-200">
+                      <label htmlFor="rebalance_interval_hours" className="text-sm font-semibold text-slate-200">
                         Rebalance (hours)
                       </label>
                       <span className="text-sm text-cyan-300">
@@ -1935,7 +1935,7 @@ export default function StrategyBuilder() {
                   {/* Position Timeout */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label className="text-sm font-semibold text-slate-200">
+                      <label htmlFor="position_timeout_hours" className="text-sm font-semibold text-slate-200">
                         Position Timeout (hours)
                       </label>
                       <span className="text-sm text-cyan-300">
@@ -1961,7 +1961,7 @@ export default function StrategyBuilder() {
                   {/* Max History Days */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label className="text-sm font-semibold text-slate-200">
+                      <label htmlFor="max_history_days" className="text-sm font-semibold text-slate-200">
                         Max History Days
                       </label>
                       <span className="text-sm text-cyan-300">
@@ -1997,7 +1997,7 @@ export default function StrategyBuilder() {
                   {/* Transaction Fee */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label className="text-sm font-semibold text-slate-200">
+                      <label htmlFor="transaction_fee" className="text-sm font-semibold text-slate-200">
                         Transaction Fee
                       </label>
                       <span className="text-sm text-cyan-300">
@@ -2028,7 +2028,7 @@ export default function StrategyBuilder() {
                   {/* Slippage */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label className="text-sm font-semibold text-slate-200">Slippage</label>
+                      <label htmlFor="slippage" className="text-sm font-semibold text-slate-200">Slippage</label>
                       <span className="text-sm text-cyan-300">
                         {Number(formValues.slippage ?? 0.001).toFixed(4)}
                       </span>
@@ -2073,7 +2073,7 @@ export default function StrategyBuilder() {
                         />
                       )}
                     />
-                    <label className="text-sm text-slate-300">Find Cointegrated Pairs</label>
+                    <label htmlFor="manage_exits" className="text-sm text-slate-300">Find Cointegrated Pairs</label>
                   </div>
 
                   <div className="flex items-center space-x-2">
@@ -2089,7 +2089,7 @@ export default function StrategyBuilder() {
                         />
                       )}
                     />
-                    <label className="text-sm text-slate-300">Manage Exits</label>
+                    <label htmlFor="place_trades" className="text-sm text-slate-300">Manage Exits</label>
                   </div>
 
                   <div className="flex items-center space-x-2">
@@ -2105,7 +2105,7 @@ export default function StrategyBuilder() {
                         />
                       )}
                     />
-                    <label className="text-sm text-slate-300">Place Trades</label>
+                    <label htmlFor="close_at_zscore_cross" className="text-sm text-slate-300">Place Trades</label>
                   </div>
 
                   <div className="flex items-center space-x-2">
@@ -2121,7 +2121,7 @@ export default function StrategyBuilder() {
                         />
                       )}
                     />
-                    <label className="text-sm text-slate-300">Close at Z-Score Cross</label>
+                    <label htmlFor="abort_all_positions" className="text-sm text-slate-300">Close at Z-Score Cross</label>
                   </div>
 
                   <div className="flex items-center space-x-2">
@@ -2130,6 +2130,7 @@ export default function StrategyBuilder() {
                       control={control}
                       render={({ field: { value, onChange } }) => (
                         <input
+                          id="abort_all_positions"
                           type="checkbox"
                           checked={Boolean(value)}
                           onChange={(e) => onChange(e.target.checked)}
@@ -2137,7 +2138,9 @@ export default function StrategyBuilder() {
                         />
                       )}
                     />
-                    <label className="text-sm text-slate-300">Abort All Positions on Startup</label>
+                    <label className="text-sm text-slate-300" htmlFor="abort_all_positions">
+                      Abort All Positions on Startup
+                    </label>
                   </div>
                 </div>
               </div>
@@ -2155,6 +2158,7 @@ export default function StrategyBuilder() {
             control={control}
             render={({ field: { value, onChange } }) => (
               <input
+                id="is_public"
                 type="checkbox"
                 checked={Boolean(value)}
                 onChange={(e) => onChange(e.target.checked)}
@@ -2162,7 +2166,7 @@ export default function StrategyBuilder() {
               />
             )}
           />
-          <label className="text-sm font-semibold text-slate-200">
+          <label className="text-sm font-semibold text-slate-200" htmlFor="is_public">
             Make this strategy public (other users can view it)
           </label>
         </div>

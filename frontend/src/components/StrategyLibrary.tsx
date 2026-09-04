@@ -726,8 +726,8 @@ export default function StrategyLibrary() {
 
               <div className="space-y-3 mb-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Start Date</label>
-                  <input
+                  <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="start-date">Start Date</label>
+                  <input id="start-date"
                     type="date"
                     value={backtestStartDate}
                     onChange={(e) => setBacktestStartDate(e.target.value)}
@@ -735,8 +735,8 @@ export default function StrategyLibrary() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">End Date</label>
-                  <input
+                  <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="end-date">End Date</label>
+                  <input id="end-date"
                     type="date"
                     value={backtestEndDate}
                     onChange={(e) => setBacktestEndDate(e.target.value)}

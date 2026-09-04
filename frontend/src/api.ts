@@ -1784,8 +1784,9 @@ class ApiClient {
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
-      // Load persisted token for session recovery after page refresh
-      this.loadTokenFromStorage();
+      // Scrub the pre-FE-002 persisted JWT so no stale bearer remains on
+      // returning browsers; sessions recover via the HttpOnly cookie.
+      localStorage.removeItem('_dydx_access_token');
     }
 
     // Request interceptor: browser auth is carried by the HttpOnly session cookie.
@@ -1967,13 +1968,10 @@ class ApiClient {
     this.sessionEstablished = true;
     this.markSessionEstablished();
     // Persist token to localStorage for recovery after page refresh
-    if (typeof localStorage !== 'undefined') {
-      try {
-        localStorage.setItem('_dydx_access_token', token);
-      } catch (e) {
-        console.warn('❌ api.ts: Failed to persist token to localStorage', e);
-      }
-    }
+    // Audit FE-002: the access JWT is intentionally NOT persisted anymore.
+    // The HttpOnly session cookie is the durable credential (refresh flow
+    // re-issues tokens on load); an XSS-readable copy in localStorage was a
+    // session-theft surface on a trading app.
     // Event-driven auth observers (e.g. the WS manager) sync on this instead
     // of polling.
     if (typeof window !== 'undefined') {
@@ -2019,20 +2017,6 @@ class ApiClient {
 
   getAccessToken(): string | null {
     return this.accessToken;
-  }
-
-  private loadTokenFromStorage(): void {
-    if (typeof localStorage !== 'undefined') {
-      try {
-        const storedToken = localStorage.getItem('_dydx_access_token');
-        if (storedToken) {
-          this.accessToken = storedToken;
-          this.markSessionEstablished();
-        }
-      } catch (e) {
-        console.warn('❌ api.ts: Failed to load token from localStorage', e);
-      }
-    }
   }
 
   async refreshAccessToken(): Promise<Token> {
@@ -2119,9 +2103,8 @@ class ApiClient {
 
   async restoreSession(options: { allowCookieRefresh?: boolean } = {}): Promise<boolean> {
     try {
-      // Attempt to load token from localStorage first (recovery after page refresh)
-      this.loadTokenFromStorage();
-      // If we already have a valid in-memory access token, skip the refresh round-trip.
+      // Session recovery is cookie-driven: restoreSession refreshes via the
+      // HttpOnly session cookie and re-issues an in-memory access token.
       if (this.accessToken && this.sessionEstablished) {
         return true;
       }
@@ -4263,12 +4246,14 @@ class ApiClient {
     }
   }
 
-  // WebSocket connection for real-time updates
+  // WebSocket connection for real-time updates.
+  // Cookie-first (audit FE-003): the backend accepts the HttpOnly session
+  // cookie on WS upgrades and origin-checks the handshake, so same-origin
+  // sockets need no token. The query-param token stays only as a fallback
+  // for cookie-less flows to keep credentials out of proxy/access logs.
   connectSocket(path: string, token?: string): WebSocket {
-    if (!token && !this.accessToken) {
-      this.loadTokenFromStorage();
-    }
-    const useToken = token || this.accessToken || '';
+    const useToken =
+      token || (this.hasSessionHint() ? '' : this.accessToken || '');
     return new WebSocket(resolveBackendWebSocketUrl(path, useToken, API_BASE_URL));
   }
 

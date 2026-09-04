@@ -6,10 +6,10 @@ Depth: full static pass over `src/`, `apps/`, `packages/`, `public/`, build conf
 
 | ID | Finding | Evidence | Severity | Fix direction |
 |---|---|---|---|---|
-| SEC-01 | **Access JWT mirrored to localStorage** (`_dydx_access_token`) — XSS-stealable fallback bearer for a trading app. Cookie session is primary (`getCurrentUser` prefers cookie, `api.ts:2340-2346`) so the fallback is removable | `src/api.ts:1972,2022,2118` | **P1** | Drop localStorage persistence; rely on HttpOnly cookie (+cookie handshake for WS — see SEC-02) |
-| SEC-02 | **WS auth via `?access_token=` URL param** on every authenticated socket (`/api/v1/backtests/{id}/live`, `/ws/backtests|bots|strategies`) — bearer lands in proxy/access logs & any TLS-terminating hop. Cookie-based handshake already works for the `/ws` manager | `src/api/origin.ts:222,234`; builders `api.ts:4259-4283` | **P1** | Send token via first message or `Sec-WebSocket-Protocol`, or cookie-auth the upgrade (backend already sets session cookie) |
+| ✅ SEC-01 | ~~Access JWT mirrored to localStorage~~ **RESOLVED 2026-09-05: setToken no longer persists; boot scrubs the legacy key; session recovery is cookie-driven (verified live: fresh reload authenticates with zero JWT in storage)** (`_dydx_access_token`) — XSS-stealable fallback bearer for a trading app. Cookie session is primary (`getCurrentUser` prefers cookie, `api.ts:2340-2346`) so the fallback is removable | `src/api.ts:1972,2022,2118` | **P1** | Drop localStorage persistence; rely on HttpOnly cookie (+cookie handshake for WS — see SEC-02) |
+| ✅ SEC-02 | ~~WS auth via `?access_token=` URL param~~ **RESOLVED 2026-09-05: connectSocket is cookie-first — the backend accepts the `dydx_session` cookie on WS upgrades (verified in `middleware/auth_token.go`) with origin-checked handshake; the query token remains only as a fallback for cookie-less flows** on every authenticated socket (`/api/v1/backtests/{id}/live`, `/ws/backtests|bots|strategies`) — bearer lands in proxy/access logs & any TLS-terminating hop. Cookie-based handshake already works for the `/ws` manager | `src/api/origin.ts:222,234`; builders `api.ts:4259-4283` | **P1** | Send token via first message or `Sec-WebSocket-Protocol`, or cookie-auth the upgrade (backend already sets session cookie) |
 | SEC-03 | `roleMatches` leniency: any unknown/custom role passes every route list containing a backoffice role; admin/super_admin match everything | `src/auth/roles.ts:101-117` | P2 (UI-layer only — **backend 403 verified**) | Fail-closed for unknown roles on backoffice lists |
-| SEC-04 | No CSRF token on cookie-authenticated mutations (`withCredentials` everywhere, JSON bodies). JSON content-type forces preflight for XHR, but verify backend Origin/`Sec-Fetch-Site` checks given cross-subdomain `SameSite=None` cookies | `api.ts:1778`, `enhancedClient.ts:123` | P2 (verify server) | Backend: Origin allowlist on mutations; document posture |
+| 🟡 SEC-04 | No CSRF token on cookie-authenticated mutations — **verified backend posture (2026-09-05): auth cookie defaults to SameSite=Lax (blocks cross-site POSTs); SameSite=None is opt-in via AUTH_COOKIE_SAMESITE with forced Secure; CORS is origin-allowlisted with credentials. Residual recommendation: enforce Origin/Sec-Fetch-Site on mutating methods when SameSite=None is deployed** (`withCredentials` everywhere, JSON bodies). JSON content-type forces preflight for XHR, but verify backend Origin/`Sec-Fetch-Site` checks given cross-subdomain `SameSite=None` cookies | `api.ts:1778`, `enhancedClient.ts:123` | P2 (verify server) | Backend: Origin allowlist on mutations; document posture |
 | SEC-05 | No CSP, Referrer-Policy, or frame-protection (meta absent; server headers not in this repo) | `index.html` | P2 | Add meta referrer + server CSP/frame-ancestors |
 | SEC-06 | Mnemonic entry as visible `<textarea>` in DYDXKeyManager (BotManager correctly masks — inconsistent secret UX) | `DYDXKeyManager.tsx:354-364` | P3 | password input + reveal toggle |
 | SEC-07 | WebSocketManager `debug:true` default logs full WS payloads (positions, trading data) to console in prod | `websocket.ts:84,241` | P3 | default false / gate on DEV |
@@ -36,3 +36,13 @@ Depth: full static pass over `src/`, `apps/`, `packages/`, `public/`, build conf
 ## Frontend-vs-backend boundary statement
 
 Every role-gated UI surface in this app relies on backend enforcement as the real boundary — and the backend does enforce (verified). The remaining frontend duties are: fail-closed UI (SEC-03), no credential material in JS-readable storage (SEC-01), and no credential leakage in URLs (SEC-02).
+
+
+## Backend posture verification (FE-019, 2026-09-05)
+
+| Control | Verified state | Evidence |
+|---|---|---|
+| Auth cookie SameSite | Defaults **Lax**; `None` only via `AUTH_COOKIE_SAMESITE=none`, which forces `Secure` | `backend/internal/routes/auth_routes.go:176-195` |
+| CORS | Env-driven origin allowlist; credentials only for allowed origins | `backend/internal/middleware/middleware.go:13-39` |
+| WS upgrade auth | Cookie (`dydx_session`) accepted **before** query token; query fallback restricted to WebSocket upgrades only; upgrader origin-checked | `backend/internal/middleware/auth_token.go:12-43`, `bot_api_delegate_routes.go:27-29` |
+| CSRF residual | With default Lax cookies, cross-site POSTs carry no cookie → protected. With opt-in None, form-based JSON smuggling is not explicitly blocked → recommend Origin/`Sec-Fetch-Site` enforcement on mutations | backend gap, filed as recommendation |

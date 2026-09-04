@@ -9,6 +9,7 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 |---|---|
 | 2026-09-04 | FE-005, FE-001, FE-004a (`npm test` + full suite in CI; full Playwright/jsdom foundation still open under FE-004), FE-011, FE-012, FE-013 (hidden Light option; full light mode still deferred), FE-010, FE-014, FE-031, FE-007, FE-027, FE-026 |
 | 2026-09-05 (pass 3) | FE-006 (Field primitive + both financial forms), FE-022 (started: shared format util + Dashboard), FE-018 (partial: referrer meta), FE-028 (CSV injection guard), FE-029 (partial: https allowlist + host suffix guard) |
+| 2026-09-05 (pass 8) | FE-033a (eslint full coverage + prettier; new FE-038 lint-debt item, 238 findings), FE-036b (glossary), FE-030b (nav links), FE-022b (6 formatters), FE-019 (verified + documented), FE-002 + FE-003 (cookie-first auth, verified live) |
 | 2026-09-05 (pass 7) | FE-032 (complete: −33% eager JS, event-driven WS auth sync) |
 | 2026-09-05 (pass 6) | FE-025 (complete), FE-036 (partial: first-run card; skeletons verified already present; terminology open) |
 | 2026-09-05 (pass 5) | FE-023 (partial: 5 components to React Query), FE-008 (P&L direction arrows) |
@@ -20,8 +21,8 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 | ID | Area | Issue | Impact | Complexity | Deps | Regression risk |
 |---|---|---|---|---|---|---|
 | ✅ FE-001 | Correctness | Stale `localStorage['token']` read → Backtests page live-progress WS unauthenticated; silently falls back to 8s polling | Live progress integrity | XS | none | none — now uses `api.connectSocket` (verified: import removed, socket built with stored token) |
-| ⬜ FE-002 | Security | Access JWT persisted in localStorage (XSS-stealable fallback bearer) | Session theft surface | M | API (confirm cookie-only auth incl. WS handshake) | medium — verify all endpoints accept cookie session |
-| ⬜ FE-003 | Security | WS `?access_token=` in URL on all auth'd sockets → log/proxy leakage | Credential leakage | M | API (WS auth via cookie/first-message) | medium |
+| ✅ FE-002 | Security | Access JWT persisted in localStorage | Session theft surface | M | — **done: persistence removed, boot scrubs legacy key, recovery is cookie-driven (verified live)** |
+| ✅ FE-003 | Security | WS `?access_token=` in URL on all auth'd sockets → log/proxy leakage | Credential leakage | M | — **done: cookie-first WS auth (backend `auth_token.go` accepts session cookie on upgrades); query token only when no session hint** |
 | 🟡 FE-004 | Test/QA | CI runs 1/19 test files; no `npm test`; zero component/E2E coverage on money paths | Regression blindness | M | none | none (additive) — **partially done (a): `npm test` script added, full 20-file/111-test suite now the CI gate; Playwright+jsdom+Testing Library still open** |
 
 ## P2 — this quarter
@@ -42,7 +43,7 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 | ✅ FE-016 | Dead code | ~3,650 lines dead pages + components (BotDashboard, CRM, IBPortal, BacktestDetails cluster, hooks/useBacktestProgress) | Maintenance drag | S | none — **done: 7 files + src/dev deleted, zero-importer verified, build/lint green** |
 | ✅ FE-017 | Security | `roleMatches` fail-open for unknown/custom roles on backoffice lists | Wrong-role UI exposure (backend still 403s) | S | none — **done: fail-closed, custom roles need explicit allow-listing; 3 regression tests** |
 | 🟡 FE-018 | Security | No CSP/Referrer-Policy/frame-ancestors (meta+server) | Clickjacking/referrer leakage | S | BE/infra headers — **referrer meta done; CSP + frame-ancestors remain server-side (infra)** |
-| ⬜ FE-019 | Security | CSRF posture undocumented for cookie-authenticated mutations (SameSite=None assumption) | Needs verification | S | BE verify Origin checks |
+| ✅ FE-019 | Security | CSRF posture undocumented for cookie-authenticated mutations | Needs verification | S | — **done: verified SameSite=Lax default + origin-allowlisted CORS; residual recommendation (Origin check under SameSite=None) filed in 16_SECURITY_AUDIT.md** |
 | ✅ FE-020 | Reliability | Single global ErrorBoundary; no per-route `errorElement` | One crash = blank app | S | none — **done: `RouteErrorBoundary` on pathless wrapper route (in-place reload/dashboard recovery)** |
 | ✅ FE-021 | Deps | Unused prod deps (framer-motion, @headlessui, @react-buddy, date-fns, recharts-via-dead-page); react-hook-form 1-file usage | Bundle/supply chain | S | FE-016 first — **done: 5 deps removed; vite/tailwindcss/@tailwindcss/forms moved to devDependencies** |
 | 🟡 FE-022 | Code quality | 65 local formatters/172 toFixed/date-fns-unused — money formatting not centralized | Inconsistent money display | M | none — **started: `src/utils/format.ts` (+5 tests) adopted on Dashboard; remaining surfaces migrate opportunistically** |

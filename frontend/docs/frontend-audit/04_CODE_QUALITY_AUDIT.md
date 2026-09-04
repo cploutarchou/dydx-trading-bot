@@ -44,7 +44,7 @@ Not P1s — the app works — but each is a P2/P3 maintainability drag that slow
 - `pages/BotDashboard.tsx` (752), `pages/CRM.tsx` (663), `pages/IBPortal.tsx` (614) — superseded by `pages/crm/*`, `pages/ib/*`.
 - `components/BacktestDetailsPage.tsx` (529), `components/BacktestProgress.tsx` (only imported by dead page), `hooks/useBacktestProgress.ts`.
 - `src/dev/*` React-Buddy scaffolding + `@react-buddy/ide-toolbox` **in prod dependencies, 0 imports**.
-- Shims kept intentionally: `api/client.ts`, `store/enhancedAuth.ts`.
+- Shims: `api/client.ts` **deleted 2026-09-05** (zero importers — it aliased the *fetch* client as `apiClient` while the app uses the axios client, an import trap); `store/enhancedAuth.ts` kept intentionally.
 
 **Total removable: ~3,650 lines + 5 dependencies.**
 

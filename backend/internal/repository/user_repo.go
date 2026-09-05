@@ -71,6 +71,10 @@ func (r *UserRepository) hasAvatarColumn() bool {
 	return r.hasUserColumn("avatar")
 }
 
+func (r *UserRepository) hasFullNameColumn() bool {
+	return r.hasUserColumn("full_name")
+}
+
 func (r *UserRepository) hasLastLoginColumn() bool {
 	return r.hasUserColumn("last_login")
 }
@@ -111,9 +115,14 @@ func (r *UserRepository) selectUserColumns() string {
 		roleExpr = "COALESCE(role, CASE WHEN is_admin THEN 'admin' ELSE 'client' END)"
 	}
 
+	fullNameExpr := "''"
+	if r.hasFullNameColumn() {
+		fullNameExpr = "COALESCE(full_name, '')"
+	}
+
 	avatarExpr := "''"
 	if r.hasAvatarColumn() {
-		avatarExpr = "avatar"
+		avatarExpr = "COALESCE(avatar, '')"
 	}
 
 	lastLoginExpr := "NULL"
@@ -122,11 +131,12 @@ func (r *UserRepository) selectUserColumns() string {
 	}
 
 	return fmt.Sprintf(
-		`id, username, email, %s, %s, %s, %s, full_name, %s, hashed_password, is_active, is_admin, %s, %s, %s, created_at, updated_at`,
+		`id, username, email, %s, %s, %s, %s, %s, %s, hashed_password, is_active, is_admin, %s, %s, %s, created_at, updated_at`,
 		roleExpr,
 		maxActiveBacktestsExpr,
 		maxStrategiesExpr,
 		maxBotInstancesExpr,
+		fullNameExpr,
 		avatarExpr,
 		mfaEnabledExpr,
 		passwordChangeExpr,

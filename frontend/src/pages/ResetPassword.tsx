@@ -100,7 +100,10 @@ export const ResetPasswordPage: React.FC = () => {
 
         <PrimaryButton
           type="submit"
-          disabled={loading || tokenMissing || (submitted && !canSubmit)}
+          // Stays clickable with invalid input: the handler re-shows the
+          // inline errors on each attempt (locking it after the first failed
+          // submit would strand keyboard users who fix one field at a time).
+          disabled={loading || tokenMissing}
           loading={loading}
           className="min-h-12 w-full"
         >

@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useState } from 'react';
 import api from '../api';
 import { queryKeys } from '../api/queryClient';
+import { formatPct } from '../utils/format';
 
 interface RedisSettings {
   id: number;
@@ -80,7 +81,11 @@ const RedisSettings: React.FC = () => {
   const connectionStatus = testedConnection ?? redisQuery.data?.connection ?? null;
   const loading = redisQuery.isLoading;
   const loadError =
-    redisQuery.error instanceof Error ? redisQuery.error.message : redisQuery.isError ? 'Failed to load settings' : null;
+    redisQuery.error instanceof Error
+      ? redisQuery.error.message
+      : redisQuery.isError
+        ? 'Failed to load settings'
+        : null;
   const error = actionError ?? loadError;
   const [testingConnection, setTestingConnection] = useState(false);
   const [flushingCache, setFlushingCache] = useState(false);
@@ -305,8 +310,11 @@ const RedisSettings: React.FC = () => {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="host">Host</label>
-                <input id="host"
+                <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="host">
+                  Host
+                </label>
+                <input
+                  id="host"
                   type="text"
                   value={editedSettings.host || ''}
                   onChange={(e) =>
@@ -319,8 +327,11 @@ const RedisSettings: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="port">Port</label>
-                <input id="port"
+                <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="port">
+                  Port
+                </label>
+                <input
+                  id="port"
                   type="number"
                   value={editedSettings.port || ''}
                   onChange={(e) =>
@@ -333,8 +344,11 @@ const RedisSettings: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="database">Database</label>
-                <input id="database"
+                <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="database">
+                  Database
+                </label>
+                <input
+                  id="database"
                   type="number"
                   value={editedSettings.database || ''}
                   onChange={(e) =>
@@ -347,8 +361,14 @@ const RedisSettings: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="timeout-seconds">Timeout (seconds)</label>
-                <input id="timeout-seconds"
+                <label
+                  className="block text-slate-300 text-sm font-medium mb-2"
+                  htmlFor="timeout-seconds"
+                >
+                  Timeout (seconds)
+                </label>
+                <input
+                  id="timeout-seconds"
                   type="number"
                   value={editedSettings.timeout || ''}
                   onChange={(e) =>
@@ -361,8 +381,11 @@ const RedisSettings: React.FC = () => {
                 />
               </div>
               <div className="col-span-2">
-                <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="password">Password</label>
-                <input id="password"
+                <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="password">
+                  Password
+                </label>
+                <input
+                  id="password"
                   type="password"
                   value={editedSettings.password || ''}
                   onChange={(e) =>
@@ -379,8 +402,14 @@ const RedisSettings: React.FC = () => {
 
             {/* Cache TTL */}
             <div>
-              <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="cache-ttl-seconds">Cache TTL (seconds)</label>
-              <input id="cache-ttl-seconds"
+              <label
+                className="block text-slate-300 text-sm font-medium mb-2"
+                htmlFor="cache-ttl-seconds"
+              >
+                Cache TTL (seconds)
+              </label>
+              <input
+                id="cache-ttl-seconds"
                 type="number"
                 value={editedSettings.cache_ttl_seconds || ''}
                 onChange={(e) =>
@@ -514,7 +543,7 @@ const RedisSettings: React.FC = () => {
             <div className="p-4 bg-slate-700/50 rounded-lg">
               <p className="text-slate-400 text-sm">Cache Hit Rate</p>
               <p className="text-2xl font-bold text-blue-400">
-                {((cacheStats.hit_rate || 0) * 100).toFixed(2)}%
+                {formatPct((cacheStats.hit_rate || 0) * 100, 2)}
               </p>
             </div>
             <div className="p-4 bg-slate-700/50 rounded-lg">

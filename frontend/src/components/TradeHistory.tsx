@@ -10,6 +10,7 @@
 
 import React, { useState } from 'react';
 import { useBacktestTrades } from '../api/hooks';
+import { formatPct, formatSignedUsd, formatUsdFixed } from '../utils/format';
 
 interface Trade {
   id: number;
@@ -130,21 +131,21 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ runId, onTradeSelect
                     </div>
                   </td>
                   <td className="px-4 py-3 text-gray-300 text-xs">
-                    <div>${trade.entry_price_1.toFixed(2)}</div>
-                    <div className="text-gray-500">${trade.entry_price_2.toFixed(2)}</div>
+                    <div>{formatUsdFixed(trade.entry_price_1)}</div>
+                    <div className="text-gray-500">{formatUsdFixed(trade.entry_price_2)}</div>
                   </td>
                   <td className="px-4 py-3 text-gray-300 text-xs">
-                    <div>${trade.exit_price_1.toFixed(2)}</div>
-                    <div className="text-gray-500">${trade.exit_price_2.toFixed(2)}</div>
+                    <div>{formatUsdFixed(trade.exit_price_1)}</div>
+                    <div className="text-gray-500">{formatUsdFixed(trade.exit_price_2)}</div>
                   </td>
                   <td className="px-4 py-3 text-right font-semibold">
                     <div className={trade.pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
-                      ${trade.pnl.toFixed(2)}
+                      {formatSignedUsd(trade.pnl)}
                     </div>
                     <div
                       className={`text-xs ${trade.pnl_pct >= 0 ? 'text-green-500' : 'text-red-500'}`}
                     >
-                      ({trade.pnl_pct.toFixed(2)}%)
+                      ({formatPct(trade.pnl_pct, 2)})
                     </div>
                   </td>
                   <td className="px-4 py-3 text-right text-gray-400 text-xs">

@@ -9,6 +9,7 @@
 
 import React from 'react';
 import { useBacktestMetrics } from '../api/hooks';
+import { formatSignedUsd, formatUsdFixed } from '../utils/format';
 
 interface PerformanceData {
   run_id: string;
@@ -109,7 +110,7 @@ export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ runId })
             <p
               className={`text-2xl font-bold mt-2 ${metrics.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
             >
-              ${metrics.total_pnl.toFixed(2)}
+              {formatSignedUsd(metrics.total_pnl)}
             </p>
           </div>
           <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
@@ -117,12 +118,14 @@ export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ runId })
             <p
               className={`text-2xl font-bold mt-2 ${metrics.average_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
             >
-              ${metrics.average_pnl.toFixed(2)}
+              {formatSignedUsd(metrics.average_pnl)}
             </p>
           </div>
           <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
             <p className="text-gray-400 text-sm">Best Trade</p>
-            <p className="text-2xl font-bold mt-2 text-green-400">${metrics.max_win.toFixed(2)}</p>
+            <p className="text-2xl font-bold mt-2 text-green-400">
+              {formatUsdFixed(metrics.max_win)}
+            </p>
           </div>
         </div>
       </div>
@@ -133,12 +136,14 @@ export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ runId })
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
             <p className="text-gray-400 text-sm">Worst Trade</p>
-            <p className="text-2xl font-bold mt-2 text-red-400">${metrics.max_loss.toFixed(2)}</p>
+            <p className="text-2xl font-bold mt-2 text-red-400">
+              {formatUsdFixed(metrics.max_loss)}
+            </p>
           </div>
           <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
             <p className="text-gray-400 text-sm">Max Drawdown</p>
             <p className="text-2xl font-bold mt-2 text-yellow-400">
-              ${metrics.max_drawdown.toFixed(2)}
+              {formatUsdFixed(metrics.max_drawdown)}
             </p>
           </div>
           <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">

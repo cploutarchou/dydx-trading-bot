@@ -39,6 +39,7 @@ import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/
 import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
 import { Strategy, useStrategyStore } from '../store/strategies';
 import { useNow } from '../hooks/useNow';
+import { formatPct, formatSignedUsd, formatUsdFixed } from '../utils/format';
 import { AIRuntimeDigest } from './AIRuntimeDigest';
 import { AIStrategyAdvisor } from './AIStrategyAdvisor';
 import { CodexAssetIntelStrip } from './CodexAssetIntelStrip';
@@ -1600,7 +1601,7 @@ export default function StrategyManager() {
             }`}
           >
             {runtimeHealthSummary.totalPnl !== undefined
-              ? `$${runtimeHealthSummary.totalPnl.toFixed(2)}`
+              ? formatSignedUsd(runtimeHealthSummary.totalPnl)
               : '—'}
           </p>
           <p className="mt-1 text-xs text-slate-500">
@@ -2001,7 +2002,7 @@ export default function StrategyManager() {
                             : 'text-slate-400'
                         }`}
                       >
-                        {status.pnl !== undefined ? `$${status.pnl.toFixed(2)}` : '—'}
+                        {status.pnl !== undefined ? formatSignedUsd(status.pnl) : '—'}
                       </p>
                     </div>
                     <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 p-3.5">
@@ -2310,7 +2311,7 @@ export default function StrategyManager() {
                           Free Collateral
                         </p>
                         <p className="mt-2 text-lg font-semibold text-white">
-                          ${startDialogReadiness.available_collateral.toFixed(2)}
+                          {formatUsdFixed(startDialogReadiness.available_collateral)}
                         </p>
                       </div>
                       <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
@@ -2318,7 +2319,7 @@ export default function StrategyManager() {
                           Trade Size
                         </p>
                         <p className="mt-2 text-lg font-semibold text-white">
-                          ${startDialogReadiness.usd_per_trade.toFixed(2)}
+                          {formatUsdFixed(startDialogReadiness.usd_per_trade)}
                         </p>
                       </div>
                       <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
@@ -2411,13 +2412,13 @@ export default function StrategyManager() {
                           <div className="flex items-center justify-between">
                             <span>Capital allocation target</span>
                             <span className="font-medium text-white">
-                              ${startDialogReadiness.capital_allocation_usd.toFixed(2)}
+                              {formatUsdFixed(startDialogReadiness.capital_allocation_usd)}
                             </span>
                           </div>
                           <div className="flex items-center justify-between">
                             <span>Min collateral guard</span>
                             <span className="font-medium text-white">
-                              ${startDialogReadiness.usd_min_collateral.toFixed(2)}
+                              {formatUsdFixed(startDialogReadiness.usd_min_collateral)}
                             </span>
                           </div>
                           {startDialogReadiness.trade_size_to_collateral_ratio !== null &&
@@ -2425,10 +2426,10 @@ export default function StrategyManager() {
                               <div className="flex items-center justify-between">
                                 <span>Trade size / free collateral</span>
                                 <span className="font-medium text-white">
-                                  {(
-                                    startDialogReadiness.trade_size_to_collateral_ratio * 100
-                                  ).toFixed(2)}
-                                  %
+                                  {formatPct(
+                                    startDialogReadiness.trade_size_to_collateral_ratio * 100,
+                                    2
+                                  )}
                                 </span>
                               </div>
                             )}

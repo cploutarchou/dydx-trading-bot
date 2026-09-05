@@ -44,6 +44,8 @@ func RegisterAuthRoutes(router *gin.Engine, database *sql.DB) {
 		// (e.g. GET /keys/:network/secret) demand.
 		authRoutes.POST("/2fa/step-up", middleware.RequireAuth(), mfaStepUpHandler(database))
 		authRoutes.PUT("/change-password", middleware.RequireAuth(), changePasswordHandler(database))
+		authRoutes.POST("/forgot-password", forgotPasswordHandler(database))
+		authRoutes.POST("/reset-password", resetPasswordHandler(database))
 	}
 
 	// User routes (require authentication)

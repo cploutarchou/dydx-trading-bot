@@ -9,9 +9,9 @@ import { useLocation } from 'react-router-dom';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import {
-    getRecentPaths,
-    persistRecentPath,
-    WorkspaceCommandPalette,
+  getRecentPaths,
+  persistRecentPath,
+  WorkspaceCommandPalette,
 } from './WorkspaceCommandPalette';
 
 interface MainLayoutProps {
@@ -21,7 +21,7 @@ interface MainLayoutProps {
 const MainLayoutContent: React.FC<MainLayoutProps> = ({ children }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
-  const [recentPaths, setRecentPaths] = useState<string[]>([]);
+  const [recentPaths, setRecentPaths] = useState<string[]>(() => getRecentPaths());
   const location = useLocation();
 
   const toggleMobileMenu = () => {
@@ -33,12 +33,10 @@ const MainLayoutContent: React.FC<MainLayoutProps> = ({ children }) => {
   };
 
   useEffect(() => {
-    setRecentPaths(getRecentPaths());
-  }, []);
-
-  useEffect(() => {
     persistRecentPath(location.pathname);
-    setRecentPaths(getRecentPaths());
+    // Persist first, then re-read out-of-band so no setState runs
+    // synchronously inside the effect body.
+    void Promise.resolve().then(() => setRecentPaths(getRecentPaths()));
   }, [location.pathname]);
 
   useEffect(() => {
@@ -86,7 +84,11 @@ const MainLayoutContent: React.FC<MainLayoutProps> = ({ children }) => {
         >
           Skip to content
         </a>
-        <main id="main-content" tabIndex={-1} className="relative z-10 flex-1 overflow-x-hidden overflow-y-auto">
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="relative z-10 flex-1 overflow-x-hidden overflow-y-auto"
+        >
           <div key={location.pathname} className="animate-page-enter h-full">
             {children}
           </div>

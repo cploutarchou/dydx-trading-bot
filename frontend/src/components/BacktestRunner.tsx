@@ -350,8 +350,12 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
     ) {
       return;
     }
-    setUseStrategy(true);
-    applyStrategyDefaults(requestedStrategyId, true);
+    // Imperative form defaults applied out-of-band so no setState runs
+    // synchronously inside the effect body.
+    void Promise.resolve().then(() => {
+      setUseStrategy(true);
+      applyStrategyDefaults(requestedStrategyId, true);
+    });
   }, [applyStrategyDefaults, requestedStrategyId, selectedStrategyId, strategies.length]);
 
   const toggleMarket = (market: string) => {

@@ -18,17 +18,18 @@ export const MotionReveal: React.FC<MotionRevealProps> = ({
   once = true,
 }) => {
   const ref = useRef<HTMLElement | null>(null);
-  const [isVisible, setIsVisible] = useState(false);
+  const [isVisible, setIsVisible] = useState(
+    () =>
+      typeof window === 'undefined' || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      setIsVisible(true);
-      return undefined;
-    }
-
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    if (reducedMotion.matches) {
-      setIsVisible(true);
+    // Re-derived here (not read from state) so the observer setup is stable
+    // across visibility flips.
+    if (
+      typeof window === 'undefined' ||
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
       return undefined;
     }
 
@@ -67,7 +68,9 @@ export const MotionReveal: React.FC<MotionRevealProps> = ({
     [delayMs, distancePx]
   );
 
-  const classes = ['reveal-block', isVisible ? 'is-visible' : '', className].filter(Boolean).join(' ');
+  const classes = ['reveal-block', isVisible ? 'is-visible' : '', className]
+    .filter(Boolean)
+    .join(' ');
   const Component = as as React.ElementType;
 
   return (
@@ -76,4 +79,3 @@ export const MotionReveal: React.FC<MotionRevealProps> = ({
     </Component>
   );
 };
-

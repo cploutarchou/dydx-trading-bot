@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, MailCheck, RefreshCcw, ShieldCheck } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import api, {
   classifyApiError,
   ICOProductionReadiness,
@@ -37,16 +37,23 @@ export const AdminICOPage = () => {
 
   const applications = whitelistQuery.data?.applications ?? [];
   const confirmed = applications.filter((row) => row.email_confirmed).length;
-  const marketing = applications.filter((row) => row.marketing_confirmed && !row.unsubscribed).length;
+  const marketing = applications.filter(
+    (row) => row.marketing_confirmed && !row.unsubscribed
+  ).length;
   const withdrawn = applications.filter((row) => row.withdrawn).length;
   const readiness = readinessQuery.data;
   const [readinessForm, setReadinessForm] = useState<ICOProductionReadinessUpdate | null>(null);
 
-  useEffect(() => {
-    if (readiness?.config) {
-      setReadinessForm(toReadinessUpdate(readiness.config));
+  // Config -> editable draft, adjusted during render when the config
+  // identity changes (sanctioned pattern).
+  const readinessConfig = readiness?.config;
+  const [prevReadinessConfig, setPrevReadinessConfig] = useState(readinessConfig);
+  if (readinessConfig !== prevReadinessConfig) {
+    setPrevReadinessConfig(readinessConfig);
+    if (readinessConfig) {
+      setReadinessForm(toReadinessUpdate(readinessConfig));
     }
-  }, [readiness?.config]);
+  }
 
   const readinessCompleteCount = useMemo(() => {
     if (!readiness) return 0;
@@ -92,10 +99,34 @@ export const AdminICOPage = () => {
       />
 
       <div className="grid gap-4 md:grid-cols-4">
-        <PlatformStatCard label="Applications" value={applications.length} icon={ShieldCheck} tone="accent" loading={whitelistQuery.isLoading} />
-        <PlatformStatCard label="Confirmed emails" value={confirmed} icon={MailCheck} tone="success" loading={whitelistQuery.isLoading} />
-        <PlatformStatCard label="Marketing eligible" value={marketing} icon={MailCheck} tone="violet" loading={whitelistQuery.isLoading} />
-        <PlatformStatCard label="Withdrawn" value={withdrawn} icon={RefreshCcw} tone="warning" loading={whitelistQuery.isLoading} />
+        <PlatformStatCard
+          label="Applications"
+          value={applications.length}
+          icon={ShieldCheck}
+          tone="accent"
+          loading={whitelistQuery.isLoading}
+        />
+        <PlatformStatCard
+          label="Confirmed emails"
+          value={confirmed}
+          icon={MailCheck}
+          tone="success"
+          loading={whitelistQuery.isLoading}
+        />
+        <PlatformStatCard
+          label="Marketing eligible"
+          value={marketing}
+          icon={MailCheck}
+          tone="violet"
+          loading={whitelistQuery.isLoading}
+        />
+        <PlatformStatCard
+          label="Withdrawn"
+          value={withdrawn}
+          icon={RefreshCcw}
+          tone="warning"
+          loading={whitelistQuery.isLoading}
+        />
       </div>
 
       <PlatformPanel
@@ -214,7 +245,9 @@ export const AdminICOPage = () => {
                   }
                   className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-950 text-cyan-400 focus:ring-cyan-400"
                 />
-                <span>Mark ICO briefing as publish-ready after all computed blockers are clear.</span>
+                <span>
+                  Mark ICO briefing as publish-ready after all computed blockers are clear.
+                </span>
               </label>
               <button
                 type="submit"
@@ -237,11 +270,18 @@ export const AdminICOPage = () => {
         />
       )}
 
-      <PlatformPanel title="Whitelist applications" description="List view masks applicant emails and keeps whitelist leads separate from platform users.">
+      <PlatformPanel
+        title="Whitelist applications"
+        description="List view masks applicant emails and keeps whitelist leads separate from platform users."
+      >
         {whitelistQuery.isLoading ? (
           <p className="text-sm text-slate-400">Loading whitelist applications...</p>
         ) : applications.length === 0 ? (
-          <EmptyState icon={ShieldCheck} title="No whitelist requests" description="Submitted public whitelist requests will appear here after persistence succeeds." />
+          <EmptyState
+            icon={ShieldCheck}
+            title="No whitelist requests"
+            description="Submitted public whitelist requests will appear here after persistence succeeds."
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -262,7 +302,13 @@ export const AdminICOPage = () => {
                     <td className="px-3 py-3">{row.status}</td>
                     <td className="px-3 py-3">{row.email_confirmed ? 'Yes' : 'No'}</td>
                     <td className="px-3 py-3">
-                      {row.unsubscribed ? 'Unsubscribed' : row.marketing_confirmed ? 'Confirmed' : row.marketing_consent ? 'Pending' : 'No'}
+                      {row.unsubscribed
+                        ? 'Unsubscribed'
+                        : row.marketing_confirmed
+                          ? 'Confirmed'
+                          : row.marketing_consent
+                            ? 'Pending'
+                            : 'No'}
                     </td>
                     <td className="px-3 py-3">{row.source}</td>
                     <td className="px-3 py-3">{new Date(row.created_at).toLocaleString()}</td>

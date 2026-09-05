@@ -61,8 +61,9 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
   const strokeColor = lastValue >= 0 ? positiveColor : negativeColor;
 
   useEffect(() => {
+    // Ref-only sync; the visible point falls back to the latest datum at
+    // consumption (activePoint), so no state reset is needed on data change.
     latestDataRef.current = normalizedData;
-    setHoverPoint(normalizedData[normalizedData.length - 1] ?? null);
   }, [normalizedData]);
 
   useEffect(() => {

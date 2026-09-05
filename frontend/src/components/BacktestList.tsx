@@ -530,8 +530,9 @@ export const BacktestList: React.FC<{
     if (isControlled) {
       return;
     }
-    // First load blocks with spinner; subsequent refreshes stay non-blocking
-    void loadBacktests(!hasLoadedOnce);
+    // First load blocks with spinner; subsequent refreshes stay non-blocking.
+    // Microtask keeps the loader's synchronous state reset out of the effect.
+    void Promise.resolve().then(() => loadBacktests(!hasLoadedOnce));
   }, [hasLoadedOnce, isControlled, loadBacktests, refreshTrigger]);
 
   // Auto-poll while any run is active
@@ -566,7 +567,7 @@ export const BacktestList: React.FC<{
       }
     } else {
       pollFailureRef.current = 0;
-      setPollFailures(0);
+      void Promise.resolve().then(() => setPollFailures(0));
       if (pollRef.current) {
         clearTimeout(pollRef.current);
         pollRef.current = null;

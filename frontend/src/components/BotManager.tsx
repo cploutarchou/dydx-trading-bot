@@ -583,14 +583,12 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
   const restartBotMutation = useRestartBotInstance();
   const deleteBotMutation = useDeleteBotInstance();
 
-  useEffect(() => {
-    if (botsQuery.error) {
-      setError(toOperatorErrorMessage(botsQuery.error, 'Failed to load bot instances'));
-      return;
-    }
-
-    setError(null);
-  }, [botsQuery.error]);
+  // Load failures surface at the render boundary; action errors stay in
+  // local state until the next attempt.
+  const loadError = botsQuery.error
+    ? toOperatorErrorMessage(botsQuery.error, 'Failed to load bot instances')
+    : null;
+  const displayError = error ?? loadError;
 
   const refetchBots = botsQuery.refetch;
   useEffect(() => {
@@ -932,8 +930,12 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
 
       {!embedded && <ArbitrageImprovementPanel />}
 
-      {error && (
-        <InlineNotice tone="danger" title="Runtime action needs attention" description={error} />
+      {displayError && (
+        <InlineNotice
+          tone="danger"
+          title="Runtime action needs attention"
+          description={displayError}
+        />
       )}
 
       <section

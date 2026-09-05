@@ -57,14 +57,4 @@ module.exports = [
       'jsx-a11y/label-has-associated-control': ['error', { depth: 4 }],
     },
   },
-  {
-    // Debt carve-out (audit FE-038): enabling the full react-hooks v7
-    // recommended set surfaced pre-existing violations. The remaining rule
-    // stays off until its category is burned down; everything else runs at
-    // full severity. (import-naming, jsx-a11y interaction, react-hooks
-    // compiler + exhaustive-deps categories burned down 2026-09-05.)
-    rules: {
-      'react-hooks/set-state-in-effect': 'off',
-    },
-  },
 ];

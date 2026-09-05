@@ -221,7 +221,8 @@ export const AdminCeleryPage: React.FC = () => {
   }, [environmentFilter, isStrictAdmin, queueFilter, statusFilter, taskNameFilter]);
 
   useEffect(() => {
-    void load();
+    // Microtask keeps the loader's synchronous state reset out of the effect.
+    void Promise.resolve().then(() => load());
     if (!autoRefresh) {
       return;
     }

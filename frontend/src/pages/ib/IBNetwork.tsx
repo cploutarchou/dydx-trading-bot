@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, Filter, Loader2, Search, Users } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -136,13 +136,15 @@ export const IBNetwork = () => {
     'all'
   );
 
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const focusUserId = params.get('focus_user_id');
+  // Deep-linked focus user, adjusted during render when the URL changes.
+  const [prevLocationSearch, setPrevLocationSearch] = useState(location.search);
+  if (location.search !== prevLocationSearch) {
+    setPrevLocationSearch(location.search);
+    const focusUserId = new URLSearchParams(location.search).get('focus_user_id');
     if (focusUserId && /^\d+$/.test(focusUserId)) {
       setSearchTerm(focusUserId);
     }
-  }, [location.search]);
+  }
 
   const toggleNode = (userId: number) => {
     setCollapsed((prev) => {

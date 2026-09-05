@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import api from '../../api';
 import { useToastStore } from '../../components/ErrorBoundary';
 import { PageContainer } from '../../components/PageContainer';
@@ -39,8 +39,11 @@ export const CRMCommissions = () => {
     staleTime: 10_000,
   });
 
-  // Sync server data into the draft form when a selection loads
-  useEffect(() => {
+  // Sync server data into the draft form when a selection loads — adjusted
+  // during render on data-identity change (sanctioned pattern).
+  const [prevCommissionData, setPrevCommissionData] = useState(commissionQuery.data);
+  if (commissionQuery.data !== prevCommissionData) {
+    setPrevCommissionData(commissionQuery.data);
     const owner = commissionQuery.data?.owner;
     if (owner) {
       setDraft({
@@ -52,7 +55,7 @@ export const CRMCommissions = () => {
         net_commission_usd: owner.net_commission_usd,
       });
     }
-  }, [commissionQuery.data]);
+  }
 
   const saveMutation = useMutation({
     mutationFn: async () => {

@@ -337,25 +337,29 @@ export default function StrategyManager() {
     focusedCardId !== null
   );
 
-  useEffect(() => {
-    if (focusedCardId === null || !strategyBacktestsQuery.data) {
-      return;
+  // Query data -> per-strategy summaries, adjusted during render when the
+  // focused card or query data identity changes (sanctioned pattern).
+  const [prevFocusedCardId, setPrevFocusedCardId] = useState(focusedCardId);
+  const [prevBacktestsData, setPrevBacktestsData] = useState(strategyBacktestsQuery.data);
+  if (focusedCardId !== prevFocusedCardId || strategyBacktestsQuery.data !== prevBacktestsData) {
+    setPrevFocusedCardId(focusedCardId);
+    setPrevBacktestsData(strategyBacktestsQuery.data);
+    if (focusedCardId !== null && strategyBacktestsQuery.data) {
+      const items = Array.isArray(strategyBacktestsQuery.data.data?.backtests)
+        ? strategyBacktestsQuery.data.data.backtests
+        : [];
+
+      const summaries: AIBacktestSummary[] = items
+        .map((backtest) => toAIBacktestSummary(backtest))
+        .filter((summary): summary is AIBacktestSummary => summary !== null);
+
+      setStrategyBacktests((prev) => {
+        const next = new Map(prev);
+        next.set(focusedCardId, summaries);
+        return next;
+      });
     }
-
-    const items = Array.isArray(strategyBacktestsQuery.data.data?.backtests)
-      ? strategyBacktestsQuery.data.data.backtests
-      : [];
-
-    const summaries: AIBacktestSummary[] = items
-      .map((backtest) => toAIBacktestSummary(backtest))
-      .filter((summary): summary is AIBacktestSummary => summary !== null);
-
-    setStrategyBacktests((prev) => {
-      const next = new Map(prev);
-      next.set(focusedCardId, summaries);
-      return next;
-    });
-  }, [focusedCardId, strategyBacktestsQuery.data]);
+  }
 
   const recordSuccessfulAction = (
     strategyId: number,
@@ -518,7 +522,8 @@ export default function StrategyManager() {
   // Derive strategyStatuses / runningCount / heartbeatTrend from React Query results
   useEffect(() => {
     if (strategyIds.length === 0) {
-      applyStrategyStatuses([]);
+      // Applied out-of-band so no setState runs synchronously in the effect.
+      void Promise.resolve().then(() => applyStrategyStatuses([]));
       return;
     }
 
@@ -544,7 +549,7 @@ export default function StrategyManager() {
       };
     });
 
-    applyStrategyStatuses(nextStatuses);
+    void Promise.resolve().then(() => applyStrategyStatuses(nextStatuses));
     // Signature deps are deliberate: applyStrategyStatuses always installs a
     // new Map, so depending on the raw strategyStatuses/runtimeQueries would
     // re-run this effect in a loop. The signatures change only when the

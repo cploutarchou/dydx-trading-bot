@@ -452,11 +452,9 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     staleTime: 15_000,
   });
 
-  useEffect(() => {
-    if (view !== 'experiments') {
-      return;
-    }
-
+  // URL params -> experiment filters, adjusted during render when they
+  // diverge (sanctioned pattern; searchParams is router state, safe to read).
+  if (view === 'experiments') {
     const searchFromParams = String(searchParams.get('q') || '').trim();
     const statusFromParams = normalizeExperimentStatusParam(searchParams.get('status'));
     const variantFromParams = normalizeExperimentVariantParam(searchParams.get('variant'));
@@ -470,7 +468,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     if (variantFromParams !== experimentVariantFilter) {
       setExperimentVariantFilter(variantFromParams);
     }
-  }, [view, searchParams, experimentSearch, experimentStatusFilter, experimentVariantFilter]);
+  }
 
   useEffect(() => {
     if (view !== 'experiments') {

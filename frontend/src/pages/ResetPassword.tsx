@@ -1,5 +1,5 @@
 import { ShieldCheck } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { AuthExperienceShell } from '../components/AuthExperienceShell';
 import { FormField, PasswordField, PrimaryButton } from '../components/PublicPagePrimitives';
@@ -23,17 +23,13 @@ export const ResetPasswordPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const tokenMissing = token.length === 0;
-  const passwordError =
-    submitted && newPassword.length < 8 ? 'Use at least 8 characters' : '';
-  const confirmError =
-    submitted && confirmPassword !== newPassword ? 'Passwords do not match' : '';
+  const missingTokenMessage = 'This link is missing its reset token. Request a new reset email.';
+  // Derived at consumption: no effect needed to mirror the missing token
+  // into error state.
+  const displayError = error ?? (tokenMissing ? missingTokenMessage : null);
+  const passwordError = submitted && newPassword.length < 8 ? 'Use at least 8 characters' : '';
+  const confirmError = submitted && confirmPassword !== newPassword ? 'Passwords do not match' : '';
   const canSubmit = !tokenMissing && newPassword.length >= 8 && newPassword === confirmPassword;
-
-  useEffect(() => {
-    if (tokenMissing) {
-      setError('This link is missing its reset token. Request a new reset email.');
-    }
-  }, [tokenMissing]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -46,9 +42,7 @@ export const ResetPasswordPage: React.FC = () => {
       await api.resetPassword(token, newPassword);
       navigate('/login?reset=success', { replace: true });
     } catch {
-      setError(
-        'This reset link is invalid, already used, or expired. Request a new reset email.'
-      );
+      setError('This reset link is invalid, already used, or expired. Request a new reset email.');
     } finally {
       setLoading(false);
     }
@@ -64,11 +58,17 @@ export const ResetPasswordPage: React.FC = () => {
       sideDescription="Resetting revokes other sessions — anyone else signed in (including an attacker) is logged out with you."
     >
       <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-        {error && (
-          <div role="alert" className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
-            {error}
-            {error.includes('invalid, already used, or expired') && (
-              <Link to="/forgot-password" className="mt-1 block font-medium text-cyan-200 hover:text-cyan-100">
+        {displayError && (
+          <div
+            role="alert"
+            className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200"
+          >
+            {displayError}
+            {displayError.includes('invalid, already used, or expired') && (
+              <Link
+                to="/forgot-password"
+                className="mt-1 block font-medium text-cyan-200 hover:text-cyan-100"
+              >
                 Request a new reset email
               </Link>
             )}

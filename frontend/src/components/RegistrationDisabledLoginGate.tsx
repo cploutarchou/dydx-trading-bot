@@ -37,7 +37,7 @@ export const RegistrationDisabledLoginGate: React.FC = () => {
 
   useEffect(() => {
     if (!isAuthRoute || isAuthenticated) {
-      setAllowRegistrationFetch(false);
+      // The query's own `enabled` already covers this; no state reset needed.
       return;
     }
 
@@ -50,9 +50,12 @@ export const RegistrationDisabledLoginGate: React.FC = () => {
     };
 
     if (typeof idleWindow.requestIdleCallback === 'function') {
-      idleId = idleWindow.requestIdleCallback(() => {
-        enableFetch();
-      }, { timeout: 250 });
+      idleId = idleWindow.requestIdleCallback(
+        () => {
+          enableFetch();
+        },
+        { timeout: 250 }
+      );
     } else {
       timeoutId = window.setTimeout(enableFetch, 120);
     }

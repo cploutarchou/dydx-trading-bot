@@ -1,14 +1,7 @@
-import {
-  ArrowRight,
-  CheckCircle2,
-  LockKeyhole,
-  ShieldCheck,
-  Sparkles,
-  Waves,
-} from 'lucide-react';
+import { ArrowRight, CheckCircle2, LockKeyhole, ShieldCheck, Sparkles, Waves } from 'lucide-react';
 import React from 'react';
 import { Link } from 'react-router-dom';
-import PublicSiteShell from './PublicSiteShell';
+import { PublicSiteShell } from './PublicSiteShell';
 
 interface AuthExperienceShellProps {
   kicker: string;
@@ -34,13 +27,15 @@ const highlights = [
   {
     label: 'Experiment',
     title: 'Operator-grade intelligence',
-    description: 'Analytics, workflow context, and faster movement between idea and shipped system.',
+    description:
+      'Analytics, workflow context, and faster movement between idea and shipped system.',
     icon: Sparkles,
   },
   {
     label: 'Security',
     title: 'Trust designed into onboarding',
-    description: '2FA readiness, clear access states, and disciplined session expectations from day one.',
+    description:
+      '2FA readiness, clear access states, and disciplined session expectations from day one.',
     icon: ShieldCheck,
   },
 ];
@@ -170,7 +165,10 @@ export const AuthExperienceShell: React.FC<AuthExperienceShellProps> = ({
                   <span>Commercial model</span>
                   <strong>Evaluation comes before execution terms.</strong>
                 </div>
-                <Link to="/pricing" className="premium-button premium-button-secondary px-4 py-2 text-sm">
+                <Link
+                  to="/pricing"
+                  className="premium-button premium-button-secondary px-4 py-2 text-sm"
+                >
                   View pricing
                   <ArrowRight className="h-4 w-4" />
                 </Link>
@@ -201,8 +199,8 @@ export const AuthExperienceShell: React.FC<AuthExperienceShellProps> = ({
             <div className="auth-panel-note">
               <CheckCircle2 className="h-4 w-4" />
               <p>
-                Clear entry keeps account setup, onboarding, and workspace access predictable
-                before operators move into execution workflows.
+                Clear entry keeps account setup, onboarding, and workspace access predictable before
+                operators move into execution workflows.
               </p>
             </div>
           </section>
@@ -219,7 +217,10 @@ export const AuthExperienceShell: React.FC<AuthExperienceShellProps> = ({
                 {loginOnlyLock.reason ||
                   'Registration is currently disabled. Sign in with an existing account to continue.'}
               </p>
-              <Link to="/login" className="premium-button premium-button-primary mt-5 inline-flex px-5 py-2.5">
+              <Link
+                to="/login"
+                className="premium-button premium-button-primary mt-5 inline-flex px-5 py-2.5"
+              >
                 Go to login
               </Link>
             </div>
@@ -229,5 +230,3 @@ export const AuthExperienceShell: React.FC<AuthExperienceShellProps> = ({
     </PublicSiteShell>
   );
 };
-
-export default AuthExperienceShell;

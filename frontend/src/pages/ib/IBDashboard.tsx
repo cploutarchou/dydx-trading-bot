@@ -13,12 +13,8 @@ import {
   toneForStatus,
 } from '../../components/ui/PlatformUI';
 import { useAuthStore } from '../../store/auth';
+import { formatUsdFixed } from '../../utils/format';
 import { ibPortalPath } from './paths';
-
-const formatCurrency = (value?: number) => {
-  const numeric = Number(value || 0);
-  return `$${numeric.toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
-};
 
 export const IBDashboard = () => {
   const user = useAuthStore((state) => state.user);
@@ -90,7 +86,7 @@ export const IBDashboard = () => {
           label="Net commission"
           value={
             ownerCommission?.net_commission_usd
-              ? formatCurrency(ownerCommission.net_commission_usd)
+              ? formatUsdFixed(ownerCommission.net_commission_usd)
               : '—'
           }
           icon={WalletCards}

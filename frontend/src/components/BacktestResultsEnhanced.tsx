@@ -377,8 +377,8 @@ export const BacktestResultsEnhanced: React.FC<{
           <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
             {/* Min Win Rate */}
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Min Win Rate %</label>
-              <input
+              <label className="block text-sm text-slate-400 mb-1" htmlFor="min-win-rate">Min Win Rate %</label>
+              <input id="min-win-rate"
                 type="number"
                 min="0"
                 max="100"
@@ -396,8 +396,8 @@ export const BacktestResultsEnhanced: React.FC<{
 
             {/* Max Drawdown */}
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Max Drawdown %</label>
-              <input
+              <label className="block text-sm text-slate-400 mb-1" htmlFor="max-drawdown">Max Drawdown %</label>
+              <input id="max-drawdown"
                 type="number"
                 value={filters.maxDrawdown || ''}
                 onChange={(e) =>
@@ -413,8 +413,8 @@ export const BacktestResultsEnhanced: React.FC<{
 
             {/* Min Trades */}
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Min Trades</label>
-              <input
+              <label className="block text-sm text-slate-400 mb-1" htmlFor="min-trades">Min Trades</label>
+              <input id="min-trades"
                 type="number"
                 min="1"
                 value={filters.minTrades || ''}
@@ -428,8 +428,8 @@ export const BacktestResultsEnhanced: React.FC<{
 
             {/* Sort By */}
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Sort By</label>
-              <select
+              <label className="block text-sm text-slate-400 mb-1" htmlFor="sort-by">Sort By</label>
+              <select id="sort-by"
                 value={filters.sortBy}
                 onChange={(e) => updateFilter('sortBy', e.target.value as BacktestFilters['sortBy'])}
                 className="w-full bg-slate-700 text-white px-2 py-1 rounded text-sm"

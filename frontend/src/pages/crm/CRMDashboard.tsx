@@ -20,12 +20,8 @@ import {
   PlatformStatCard,
   StatusBadge,
 } from '../../components/ui/PlatformUI';
+import { formatUsdFixed } from '../../utils/format';
 import { crmPath } from './paths';
-
-const formatCurrency = (value?: number) => {
-  const numeric = Number(value ?? 0);
-  return `$${numeric.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-};
 
 export const CRMDashboard = () => {
   const summaryQuery = useQuery({
@@ -61,7 +57,7 @@ export const CRMDashboard = () => {
     },
     {
       label: 'Net commissions',
-      value: formatCurrency(summary?.net_commission_usd),
+      value: formatUsdFixed(summary?.net_commission_usd),
       icon: WalletCards,
       color: 'text-amber-300',
     },

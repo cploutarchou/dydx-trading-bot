@@ -212,10 +212,8 @@ export const CRMClientDetail = () => {
 
               <div className="mt-4 space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs uppercase tracking-[0.14em] text-slate-500">
-                    Role
-                  </label>
-                  <select
+                  <label className="mb-1 block text-xs uppercase tracking-[0.14em] text-slate-500" htmlFor="role">Role</label>
+                  <select id="role"
                     value={currentRole}
                     onChange={(e) => setRoleDraft(e.target.value)}
                     className="premium-input"
@@ -229,10 +227,8 @@ export const CRMClientDetail = () => {
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-xs uppercase tracking-[0.14em] text-slate-500">
-                    Account status
-                  </label>
-                  <select
+                  <label className="mb-1 block text-xs uppercase tracking-[0.14em] text-slate-500" htmlFor="account-status">Account status</label>
+                  <select id="account-status"
                     value={currentActive ? 'active' : 'inactive'}
                     onChange={(e) => setActiveDraft(e.target.value === 'active')}
                     className="premium-input"

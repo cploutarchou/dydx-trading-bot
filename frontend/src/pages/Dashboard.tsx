@@ -8,19 +8,19 @@
 
 import { useQuery } from '@tanstack/react-query';
 import {
-    Activity,
-    AlertCircle,
-    ArrowRight,
-    BarChart2,
-    ChevronRight,
-    Clock,
-    Play,
-    RefreshCw,
-    Rocket,
-    Sparkles,
-    Target,
-    TrendingDown,
-    TrendingUp,
+  Activity,
+  AlertCircle,
+  ArrowRight,
+  BarChart2,
+  ChevronRight,
+  Clock,
+  Play,
+  RefreshCw,
+  Rocket,
+  Sparkles,
+  Target,
+  TrendingDown,
+  TrendingUp,
 } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -31,6 +31,8 @@ import { PageContainer } from '../components/PageContainer';
 import { EmptyState, InlineNotice } from '../components/ui/PlatformUI';
 import type { BacktestRun } from '../features/backtests/intelligence';
 import { useAuthStore } from '../store/auth';
+import { usePersistentPreference } from '../hooks/usePersistentPreference';
+import { formatCount, formatPct, formatSignedUsd } from '../utils/format';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -305,7 +307,8 @@ const buildPnlSeries = (runs: BacktestRunSummary[]): PnlPoint[] => {
   const seenDates = new Set<string>();
 
   for (let i = 0; i < sorted.length; i += 1) {
-    const r = sorted[i];
+    const r = sorted[i]!;
+    if (!r) continue;
     const ts = getRunTimestamp(r);
     const fallbackTs = Date.now() - (sorted.length - i) * 24 * 60 * 60 * 1000;
     const dateStr = new Date(ts ?? fallbackTs).toISOString().substring(0, 10);
@@ -392,8 +395,9 @@ export const DashboardPage: React.FC = () => {
     },
   });
 
-  const runs = backtestRunsQuery.data ?? [];
-  const stats = useMemo(() => buildDashboardStats(runs), [runs]);
+  const runsData = backtestRunsQuery.data;
+  const runs = runsData ?? [];
+  const stats = useMemo(() => buildDashboardStats(runsData ?? []), [runsData]);
   const statsLoading = backtestRunsQuery.isLoading;
   const statsError = useMemo(() => {
     if (!backtestRunsQuery.error) return null;
@@ -419,10 +423,17 @@ export const DashboardPage: React.FC = () => {
   // Animated counters
   const countTotal = useCountUp(stats.total);
 
-  const fmtPnl = (v: number) =>
-    (v > 0 ? '+' : '') + '$' + Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 2 });
-  const fmtPct = (v: number) => v.toFixed(1) + '%';
-  const fmtN = (v: number) => Math.round(v).toLocaleString('en-US');
+  // First-run guidance: shown until the operator dismisses it or completes
+  // their first backtest (audit FE-036).
+  const [firstRunDismissed, setFirstRunDismissed] = usePersistentPreference(
+    'dashboard.first-run-dismissed',
+    'false' as 'true' | 'false'
+  );
+  const showFirstRunCard = !statsLoading && stats.completed === 0 && firstRunDismissed !== 'true';
+
+  const fmtPnl = (v: number) => formatSignedUsd(v);
+  const fmtPct = (v: number) => formatPct(v);
+  const fmtN = (v: number) => formatCount(v);
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
@@ -590,6 +601,43 @@ export const DashboardPage: React.FC = () => {
             </div>
           </div>
 
+          {showFirstRunCard && (
+            <div className="operator-hero-panel p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-white">Welcome to your execution desk</p>
+                  <p className="mt-1 max-w-xl text-xs leading-5 text-slate-400">
+                    The workspace follows one flow: secure the account, research markets, build a
+                    strategy, then validate it with a backtest before any bot goes live. Start with
+                    the guided checklist in Client Area.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Dismiss getting started card"
+                  onClick={() => setFirstRunDismissed('true')}
+                  className="rounded-lg border border-slate-800 px-2 py-1 text-xs text-slate-400 transition hover:border-slate-700 hover:text-white"
+                >
+                  Dismiss
+                </button>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Link
+                  to="/client-area"
+                  className="platform-button platform-button-primary px-3 py-1.5 text-xs"
+                >
+                  Open the guided checklist
+                </Link>
+                <Link
+                  to="/settings?section=security"
+                  className="platform-button platform-button-secondary px-3 py-1.5 text-xs"
+                >
+                  Secure account access first
+                </Link>
+              </div>
+            </div>
+          )}
+
           <div className="operator-hero-panel p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -690,7 +738,7 @@ export const DashboardPage: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           label="Live Activity"
           icon={<Activity className="w-5 h-5" />}

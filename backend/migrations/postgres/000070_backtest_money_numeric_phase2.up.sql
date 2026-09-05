@@ -27,7 +27,6 @@ ALTER TABLE backtest_trades
     ALTER COLUMN exit_price_1 TYPE NUMERIC(20,8) USING exit_price_1::NUMERIC(20,8),
     ALTER COLUMN exit_price_2 TYPE NUMERIC(20,8) USING exit_price_2::NUMERIC(20,8),
     ALTER COLUMN pnl TYPE NUMERIC(20,8) USING pnl::NUMERIC(20,8),
-    ALTER COLUMN pnl_usd TYPE NUMERIC(20,8) USING pnl_usd::NUMERIC(20,8),
     ALTER COLUMN transaction_fee TYPE NUMERIC(20,8) USING transaction_fee::NUMERIC(20,8),
     ALTER COLUMN slippage TYPE NUMERIC(20,8) USING slippage::NUMERIC(20,8);
 

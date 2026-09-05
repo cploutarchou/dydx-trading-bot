@@ -24,12 +24,19 @@ import {
 } from './components/ErrorBoundary';
 import { MainLayout } from './components/MainLayout';
 import { RegistrationDisabledLoginGate } from './components/RegistrationDisabledLoginGate';
+import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import { ThemeProvider } from './components/ThemeProvider';
-import { LandingPage } from './pages/Landing';
+import { ForgotPasswordPage } from './pages/ForgotPassword';
 import { LoginPage } from './pages/Login';
-import { PricingPage } from './pages/Pricing';
-import { PublicServicePage } from './pages/PublicServicePage';
-import { RegisterPage } from './pages/Register';
+import { ResetPasswordPage } from './pages/ResetPassword';
+// Public marketing/auth pages are route-split like the workspace pages so the
+// eager bundle stays focused on the authenticated shell (audit FE-032).
+const LandingPage = lazy(() => import('./pages/Landing').then((m) => ({ default: m.LandingPage })));
+const PricingPage = lazy(() => import('./pages/Pricing').then((m) => ({ default: m.PricingPage })));
+const PublicServicePage = lazy(() =>
+  import('./pages/PublicServicePage').then((m) => ({ default: m.PublicServicePage }))
+);
+const RegisterPage = lazy(() => import('./pages/Register').then((m) => ({ default: m.RegisterPage })));
 import { useAuthStore } from './store/auth';
 import { useUIPreferencesStore } from './store/uiPreferences';
 
@@ -266,6 +273,9 @@ export const App: React.FC = () => {
             <Suspense fallback={<AuthSkeleton />}>
               <ComingSoonGate>
                 <Routes>
+                  {/* Pathless wrapper: any render/loader error below renders
+                      RouteErrorBoundary in place instead of a blank app. */}
+                  <Route errorElement={<RouteErrorBoundary />}>
                   <Route
                     path="/"
                     element={
@@ -286,6 +296,8 @@ export const App: React.FC = () => {
                   <Route path="/ico/withdraw" element={<IcoTokenActionPage action="withdraw" />} />
                   <Route path="/ico/:documentSlug" element={<IcoDocumentPage />} />
                   <Route path="/login" element={<LoginPage />} />
+                  <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                  <Route path="/reset-password" element={<ResetPasswordPage />} />
                   <Route path="/register" element={<RegisterPage />} />
                   <Route path="/2fa-setup" element={<TwoFactorAuthPage />} />
                   <Route path="/force-password" element={<PasswordRotationRoute />} />
@@ -311,6 +323,7 @@ export const App: React.FC = () => {
                   ))}
 
                   <Route path="*" element={<Navigate to="/unauthorized" replace />} />
+                  </Route>
                 </Routes>
               </ComingSoonGate>
             </Suspense>

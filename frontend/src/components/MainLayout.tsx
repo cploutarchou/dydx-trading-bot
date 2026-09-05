@@ -80,7 +80,13 @@ const MainLayoutContent: React.FC<MainLayoutProps> = ({ children }) => {
         />
 
         {/* Page Content */}
-        <main className="relative z-10 flex-1 overflow-x-hidden overflow-y-auto">
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded focus:bg-cyan-500 focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-slate-900"
+        >
+          Skip to content
+        </a>
+        <main id="main-content" tabIndex={-1} className="relative z-10 flex-1 overflow-x-hidden overflow-y-auto">
           <div key={location.pathname} className="animate-page-enter h-full">
             {children}
           </div>

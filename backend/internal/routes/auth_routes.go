@@ -4,7 +4,9 @@ package routes
 import (
 	"crypto/subtle"
 	"database/sql"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -42,6 +44,8 @@ func RegisterAuthRoutes(router *gin.Engine, database *sql.DB) {
 		// (e.g. GET /keys/:network/secret) demand.
 		authRoutes.POST("/2fa/step-up", middleware.RequireAuth(), mfaStepUpHandler(database))
 		authRoutes.PUT("/change-password", middleware.RequireAuth(), changePasswordHandler(database))
+		authRoutes.POST("/forgot-password", forgotPasswordHandler(database))
+		authRoutes.POST("/reset-password", resetPasswordHandler(database))
 	}
 
 	// User routes (require authentication)
@@ -637,6 +641,55 @@ func stringPointer(value string) *string {
 }
 
 // registerHandler handles user registration
+
+// validateAvatarDataURI enforces the avatar contract server-side: the client
+// may claim any MIME type, so the backend independently verifies a data URL
+// of an allowed image type within the size ceiling before persisting it.
+func validateAvatarDataURI(avatar string) error {
+	const maxAvatarBytes = 5 << 20 // matches the frontend's 5MB upload guidance
+	if avatar == "" {
+		return nil // clearing the avatar is always allowed
+	}
+	rest, ok := strings.CutPrefix(avatar, "data:")
+	if !ok {
+		return fmt.Errorf("avatar must be a data URL")
+	}
+	meta, payload, found := strings.Cut(rest, ",")
+	if !found {
+		return fmt.Errorf("avatar data URL is malformed")
+	}
+	// meta looks like "image/png;base64". Only the base64 form is used by
+	// the frontend; reject any other encoding before type/size checks.
+	params := strings.Split(meta, ";")
+	isBase64 := false
+	for _, param := range params[1:] {
+		if param == "base64" {
+			isBase64 = true
+		}
+	}
+	if !isBase64 {
+		return fmt.Errorf("avatar must use base64 encoding")
+	}
+	mediaType := params[0]
+	allowedTypes := map[string]bool{
+		"image/png":  true,
+		"image/jpeg": true,
+		"image/gif":  true,
+		"image/webp": true,
+	}
+	if !allowedTypes[mediaType] {
+		return fmt.Errorf("avatar must be a PNG, JPEG, GIF, or WebP image")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return fmt.Errorf("avatar payload is not valid base64")
+	}
+	if len(decoded) > maxAvatarBytes {
+		return fmt.Errorf("avatar exceeds the 5MB limit")
+	}
+	return nil
+}
+
 func registerHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		policy, err := resolveRegistrationPolicy(database)
@@ -1617,7 +1670,16 @@ func updateProfileHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		if req.Avatar != nil {
-			user.Avatar = strings.TrimSpace(*req.Avatar)
+			avatar := strings.TrimSpace(*req.Avatar)
+			if err := validateAvatarDataURI(avatar); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success": false,
+					"message": "Invalid avatar",
+					"error":   err.Error(),
+				})
+				return
+			}
+			user.Avatar = avatar
 		}
 
 		if err := userRepo.Update(user); err != nil {

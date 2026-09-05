@@ -53,6 +53,9 @@ export const queryKeys = {
   backtestTrades: (runId: string, params?: QueryParams) =>
     ['backtests', runId, 'trades', params] as const,
   backtestMetrics: (runId: string) => ['backtests', runId, 'metrics'] as const,
+  backtestSummary: (runId: string) => ['backtests', runId, 'summary'] as const,
+  redisStatus: ['system', 'redis', 'status'] as const,
+  comingSoonSetting: ['settings', 'coming-soon'] as const,
   backtestAnalytics: (runId: string) => ['backtests', runId, 'analytics'] as const,
   backtestSyncHealth: (runId?: string) => ['backtests', 'sync-health', runId ?? 'all'] as const,
   backtestInterrupted: (admin: boolean = false, limit?: number) =>

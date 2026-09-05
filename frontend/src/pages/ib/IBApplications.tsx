@@ -61,26 +61,28 @@ export const IBApplications = () => {
     },
   });
 
-  const applications = applicationsQuery.data?.applications ?? [];
+  const applicationsData = applicationsQuery.data?.applications;
   // Only sub_ib can apply for an IB upgrade through this portal
   const canApply = role === 'sub_ib';
 
   const filtered = useMemo(
     () =>
-      statusFilter === 'all' ? applications : applications.filter((a) => a.status === statusFilter),
-    [applications, statusFilter]
+      statusFilter === 'all'
+        ? (applicationsData ?? [])
+        : (applicationsData ?? []).filter((a) => a.status === statusFilter),
+    [applicationsData, statusFilter]
   );
 
-  const counts = useMemo(
-    () => ({
-      all: applications.length,
-      pending: applications.filter((a) => a.status === 'pending').length,
-      reviewing: applications.filter((a) => a.status === 'reviewing').length,
-      approved: applications.filter((a) => a.status === 'approved').length,
-      rejected: applications.filter((a) => a.status === 'rejected').length,
-    }),
-    [applications]
-  );
+  const counts = useMemo(() => {
+    const source = applicationsData ?? [];
+    return {
+      all: source.length,
+      pending: source.filter((a) => a.status === 'pending').length,
+      reviewing: source.filter((a) => a.status === 'reviewing').length,
+      approved: source.filter((a) => a.status === 'approved').length,
+      rejected: source.filter((a) => a.status === 'rejected').length,
+    };
+  }, [applicationsData]);
 
   return (
     <PageContainer size="wide" className="space-y-6">

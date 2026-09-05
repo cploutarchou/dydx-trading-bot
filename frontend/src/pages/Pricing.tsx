@@ -2,10 +2,10 @@ import { ArrowRight, CheckCircle2, ShieldCheck } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ProfitShareIllustration } from '../components/DeFiIllustrations';
-import MotionReveal from '../components/MotionReveal';
+import { MotionReveal } from '../components/MotionReveal';
 import { PublicMarketPulsePanel } from '../components/PublicMarketPulse';
-import PublicSiteShell from '../components/PublicSiteShell';
-import SEOHead from '../components/SEOHead';
+import { PublicSiteShell } from '../components/PublicSiteShell';
+import { SEOHead } from '../components/SEOHead';
 
 const plans = [
   {

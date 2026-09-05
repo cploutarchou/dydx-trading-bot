@@ -11,9 +11,7 @@ if (rootElement) {
 
   const app = <App />;
 
-  ReactDOM.createRoot(rootElement).render(
-    import.meta.env.DEV ? app : <React.StrictMode>{app}</React.StrictMode>
-  );
+  ReactDOM.createRoot(rootElement).render(<React.StrictMode>{app}</React.StrictMode>);
 } else {
   console.error('❌ main.tsx: Root element not found! Check index.html');
 }

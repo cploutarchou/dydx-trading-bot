@@ -7,8 +7,8 @@
  * - Trade duration statistics
  */
 
-import React, { useEffect, useState } from 'react';
-import apiClient from '../api';
+import React from 'react';
+import { useBacktestMetrics } from '../api/hooks';
 
 interface PerformanceData {
   run_id: string;
@@ -29,34 +29,35 @@ interface PerformanceMetricsProps {
   runId: string;
 }
 
-const getErrorMessage = (error: unknown, fallback: string): string =>
-  error instanceof Error ? error.message : fallback;
+type MetricCardProps = {
+  label: string;
+  value: string | number;
+  unit?: string;
+  highlight?: boolean;
+};
+
+const MetricCard: React.FC<MetricCardProps> = ({ label, value, unit, highlight = false }) => (
+  <div
+    className={`p-4 rounded-lg border ${highlight ? 'bg-blue-900 border-blue-700' : 'bg-slate-700 border-slate-600'}`}
+  >
+    <p className="text-gray-400 text-sm font-medium">{label}</p>
+    <p className={`text-2xl font-bold mt-2 ${highlight ? 'text-blue-400' : 'text-white'}`}>
+      {value}
+      {unit && <span className="text-lg ml-1">{unit}</span>}
+    </p>
+  </div>
+);
 
 export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ runId }) => {
-  const [metrics, setMetrics] = useState<PerformanceData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchPerformanceData();
-  }, [runId]);
-
-  const fetchPerformanceData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await apiClient.getBacktestPerformance(runId);
-      if (response.success && response.data) {
-        setMetrics(response.data);
-      } else {
-        setError(response.message || 'Failed to load performance metrics');
-      }
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, 'Error loading performance metrics'));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const performanceQuery = useBacktestMetrics(runId);
+  const metrics = performanceQuery.data as unknown as PerformanceData | undefined;
+  const loading = performanceQuery.isLoading;
+  const error =
+    performanceQuery.error instanceof Error
+      ? performanceQuery.error.message
+      : performanceQuery.isError
+        ? 'Failed to load performance metrics'
+        : null;
 
   if (loading) {
     return (
@@ -82,23 +83,6 @@ export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ runId })
   if (!metrics) {
     return <div className="text-gray-400">No performance data available</div>;
   }
-
-  const MetricCard: React.FC<{
-    label: string;
-    value: string | number;
-    unit?: string;
-    highlight?: boolean;
-  }> = ({ label, value, unit, highlight = false }) => (
-    <div
-      className={`p-4 rounded-lg border ${highlight ? 'bg-blue-900 border-blue-700' : 'bg-slate-700 border-slate-600'}`}
-    >
-      <p className="text-gray-400 text-sm font-medium">{label}</p>
-      <p className={`text-2xl font-bold mt-2 ${highlight ? 'text-blue-400' : 'text-white'}`}>
-        {value}
-        {unit && <span className="text-lg ml-1">{unit}</span>}
-      </p>
-    </div>
-  );
 
   return (
     <div className="space-y-6">

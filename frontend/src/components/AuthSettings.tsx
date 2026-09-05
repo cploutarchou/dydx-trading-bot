@@ -37,25 +37,25 @@ export const AuthSettingsComponent: React.FC = () => {
 
     if (e.key === 'ArrowRight') {
       e.preventDefault();
-      setActiveTab(authTabs[(currentIndex + 1) % authTabs.length]);
+      setActiveTab(authTabs[(currentIndex + 1) % authTabs.length] ?? authTabs[0]!);
       return;
     }
 
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      setActiveTab(authTabs[(currentIndex - 1 + authTabs.length) % authTabs.length]);
+      setActiveTab(authTabs[(currentIndex - 1 + authTabs.length) % authTabs.length] ?? authTabs[0]!);
       return;
     }
 
     if (e.key === 'Home') {
       e.preventDefault();
-      setActiveTab(authTabs[0]);
+      setActiveTab(authTabs[0]!);
       return;
     }
 
     if (e.key === 'End') {
       e.preventDefault();
-      setActiveTab(authTabs[authTabs.length - 1]);
+      setActiveTab(authTabs[authTabs.length - 1] ?? authTabs[0]!);
     }
   };
 
@@ -137,6 +137,9 @@ export const AuthSettingsComponent: React.FC = () => {
 
       {/* Tabs */}
       <div className="premium-panel overflow-hidden p-0">
+        {/* Keyboard arrow handling for the tab list lives here; the tabs
+            themselves are the focusable elements, not the list container. */}
+        {/* eslint-disable-next-line jsx-a11y/interactive-supports-focus */}
         <div
           className="flex border-b border-slate-700/60"
           role="tablist"
@@ -240,9 +243,9 @@ export const AuthSettingsComponent: React.FC = () => {
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-300">
+                <p className="mb-2 block text-sm font-medium text-slate-300">
                   Account Status
-                </label>
+                </p>
                 <div className="flex items-center gap-2">
                   <CheckCircle className="h-5 w-5 text-emerald-400" />
                   <span className="font-medium text-slate-200">

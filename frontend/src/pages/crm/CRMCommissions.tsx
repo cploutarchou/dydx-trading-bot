@@ -4,11 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import api from '../../api';
 import { useToastStore } from '../../components/ErrorBoundary';
 import { PageContainer } from '../../components/PageContainer';
-
-const formatCurrency = (value?: number) => {
-  const numeric = Number(value ?? 0);
-  return `$${numeric.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-};
+import { formatUsdFixed } from '../../utils/format';
 
 const initialDraft = {
   direct_clients: 0,
@@ -80,10 +76,10 @@ export const CRMCommissions = () => {
     },
   });
 
-  const allUsers = usersQuery.data?.users ?? [];
+  const usersData = usersQuery.data?.users;
   const ibCandidates = useMemo(
-    () => allUsers.filter((u) => u.role === 'ib' || u.role === 'sub_ib'),
-    [allUsers]
+    () => (usersData ?? []).filter((u) => u.role === 'ib' || u.role === 'sub_ib'),
+    [usersData]
   );
 
   const fields = [
@@ -128,7 +124,7 @@ export const CRMCommissions = () => {
         <div className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4">
           <p className="text-xs text-slate-500">Total net commissions</p>
           <p className="mt-1 text-2xl font-semibold text-white">
-            {formatCurrency(summaryQuery.data?.net_commission_usd)}
+            {formatUsdFixed(summaryQuery.data?.net_commission_usd)}
           </p>
         </div>
       </div>
@@ -144,10 +140,14 @@ export const CRMCommissions = () => {
           {/* User selector */}
           <div className="space-y-4">
             <div>
-              <label className="mb-1.5 block text-xs uppercase tracking-[0.14em] text-slate-500">
+              <label
+                className="mb-1.5 block text-xs uppercase tracking-[0.14em] text-slate-500"
+                htmlFor="ib-sub-ib-account"
+              >
                 IB / sub-IB account
               </label>
               <select
+                id="ib-sub-ib-account"
                 value={selectedUserId ?? ''}
                 onChange={(e) => {
                   const val = Number(e.target.value || 0);
@@ -179,25 +179,25 @@ export const CRMCommissions = () => {
                   <p>
                     Net:{' '}
                     <span className="font-medium text-white">
-                      {formatCurrency(commissionQuery.data.owner.net_commission_usd)}
+                      {formatUsdFixed(commissionQuery.data.owner.net_commission_usd)}
                     </span>
                   </p>
                   <p>
                     Gross:{' '}
                     <span className="font-medium text-white">
-                      {formatCurrency(commissionQuery.data.owner.gross_commission_usd)}
+                      {formatUsdFixed(commissionQuery.data.owner.gross_commission_usd)}
                     </span>
                   </p>
                   <p>
                     Rebate:{' '}
                     <span className="font-medium text-white">
-                      {formatCurrency(commissionQuery.data.owner.rebate_usd)}
+                      {formatUsdFixed(commissionQuery.data.owner.rebate_usd)}
                     </span>
                   </p>
                   <p>
                     Volume:{' '}
                     <span className="font-medium text-white">
-                      {formatCurrency(commissionQuery.data.owner.notional_volume_usd)}
+                      {formatUsdFixed(commissionQuery.data.owner.notional_volume_usd)}
                     </span>
                   </p>
                   <p>

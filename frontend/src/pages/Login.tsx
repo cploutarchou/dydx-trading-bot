@@ -1,8 +1,8 @@
 import { LockKeyhole } from 'lucide-react';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { BACKOFFICE_ROLES, IB_ROLES, getUserWorkspaceRole } from '../auth/roles';
-import BrandMark from '../components/BrandMark';
+import { BrandMark } from '../components/BrandMark';
 import { CryptoBackground } from '../components/CryptoBackground';
 import {
   FormField,
@@ -33,13 +33,6 @@ export const LoginPage: React.FC = () => {
   const usernameError = submitted ? formErrors.username : '';
   const passwordError = submitted ? formErrors.password : '';
   const isSubmitDisabled = !canSubmitLoginForm({ username, password, loading });
-  const supportHref = useMemo(() => {
-    const subject = encodeURIComponent('ExecutionLab account recovery request');
-    const body = encodeURIComponent(
-      'Hello ExecutionLab team,\n\nI need help recovering access to my account.\n'
-    );
-    return `mailto:support@executionlab.io?subject=${subject}&body=${body}`;
-  }, []);
 
   useEffect(() => {
     usernameInputRef.current?.focus();
@@ -163,6 +156,9 @@ export const LoginPage: React.FC = () => {
                 onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
                 placeholder="123456"
                 disabled={loading}
+                // Focusing the one-time code is the intended landing point
+                // after the MFA challenge appears.
+                // eslint-disable-next-line jsx-a11y/no-autofocus
                 autoFocus
                 required
               />
@@ -268,9 +264,9 @@ export const LoginPage: React.FC = () => {
           </form>
 
           <div className="mt-5 flex flex-col gap-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-            <a href={supportHref} className="font-medium text-cyan-200 hover:text-cyan-100">
-              Account recovery
-            </a>
+            <Link to="/forgot-password" className="font-medium text-cyan-200 hover:text-cyan-100">
+              Forgot your password?
+            </Link>
             <Link to="/" className="font-medium text-slate-300 hover:text-white">
               Return to launch page
             </Link>

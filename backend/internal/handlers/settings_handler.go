@@ -436,15 +436,12 @@ func (h *SettingsHandler) GetBotSettingsBySection(c *gin.Context) {
 		return
 	}
 
-	var result []map[string]interface{}
+	result := make([]map[string]interface{}, 0, len(settings))
 	for _, s := range settings {
-		// Sensitive values (tokens/passwords/keys) are never returned by the
-		// section listing — same policy as GetSettings; arbitrary section
-		// names previously exposed every secret in the table.
-		if isSensitiveSettingsKey(s.Section, s.Key) {
-			continue
-		}
-		result = append(result, s.ToDict())
+		// Sensitive values are MASKED, not omitted: rows stay visible (so
+		// frontends can show "configured" state) while secrets never leave.
+		// Same policy as the single-get reads.
+		result = append(result, maskedSettingDict(s.Section, s.ToDict()))
 	}
 
 	c.JSON(http.StatusOK, APIResponse{
@@ -471,10 +468,7 @@ func (h *SettingsHandler) ListAllBotSettings(c *gin.Context) {
 
 	var result []map[string]interface{}
 	for _, s := range settings {
-		if isSensitiveSettingsKey(s.Section, s.Key) {
-			continue
-		}
-		result = append(result, s.ToDict())
+		result = append(result, maskedSettingDict(s.Section, s.ToDict()))
 	}
 
 	c.JSON(http.StatusOK, APIResponse{

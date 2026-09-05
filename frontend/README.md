@@ -49,8 +49,14 @@ npm run build:backoffice
 npm run build:ib
 npm run lint
 npm run preview
-npm run test:contracts
+npm test
+npm run test:e2e
 ```
+
+Testing notes: `npm test` runs the full Vitest suite (unit + contract; component
+tests use jsdom via the `*.dom.test.tsx` naming convention). `npm run
+test:e2e` runs the backend-free Playwright smoke suite from `e2e/` and starts
+the dev server itself (first run needs `npx playwright install chromium`).
 
 ## Portal Architecture
 

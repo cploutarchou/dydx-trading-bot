@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { ArrowUpRight, Newspaper, RefreshCw } from 'lucide-react';
 import api from '../api';
+import { httpsUrl } from '../utils/urlSafety';
 
 const formatPublishedAt = (value?: string): string => {
   if (!value) return 'Unknown time';
@@ -74,7 +75,7 @@ export function CoinDeskNewsPanel({ compact = false }: CoinDeskNewsPanelProps) {
           <>
             {featuredArticle && (
               <a
-                href={featuredArticle.url}
+                href={httpsUrl(featuredArticle.url) ?? '#'}
                 target="_blank"
                 rel="noreferrer"
                 className="group block overflow-hidden rounded-[1.75rem] border border-slate-700/60 bg-slate-950/50 transition hover:border-cyan-500/35 hover:bg-slate-950/70"
@@ -120,7 +121,7 @@ export function CoinDeskNewsPanel({ compact = false }: CoinDeskNewsPanelProps) {
             {remainingArticles.map((article) => (
             <a
               key={article.id}
-              href={article.url}
+              href={httpsUrl(article.url) ?? '#'}
               target="_blank"
               rel="noreferrer"
               className="group block rounded-2xl border border-slate-700/60 bg-slate-950/45 p-4 transition hover:border-cyan-500/35 hover:bg-slate-950/70"

@@ -491,8 +491,8 @@ const ClickHouseAnalytics: React.FC = () => {
         <div className="bg-slate-800/50 rounded-lg p-4 mb-6 border border-slate-700/50">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-1">
-              <label className="block text-sm font-medium text-slate-400 mb-2">Instance ID</label>
-              <input
+              <label className="block text-sm font-medium text-slate-400 mb-2" htmlFor="instance-id">Instance ID</label>
+              <input id="instance-id"
                 type="text"
                 value={instanceId}
                 onChange={(e) => setInstanceId(e.target.value)}
@@ -502,8 +502,8 @@ const ClickHouseAnalytics: React.FC = () => {
               />
             </div>
             <div className="md:col-span-1">
-              <label className="block text-sm font-medium text-slate-400 mb-2">Time Range (hours)</label>
-              <select
+              <label className="block text-sm font-medium text-slate-400 mb-2" htmlFor="time-range-hours">Time Range (hours)</label>
+              <select id="time-range-hours"
                 value={hours}
                 onChange={(e) => setHours(Number(e.target.value))}
                 disabled={activeTab === 'workers' || activeTab === 'api' || activeTab === 'trades'}
@@ -519,8 +519,8 @@ const ClickHouseAnalytics: React.FC = () => {
               </select>
             </div>
             <div className="md:col-span-1">
-              <label className="block text-sm font-medium text-slate-400 mb-2">Data Type</label>
-              <select
+              <label className="block text-sm font-medium text-slate-400 mb-2" htmlFor="data-type">Data Type</label>
+              <select id="data-type"
                 value={activeTab}
                 onChange={(e) => setActiveTab(e.target.value as typeof activeTab)}
                 className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700/50 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"

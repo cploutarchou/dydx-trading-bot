@@ -77,4 +77,3 @@ export const MotionReveal: React.FC<MotionRevealProps> = ({
   );
 };
 
-export default MotionReveal;

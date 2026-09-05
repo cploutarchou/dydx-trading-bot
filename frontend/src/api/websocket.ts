@@ -494,11 +494,13 @@ export class WebSocketManager {
 // Create singleton instance
 export const wsManager = new WebSocketManager();
 
-// Auto-connect when authentication state changes
+// Auto-connect when authentication state changes. api.ts dispatches
+// `auth:changed` from its token set/clear choke points (and
+// `auth:session-expired` on forced logout), so no polling interval is needed.
 let wasAuthenticated = enhancedApiClient.isAuthenticated();
 
-setInterval(() => {
-  const isAuthenticated = enhancedApiClient.isAuthenticated();
+const syncAuthState = (authenticated?: boolean): void => {
+  const isAuthenticated = authenticated ?? enhancedApiClient.isAuthenticated();
 
   if (isAuthenticated && !wasAuthenticated) {
     // User just logged in
@@ -509,6 +511,14 @@ setInterval(() => {
   }
 
   wasAuthenticated = isAuthenticated;
-}, 1000);
+};
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('auth:changed', (event) => {
+    const detail = (event as CustomEvent<{ authenticated?: boolean }>).detail;
+    syncAuthState(detail?.authenticated);
+  });
+  window.addEventListener('auth:session-expired', () => syncAuthState(false));
+}
 
 export default wsManager;

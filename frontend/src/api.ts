@@ -2,7 +2,14 @@
  * API client for dYdX Backtest system
  */
 
-import axios, { AxiosError, AxiosInstance, AxiosRequestHeaders } from 'axios';
+import axios, {
+  AxiosError,
+  AxiosInstance,
+  AxiosRequestHeaders,
+  create,
+  isAxiosError,
+  isCancel,
+} from 'axios';
 import {
   guardBacktestStatusContract,
   guardListBacktestsContract,
@@ -91,6 +98,8 @@ const isPublicUnauthenticatedRoute = (url: string): boolean =>
   url.includes('/auth/refresh') ||
   url.includes('/auth/token') ||
   url.includes('/auth/registration-status') ||
+  url.includes('/auth/forgot-password') ||
+  url.includes('/auth/reset-password') ||
   url.includes('/public/app-config') ||
   url.includes('/public/ico/') ||
   url.includes('/health') ||
@@ -1773,7 +1782,7 @@ class ApiClient {
   private readonly refreshFailureCooldownMs: number = 10000;
 
   constructor() {
-    this.client = axios.create({
+    this.client = create({
       baseURL: API_BASE_URL,
       withCredentials: true,
       headers: {
@@ -1784,8 +1793,9 @@ class ApiClient {
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
-      // Load persisted token for session recovery after page refresh
-      this.loadTokenFromStorage();
+      // Scrub the pre-FE-002 persisted JWT so no stale bearer remains on
+      // returning browsers; sessions recover via the HttpOnly cookie.
+      localStorage.removeItem('_dydx_access_token');
     }
 
     // Request interceptor: browser auth is carried by the HttpOnly session cookie.
@@ -1819,9 +1829,7 @@ class ApiClient {
       (response) => response,
       async (error: AxiosError) => {
         const isCanceledRequest =
-          axios.isCancel(error) ||
-          error.code === 'ERR_CANCELED' ||
-          error.message === 'Request aborted';
+          isCancel(error) || error.code === 'ERR_CANCELED' || error.message === 'Request aborted';
 
         if (isCanceledRequest) {
           return Promise.reject(error);
@@ -1852,8 +1860,7 @@ class ApiClient {
           }
 
           const originalRequest = error.config as
-            | (typeof error.config & { _retry?: boolean })
-            | undefined;
+            (typeof error.config & { _retry?: boolean }) | undefined;
           if (originalRequest?._retry) {
             return Promise.reject(error);
           }
@@ -1909,7 +1916,7 @@ class ApiClient {
             const errorMsg =
               refreshError instanceof Error ? refreshError.message : String(refreshError);
             const refreshStatus =
-              axios.isAxiosError(refreshError) && refreshError.response
+              isAxiosError(refreshError) && refreshError.response
                 ? refreshError.response.status
                 : null;
             const shouldExpireSession = refreshStatus === 401 || refreshStatus === 403;
@@ -1967,12 +1974,14 @@ class ApiClient {
     this.sessionEstablished = true;
     this.markSessionEstablished();
     // Persist token to localStorage for recovery after page refresh
-    if (typeof localStorage !== 'undefined') {
-      try {
-        localStorage.setItem('_dydx_access_token', token);
-      } catch (e) {
-        console.warn('❌ api.ts: Failed to persist token to localStorage', e);
-      }
+    // Audit FE-002: the access JWT is intentionally NOT persisted anymore.
+    // The HttpOnly session cookie is the durable credential (refresh flow
+    // re-issues tokens on load); an XSS-readable copy in localStorage was a
+    // session-theft surface on a trading app.
+    // Event-driven auth observers (e.g. the WS manager) sync on this instead
+    // of polling.
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('auth:changed', { detail: { authenticated: true } }));
     }
   }
 
@@ -2014,20 +2023,6 @@ class ApiClient {
 
   getAccessToken(): string | null {
     return this.accessToken;
-  }
-
-  private loadTokenFromStorage(): void {
-    if (typeof localStorage !== 'undefined') {
-      try {
-        const storedToken = localStorage.getItem('_dydx_access_token');
-        if (storedToken) {
-          this.accessToken = storedToken;
-          this.markSessionEstablished();
-        }
-      } catch (e) {
-        console.warn('❌ api.ts: Failed to load token from localStorage', e);
-      }
-    }
   }
 
   async refreshAccessToken(): Promise<Token> {
@@ -2114,9 +2109,8 @@ class ApiClient {
 
   async restoreSession(options: { allowCookieRefresh?: boolean } = {}): Promise<boolean> {
     try {
-      // Attempt to load token from localStorage first (recovery after page refresh)
-      this.loadTokenFromStorage();
-      // If we already have a valid in-memory access token, skip the refresh round-trip.
+      // Session recovery is cookie-driven: restoreSession refreshes via the
+      // HttpOnly session cookie and re-issues an in-memory access token.
       if (this.accessToken && this.sessionEstablished) {
         return true;
       }
@@ -2151,6 +2145,23 @@ class ApiClient {
     return;
   }
 
+  // FE-009: self-serve password reset (public endpoints).
+  async requestPasswordReset(email: string): Promise<void> {
+    await this.client.post(
+      '/api/v1/auth/forgot-password',
+      { email },
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  async resetPassword(token: string, newPassword: string): Promise<void> {
+    await this.client.post(
+      '/api/v1/auth/reset-password',
+      { token, new_password: newPassword },
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
   logout(): void {
     this.accessToken = null;
     this.sessionEstablished = false;
@@ -2163,6 +2174,9 @@ class ApiClient {
       } catch (e) {
         console.warn('❌ api.ts: Failed to clear token from localStorage during logout', e);
       }
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('auth:changed', { detail: { authenticated: false } }));
     }
 
     void axios.post(`${API_BASE_URL}/api/v1/auth/logout`, {}, { withCredentials: true });
@@ -2318,10 +2332,9 @@ class ApiClient {
    */
   async completeMfaChallenge(token: string): Promise<Token> {
     try {
-      const response = await this.client.post<ApiResponse<Token>>(
-        '/api/v1/auth/2fa/challenge',
-        { token }
-      );
+      const response = await this.client.post<ApiResponse<Token>>('/api/v1/auth/2fa/challenge', {
+        token,
+      });
       const payload = (response.data?.data || response.data) as Token;
       if (payload) {
         this.markSessionEstablished();
@@ -4255,12 +4268,13 @@ class ApiClient {
     }
   }
 
-  // WebSocket connection for real-time updates
+  // WebSocket connection for real-time updates.
+  // Cookie-first (audit FE-003): the backend accepts the HttpOnly session
+  // cookie on WS upgrades and origin-checks the handshake, so same-origin
+  // sockets need no token. The query-param token stays only as a fallback
+  // for cookie-less flows to keep credentials out of proxy/access logs.
   connectSocket(path: string, token?: string): WebSocket {
-    if (!token && !this.accessToken) {
-      this.loadTokenFromStorage();
-    }
-    const useToken = token || this.accessToken || '';
+    const useToken = token || (this.hasSessionHint() ? '' : this.accessToken || '');
     return new WebSocket(resolveBackendWebSocketUrl(path, useToken, API_BASE_URL));
   }
 
@@ -4734,10 +4748,7 @@ class ApiClient {
 
   // ClickHouse Analytics Endpoints
 
-  async getClickHousePositionHistory(
-    instanceId: string,
-    hours: number = 24
-  ): Promise<ApiResponse> {
+  async getClickHousePositionHistory(instanceId: string, hours: number = 24): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     try {
       const response = await this.client.get<ApiResponse>(
@@ -4749,9 +4760,7 @@ class ApiClient {
     }
   }
 
-  async getClickHouseTradeSummary(
-    instanceId: string
-  ): Promise<ApiResponse> {
+  async getClickHouseTradeSummary(instanceId: string): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     try {
       const response = await this.client.get<ApiResponse>(
@@ -4763,9 +4772,7 @@ class ApiClient {
     }
   }
 
-  async getClickHousePairBreakdown(
-    instanceId: string
-  ): Promise<ApiResponse> {
+  async getClickHousePairBreakdown(instanceId: string): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     try {
       const response = await this.client.get<ApiResponse>(
@@ -4809,9 +4816,7 @@ class ApiClient {
   async getClickHouseAPIRequestSummary(): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     try {
-      const response = await this.client.get<ApiResponse>(
-        '/api/v1/analytics/api-requests/summary'
-      );
+      const response = await this.client.get<ApiResponse>('/api/v1/analytics/api-requests/summary');
       return response.data;
     } catch (error: unknown) {
       throw new Error(getErrorMessage(error));

@@ -3,7 +3,7 @@ import { AlertCircle, CheckCircle, Loader, ShieldCheck, Sparkles } from 'lucide-
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
-import AuthExperienceShell from '../components/AuthExperienceShell';
+import { AuthExperienceShell } from '../components/AuthExperienceShell';
 import { isTurnstileVerificationDisabled, TurnstileWidget } from '../components/TurnstileWidget';
 import { useAuthStore } from '../store/auth';
 
@@ -192,7 +192,9 @@ export const RegisterPage: React.FC = () => {
         <div className="metric-tile px-4 py-4">
           <p className="text-[11px] uppercase text-slate-500">Registration mode</p>
           <p className="mt-2 text-sm font-semibold text-white">
-            {registrationStatusQuery.data?.invitation_required ? 'Invitation required' : 'Open review'}
+            {registrationStatusQuery.data?.invitation_required
+              ? 'Invitation required'
+              : 'Open review'}
           </p>
           <p className="mt-1 text-xs leading-5 text-slate-400">
             Account creation flows into security setup before execution workspace use.
@@ -302,7 +304,10 @@ export const RegisterPage: React.FC = () => {
 
         {registrationStatusQuery.data?.invitation_required && (
           <div>
-            <label htmlFor="invitationCode" className="mb-2 block text-sm font-medium text-slate-300">
+            <label
+              htmlFor="invitationCode"
+              className="mb-2 block text-sm font-medium text-slate-300"
+            >
               Invitation code
             </label>
             <input
@@ -315,9 +320,7 @@ export const RegisterPage: React.FC = () => {
                 validationErrors.invitationCode ? 'invitation-code-error' : undefined
               }
               value={formData.invitationCode}
-              onChange={(event) =>
-                setFormData({ ...formData, invitationCode: event.target.value })
-              }
+              onChange={(event) => setFormData({ ...formData, invitationCode: event.target.value })}
               className={`premium-input ${validationErrors.invitationCode ? 'border-red-500' : ''}`}
               placeholder="Enter invitation code"
               disabled={loading}
@@ -377,7 +380,10 @@ export const RegisterPage: React.FC = () => {
         </div>
 
         <div>
-          <label htmlFor="confirmPassword" className="mb-2 block text-sm font-medium text-slate-300">
+          <label
+            htmlFor="confirmPassword"
+            className="mb-2 block text-sm font-medium text-slate-300"
+          >
             Confirm password
           </label>
           <input
@@ -391,9 +397,7 @@ export const RegisterPage: React.FC = () => {
               validationErrors.confirmPassword ? 'confirm-password-error' : undefined
             }
             value={formData.confirmPassword}
-            onChange={(event) =>
-              setFormData({ ...formData, confirmPassword: event.target.value })
-            }
+            onChange={(event) => setFormData({ ...formData, confirmPassword: event.target.value })}
             className={`premium-input ${validationErrors.confirmPassword ? 'border-red-500' : ''}`}
             placeholder="Repeat your password"
             disabled={loading}
@@ -425,16 +429,9 @@ export const RegisterPage: React.FC = () => {
               disabled={loading}
             />
             <label htmlFor="terms" className="text-xs leading-6 text-slate-400">
-              I agree to the{' '}
-              <span className="font-medium text-cyan-300">
-                Terms of Service
-              </span>{' '}
-              and{' '}
-              <span className="font-medium text-cyan-300">
-                Privacy Policy
-              </span>
-              . I understand the account will continue into security setup before I reach the execution
-              workspace.
+              I agree to the <span className="font-medium text-cyan-300">Terms of Service</span> and{' '}
+              <span className="font-medium text-cyan-300">Privacy Policy</span>. I understand the
+              account will continue into security setup before I reach the execution workspace.
             </label>
           </div>
         </div>

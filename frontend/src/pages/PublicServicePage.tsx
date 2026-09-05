@@ -2,9 +2,9 @@ import { ArrowRight, CheckCircle2, ShieldCheck, Sparkles } from 'lucide-react';
 import React from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { ServicePulseIllustration } from '../components/DeFiIllustrations';
-import MotionReveal from '../components/MotionReveal';
+import { MotionReveal } from '../components/MotionReveal';
 import { PublicMarketPulsePanel } from '../components/PublicMarketPulse';
-import PublicSiteShell from '../components/PublicSiteShell';
+import { PublicSiteShell } from '../components/PublicSiteShell';
 import { servicePages } from '../content/publicSite';
 
 export const PublicServicePage: React.FC = () => {
@@ -89,7 +89,7 @@ export const PublicServicePage: React.FC = () => {
 
   const serviceVisualTags =
     page?.slug === 'runtime'
-        ? ['System health', 'Action priority', 'Runtime continuity']
+      ? ['System health', 'Action priority', 'Runtime continuity']
       : page?.slug === 'intelligence'
         ? ['Technical context', 'Timing clarity', 'Conviction support']
         : page?.slug === 'security'
@@ -115,11 +115,17 @@ export const PublicServicePage: React.FC = () => {
               <h1>{page.title}</h1>
               <p>{page.heroIntro}</p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                <Link to="/register" className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3 text-sm font-semibold text-white">
+                <Link
+                  to="/register"
+                  className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3 text-sm font-semibold text-white"
+                >
                   Start execution review
                   <ArrowRight className="h-4 w-4" />
                 </Link>
-                <Link to="/pricing" className="premium-button premium-button-secondary justify-center px-6 py-3 text-sm font-medium">
+                <Link
+                  to="/pricing"
+                  className="premium-button premium-button-secondary justify-center px-6 py-3 text-sm font-medium"
+                >
                   View engagement model
                 </Link>
               </div>
@@ -172,14 +178,18 @@ export const PublicServicePage: React.FC = () => {
               <h2>Built to make the next operating decision obvious.</h2>
               <p>
                 The public page should explain the platform quickly, then move the user toward
-                execution review with confidence. This layer turns {page.navLabel.toLowerCase()} into a
-                clear operational promise instead of a generic feature list.
+                execution review with confidence. This layer turns {page.navLabel.toLowerCase()}{' '}
+                into a clear operational promise instead of a generic feature list.
               </p>
             </MotionReveal>
 
             <div className="public-capability-grid">
               {page.corePoints.map((point, index) => (
-                <MotionReveal key={point.title} delayMs={index * 70} className="public-capability-card">
+                <MotionReveal
+                  key={point.title}
+                  delayMs={index * 70}
+                  className="public-capability-card"
+                >
                   <span>{String(index + 1).padStart(2, '0')}</span>
                   <h3>{point.title}</h3>
                   <p>{point.body}</p>
@@ -213,7 +223,11 @@ export const PublicServicePage: React.FC = () => {
 
           <div className="public-outcome-grid">
             {outcomeCards.map((item, index) => (
-              <MotionReveal key={item.stage + item.detail} delayMs={index * 70} className="public-outcome-modern">
+              <MotionReveal
+                key={item.stage + item.detail}
+                delayMs={index * 70}
+                className="public-outcome-modern"
+              >
                 <span>{item.stage}</span>
                 <strong>{item.detail}</strong>
                 <p>{item.note}</p>
@@ -239,13 +253,22 @@ export const PublicServicePage: React.FC = () => {
                 Continue the journey
               </div>
               <h2>Continue from {page.navLabel.toLowerCase()} into execution review.</h2>
-              <p>Review engagement options, create an account, and complete security onboarding before execution access.</p>
+              <p>
+                Review engagement options, create an account, and complete security onboarding
+                before execution access.
+              </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
-              <Link to="/pricing" className="premium-button premium-button-secondary justify-center px-6 py-3 text-sm font-medium">
+              <Link
+                to="/pricing"
+                className="premium-button premium-button-secondary justify-center px-6 py-3 text-sm font-medium"
+              >
                 View engagement model
               </Link>
-              <Link to="/register" className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3 text-sm font-semibold text-white">
+              <Link
+                to="/register"
+                className="premium-button premium-button-primary public-cta-primary justify-center px-6 py-3 text-sm font-semibold text-white"
+              >
                 Start execution review
                 <ArrowRight className="h-4 w-4" />
               </Link>

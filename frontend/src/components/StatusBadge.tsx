@@ -31,7 +31,7 @@ function normalizeStatus(raw: string): JobStatus | null {
     canceled: 'cancelled',
   };
   if (lower in STATUS_STYLES) return lower as JobStatus;
-  if (lower in legacyMap) return legacyMap[lower];
+  if (lower in legacyMap) return legacyMap[lower] ?? null;
   return null;
 }
 

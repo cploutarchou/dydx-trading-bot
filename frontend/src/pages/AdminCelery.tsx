@@ -1,23 +1,23 @@
 import {
-    Activity,
-    AlertTriangle,
-    Ban,
-    CheckCircle2,
-    Clock3,
-    Filter,
-    RefreshCw,
-    RotateCcw,
-    Server,
-    Timer,
-    Zap,
+  Activity,
+  AlertTriangle,
+  Ban,
+  CheckCircle2,
+  Clock3,
+  Filter,
+  RefreshCw,
+  RotateCcw,
+  Server,
+  Timer,
+  Zap,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import api, {
-    type CeleryHealthResponse,
-    type CeleryQueuesResponse,
-    type CeleryTask,
-    type CeleryTasksResponse,
-    type CeleryWorkersResponse,
+  type CeleryHealthResponse,
+  type CeleryQueuesResponse,
+  type CeleryTask,
+  type CeleryTasksResponse,
+  type CeleryWorkersResponse,
 } from '../api';
 import { useAuthStore } from '../store/auth';
 
@@ -270,21 +270,22 @@ export const AdminCeleryPage: React.FC = () => {
     return (succeededTasks.length / denominator) * 100;
   }, [failedTasks.length, succeededTasks.length]);
 
+  const queueList = queues?.queues;
   const queueInsights = useMemo(() => {
-    const rows = Array.isArray(queues?.queues)
-      ? queues.queues.map((queue) => ({
+    const rows = Array.isArray(queueList)
+      ? queueList.map((queue) => ({
           name: queue.name,
           length: toFiniteNumber(queue.length) ?? 0,
         }))
       : [];
     const totalBacklog = rows.reduce((sum, row) => sum + Math.max(0, row.length), 0);
-    const hottest = [...rows].sort((left, right) => right.length - left.length)[0] || null;
+    const sortedRows = [...rows].sort((left, right) => right.length - left.length);
     return {
-      rows: rows.sort((left, right) => right.length - left.length),
+      rows: sortedRows,
       totalBacklog,
-      hottest,
+      hottest: sortedRows[0] ?? null,
     };
-  }, [queues?.queues]);
+  }, [queueList]);
 
   const anomalousQueueNames = useMemo(() => {
     return new Set(
@@ -294,12 +295,13 @@ export const AdminCeleryPage: React.FC = () => {
     );
   }, [queueAnomalyThreshold, queueInsights.rows]);
 
+  const workerList = workers?.workers;
   const workerSummaries = useMemo(() => {
-    const list = Array.isArray(workers?.workers)
-      ? workers.workers.map((worker) => toWorkerSummary(worker))
+    const list = Array.isArray(workerList)
+      ? workerList.map((worker) => toWorkerSummary(worker))
       : [];
-    return list.sort((left, right) => right.activeTasks - left.activeTasks);
-  }, [workers?.workers]);
+    return [...list].sort((left, right) => right.activeTasks - left.activeTasks);
+  }, [workerList]);
 
   const failureHotspots = useMemo(() => {
     const counter = new Map<string, number>();
@@ -308,7 +310,7 @@ export const AdminCeleryPage: React.FC = () => {
         String(task.error_code || '').trim() ||
         String(task.error_message || '')
           .split('\n')[0]
-          .trim() ||
+          ?.trim() ||
         'unknown';
       const key = raw.length > 80 ? `${raw.slice(0, 77)}...` : raw;
       counter.set(key, (counter.get(key) || 0) + 1);

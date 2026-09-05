@@ -29,7 +29,7 @@ describe('public page utilities', () => {
 
     expect(getCountdownState('2026-09-15T12:00:00Z', now).status).toBe('expired');
     expect(getCountdownState('', now).status).toBe('missing');
-    expect(getCountdownState('not-a-date', now).parts[0].value).toBe('--');
+    expect(getCountdownState('not-a-date', now).parts[0]!.value).toBe('--');
   });
 
   it('formats the configured date in the configured timezone', () => {

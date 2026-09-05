@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -49,6 +50,20 @@ func stringsFirstNonEmpty(values ...string) string {
 func setupPostgresFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
 	for _, ddl := range []string{
+		// Minimal users table: the CI test database starts empty (no
+		// migrations), so seedPostgresUser needs the table to exist here.
+		// CREATE TABLE IF NOT EXISTS keeps fully-migrated schemas untouched.
+		`CREATE TABLE IF NOT EXISTS users (
+			id BIGSERIAL PRIMARY KEY,
+			username TEXT NOT NULL UNIQUE,
+			email TEXT NOT NULL UNIQUE,
+			role TEXT NOT NULL DEFAULT 'client',
+			hashed_password TEXT NOT NULL DEFAULT '',
+			is_active BOOLEAN NOT NULL DEFAULT TRUE,
+			is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
 		`CREATE TABLE IF NOT EXISTS invitation_tokens (
 			id BIGSERIAL PRIMARY KEY,
 			token_code TEXT NOT NULL UNIQUE,
@@ -79,6 +94,11 @@ func setupPostgresFixture(t *testing.T, db *sql.DB) {
 			id BIGSERIAL PRIMARY KEY,
 			user_id BIGINT NOT NULL,
 			run_id TEXT,
+			status TEXT NOT NULL DEFAULT '',
+			start_date TEXT NOT NULL DEFAULT '',
+			end_date TEXT NOT NULL DEFAULT '',
+			num_pairs INTEGER NOT NULL DEFAULT 0,
+			total_markets INTEGER NOT NULL DEFAULT 0,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`,
 		`CREATE TABLE IF NOT EXISTS backtest_results (
@@ -115,6 +135,26 @@ func setupPostgresFixture(t *testing.T, db *sql.DB) {
 	}
 }
 
+// seedPostgresUser inserts a minimal users row (satisfying FK targets on
+// fully-migrated schemas) and returns its id.
+func seedPostgresUser(t *testing.T, db *sql.DB, username string) int {
+	t.Helper()
+	var id int
+	// Unique suffix: FK-blocked cleanups from earlier runs may leave rows.
+	unique := fmt.Sprintf("%s_%d", username, time.Now().UnixNano())
+	err := db.QueryRow(`
+		INSERT INTO users (username, email, role, hashed_password, is_active, is_admin, created_at, updated_at)
+		VALUES ($1, $2, 'client', 'x', TRUE, FALSE, now(), now())
+		RETURNING id`, unique, unique+"@pgtest.local").Scan(&id)
+	if err != nil {
+		t.Fatalf("seed user %s: %v", username, err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM users WHERE id = $1`, id)
+	})
+	return id
+}
+
 // TestPostgres_InvitationRedeemRevoke guards the placeholder/argument parity
 // of the invitation repository (regression: Redeem shipped with 5 placeholders
 // and 3 arguments, which sqlmock-based tests never caught).
@@ -135,7 +175,7 @@ func TestPostgres_InvitationRedeemRevoke(t *testing.T) {
 	})
 
 	repo := NewInvitationTokenRepository(db)
-	ok, err := repo.Redeem(code, 42)
+	ok, err := repo.Redeem(code, seedPostgresUser(t, db, "pgtest_invite_user"))
 	if err != nil {
 		t.Fatalf("Redeem on PostgreSQL: %v", err)
 	}
@@ -155,7 +195,11 @@ func TestPostgres_PartnerRelationshipUpsertList(t *testing.T) {
 	setupPostgresFixture(t, db)
 
 	repo := NewPartnerRelationshipRepository(db)
-	rel := &testPartnerRelationship{sponsor: 900001, partner: 900002, relType: "ib"}
+	rel := &testPartnerRelationship{
+		sponsor: seedPostgresUser(t, db, "pgtest_sponsor"),
+		partner: seedPostgresUser(t, db, "pgtest_partner"),
+		relType: "ib",
+	}
 	t.Cleanup(func() {
 		_, _ = db.Exec(`DELETE FROM partner_relationships WHERE partner_user_id = $1`, rel.partner)
 	})
@@ -181,8 +225,10 @@ func TestPostgres_UpdateTradeLog(t *testing.T) {
 
 	// Seed the ownership chain the scoped read joins through.
 	var runPK int
-	if err := db.QueryRow(
-		`INSERT INTO backtest_runs (user_id) VALUES (900999) RETURNING id`).Scan(&runPK); err != nil {
+	if err := db.QueryRow(`
+		INSERT INTO backtest_runs (user_id, run_id, status, start_date, end_date, num_pairs, total_markets, created_at)
+		VALUES ($1, $2, 'completed', '2026-01-01', '2026-01-31', 1, 1, now()) RETURNING id`,
+		seedPostgresUser(t, db, "pgtest_run_owner"), fmt.Sprintf("pg%d", time.Now().UnixNano()%100000000)).Scan(&runPK); err != nil {
 		t.Fatalf("seed backtest run: %v", err)
 	}
 	t.Cleanup(func() {
@@ -191,7 +237,7 @@ func TestPostgres_UpdateTradeLog(t *testing.T) {
 		_, _ = db.Exec(`DELETE FROM backtest_runs WHERE id = $1`, runPK)
 	})
 	if _, err := db.Exec(
-		`INSERT INTO backtest_results (id, run_id_fk) VALUES (900100, $1)`, runPK); err != nil {
+		`INSERT INTO backtest_results (id, run_id_fk, market_1, market_2) VALUES (900100, $1, 'BTC-USD', 'ETH-USD')`, runPK); err != nil {
 		t.Fatalf("seed backtest result: %v", err)
 	}
 

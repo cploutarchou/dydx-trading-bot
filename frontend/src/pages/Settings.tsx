@@ -11,31 +11,31 @@
  */
 
 import {
-	AlertCircle,
-	BarChart2,
-	ChevronRight,
-	KeyRound,
-	Loader,
-	Mail,
-	MessageSquare,
-	Newspaper,
-	RefreshCw,
-	Save,
-	Search,
-	ShieldCheck,
-	SlidersHorizontal,
-	UserCircle,
-	Users,
-	Zap,
+  AlertCircle,
+  BarChart2,
+  ChevronRight,
+  KeyRound,
+  Loader,
+  Mail,
+  MessageSquare,
+  Newspaper,
+  RefreshCw,
+  Save,
+  Search,
+  ShieldCheck,
+  SlidersHorizontal,
+  UserCircle,
+  Users,
+  Zap,
 } from 'lucide-react';
 import {
-	type ComponentType,
-	useCallback,
-	useDeferredValue,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
+  type ComponentType,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
 } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import apiClient from '../api';
@@ -55,10 +55,10 @@ import { PageContainer } from '../components/PageContainer';
 import { ProfileSettings } from '../components/ProfileSettings';
 import { TelegramSettings } from '../components/TelegramSettings';
 import {
-	InlineNotice,
-	PlatformPageHeader,
-	PlatformStatCard,
-	StatusBadge,
+  InlineNotice,
+  PlatformPageHeader,
+  PlatformStatCard,
+  StatusBadge,
 } from '../components/ui/PlatformUI';
 import { useAuthStore } from '../store/auth';
 import {
@@ -612,7 +612,8 @@ export default function Settings() {
           nextErrors[section.section] && Object.keys(nextErrors[section.section]!).length > 0
       );
       if (firstInvalidSection) {
-        const firstInvalidFieldKey = Object.keys(nextErrors[firstInvalidSection.section] || {})[0] ?? '';
+        const firstInvalidFieldKey =
+          Object.keys(nextErrors[firstInvalidSection.section] || {})[0] ?? '';
         if (firstInvalidFieldKey) {
           setPendingFocusTarget({
             section: firstInvalidSection.section,
@@ -758,7 +759,9 @@ export default function Settings() {
   }
 
   const currentSection = visibleSchemaSections.find((s) => s.section === activeSection);
-  const CurrentSectionIcon = getSectionIcon(activeSection);
+  // Module-scope map lookup keeps the component identity static for the
+  // compiler (a helper call returning a component reads as render-created).
+  const CurrentSectionIcon = SECTION_ICON_MAP[activeSection] ?? SlidersHorizontal;
   const groupedNav = buildGroupedNav(filteredSidebarSections);
   const totalFieldErrors = Object.values(fieldErrors).reduce(
     (n, e) => n + Object.keys(e).length,

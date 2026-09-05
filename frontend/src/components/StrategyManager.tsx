@@ -38,6 +38,7 @@ import {
 import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/intelligence';
 import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
 import { Strategy, useStrategyStore } from '../store/strategies';
+import { useNow } from '../hooks/useNow';
 import { AIRuntimeDigest } from './AIRuntimeDigest';
 import { AIStrategyAdvisor } from './AIStrategyAdvisor';
 import { CodexAssetIntelStrip } from './CodexAssetIntelStrip';
@@ -299,6 +300,7 @@ export default function StrategyManager() {
     [strategies]
   );
   const [strategyStatuses, setStrategyStatuses] = useState<Map<number, StrategyStatus>>(new Map());
+  const nowTs = useNow();
   const [runtimePending, setRuntimePending] = useState<
     Record<number, 'start' | 'stop' | undefined>
   >({});
@@ -1443,10 +1445,10 @@ export default function StrategyManager() {
         if (Number.isNaN(parsedMs)) {
           return true;
         }
-        return Date.now() - parsedMs > HEARTBEAT_DELAYED_THRESHOLD_MS;
+        return nowTs - parsedMs > HEARTBEAT_DELAYED_THRESHOLD_MS;
       }).length,
     };
-  }, [strategyStatuses]);
+  }, [nowTs, strategyStatuses]);
 
   const heartbeatTone = useMemo(
     () => resolveHeartbeatTone(runtimeHealthSummary.latestRuntimeUpdate, webSocketConnected),

@@ -29,6 +29,25 @@ interface PerformanceMetricsProps {
   runId: string;
 }
 
+type MetricCardProps = {
+  label: string;
+  value: string | number;
+  unit?: string;
+  highlight?: boolean;
+};
+
+const MetricCard: React.FC<MetricCardProps> = ({ label, value, unit, highlight = false }) => (
+  <div
+    className={`p-4 rounded-lg border ${highlight ? 'bg-blue-900 border-blue-700' : 'bg-slate-700 border-slate-600'}`}
+  >
+    <p className="text-gray-400 text-sm font-medium">{label}</p>
+    <p className={`text-2xl font-bold mt-2 ${highlight ? 'text-blue-400' : 'text-white'}`}>
+      {value}
+      {unit && <span className="text-lg ml-1">{unit}</span>}
+    </p>
+  </div>
+);
+
 export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ runId }) => {
   const performanceQuery = useBacktestMetrics(runId);
   const metrics = performanceQuery.data as unknown as PerformanceData | undefined;
@@ -64,23 +83,6 @@ export const PerformanceMetrics: React.FC<PerformanceMetricsProps> = ({ runId })
   if (!metrics) {
     return <div className="text-gray-400">No performance data available</div>;
   }
-
-  const MetricCard: React.FC<{
-    label: string;
-    value: string | number;
-    unit?: string;
-    highlight?: boolean;
-  }> = ({ label, value, unit, highlight = false }) => (
-    <div
-      className={`p-4 rounded-lg border ${highlight ? 'bg-blue-900 border-blue-700' : 'bg-slate-700 border-slate-600'}`}
-    >
-      <p className="text-gray-400 text-sm font-medium">{label}</p>
-      <p className={`text-2xl font-bold mt-2 ${highlight ? 'text-blue-400' : 'text-white'}`}>
-        {value}
-        {unit && <span className="text-lg ml-1">{unit}</span>}
-      </p>
-    </div>
-  );
 
   return (
     <div className="space-y-6">

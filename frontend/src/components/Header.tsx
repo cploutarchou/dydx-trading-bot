@@ -1,5 +1,5 @@
 import { ChevronRight, Command, Menu, Search, ShieldCheck, Wifi, WifiOff } from 'lucide-react';
-import React, { memo, useEffect, useMemo, useState } from 'react';
+import React, { memo, useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { getCurrentPortalType } from '../app/portal';
 import { clientPortalHref } from '../app/portalLinks';
@@ -70,12 +70,10 @@ const HeaderContent: React.FC<HeaderProps> = ({ onMenuToggle, onOpenCommandPalet
 
   const breadcrumbs = getWorkspaceBreadcrumbs(location.pathname, portal);
   const pageTitle = tr(breadcrumbs[breadcrumbs.length - 1]?.label || 'Dashboard');
-  const routeMeta = useMemo(
-    () =>
-      getWorkspaceNavItems(portal).find((item) =>
-        item.exact ? item.path === location.pathname : location.pathname.startsWith(item.path)
-      ),
-    [location.pathname, portal]
+  // No manual memo: the find is trivial (a dozen nav items) and the compiler
+  // bails on the whole component when it cannot preserve one.
+  const routeMeta = getWorkspaceNavItems(portal).find((item) =>
+    item.exact ? item.path === location.pathname : location.pathname.startsWith(item.path)
   );
 
   return (

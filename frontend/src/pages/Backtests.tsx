@@ -1,20 +1,21 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-	Activity,
-	ArrowRight,
-	Award,
-	BarChart3,
-	ChevronRight,
-	Layers3,
-	ListChecks,
-	PlusCircle,
-	ShieldCheck,
-	Sparkles,
-	Target,
-	TrendingUp,
+  Activity,
+  ArrowRight,
+  Award,
+  BarChart3,
+  ChevronRight,
+  Layers3,
+  ListChecks,
+  PlusCircle,
+  ShieldCheck,
+  Sparkles,
+  Target,
+  TrendingUp,
 } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useNow } from '../hooks/useNow';
 import api, { type BacktestExperimentGroup } from '../api';
 import { enhancedApiClient } from '../api/enhancedClient';
 import { BacktestList } from '../components/BacktestList';
@@ -23,17 +24,17 @@ import { CodexAssetIntelStrip } from '../components/CodexAssetIntelStrip';
 import { PageContainer } from '../components/PageContainer';
 import { TerminalDataGrid, type TerminalColumn } from '../components/TerminalDataGrid';
 import {
-	buildIntelligence,
-	extractBacktestRuns,
-	formatCurrency,
-	formatDateTime,
-	formatPercent,
-	isActiveBacktestRun,
-	normalizePercent,
-	safeNumber,
-	type BacktestRun,
-	type StrategyAggregate,
-	type StrategyRef,
+  buildIntelligence,
+  extractBacktestRuns,
+  formatCurrency,
+  formatDateTime,
+  formatPercent,
+  isActiveBacktestRun,
+  normalizePercent,
+  safeNumber,
+  type BacktestRun,
+  type StrategyAggregate,
+  type StrategyRef,
 } from '../features/backtests/intelligence';
 import { buildBacktestIntelRequest } from '../features/codex/marketIntel';
 import { usePersistentPreference } from '../hooks/usePersistentPreference';
@@ -828,6 +829,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     backtestsQuery.data,
   ]);
 
+  const nowTs = useNow();
   const statisticsHealth = useMemo(() => {
     const runs = backtestsQuery.data ?? [];
     const normalizeStatus = (value: unknown) =>
@@ -851,7 +853,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     activeRunsQuickAccess.forEach((run) => {
       const live = activeRunLiveById.get(run.run_id);
       if (typeof live?.updatedAtMs === 'number') {
-        const ageSeconds = Math.max(0, Math.round((Date.now() - live.updatedAtMs) / 1000));
+        const ageSeconds = Math.max(0, Math.round((nowTs - live.updatedAtMs) / 1000));
         if (ageSeconds >= 90) {
           staleActiveRuns += 1;
         }
@@ -871,7 +873,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
       staleActiveRuns,
       statusMismatches,
     };
-  }, [activeRunLiveById, activeRunsQuickAccess, backtestsQuery.data]);
+  }, [activeRunLiveById, activeRunsQuickAccess, backtestsQuery.data, nowTs]);
 
   const statisticsHealthTone =
     statisticsHealth.integrityPct >= 95 &&

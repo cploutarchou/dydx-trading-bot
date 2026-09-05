@@ -2,12 +2,15 @@ import { BrainCircuit, ChevronDown, ChevronUp, Loader, RefreshCw, Sparkles } fro
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import api, {
-    type AIBacktestSummary,
-    type AIMarketProvider,
-    type AISuggestParamsRequest,
-    toAIBacktestSummary,
+  type AIBacktestSummary,
+  type AIMarketProvider,
+  type AISuggestParamsRequest,
+  toAIBacktestSummary,
 } from '../api';
-import { getAIProviderDisplayName, useAIProviderAvailability } from '../features/ai/providerAvailability';
+import {
+  getAIProviderDisplayName,
+  useAIProviderAvailability,
+} from '../features/ai/providerAvailability';
 import type { Strategy } from '../store/strategies';
 
 interface Props {
@@ -77,7 +80,7 @@ export function AIStrategyAdvisor({
     }
 
     if (!availableProviders.includes(provider)) {
-      setProvider((availableProviders[0] ?? availableProviders[0]!));
+      setProvider(availableProviders[0] ?? availableProviders[0]!);
     }
   }, [availableProviders, provider]);
 
@@ -254,7 +257,7 @@ export function AIStrategyAdvisor({
     });
   };
 
-  const confirmApplySuggestions = async () => {
+  async function confirmApplySuggestions() {
     if (!onApplyParams || !pendingApplyPreview) return;
     setApplyError(null);
     setApplyLoading(true);
@@ -280,7 +283,7 @@ export function AIStrategyAdvisor({
     } finally {
       setApplyLoading(false);
     }
-  };
+  }
 
   const runSuggest = async () => {
     setLoading(true);
@@ -419,7 +422,9 @@ export function AIStrategyAdvisor({
           {content && (
             <button
               onClick={() => setCollapsed((v) => !v)}
-              aria-label={collapsed ? 'Expand AI parameter suggestions' : 'Collapse AI parameter suggestions'}
+              aria-label={
+                collapsed ? 'Expand AI parameter suggestions' : 'Collapse AI parameter suggestions'
+              }
               className="rounded-md p-2 text-slate-400 hover:text-slate-200"
             >
               {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}

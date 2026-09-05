@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api, { classifyApiError } from '../api';
 import { enhancedApiClient } from '../api/enhancedClient';
+import { useNow } from '../hooks/useNow';
 import { getEnvelopeList, getEnvelopeValue, toApiRecord } from '../api/normalizers';
 
 type RunStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'STALE' | 'TIMEOUT';
@@ -359,6 +360,7 @@ export const BacktestList: React.FC<{
     updatedAt: null,
   });
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nowTs = useNow();
   const isLoadingRef = useRef(false);
   const activeRequestIdRef = useRef(0);
   const pollFailureRef = useRef(0);
@@ -366,61 +368,6 @@ export const BacktestList: React.FC<{
   const displayRuns = controlledRuns ?? runs;
   const displayLoading = isControlled ? controlledLoading : loading;
   const displayError = isControlled ? controlledError : error;
-
-  useEffect(() => {
-    if (isControlled) {
-      return;
-    }
-    // First load blocks with spinner; subsequent refreshes stay non-blocking
-    void loadBacktests(!hasLoadedOnce);
-  }, [hasLoadedOnce, isControlled, refreshTrigger]);
-
-  // Auto-poll while any run is active
-  useEffect(() => {
-    if (isControlled) {
-      return;
-    }
-
-    const hasActive = runs.some((r) => {
-      const s = normalizeStatus(r.status, r);
-      return s === 'RUNNING' || s === 'PENDING';
-    });
-
-    const scheduleNextPoll = (delayMs: number) => {
-      if (pollRef.current) {
-        clearTimeout(pollRef.current);
-      }
-      pollRef.current = setTimeout(async () => {
-        const ok = await loadBacktestsSilent();
-        pollFailureRef.current = ok ? 0 : Math.min(pollFailureRef.current + 1, 4);
-        setPollFailures(pollFailureRef.current);
-        const nextDelay = ok
-          ? POLL_INTERVAL_MS
-          : Math.min(POLL_INTERVAL_MS * 2 ** pollFailureRef.current, MAX_POLL_INTERVAL_MS);
-        scheduleNextPoll(nextDelay);
-      }, delayMs);
-    };
-
-    if (hasActive) {
-      if (!pollRef.current) {
-        scheduleNextPoll(POLL_INTERVAL_MS);
-      }
-    } else {
-      pollFailureRef.current = 0;
-      setPollFailures(0);
-      if (pollRef.current) {
-        clearTimeout(pollRef.current);
-        pollRef.current = null;
-      }
-    }
-
-    return () => {
-      if (pollRef.current) {
-        clearTimeout(pollRef.current);
-        pollRef.current = null;
-      }
-    };
-  }, [isControlled, runs]);
 
   const fetchAllRuns = async (): Promise<BacktestRun[]> => {
     // Keep this fast for dashboard rendering: fetch the newest page only.
@@ -576,6 +523,61 @@ export const BacktestList: React.FC<{
     }
   };
 
+  useEffect(() => {
+    if (isControlled) {
+      return;
+    }
+    // First load blocks with spinner; subsequent refreshes stay non-blocking
+    void loadBacktests(!hasLoadedOnce);
+  }, [hasLoadedOnce, isControlled, refreshTrigger]);
+
+  // Auto-poll while any run is active
+  useEffect(() => {
+    if (isControlled) {
+      return;
+    }
+
+    const hasActive = runs.some((r) => {
+      const s = normalizeStatus(r.status, r);
+      return s === 'RUNNING' || s === 'PENDING';
+    });
+
+    const scheduleNextPoll = (delayMs: number) => {
+      if (pollRef.current) {
+        clearTimeout(pollRef.current);
+      }
+      pollRef.current = setTimeout(async () => {
+        const ok = await loadBacktestsSilent();
+        pollFailureRef.current = ok ? 0 : Math.min(pollFailureRef.current + 1, 4);
+        setPollFailures(pollFailureRef.current);
+        const nextDelay = ok
+          ? POLL_INTERVAL_MS
+          : Math.min(POLL_INTERVAL_MS * 2 ** pollFailureRef.current, MAX_POLL_INTERVAL_MS);
+        scheduleNextPoll(nextDelay);
+      }, delayMs);
+    };
+
+    if (hasActive) {
+      if (!pollRef.current) {
+        scheduleNextPoll(POLL_INTERVAL_MS);
+      }
+    } else {
+      pollFailureRef.current = 0;
+      setPollFailures(0);
+      if (pollRef.current) {
+        clearTimeout(pollRef.current);
+        pollRef.current = null;
+      }
+    }
+
+    return () => {
+      if (pollRef.current) {
+        clearTimeout(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [isControlled, runs]);
+
   if (displayLoading) {
     return (
       <div className="overflow-hidden rounded-lg border border-slate-700/80 bg-stone-950/45">
@@ -689,7 +691,7 @@ export const BacktestList: React.FC<{
   const liveSyncHealthy = liveSyncMeta.syncedRuns > 0;
   const liveSyncStale = (() => {
     if (!liveSyncMeta.updatedAt || !liveSyncHealthy) return false;
-    const ageMs = Date.now() - new Date(liveSyncMeta.updatedAt).getTime();
+    const ageMs = nowTs - new Date(liveSyncMeta.updatedAt).getTime();
     return Number.isFinite(ageMs) && ageMs > LIVE_SYNC_STALE_AFTER_MS;
   })();
 

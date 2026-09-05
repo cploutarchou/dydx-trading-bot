@@ -26,6 +26,9 @@ vi.mock('axios', () => {
       post: mockAxiosPost,
       isCancel: vi.fn(() => false),
     },
+    create: vi.fn(() => mockAxiosInstance),
+    isAxiosError: vi.fn(() => false),
+    isCancel: vi.fn(() => false),
     AxiosError: MockAxiosError,
   };
 });

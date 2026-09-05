@@ -270,4 +270,3 @@ export const BacktestLightweightChart: React.FC<BacktestLightweightChartProps> =
   );
 };
 
-export default BacktestLightweightChart;

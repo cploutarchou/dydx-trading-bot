@@ -312,4 +312,3 @@ export function TerminalDataGrid<T>({
   );
 }
 
-export default TerminalDataGrid;

@@ -1,7 +1,7 @@
 import { AlertCircle, CheckCircle, Copy, Eye, EyeOff, Loader } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import AuthExperienceShell from '../components/AuthExperienceShell';
+import { AuthExperienceShell } from '../components/AuthExperienceShell';
 import { useAuthStore } from '../store/auth';
 
 type TwoFAStep = 'setup' | 'verify' | 'backup-codes' | 'complete';

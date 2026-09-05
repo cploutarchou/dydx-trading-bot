@@ -34,13 +34,14 @@ import api from '../api';
 import { enhancedApiClient } from '../api/enhancedClient';
 import { useBacktestProgress } from '../api/hooks';
 import { AIBacktestExplainer } from '../components/AIBacktestExplainer';
-import BacktestLightweightChart, {
+import {
+  BacktestLightweightChart,
   type BacktestChartMarker,
   type BacktestChartPoint,
 } from '../components/BacktestLightweightChart';
-import BacktestPositionsPanel from '../components/BacktestPositionsPanel';
+import { BacktestPositionsPanel } from '../components/BacktestPositionsPanel';
 import { BacktestResultsEnhanced } from '../components/BacktestResultsEnhanced';
-import BacktestTradesPanel from '../components/BacktestTradesPanel';
+import { BacktestTradesPanel } from '../components/BacktestTradesPanel';
 import { PageContainer } from '../components/PageContainer';
 import {
   LiveStateBadge,

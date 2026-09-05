@@ -1,6 +1,6 @@
 import { ArrowDownRight, ArrowUpRight, CircleDot } from 'lucide-react';
 import React, { startTransition, useMemo, useState } from 'react';
-import TerminalDataGrid, { type TerminalColumn, type TerminalMetric } from './TerminalDataGrid';
+import { TerminalDataGrid, type TerminalColumn, type TerminalMetric } from './TerminalDataGrid';
 
 interface Trade {
   trade_id: string;
@@ -46,7 +46,8 @@ const formatCurrency = (value: number): string =>
     maximumFractionDigits: 2,
   })}`;
 
-const normalizePercentValue = (value: number): number => (Math.abs(value) <= 1 ? value * 100 : value);
+const normalizePercentValue = (value: number): number =>
+  Math.abs(value) <= 1 ? value * 100 : value;
 
 export const BacktestTradesPanel: React.FC<BacktestTradesPanelProps> = ({
   trades,
@@ -59,8 +60,7 @@ export const BacktestTradesPanel: React.FC<BacktestTradesPanelProps> = ({
   const filteredRows = useMemo(() => {
     return trades.filter((trade) => {
       const outcomeMatches =
-        outcomeFilter === 'all' ||
-        (outcomeFilter === 'wins' ? trade.win : !trade.win);
+        outcomeFilter === 'all' || (outcomeFilter === 'wins' ? trade.win : !trade.win);
       const durationMatches =
         durationFilter === 'all' ||
         (durationFilter === 'intraday' ? trade.duration_hours <= 24 : trade.duration_hours > 24);
@@ -165,7 +165,9 @@ export const BacktestTradesPanel: React.FC<BacktestTradesPanelProps> = ({
           <p className={`font-semibold ${row.pnl_usd >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
             {formatCurrency(row.pnl_usd)}
           </p>
-          <p className={`mt-1 text-xs ${row.pnl_pct >= 0 ? 'text-emerald-400/80' : 'text-rose-400/80'}`}>
+          <p
+            className={`mt-1 text-xs ${row.pnl_pct >= 0 ? 'text-emerald-400/80' : 'text-rose-400/80'}`}
+          >
             {normalizePercentValue(row.pnl_pct).toFixed(2)}%
           </p>
         </div>
@@ -209,7 +211,9 @@ export const BacktestTradesPanel: React.FC<BacktestTradesPanelProps> = ({
       metrics={metrics}
       liveBadge={
         <span className="inline-flex items-center gap-1 rounded-full border border-slate-800 bg-slate-950/70 px-2.5 py-1 text-[11px] text-slate-400">
-          <CircleDot className={`h-3.5 w-3.5 ${isConnected ? 'text-cyan-400' : 'text-amber-400'}`} />
+          <CircleDot
+            className={`h-3.5 w-3.5 ${isConnected ? 'text-cyan-400' : 'text-amber-400'}`}
+          />
           {liveLabel}
         </span>
       }
@@ -263,5 +267,3 @@ export const BacktestTradesPanel: React.FC<BacktestTradesPanelProps> = ({
     />
   );
 };
-
-export default BacktestTradesPanel;

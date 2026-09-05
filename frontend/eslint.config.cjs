@@ -58,10 +58,11 @@ module.exports = [
     },
   },
   {
-    // Debt carve-out (audit FE-038): enabling the full react-hooks v7 and
-    // jsx-a11y recommended sets surfaced pre-existing violations (react-hooks
-    // and import-naming categories). These rules stay off until their
-    // categories are burned down; everything else runs at full severity.
+    // Debt carve-out (audit FE-038): enabling the full react-hooks v7
+    // recommended set surfaced pre-existing violations. These rules stay off
+    // until their categories are burned down; everything else runs at full
+    // severity. (import-naming and jsx-a11y interaction categories burned
+    // down 2026-09-05 and now run at error level from the recommended sets.)
     rules: {
       'react-hooks/set-state-in-effect': 'off',
       'react-hooks/exhaustive-deps': 'off',
@@ -69,11 +70,6 @@ module.exports = [
       'react-hooks/preserve-manual-memoization': 'off',
       'react-hooks/immutability': 'off',
       'react-hooks/purity': 'off',
-      'import/no-named-as-default': 'off',
-      'import/no-named-as-default-member': 'off',
-      'jsx-a11y/no-static-element-interactions': 'off',
-      'jsx-a11y/click-events-have-key-events': 'off',
-      'jsx-a11y/no-noninteractive-element-interactions': 'off',
     },
   },
 ];

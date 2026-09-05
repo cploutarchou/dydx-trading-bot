@@ -2,12 +2,12 @@ import { ArrowLeft, ArrowRight, FileText, ShieldAlert } from 'lucide-react';
 import { Navigate, useParams } from 'react-router-dom';
 import { getCryptoBackgroundVariantForIcoDocument } from '../components/CryptoBackground';
 import {
-	PublicLaunchShell,
-	PublicStatusPill,
-	SaleFacts,
-	SecondaryButton,
+  PublicLaunchShell,
+  PublicStatusPill,
+  SaleFacts,
+  SecondaryButton,
 } from '../components/PublicPagePrimitives';
-import SEOHead from '../components/SEOHead';
+import { SEOHead } from '../components/SEOHead';
 import { getIcoDocument } from '../content/icoDocuments';
 
 export const IcoDocumentPage = () => {

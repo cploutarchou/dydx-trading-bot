@@ -52,7 +52,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
 
   return (
     <>
-      {isOpen && <div className="fixed inset-0 z-40 bg-black/55 lg:hidden" onClick={onClose} />}
+      {/* Backdrop dismiss is a pointer-only convenience; the drawer itself
+          exposes a close button and Escape for keyboard operators. */}
+      {isOpen && (
+        <div
+          role="presentation"
+          className="fixed inset-0 z-40 bg-black/55 lg:hidden"
+          onClick={onClose}
+        />
+      )}
 
       <aside
         className={`premium-sidebar app-sidebar fixed z-50 flex h-screen w-76 shrink-0 flex-col border-r border-slate-800/80 transition-transform duration-300 lg:sticky lg:top-0 lg:self-start ${
@@ -76,16 +84,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <p className="truncate text-lg font-semibold text-white">ExecutionLab</p>
-                <span
-                  className="rounded-full bg-cyan-400/80 p-1"
-                  title={t('Ready', 'Έτοιμο')}
-                />
+                <span className="rounded-full bg-cyan-400/80 p-1" title={t('Ready', 'Έτοιμο')} />
               </div>
               <p className="truncate text-xs text-slate-500">
-                {t(
-                  getPortalLabel(portal),
-                  getPortalLabel(portal)
-                )}
+                {t(getPortalLabel(portal), getPortalLabel(portal))}
               </p>
             </div>
           </div>
@@ -217,7 +219,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
               <p className="text-[10px] uppercase text-slate-500">
                 {t('Signed in as', 'Συνδεδεμένος ως')}
               </p>
-              <p className="truncate text-sm font-semibold text-white" title={user?.full_name || user?.username || undefined}>
+              <p
+                className="truncate text-sm font-semibold text-white"
+                title={user?.full_name || user?.username || undefined}
+              >
                 {user?.full_name || user?.username}
               </p>
               <p className="truncate text-xs text-slate-500" title={user?.email || undefined}>

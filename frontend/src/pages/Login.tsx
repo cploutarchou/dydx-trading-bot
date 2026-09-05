@@ -2,7 +2,7 @@ import { LockKeyhole } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { BACKOFFICE_ROLES, IB_ROLES, getUserWorkspaceRole } from '../auth/roles';
-import BrandMark from '../components/BrandMark';
+import { BrandMark } from '../components/BrandMark';
 import { CryptoBackground } from '../components/CryptoBackground';
 import {
   FormField,

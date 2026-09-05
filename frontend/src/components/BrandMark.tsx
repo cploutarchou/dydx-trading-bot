@@ -28,4 +28,3 @@ export const BrandMark: React.FC<BrandMarkProps> = ({
   );
 };
 
-export default BrandMark;

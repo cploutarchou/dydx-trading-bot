@@ -244,12 +244,21 @@ export const IBTierRates = () => {
               return (
                 <div
                   key={rate.tier_level}
+                  role={!isEditing && !addingNew ? 'button' : undefined}
+                  tabIndex={!isEditing && !addingNew ? 0 : undefined}
+                  aria-label={`Edit tier ${rate.tier_level} rates`}
                   className={`rounded-xl border p-4 transition ${
                     isEditing
                       ? 'border-cyan-500/40 bg-slate-950/80'
                       : 'border-slate-700/60 bg-slate-950/60 hover:border-slate-600/80 cursor-pointer'
                   }`}
                   onClick={() => !isEditing && !addingNew && startEdit(rate)}
+                  onKeyDown={(e) => {
+                    if (!isEditing && !addingNew && (e.key === 'Enter' || e.key === ' ')) {
+                      e.preventDefault();
+                      startEdit(rate);
+                    }
+                  }}
                 >
                   {isEditing && editState ? (
                     <div className="space-y-3">
@@ -263,8 +272,14 @@ export const IBTierRates = () => {
                       </div>
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div>
-                          <label className="text-xs uppercase tracking-[0.14em] text-slate-500" htmlFor="commission-rate">Commission rate (%)</label>
-                          <input id="commission-rate"
+                          <label
+                            className="text-xs uppercase tracking-[0.14em] text-slate-500"
+                            htmlFor="commission-rate"
+                          >
+                            Commission rate (%)
+                          </label>
+                          <input
+                            id="commission-rate"
                             type="number"
                             min={0}
                             max={100}
@@ -279,8 +294,14 @@ export const IBTierRates = () => {
                           />
                         </div>
                         <div>
-                          <label className="text-xs uppercase tracking-[0.14em] text-slate-500" htmlFor="rebate-rate">Rebate rate (%)</label>
-                          <input id="rebate-rate"
+                          <label
+                            className="text-xs uppercase tracking-[0.14em] text-slate-500"
+                            htmlFor="rebate-rate"
+                          >
+                            Rebate rate (%)
+                          </label>
+                          <input
+                            id="rebate-rate"
                             type="number"
                             min={0}
                             max={100}
@@ -397,8 +418,14 @@ export const IBTierRates = () => {
                 <p className="mb-3 text-sm font-semibold text-white">New tier</p>
                 <div className="space-y-3">
                   <div>
-                    <label className="text-xs uppercase tracking-[0.14em] text-slate-500" htmlFor="tier-level-1-50">Tier level (1–50)</label>
-                    <input id="tier-level-1-50"
+                    <label
+                      className="text-xs uppercase tracking-[0.14em] text-slate-500"
+                      htmlFor="tier-level-1-50"
+                    >
+                      Tier level (1–50)
+                    </label>
+                    <input
+                      id="tier-level-1-50"
                       type="number"
                       min={1}
                       max={50}
@@ -410,8 +437,14 @@ export const IBTierRates = () => {
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div>
-                      <label className="text-xs uppercase tracking-[0.14em] text-slate-500" htmlFor="commission-rate">Commission rate (%)</label>
-                      <input id="commission-rate"
+                      <label
+                        className="text-xs uppercase tracking-[0.14em] text-slate-500"
+                        htmlFor="commission-rate"
+                      >
+                        Commission rate (%)
+                      </label>
+                      <input
+                        id="commission-rate"
                         type="number"
                         min={0}
                         max={100}
@@ -424,8 +457,14 @@ export const IBTierRates = () => {
                       />
                     </div>
                     <div>
-                      <label className="text-xs uppercase tracking-[0.14em] text-slate-500" htmlFor="rebate-rate">Rebate rate (%)</label>
-                      <input id="rebate-rate"
+                      <label
+                        className="text-xs uppercase tracking-[0.14em] text-slate-500"
+                        htmlFor="rebate-rate"
+                      >
+                        Rebate rate (%)
+                      </label>
+                      <input
+                        id="rebate-rate"
                         type="number"
                         min={0}
                         max={100}

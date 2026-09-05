@@ -1,27 +1,27 @@
 import {
-	Activity,
-	ChevronDown,
-	ChevronUp,
-	Pause,
-	Play,
-	Plus,
-	RefreshCw,
-	ShieldCheck,
-	Trash2,
-	Zap,
+  Activity,
+  ChevronDown,
+  ChevronUp,
+  Pause,
+  Play,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  Trash2,
+  Zap,
 } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { classifyApiError } from '../api';
 import {
-	useBotInstances,
-	useBotRuntimeStatsStream,
-	useBotStats,
-	useCreateBotInstance,
-	useDeleteBotInstance,
-	useRestartBotInstance,
-	useStartBotInstance,
-	useStopBotInstance,
+  useBotInstances,
+  useBotRuntimeStatsStream,
+  useBotStats,
+  useCreateBotInstance,
+  useDeleteBotInstance,
+  useRestartBotInstance,
+  useStartBotInstance,
+  useStopBotInstance,
 } from '../api/hooks';
 import { formatSignedUsd } from '../utils/format';
 import { ArbitrageImprovementPanel } from './ArbitrageImprovementPanel';
@@ -127,8 +127,14 @@ const mapBotStats = (raw: Record<string, unknown>): BotStats => {
       )
     );
   }, 0);
-  const dailyOpened = toNumber(raw.daily_trades_opened, toNumber(realtimeStats.daily_trades_opened));
-  const dailyClosed = toNumber(raw.daily_trades_closed, toNumber(realtimeStats.daily_trades_closed));
+  const dailyOpened = toNumber(
+    raw.daily_trades_opened,
+    toNumber(realtimeStats.daily_trades_opened)
+  );
+  const dailyClosed = toNumber(
+    raw.daily_trades_closed,
+    toNumber(realtimeStats.daily_trades_closed)
+  );
   const totalTrades = toNumber(
     tradeStatistics.total_trades,
     toNumber(
@@ -200,7 +206,7 @@ const mapBotStats = (raw: Record<string, unknown>): BotStats => {
           ? raw.updated_at
           : typeof realtimeStats.updated_at === 'string'
             ? realtimeStats.updated_at
-          : new Date().toISOString(),
+            : new Date().toISOString(),
     degraded: raw.degraded === true,
     warning: typeof raw.warning === 'string' ? raw.warning : undefined,
   };
@@ -311,7 +317,17 @@ const BotCard: React.FC<BotCardProps> = ({
   return (
     <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-950/45">
       <div
-        className="grid cursor-pointer gap-3 p-4 transition hover:bg-slate-900/35 xl:grid-cols-[minmax(0,1fr)_minmax(420px,auto)] xl:items-center"
+        role="button"
+        tabIndex={0}
+        aria-expanded={isExpanded}
+        aria-label={`${bot.instance_name || bot.instance_id} — ${isExpanded ? 'collapse' : 'expand'} runtime details`}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onToggleExpand(bot.instance_id);
+          }
+        }}
+        className="grid cursor-pointer gap-3 p-4 transition hover:bg-slate-900/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 xl:grid-cols-[minmax(0,1fr)_minmax(420px,auto)] xl:items-center"
         onClick={() => onToggleExpand(bot.instance_id)}
       >
         <div className="flex min-w-0 items-start gap-3">
@@ -367,10 +383,7 @@ const BotCard: React.FC<BotCardProps> = ({
           </div>
         </div>
 
-        <div
-          className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center"
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
           <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-2 sm:grid-cols-4">
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
               <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">P&amp;L</p>
@@ -390,9 +403,7 @@ const BotCard: React.FC<BotCardProps> = ({
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
               <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Trades</p>
-              <p className="mt-1 text-sm font-semibold text-white">
-                {stats.total_trades}
-              </p>
+              <p className="mt-1 text-sm font-semibold text-white">{stats.total_trades}</p>
             </div>
           </div>
 
@@ -401,7 +412,10 @@ const BotCard: React.FC<BotCardProps> = ({
               <>
                 <button
                   type="button"
-                  onClick={() => onStop(bot.instance_id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onStop(bot.instance_id);
+                  }}
                   disabled={actionLoading === `stop:${bot.instance_id}`}
                   className="rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-amber-500 disabled:opacity-60"
                   title="Stop bot"
@@ -413,7 +427,10 @@ const BotCard: React.FC<BotCardProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => onRestart(bot.instance_id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRestart(bot.instance_id);
+                  }}
                   disabled={actionLoading === `restart:${bot.instance_id}`}
                   className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:opacity-60"
                   title="Restart bot"
@@ -427,7 +444,10 @@ const BotCard: React.FC<BotCardProps> = ({
             ) : (
               <button
                 type="button"
-                onClick={() => onStart(bot.instance_id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onStart(bot.instance_id);
+                }}
                 disabled={actionLoading === `start:${bot.instance_id}`}
                 className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-60"
                 title="Start bot"
@@ -440,7 +460,10 @@ const BotCard: React.FC<BotCardProps> = ({
             )}
             <button
               type="button"
-              onClick={() => onDelete(bot.instance_id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(bot.instance_id);
+              }}
               disabled={actionLoading === `delete:${bot.instance_id}`}
               className="rounded-lg bg-rose-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-rose-500 disabled:opacity-60"
               title="Delete bot"
@@ -1035,7 +1058,11 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
           />
 
           <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Instance ID" required labelClassName="block text-sm font-medium text-slate-300 mb-1">
+            <Field
+              label="Instance ID"
+              required
+              labelClassName="block text-sm font-medium text-slate-300 mb-1"
+            >
               <input
                 type="text"
                 placeholder="e.g., btc-eth-bot-01"
@@ -1056,7 +1083,11 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
               </select>
             </Field>
 
-            <Field label="Address" required labelClassName="block text-sm font-medium text-slate-300 mb-1">
+            <Field
+              label="Address"
+              required
+              labelClassName="block text-sm font-medium text-slate-300 mb-1"
+            >
               <input
                 type="text"
                 placeholder="dydx1..."
@@ -1081,7 +1112,10 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
               />
             </Field>
 
-            <Field label="Z-Score Threshold" labelClassName="block text-sm font-medium text-slate-300 mb-1">
+            <Field
+              label="Z-Score Threshold"
+              labelClassName="block text-sm font-medium text-slate-300 mb-1"
+            >
               <input
                 type="number"
                 step="0.1"
@@ -1107,7 +1141,10 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
               />
             </Field>
 
-            <Field label="USD Per Trade" labelClassName="block text-sm font-medium text-slate-300 mb-1">
+            <Field
+              label="USD Per Trade"
+              labelClassName="block text-sm font-medium text-slate-300 mb-1"
+            >
               <input
                 type="number"
                 step="0.01"

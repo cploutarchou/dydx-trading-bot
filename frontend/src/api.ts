@@ -2,7 +2,14 @@
  * API client for dYdX Backtest system
  */
 
-import axios, { AxiosError, AxiosInstance, AxiosRequestHeaders } from 'axios';
+import axios, {
+  AxiosError,
+  AxiosInstance,
+  AxiosRequestHeaders,
+  create,
+  isAxiosError,
+  isCancel,
+} from 'axios';
 import {
   guardBacktestStatusContract,
   guardListBacktestsContract,
@@ -1775,7 +1782,7 @@ class ApiClient {
   private readonly refreshFailureCooldownMs: number = 10000;
 
   constructor() {
-    this.client = axios.create({
+    this.client = create({
       baseURL: API_BASE_URL,
       withCredentials: true,
       headers: {
@@ -1822,9 +1829,7 @@ class ApiClient {
       (response) => response,
       async (error: AxiosError) => {
         const isCanceledRequest =
-          axios.isCancel(error) ||
-          error.code === 'ERR_CANCELED' ||
-          error.message === 'Request aborted';
+          isCancel(error) || error.code === 'ERR_CANCELED' || error.message === 'Request aborted';
 
         if (isCanceledRequest) {
           return Promise.reject(error);
@@ -1855,8 +1860,7 @@ class ApiClient {
           }
 
           const originalRequest = error.config as
-            | (typeof error.config & { _retry?: boolean })
-            | undefined;
+            (typeof error.config & { _retry?: boolean }) | undefined;
           if (originalRequest?._retry) {
             return Promise.reject(error);
           }
@@ -1912,7 +1916,7 @@ class ApiClient {
             const errorMsg =
               refreshError instanceof Error ? refreshError.message : String(refreshError);
             const refreshStatus =
-              axios.isAxiosError(refreshError) && refreshError.response
+              isAxiosError(refreshError) && refreshError.response
                 ? refreshError.response.status
                 : null;
             const shouldExpireSession = refreshStatus === 401 || refreshStatus === 403;
@@ -2328,10 +2332,9 @@ class ApiClient {
    */
   async completeMfaChallenge(token: string): Promise<Token> {
     try {
-      const response = await this.client.post<ApiResponse<Token>>(
-        '/api/v1/auth/2fa/challenge',
-        { token }
-      );
+      const response = await this.client.post<ApiResponse<Token>>('/api/v1/auth/2fa/challenge', {
+        token,
+      });
       const payload = (response.data?.data || response.data) as Token;
       if (payload) {
         this.markSessionEstablished();
@@ -4271,8 +4274,7 @@ class ApiClient {
   // sockets need no token. The query-param token stays only as a fallback
   // for cookie-less flows to keep credentials out of proxy/access logs.
   connectSocket(path: string, token?: string): WebSocket {
-    const useToken =
-      token || (this.hasSessionHint() ? '' : this.accessToken || '');
+    const useToken = token || (this.hasSessionHint() ? '' : this.accessToken || '');
     return new WebSocket(resolveBackendWebSocketUrl(path, useToken, API_BASE_URL));
   }
 
@@ -4746,10 +4748,7 @@ class ApiClient {
 
   // ClickHouse Analytics Endpoints
 
-  async getClickHousePositionHistory(
-    instanceId: string,
-    hours: number = 24
-  ): Promise<ApiResponse> {
+  async getClickHousePositionHistory(instanceId: string, hours: number = 24): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     try {
       const response = await this.client.get<ApiResponse>(
@@ -4761,9 +4760,7 @@ class ApiClient {
     }
   }
 
-  async getClickHouseTradeSummary(
-    instanceId: string
-  ): Promise<ApiResponse> {
+  async getClickHouseTradeSummary(instanceId: string): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     try {
       const response = await this.client.get<ApiResponse>(
@@ -4775,9 +4772,7 @@ class ApiClient {
     }
   }
 
-  async getClickHousePairBreakdown(
-    instanceId: string
-  ): Promise<ApiResponse> {
+  async getClickHousePairBreakdown(instanceId: string): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     try {
       const response = await this.client.get<ApiResponse>(
@@ -4821,9 +4816,7 @@ class ApiClient {
   async getClickHouseAPIRequestSummary(): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     try {
-      const response = await this.client.get<ApiResponse>(
-        '/api/v1/analytics/api-requests/summary'
-      );
+      const response = await this.client.get<ApiResponse>('/api/v1/analytics/api-requests/summary');
       return response.data;
     } catch (error: unknown) {
       throw new Error(getErrorMessage(error));

@@ -13,27 +13,27 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, AlertTriangle, BarChart3, Copy, Settings, Trash2, X } from 'lucide-react';
 import {
-    type KeyboardEvent as ReactKeyboardEvent,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import apiClient, {
-    type AIBacktestSummary,
-    DYDX_CANDLE_RESOLUTION_OPTIONS,
-    normalizeDydxCandleResolution,
-    toAIBacktestSummary,
+  type AIBacktestSummary,
+  DYDX_CANDLE_RESOLUTION_OPTIONS,
+  normalizeDydxCandleResolution,
+  toAIBacktestSummary,
 } from '../api';
 import {
-    useStartStrategyRuntimeMutation,
-    useStopStrategyRuntimeMutation,
-    useStrategies,
-    useStrategyBacktests,
-    useStrategyRuntimes,
-    useStrategyStartReadiness,
+  useStartStrategyRuntimeMutation,
+  useStopStrategyRuntimeMutation,
+  useStrategies,
+  useStrategyBacktests,
+  useStrategyRuntimes,
+  useStrategyStartReadiness,
 } from '../api/hooks';
 import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/intelligence';
 import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
@@ -519,10 +519,7 @@ export default function StrategyManager() {
     const nextStatuses = runtimeQueries.map((query, index) => {
       const strategyId = strategyIds[index]!;
       if (query.isSuccess && query.data) {
-        return toStrategyStatus(
-          strategyId,
-          query.data.data as Record<string, unknown> | undefined
-        );
+        return toStrategyStatus(strategyId, query.data.data as Record<string, unknown> | undefined);
       }
       if (!query.isError) {
         return (
@@ -917,8 +914,7 @@ export default function StrategyManager() {
 
   const handleRuntimeToggle = async (strategy: Strategy) => {
     const currentStatus = strategyStatuses.get(strategy.id);
-    const shouldStop =
-      currentStatus !== undefined && isRuntimeActiveStatus(currentStatus.status);
+    const shouldStop = currentStatus !== undefined && isRuntimeActiveStatus(currentStatus.status);
 
     if (!shouldStop) {
       openStartDialog(strategy);
@@ -1710,10 +1706,15 @@ export default function StrategyManager() {
                 : 'No successful action recorded';
 
             return (
+              // Keyboard-driven card (arrow/enter shortcuts) is deliberate;
+              // the rule reads any listener on a non-interactive role as a smell.
+              // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
               <div
                 key={strategy.id}
                 // Card is intentionally focusable so keyboard operators can
                 // select a strategy before triggering its actions.
+                role="group"
+                aria-label={strategy.name}
                 // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
                 tabIndex={0}
                 onFocus={() => {
@@ -1781,10 +1782,10 @@ export default function StrategyManager() {
                     </span>
                   )}
                   {strategyHeartbeat.tone === 'delayed' && isRuntimeActiveStatus(status.status) && (
-                      <span className="rounded-full border border-amber-500/35 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-200">
-                        Delayed heartbeat
-                      </span>
-                    )}
+                    <span className="rounded-full border border-amber-500/35 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-200">
+                      Delayed heartbeat
+                    </span>
+                  )}
                   <span className="rounded-full border border-slate-700/70 bg-slate-950/55 px-2.5 py-1 text-[11px] font-medium text-slate-300">
                     {lastActionLabel}
                   </span>
@@ -2176,6 +2177,9 @@ export default function StrategyManager() {
         typeof document !== 'undefined' &&
         createPortal(
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+            {/* Escape-to-dismiss on the dialog is the WAI-ARIA APG pattern;
+                the rule reads any listener on a non-interactive role as a smell. */}
+            {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
             <div
               className="w-full max-w-3xl rounded-3xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/40"
               role="dialog"
@@ -2210,8 +2214,14 @@ export default function StrategyManager() {
               <div className="space-y-6 px-6 py-6">
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-200" htmlFor="environment">Environment</label>
-                    <select id="environment"
+                    <label
+                      className="mb-2 block text-sm font-medium text-slate-200"
+                      htmlFor="environment"
+                    >
+                      Environment
+                    </label>
+                    <select
+                      id="environment"
                       ref={startDialogNetworkRef}
                       value={startDialogNetwork}
                       onChange={(event) =>
@@ -2479,6 +2489,9 @@ export default function StrategyManager() {
         typeof document !== 'undefined' &&
         createPortal(
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            {/* Escape-to-dismiss on the dialog is the WAI-ARIA APG pattern;
+                the rule reads any listener on a non-interactive role as a smell. */}
+            {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
             <div
               className="bg-slate-800 rounded-lg border border-slate-700 max-w-2xl w-full max-h-[90vh] overflow-y-auto"
               role="dialog"
@@ -2514,8 +2527,11 @@ export default function StrategyManager() {
                   </div>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
-                      <label className="mb-2 block text-white font-medium" htmlFor="name">Name</label>
-                      <input id="name"
+                      <label className="mb-2 block text-white font-medium" htmlFor="name">
+                        Name
+                      </label>
+                      <input
+                        id="name"
                         ref={configNameInputRef}
                         type="text"
                         value={editingConfig.name || ''}
@@ -2524,8 +2540,11 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium" htmlFor="category">Category</label>
-                      <input id="category"
+                      <label className="mb-2 block text-white font-medium" htmlFor="category">
+                        Category
+                      </label>
+                      <input
+                        id="category"
                         type="text"
                         value={editingConfig.category || ''}
                         onChange={(e) => updateEditingConfig({ category: e.target.value })}
@@ -2533,8 +2552,11 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div className="md:col-span-2">
-                      <label className="mb-2 block text-white font-medium" htmlFor="description">Description</label>
-                      <textarea id="description"
+                      <label className="mb-2 block text-white font-medium" htmlFor="description">
+                        Description
+                      </label>
+                      <textarea
+                        id="description"
                         value={editingConfig.description || ''}
                         onChange={(e) => updateEditingConfig({ description: e.target.value })}
                         rows={3}
@@ -2551,8 +2573,14 @@ export default function StrategyManager() {
                   </div>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
-                      <label className="mb-2 block text-white font-medium" htmlFor="runtime-strategy">Runtime strategy</label>
-                      <select id="runtime-strategy"
+                      <label
+                        className="mb-2 block text-white font-medium"
+                        htmlFor="runtime-strategy"
+                      >
+                        Runtime strategy
+                      </label>
+                      <select
+                        id="runtime-strategy"
                         value={editingConfig.runtime_strategy || 'cointegration'}
                         onChange={(e) => updateEditingConfig({ runtime_strategy: e.target.value })}
                         className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
@@ -2565,8 +2593,14 @@ export default function StrategyManager() {
                       </select>
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium" htmlFor="runtime-network">Runtime network</label>
-                      <select id="runtime-network"
+                      <label
+                        className="mb-2 block text-white font-medium"
+                        htmlFor="runtime-network"
+                      >
+                        Runtime network
+                      </label>
+                      <select
+                        id="runtime-network"
                         value={editingConfig.runtime_network ?? 'testnet'}
                         onChange={(e) =>
                           updateEditingConfig({
@@ -2580,8 +2614,14 @@ export default function StrategyManager() {
                       </select>
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium" htmlFor="runtime-subaccount">Runtime subaccount</label>
-                      <input id="runtime-subaccount"
+                      <label
+                        className="mb-2 block text-white font-medium"
+                        htmlFor="runtime-subaccount"
+                      >
+                        Runtime subaccount
+                      </label>
+                      <input
+                        id="runtime-subaccount"
                         type="number"
                         min="0"
                         step="1"
@@ -2599,8 +2639,11 @@ export default function StrategyManager() {
                       </p>
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium" htmlFor="resolution">Resolution</label>
-                      <select id="resolution"
+                      <label className="mb-2 block text-white font-medium" htmlFor="resolution">
+                        Resolution
+                      </label>
+                      <select
+                        id="resolution"
                         value={normalizeDydxCandleResolution(
                           editingConfig.candle_resolution || editingConfig.resolution || '1HOUR'
                         )}
@@ -2641,8 +2684,11 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium" htmlFor="stats-window">Stats window</label>
-                      <input id="stats-window"
+                      <label className="mb-2 block text-white font-medium" htmlFor="stats-window">
+                        Stats window
+                      </label>
+                      <input
+                        id="stats-window"
                         type="number"
                         min="5"
                         max="365"
@@ -2654,8 +2700,11 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium" htmlFor="max-half-life">Max half-life</label>
-                      <input id="max-half-life"
+                      <label className="mb-2 block text-white font-medium" htmlFor="max-half-life">
+                        Max half-life
+                      </label>
+                      <input
+                        id="max-half-life"
                         type="number"
                         min="1"
                         value={editingConfig.max_half_life ?? 24}
@@ -2686,8 +2735,14 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium" htmlFor="usd-min-collateral">USD min collateral</label>
-                      <input id="usd-min-collateral"
+                      <label
+                        className="mb-2 block text-white font-medium"
+                        htmlFor="usd-min-collateral"
+                      >
+                        USD min collateral
+                      </label>
+                      <input
+                        id="usd-min-collateral"
                         type="number"
                         step="1"
                         min="0"
@@ -2734,8 +2789,11 @@ export default function StrategyManager() {
                   </div>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
-                      <label className="mb-2 block text-white font-medium" htmlFor="max-positions">Max positions</label>
-                      <input id="max-positions"
+                      <label className="mb-2 block text-white font-medium" htmlFor="max-positions">
+                        Max positions
+                      </label>
+                      <input
+                        id="max-positions"
                         type="number"
                         min="1"
                         max="100"
@@ -2768,8 +2826,11 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium" htmlFor="stop-loss">Stop loss %</label>
-                      <input id="stop-loss"
+                      <label className="mb-2 block text-white font-medium" htmlFor="stop-loss">
+                        Stop loss %
+                      </label>
+                      <input
+                        id="stop-loss"
                         type="number"
                         step="0.1"
                         min="0"
@@ -2781,8 +2842,11 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium" htmlFor="take-profit">Take profit %</label>
-                      <input id="take-profit"
+                      <label className="mb-2 block text-white font-medium" htmlFor="take-profit">
+                        Take profit %
+                      </label>
+                      <input
+                        id="take-profit"
                         type="number"
                         step="0.1"
                         min="0"
@@ -2794,8 +2858,11 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium" htmlFor="trailing-stop">Trailing stop %</label>
-                      <input id="trailing-stop"
+                      <label className="mb-2 block text-white font-medium" htmlFor="trailing-stop">
+                        Trailing stop %
+                      </label>
+                      <input
+                        id="trailing-stop"
                         type="number"
                         step="0.1"
                         min="0"
@@ -2807,8 +2874,14 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium" htmlFor="rebalance-interval-hours">Rebalance interval (hours)</label>
-                      <input id="rebalance-interval-hours"
+                      <label
+                        className="mb-2 block text-white font-medium"
+                        htmlFor="rebalance-interval-hours"
+                      >
+                        Rebalance interval (hours)
+                      </label>
+                      <input
+                        id="rebalance-interval-hours"
                         type="number"
                         min="1"
                         value={editingConfig.rebalance_interval_hours ?? 24}
@@ -2821,8 +2894,14 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium" htmlFor="position-timeout-hours">Position timeout (hours)</label>
-                      <input id="position-timeout-hours"
+                      <label
+                        className="mb-2 block text-white font-medium"
+                        htmlFor="position-timeout-hours"
+                      >
+                        Position timeout (hours)
+                      </label>
+                      <input
+                        id="position-timeout-hours"
                         type="number"
                         min="1"
                         value={editingConfig.position_timeout_hours ?? 72}
@@ -2909,8 +2988,14 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium" htmlFor="max-history-days">Max history days</label>
-                      <input id="max-history-days"
+                      <label
+                        className="mb-2 block text-white font-medium"
+                        htmlFor="max-history-days"
+                      >
+                        Max history days
+                      </label>
+                      <input
+                        id="max-history-days"
                         type="number"
                         min="1"
                         max="3650"
@@ -2922,8 +3007,11 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium" htmlFor="risk-free-rate">Risk-free rate</label>
-                      <input id="risk-free-rate"
+                      <label className="mb-2 block text-white font-medium" htmlFor="risk-free-rate">
+                        Risk-free rate
+                      </label>
+                      <input
+                        id="risk-free-rate"
                         type="number"
                         step="0.001"
                         min="0"

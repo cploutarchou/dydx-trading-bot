@@ -1,13 +1,10 @@
-// Enhanced API client (FE-015 consolidation): every request now rides the
-// shared axios client from src/api.ts. Cookie auth, trace headers, and
-// 401→refresh→retry live in ONE interceptor chain — the parallel fetch
-// implementation (fetchWithAuth/buildAuthHeaders) is gone. Method names and
-// return shapes are unchanged, so callers (hooks.ts, BacktestList,
-// BacktestDetailsV2, Backtests, SyncHealthPanel, websocket) keep working
-// unchanged.
+// Bot/backtest/system endpoint surface (FE-015 consolidation): every request
+// rides the shared axios client from src/api.ts — cookie auth, trace headers,
+// and 401→refresh→retry all live in that one interceptor chain. Auth/session
+// calls belong to src/api.ts directly; this module only owns the bot-service
+// and backtest endpoints plus the infra probes.
 
 import apiClient from '../api';
-import type { User } from './types';
 
 type Entity = Record<string, unknown>;
 type QueryParams = object;
@@ -85,7 +82,7 @@ const toQueryParams = (
   return out;
 };
 
-class EnhancedAPIClient {
+class BotApiClient {
   private baseClient = apiClient;
   private backtestStatusListPromise: Promise<Entity[]> | null = null;
 
@@ -101,47 +98,6 @@ class EnhancedAPIClient {
 
   private requestJsonWithParams(url: string, params: Record<string, unknown>) {
     return this.baseClient.requestJson<unknown>('get', url, { params: toQueryParams(params) });
-  }
-
-  // Delegate session/auth methods to the shared client
-  logout = this.baseClient.logout.bind(this.baseClient);
-  getCurrentUser = this.baseClient.getCurrentUser.bind(this.baseClient);
-  getStats = this.baseClient.getStats.bind(this.baseClient);
-  hasToken = this.baseClient.hasToken.bind(this.baseClient);
-  setToken = this.baseClient.setToken.bind(this.baseClient);
-  refreshAccessToken = this.baseClient.refreshAccessToken.bind(this.baseClient);
-
-  async login(username: string, password: string, turnstileToken?: string) {
-    return this.baseClient.login({
-      username,
-      password,
-      ...(turnstileToken ? { cf_turnstile_response: turnstileToken } : {}),
-    });
-  }
-
-  async register(
-    username: string,
-    email: string,
-    password: string,
-    invitationCode?: string,
-    turnstileToken?: string
-  ) {
-    return this.baseClient.register({
-      username,
-      email,
-      password,
-      ...(invitationCode ? { invitation_code: invitationCode } : {}),
-      ...(turnstileToken ? { cf_turnstile_response: turnstileToken } : {}),
-    });
-  }
-
-  async updateProfile(profile: Partial<User>) {
-    return this.baseClient.updateProfile(profile as Record<string, unknown>);
-  }
-
-  // Check if authenticated
-  isAuthenticated(): boolean {
-    return this.baseClient.hasToken();
   }
 
   // ==================== Bot Instance Management ====================
@@ -397,10 +353,7 @@ class EnhancedAPIClient {
         updatedAt = fallbackStatusProgress.updatedAt ?? updatedAt;
       }
     } catch (error) {
-      console.warn(
-        '📊 enhancedClient.ts: failed to fetch list fallback for backtest status',
-        error
-      );
+      console.warn('📊 botApi.ts: failed to fetch list fallback for backtest status', error);
     }
 
     const computedProgress = progress !== undefined ? progress : status === 'COMPLETED' ? 100 : 0;
@@ -495,11 +448,13 @@ class EnhancedAPIClient {
   async getSystemStatus(): Promise<Entity> {
     try {
       const result = await this.request('/api/v1/system/status');
-      return (isRecord(result) && result.data !== undefined
-        ? (result.data as Entity)
-        : EnhancedAPIClient.SYSTEM_STATUS_FALLBACK) as Entity;
+      return (
+        isRecord(result) && result.data !== undefined
+          ? (result.data as Entity)
+          : BotApiClient.SYSTEM_STATUS_FALLBACK
+      ) as Entity;
     } catch {
-      return EnhancedAPIClient.SYSTEM_STATUS_FALLBACK;
+      return BotApiClient.SYSTEM_STATUS_FALLBACK;
     }
   }
 
@@ -521,6 +476,5 @@ class EnhancedAPIClient {
   }
 }
 
-// Export enhanced client instance
-export const enhancedApiClient = new EnhancedAPIClient();
-export default enhancedApiClient;
+export const botApi = new BotApiClient();
+export default botApi;

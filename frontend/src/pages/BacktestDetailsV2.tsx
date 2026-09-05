@@ -31,7 +31,7 @@ import {
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
-import { enhancedApiClient } from '../api/enhancedClient';
+import { botApi } from '../api/botApi';
 import { useBacktestProgress } from '../api/hooks';
 import { AIBacktestExplainer } from '../components/AIBacktestExplainer';
 import {
@@ -567,7 +567,7 @@ export const BacktestDetailsV2: React.FC = () => {
 
       try {
         const liveStatusResponse = await withTimeout(
-          enhancedApiClient.getBacktestStatus(safeRunId),
+          botApi.getBacktestStatus(safeRunId),
           8000,
           'Backtest live status'
         );

@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-let enhancedApiClient: typeof import('./enhancedClient').enhancedApiClient;
+let botApi: typeof import('./botApi').botApi;
 let baseApiClient: typeof import('../api').default;
 
 beforeAll(async () => {
@@ -18,7 +18,7 @@ beforeAll(async () => {
     configurable: true,
   });
 
-  ({ enhancedApiClient } = await import('./enhancedClient'));
+  ({ botApi } = await import('./botApi'));
   ({ default: baseApiClient } = await import('../api'));
 });
 
@@ -26,7 +26,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('enhanced API client (consolidated on the axios client)', () => {
+describe('bot API surface (consolidated on the axios client)', () => {
   it('uses list progress without calling the unstable status endpoint', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
 
@@ -49,7 +49,7 @@ describe('enhanced API client (consolidated on the axios client)', () => {
       timestamp: new Date().toISOString(),
     } as Awaited<ReturnType<typeof baseApiClient.listBacktests>>);
 
-    const status = await enhancedApiClient.getBacktestStatus('run-1');
+    const status = await botApi.getBacktestStatus('run-1');
 
     expect(status.run_id).toBe('run-1');
     expect(status.status).toBe('RUNNING');
@@ -85,8 +85,8 @@ describe('enhanced API client (consolidated on the axios client)', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
 
     const [firstStatus, secondStatus] = await Promise.all([
-      enhancedApiClient.getBacktestStatus('run-1'),
-      enhancedApiClient.getBacktestStatus('run-2'),
+      botApi.getBacktestStatus('run-1'),
+      botApi.getBacktestStatus('run-2'),
     ]);
 
     expect(firstStatus.progress_percent).toBe(77);

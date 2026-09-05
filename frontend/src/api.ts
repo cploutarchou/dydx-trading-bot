@@ -91,6 +91,8 @@ const isPublicUnauthenticatedRoute = (url: string): boolean =>
   url.includes('/auth/refresh') ||
   url.includes('/auth/token') ||
   url.includes('/auth/registration-status') ||
+  url.includes('/auth/forgot-password') ||
+  url.includes('/auth/reset-password') ||
   url.includes('/public/app-config') ||
   url.includes('/public/ico/') ||
   url.includes('/health') ||
@@ -2137,6 +2139,23 @@ class ApiClient {
 
   ensureTokenLoaded(): void {
     return;
+  }
+
+  // FE-009: self-serve password reset (public endpoints).
+  async requestPasswordReset(email: string): Promise<void> {
+    await this.client.post(
+      '/api/v1/auth/forgot-password',
+      { email },
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  async resetPassword(token: string, newPassword: string): Promise<void> {
+    await this.client.post(
+      '/api/v1/auth/reset-password',
+      { token, new_password: newPassword },
+      { headers: { 'Content-Type': 'application/json' } }
+    );
   }
 
   logout(): void {

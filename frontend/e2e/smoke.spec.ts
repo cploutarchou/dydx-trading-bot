@@ -75,3 +75,48 @@ test.describe('protected workspace boundary', () => {
     await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
   });
 });
+
+test.describe('password reset flow (FE-009)', () => {
+  test('forgot-password form validates email and shows the sent state', async ({ page }) => {
+    await page.route('**/api/v1/auth/forgot-password', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true}' })
+    );
+    await page.goto('/forgot-password');
+    await expect(
+      page.getByRole('heading', { name: 'Reset your password' })
+    ).toBeVisible();
+
+    const submit = page.getByRole('button', { name: 'Send reset link' });
+    await page.getByLabel('Account email').fill('not-an-email');
+    await page.getByLabel('Account email').press('Enter');
+    await expect(page.getByText('Enter a valid email address')).toBeVisible();
+    await expect(submit).toBeEnabled(); // client validation message, no server hit yet
+
+    await page.getByLabel('Account email').fill('someone@example.test');
+    await submit.click();
+    await expect(page.getByText('Check your inbox')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Back to sign in' })).toBeVisible();
+  });
+
+  test('reset-password without a token explains the problem', async ({ page }) => {
+    await page.goto('/reset-password');
+    await expect(
+      page.getByText('This link is missing its reset token', { exact: false })
+    ).toBeVisible();
+  });
+
+  test('reset-password with a token accepts matching passwords', async ({ page }) => {
+    await page.goto('/reset-password?token=test-token-abc');
+    const submit = page.getByRole('button', { name: 'Save new password' });
+    await expect(submit).toBeEnabled();
+
+    await page.getByLabel('New password', { exact: true }).fill('short');
+    await submit.click();
+    await expect(page.getByText('Use at least 8 characters')).toBeVisible();
+
+    await page.getByLabel('New password', { exact: true }).fill('NewPassw0rd!');
+    await page.getByLabel('Confirm new password').fill('DifferentPass1!');
+    await submit.click();
+    await expect(page.getByText('Passwords do not match')).toBeVisible();
+  });
+});

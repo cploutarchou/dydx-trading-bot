@@ -26,7 +26,9 @@ import { MainLayout } from './components/MainLayout';
 import { RegistrationDisabledLoginGate } from './components/RegistrationDisabledLoginGate';
 import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import { ThemeProvider } from './components/ThemeProvider';
+import { ForgotPasswordPage } from './pages/ForgotPassword';
 import { LoginPage } from './pages/Login';
+import { ResetPasswordPage } from './pages/ResetPassword';
 // Public marketing/auth pages are route-split like the workspace pages so the
 // eager bundle stays focused on the authenticated shell (audit FE-032).
 const LandingPage = lazy(() => import('./pages/Landing').then((m) => ({ default: m.LandingPage })));
@@ -294,6 +296,8 @@ export const App: React.FC = () => {
                   <Route path="/ico/withdraw" element={<IcoTokenActionPage action="withdraw" />} />
                   <Route path="/ico/:documentSlug" element={<IcoDocumentPage />} />
                   <Route path="/login" element={<LoginPage />} />
+                  <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                  <Route path="/reset-password" element={<ResetPasswordPage />} />
                   <Route path="/register" element={<RegisterPage />} />
                   <Route path="/2fa-setup" element={<TwoFactorAuthPage />} />
                   <Route path="/force-password" element={<PasswordRotationRoute />} />

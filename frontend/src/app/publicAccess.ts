@@ -1,5 +1,7 @@
 export const COMING_SOON_AUTH_BYPASS_PATHS = new Set([
   '/login',
+  '/forgot-password',
+  '/reset-password',
   '/2fa-setup',
   '/force-password',
   '/ico',

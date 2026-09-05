@@ -1,10 +1,10 @@
 import { Inbox, SlidersHorizontal } from 'lucide-react';
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api, { classifyApiError } from '../api';
-import { enhancedApiClient } from '../api/enhancedClient';
 import { useNow } from '../hooks/useNow';
-import { getEnvelopeList, getEnvelopeValue, toApiRecord } from '../api/normalizers';
+import { getEnvelopeList, toApiRecord } from '../api/normalizers';
 
 type RunStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'STALE' | 'TIMEOUT';
 
@@ -345,242 +345,69 @@ export const BacktestList: React.FC<{
   error: controlledError = null,
 }) => {
   const navigate = useNavigate();
-  const [runs, setRuns] = useState<BacktestRun[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<RunStatus | 'ALL'>('ALL');
   const [showHighPressureOnly, setShowHighPressureOnly] = useState(false);
-  const [pollFailures, setPollFailures] = useState(0);
-  const [liveSyncMeta, setLiveSyncMeta] = useState<{
-    syncedRuns: number;
-    updatedAt: string | null;
-  }>({
-    syncedRuns: 0,
-    updatedAt: null,
-  });
-  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nowTs = useNow();
-  const isLoadingRef = useRef(false);
-  const activeRequestIdRef = useRef(0);
-  const pollFailureRef = useRef(0);
   const isControlled = Array.isArray(controlledRuns);
-  const displayRuns = controlledRuns ?? runs;
-  const displayLoading = isControlled ? controlledLoading : loading;
-  const displayError = isControlled ? controlledError : error;
 
-  const fetchAllRuns = useCallback(async (): Promise<BacktestRun[]> => {
-    // Keep this fast for dashboard rendering: fetch the newest page only.
-    // If needed later, we can add cursor-based pagination without blocking initial paint.
-    const response = await api.listBacktests(0, 50);
-    const runs = getEnvelopeList<BacktestRun>(response, ['backtests', 'runs']);
+  // ── Data layer (FE-023): the uncontrolled run list rides React Query ──
+  // Polling fires only while active runs exist, with exponential backoff on
+  // failures. Active-run "live sync" is derived from the same list payload —
+  // the retired per-run status calls re-fetched the identical list (the
+  // facade's status IS derived from it).
+  const isActiveRun = (run: BacktestRun): boolean => {
+    const status = normalizeStatus(run.status, run);
+    return status === 'RUNNING' || status === 'PENDING';
+  };
 
-    const activeRuns = runs
-      .filter((run) => {
-        const status = normalizeStatus(run.status, run);
-        return status === 'RUNNING' || status === 'PENDING';
-      })
-      .slice(0, 12);
+  const normalizeActiveRun = (run: BacktestRun): BacktestRun => {
+    const pct = optionalPercent(Number(run.progress_pct ?? run.progress_percent ?? run.progress));
+    if (pct === null) return run;
+    return { ...run, progress_pct: pct, progress_percent: pct, progress: pct };
+  };
 
-    if (activeRuns.length === 0) {
-      setLiveSyncMeta({ syncedRuns: 0, updatedAt: null });
-      return runs;
-    }
-
-    const statusSettled = await Promise.allSettled(
-      activeRuns.map(async (run) => {
-        const statusResponse = await enhancedApiClient.getBacktestStatus(run.run_id);
-        const payload = toRecord(statusResponse);
-
-        return {
-          run_id: run.run_id,
-          status: String(getEnvelopeValue(payload, 'status') ?? run.status),
-          progress_pct: optionalPercent(
-            Number(
-              getEnvelopeValue(payload, 'progress_pct') ??
-                getEnvelopeValue(payload, 'progress_percent') ??
-                getEnvelopeValue(payload, 'progress')
-            )
-          ),
-          progress_percent: optionalPercent(
-            Number(
-              getEnvelopeValue(payload, 'progress_percent') ??
-                getEnvelopeValue(payload, 'progress_pct') ??
-                getEnvelopeValue(payload, 'progress')
-            )
-          ),
-          progress: optionalPercent(
-            Number(
-              getEnvelopeValue(payload, 'progress') ??
-                getEnvelopeValue(payload, 'progress_pct') ??
-                getEnvelopeValue(payload, 'progress_percent')
-            )
-          ),
-          current_pair:
-            typeof getEnvelopeValue(payload, 'current_pair') === 'string'
-              ? String(getEnvelopeValue(payload, 'current_pair'))
-              : run.current_pair,
-          current_task:
-            typeof getEnvelopeValue(payload, 'current_task') === 'string'
-              ? String(getEnvelopeValue(payload, 'current_task'))
-              : run.current_task,
-          updated_at:
-            typeof getEnvelopeValue(payload, 'updated_at') === 'string'
-              ? String(getEnvelopeValue(payload, 'updated_at'))
-              : run.updated_at,
-          error:
-            typeof getEnvelopeValue(payload, 'error') === 'string'
-              ? String(getEnvelopeValue(payload, 'error'))
-              : run.error,
-          error_message:
-            typeof getEnvelopeValue(payload, 'error_message') === 'string'
-              ? String(getEnvelopeValue(payload, 'error_message'))
-              : run.error_message,
-        } satisfies Partial<BacktestRun> & { run_id: string };
-      })
-    );
-
-    const liveByRunId = new Map<string, Partial<BacktestRun>>();
-    statusSettled.forEach((result) => {
-      if (result.status !== 'fulfilled') {
-        return;
-      }
-      liveByRunId.set(result.value.run_id, result.value);
-    });
-
-    setLiveSyncMeta({
-      syncedRuns: liveByRunId.size,
-      updatedAt: liveByRunId.size > 0 ? new Date().toISOString() : null,
-    });
-
-    return runs.map((run) => ({
-      ...run,
-      ...(liveByRunId.get(run.run_id) ?? {}),
-    }));
-  }, [setLiveSyncMeta]);
-
-  const loadBacktests = useCallback(
-    async (showBlockingLoader: boolean = true) => {
-      if (isLoadingRef.current) {
-        return;
-      }
-
-      isLoadingRef.current = true;
-      const requestId = activeRequestIdRef.current + 1;
-      activeRequestIdRef.current = requestId;
-
-      let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
-      if (showBlockingLoader) {
-        setLoading(true);
-      }
-      setError(null);
-      try {
-        const runsPromise = fetchAllRuns();
-        const timeoutPromise = new Promise<BacktestRun[]>((_, reject) => {
-          timeoutId = setTimeout(
-            () => reject(new Error('Timed out while loading backtest runs')),
-            25000
-          );
-        });
-
-        const nextRuns = await Promise.race([runsPromise, timeoutPromise]);
-        if (activeRequestIdRef.current !== requestId) {
-          return;
-        }
-        setRuns(nextRuns);
-        setHasLoadedOnce(true);
-      } catch (err: unknown) {
-        if (activeRequestIdRef.current !== requestId) {
-          return;
-        }
-        console.error('❌ BacktestList: Error loading backtests:', err);
-        setError(toUserFacingApiError(err, 'Failed to load backtests'));
-        if (!hasLoadedOnce) {
-          setRuns([]);
-        }
-      } finally {
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-        }
-        if (activeRequestIdRef.current === requestId) {
-          isLoadingRef.current = false;
-        }
-        if (showBlockingLoader) {
-          setLoading(false);
-        }
-      }
+  const listQuery = useQuery({
+    queryKey: ['backtests', 'list', refreshTrigger],
+    enabled: !isControlled,
+    queryFn: async (): Promise<{
+      runs: BacktestRun[];
+      syncedRuns: number;
+      updatedAt: string | null;
+    }> => {
+      // Keep this fast for dashboard rendering: fetch the newest page only.
+      const response = await api.listBacktests(0, 50);
+      const runs = getEnvelopeList<BacktestRun>(response, ['backtests', 'runs']).map((run) =>
+        isActiveRun(run) ? normalizeActiveRun(run) : run
+      );
+      const activeRuns = runs.filter(isActiveRun).slice(0, 12);
+      return {
+        runs,
+        syncedRuns: activeRuns.length,
+        updatedAt: activeRuns.length > 0 ? new Date().toISOString() : null,
+      };
     },
-    [fetchAllRuns, hasLoadedOnce]
-  );
-
-  /** Silent refresh — keeps existing data visible while updating in background. */
-  const loadBacktestsSilent = useCallback(async (): Promise<boolean> => {
-    if (isLoadingRef.current) return true;
-    try {
-      setRuns(await fetchAllRuns());
-      return true;
-    } catch {
-      // ignore transient errors during polling
-      return false;
-    }
-  }, [fetchAllRuns]);
-
-  useEffect(() => {
-    if (isControlled) {
-      return;
-    }
-    // First load blocks with spinner; subsequent refreshes stay non-blocking.
-    // Microtask keeps the loader's synchronous state reset out of the effect.
-    void Promise.resolve().then(() => loadBacktests(!hasLoadedOnce));
-  }, [hasLoadedOnce, isControlled, loadBacktests, refreshTrigger]);
-
-  // Auto-poll while any run is active
-  useEffect(() => {
-    if (isControlled) {
-      return;
-    }
-
-    const hasActive = runs.some((r) => {
-      const s = normalizeStatus(r.status, r);
-      return s === 'RUNNING' || s === 'PENDING';
-    });
-
-    const scheduleNextPoll = (delayMs: number) => {
-      if (pollRef.current) {
-        clearTimeout(pollRef.current);
+    refetchInterval: (query) => {
+      const runs = query.state.data?.runs;
+      if (!runs || !runs.some(isActiveRun)) {
+        return false;
       }
-      pollRef.current = setTimeout(async () => {
-        const ok = await loadBacktestsSilent();
-        pollFailureRef.current = ok ? 0 : Math.min(pollFailureRef.current + 1, 4);
-        setPollFailures(pollFailureRef.current);
-        const nextDelay = ok
-          ? POLL_INTERVAL_MS
-          : Math.min(POLL_INTERVAL_MS * 2 ** pollFailureRef.current, MAX_POLL_INTERVAL_MS);
-        scheduleNextPoll(nextDelay);
-      }, delayMs);
-    };
+      const failures = Math.min(query.state.fetchFailureCount, 4);
+      return Math.min(POLL_INTERVAL_MS * 2 ** failures, MAX_POLL_INTERVAL_MS);
+    },
+  });
 
-    if (hasActive) {
-      if (!pollRef.current) {
-        scheduleNextPoll(POLL_INTERVAL_MS);
-      }
-    } else {
-      pollFailureRef.current = 0;
-      void Promise.resolve().then(() => setPollFailures(0));
-      if (pollRef.current) {
-        clearTimeout(pollRef.current);
-        pollRef.current = null;
-      }
-    }
-
-    return () => {
-      if (pollRef.current) {
-        clearTimeout(pollRef.current);
-        pollRef.current = null;
-      }
-    };
-  }, [isControlled, loadBacktestsSilent, runs]);
+  const displayRuns = controlledRuns ?? listQuery.data?.runs ?? [];
+  const displayLoading = isControlled ? controlledLoading : listQuery.isPending;
+  const displayError = isControlled
+    ? controlledError
+    : listQuery.isError
+      ? toUserFacingApiError(listQuery.error, 'Failed to load backtests')
+      : null;
+  const liveSyncMeta = {
+    syncedRuns: listQuery.data?.syncedRuns ?? 0,
+    updatedAt: listQuery.data?.updatedAt ?? null,
+  };
+  const pollFailures = isControlled ? 0 : listQuery.failureCount;
 
   if (displayLoading) {
     return (
@@ -711,12 +538,9 @@ export const BacktestList: React.FC<{
       : run.max_drawdown;
 
   const handleManualRefresh = () => {
-    pollFailureRef.current = 0;
-    setPollFailures(0);
-    if (isControlled) {
-      return;
+    if (!isControlled) {
+      void listQuery.refetch();
     }
-    void loadBacktests(false);
   };
 
   const handleArchiveKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {

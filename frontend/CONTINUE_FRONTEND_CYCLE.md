@@ -1,9 +1,11 @@
-# CONTINUE — Frontend audit cycle (updated 2026-09-06, after pass 14)
+# CONTINUE — Frontend audit cycle (updated 2026-09-06, after pass 15)
 
-Cycle state: **FE-038 complete** (all 238 lint findings across 6 categories at zero,
-every rule enforced), **FE-022 complete**, **FE-009 complete + live-verified**,
-**FE-015 core complete** (single HTTP stack). Remaining work: two FE-015 sub-items.
-All commits pushed through `1137a6a6`; both CI workflows green.
+Cycle state: **FE-038 complete** (238 lint findings at zero, enforced),
+**FE-022 complete**, **FE-009 complete + live-verified**, **FE-015 nearly
+done** (single HTTP stack; enhancedClient deleted → `src/api/botApi.ts`;
+Settings + BacktestList on React Query). Remaining: ONE file —
+BacktestDetailsV2 → React Query — plus the deferred per-portal endpoint-module
+refactor. All commits pushed through `cc7231cc`; both CI workflows green.
 
 ## 1. Environment startup (fresh terminal)
 
@@ -27,40 +29,29 @@ Test user: `auditclient` / `audit.client@local.test`, password `AuditClient-2026
 
 ## 2. Remaining work
 
-### A. FE-023 tail — migrate 3 files to React Query (also retires the enhancedClient facade)
+### A. FE-023 tail — ONE file left: `src/pages/BacktestDetailsV2.tsx`
 
-`src/api/enhancedClient.ts` is now a thin axios-backed facade (public contracts
-unchanged). Retire it by moving its last direct callers onto `src/api/hooks.ts`
-React Query hooks:
+Manual fetch effects for metadata/candles/positions/trades (with loaded-state
+cache guards keyed on runId + detailSyncCursor). Map to query keys like
+`['backtests', 'detail', runId]`; the existing detailSyncCursor (from the WS
+progress hook) works as an invalidation signal. Model after the Settings
+migration (900e4d41) and BacktestList migration (d848f2aa):
+- pure queryFn (no setState), staleTime to preserve cache-guard semantics,
+  render-time adjust to seed any local draft state,
+  `api.getBacktest` / `botApi.getBacktestStatus` calls stay as-is.
+- Verify live: the local DB has 0 backtest_runs — a detail URL like
+  /backtest/nonexistent exercises the fallback shell (no crash) — and run the
+  backend-free e2e suite (CI's mode).
 
-1. **`src/components/BacktestList.tsx`** — manual `useState/useEffect` polling +
-   `fetchAllRuns()` calling `api.listBacktests` + `enhancedApiClient.getBacktestStatus`.
-   Model: `useBacktestProgress` in hooks.ts (websocket + polling fallback already
-   exists). Keep the existing 4s-only-while-active poll semantics.
-2. **`src/pages/BacktestDetailsV2.tsx`** — manual fetch effects for
-   metadata/candles/positions/trades (with loaded-state cache guards). These map to
-   query keys like `['backtests', 'detail', runId]` with the existing
-   `detailSyncCursor` as a stale-time signal.
-3. **`src/pages/Settings.tsx`** — `fetchSettingsData` useCallback loader (schema +
-   form values); maps to a `['settings', 'schema']` query. `src/pages/settingsData.ts`
-   already holds the loader.
+### B. FE-015 deferred: per-portal endpoint modules (deliberately deferred)
 
-After the three migrations: `grep -rn enhancedApiClient src/` should show only
-`src/api/hooks.ts` (if anything) — then delete `src/api/enhancedClient.ts` +
-`enhancedClient.test.ts`, and move the still-needed `getBacktestStatus` dedup logic
-(covered by tests) into hooks.ts or api.ts. SyncHealthPanel + websocket.ts also
-reference it — check whether they can use hooks/api directly.
-
-### B. FE-015 tail — split the api.ts chunk (45.6KB gzipped-ish)
-
-`src/api.ts` is ~4.8k lines and lands as one big chunk. Options (measure first with
-`npm run build` + inspecting `dist/assets`):
-- Route-lazy-load admin/backoffice-only endpoint groups by moving them to separate
-  modules re-exported through the class (e.g. `api/analytics.ts`,
-  `api/adminBackoffice.ts`) combined with dynamic `import()` at call sites, or
-- `build.rollupOptions.output.manualChunks` to carve domain groups — verify the
-  portal builds (`build:client`, `build:backoffice`, `build:ib`) each get smaller
-  index chunks and nothing breaks tree-shaking of portal-gated routes.
+The api.ts chunk split was ATTEMPTED AND MEASURED (2026-09-06) and REJECTED:
+a manualChunks 'api-client' rule for src/api.ts hoists shared helper modules
+eager, growing first-load gzip 45.2 → 61.1 KB — cache-stability is not worth
++16KB on every cold visit. The real fix (deferred): move admin/backoffice-only
+endpoint groups out of the monolithic ApiClient class into per-portal modules
+so unused class methods tree-shake (class methods never tree-shake), then
+re-measure all three portal builds.
 
 ## 3. Validation gate (per task — explicit exit codes, never pipe to tail)
 

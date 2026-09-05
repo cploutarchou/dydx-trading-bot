@@ -4822,6 +4822,39 @@ class ApiClient {
       throw new Error(getErrorMessage(error));
     }
   }
+
+  /**
+   * Generic JSON request for the consolidated client (FE-015): envelope
+   * handling stays with the caller; cookie auth, trace headers, and
+   * 401→refresh→retry all ride this.client's interceptor chain. Bodies are
+   * parsed tolerantly (empty -> {}, non-JSON -> descriptive error) to match
+   * the fetch-era behavior of the methods migrated onto it.
+   */
+  async requestJson<T = unknown>(
+    method: 'get' | 'post' | 'put' | 'delete',
+    url: string,
+    options: { body?: unknown; params?: Record<string, string | number | boolean | undefined> } = {}
+  ): Promise<T> {
+    const parseTolerantly = (raw: unknown): unknown => {
+      if (typeof raw !== 'string' || raw.length === 0) return {};
+      try {
+        return JSON.parse(raw);
+      } catch {
+        const preview = raw.replace(/\s+/g, ' ').slice(0, 120);
+        throw new Error(`Expected JSON from API at ${url}: ${preview}`);
+      }
+    };
+
+    const response = await this.client.request<unknown>({
+      method,
+      url,
+      data: options.body,
+      params: options.params,
+      responseType: 'text',
+      transformResponse: [parseTolerantly],
+    });
+    return response.data as T;
+  }
 }
 
 export default new ApiClient();

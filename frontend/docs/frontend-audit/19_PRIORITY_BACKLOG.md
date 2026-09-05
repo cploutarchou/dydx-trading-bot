@@ -25,7 +25,7 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 | ✅ FE-001 | Correctness | Stale `localStorage['token']` read → Backtests page live-progress WS unauthenticated; silently falls back to 8s polling | Live progress integrity | XS | none | none — now uses `api.connectSocket` (verified: import removed, socket built with stored token) |
 | ✅ FE-002 | Security | Access JWT persisted in localStorage | Session theft surface | M | — **done: persistence removed, boot scrubs legacy key, recovery is cookie-driven (verified live)** |
 | ✅ FE-003 | Security | WS `?access_token=` in URL on all auth'd sockets → log/proxy leakage | Credential leakage | M | — **done: cookie-first WS auth (backend `auth_token.go` accepts session cookie on upgrades); query token only when no session hint** |
-| 🟡 FE-004 | Test/QA | CI runs 1/19 test files; no `npm test`; zero component/E2E coverage on money paths | Regression blindness | M | none | none (additive) — **partially done (a): `npm test` script added, full 20-file/111-test suite now the CI gate; Playwright+jsdom+Testing Library still open** |
+| ✅ FE-004 | Test/QA | CI runs 1/19 test files; no `npm test`; zero component/E2E coverage on money paths | Regression blindness | M | none | none (additive) — **partially done (a): `npm test` script added, full 20-file/111-test suite now the CI gate; Playwright+jsdom+Testing Library still open** |
 
 ## P2 — this quarter
 

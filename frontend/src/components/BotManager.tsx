@@ -592,15 +592,16 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
     setError(null);
   }, [botsQuery.error]);
 
+  const refetchBots = botsQuery.refetch;
   useEffect(() => {
     const interval = setInterval(() => {
-      void botsQuery.refetch();
+      void refetchBots();
     }, 30000);
 
     return () => {
       clearInterval(interval);
     };
-  }, [botsQuery.refetch]);
+  }, [refetchBots]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;

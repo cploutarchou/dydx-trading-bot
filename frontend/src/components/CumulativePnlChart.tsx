@@ -1,10 +1,10 @@
 import {
-    AreaSeries,
-    type IChartApi,
-    type ISeriesApi,
-    type LineData,
-    type MouseEventParams,
-    type Time,
+  AreaSeries,
+  type IChartApi,
+  type ISeriesApi,
+  type LineData,
+  type MouseEventParams,
+  type Time,
 } from 'lightweight-charts';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useUIPreferencesStore } from '../store/uiPreferences';
@@ -121,6 +121,9 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
       chartRef.current = null;
       chart.remove();
     };
+    // Initial series color is a snapshot; the applyOptions effect below keeps
+    // it in sync, so a sign flip must not rebuild the whole chart.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [height, resolvedTheme]);
 
   useEffect(() => {

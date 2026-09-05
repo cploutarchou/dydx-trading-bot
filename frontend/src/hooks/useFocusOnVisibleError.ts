@@ -13,6 +13,8 @@ export function useFocusOnVisibleError(targets: FocusTarget[], deps: DependencyL
   useEffect(() => {
     const activeTarget = targets.find((target) => target.when);
     activeTarget?.ref.current?.focus();
+    // deps is this hook's pass-through contract: callers name the triggers
+    // (targets are read once per trigger, intentionally not reactive).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 }
-

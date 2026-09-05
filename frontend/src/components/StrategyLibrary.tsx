@@ -157,17 +157,18 @@ export default function StrategyLibrary() {
     mutationFn: (payload: StrategyBacktestRunPayload) => api.runBacktest(payload),
   });
 
-  const strategies = strategiesQuery.data?.strategies ?? [];
+  const strategiesData = strategiesQuery.data?.strategies;
+  const strategies = strategiesData ?? [];
   const totalStrategies = strategiesQuery.data?.total ?? 0;
 
   const filteredStrategies = useMemo(
     () =>
-      strategies.filter(
+      (strategiesData ?? []).filter(
         (s) =>
           s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
           s.description.toLowerCase().includes(searchTerm.toLowerCase())
       ),
-    [searchTerm, strategies]
+    [searchTerm, strategiesData]
   );
 
   const totalPages = Math.ceil(totalStrategies / ITEMS_PER_PAGE);
@@ -726,8 +727,14 @@ export default function StrategyLibrary() {
 
               <div className="space-y-3 mb-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="start-date">Start Date</label>
-                  <input id="start-date"
+                  <label
+                    className="block text-sm font-medium text-gray-300 mb-1"
+                    htmlFor="start-date"
+                  >
+                    Start Date
+                  </label>
+                  <input
+                    id="start-date"
                     type="date"
                     value={backtestStartDate}
                     onChange={(e) => setBacktestStartDate(e.target.value)}
@@ -735,8 +742,14 @@ export default function StrategyLibrary() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1" htmlFor="end-date">End Date</label>
-                  <input id="end-date"
+                  <label
+                    className="block text-sm font-medium text-gray-300 mb-1"
+                    htmlFor="end-date"
+                  >
+                    End Date
+                  </label>
+                  <input
+                    id="end-date"
                     type="date"
                     value={backtestEndDate}
                     onChange={(e) => setBacktestEndDate(e.target.value)}

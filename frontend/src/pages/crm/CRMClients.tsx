@@ -31,17 +31,18 @@ export const CRMClients = () => {
     refetchInterval: 30_000,
   });
 
-  const allUsers = usersQuery.data?.users ?? [];
+  const usersData = usersQuery.data?.users;
+  const allUsers = usersData ?? [];
 
   const filtered = useMemo(() => {
-    return allUsers.filter((u) => {
+    return (usersData ?? []).filter((u) => {
       if (roleFilter !== 'all' && u.role !== roleFilter) return false;
       if (ibOnly && u.role !== 'ib' && u.role !== 'sub_ib') return false;
       if (statusFilter === 'active' && !u.is_active) return false;
       if (statusFilter === 'inactive' && u.is_active) return false;
       return true;
     });
-  }, [allUsers, roleFilter, statusFilter, ibOnly]);
+  }, [usersData, roleFilter, statusFilter, ibOnly]);
 
   const clear = () => {
     setRoleFilter('all');

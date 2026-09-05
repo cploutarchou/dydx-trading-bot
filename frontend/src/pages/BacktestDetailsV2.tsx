@@ -821,7 +821,7 @@ export const BacktestDetailsV2: React.FC = () => {
     };
 
     fetchAnalytics();
-  }, [runId, activeTab, analyticsLoadedState, detailSyncCursor]);
+  }, [candles.length, runId, activeTab, analyticsLoadedState, detailSyncCursor]);
 
   // Keep selected market valid when available markets update
   useEffect(() => {
@@ -928,7 +928,7 @@ export const BacktestDetailsV2: React.FC = () => {
     };
 
     fetchPositionSnapshots();
-  }, [runId, activeTab, positionsLoadedState, detailSyncCursor]);
+  }, [positions.length, runId, activeTab, positionsLoadedState, detailSyncCursor]);
 
   // Fetch trades
   useEffect(() => {
@@ -1009,7 +1009,7 @@ export const BacktestDetailsV2: React.FC = () => {
     };
 
     fetchTrades();
-  }, [runId, activeTab, tradesLoadedState, detailSyncCursor]);
+  }, [trades.length, runId, activeTab, tradesLoadedState, detailSyncCursor]);
 
   useEffect(() => {
     if (!runId) return;

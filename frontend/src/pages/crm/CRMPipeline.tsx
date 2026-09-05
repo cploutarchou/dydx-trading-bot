@@ -57,13 +57,11 @@ export const CRMPipeline = () => {
     },
   });
 
-  const allApplications = applicationsQuery.data?.applications ?? [];
+  const applicationsData = applicationsQuery.data?.applications;
 
   const filtered = useMemo(() => {
-    const base =
-      statusFilter === 'all'
-        ? allApplications
-        : allApplications.filter((a) => a.status === statusFilter);
+    const source = applicationsData ?? [];
+    const base = statusFilter === 'all' ? source : source.filter((a) => a.status === statusFilter);
     return [...base].sort((a, b) => {
       const priority = { pending: 0, reviewing: 1, approved: 2, rejected: 3 };
       return (
@@ -71,15 +69,16 @@ export const CRMPipeline = () => {
           (priority[b.status as keyof typeof priority] ?? 9) || b.id - a.id
       );
     });
-  }, [allApplications, statusFilter]);
+  }, [applicationsData, statusFilter]);
 
   const counts = useMemo(() => {
-    const result: Record<string, number> = { all: allApplications.length };
-    for (const app of allApplications) {
+    const source = applicationsData ?? [];
+    const result: Record<string, number> = { all: source.length };
+    for (const app of source) {
       result[app.status] = (result[app.status] ?? 0) + 1;
     }
     return result;
-  }, [allApplications]);
+  }, [applicationsData]);
 
   return (
     <PageContainer size="wide" className="space-y-6">
@@ -129,10 +128,7 @@ export const CRMPipeline = () => {
       ) : (
         <div className="space-y-4">
           {filtered.map((app) => (
-            <div
-              key={app.id}
-              className="platform-panel p-5"
-            >
+            <div key={app.id} className="platform-panel p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-white">

@@ -1,5 +1,5 @@
 import { Inbox, SlidersHorizontal } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api, { classifyApiError } from '../api';
 import { enhancedApiClient } from '../api/enhancedClient';
@@ -369,7 +369,7 @@ export const BacktestList: React.FC<{
   const displayLoading = isControlled ? controlledLoading : loading;
   const displayError = isControlled ? controlledError : error;
 
-  const fetchAllRuns = async (): Promise<BacktestRun[]> => {
+  const fetchAllRuns = useCallback(async (): Promise<BacktestRun[]> => {
     // Keep this fast for dashboard rendering: fetch the newest page only.
     // If needed later, we can add cursor-based pagination without blocking initial paint.
     const response = await api.listBacktests(0, 50);
@@ -457,62 +457,65 @@ export const BacktestList: React.FC<{
       ...run,
       ...(liveByRunId.get(run.run_id) ?? {}),
     }));
-  };
+  }, [setLiveSyncMeta]);
 
-  const loadBacktests = async (showBlockingLoader: boolean = true) => {
-    if (isLoadingRef.current) {
-      return;
-    }
-
-    isLoadingRef.current = true;
-    const requestId = activeRequestIdRef.current + 1;
-    activeRequestIdRef.current = requestId;
-
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
-    if (showBlockingLoader) {
-      setLoading(true);
-    }
-    setError(null);
-    try {
-      const runsPromise = fetchAllRuns();
-      const timeoutPromise = new Promise<BacktestRun[]>((_, reject) => {
-        timeoutId = setTimeout(
-          () => reject(new Error('Timed out while loading backtest runs')),
-          25000
-        );
-      });
-
-      const nextRuns = await Promise.race([runsPromise, timeoutPromise]);
-      if (activeRequestIdRef.current !== requestId) {
+  const loadBacktests = useCallback(
+    async (showBlockingLoader: boolean = true) => {
+      if (isLoadingRef.current) {
         return;
       }
-      setRuns(nextRuns);
-      setHasLoadedOnce(true);
-    } catch (err: unknown) {
-      if (activeRequestIdRef.current !== requestId) {
-        return;
-      }
-      console.error('❌ BacktestList: Error loading backtests:', err);
-      setError(toUserFacingApiError(err, 'Failed to load backtests'));
-      if (!hasLoadedOnce) {
-        setRuns([]);
-      }
-    } finally {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-      if (activeRequestIdRef.current === requestId) {
-        isLoadingRef.current = false;
-      }
+
+      isLoadingRef.current = true;
+      const requestId = activeRequestIdRef.current + 1;
+      activeRequestIdRef.current = requestId;
+
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
       if (showBlockingLoader) {
-        setLoading(false);
+        setLoading(true);
       }
-    }
-  };
+      setError(null);
+      try {
+        const runsPromise = fetchAllRuns();
+        const timeoutPromise = new Promise<BacktestRun[]>((_, reject) => {
+          timeoutId = setTimeout(
+            () => reject(new Error('Timed out while loading backtest runs')),
+            25000
+          );
+        });
+
+        const nextRuns = await Promise.race([runsPromise, timeoutPromise]);
+        if (activeRequestIdRef.current !== requestId) {
+          return;
+        }
+        setRuns(nextRuns);
+        setHasLoadedOnce(true);
+      } catch (err: unknown) {
+        if (activeRequestIdRef.current !== requestId) {
+          return;
+        }
+        console.error('❌ BacktestList: Error loading backtests:', err);
+        setError(toUserFacingApiError(err, 'Failed to load backtests'));
+        if (!hasLoadedOnce) {
+          setRuns([]);
+        }
+      } finally {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        if (activeRequestIdRef.current === requestId) {
+          isLoadingRef.current = false;
+        }
+        if (showBlockingLoader) {
+          setLoading(false);
+        }
+      }
+    },
+    [fetchAllRuns, hasLoadedOnce]
+  );
 
   /** Silent refresh — keeps existing data visible while updating in background. */
-  const loadBacktestsSilent = async (): Promise<boolean> => {
+  const loadBacktestsSilent = useCallback(async (): Promise<boolean> => {
     if (isLoadingRef.current) return true;
     try {
       setRuns(await fetchAllRuns());
@@ -521,7 +524,7 @@ export const BacktestList: React.FC<{
       // ignore transient errors during polling
       return false;
     }
-  };
+  }, [fetchAllRuns]);
 
   useEffect(() => {
     if (isControlled) {
@@ -529,7 +532,7 @@ export const BacktestList: React.FC<{
     }
     // First load blocks with spinner; subsequent refreshes stay non-blocking
     void loadBacktests(!hasLoadedOnce);
-  }, [hasLoadedOnce, isControlled, refreshTrigger]);
+  }, [hasLoadedOnce, isControlled, loadBacktests, refreshTrigger]);
 
   // Auto-poll while any run is active
   useEffect(() => {
@@ -576,7 +579,7 @@ export const BacktestList: React.FC<{
         pollRef.current = null;
       }
     };
-  }, [isControlled, runs]);
+  }, [isControlled, loadBacktestsSilent, runs]);
 
   if (displayLoading) {
     return (

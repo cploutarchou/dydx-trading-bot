@@ -1,14 +1,14 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { CheckSquare, ListChecks, RefreshCw, Sparkles, Star, Trophy, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import api, {
-    DYDX_CANDLE_RESOLUTION_OPTIONS,
-    normalizeDydxCandleResolution,
-    toAIBacktestSummary,
-    type AIBacktestSummary,
-    type AIMarketProvider,
+  DYDX_CANDLE_RESOLUTION_OPTIONS,
+  normalizeDydxCandleResolution,
+  toAIBacktestSummary,
+  type AIBacktestSummary,
+  type AIMarketProvider,
 } from '../api';
 import { getAIProviderLabel, useAIProviderAvailability } from '../features/ai/providerAvailability';
 import type { Strategy } from '../store/strategies';
@@ -92,12 +92,7 @@ type HistoricalMarketStatsSnapshot = {
   marketStats: Record<string, MarketAggregateStats>;
 };
 type AIMarketObjective =
-  | 'balanced'
-  | 'volume'
-  | 'tradeable'
-  | 'future_gainers'
-  | 'volatility'
-  | 'cointegration';
+  'balanced' | 'volume' | 'tradeable' | 'future_gainers' | 'volatility' | 'cointegration';
 
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (error instanceof Error) return error.message;
@@ -177,7 +172,7 @@ export default function StrategyBuilder() {
     }
 
     if (!availableAIProviders.includes(aiMarketProvider)) {
-      setAIMarketProvider((availableAIProviders[0] ?? availableAIProviders[0]!));
+      setAIMarketProvider(availableAIProviders[0] ?? availableAIProviders[0]!);
     }
   }, [aiMarketProvider, availableAIProviders]);
 
@@ -205,7 +200,7 @@ export default function StrategyBuilder() {
   }, [historicalMarketStats]);
 
   // Get pre-loaded config from backtest or sessionStorage
-  const getPreloadedConfig = () => {
+  const getPreloadedConfig = useCallback(() => {
     try {
       // Check location state first (passed from navigate)
       if (location.state?.configSnapshot) {
@@ -222,10 +217,11 @@ export default function StrategyBuilder() {
       console.error('Failed to load preloaded config:', err);
     }
     return null;
-  };
+  }, [location]);
 
   const {
     control,
+    getValues,
     handleSubmit,
     setValue,
     watch,
@@ -281,12 +277,42 @@ export default function StrategyBuilder() {
   const marketToolbarSelectClass =
     'h-10 rounded-lg border border-slate-700/80 bg-slate-950/70 px-3 text-xs font-semibold text-slate-300 outline-none transition hover:border-cyan-500/50 focus:border-cyan-500';
 
+  const loadStrategy = useCallback(
+    async (id: number) => {
+      try {
+        setLoadingExisting(true);
+        const response = await api.getStrategy(id);
+        if (response.data) {
+          const { candle_resolution: _candleResolution, ...strategyData } = response.data;
+          const resolution = normalizeDydxCandleResolution(
+            response.data.resolution || response.data.candle_resolution || '1HOUR'
+          );
+
+          reset({
+            ...strategyData,
+            resolution,
+            max_history_days: Number(response.data.max_history_days ?? 90),
+            selected_markets: Array.isArray(response.data.selected_markets)
+              ? response.data.selected_markets
+              : [],
+          });
+        }
+      } catch (err: unknown) {
+        setError(`Failed to load strategy: ${getErrorMessage(err, 'Unknown error')}`);
+        console.error('Failed to load strategy:', err);
+      } finally {
+        setLoadingExisting(false);
+      }
+    },
+    [reset]
+  );
+
   // Load existing strategy if in edit mode
   useEffect(() => {
     if (isEditMode && strategyId) {
       loadStrategy(parseInt(strategyId, 10));
     }
-  }, [isEditMode, strategyId]);
+  }, [isEditMode, loadStrategy, strategyId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -363,45 +389,19 @@ export default function StrategyBuilder() {
   useEffect(() => {
     const preloadedConfig = getPreloadedConfig();
     if (preloadedConfig && !isEditMode) {
+      const current = getValues();
       reset({
-        ...formValues,
+        ...current,
         ...preloadedConfig,
         // Keep form metadata, but override with preloaded parameters
-        name: preloadedConfig.name || formValues.name,
+        name: preloadedConfig.name || current.name,
         category: preloadedConfig.category || 'pairs_trading',
         description: preloadedConfig.description || 'Created from backtest configuration',
       });
       setSuccessMessage('✅ Strategy parameters loaded from backtest!');
       setTimeout(() => setSuccessMessage(null), 3000);
     }
-  }, [location]);
-
-  const loadStrategy = async (id: number) => {
-    try {
-      setLoadingExisting(true);
-      const response = await api.getStrategy(id);
-      if (response.data) {
-        const { candle_resolution: _candleResolution, ...strategyData } = response.data;
-        const resolution = normalizeDydxCandleResolution(
-          response.data.resolution || response.data.candle_resolution || '1HOUR'
-        );
-
-        reset({
-          ...strategyData,
-          resolution,
-          max_history_days: Number(response.data.max_history_days ?? 90),
-          selected_markets: Array.isArray(response.data.selected_markets)
-            ? response.data.selected_markets
-            : [],
-        });
-      }
-    } catch (err: unknown) {
-      setError(`Failed to load strategy: ${getErrorMessage(err, 'Unknown error')}`);
-      console.error('Failed to load strategy:', err);
-    } finally {
-      setLoadingExisting(false);
-    }
-  };
+  }, [getPreloadedConfig, getValues, isEditMode, reset]);
 
   const applyPreset = (presetName: keyof typeof PRESETS) => {
     const preset = PRESETS[presetName];
@@ -509,9 +509,10 @@ export default function StrategyBuilder() {
     }
   };
 
-  const selectedMarkets = Array.isArray(formValues.selected_markets)
+  const selectedMarketsSource = Array.isArray(formValues.selected_markets)
     ? formValues.selected_markets
-    : [];
+    : undefined;
+  const selectedMarkets = selectedMarketsSource ?? [];
 
   const strategyForAdvisor = useMemo<Strategy>(() => {
     const normalizedResolution = normalizeDydxCandleResolution(formValues.resolution || '1HOUR');
@@ -523,7 +524,7 @@ export default function StrategyBuilder() {
       is_public: formValues.is_public,
       runtime_network: formValues.runtime_network,
       runtime_subaccount: Number(formValues.runtime_subaccount ?? 0),
-      selected_markets: selectedMarkets,
+      selected_markets: selectedMarketsSource ?? [],
       resolution: normalizedResolution,
       candle_resolution: normalizedResolution,
       zscore_threshold: Number(formValues.zscore_threshold),
@@ -548,7 +549,7 @@ export default function StrategyBuilder() {
       transaction_fee: Number(formValues.transaction_fee ?? 0.0005),
       slippage: Number(formValues.slippage ?? 0.001),
     };
-  }, [formValues, isEditMode, selectedMarkets, strategyId]);
+  }, [formValues, isEditMode, selectedMarketsSource, strategyId]);
 
   const handleApplyAdvisorParams = async (
     params: Partial<Strategy>
@@ -559,7 +560,13 @@ export default function StrategyBuilder() {
       fieldName: K,
       value: StrategyFormData[K]
     ) => {
-      (setValue as (name: K, value: StrategyFormData[K], options: Parameters<typeof setValue>[2]) => void)(fieldName, value, {
+      (
+        setValue as (
+          name: K,
+          value: StrategyFormData[K],
+          options: Parameters<typeof setValue>[2]
+        ) => void
+      )(fieldName, value, {
         shouldDirty: true,
         shouldTouch: true,
         shouldValidate: true,
@@ -655,14 +662,15 @@ export default function StrategyBuilder() {
     };
   };
   const selectedPairPreview = useMemo(() => {
+    const markets = selectedMarketsSource ?? [];
     const pairs: string[] = [];
-    for (let i = 0; i < selectedMarkets.length - 1; i += 1) {
-      for (let j = i + 1; j < selectedMarkets.length; j += 1) {
-        pairs.push(`${selectedMarkets[i]}/${selectedMarkets[j]}`);
+    for (let i = 0; i < markets.length - 1; i += 1) {
+      for (let j = i + 1; j < markets.length; j += 1) {
+        pairs.push(`${markets[i]}/${markets[j]}`);
       }
     }
     return pairs.slice(0, 8);
-  }, [selectedMarkets]);
+  }, [selectedMarketsSource]);
   const candidatePairCount = (selectedMarkets.length * (selectedMarkets.length - 1)) / 2;
 
   const marketRankingFreshnessLabel = useMemo(() => {
@@ -967,7 +975,9 @@ export default function StrategyBuilder() {
       }
 
       if (!statsSnapshot) {
-        setMarketFilterError('No historical market statistics were available. Using current top markets.');
+        setMarketFilterError(
+          'No historical market statistics were available. Using current top markets.'
+        );
         onChange(normalizeTopMarkets(availableMarkets));
         return;
       }
@@ -1098,7 +1108,9 @@ export default function StrategyBuilder() {
 
         {/* Category */}
         <div>
-          <label className={fieldLabelClass} htmlFor="category">Category <span className="text-red-400">*</span></label>
+          <label className={fieldLabelClass} htmlFor="category">
+            Category <span className="text-red-400">*</span>
+          </label>
           <Controller
             name="category"
             control={control}
@@ -1114,7 +1126,9 @@ export default function StrategyBuilder() {
 
         {/* Candle Resolution */}
         <div>
-          <label className={fieldLabelClass} htmlFor="resolution">Candle Resolution <span className="text-red-400">*</span></label>
+          <label className={fieldLabelClass} htmlFor="resolution">
+            Candle Resolution <span className="text-red-400">*</span>
+          </label>
           <Controller
             name="resolution"
             control={control}
@@ -1122,7 +1136,8 @@ export default function StrategyBuilder() {
               required: 'Candle resolution is required',
             }}
             render={({ field }) => (
-              <select id="resolution"
+              <select
+                id="resolution"
                 {...field}
                 value={normalizeDydxCandleResolution(field.value)}
                 onChange={(event) =>
@@ -1152,7 +1167,9 @@ export default function StrategyBuilder() {
 
         {/* Description */}
         <div>
-          <label className={fieldLabelClass} htmlFor="description">Description</label>
+          <label className={fieldLabelClass} htmlFor="description">
+            Description
+          </label>
           <Controller
             name="description"
             control={control}
@@ -1211,7 +1228,9 @@ export default function StrategyBuilder() {
 
         <div className="grid gap-6 md:grid-cols-2">
           <div>
-            <label className={fieldLabelClass} htmlFor="runtime_network">Runtime Network</label>
+            <label className={fieldLabelClass} htmlFor="runtime_network">
+              Runtime Network
+            </label>
             <Controller
               name="runtime_network"
               control={control}
@@ -1227,7 +1246,9 @@ export default function StrategyBuilder() {
             </p>
           </div>
           <div>
-            <label className={fieldLabelClass} htmlFor="runtime_subaccount">Runtime Subaccount</label>
+            <label className={fieldLabelClass} htmlFor="runtime_subaccount">
+              Runtime Subaccount
+            </label>
             <Controller
               name="runtime_subaccount"
               control={control}
@@ -1235,7 +1256,8 @@ export default function StrategyBuilder() {
                 min: { value: 0, message: 'Subaccount must be 0 or higher' },
               }}
               render={({ field }) => (
-                <input id="runtime_subaccount"
+                <input
+                  id="runtime_subaccount"
                   {...field}
                   type="number"
                   min="0"
@@ -1258,7 +1280,9 @@ export default function StrategyBuilder() {
         <div>
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <label htmlFor="selected_markets" className={fieldLabelClass}>dYdX Market Universe</label>
+              <label htmlFor="selected_markets" className={fieldLabelClass}>
+                dYdX Market Universe
+              </label>
               <p className={helperTextClass}>
                 Choose 2-150 markets to constrain live pair discovery and strategy backtests.
               </p>
@@ -1622,7 +1646,8 @@ export default function StrategyBuilder() {
                 max: { value: 5.0, message: 'Must not exceed 5.0' },
               }}
               render={({ field }) => (
-                <input id="zscore_threshold"
+                <input
+                  id="zscore_threshold"
                   {...field}
                   type="range"
                   min="0.5"
@@ -1655,7 +1680,8 @@ export default function StrategyBuilder() {
                 max: { value: 120, message: 'Must not exceed 120' },
               }}
               render={({ field }) => (
-                <input id="stats_window"
+                <input
+                  id="stats_window"
                   {...field}
                   type="range"
                   min="8"
@@ -1690,7 +1716,8 @@ export default function StrategyBuilder() {
                 max: { value: 72, message: 'Must not exceed 72' },
               }}
               render={({ field }) => (
-                <input id="max_half_life"
+                <input
+                  id="max_half_life"
                   {...field}
                   type="range"
                   min="1"
@@ -1761,7 +1788,12 @@ export default function StrategyBuilder() {
                   {/* Max Positions */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label htmlFor="max_positions" className="text-sm font-semibold text-slate-200">Max Positions</label>
+                      <label
+                        htmlFor="max_positions"
+                        className="text-sm font-semibold text-slate-200"
+                      >
+                        Max Positions
+                      </label>
                       <span className="text-sm text-cyan-300">{formValues.max_positions}</span>
                     </div>
                     <Controller
@@ -1786,7 +1818,12 @@ export default function StrategyBuilder() {
                   {/* Max Drawdown % */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label htmlFor="max_drawdown_pct" className="text-sm font-semibold text-slate-200">Max Drawdown %</label>
+                      <label
+                        htmlFor="max_drawdown_pct"
+                        className="text-sm font-semibold text-slate-200"
+                      >
+                        Max Drawdown %
+                      </label>
                       <span className="text-sm text-cyan-300">{formValues.max_drawdown_pct}%</span>
                     </div>
                     <Controller
@@ -1808,7 +1845,12 @@ export default function StrategyBuilder() {
                   {/* Stop Loss % */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label htmlFor="stop_loss_pct" className="text-sm font-semibold text-slate-200">Stop Loss %</label>
+                      <label
+                        htmlFor="stop_loss_pct"
+                        className="text-sm font-semibold text-slate-200"
+                      >
+                        Stop Loss %
+                      </label>
                       <span className="text-sm text-cyan-300">{formValues.stop_loss_pct}%</span>
                     </div>
                     <Controller
@@ -1830,7 +1872,12 @@ export default function StrategyBuilder() {
                   {/* Take Profit % */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label htmlFor="take_profit_pct" className="text-sm font-semibold text-slate-200">Take Profit %</label>
+                      <label
+                        htmlFor="take_profit_pct"
+                        className="text-sm font-semibold text-slate-200"
+                      >
+                        Take Profit %
+                      </label>
                       <span className="text-sm text-cyan-300">{formValues.take_profit_pct}%</span>
                     </div>
                     <Controller
@@ -1852,7 +1899,10 @@ export default function StrategyBuilder() {
                   {/* Trailing Stop % */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label htmlFor="trailing_stop_pct" className="text-sm font-semibold text-slate-200">
+                      <label
+                        htmlFor="trailing_stop_pct"
+                        className="text-sm font-semibold text-slate-200"
+                      >
                         Trailing Stop %
                       </label>
                       <span className="text-sm text-cyan-300">{formValues.trailing_stop_pct}%</span>
@@ -1882,7 +1932,10 @@ export default function StrategyBuilder() {
                   {/* Amount Per Trade */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label htmlFor="usd_per_trade" className="text-sm font-semibold text-slate-200">
+                      <label
+                        htmlFor="usd_per_trade"
+                        className="text-sm font-semibold text-slate-200"
+                      >
                         Amount Per Trade ($)
                       </label>
                       <span className="text-sm text-cyan-300">${formValues.usd_per_trade}</span>
@@ -1909,7 +1962,10 @@ export default function StrategyBuilder() {
                   {/* Rebalance Interval */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label htmlFor="rebalance_interval_hours" className="text-sm font-semibold text-slate-200">
+                      <label
+                        htmlFor="rebalance_interval_hours"
+                        className="text-sm font-semibold text-slate-200"
+                      >
                         Rebalance (hours)
                       </label>
                       <span className="text-sm text-cyan-300">
@@ -1935,7 +1991,10 @@ export default function StrategyBuilder() {
                   {/* Position Timeout */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label htmlFor="position_timeout_hours" className="text-sm font-semibold text-slate-200">
+                      <label
+                        htmlFor="position_timeout_hours"
+                        className="text-sm font-semibold text-slate-200"
+                      >
                         Position Timeout (hours)
                       </label>
                       <span className="text-sm text-cyan-300">
@@ -1961,7 +2020,10 @@ export default function StrategyBuilder() {
                   {/* Max History Days */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label htmlFor="max_history_days" className="text-sm font-semibold text-slate-200">
+                      <label
+                        htmlFor="max_history_days"
+                        className="text-sm font-semibold text-slate-200"
+                      >
                         Max History Days
                       </label>
                       <span className="text-sm text-cyan-300">
@@ -1997,7 +2059,10 @@ export default function StrategyBuilder() {
                   {/* Transaction Fee */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label htmlFor="transaction_fee" className="text-sm font-semibold text-slate-200">
+                      <label
+                        htmlFor="transaction_fee"
+                        className="text-sm font-semibold text-slate-200"
+                      >
                         Transaction Fee
                       </label>
                       <span className="text-sm text-cyan-300">
@@ -2028,7 +2093,9 @@ export default function StrategyBuilder() {
                   {/* Slippage */}
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <label htmlFor="slippage" className="text-sm font-semibold text-slate-200">Slippage</label>
+                      <label htmlFor="slippage" className="text-sm font-semibold text-slate-200">
+                        Slippage
+                      </label>
                       <span className="text-sm text-cyan-300">
                         {Number(formValues.slippage ?? 0.001).toFixed(4)}
                       </span>
@@ -2073,7 +2140,9 @@ export default function StrategyBuilder() {
                         />
                       )}
                     />
-                    <label htmlFor="manage_exits" className="text-sm text-slate-300">Find Cointegrated Pairs</label>
+                    <label htmlFor="manage_exits" className="text-sm text-slate-300">
+                      Find Cointegrated Pairs
+                    </label>
                   </div>
 
                   <div className="flex items-center space-x-2">
@@ -2089,7 +2158,9 @@ export default function StrategyBuilder() {
                         />
                       )}
                     />
-                    <label htmlFor="place_trades" className="text-sm text-slate-300">Manage Exits</label>
+                    <label htmlFor="place_trades" className="text-sm text-slate-300">
+                      Manage Exits
+                    </label>
                   </div>
 
                   <div className="flex items-center space-x-2">
@@ -2105,7 +2176,9 @@ export default function StrategyBuilder() {
                         />
                       )}
                     />
-                    <label htmlFor="close_at_zscore_cross" className="text-sm text-slate-300">Place Trades</label>
+                    <label htmlFor="close_at_zscore_cross" className="text-sm text-slate-300">
+                      Place Trades
+                    </label>
                   </div>
 
                   <div className="flex items-center space-x-2">
@@ -2121,7 +2194,9 @@ export default function StrategyBuilder() {
                         />
                       )}
                     />
-                    <label htmlFor="abort_all_positions" className="text-sm text-slate-300">Close at Z-Score Cross</label>
+                    <label htmlFor="abort_all_positions" className="text-sm text-slate-300">
+                      Close at Z-Score Cross
+                    </label>
                   </div>
 
                   <div className="flex items-center space-x-2">

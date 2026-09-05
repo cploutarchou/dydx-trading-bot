@@ -1,5 +1,5 @@
 import { BrainCircuit, ChevronDown, ChevronUp, Loader, RefreshCw, Sparkles } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import api, {
   type AIBacktestSummary,
@@ -50,6 +50,46 @@ const loadPreferredSuggestionCount = (): number => {
   return 8;
 };
 
+function normalizeSuggestionKey(
+  rawKey: string,
+  editableKeys: ReadonlySet<keyof Strategy>
+): keyof Strategy | null {
+  const normalized = rawKey
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  const aliasMap: Record<string, keyof Strategy> = {
+    zscore: 'zscore_threshold',
+    z_score_threshold: 'zscore_threshold',
+    zscore_threshold: 'zscore_threshold',
+    stats_window: 'stats_window',
+    max_half_life: 'max_half_life',
+    usd_per_trade: 'usd_per_trade',
+    usd_min_collateral: 'usd_min_collateral',
+    max_positions: 'max_positions',
+    max_drawdown: 'max_drawdown_pct',
+    max_drawdown_pct: 'max_drawdown_pct',
+    stop_loss: 'stop_loss_pct',
+    stop_loss_pct: 'stop_loss_pct',
+    take_profit: 'take_profit_pct',
+    take_profit_pct: 'take_profit_pct',
+    trailing_stop: 'trailing_stop_pct',
+    trailing_stop_pct: 'trailing_stop_pct',
+    rebalance_interval: 'rebalance_interval_hours',
+    rebalance_interval_hours: 'rebalance_interval_hours',
+    position_timeout: 'position_timeout_hours',
+    position_timeout_hours: 'position_timeout_hours',
+    transaction_fee: 'transaction_fee',
+    slippage: 'slippage',
+    max_history_days: 'max_history_days',
+    risk_free_rate: 'risk_free_rate',
+    resolution: 'resolution',
+    candle_resolution: 'candle_resolution',
+  };
+  const resolved = aliasMap[normalized] ?? (normalized as keyof Strategy);
+  return editableKeys.has(resolved) ? resolved : null;
+}
+
 export function AIStrategyAdvisor({
   strategy,
   lastError = '',
@@ -92,6 +132,34 @@ export function AIStrategyAdvisor({
     window.localStorage.setItem(SUGGESTION_COUNT_PREFERENCE_KEY, String(maxSuggestions));
   }, [maxSuggestions]);
 
+  const confirmApplySuggestions = useCallback(async () => {
+    if (!onApplyParams || !pendingApplyPreview) return;
+    setApplyError(null);
+    setApplyLoading(true);
+    try {
+      const applyResult = await onApplyParams(pendingApplyPreview.patch);
+      const requestedKeys = pendingApplyPreview.items.map((i) => i.key);
+      const acknowledgedKeys = Array.isArray(applyResult)
+        ? applyResult.filter((key): key is keyof Strategy => requestedKeys.includes(key))
+        : requestedKeys;
+
+      if (acknowledgedKeys.length === 0) {
+        throw new Error('No suggestions were applied to editable strategy fields.');
+      }
+
+      setAppliedKeys((prev) => {
+        const next = new Set(prev);
+        acknowledgedKeys.forEach((k) => next.add(k));
+        return next;
+      });
+      setPendingApplyPreview(null);
+    } catch (err) {
+      setApplyError(err instanceof Error ? err.message : 'Failed to apply suggestions');
+    } finally {
+      setApplyLoading(false);
+    }
+  }, [onApplyParams, pendingApplyPreview]);
+
   useEffect(() => {
     if (!pendingApplyPreview) return;
 
@@ -122,7 +190,7 @@ export function AIStrategyAdvisor({
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [pendingApplyPreview, applyLoading]);
+  }, [pendingApplyPreview, applyLoading, confirmApplySuggestions]);
 
   const editableKeys = useMemo(
     () =>
@@ -148,43 +216,6 @@ export function AIStrategyAdvisor({
       ]),
     []
   );
-
-  const normalizeSuggestionKey = (rawKey: string): keyof Strategy | null => {
-    const normalized = rawKey
-      .trim()
-      .toLowerCase()
-      .replace(/[\s-]+/g, '_');
-    const aliasMap: Record<string, keyof Strategy> = {
-      zscore: 'zscore_threshold',
-      z_score_threshold: 'zscore_threshold',
-      zscore_threshold: 'zscore_threshold',
-      stats_window: 'stats_window',
-      max_half_life: 'max_half_life',
-      usd_per_trade: 'usd_per_trade',
-      usd_min_collateral: 'usd_min_collateral',
-      max_positions: 'max_positions',
-      max_drawdown: 'max_drawdown_pct',
-      max_drawdown_pct: 'max_drawdown_pct',
-      stop_loss: 'stop_loss_pct',
-      stop_loss_pct: 'stop_loss_pct',
-      take_profit: 'take_profit_pct',
-      take_profit_pct: 'take_profit_pct',
-      trailing_stop: 'trailing_stop_pct',
-      trailing_stop_pct: 'trailing_stop_pct',
-      rebalance_interval: 'rebalance_interval_hours',
-      rebalance_interval_hours: 'rebalance_interval_hours',
-      position_timeout: 'position_timeout_hours',
-      position_timeout_hours: 'position_timeout_hours',
-      transaction_fee: 'transaction_fee',
-      slippage: 'slippage',
-      max_history_days: 'max_history_days',
-      risk_free_rate: 'risk_free_rate',
-      resolution: 'resolution',
-      candle_resolution: 'candle_resolution',
-    };
-    const resolved = aliasMap[normalized] ?? (normalized as keyof Strategy);
-    return editableKeys.has(resolved) ? resolved : null;
-  };
 
   const parseSuggestedValue = (rawValue: string): number | string | boolean => {
     const cleaned = rawValue
@@ -216,7 +247,7 @@ export function AIStrategyAdvisor({
       const valueMatch = line.match(/suggested\s*([-+]?[^\s,;)]*%?)/i);
       if (!keyMatch || !valueMatch) continue;
 
-      const key = normalizeSuggestionKey(keyMatch[1] ?? '');
+      const key = normalizeSuggestionKey(keyMatch[1] ?? '', editableKeys);
       if (!key || seen.has(key)) continue;
 
       parsed.push({
@@ -228,7 +259,7 @@ export function AIStrategyAdvisor({
     }
 
     return parsed;
-  }, [content]);
+  }, [content, editableKeys]);
 
   const pendingSuggestions = useMemo(
     () => parsedSuggestions.filter((s) => !appliedKeys.has(s.key)),
@@ -256,34 +287,6 @@ export function AIStrategyAdvisor({
       patch,
     });
   };
-
-  async function confirmApplySuggestions() {
-    if (!onApplyParams || !pendingApplyPreview) return;
-    setApplyError(null);
-    setApplyLoading(true);
-    try {
-      const applyResult = await onApplyParams(pendingApplyPreview.patch);
-      const requestedKeys = pendingApplyPreview.items.map((i) => i.key);
-      const acknowledgedKeys = Array.isArray(applyResult)
-        ? applyResult.filter((key): key is keyof Strategy => requestedKeys.includes(key))
-        : requestedKeys;
-
-      if (acknowledgedKeys.length === 0) {
-        throw new Error('No suggestions were applied to editable strategy fields.');
-      }
-
-      setAppliedKeys((prev) => {
-        const next = new Set(prev);
-        acknowledgedKeys.forEach((k) => next.add(k));
-        return next;
-      });
-      setPendingApplyPreview(null);
-    } catch (err) {
-      setApplyError(err instanceof Error ? err.message : 'Failed to apply suggestions');
-    } finally {
-      setApplyLoading(false);
-    }
-  }
 
   const runSuggest = async () => {
     setLoading(true);

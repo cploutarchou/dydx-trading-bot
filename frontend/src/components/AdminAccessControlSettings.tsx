@@ -1,26 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
 import {
-	ChevronDown,
-	EyeOff,
-	Loader2,
-	LockKeyhole,
-	RotateCcw,
-	Rocket,
-	ShieldCheck,
-	Trash2,
-	UserCog,
-	UserPlus,
-	Users,
+  ChevronDown,
+  EyeOff,
+  Loader2,
+  LockKeyhole,
+  RotateCcw,
+  Rocket,
+  ShieldCheck,
+  Trash2,
+  UserCog,
+  UserPlus,
+  Users,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import api, {
-	AccessControlPermission,
-	AdminUser,
-	CreateAdminUserPayload,
-	CreateCustomRolePayload,
-	ResetAdminUserMFAResponse,
-	UpdateAdminUserPayload,
+  AccessControlPermission,
+  AdminUser,
+  CreateAdminUserPayload,
+  CreateCustomRolePayload,
+  ResetAdminUserMFAResponse,
+  UpdateAdminUserPayload,
 } from '../api';
 import { ibPortalHref } from '../pages/ib/paths';
 import { useAuthStore } from '../store/auth';
@@ -574,7 +574,8 @@ export function AdminAccessControlSettings() {
     },
   });
 
-  const users = usersQuery.data?.users || [];
+  const usersData = usersQuery.data?.users;
+  const users = usersData ?? [];
   const roles = accessControlQuery.data?.roles ||
     usersQuery.data?.roles || ['admin', 'user', 'accounting', 'marketing', 'agent', 'client'];
   const roleCatalog =
@@ -585,32 +586,36 @@ export function AdminAccessControlSettings() {
       description: '',
       is_system: true,
     }));
-  const permissions = accessControlQuery.data?.permissions || [];
-  const rolePermissions = accessControlQuery.data?.role_permissions || [];
+  const permissionsData = accessControlQuery.data?.permissions;
+  const rolePermissionsData = accessControlQuery.data?.role_permissions;
   const permissionsByModule = useMemo(() => {
-    return permissions.reduce<Record<string, AccessControlPermission[]>>((acc, permission) => {
-      const moduleKey = permission.permission_key.split('.')[0] || 'general';
-      acc[moduleKey] = [...(acc[moduleKey] || []), permission];
-      return acc;
-    }, {});
-  }, [permissions]);
+    return (permissionsData ?? []).reduce<Record<string, AccessControlPermission[]>>(
+      (acc, permission) => {
+        const moduleKey = permission.permission_key.split('.')[0] || 'general';
+        acc[moduleKey] = [...(acc[moduleKey] || []), permission];
+        return acc;
+      },
+      {}
+    );
+  }, [permissionsData]);
   const rolePermissionSet = useMemo(() => {
-    return rolePermissions.reduce<Record<string, Set<string>>>((acc, row) => {
+    return (rolePermissionsData ?? []).reduce<Record<string, Set<string>>>((acc, row) => {
       const permissionSet = (acc[row.role] ??= new Set<string>());
       permissionSet.add(row.permission_key);
       return acc;
     }, {});
-  }, [rolePermissions]);
+  }, [rolePermissionsData]);
   const activeAdmins = users.filter((user) => user.role === 'admin' && user.is_active).length;
   const filteredUsers = useMemo(() => {
+    const source = usersData ?? [];
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return users;
-    return users.filter((user) =>
+    if (!query) return source;
+    return source.filter((user) =>
       [user.username, user.email, user.full_name || '', user.role].some((value) =>
         value.toLowerCase().includes(query)
       )
     );
-  }, [searchQuery, users]);
+  }, [searchQuery, usersData]);
   const pendingPasswordChanges = users.filter(
     (user) => user.password_change_required && user.is_active
   ).length;
@@ -1023,8 +1028,14 @@ export function AdminAccessControlSettings() {
 
             {registrationModeDraft === 'invitation_only' && (
               <div className="mt-4 grid gap-2">
-                <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="invitation-code">Invitation code</label>
-                <input id="invitation-code"
+                <label
+                  className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500"
+                  htmlFor="invitation-code"
+                >
+                  Invitation code
+                </label>
+                <input
+                  id="invitation-code"
                   value={invitationCodeDraft}
                   onChange={(event) => setInvitationCodeDraft(event.target.value)}
                   placeholder="Set invitation code"
@@ -1094,8 +1105,14 @@ export function AdminAccessControlSettings() {
                     Enabled
                   </label>
                 </div>
-                <label className="mt-3 block text-xs uppercase tracking-[0.14em] text-slate-500" htmlFor="crm-subdomain-host">Host</label>
-                <input id="crm-subdomain-host"
+                <label
+                  className="mt-3 block text-xs uppercase tracking-[0.14em] text-slate-500"
+                  htmlFor="crm-subdomain-host"
+                >
+                  Host
+                </label>
+                <input
+                  id="crm-subdomain-host"
                   value={crmSubdomainHostDraft}
                   onChange={(event) => setCrmSubdomainHostDraft(event.target.value)}
                   placeholder="crm.localhost"
@@ -1118,8 +1135,14 @@ export function AdminAccessControlSettings() {
                     Enabled
                   </label>
                 </div>
-                <label className="mt-3 block text-xs uppercase tracking-[0.14em] text-slate-500" htmlFor="ib-subdomain-host">Host</label>
-                <input id="ib-subdomain-host"
+                <label
+                  className="mt-3 block text-xs uppercase tracking-[0.14em] text-slate-500"
+                  htmlFor="ib-subdomain-host"
+                >
+                  Host
+                </label>
+                <input
+                  id="ib-subdomain-host"
                   value={ibSubdomainHostDraft}
                   onChange={(event) => setIbSubdomainHostDraft(event.target.value)}
                   placeholder="ib-portal.localhost"
@@ -1472,8 +1495,14 @@ export function AdminAccessControlSettings() {
 
                     <div className="mt-4 grid gap-4 md:grid-cols-2">
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="email">Email</label>
-                        <input id="email"
+                        <label
+                          className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500"
+                          htmlFor="email"
+                        >
+                          Email
+                        </label>
+                        <input
+                          id="email"
                           value={draft.email}
                           onChange={(event) =>
                             handleDraftChange(user.id, 'email', event.target.value)
@@ -1482,8 +1511,14 @@ export function AdminAccessControlSettings() {
                         />
                       </div>
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="full-name">Full name</label>
-                        <input id="full-name"
+                        <label
+                          className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500"
+                          htmlFor="full-name"
+                        >
+                          Full name
+                        </label>
+                        <input
+                          id="full-name"
                           value={draft.full_name}
                           onChange={(event) =>
                             handleDraftChange(user.id, 'full_name', event.target.value)
@@ -1492,8 +1527,14 @@ export function AdminAccessControlSettings() {
                         />
                       </div>
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="role">Role</label>
-                        <select id="role"
+                        <label
+                          className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500"
+                          htmlFor="role"
+                        >
+                          Role
+                        </label>
+                        <select
+                          id="role"
                           value={draft.role}
                           onChange={(event) =>
                             handleDraftChange(user.id, 'role', event.target.value)
@@ -1528,8 +1569,14 @@ export function AdminAccessControlSettings() {
                         </label>
                       </div>
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="max-active-backtests">Max active backtests</label>
-                        <input id="max-active-backtests"
+                        <label
+                          className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500"
+                          htmlFor="max-active-backtests"
+                        >
+                          Max active backtests
+                        </label>
+                        <input
+                          id="max-active-backtests"
                           type="number"
                           min={1}
                           max={1000}
@@ -1545,8 +1592,14 @@ export function AdminAccessControlSettings() {
                         />
                       </div>
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="max-strategies">Max strategies</label>
-                        <input id="max-strategies"
+                        <label
+                          className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500"
+                          htmlFor="max-strategies"
+                        >
+                          Max strategies
+                        </label>
+                        <input
+                          id="max-strategies"
                           type="number"
                           min={1}
                           max={1000}
@@ -1562,8 +1615,14 @@ export function AdminAccessControlSettings() {
                         />
                       </div>
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="max-bot-instances">Max bot instances</label>
-                        <input id="max-bot-instances"
+                        <label
+                          className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500"
+                          htmlFor="max-bot-instances"
+                        >
+                          Max bot instances
+                        </label>
+                        <input
+                          id="max-bot-instances"
                           type="number"
                           min={1}
                           max={1000}

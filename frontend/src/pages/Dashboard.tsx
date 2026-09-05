@@ -8,19 +8,19 @@
 
 import { useQuery } from '@tanstack/react-query';
 import {
-    Activity,
-    AlertCircle,
-    ArrowRight,
-    BarChart2,
-    ChevronRight,
-    Clock,
-    Play,
-    RefreshCw,
-    Rocket,
-    Sparkles,
-    Target,
-    TrendingDown,
-    TrendingUp,
+  Activity,
+  AlertCircle,
+  ArrowRight,
+  BarChart2,
+  ChevronRight,
+  Clock,
+  Play,
+  RefreshCw,
+  Rocket,
+  Sparkles,
+  Target,
+  TrendingDown,
+  TrendingUp,
 } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -395,8 +395,9 @@ export const DashboardPage: React.FC = () => {
     },
   });
 
-  const runs = backtestRunsQuery.data ?? [];
-  const stats = useMemo(() => buildDashboardStats(runs), [runs]);
+  const runsData = backtestRunsQuery.data;
+  const runs = runsData ?? [];
+  const stats = useMemo(() => buildDashboardStats(runsData ?? []), [runsData]);
   const statsLoading = backtestRunsQuery.isLoading;
   const statsError = useMemo(() => {
     if (!backtestRunsQuery.error) return null;
@@ -604,9 +605,7 @@ export const DashboardPage: React.FC = () => {
             <div className="operator-hero-panel p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-white">
-                    Welcome to your execution desk
-                  </p>
+                  <p className="text-sm font-semibold text-white">Welcome to your execution desk</p>
                   <p className="mt-1 max-w-xl text-xs leading-5 text-slate-400">
                     The workspace follows one flow: secure the account, research markets, build a
                     strategy, then validate it with a backtest before any bot goes live. Start with

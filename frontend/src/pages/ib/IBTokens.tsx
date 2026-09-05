@@ -69,14 +69,16 @@ export const IBTokens = () => {
     },
   });
 
-  const tokens = tokensQuery.data?.tokens ?? [];
+  const tokensData = tokensQuery.data?.tokens;
+  const tokens = tokensData ?? [];
 
   const stats = useMemo(() => {
-    const active = tokens.filter(isTokenActive).length;
-    const consumed = tokens.filter((t) => t.used_count >= t.max_uses).length;
-    const revoked = tokens.filter((t) => t.revoked_at != null).length;
-    return { total: tokens.length, active, consumed, revoked };
-  }, [tokens]);
+    const source = tokensData ?? [];
+    const active = source.filter(isTokenActive).length;
+    const consumed = source.filter((t) => t.used_count >= t.max_uses).length;
+    const revoked = source.filter((t) => t.revoked_at != null).length;
+    return { total: source.length, active, consumed, revoked };
+  }, [tokensData]);
 
   return (
     <PageContainer size="wide" className="space-y-6">

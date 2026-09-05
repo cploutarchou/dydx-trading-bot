@@ -510,6 +510,10 @@ export default function StrategyManager() {
   // ── Runtime status: use React Query instead of manual useEffect polling ─────
   const strategyIds = useMemo(() => safeStrategies.map((s) => s.id), [safeStrategies]);
   const runtimeQueries = useStrategyRuntimes(strategyIds);
+  const runtimeQuerySignature = runtimeQueries
+    .map((q) => `${q.dataUpdatedAt}:${q.errorUpdatedAt}:${q.fetchStatus}`)
+    .join(',');
+  const strategyIdSignature = strategyIds.join(',');
 
   // Derive strategyStatuses / runningCount / heartbeatTrend from React Query results
   useEffect(() => {
@@ -541,10 +545,12 @@ export default function StrategyManager() {
     });
 
     applyStrategyStatuses(nextStatuses);
-  }, [
-    runtimeQueries.map((q) => `${q.dataUpdatedAt}:${q.errorUpdatedAt}:${q.fetchStatus}`).join(','),
-    strategyIds.join(','),
-  ]);
+    // Signature deps are deliberate: applyStrategyStatuses always installs a
+    // new Map, so depending on the raw strategyStatuses/runtimeQueries would
+    // re-run this effect in a loop. The signatures change only when the
+    // query payloads or the tracked id set actually change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runtimeQuerySignature, strategyIdSignature]);
   // ─────────────────────────────────────────────────────────────────────────────
 
   // ── Start-dialog readiness: React Query (only fetches when dialog is open) ──

@@ -690,17 +690,25 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     [backtestsQuery.data]
   );
 
+  const activeRunStatusIds = useMemo(
+    () => activeRunsQuickAccess.map((run) => run.run_id).filter(Boolean),
+    [activeRunsQuickAccess]
+  );
+
   // Subscribe to Redis-backed WebSocket push for each active run so that
   // progress updates arrive via push instead of only via polling.
   const wsRefs = useRef<Map<string, WebSocket>>(new Map());
   useEffect(() => {
-    const activeIds = new Set(activeRunsQuickAccess.map((r) => r.run_id).filter(Boolean));
+    // Capture the socket map at setup: the cleanup must close the sockets it
+    // created, not whatever the ref holds at teardown time.
+    const sockets = wsRefs.current;
+    const activeIds = new Set(activeRunStatusIds);
 
     // Close sockets for runs no longer active
-    for (const [id, ws] of wsRefs.current.entries()) {
+    for (const [id, ws] of sockets.entries()) {
       if (!activeIds.has(id)) {
         ws.close();
-        wsRefs.current.delete(id);
+        sockets.delete(id);
       }
     }
 
@@ -720,17 +728,13 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
 
     return () => {
       // Component unmount: close all sockets
-      for (const ws of wsRefs.current.values()) {
+      for (const ws of sockets.values()) {
         ws.close();
       }
-      wsRefs.current.clear();
+      sockets.clear();
     };
-  }, [activeRunsQuickAccess.map((r) => r.run_id).join(',')]);
+  }, [activeRunStatusIds, queryClient]);
 
-  const activeRunStatusIds = useMemo(
-    () => activeRunsQuickAccess.map((run) => run.run_id).filter(Boolean),
-    [activeRunsQuickAccess]
-  );
   const activeRunLiveStatusesQuery = useQuery({
     queryKey: ['backtests', 'active-statuses', activeRunStatusIds],
     queryFn: async () => {

@@ -592,7 +592,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       label: 'Source: unknown',
       className: 'border-slate-600/70 bg-slate-700/40 text-slate-200',
     };
-  }, [marketsSource, marketsStale, normalizedMarketsSource]);
+  }, [marketsStale, normalizedMarketsSource]);
 
   const marketSourceWarning = useMemo(() => {
     if (marketsStale || normalizedMarketsSource === 'cache_stale') {
@@ -800,10 +800,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               value={formData.trading_parameters.pair_selection_mode || 'liquidity'}
               onChange={(e) => {
                 const value = e.target.value as
-                  | 'liquidity'
-                  | 'volatility'
-                  | 'cointegration'
-                  | 'input';
+                  'liquidity' | 'volatility' | 'cointegration' | 'input';
                 setFormData((prev) => ({
                   ...prev,
                   pair_selection_mode: value,
@@ -823,9 +820,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
           </Field>
           <div className="md:col-span-2">
             <div className="mb-2 flex items-center justify-between gap-3">
-              <p className="block text-xs font-semibold uppercase text-slate-400">
-                dYdX Markets
-              </p>
+              <p className="block text-xs font-semibold uppercase text-slate-400">dYdX Markets</p>
               <span
                 className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${marketSourceBadge.className}`}
                 title="Market data source health"

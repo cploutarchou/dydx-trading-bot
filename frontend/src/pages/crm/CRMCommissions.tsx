@@ -140,10 +140,8 @@ export const CRMCommissions = () => {
           {/* User selector */}
           <div className="space-y-4">
             <div>
-              <label className="mb-1.5 block text-xs uppercase tracking-[0.14em] text-slate-500">
-                IB / sub-IB account
-              </label>
-              <select
+              <label className="mb-1.5 block text-xs uppercase tracking-[0.14em] text-slate-500" htmlFor="ib-sub-ib-account">IB / sub-IB account</label>
+              <select id="ib-sub-ib-account"
                 value={selectedUserId ?? ''}
                 onChange={(e) => {
                   const val = Number(e.target.value || 0);

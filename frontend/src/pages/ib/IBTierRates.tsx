@@ -263,10 +263,8 @@ export const IBTierRates = () => {
                       </div>
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div>
-                          <label className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                            Commission rate (%)
-                          </label>
-                          <input
+                          <label className="text-xs uppercase tracking-[0.14em] text-slate-500" htmlFor="commission-rate">Commission rate (%)</label>
+                          <input id="commission-rate"
                             type="number"
                             min={0}
                             max={100}
@@ -281,10 +279,8 @@ export const IBTierRates = () => {
                           />
                         </div>
                         <div>
-                          <label className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                            Rebate rate (%)
-                          </label>
-                          <input
+                          <label className="text-xs uppercase tracking-[0.14em] text-slate-500" htmlFor="rebate-rate">Rebate rate (%)</label>
+                          <input id="rebate-rate"
                             type="number"
                             min={0}
                             max={100}
@@ -401,10 +397,8 @@ export const IBTierRates = () => {
                 <p className="mb-3 text-sm font-semibold text-white">New tier</p>
                 <div className="space-y-3">
                   <div>
-                    <label className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                      Tier level (1–50)
-                    </label>
-                    <input
+                    <label className="text-xs uppercase tracking-[0.14em] text-slate-500" htmlFor="tier-level-1-50">Tier level (1–50)</label>
+                    <input id="tier-level-1-50"
                       type="number"
                       min={1}
                       max={50}
@@ -416,10 +410,8 @@ export const IBTierRates = () => {
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div>
-                      <label className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                        Commission rate (%)
-                      </label>
-                      <input
+                      <label className="text-xs uppercase tracking-[0.14em] text-slate-500" htmlFor="commission-rate">Commission rate (%)</label>
+                      <input id="commission-rate"
                         type="number"
                         min={0}
                         max={100}
@@ -432,10 +424,8 @@ export const IBTierRates = () => {
                       />
                     </div>
                     <div>
-                      <label className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                        Rebate rate (%)
-                      </label>
-                      <input
+                      <label className="text-xs uppercase tracking-[0.14em] text-slate-500" htmlFor="rebate-rate">Rebate rate (%)</label>
+                      <input id="rebate-rate"
                         type="number"
                         min={0}
                         max={100}

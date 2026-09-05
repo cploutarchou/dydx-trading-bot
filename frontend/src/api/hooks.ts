@@ -2,29 +2,29 @@
 // Provides optimized data fetching with loading states, error handling, and caching
 
 import {
-	useInfiniteQuery,
-	useMutation,
-	useQueries,
-	useQuery,
-	useQueryClient,
+  useInfiniteQuery,
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
 } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import api, { TelegramConfigPayload, TelegramSettingsScope } from '../api';
 import { enhancedApiClient as apiClient } from './enhancedClient';
 import { cacheUtils, queryConfigs, queryKeys } from './queryClient';
 import type {
-	BacktestConfig,
-	BotInstance,
-	BotJob,
-	CreateBotRequest,
-	ListAlertsParams,
-	ListBacktestsParams,
-	ListBotsParams,
-	ListTradesParams,
-	QuickDeployBotRequest,
-	StartBotRequest,
-	UpdateBotRequest,
-	User,
+  BacktestConfig,
+  BotInstance,
+  BotJob,
+  CreateBotRequest,
+  ListAlertsParams,
+  ListBacktestsParams,
+  ListBotsParams,
+  ListTradesParams,
+  QuickDeployBotRequest,
+  StartBotRequest,
+  UpdateBotRequest,
+  User,
 } from './types';
 
 interface ManagedWebSocketOptions {
@@ -56,8 +56,7 @@ const useManagedWebSocket = ({
 
   useEffect(() => {
     if (!enabled) {
-      setIsConnected(false);
-      setSocketError(null);
+      // Disabled state is derived at the return boundary.
       return;
     }
 
@@ -309,7 +308,9 @@ const useManagedWebSocket = ({
     };
   }, [closeOnStale, connectSocket, enabled, onMessage, onOpen, onStale, staleAfterMs]);
 
-  return { isConnected, socketError };
+  // Disabled state is reflected at the return boundary instead of a
+  // synchronous clearing effect.
+  return { isConnected: enabled && isConnected, socketError: enabled ? socketError : null };
 };
 
 export function useTelegramStatus(scope: TelegramSettingsScope = 'user') {
@@ -671,61 +672,66 @@ export function useBotRuntimeStatsStream(instanceId: string, enabled: boolean = 
     [toFiniteRuntimeNumber]
   );
 
-  const extractStatsPayload = useCallback((payload: unknown): Record<string, unknown> | null => {
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      return null;
-    }
+  const extractStatsPayload = useCallback(
+    (payload: unknown): Record<string, unknown> | null => {
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        return null;
+      }
 
-    const record = payload as Record<string, unknown>;
-    if (record.type === 'initial_state') {
-      const dataRecord =
-        record.data && typeof record.data === 'object' && !Array.isArray(record.data)
-          ? (record.data as Record<string, unknown>)
-          : null;
-      const statsRecord =
-        dataRecord?.stats &&
-        typeof dataRecord.stats === 'object' &&
-        !Array.isArray(dataRecord.stats)
-          ? (dataRecord.stats as Record<string, unknown>)
-          : null;
-      return mergeStatsWithPositions(statsRecord, dataRecord?.positions);
-    }
+      const record = payload as Record<string, unknown>;
+      if (record.type === 'initial_state') {
+        const dataRecord =
+          record.data && typeof record.data === 'object' && !Array.isArray(record.data)
+            ? (record.data as Record<string, unknown>)
+            : null;
+        const statsRecord =
+          dataRecord?.stats &&
+          typeof dataRecord.stats === 'object' &&
+          !Array.isArray(dataRecord.stats)
+            ? (dataRecord.stats as Record<string, unknown>)
+            : null;
+        return mergeStatsWithPositions(statsRecord, dataRecord?.positions);
+      }
 
-    if (record.type === 'stats' || record.type === 'stats_updated') {
-      const dataRecord =
-        record.data && typeof record.data === 'object' && !Array.isArray(record.data)
-          ? (record.data as Record<string, unknown>)
-          : null;
+      if (record.type === 'stats' || record.type === 'stats_updated') {
+        const dataRecord =
+          record.data && typeof record.data === 'object' && !Array.isArray(record.data)
+            ? (record.data as Record<string, unknown>)
+            : null;
+        const nestedStats =
+          dataRecord?.stats &&
+          typeof dataRecord.stats === 'object' &&
+          !Array.isArray(dataRecord.stats)
+            ? (dataRecord.stats as Record<string, unknown>)
+            : dataRecord;
+        return mergeStatsWithPositions(nestedStats, dataRecord?.positions);
+      }
+
+      if (record.type === 'positions_list') {
+        return mergeStatsWithPositions(null, record.data);
+      }
+
       const nestedStats =
-        dataRecord?.stats && typeof dataRecord.stats === 'object' && !Array.isArray(dataRecord.stats)
-          ? (dataRecord.stats as Record<string, unknown>)
-          : dataRecord;
-      return mergeStatsWithPositions(nestedStats, dataRecord?.positions);
-    }
+        record.stats && typeof record.stats === 'object' && !Array.isArray(record.stats)
+          ? (record.stats as Record<string, unknown>)
+          : null;
+      if (nestedStats) {
+        return mergeStatsWithPositions(nestedStats, record.positions);
+      }
 
-    if (record.type === 'positions_list') {
-      return mergeStatsWithPositions(null, record.data);
-    }
+      if (
+        'total_open_positions' in record ||
+        'open_positions' in record ||
+        'total_unrealized_pnl' in record ||
+        'daily_pnl' in record
+      ) {
+        return mergeStatsWithPositions(record, record.positions);
+      }
 
-    const nestedStats =
-      record.stats && typeof record.stats === 'object' && !Array.isArray(record.stats)
-        ? (record.stats as Record<string, unknown>)
-        : null;
-    if (nestedStats) {
-      return mergeStatsWithPositions(nestedStats, record.positions);
-    }
-
-    if (
-      'total_open_positions' in record ||
-      'open_positions' in record ||
-      'total_unrealized_pnl' in record ||
-      'daily_pnl' in record
-    ) {
-      return mergeStatsWithPositions(record, record.positions);
-    }
-
-    return null;
-  }, [mergeStatsWithPositions]);
+      return null;
+    },
+    [mergeStatsWithPositions]
+  );
 
   const mergeRuntimeStatsState = useCallback(
     (
@@ -744,11 +750,11 @@ export function useBotRuntimeStatsStream(instanceId: string, enabled: boolean = 
     []
   );
 
+  // Inactive (no instance / disabled) is reflected at the return boundary
+  // instead of a synchronous clearing effect.
+  const runtimeStatsActive = Boolean(instanceId) && enabled;
   useEffect(() => {
     if (!instanceId || !enabled) {
-      setData(undefined);
-      setIsLoading(false);
-      setBootstrapError(null);
       return;
     }
 
@@ -836,12 +842,12 @@ export function useBotRuntimeStatsStream(instanceId: string, enabled: boolean = 
 
   const combinedError = socketError ?? bootstrapError;
   return {
-    data,
-    error: combinedError,
-    isError: combinedError !== null,
-    isLoading,
-    isSuccess: !!data,
-    isConnected,
+    data: runtimeStatsActive ? data : undefined,
+    error: runtimeStatsActive ? combinedError : null,
+    isError: runtimeStatsActive && combinedError !== null,
+    isLoading: runtimeStatsActive && isLoading,
+    isSuccess: runtimeStatsActive && Boolean(data),
+    isConnected: runtimeStatsActive && isConnected,
   };
 }
 
@@ -981,7 +987,6 @@ export function useBacktestSummary(runId: string) {
     enabled: !!runId,
   });
 }
-
 
 export function useCreateBacktest() {
   return useMutation({
@@ -1313,9 +1318,6 @@ export function useBacktestProgress(runId: string) {
 
   useEffect(() => {
     if (!runId) {
-      setData(undefined);
-      setIsLoading(false);
-      setBootstrapError(null);
       return;
     }
 
@@ -1501,15 +1503,17 @@ export function useBacktestProgress(runId: string) {
     runId,
   ]);
 
-  const resolvedData = data;
+  // Without a run id the hook reports idle at the return boundary instead
+  // of synchronously clearing state in an effect.
+  const resolvedData = runId ? data : undefined;
   const combinedError = socketError ?? bootstrapError;
 
   return {
     data: resolvedData,
-    error: combinedError,
-    isError: combinedError !== null,
-    isLoading,
-    isSuccess: !!resolvedData,
+    error: runId ? combinedError : null,
+    isError: runId && combinedError !== null,
+    isLoading: runId && isLoading,
+    isSuccess: runId && Boolean(resolvedData),
     isConnected,
     lastSocketEvent,
     isComplete: normalizeStatus(resolvedData?.status) === 'COMPLETED',

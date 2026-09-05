@@ -604,7 +604,9 @@ export const BacktestDetailsV2: React.FC = () => {
 
   // Fetch backtest metadata
   useEffect(() => {
-    fetchBacktestMetadata();
+    // Load-on-mount via microtask: keeps the loader's synchronous state
+    // reset out of the effect body (no cascading render).
+    void Promise.resolve().then(() => fetchBacktestMetadata());
   }, [fetchBacktestMetadata]);
 
   useEffect(() => {
@@ -641,13 +643,16 @@ export const BacktestDetailsV2: React.FC = () => {
     };
   }, []);
 
+  // Without a linked strategy the stale states are hidden at render time —
+  // no synchronous clearing effect needed.
+  const effectiveLinkedStrategy = linkedStrategyId ? linkedStrategy : null;
+  const effectiveLinkedStrategyError = linkedStrategyId ? linkedStrategyError : null;
+  const effectiveLinkedStrategyLoading = linkedStrategyId ? linkedStrategyLoading : false;
+
   useEffect(() => {
     let cancelled = false;
 
     if (!linkedStrategyId) {
-      setLinkedStrategy(null);
-      setLinkedStrategyError(null);
-      setLinkedStrategyLoading(false);
       return;
     }
 
@@ -681,7 +686,11 @@ export const BacktestDetailsV2: React.FC = () => {
     };
   }, [linkedStrategyId]);
 
-  useEffect(() => {
+  // Reset per-run state when the run changes — adjusted during render (the
+  // sanctioned pattern) so no cascading effect render is needed.
+  const [prevRunIdState, setPrevRunIdState] = useState(runId);
+  if (runId !== prevRunIdState) {
+    setPrevRunIdState(runId);
     setCandles([]);
     setPositions([]);
     setTrades([]);
@@ -698,6 +707,10 @@ export const BacktestDetailsV2: React.FC = () => {
     setPositionsError(null);
     setTradesError(null);
     setLiveLogs([]);
+  }
+
+  useEffect(() => {
+    // Ref-only reset on run change; refs are not render state.
     liveLogCounterRef.current = 0;
   }, [runId]);
 
@@ -823,17 +836,14 @@ export const BacktestDetailsV2: React.FC = () => {
     fetchAnalytics();
   }, [candles.length, runId, activeTab, analyticsLoadedState, detailSyncCursor]);
 
-  // Keep selected market valid when available markets update
-  useEffect(() => {
-    if (markets.length === 0) {
-      setSelectedMarket(null);
-      return;
-    }
-
-    if (!selectedMarket || !markets.includes(selectedMarket)) {
-      setSelectedMarket(markets[0] ?? null);
-    }
-  }, [markets, selectedMarket]);
+  // The effective market is derived at consumption: empty list -> none,
+  // stale selection -> first available.
+  const effectiveSelectedMarket =
+    markets.length === 0
+      ? null
+      : selectedMarket && markets.includes(selectedMarket)
+        ? selectedMarket
+        : (markets[0] ?? null);
 
   // Fetch position snapshots and flatten to latest known entries per snapshot
   useEffect(() => {
@@ -1094,8 +1104,8 @@ export const BacktestDetailsV2: React.FC = () => {
 
   // Filter candles for selected market
   const selectedCandles = useMemo(
-    () => candles.filter((c) => c.market === selectedMarket),
-    [candles, selectedMarket]
+    () => candles.filter((c) => c.market === effectiveSelectedMarket),
+    [candles, effectiveSelectedMarket]
   );
   const selectedChartPoints = useMemo<BacktestChartPoint[]>(
     () =>
@@ -1118,10 +1128,10 @@ export const BacktestDetailsV2: React.FC = () => {
     () =>
       chartMarkers.filter((marker) => {
         const matchesMarket =
-          !selectedMarket ||
-          marker.pair === selectedMarket ||
-          marker.pair.includes(selectedMarket) ||
-          selectedMarket.includes(marker.pair);
+          !effectiveSelectedMarket ||
+          marker.pair === effectiveSelectedMarket ||
+          marker.pair.includes(effectiveSelectedMarket) ||
+          effectiveSelectedMarket.includes(marker.pair);
 
         if (!matchesMarket) {
           return false;
@@ -1144,7 +1154,7 @@ export const BacktestDetailsV2: React.FC = () => {
         const cutoff = latestDate.getTime() - lookbackDays * 24 * 60 * 60 * 1000;
         return markerDate.getTime() >= cutoff;
       }),
-    [chartMarkers, chartRange, filteredChartPoints, selectedMarket]
+    [chartMarkers, chartRange, filteredChartPoints, effectiveSelectedMarket]
   );
 
   if (loading) {
@@ -2300,7 +2310,7 @@ export const BacktestDetailsV2: React.FC = () => {
                 </p>
                 <h2 className="mt-1 text-xl font-semibold text-white">
                   {linkedStrategyId
-                    ? linkedStrategy?.name || `Strategy #${linkedStrategyId}`
+                    ? effectiveLinkedStrategy?.name || `Strategy #${linkedStrategyId}`
                     : 'Manual backtest ticket'}
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-slate-400">
@@ -2308,11 +2318,11 @@ export const BacktestDetailsV2: React.FC = () => {
                     ? 'This backtest is linked to a saved strategy. Use the relationship to return to the strategy, create another validation run, or keep the report attached to the source setup.'
                     : 'This run was launched without a saved strategy relation. Save it as a strategy when the result is strong enough to reuse.'}
                 </p>
-                {linkedStrategyLoading && (
+                {effectiveLinkedStrategyLoading && (
                   <p className="mt-2 text-xs text-slate-500">Loading strategy metadata...</p>
                 )}
-                {linkedStrategyError && (
-                  <p className="mt-2 text-xs text-amber-300">{linkedStrategyError}</p>
+                {effectiveLinkedStrategyError && (
+                  <p className="mt-2 text-xs text-amber-300">{effectiveLinkedStrategyError}</p>
                 )}
               </div>
 

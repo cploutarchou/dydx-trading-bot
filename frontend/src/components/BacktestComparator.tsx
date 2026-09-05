@@ -1,17 +1,20 @@
 import {
-	BrainCircuit,
-	CircleHelp,
-	Download,
-	Loader,
-	Search,
-	Settings,
-	Sparkles,
-	Trash2,
-	TrendingUp,
+  BrainCircuit,
+  CircleHelp,
+  Download,
+  Loader,
+  Search,
+  Settings,
+  Sparkles,
+  Trash2,
+  TrendingUp,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api, { type AIBacktestExplainRequest } from '../api';
-import { getAIProviderDisplayName, useAIProviderAvailability } from '../features/ai/providerAvailability';
+import {
+  getAIProviderDisplayName,
+  useAIProviderAvailability,
+} from '../features/ai/providerAvailability';
 import { toCsvCell } from '../utils/csv';
 import { PageContainer } from './PageContainer';
 
@@ -167,11 +170,18 @@ export const BacktestComparator: React.FC = () => {
   const [aiUsed, setAiUsed] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [winnerAnimationKey, setWinnerAnimationKey] = useState(0);
-  const [raceAnimationKey, setRaceAnimationKey] = useState(0);
   const [pulsingWinners, setPulsingWinners] = useState<Record<string, boolean>>({});
   const [showShortcutToast, setShowShortcutToast] = useState(false);
-  const [showUxHints, setShowUxHints] = useState(true);
+  const [showUxHints, setShowUxHints] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem(SHOW_UX_HINTS_STORAGE_KEY);
+      if (saved === '1' || saved === '0') return saved === '1';
+      // Backward compatibility with previous "hide shortcut tips" preference
+      return window.localStorage.getItem(HIDE_SHORTCUT_TIPS_STORAGE_KEY) !== '1';
+    } catch {
+      return true;
+    }
+  });
   const [hintDotPop, setHintDotPop] = useState(false);
   const {
     availableProviders,
@@ -247,18 +257,12 @@ export const BacktestComparator: React.FC = () => {
   }, [backtests, normalizedSearch, sortBy]);
 
   // Pagination logic
-  const paginatedBacktests = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredAndSortedBacktests.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredAndSortedBacktests, currentPage]);
-
   const totalPages = Math.max(1, Math.ceil(filteredAndSortedBacktests.length / ITEMS_PER_PAGE));
-
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
-    }
-  }, [currentPage, totalPages]);
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedBacktests = useMemo(() => {
+    const start = (safeCurrentPage - 1) * ITEMS_PER_PAGE;
+    return filteredAndSortedBacktests.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredAndSortedBacktests, safeCurrentPage]);
 
   // Toggle backtest selection
   const toggleBacktest = (backtest: BacktestResult) => {
@@ -329,7 +333,10 @@ export const BacktestComparator: React.FC = () => {
       bt.data.end_date || 'N/A',
     ]);
 
-    const csv = [headers.map(toCsvCell).join(','), ...rows.map((row) => row.map(toCsvCell).join(','))].join('\n');
+    const csv = [
+      headers.map(toCsvCell).join(','),
+      ...rows.map((row) => row.map(toCsvCell).join(',')),
+    ].join('\n');
 
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -477,15 +484,28 @@ export const BacktestComparator: React.FC = () => {
   );
 
   useEffect(() => {
-    if (winnerSummary.length > 0) {
-      setWinnerAnimationKey((prev) => prev + 1);
+    // Ref init from localStorage; refs are not render state, so syncing them
+    // in an effect is the intended escape hatch.
+    try {
+      shortcutDiscoverySeenRef.current =
+        window.localStorage.getItem(SHORTCUT_DISCOVERY_STORAGE_KEY) === '1';
+    } catch {
+      shortcutDiscoverySeenRef.current = false;
     }
-  }, [winnerSummary.length, winnerSummarySignature]);
+  }, []);
+
+  // Animation restart keys: consumed only as React keys, so a derived value
+  // that changes with the underlying selection is equivalent to the old
+  // effect-incremented counters — without the cascading render.
+  const winnerAnimationKey = winnerSummarySignature;
+  const raceAnimationKey = selectionSignature;
+
+  const activePulsingWinners =
+    winnerSummary.length === 0 ? ({} as Record<string, boolean>) : pulsingWinners;
 
   useEffect(() => {
     if (winnerSummary.length === 0) {
       previousWinnerByTitleRef.current = {};
-      setPulsingWinners({});
       return;
     }
 
@@ -529,32 +549,6 @@ export const BacktestComparator: React.FC = () => {
       window.clearTimeout(timeoutId);
     };
   }, [winnerSummary]);
-
-  useEffect(() => {
-    if (selectedBacktests.length > 0) {
-      setRaceAnimationKey((prev) => prev + 1);
-    }
-  }, [selectedBacktests.length, selectionSignature]);
-
-  useEffect(() => {
-    try {
-      shortcutDiscoverySeenRef.current =
-        window.localStorage.getItem(SHORTCUT_DISCOVERY_STORAGE_KEY) === '1';
-
-      const savedShowUxHints = window.localStorage.getItem(SHOW_UX_HINTS_STORAGE_KEY);
-      if (savedShowUxHints === '1' || savedShowUxHints === '0') {
-        setShowUxHints(savedShowUxHints === '1');
-      } else {
-        // Backward compatibility with previous "hide shortcut tips" preference
-        const legacyHideShortcutTips =
-          window.localStorage.getItem(HIDE_SHORTCUT_TIPS_STORAGE_KEY) === '1';
-        setShowUxHints(!legacyHideShortcutTips);
-      }
-    } catch {
-      shortcutDiscoverySeenRef.current = false;
-      setShowUxHints(true);
-    }
-  }, []);
 
   useEffect(() => {
     const handleLegendHelpShortcut = (event: KeyboardEvent) => {
@@ -673,7 +667,9 @@ export const BacktestComparator: React.FC = () => {
         response?.data ??
         (response as unknown as { data?: { content?: string; used_ai?: boolean } })?.data;
       const content = typeof responseData?.content === 'string' ? responseData.content : '';
-      setAiInsight(content || `${aiProviderDisplayName} returned no narrative. Try refreshing insights.`);
+      setAiInsight(
+        content || `${aiProviderDisplayName} returned no narrative. Try refreshing insights.`
+      );
       setAiUsed(Boolean(responseData?.used_ai));
     } catch (err) {
       setAiError(getErrorMessage(err, 'Failed to generate AI insight'));
@@ -682,17 +678,19 @@ export const BacktestComparator: React.FC = () => {
     }
   }, [aiProvider, aiProviderDisplayName, comparisonAggregate, selectedBacktests]);
 
+  // Stale insights from a previous selection are hidden at render time and
+  // replaced on the next request — no synchronous clearing effect needed.
+  const hasEnoughSelectionForAi = selectedBacktests.length >= 2;
+  const effectiveAiInsight = hasEnoughSelectionForAi ? aiInsight : null;
+  const effectiveAiError = hasEnoughSelectionForAi ? aiError : null;
+  const effectiveAiUsed = hasEnoughSelectionForAi ? aiUsed : false;
+
   useEffect(() => {
-    if (providerStatusLoading) {
+    if (providerStatusLoading || selectedBacktests.length < 2) {
       return;
     }
-    if (selectedBacktests.length >= 2) {
-      void requestAIInsight();
-    } else {
-      setAiInsight(null);
-      setAiError(null);
-      setAiUsed(false);
-    }
+    // Microtask keeps the loader's synchronous state reset out of the effect.
+    void Promise.resolve().then(() => requestAIInsight());
   }, [providerStatusLoading, requestAIInsight, selectedBacktests.length]);
 
   return (
@@ -706,8 +704,8 @@ export const BacktestComparator: React.FC = () => {
             </p>
             <h1 className="text-2xl font-bold text-white sm:text-3xl">Compare Backtests</h1>
             <p className="max-w-2xl text-sm text-slate-300">
-              Scan, select, and compare up to 5 runs with instant metric deltas and automatic
-              AI commentary to help you decide faster.
+              Scan, select, and compare up to 5 runs with instant metric deltas and automatic AI
+              commentary to help you decide faster.
             </p>
           </div>
 
@@ -930,7 +928,7 @@ export const BacktestComparator: React.FC = () => {
               <div className="flex items-center justify-between gap-2 pt-4 border-t border-slate-600">
                 <button
                   onClick={handlePreviousPage}
-                  disabled={currentPage === 1}
+                  disabled={safeCurrentPage === 1}
                   className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   ← Previous
@@ -954,7 +952,7 @@ export const BacktestComparator: React.FC = () => {
 
                 <button
                   onClick={handleNextPage}
-                  disabled={currentPage === totalPages}
+                  disabled={safeCurrentPage === totalPages}
                   className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Next →
@@ -1018,20 +1016,23 @@ export const BacktestComparator: React.FC = () => {
 
           <div className="mt-4 rounded-xl border border-violet-500/30 bg-slate-950/50 p-4 text-sm leading-relaxed text-slate-200">
             {aiLoading && (
-              <p className="text-slate-400">{aiProviderDisplayName} is analyzing the selected set...</p>
+              <p className="text-slate-400">
+                {aiProviderDisplayName} is analyzing the selected set...
+              </p>
             )}
             {!aiLoading && aiError && <p className="text-red-300">{aiError}</p>}
-            {!aiLoading && !aiError && aiInsight && (
-              <p className="whitespace-pre-line">{aiInsight}</p>
+            {!aiLoading && !effectiveAiError && effectiveAiInsight && (
+              <p className="whitespace-pre-line">{effectiveAiInsight}</p>
             )}
-            {!aiLoading && !aiError && !aiInsight && (
+            {!aiLoading && !effectiveAiError && !effectiveAiInsight && (
               <p className="text-slate-400">
                 Select at least 2 runs to unlock AI comparative guidance.
               </p>
             )}
-            {!aiLoading && !aiError && aiInsight && !aiUsed && (
+            {!aiLoading && !effectiveAiError && effectiveAiInsight && !effectiveAiUsed && (
               <p className="mt-3 text-xs text-slate-500">
-                AI provider returned a fallback narrative; review provider configuration before relying on it.
+                AI provider returned a fallback narrative; review provider configuration before
+                relying on it.
               </p>
             )}
           </div>
@@ -1143,7 +1144,9 @@ export const BacktestComparator: React.FC = () => {
                 <article
                   key={`${winner.title}-${winner.runId}`}
                   className={`rounded-xl border p-4 animate-fade-slide-up transition-all duration-300 ${winner.toneClass} ${
-                    pulsingWinners[winner.title] ? `ring-2 animate-pulse ${winner.pulseClass}` : ''
+                    activePulsingWinners[winner.title]
+                      ? `ring-2 animate-pulse ${winner.pulseClass}`
+                      : ''
                   }`}
                   style={{ animationDelay: `${index * 70}ms` }}
                 >

@@ -354,9 +354,8 @@ export default function Settings() {
   const [testingConnection, setTestingConnection] = useState(false);
   const fieldRefs = useRef<Record<string, HTMLInputElement | HTMLSelectElement | null>>({});
   const settingsDataLoaderRef = useRef(createSettingsDataLoader(apiClient));
-  const hasRestoredSectionRef = useRef(false);
   const urlSyncEnabledRef = useRef(true);
-  const lastRequestedSectionRef = useRef(requestedSection);
+  const [urlSyncEnabled, setUrlSyncEnabled] = useState(true);
   const successToast = useToastStore((state) => state.success);
   const errorToast = useToastStore((state) => state.error);
   const infoToast = useToastStore((state) => state.info);
@@ -483,64 +482,52 @@ export default function Settings() {
   }, [canManageBackofficeSettings, errorToast]);
 
   useEffect(() => {
-    void fetchSettingsData();
+    // Load-on-mount: scheduling through a microtask keeps the loader's
+    // synchronous state reset out of the effect body (no cascading render).
+    void Promise.resolve().then(() => fetchSettingsData());
   }, [fetchSettingsData]);
 
-  useEffect(() => {
-    if (hasRestoredSectionRef.current || sidebarSections.length === 0) {
-      return;
-    }
-
-    hasRestoredSectionRef.current = true;
-
+  // Restore the last-opened section once sections are known — adjusted
+  // during render (sanctioned pattern) instead of a cascading effect render.
+  const [hasRestoredSection, setHasRestoredSection] = useState(false);
+  if (!hasRestoredSection && sidebarSections.length > 0) {
+    setHasRestoredSection(true);
     if (
       requestedSection &&
       sidebarSections.some((section) => section.section === requestedSection)
     ) {
       setActiveSection(requestedSection);
-      return;
-    }
-
-    try {
-      const savedSection = localStorage.getItem(SETTINGS_LAST_SECTION_KEY);
-      if (savedSection && sidebarSections.some((section) => section.section === savedSection)) {
-        setActiveSection(savedSection);
+    } else {
+      try {
+        const savedSection = localStorage.getItem(SETTINGS_LAST_SECTION_KEY);
+        if (savedSection && sidebarSections.some((section) => section.section === savedSection)) {
+          setActiveSection(savedSection);
+        }
+      } catch (error) {
+        console.warn('⚠️ Settings.tsx: Failed to restore last opened section', error);
       }
-    } catch (error) {
-      console.warn('⚠️ Settings.tsx: Failed to restore last opened section', error);
     }
-  }, [requestedSection, sidebarSections]);
+  }
 
-  useEffect(() => {
-    if (sidebarSections.length === 0) {
-      return;
-    }
+  if (
+    sidebarSections.length > 0 &&
+    !sidebarSections.some((section) => section.section === activeSection)
+  ) {
+    const firstSection = sidebarSections[0];
+    if (firstSection) setActiveSection(firstSection.section);
+  }
 
-    if (!sidebarSections.some((section) => section.section === activeSection)) {
-      const firstSection = sidebarSections[0];
-      if (firstSection) setActiveSection(firstSection.section);
-    }
-  }, [activeSection, sidebarSections]);
-
-  useEffect(() => {
-    if (!urlSyncEnabledRef.current) {
-      return;
-    }
-
-    if (requestedSection === lastRequestedSectionRef.current) {
-      return;
-    }
-
-    lastRequestedSectionRef.current = requestedSection;
-
-    if (!requestedSection || requestedSection === activeSection) {
-      return;
-    }
-
-    if (sidebarSections.some((section) => section.section === requestedSection)) {
+  const [prevRequestedSection, setPrevRequestedSection] = useState(requestedSection);
+  if (urlSyncEnabled && requestedSection !== prevRequestedSection) {
+    setPrevRequestedSection(requestedSection);
+    if (
+      requestedSection &&
+      requestedSection !== activeSection &&
+      sidebarSections.some((section) => section.section === requestedSection)
+    ) {
       setActiveSection(requestedSection);
     }
-  }, [activeSection, requestedSection, sidebarSections]);
+  }
 
   useEffect(() => {
     if (!sidebarSections.some((section) => section.section === activeSection)) {
@@ -557,19 +544,22 @@ export default function Settings() {
       return;
     }
 
-    try {
-      setSearchParams(
-        (currentParams) => {
-          const nextParams = new URLSearchParams(currentParams);
-          nextParams.set('section', activeSection);
-          return nextParams;
-        },
-        { replace: true }
-      );
-    } catch (error) {
-      urlSyncEnabledRef.current = false;
-      console.warn('⚠️ Settings.tsx: URL sync disabled (history update blocked)', error);
-    }
+    Promise.resolve()
+      .then(() =>
+        setSearchParams(
+          (currentParams) => {
+            const nextParams = new URLSearchParams(currentParams);
+            nextParams.set('section', activeSection);
+            return nextParams;
+          },
+          { replace: true }
+        )
+      )
+      .catch((error: unknown) => {
+        urlSyncEnabledRef.current = false;
+        setUrlSyncEnabled(false);
+        console.warn('⚠️ Settings.tsx: URL sync disabled (history update blocked)', error);
+      });
   }, [activeSection, requestedSection, setSearchParams, sidebarSections]);
 
   useEffect(() => {

@@ -248,34 +248,40 @@ export function AdminAccessControlSettings() {
     staleTime: 30_000,
   });
 
-  useEffect(() => {
-    if (!usersQuery.data?.users) {
-      return;
+  // Server rows -> editable drafts, adjusted during render when the query
+  // data identity changes (the sanctioned pattern; avoids a cascading render).
+  const [prevUsersData, setPrevUsersData] = useState(usersQuery.data);
+  if (usersQuery.data !== prevUsersData) {
+    setPrevUsersData(usersQuery.data);
+    const users = usersQuery.data?.users;
+    if (users) {
+      setDrafts(
+        users.reduce<Record<string, UserDraft>>((acc, user) => {
+          acc[String(user.id)] = createDraftFromUser(user);
+          return acc;
+        }, {})
+      );
     }
+  }
 
-    const nextDrafts = usersQuery.data.users.reduce<Record<string, UserDraft>>((acc, user) => {
-      acc[String(user.id)] = createDraftFromUser(user);
-      return acc;
-    }, {});
-    setDrafts(nextDrafts);
-  }, [usersQuery.data]);
-
-  useEffect(() => {
-    if (!registrationStatusQuery.data) {
-      return;
+  const [prevRegistrationData, setPrevRegistrationData] = useState(registrationStatusQuery.data);
+  if (registrationStatusQuery.data !== prevRegistrationData) {
+    setPrevRegistrationData(registrationStatusQuery.data);
+    const data = registrationStatusQuery.data;
+    if (data) {
+      if (data.mode === 'open' || data.mode === 'disabled' || data.mode === 'invitation_only') {
+        setRegistrationModeDraft(data.mode);
+      } else if (data.enabled) {
+        setRegistrationModeDraft('open');
+      } else {
+        setRegistrationModeDraft('disabled');
+      }
     }
+  }
 
-    const mode = registrationStatusQuery.data.mode;
-    if (mode === 'open' || mode === 'disabled' || mode === 'invitation_only') {
-      setRegistrationModeDraft(mode);
-    } else if (registrationStatusQuery.data.enabled) {
-      setRegistrationModeDraft('open');
-    } else {
-      setRegistrationModeDraft('disabled');
-    }
-  }, [registrationStatusQuery.data]);
-
-  useEffect(() => {
+  const [prevPlatformSettings, setPrevPlatformSettings] = useState(platformSettingsQuery.data);
+  if (platformSettingsQuery.data !== prevPlatformSettings) {
+    setPrevPlatformSettings(platformSettingsQuery.data);
     setPrivilegedMfaRequiredDraft(
       readBooleanPlatformSetting(platformSettingsQuery.data, 'require_privileged_mfa', false)
     );
@@ -299,7 +305,7 @@ export function AdminAccessControlSettings() {
         'ib-portal.localhost'
       )
     );
-  }, [platformSettingsQuery.data]);
+  }
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -345,13 +351,15 @@ export function AdminAccessControlSettings() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!mobileSubmenuOpen) {
-      return;
+  // Collapse the mobile submenu when the selection changes — adjusted during
+  // render instead of a cascading effect render.
+  const [prevActiveSubmenu, setPrevActiveSubmenu] = useState(activeSubmenu);
+  if (activeSubmenu !== prevActiveSubmenu) {
+    setPrevActiveSubmenu(activeSubmenu);
+    if (mobileSubmenuOpen) {
+      setMobileSubmenuOpen(false);
     }
-
-    setMobileSubmenuOpen(false);
-  }, [activeSubmenu, mobileSubmenuOpen]);
+  }
 
   const updateRegistrationPolicyMutation = useMutation({
     mutationFn: async ({

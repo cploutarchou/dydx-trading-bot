@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Search } from 'lucide-react';
-import React, { startTransition, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import React, { startTransition, useDeferredValue, useMemo, useState } from 'react';
 
 type SortDirection = 'asc' | 'desc';
 
@@ -62,7 +62,8 @@ export function TerminalDataGrid<T>({
   defaultSortDirection = 'desc',
   defaultPageSize = 12,
 }: TerminalDataGridProps<T>) {
-  const initialSortableColumn = columns.find((column) => column.sortable)?.key || columns[0]?.key || '';
+  const initialSortableColumn =
+    columns.find((column) => column.sortable)?.key || columns[0]?.key || '';
   const [searchTerm, setSearchTerm] = useState('');
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const [page, setPage] = useState(1);
@@ -70,16 +71,29 @@ export function TerminalDataGrid<T>({
   const [sortKey, setSortKey] = useState(defaultSortKey || initialSortableColumn);
   const [sortDirection, setSortDirection] = useState<SortDirection>(defaultSortDirection);
 
-  useEffect(() => {
+  // Reset paging when the view narrows — state adjusted during render (the
+  // sanctioned React pattern) instead of a cascading effect render.
+  const [prevFilterToken, setPrevFilterToken] = useState(filterToken);
+  const [prevDeferredSearchTerm, setPrevDeferredSearchTerm] = useState(deferredSearchTerm);
+  const [prevPageSize, setPrevPageSize] = useState(pageSize);
+  if (
+    filterToken !== prevFilterToken ||
+    deferredSearchTerm !== prevDeferredSearchTerm ||
+    pageSize !== prevPageSize
+  ) {
+    setPrevFilterToken(filterToken);
+    setPrevDeferredSearchTerm(deferredSearchTerm);
+    setPrevPageSize(pageSize);
     setPage(1);
-  }, [filterToken, deferredSearchTerm, pageSize]);
+  }
 
-  useEffect(() => {
-    if (!columns.some((column) => column.key === sortKey && column.sortable)) {
-      setSortKey(defaultSortKey || initialSortableColumn);
-      setSortDirection(defaultSortDirection);
-    }
-  }, [columns, defaultSortDirection, defaultSortKey, initialSortableColumn, sortKey]);
+  // An invalid sort key (columns changed) falls back at consumption time
+  // instead of being repaired by a synchronous effect render.
+  const effectiveSortKey = columns.some((column) => column.key === sortKey && column.sortable)
+    ? sortKey
+    : defaultSortKey || initialSortableColumn;
+  const effectiveSortDirection =
+    effectiveSortKey === sortKey ? sortDirection : defaultSortDirection;
 
   const filteredRows = useMemo(() => {
     const normalizedQuery = deferredSearchTerm.trim().toLowerCase();
@@ -91,7 +105,9 @@ export function TerminalDataGrid<T>({
   }, [deferredSearchTerm, getSearchText, rows]);
 
   const sortedRows = useMemo(() => {
-    const sortableColumn = columns.find((column) => column.key === sortKey && column.sortable);
+    const sortableColumn = columns.find(
+      (column) => column.key === effectiveSortKey && column.sortable
+    );
     if (!sortableColumn?.sortValue) {
       return filteredRows;
     }
@@ -102,18 +118,18 @@ export function TerminalDataGrid<T>({
       const rightValue = sortableColumn.sortValue?.(right);
 
       if (typeof leftValue === 'string' && typeof rightValue === 'string') {
-        return sortDirection === 'asc'
+        return effectiveSortDirection === 'asc'
           ? leftValue.localeCompare(rightValue)
           : rightValue.localeCompare(leftValue);
       }
 
       const leftNumber = typeof leftValue === 'number' ? leftValue : Number(leftValue || 0);
       const rightNumber = typeof rightValue === 'number' ? rightValue : Number(rightValue || 0);
-      return sortDirection === 'asc' ? leftNumber - rightNumber : rightNumber - leftNumber;
+      return effectiveSortDirection === 'asc' ? leftNumber - rightNumber : rightNumber - leftNumber;
     });
 
     return nextRows;
-  }, [columns, filteredRows, sortDirection, sortKey]);
+  }, [columns, filteredRows, effectiveSortDirection, effectiveSortKey]);
 
   const pageCount = Math.max(1, Math.ceil(sortedRows.length / pageSize));
   const safePage = Math.min(page, pageCount);
@@ -121,12 +137,6 @@ export function TerminalDataGrid<T>({
     const start = (safePage - 1) * pageSize;
     return sortedRows.slice(start, start + pageSize);
   }, [pageSize, safePage, sortedRows]);
-
-  useEffect(() => {
-    if (page !== safePage) {
-      setPage(safePage);
-    }
-  }, [page, safePage]);
 
   const rangeStart = sortedRows.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
   const rangeEnd = Math.min(safePage * pageSize, sortedRows.length);
@@ -138,7 +148,7 @@ export function TerminalDataGrid<T>({
     startTransition(() => {
       setPage(1);
       setSortDirection((currentDirection) =>
-        sortKey === column.key ? (currentDirection === 'asc' ? 'desc' : 'asc') : 'desc'
+        effectiveSortKey === column.key ? (currentDirection === 'asc' ? 'desc' : 'asc') : 'desc'
       );
       setSortKey(column.key);
     });
@@ -178,8 +188,13 @@ export function TerminalDataGrid<T>({
       {metrics.length > 0 && (
         <div className="grid grid-cols-2 gap-3 border-b border-slate-800 px-4 py-4 sm:grid-cols-4 sm:px-5">
           {metrics.map((metric) => (
-            <div key={metric.label} className="rounded-lg border border-slate-800 bg-slate-950/70 p-3">
-              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{metric.label}</p>
+            <div
+              key={metric.label}
+              className="rounded-lg border border-slate-800 bg-slate-950/70 p-3"
+            >
+              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                {metric.label}
+              </p>
               <p className={`mt-2 text-lg font-semibold ${toneClasses[metric.tone || 'default']}`}>
                 {metric.value}
               </p>
@@ -204,7 +219,7 @@ export function TerminalDataGrid<T>({
                         : column.align === 'center'
                           ? 'text-center'
                           : 'text-left';
-                    const isActiveSort = column.key === sortKey;
+                    const isActiveSort = column.key === effectiveSortKey;
                     return (
                       <th
                         key={column.key}
@@ -311,4 +326,3 @@ export function TerminalDataGrid<T>({
     </div>
   );
 }
-

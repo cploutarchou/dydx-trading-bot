@@ -11,6 +11,7 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 | 2026-09-05 (pass 3) | FE-006 (Field primitive + both financial forms), FE-022 (started: shared format util + Dashboard), FE-018 (partial: referrer meta), FE-028 (CSV injection guard), FE-029 (partial: https allowlist + host suffix guard) |
 | 2026-09-05 (pass 9b) | FE-038 label category burned down (91→0, rule on) |
 | 2026-09-05 (pass 10) | FE-009 **complete** (backend tokens + endpoints, frontend screens/routes/e2e, live-verified end-to-end; NULL full_name/avatar scan fix 35b8a5e2) |
+| 2026-09-05 (pass 11) | FE-038 import-naming + jsx-a11y interaction categories → 0 (1f0e9662); react-hooks compiler rules → 0 (b0fb2b41); exhaustive-deps → 0 (a4f5724a); set-state-in-effect 54 → 33 (6e854e9d, paused mid-category) |
 | 2026-09-05 (pass 9) | FE-018 (nginx CSP + hardening headers), FE-029 (backend avatar validation + tests), FE-033 (noUncheckedIndexedAccess enabled, 50 fixed) |
 | 2026-09-05 (pass 8) | FE-033a (eslint full coverage + prettier), FE-036 (complete), FE-030 (complete), FE-022b (6 formatters), FE-019, FE-002 + FE-003 (cookie-first auth, verified live), FE-015 (scoped: shim deleted), FE-024 (complete within tooling limits); NEW FE-038 lint debt (238); backend CI test fix for c70cc809's fixture seeding (0879b268) |
 | 2026-09-05 (pass 7) | FE-032 (complete: −33% eager JS, event-driven WS auth sync) |
@@ -93,8 +94,8 @@ Enabling the full recommended lint rule sets revealed 238 pre-existing violation
 | Rule | Count | Fix pattern |
 |---|---:|---|
 | ~~jsx-a11y/label-has-associated-control~~ | ~~91~~ → **0 (2026-09-05: all 91 associated via htmlFor/id pairs, group captions converted to <p>, rule enabled at error level with depth 4; verified live — zero orphaned refs)** |
-| react-hooks/set-state-in-effect | 53 | derive state during render or move to event handlers |
-| react-hooks/exhaustive-deps | 36 | case-by-case dependency review |
-| import/no-named-as-default (+member) | 24 | rename default exports or import named |
-| jsx-a11y interaction rules | 14 | keyboard handlers/roles on interactive divs |
-| react-hooks (compiler: static-components, purity, immutability, preserve-manual-memoization) | 15 | component-extraction review |
+| ~~react-hooks/exhaustive-deps~~ | ~~36~~ → **0 (2026-09-05: stable raw bindings replace `?? []` fallback deps; loaders to useCallback; justified disables for pass-through hook + signature-deps sync; rule enabled)** |
+| ~~import/no-named-as-default (+member)~~ | ~~24~~ → **0 (2026-09-05: named imports at 21 sites, redundant default exports dropped, axios named imports; rule enabled)** |
+| ~~jsx-a11y interaction rules~~ | ~~14~~ → **0 (2026-09-05: keyboard-operable rows/headers, presentation-role backdrops, justified disables on APG Escape dialogs; rules enabled)** |
+| ~~react-hooks (compiler: static-components, purity, immutability, preserve-manual-memoization)~~ | ~~15~~ → **0 (2026-09-05: useNow() clock hook, hoisted loaders, module-scope MetricCard, stable memo bindings; rules enabled)** |
+| react-hooks/set-state-in-effect | ~~54~~ → **33 remaining (2026-09-05 partial: BacktestComparator/TerminalDataGrid/AdminAccessControlSettings/Settings/BacktestDetailsV2/api-hooks done via render-time adjust, consumption-time derivation, microtask mount fetches; 29 files remain — see `CONTINUE_FRONTEND_CYCLE.md` for the exact list; rule still carved out)** |

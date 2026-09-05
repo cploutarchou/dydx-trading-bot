@@ -28,6 +28,7 @@ import {
   Users,
   Zap,
 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import {
   type ComponentType,
   useCallback,
@@ -63,6 +64,7 @@ import {
 import { useAuthStore } from '../store/auth';
 import {
   createSettingsDataLoader,
+  type LoadedSettingsData,
   type SettingField,
   type SettingSection,
   type SettingValue,
@@ -339,26 +341,103 @@ export default function Settings() {
     isBackofficeSettingsSurface && roleMatches(getUserWorkspaceRole(user), BACKOFFICE_ROLES);
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedSection = searchParams.get('section')?.trim().toLowerCase() || '';
-  const [schema, setSchema] = useState<SettingsSchema | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const successToast = useToastStore((state) => state.success);
+  const errorToast = useToastStore((state) => state.error);
+  const infoToast = useToastStore((state) => state.info);
+  // FE-023: schema + form values load through React Query. staleTime Infinity
+  // preserves the load-once semantics of the old manual loader (no focus
+  // refetch that would clobber in-progress draft edits); saves invalidate.
+  const settingsQuery = useQuery({
+    queryKey: ['settings', 'schema', canManageBackofficeSettings],
+    queryFn: async (): Promise<
+      LoadedSettingsData & { loadError: string | null; mfaRequired: boolean }
+    > => {
+      if (!canManageBackofficeSettings) {
+        return {
+          schema: { sections: [] },
+          formValues: {},
+          loadError: null,
+          mfaRequired: false,
+        };
+      }
+      try {
+        const loaded = await createSettingsDataLoader(apiClient)();
+        return { ...loaded, loadError: null, mfaRequired: false };
+      } catch (error: unknown) {
+        if (getApiErrorCode(error) === 'mfa_required') {
+          return {
+            schema: { sections: [] },
+            formValues: {},
+            loadError: 'Complete 2FA enrollment to access operator settings.',
+            mfaRequired: true,
+          };
+        }
+        throw error;
+      }
+    },
+    staleTime: Infinity,
+    retry: 1,
+  });
+
+  const schema: SettingsSchema | null =
+    settingsQuery.data?.schema && settingsQuery.data.schema.sections.length > 0
+      ? settingsQuery.data.schema
+      : settingsQuery.data?.mfaRequired || settingsQuery.isError
+        ? null
+        : (settingsQuery.data?.schema ?? null);
+  const settingsLoadError =
+    settingsQuery.data?.loadError ??
+    (settingsQuery.isError ? getApiErrorMessage(settingsQuery.error, 'Unknown error') : null);
+  const mfaEnrollmentRequired = settingsQuery.data?.mfaRequired ?? false;
+  const loading = settingsQuery.isPending;
+
   const [formValues, setFormValues] = useState<Record<string, Record<string, SettingValue>>>({});
   const [initialFormValues, setInitialFormValues] = useState<
     Record<string, Record<string, SettingValue>>
   >({});
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [settingsLoadError, setSettingsLoadError] = useState<string | null>(null);
-  const [mfaEnrollmentRequired, setMfaEnrollmentRequired] = useState(false);
+  // Seed drafts when fresh server data arrives — adjusted during render on
+  // data-identity change (sanctioned pattern).
+  const loadedFormValues = settingsQuery.data?.formValues;
+  const [prevLoadedFormValues, setPrevLoadedFormValues] = useState(loadedFormValues);
+  if (loadedFormValues !== prevLoadedFormValues) {
+    setPrevLoadedFormValues(loadedFormValues);
+    if (loadedFormValues) {
+      setFormValues(loadedFormValues);
+      setInitialFormValues(loadedFormValues);
+    }
+  }
+
+  const refetchSettings = useCallback(() => {
+    void settingsQuery.refetch();
+  }, [settingsQuery]);
+
+  // Surface load failures as toasts on transition (the old loader did this
+  // inline; queryFn stays side-effect free).
+  const queryError = settingsQuery.error;
+  const [prevQueryError, setPrevQueryError] = useState(queryError);
+  if (queryError !== prevQueryError) {
+    setPrevQueryError(queryError);
+    if (queryError) {
+      errorToast('Failed to load settings', getApiErrorMessage(queryError, 'Unknown error'));
+    }
+  }
+  const queryMfaRequired = settingsQuery.data?.mfaRequired ?? false;
+  const [prevMfaRequired, setPrevMfaRequired] = useState(queryMfaRequired);
+  if (queryMfaRequired !== prevMfaRequired) {
+    setPrevMfaRequired(queryMfaRequired);
+    if (queryMfaRequired) {
+      errorToast('MFA enrollment required', 'Complete 2FA enrollment to access operator settings.');
+    }
+  }
   const [activeSection, setActiveSection] = useState<string>(requestedSection || 'profile');
   const [pendingFocusTarget, setPendingFocusTarget] = useState<PendingFocusTarget | null>(null);
   const [sectionSearchQuery, setSectionSearchQuery] = useState('');
   const [testingConnection, setTestingConnection] = useState(false);
   const fieldRefs = useRef<Record<string, HTMLInputElement | HTMLSelectElement | null>>({});
-  const settingsDataLoaderRef = useRef(createSettingsDataLoader(apiClient));
   const urlSyncEnabledRef = useRef(true);
   const [urlSyncEnabled, setUrlSyncEnabled] = useState(true);
-  const successToast = useToastStore((state) => state.success);
-  const errorToast = useToastStore((state) => state.error);
-  const infoToast = useToastStore((state) => state.info);
   const deferredSectionSearchQuery = useDeferredValue(sectionSearchQuery);
 
   const visibleSchemaSections = useMemo(
@@ -440,52 +519,6 @@ export default function Settings() {
   );
 
   const hasValidationErrors = useMemo(() => hasAnyFieldErrors(fieldErrors), [fieldErrors]);
-
-  const fetchSettingsData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setSettingsLoadError(null);
-      setMfaEnrollmentRequired(false);
-
-      if (!canManageBackofficeSettings) {
-        setSchema({ sections: [] });
-        setFormValues({});
-        setInitialFormValues({});
-        return;
-      }
-
-      const { schema: schemaData, formValues: formVals } = await settingsDataLoaderRef.current();
-
-      setFormValues(formVals);
-      setInitialFormValues(formVals);
-      setSchema(schemaData);
-    } catch (error: unknown) {
-      const apiErrorCode = getApiErrorCode(error);
-      if (apiErrorCode === 'mfa_required') {
-        setSchema(null);
-        setSettingsLoadError('Complete 2FA enrollment to access operator settings.');
-        setMfaEnrollmentRequired(true);
-        errorToast(
-          'MFA enrollment required',
-          'Complete 2FA enrollment to access operator settings.'
-        );
-        return;
-      }
-
-      const message = getApiErrorMessage(error, 'Unknown error');
-      setSchema(null);
-      setSettingsLoadError(message);
-      errorToast('Failed to load settings', message);
-    } finally {
-      setLoading(false);
-    }
-  }, [canManageBackofficeSettings, errorToast]);
-
-  useEffect(() => {
-    // Load-on-mount: scheduling through a microtask keeps the loader's
-    // synchronous state reset out of the effect body (no cascading render).
-    void Promise.resolve().then(() => fetchSettingsData());
-  }, [fetchSettingsData]);
 
   // Restore the last-opened section once sections are known — adjusted
   // during render (sanctioned pattern) instead of a cascading effect render.
@@ -638,9 +671,7 @@ export default function Settings() {
         successToast('Settings saved', 'Your configuration has been updated successfully.');
         setInitialFormValues(formValues);
         // Refresh settings to confirm changes
-        window.setTimeout(() => {
-          void fetchSettingsData();
-        }, 1000);
+        window.setTimeout(() => refetchSettings(), 1000);
       } else {
         errorToast('Failed to save settings', response.message || 'Please try again.');
       }
@@ -737,7 +768,7 @@ export default function Settings() {
           action={
             <button
               type="button"
-              onClick={fetchSettingsData}
+              onClick={refetchSettings}
               className="rounded-lg border border-rose-500/30 bg-rose-500/15 px-4 py-2 text-sm font-medium text-rose-100 transition hover:border-rose-400/40 hover:bg-rose-500/20"
             >
               Retry

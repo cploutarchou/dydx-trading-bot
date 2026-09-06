@@ -13,6 +13,7 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 | 2026-09-05 (pass 10) | FE-009 **complete** (backend tokens + endpoints, frontend screens/routes/e2e, live-verified end-to-end; NULL full_name/avatar scan fix 35b8a5e2) |
 | 2026-09-05 (pass 11) | FE-038 import-naming + jsx-a11y interaction categories → 0 (1f0e9662); react-hooks compiler rules → 0 (b0fb2b41); exhaustive-deps → 0 (a4f5724a); set-state-in-effect 54 → 33 (6e854e9d, paused mid-category) |
 | 2026-09-06 (pass 14) | FE-015 core: single HTTP stack — enhancedClient on axios via requestJson, fetch machinery deleted, live-verified (1137a6a6); CI green both workflows |
+| 2026-09-06 (pass 17) | PERF-1 closed by measurement — method-granularity strip experiment puts the extraction ceiling at −1.5KB gzip vs. re-plumbing the auth core; cycle 100% closed with every item either shipped or rejected-on-data |
 | 2026-09-06 (pass 16) | FE-023 **complete** — BacktestDetailsV2 on React Query (6d11e921); live pass caught + fixed a latent render loop from FE-038 (unmemoized useAIProviderAvailability identities, 6d12ad54); FE-015 ✅ / FE-023 ✅ — backlog fully green; chunk split re-filed as PERF-1 |
 | 2026-09-06 (pass 15) | FE-023 Settings → React Query (900e4d41); BacktestList → React Query with active-only polling + backoff via refetchInterval, per-run status calls dropped as redundant (d848f2aa); enhancedClient deleted → botApi.ts, hooks/websocket auth direct on api.ts (cc7231cc); api.ts chunk split measured and rejected (+16KB gzip first load — see FE-015 row) |
 | 2026-09-06 (pass 13) | FE-022 **complete** — ~40 remaining money sites migrated to shared formatters (09e4e560) |
@@ -66,7 +67,7 @@ Status marks: ✅ done (2026-09-04 implementation pass 1) · 🟡 partially done
 
 | ID | Area | Issue | Impact | Status |
 |---|---|---|---|---|
-| PERF-1 | Bundle | api.ts endpoint groups (admin/ICO/CRM/analytics) can't tree-shake per portal (class methods); measured: manualChunks hoist costs +16KB gzip first load | Smaller per-portal first loads | ⬜ deferred — needs endpoint-group modules + call-site migration across admin surfaces; verify with all three portal builds |
+| PERF-1 | Bundle | api.ts endpoint groups (admin/ICO/CRM/analytics) can't tree-shake per portal (class methods) | Smaller per-portal first loads | ✅ **investigated + closed 2026-09-06, negative ROI with data**: (1) manualChunks carve = +16KB gzip first load (shared helpers hoisted eager); (2) full extraction ceiling measured by stripping all 48 admin-only methods (24.3KB source) and building = **−1.5KB gzip** (10.3KB raw) — gzip flattens the repetitive axios/try-catch bodies. Realizing even that ceiling requires extracting the 7.3KB auth/interceptor constructor (the FE-002/003 P1 security core) into a shared module + 7 group modules + ~20 call-site files + live re-verification of all three portals. Rejected: a 1.5KB win does not justify re-plumbing hardened auth code. Reopen only if api.ts grows an order of magnitude or portals diverge further. |
 
 | ID | Area | Issue | Complexity |
 |---|---|---|---|

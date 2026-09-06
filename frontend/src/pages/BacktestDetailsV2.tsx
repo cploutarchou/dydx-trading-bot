@@ -28,7 +28,8 @@ import {
   TrendingUp,
   Waves,
 } from 'lucide-react';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
 import { botApi } from '../api/botApi';
@@ -160,11 +161,6 @@ interface SocketLogPayload {
   current_pair?: string;
   current_task?: string;
   status?: string;
-}
-
-interface DetailSyncState {
-  runId: string;
-  cursor: string;
 }
 
 type ChartRange = '7D' | '30D' | '90D' | 'ALL';
@@ -495,28 +491,48 @@ export const BacktestDetailsV2: React.FC = () => {
   const navigate = useNavigate();
   const progressQuery = useBacktestProgress(runId || '');
 
-  // Main backtest data
-  const [backtest, setBacktest] = useState<BacktestResponse | null>(null);
+  const queryClient = useQueryClient();
 
-  // Real data from API
-  const [candles, setCandles] = useState<Candle[]>([]);
-  const [positions, setPositions] = useState<Position[]>([]);
-  const [trades, setTrades] = useState<Trade[]>([]);
-  const [markets, setMarkets] = useState<string[]>([]);
-  const [chartMarkers, setChartMarkers] = useState<BacktestChartMarker[]>([]);
-  const [analyticsLoadedState, setAnalyticsLoadedState] = useState<DetailSyncState | null>(null);
-  const [positionsLoadedState, setPositionsLoadedState] = useState<DetailSyncState | null>(null);
-  const [tradesLoadedState, setTradesLoadedState] = useState<DetailSyncState | null>(null);
-  const [analyticsLoading, setAnalyticsLoading] = useState(false);
-  const [positionsLoading, setPositionsLoading] = useState(false);
-  const [tradesLoading, setTradesLoading] = useState(false);
-  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
-  const [positionsError, setPositionsError] = useState<string | null>(null);
-  const [tradesError, setTradesError] = useState<string | null>(null);
+  // ── Metadata (FE-023): one query owns the run shell ──
+  const metadataQuery = useQuery({
+    queryKey: ['backtests', 'detail', runId, 'meta'],
+    enabled: Boolean(runId),
+    staleTime: 15_000,
+    queryFn: async (): Promise<BacktestResponse> => {
+      const safeRunId = runId as string;
+      try {
+        const liveStatusResponse = await withTimeout(
+          botApi.getBacktestStatus(safeRunId),
+          8000,
+          'Backtest live status'
+        );
+        const liveStatusPayload = unwrapDataRecord(liveStatusResponse);
+        const fallbackBacktest = buildFallbackBacktestFromStatus(safeRunId, liveStatusPayload);
 
-  // UI state
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+        if (shouldRenderListShellOnly(fallbackBacktest.status)) {
+          return fallbackBacktest;
+        }
+
+        try {
+          const response = await withTimeout(api.getBacktest(safeRunId), 12000, 'Backtest detail');
+          const data = response?.data || response;
+          return data as unknown as BacktestResponse;
+        } catch (detailErr: unknown) {
+          console.debug('Backtest detail request failed, rendering live summary shell:', detailErr);
+          return fallbackBacktest;
+        }
+      } catch (err: unknown) {
+        console.debug('Backtest live summary failed, rendering route-only run shell:', err);
+        return buildFallbackBacktestFromStatus(safeRunId, {});
+      }
+    },
+  });
+
+  const backtest = metadataQuery.data ?? null;
+
+  // UI state (metadata loading/error derive from the query)
+  const loading = !runId ? false : metadataQuery.isPending;
+  const error = !runId ? 'Missing backtest run id' : null;
   const [selectedMarket, setSelectedMarket] = useState<string | null>(null);
   const [chartRange, setChartRange] = useState<ChartRange>('30D');
   const [activeTab, setActiveTab] = useState<DetailTab>('summary');
@@ -549,65 +565,6 @@ export const BacktestDetailsV2: React.FC = () => {
     const request = asRecord(backtest?.request);
     return firstFiniteNumber(backtest?.strategy_id, request?.strategy_id);
   }, [backtest?.request, backtest?.strategy_id]);
-
-  const fetchBacktestMetadata = useCallback(
-    async (showLoading: boolean = true) => {
-      if (showLoading) {
-        setLoading(true);
-      }
-      setError(null);
-
-      if (!runId) {
-        setBacktest(null);
-        setError('Missing backtest run id');
-        return;
-      }
-
-      const safeRunId = runId;
-
-      try {
-        const liveStatusResponse = await withTimeout(
-          botApi.getBacktestStatus(safeRunId),
-          8000,
-          'Backtest live status'
-        );
-        const liveStatusPayload = unwrapDataRecord(liveStatusResponse);
-        const fallbackBacktest = buildFallbackBacktestFromStatus(safeRunId, liveStatusPayload);
-
-        if (shouldRenderListShellOnly(fallbackBacktest.status)) {
-          setBacktest(fallbackBacktest);
-          setError(null);
-          return;
-        }
-
-        try {
-          const response = await withTimeout(api.getBacktest(safeRunId), 12000, 'Backtest detail');
-          const data = response?.data || response;
-          setBacktest(data as unknown as BacktestResponse);
-        } catch (detailErr: unknown) {
-          console.debug('Backtest detail request failed, rendering live summary shell:', detailErr);
-          setBacktest(fallbackBacktest);
-          setError(null);
-        }
-      } catch (err: unknown) {
-        console.debug('Backtest live summary failed, rendering route-only run shell:', err);
-        setBacktest(buildFallbackBacktestFromStatus(safeRunId, {}));
-        setError(null);
-      } finally {
-        if (showLoading) {
-          setLoading(false);
-        }
-      }
-    },
-    [runId]
-  );
-
-  // Fetch backtest metadata
-  useEffect(() => {
-    // Load-on-mount via microtask: keeps the loader's synchronous state
-    // reset out of the effect body (no cascading render).
-    void Promise.resolve().then(() => fetchBacktestMetadata());
-  }, [fetchBacktestMetadata]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -686,26 +643,12 @@ export const BacktestDetailsV2: React.FC = () => {
     };
   }, [linkedStrategyId]);
 
-  // Reset per-run state when the run changes — adjusted during render (the
-  // sanctioned pattern) so no cascading effect render is needed.
+  // Reset per-run UI state when the run changes — adjusted during render (the
+  // sanctioned pattern); dataset resets ride the query-key change.
   const [prevRunIdState, setPrevRunIdState] = useState(runId);
   if (runId !== prevRunIdState) {
     setPrevRunIdState(runId);
-    setCandles([]);
-    setPositions([]);
-    setTrades([]);
-    setMarkets([]);
-    setChartMarkers([]);
     setSelectedMarket(null);
-    setAnalyticsLoadedState(null);
-    setPositionsLoadedState(null);
-    setTradesLoadedState(null);
-    setAnalyticsLoading(false);
-    setPositionsLoading(false);
-    setTradesLoading(false);
-    setAnalyticsError(null);
-    setPositionsError(null);
-    setTradesError(null);
     setLiveLogs([]);
   }
 
@@ -728,113 +671,95 @@ export const BacktestDetailsV2: React.FC = () => {
     liveStatusForDetailSync === 'queued' ||
     liveStatusForDetailSync === 'created';
   const detailSyncCursor = isLiveDetailRun ? liveDetailCursor : 'settled';
+  // Queries are disabled without a run id; this capture keeps the queryFns
+  // stringly-typed without non-null assertions at every call.
+  const safeDetailRunId = runId ?? '';
 
-  // Fetch analytics and map it to chart-friendly candle-like series
-  useEffect(() => {
-    const fetchAnalytics = async () => {
-      if (!runId) {
-        setCandles([]);
-        setMarkets([]);
-        setAnalyticsLoadedState(null);
-        return;
+  // ── Detail datasets (FE-023): tab-gated queries; the sync cursor in each
+  // key replicates the old loaded-state guards (a new cursor refetches),
+  // keepPreviousData preserves the old silent-refresh behavior for live runs
+  // (existing rows stay visible while the next fetch lands), and staleTime
+  // Infinity keeps tab switches on cache like the guards did.
+  const detailQueryOptions = {
+    staleTime: Infinity,
+    placeholderData: keepPreviousData,
+    retry: 1,
+  } as const;
+
+  const analyticsQuery = useQuery({
+    queryKey: ['backtests', 'detail', runId, 'analytics', detailSyncCursor],
+    enabled: Boolean(runId) && activeTab === 'candles',
+    ...detailQueryOptions,
+    queryFn: async (): Promise<{
+      candles: Candle[];
+      markets: string[];
+      chartMarkers: BacktestChartMarker[];
+    }> => {
+      const response = await api.getBacktestAnalytics(safeDetailRunId);
+      const payload = asRecord(response?.data || response);
+      const root = asRecord(payload?.data) || payload;
+      const daily = root?.daily_pnl;
+
+      if (!Array.isArray(daily) || daily.length === 0) {
+        return { candles: [], markets: [], chartMarkers: [] };
       }
-      if (activeTab !== 'candles') return;
-      if (
-        analyticsLoadedState?.runId === runId &&
-        analyticsLoadedState.cursor === detailSyncCursor
-      ) {
-        return;
-      }
 
-      try {
-        const hasExistingAnalytics = candles.length > 0;
-        setAnalyticsLoading(!hasExistingAnalytics);
-        setAnalyticsError(null);
-        const response = await api.getBacktestAnalytics(runId);
-        const payload = asRecord(response?.data || response);
-        const root = asRecord(payload?.data) || payload;
-        const daily = root?.daily_pnl;
+      let runningCumulative = 0;
+      const marketSet = new Set<string>();
 
-        if (!Array.isArray(daily) || daily.length === 0) {
-          setCandles([]);
-          setMarkets([]);
-          setChartMarkers([]);
-          setAnalyticsLoadedState({
-            runId,
-            cursor: detailSyncCursor,
-          });
-          return;
-        }
+      const mapped: Candle[] = daily
+        .map((item) => asRecord(item))
+        .filter((item): item is Record<string, unknown> => item !== null)
+        .map((point) => {
+          const market = toStringValue(point.market, 'PORTFOLIO');
+          const tsRaw =
+            toStringValue(point.timestamp) || toStringValue(point.date) || new Date().toISOString();
 
-        let runningCumulative = 0;
-        const marketSet = new Set<string>();
+          const pnlValue = toNumber(point.pnl, 0);
+          const explicitCumulative = toNumber(point.cumulative_pnl, Number.NaN);
 
-        const mapped: Candle[] = daily
-          .map((item) => asRecord(item))
-          .filter((item): item is Record<string, unknown> => item !== null)
-          .map((point) => {
-            const market = toStringValue(point.market, 'PORTFOLIO');
-            const tsRaw =
-              toStringValue(point.timestamp) ||
-              toStringValue(point.date) ||
-              new Date().toISOString();
+          if (Number.isFinite(explicitCumulative)) {
+            runningCumulative = explicitCumulative;
+          } else {
+            runningCumulative += pnlValue;
+          }
 
-            const pnlValue = toNumber(point.pnl, 0);
-            const explicitCumulative = toNumber(point.cumulative_pnl, Number.NaN);
+          marketSet.add(market);
 
-            if (Number.isFinite(explicitCumulative)) {
-              runningCumulative = explicitCumulative;
-            } else {
-              runningCumulative += pnlValue;
-            }
-
-            marketSet.add(market);
-
-            return {
-              market,
-              timestamp: tsRaw,
-              open: runningCumulative,
-              high: runningCumulative,
-              low: runningCumulative,
-              close: runningCumulative,
-              volume: toNumber(point.trades, 0),
-            };
-          });
-
-        setCandles(mapped);
-        setMarkets(Array.from(marketSet));
-        const analyticsTrades = Array.isArray(root?.trades)
-          ? root.trades
-              .map((item) => asRecord(item))
-              .filter((item): item is Record<string, unknown> => item !== null)
-              .map(normalizeTradeRecord)
-          : [];
-        setChartMarkers(
-          analyticsTrades.map((trade) => ({
-            time: trade.exit_timestamp || trade.entry_timestamp,
-            pair: `${trade.market_1}/${trade.market_2}`,
-            pnl: trade.pnl_usd,
-          }))
-        );
-        setAnalyticsLoadedState({
-          runId,
-          cursor: detailSyncCursor,
+          return {
+            market,
+            timestamp: tsRaw,
+            open: runningCumulative,
+            high: runningCumulative,
+            low: runningCumulative,
+            close: runningCumulative,
+            volume: toNumber(point.trades, 0),
+          };
         });
-      } catch (err: unknown) {
-        console.error('Failed to fetch backtest analytics:', err);
-        if (candles.length === 0) {
-          setCandles([]);
-          setMarkets([]);
-          setChartMarkers([]);
-        }
-        setAnalyticsError(err instanceof Error ? err.message : 'Failed to load analytics');
-      } finally {
-        setAnalyticsLoading(false);
-      }
-    };
 
-    fetchAnalytics();
-  }, [candles.length, runId, activeTab, analyticsLoadedState, detailSyncCursor]);
+      const analyticsTrades = Array.isArray(root?.trades)
+        ? root.trades
+            .map((item) => asRecord(item))
+            .filter((item): item is Record<string, unknown> => item !== null)
+            .map(normalizeTradeRecord)
+        : [];
+
+      return {
+        candles: mapped,
+        markets: Array.from(marketSet),
+        chartMarkers: analyticsTrades.map((trade) => ({
+          time: trade.exit_timestamp || trade.entry_timestamp,
+          pair: `${trade.market_1}/${trade.market_2}`,
+          pnl: trade.pnl_usd,
+        })),
+      };
+    },
+  });
+
+  const analyticsCandles = analyticsQuery.data?.candles;
+  const markets = analyticsQuery.data?.markets ?? [];
+  const analyticsChartMarkers = analyticsQuery.data?.chartMarkers;
+  const candles = analyticsCandles ?? [];
 
   // The effective market is derived at consumption: empty list -> none,
   // stale selection -> first available.
@@ -844,182 +769,142 @@ export const BacktestDetailsV2: React.FC = () => {
       : selectedMarket && markets.includes(selectedMarket)
         ? selectedMarket
         : (markets[0] ?? null);
+  const analyticsLoading = analyticsQuery.isPending && !analyticsQuery.data;
+  const analyticsError = analyticsQuery.isError
+    ? analyticsQuery.error instanceof Error
+      ? analyticsQuery.error.message
+      : 'Failed to load analytics'
+    : null;
 
-  // Fetch position snapshots and flatten to latest known entries per snapshot
-  useEffect(() => {
-    const fetchPositionSnapshots = async () => {
-      if (!runId) {
-        setPositions([]);
-        setPositionsLoadedState(null);
-        return;
+  // Position snapshots, flattened to latest known entries per snapshot
+  const positionsQuery = useQuery({
+    queryKey: ['backtests', 'detail', runId, 'positions', detailSyncCursor],
+    enabled: Boolean(runId) && activeTab === 'positions',
+    ...detailQueryOptions,
+    queryFn: async (): Promise<Position[]> => {
+      const response = await api.getBacktestPositionSnapshots(safeDetailRunId, 1000, 0);
+      const payload = asRecord(response?.data || response);
+      const root = asRecord(payload?.data) || payload;
+      const snapshots = root?.snapshots;
+
+      if (!Array.isArray(snapshots) || snapshots.length === 0) {
+        return [];
       }
-      if (activeTab !== 'positions') return;
-      if (
-        positionsLoadedState?.runId === runId &&
-        positionsLoadedState.cursor === detailSyncCursor
-      ) {
-        return;
-      }
 
-      try {
-        const hasExistingPositions = positions.length > 0;
-        setPositionsLoading(!hasExistingPositions);
-        setPositionsError(null);
-        const response = await api.getBacktestPositionSnapshots(runId, 1000, 0);
-        const payload = asRecord(response?.data || response);
-        const root = asRecord(payload?.data) || payload;
-        const snapshots = root?.snapshots;
+      const flattened: Position[] = [];
 
-        if (!Array.isArray(snapshots) || snapshots.length === 0) {
-          setPositions([]);
-          setPositionsLoadedState({
-            runId,
-            cursor: detailSyncCursor,
-          });
-          return;
-        }
+      snapshots.forEach((snapshot) => {
+        const snapshotRecord = asRecord(snapshot);
+        if (!snapshotRecord) return;
 
-        const flattened: Position[] = [];
+        const snapshotTimestamp =
+          toStringValue(snapshotRecord.timestamp) || new Date().toISOString();
+        const snapshotPositions = snapshotRecord.positions;
 
-        snapshots.forEach((snapshot) => {
-          const snapshotRecord = asRecord(snapshot);
-          if (!snapshotRecord) return;
+        if (!Array.isArray(snapshotPositions)) return;
 
-          const snapshotTimestamp =
-            toStringValue(snapshotRecord.timestamp) || new Date().toISOString();
-          const snapshotPositions = snapshotRecord.positions;
+        snapshotPositions.forEach((rawPos) => {
+          const pos = asRecord(rawPos);
+          if (!pos) return;
 
-          if (!Array.isArray(snapshotPositions)) return;
+          const pnl = toNumber(pos.total_pnl_usd, Number.NaN) || toNumber(pos.unrealized_pnl, 0);
 
-          snapshotPositions.forEach((rawPos) => {
-            const pos = asRecord(rawPos);
-            if (!pos) return;
-
-            const pnl = toNumber(pos.total_pnl_usd, Number.NaN) || toNumber(pos.unrealized_pnl, 0);
-
-            flattened.push({
-              position_id: toNumber(pos.position_id, 0),
-              market_1: toStringValue(pos.market_1, '-'),
-              market_2: toStringValue(pos.market_2, '-'),
-              entry_timestamp:
-                toStringValue(pos.entry_timestamp) ||
-                toStringValue(pos.entry_time) ||
-                snapshotTimestamp,
-              exit_timestamp: toStringValue(pos.exit_timestamp) || null,
-              entry_price_m1: toNumber(pos.entry_price_m1, toNumber(pos.entry_price_1, 0)),
-              exit_price_m1: null,
-              entry_price_m2: toNumber(pos.entry_price_m2, toNumber(pos.entry_price_2, 0)),
-              exit_price_m2: null,
-              hedge_ratio: toNumber(pos.hedge_ratio, 0),
-              entry_zscore: toNumber(pos.entry_zscore, toNumber(pos.current_z_score, 0)),
-              exit_zscore: null,
-              pnl_m1_usd: 0,
-              pnl_m2_usd: 0,
-              total_pnl_usd: Number.isFinite(pnl) ? pnl : 0,
-              status: toStringValue(pos.status, 'OPEN'),
-            });
+          flattened.push({
+            position_id: toNumber(pos.position_id, 0),
+            market_1: toStringValue(pos.market_1, '-'),
+            market_2: toStringValue(pos.market_2, '-'),
+            entry_timestamp:
+              toStringValue(pos.entry_timestamp) ||
+              toStringValue(pos.entry_time) ||
+              snapshotTimestamp,
+            exit_timestamp: toStringValue(pos.exit_timestamp) || null,
+            entry_price_m1: toNumber(pos.entry_price_m1, toNumber(pos.entry_price_1, 0)),
+            exit_price_m1: null,
+            entry_price_m2: toNumber(pos.entry_price_m2, toNumber(pos.entry_price_2, 0)),
+            exit_price_m2: null,
+            hedge_ratio: toNumber(pos.hedge_ratio, 0),
+            entry_zscore: toNumber(pos.entry_zscore, toNumber(pos.current_z_score, 0)),
+            exit_zscore: null,
+            pnl_m1_usd: 0,
+            pnl_m2_usd: 0,
+            total_pnl_usd: Number.isFinite(pnl) ? pnl : 0,
+            status: toStringValue(pos.status, 'OPEN'),
           });
         });
+      });
 
-        setPositions(flattened);
-        setPositionsLoadedState({
-          runId,
-          cursor: detailSyncCursor,
+      return flattened;
+    },
+  });
+
+  const positions = positionsQuery.data ?? [];
+  const positionsLoading = positionsQuery.isPending && !positionsQuery.data;
+  const positionsError = positionsQuery.isError
+    ? positionsQuery.error instanceof Error
+      ? positionsQuery.error.message
+      : 'Failed to load positions'
+    : null;
+
+  const tradesQuery = useQuery({
+    queryKey: ['backtests', 'detail', runId, 'trades', detailSyncCursor],
+    enabled: Boolean(runId) && activeTab === 'trades',
+    ...detailQueryOptions,
+    queryFn: async (): Promise<Trade[]> => {
+      const response = await api.getBacktestTradesDetailed(
+        safeDetailRunId,
+        undefined,
+        undefined,
+        0,
+        500
+      );
+
+      const payload = asRecord(response?.data || response);
+      const root = asRecord(payload?.data) || payload;
+      const rawTrades = root?.trades;
+
+      if (!Array.isArray(rawTrades)) {
+        return [];
+      }
+
+      return rawTrades
+        .map((item) => asRecord(item))
+        .filter((item): item is Record<string, unknown> => item !== null)
+        .map((trade) => {
+          const pnlUsd = toNumber(trade.pnl_usd, toNumber(trade.pnl, 0));
+          const serverTradeId = toStringValue(trade.trade_id);
+          return {
+            trade_id: serverTradeId,
+            market_1: toStringValue(trade.market_1, toStringValue(trade.base_market, '-')),
+            market_2: toStringValue(trade.market_2, toStringValue(trade.quote_market, '-')),
+            entry_timestamp:
+              toStringValue(trade.entry_timestamp) || toStringValue(trade.entry_time),
+            exit_timestamp: toStringValue(trade.exit_timestamp) || toStringValue(trade.exit_time),
+            entry_zscore: toNumber(trade.entry_zscore, toNumber(trade.entry_z_score, 0)),
+            exit_zscore: toNumber(trade.exit_zscore, toNumber(trade.exit_z_score, 0)),
+            entry_price_m1: toNumber(trade.entry_price_m1, toNumber(trade.entry_price_1, 0)),
+            exit_price_m1: toNumber(trade.exit_price_m1, toNumber(trade.exit_price_1, 0)),
+            entry_price_m2: toNumber(trade.entry_price_m2, toNumber(trade.entry_price_2, 0)),
+            exit_price_m2: toNumber(trade.exit_price_m2, toNumber(trade.exit_price_2, 0)),
+            hedge_ratio: toNumber(trade.hedge_ratio, 0),
+            pnl_usd: pnlUsd,
+            pnl_pct: toNumber(trade.pnl_pct, toNumber(trade.pnl_percent, 0)),
+            duration_hours: toNumber(
+              trade.duration_hours,
+              toNumber(trade.duration_minutes, 0) / 60
+            ),
+            win: pnlUsd >= 0,
+          } satisfies Trade;
         });
-      } catch (err: unknown) {
-        console.error('Failed to fetch position snapshots:', err);
-        if (positions.length === 0) {
-          setPositions([]);
-        }
-        setPositionsError(err instanceof Error ? err.message : 'Failed to load positions');
-      } finally {
-        setPositionsLoading(false);
-      }
-    };
+    },
+  });
 
-    fetchPositionSnapshots();
-  }, [positions.length, runId, activeTab, positionsLoadedState, detailSyncCursor]);
-
-  // Fetch trades
-  useEffect(() => {
-    const fetchTrades = async () => {
-      if (!runId) {
-        setTrades([]);
-        setTradesLoadedState(null);
-        return;
-      }
-      if (activeTab !== 'trades') return;
-      if (tradesLoadedState?.runId === runId && tradesLoadedState.cursor === detailSyncCursor) {
-        return;
-      }
-
-      try {
-        const hasExistingTrades = trades.length > 0;
-        setTradesLoading(!hasExistingTrades);
-        setTradesError(null);
-        const response = await api.getBacktestTradesDetailed(runId, undefined, undefined, 0, 500);
-
-        const payload = asRecord(response?.data || response);
-        const root = asRecord(payload?.data) || payload;
-        const rawTrades = root?.trades;
-
-        if (Array.isArray(rawTrades)) {
-          const normalizedTrades: Trade[] = rawTrades
-            .map((item) => asRecord(item))
-            .filter((item): item is Record<string, unknown> => item !== null)
-            .map((trade) => {
-              const pnlUsd = toNumber(trade.pnl_usd, toNumber(trade.pnl, 0));
-              const serverTradeId = toStringValue(trade.trade_id);
-              return {
-                trade_id: serverTradeId,
-                market_1: toStringValue(trade.market_1, toStringValue(trade.base_market, '-')),
-                market_2: toStringValue(trade.market_2, toStringValue(trade.quote_market, '-')),
-                entry_timestamp:
-                  toStringValue(trade.entry_timestamp) || toStringValue(trade.entry_time),
-                exit_timestamp:
-                  toStringValue(trade.exit_timestamp) || toStringValue(trade.exit_time),
-                entry_zscore: toNumber(trade.entry_zscore, toNumber(trade.entry_z_score, 0)),
-                exit_zscore: toNumber(trade.exit_zscore, toNumber(trade.exit_z_score, 0)),
-                entry_price_m1: toNumber(trade.entry_price_m1, toNumber(trade.entry_price_1, 0)),
-                exit_price_m1: toNumber(trade.exit_price_m1, toNumber(trade.exit_price_1, 0)),
-                entry_price_m2: toNumber(trade.entry_price_m2, toNumber(trade.entry_price_2, 0)),
-                exit_price_m2: toNumber(trade.exit_price_m2, toNumber(trade.exit_price_2, 0)),
-                hedge_ratio: toNumber(trade.hedge_ratio, 0),
-                pnl_usd: pnlUsd,
-                pnl_pct: toNumber(trade.pnl_pct, toNumber(trade.pnl_percent, 0)),
-                duration_hours: toNumber(
-                  trade.duration_hours,
-                  toNumber(trade.duration_minutes, 0) / 60
-                ),
-                win: pnlUsd >= 0,
-              };
-            });
-
-          setTrades(normalizedTrades);
-          setTradesLoadedState({
-            runId,
-            cursor: detailSyncCursor,
-          });
-        } else {
-          setTrades([]);
-          setTradesLoadedState({
-            runId,
-            cursor: detailSyncCursor,
-          });
-        }
-      } catch (err: unknown) {
-        console.error('Failed to fetch trades:', err);
-        if (trades.length === 0) {
-          setTrades([]);
-        }
-        setTradesError(err instanceof Error ? err.message : 'Failed to load trades');
-      } finally {
-        setTradesLoading(false);
-      }
-    };
-
-    fetchTrades();
-  }, [trades.length, runId, activeTab, tradesLoadedState, detailSyncCursor]);
+  const trades = tradesQuery.data ?? [];
+  const tradesLoading = tradesQuery.isPending && !tradesQuery.data;
+  const tradesError = tradesQuery.isError
+    ? tradesQuery.error instanceof Error
+      ? tradesQuery.error.message
+      : 'Failed to load trades'
+    : null;
 
   useEffect(() => {
     if (!runId) return;
@@ -1046,7 +931,10 @@ export const BacktestDetailsV2: React.FC = () => {
       try {
         const response = await api.getBacktest(runId);
         if (!cancelled) {
-          setBacktest((response?.data || response) as unknown as BacktestResponse);
+          queryClient.setQueryData(
+            ['backtests', 'detail', runId, 'meta'],
+            (response?.data || response) as unknown as BacktestResponse
+          );
         }
       } catch (err) {
         console.warn('Failed to sync final backtest details:', err);
@@ -1058,7 +946,7 @@ export const BacktestDetailsV2: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [backtest?.status, progressQuery.data?.status, runId]);
+  }, [backtest?.status, progressQuery.data?.status, queryClient, runId]);
 
   useEffect(() => {
     const event = progressQuery.lastSocketEvent as SocketLogPayload | null;
@@ -1104,8 +992,8 @@ export const BacktestDetailsV2: React.FC = () => {
 
   // Filter candles for selected market
   const selectedCandles = useMemo(
-    () => candles.filter((c) => c.market === effectiveSelectedMarket),
-    [candles, effectiveSelectedMarket]
+    () => (analyticsCandles ?? []).filter((c) => c.market === effectiveSelectedMarket),
+    [analyticsCandles, effectiveSelectedMarket]
   );
   const selectedChartPoints = useMemo<BacktestChartPoint[]>(
     () =>
@@ -1126,7 +1014,7 @@ export const BacktestDetailsV2: React.FC = () => {
   );
   const filteredChartMarkers = useMemo(
     () =>
-      chartMarkers.filter((marker) => {
+      (analyticsChartMarkers ?? []).filter((marker) => {
         const matchesMarket =
           !effectiveSelectedMarket ||
           marker.pair === effectiveSelectedMarket ||
@@ -1154,7 +1042,7 @@ export const BacktestDetailsV2: React.FC = () => {
         const cutoff = latestDate.getTime() - lookbackDays * 24 * 60 * 60 * 1000;
         return markerDate.getTime() >= cutoff;
       }),
-    [chartMarkers, chartRange, filteredChartPoints, effectiveSelectedMarket]
+    [analyticsChartMarkers, chartRange, filteredChartPoints, effectiveSelectedMarket]
   );
 
   if (loading) {
@@ -1796,7 +1684,7 @@ export const BacktestDetailsV2: React.FC = () => {
         return;
       }
 
-      await fetchBacktestMetadata(false);
+      await metadataQuery.refetch();
     } catch (err: unknown) {
       const response = asRecord(asRecord(err)?.response);
       const statusCode = toNumber(response?.status, 0);
@@ -1812,7 +1700,7 @@ export const BacktestDetailsV2: React.FC = () => {
         (action === 'restart' || action === 'retry' || action === 'repairRestart') &&
         statusCode === 409
       ) {
-        await fetchBacktestMetadata(false);
+        await metadataQuery.refetch();
         setControlError(
           conflictMessage ||
             `This run changed state while we processed your request. We refreshed the latest status—please retry the same action if needed.`
@@ -1892,7 +1780,10 @@ export const BacktestDetailsV2: React.FC = () => {
     if (!strategyId) {
       throw new Error('Strategy was created but no strategy id was returned');
     }
-    setBacktest((current) => (current ? { ...current, strategy_id: strategyId } : current));
+    queryClient.setQueryData<BacktestResponse | undefined>(
+      ['backtests', 'detail', runId, 'meta'],
+      (current) => (current ? { ...current, strategy_id: strategyId } : current)
+    );
     return strategyId;
   };
 
@@ -2982,7 +2873,7 @@ export const BacktestDetailsV2: React.FC = () => {
                 {analyticsError}
               </div>
             ) : candles.length === 0 ? (
-              analyticsLoadedState?.runId === runId ? (
+              analyticsQuery.isSuccess ? (
                 renderEmptyState('candle data')
               ) : (
                 renderDeferredTabHint('Candle analytics')
@@ -3192,7 +3083,7 @@ export const BacktestDetailsV2: React.FC = () => {
               {positionsError}
             </div>
           ) : positions.length === 0 ? (
-            positionsLoadedState?.runId === runId ? (
+            positionsQuery.isSuccess ? (
               renderEmptyState('position data')
             ) : (
               renderDeferredTabHint('Position snapshots')
@@ -3222,7 +3113,7 @@ export const BacktestDetailsV2: React.FC = () => {
               {tradesError}
             </div>
           ) : trades.length === 0 ? (
-            tradesLoadedState?.runId === runId ? (
+            tradesQuery.isSuccess ? (
               renderEmptyState('trade data')
             ) : (
               renderDeferredTabHint('Trade history')

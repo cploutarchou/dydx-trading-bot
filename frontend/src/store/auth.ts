@@ -84,6 +84,8 @@ interface AuthStore {
   login: (username: string, password: string, turnstileToken?: string) => Promise<void>;
   completeMfaChallenge: (token: string) => Promise<void>;
   cancelMfaChallenge: () => void;
+  /** Arms the login page's TOTP step for an existing pending-MFA session. */
+  armMfaChallenge: () => void;
   register: (
     username: string,
     email: string,
@@ -148,6 +150,7 @@ export const useAuthStore = create<AuthStore>()(
         set({ loading: true, error: null });
         try {
           await api.completeMfaChallenge(token);
+          api.clearPendingMFAChallenge();
           set({ mfaChallengeRequired: false });
           await get().getCurrentUser();
         } catch {
@@ -161,7 +164,16 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       cancelMfaChallenge: () => {
+        api.clearPendingMFAChallenge();
         set({ mfaChallengeRequired: false, error: null });
+      },
+
+      armMfaChallenge: () => {
+        // A pending (password-only) session exists but awaits its TOTP
+        // challenge: show the login challenge step directly — the pending
+        // HttpOnly cookie still authorizes the challenge call, so the user
+        // skips the password prompt.
+        set({ ...buildLoggedOutState(), mfaChallengeRequired: true });
       },
 
       register: async (
@@ -235,6 +247,13 @@ export const useAuthStore = create<AuthStore>()(
               'restoreSession'
             );
             if (!restored) {
+              if (api.consumePendingMFAChallenge()) {
+                // Pending MFA session: arm the login page's TOTP step instead
+                // of probing /users/me — the probe would 401 and log out,
+                // destroying the pending challenge session.
+                set({ ...buildLoggedOutState(), mfaChallengeRequired: true });
+                return;
+              }
               if (allowCookieRefresh) {
                 console.warn(
                   '⚠️ auth.ts: restoreSession did not recover a token, probing current user via cookie session'

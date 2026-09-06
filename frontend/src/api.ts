@@ -1780,6 +1780,7 @@ class ApiClient {
   private pendingRequests: PendingRequest[] = [];
   private refreshBlockedUntil: number = 0;
   private readonly refreshFailureCooldownMs: number = 10000;
+  private pendingMFAChallenge: boolean = false;
 
   constructor() {
     this.client = create({
@@ -1855,6 +1856,24 @@ class ApiClient {
           !url.includes('/public/app-config') &&
           !url.includes('/public/ico/')
         ) {
+          // A valid-but-pending MFA session answers 401 with this code: the
+          // session exists but still awaits its TOTP challenge, so a silent
+          // refresh cannot fix the request. Route the app to the challenge.
+          const errorBody = error.response?.data as
+            | { code?: string; error_code?: string }
+            | undefined;
+          const errorCode = errorBody?.code ?? errorBody?.error_code;
+          if (errorCode === 'mfa_challenge_required') {
+            console.warn('🔐 api.ts: session awaits its MFA challenge');
+            this.markPendingMFAChallenge();
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(
+                new CustomEvent('auth:mfa-required', { detail: { code: errorCode } })
+              );
+            }
+            return Promise.reject(error);
+          }
+
           if (!this.shouldAttemptCookieRefresh()) {
             return Promise.reject(error);
           }
@@ -1894,6 +1913,19 @@ class ApiClient {
             }
 
             const refreshPayload = await this.refreshAccessToken();
+            if (refreshPayload.mfa_required) {
+              // Refresh surfaced a pending MFA session: the original request
+              // cannot succeed until the TOTP challenge completes.
+              this.notifyRefreshFailure(new Error('mfa_challenge_required'));
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(
+                  new CustomEvent('auth:mfa-required', {
+                    detail: { code: 'mfa_challenge_required' },
+                  })
+                );
+              }
+              return Promise.reject(error);
+            }
             const newAccessToken = refreshPayload.access_token;
 
             this.notifyRefreshSuccess(newAccessToken || '');
@@ -1996,6 +2028,34 @@ class ApiClient {
     }
   }
 
+  // Flags a session that exists but awaits its TOTP challenge: no bearer
+  // token, no session hint — routing treats it as logged out while the login
+  // page arms its challenge step.
+  private markPendingMFAChallenge(): void {
+    this.pendingMFAChallenge = true;
+    this.accessToken = null;
+    this.sessionEstablished = false;
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.removeItem(SESSION_HINT_KEY);
+      } catch (e) {
+        console.warn('❌ api.ts: Failed to clear session hint for MFA challenge', e);
+      }
+    }
+  }
+
+  // Reports and clears the pending-challenge flag; consumed once at session
+  // boot to arm the login page's TOTP step without a password re-entry.
+  consumePendingMFAChallenge(): boolean {
+    const pending = this.pendingMFAChallenge;
+    this.pendingMFAChallenge = false;
+    return pending;
+  }
+
+  clearPendingMFAChallenge(): void {
+    this.pendingMFAChallenge = false;
+  }
+
   hasSessionHint(): boolean {
     if (this.sessionEstablished) {
       return true;
@@ -2077,6 +2137,12 @@ class ApiClient {
       }
 
       this.refreshBlockedUntil = 0;
+      if (refreshPayload.mfa_required) {
+        // The refreshed session still awaits its TOTP challenge; it is not an
+        // authenticated session and must not mint a session hint.
+        this.markPendingMFAChallenge();
+        return refreshPayload;
+      }
       this.markSessionEstablished();
       if (refreshPayload.access_token) {
         this.setToken(refreshPayload.access_token);
@@ -2119,9 +2185,11 @@ class ApiClient {
         return false;
       }
 
-      // Token not in storage, attempt to refresh via HttpOnly session cookie
-      await this.refreshAccessToken();
-      return true;
+      // Token not in storage, attempt to refresh via HttpOnly session cookie.
+      // A pending MFA session refreshes "successfully" but is not an
+      // authenticated session; the challenge is armed for the login page.
+      const payload = await this.refreshAccessToken();
+      return !payload.mfa_required;
     } catch {
       // Clear any stale token from localStorage if refresh fails
       if (typeof localStorage !== 'undefined') {

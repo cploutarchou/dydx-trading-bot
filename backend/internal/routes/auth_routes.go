@@ -1393,6 +1393,23 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 			if sessionToken != "" {
 				store := middleware.AuthSessionStore()
 				if store != nil {
+					// A password-only (MFA-pending) session is only accepted by
+					// POST /auth/2fa/challenge. Refresh must not report it as an
+					// established session (clients use refresh as their
+					// "am I logged in?" oracle) and must not extend its TTL:
+					// answer with the same challenge-required contract as login.
+					if sessionData, getErr := store.Get(c.Request.Context(), sessionToken); getErr == nil && sessionData != nil && sessionData.MFAPending() {
+						c.JSON(http.StatusOK, gin.H{
+							"success":            true,
+							"message":            "Multi-factor authentication required",
+							"mfa_required":       true,
+							"code":               "mfa_challenge_required",
+							"token_type":         "mfa_challenge",
+							"expires_in":         int(time.Until(sessionData.ExpiresAt).Seconds()),
+							"session_expires_at": sessionData.ExpiresAt.Format(time.RFC3339),
+						})
+						return
+					}
 					sessionData, err := store.Refresh(c.Request.Context(), sessionToken, sessionTTL())
 					if err == nil && sessionData != nil {
 						setSessionCookie(c, sessionToken, int(sessionTTL().Seconds()))

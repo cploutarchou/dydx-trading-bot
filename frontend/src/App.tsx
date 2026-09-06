@@ -199,6 +199,7 @@ export const App: React.FC = () => {
   const portalRoutes = getPortalRouteManifest(portal);
   const logout = useAuthStore((state) => state.logout);
   const initializeSession = useAuthStore((state) => state.initializeSession);
+  const armMfaChallenge = useAuthStore((state) => state.armMfaChallenge);
   const toastWarning = useToastStore((state) => state.warning);
   const language = useUIPreferencesStore((state) => state.language);
   const refreshWarningLastShownRef = useRef(0);
@@ -255,13 +256,20 @@ export const App: React.FC = () => {
       );
     };
 
+    const handleMFARequired = () => {
+      console.warn('🔐 MFA challenge required event received, routing to the TOTP step');
+      armMfaChallenge();
+    };
+
     window.addEventListener('auth:session-expired', handleSessionExpired);
     window.addEventListener('auth:refresh-warning', handleRefreshWarning);
+    window.addEventListener('auth:mfa-required', handleMFARequired);
     return () => {
       window.removeEventListener('auth:session-expired', handleSessionExpired);
       window.removeEventListener('auth:refresh-warning', handleRefreshWarning);
+      window.removeEventListener('auth:mfa-required', handleMFARequired);
     };
-  }, [logout, toastWarning]);
+  }, [logout, toastWarning, armMfaChallenge]);
 
   return (
     <ThemeProvider>

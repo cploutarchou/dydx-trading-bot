@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useUIPreferencesStore } from '../store/uiPreferences';
 
-const TURNSTILE_SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+const TURNSTILE_SCRIPT_SRC =
+  'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() ?? '';
 const TURNSTILE_DISABLE_VALUES = new Set(['1', 'true', 'yes', 'on']);
 const TURNSTILE_ENABLE_VALUES = new Set(['0', 'false', 'no', 'off']);
@@ -157,13 +158,20 @@ export const TurnstileWidget: React.FC<TurnstileWidgetProps> = ({
       };
     }
 
-    setStatus('loading');
-    setErrorCode(null);
+    // Widget boot state transitions run out-of-band so no setState fires
+    // synchronously inside the effect body.
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      setStatus('loading');
+      setErrorCode(null);
+      if (!TURNSTILE_SITE_KEY) {
+        onTokenChange('');
+        setErrorCode('missing-site-key');
+        setStatus('error');
+      }
+    });
 
     if (!TURNSTILE_SITE_KEY) {
-      onTokenChange('');
-      setErrorCode('missing-site-key');
-      setStatus('error');
       return () => {
         cancelled = true;
       };

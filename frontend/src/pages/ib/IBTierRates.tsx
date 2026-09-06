@@ -4,6 +4,7 @@ import { useState } from 'react';
 import api, { type IBTierCommissionRate, type UpsertIBTierCommissionRatePayload } from '../../api';
 import { useToastStore } from '../../components/ErrorBoundary';
 import { PageContainer } from '../../components/PageContainer';
+import { formatPct } from '../../utils/format';
 
 interface EditingState {
   tierLevel: number;
@@ -198,17 +199,11 @@ export const IBTierRates = () => {
           <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
             Total commission stack
           </p>
-          <p className="mt-2 text-2xl font-semibold text-white">
-            {totalCommission.toFixed(2)}
-            <span className="ml-1 text-sm font-normal text-slate-400">%</span>
-          </p>
+          <p className="mt-2 text-2xl font-semibold text-white">{formatPct(totalCommission, 2)}</p>
         </div>
         <div className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4">
           <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Total rebate stack</p>
-          <p className="mt-2 text-2xl font-semibold text-white">
-            {totalRebate.toFixed(2)}
-            <span className="ml-1 text-sm font-normal text-slate-400">%</span>
-          </p>
+          <p className="mt-2 text-2xl font-semibold text-white">{formatPct(totalRebate, 2)}</p>
         </div>
       </div>
 
@@ -375,11 +370,11 @@ export const IBTierRates = () => {
                       <div className="flex items-center gap-4 text-sm tabular-nums">
                         <span className="flex items-center gap-1 text-emerald-300">
                           <Percent className="h-3.5 w-3.5" />
-                          {rate.commission_rate_pct.toFixed(2)}%
+                          {formatPct(rate.commission_rate_pct, 2)}
                           <span className="text-xs text-slate-500">commission</span>
                         </span>
                         <span className="flex items-center gap-1 text-violet-300">
-                          {rate.rebate_rate_pct.toFixed(2)}%
+                          {formatPct(rate.rebate_rate_pct, 2)}
                           <span className="text-xs text-slate-500">rebate</span>
                         </span>
                       </div>
@@ -551,8 +546,8 @@ export const IBTierRates = () => {
                       Tier {rate.tier_level}
                     </p>
                     <p className="mt-0.5 text-sm">
-                      {rate.commission_rate_pct.toFixed(2)}% commission ·{' '}
-                      {rate.rebate_rate_pct.toFixed(2)}% rebate
+                      {formatPct(rate.commission_rate_pct, 2)} commission ·{' '}
+                      {formatPct(rate.rebate_rate_pct, 2)} rebate
                     </p>
                     {rate.description && (
                       <p className="mt-0.5 text-xs opacity-70">{rate.description}</p>

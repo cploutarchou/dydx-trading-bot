@@ -181,8 +181,12 @@ export default function StrategyLibrary() {
       navState && typeof navState.strategyId === 'number' ? navState.strategyId : undefined;
     if (!toastMessage) return;
 
-    setSuccessToast({ message: toastMessage, strategyId: toastStrategyId });
-    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+    // Consume the one-shot navigation state out-of-band so no setState runs
+    // synchronously inside the effect body.
+    void Promise.resolve().then(() => {
+      setSuccessToast({ message: toastMessage, strategyId: toastStrategyId });
+      navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+    });
   }, [location.pathname, location.search, location.state, navigate]);
 
   useEffect(() => {

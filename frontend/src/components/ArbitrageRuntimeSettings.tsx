@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
 import { Activity, Loader2, Save, ShieldCheck, SlidersHorizontal } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import api, { type ArbitrageRuntimeSettings as RuntimeSettings } from '../api';
 import { useToastStore } from './ErrorBoundary';
 
@@ -71,12 +71,16 @@ export function ArbitrageRuntimeSettings() {
     staleTime: 15_000,
   });
 
-  useEffect(() => {
+  // Server settings -> editable draft, adjusted during render when the
+  // query data identity changes (sanctioned pattern).
+  const [prevSettingsData, setPrevSettingsData] = useState(settingsQuery.data);
+  if (settingsQuery.data !== prevSettingsData) {
+    setPrevSettingsData(settingsQuery.data);
     const loaded = settingsQuery.data?.data;
     if (loaded) {
       setDraft({ ...DEFAULT_SETTINGS, ...loaded });
     }
-  }, [settingsQuery.data]);
+  }
 
   const savedSettings = useMemo(
     () => ({ ...DEFAULT_SETTINGS, ...(settingsQuery.data?.data || {}) }),
@@ -91,7 +95,9 @@ export function ArbitrageRuntimeSettings() {
     onSuccess: (response) => {
       setDraft({ ...DEFAULT_SETTINGS, ...response.data });
       successToast(
-        response.bot_sync_status === 'synced' ? 'Arbitrage settings synced' : 'Arbitrage settings saved',
+        response.bot_sync_status === 'synced'
+          ? 'Arbitrage settings synced'
+          : 'Arbitrage settings saved',
         response.bot_sync_status === 'synced'
           ? 'The bot runtime accepted the updated feature flags.'
           : 'The database was updated; sync will complete when the bot API is reachable.'
@@ -110,7 +116,10 @@ export function ArbitrageRuntimeSettings() {
 
   const setNumber = (key: keyof RuntimeSettings, value: string) => {
     const parsed = Number(value);
-    setDraft((current) => ({ ...current, [key]: Number.isFinite(parsed) ? Math.max(0, parsed) : 0 }));
+    setDraft((current) => ({
+      ...current,
+      [key]: Number.isFinite(parsed) ? Math.max(0, parsed) : 0,
+    }));
   };
 
   return (
@@ -123,11 +132,15 @@ export function ArbitrageRuntimeSettings() {
           <div>
             <h2 className="text-2xl font-semibold text-white">Arbitrage Runtime</h2>
             <p className="mt-1 text-sm text-slate-400">
-              DB-backed feature controls for scan efficiency, pair priority, and future signal inputs.
+              DB-backed feature controls for scan efficiency, pair priority, and future signal
+              inputs.
             </p>
           </div>
         </div>
-        <span className="operator-status-pill" data-tone={syncStatus === 'synced' ? 'positive' : 'warning'}>
+        <span
+          className="operator-status-pill"
+          data-tone={syncStatus === 'synced' ? 'positive' : 'warning'}
+        >
           {syncStatus === 'synced' ? 'Bot synced' : 'DB saved'}
         </span>
       </div>
@@ -141,15 +154,21 @@ export function ArbitrageRuntimeSettings() {
           <p className="text-lg font-semibold text-white">
             {draft.auto_execution_changes_enabled ? 'Explicitly enabled' : 'Default protected'}
           </p>
-          <p className="mt-1 text-xs text-slate-500">Trading behavior remains unchanged while off.</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Trading behavior remains unchanged while off.
+          </p>
         </div>
         <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-4">
           <div className="mb-2 flex items-center gap-2 text-slate-200">
             <Activity className="h-4 w-4 text-cyan-300" />
             Pair cap
           </div>
-          <p className="text-lg font-semibold text-white">{draft.pair_priority_max_pairs || 'All'}</p>
-          <p className="mt-1 text-xs text-slate-500">A zero cap preserves the full pair universe.</p>
+          <p className="text-lg font-semibold text-white">
+            {draft.pair_priority_max_pairs || 'All'}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            A zero cap preserves the full pair universe.
+          </p>
         </div>
         <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-4">
           <div className="mb-2 flex items-center gap-2 text-slate-200">
@@ -219,7 +238,11 @@ export function ArbitrageRuntimeSettings() {
           disabled={!hasChanges || saveMutation.isPending}
           className="premium-button inline-flex items-center gap-2 disabled:opacity-50"
         >
-          {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          {saveMutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Save className="h-4 w-4" />
+          )}
           Save and sync
         </button>
       </div>

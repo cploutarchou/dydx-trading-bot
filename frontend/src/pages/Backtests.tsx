@@ -17,7 +17,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useNow } from '../hooks/useNow';
 import api, { type BacktestExperimentGroup } from '../api';
-import { enhancedApiClient } from '../api/enhancedClient';
+import { botApi } from '../api/botApi';
 import { BacktestList } from '../components/BacktestList';
 import { BacktestRunner } from '../components/BacktestRunner';
 import { CodexAssetIntelStrip } from '../components/CodexAssetIntelStrip';
@@ -452,11 +452,9 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     staleTime: 15_000,
   });
 
-  useEffect(() => {
-    if (view !== 'experiments') {
-      return;
-    }
-
+  // URL params -> experiment filters, adjusted during render when they
+  // diverge (sanctioned pattern; searchParams is router state, safe to read).
+  if (view === 'experiments') {
     const searchFromParams = String(searchParams.get('q') || '').trim();
     const statusFromParams = normalizeExperimentStatusParam(searchParams.get('status'));
     const variantFromParams = normalizeExperimentVariantParam(searchParams.get('variant'));
@@ -470,7 +468,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     if (variantFromParams !== experimentVariantFilter) {
       setExperimentVariantFilter(variantFromParams);
     }
-  }, [view, searchParams, experimentSearch, experimentStatusFilter, experimentVariantFilter]);
+  }
 
   useEffect(() => {
     if (view !== 'experiments') {
@@ -618,7 +616,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
   const systemStatusQuery = useQuery({
     queryKey: ['system-status', 'backtest-capacity'],
     queryFn: async () => {
-      const status = await enhancedApiClient.getSystemStatus();
+      const status = await botApi.getSystemStatus();
       return toObject(status);
     },
     staleTime: 10_000,
@@ -740,7 +738,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     queryFn: async () => {
       const entries = await Promise.all(
         activeRunStatusIds.map(async (runId) => {
-          const response = await enhancedApiClient.getBacktestStatus(runId);
+          const response = await botApi.getBacktestStatus(runId);
           const payload = response as unknown as Record<string, unknown>;
           const progressCandidate = getEnvelopeField(payload, 'progress_pct');
           const fallbackProgressCandidate = getEnvelopeField(payload, 'progress_percent');

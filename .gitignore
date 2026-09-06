@@ -257,6 +257,11 @@ bot_states/backtest_artifacts/
 # Local scratch output (agent/tool transcripts, ad-hoc logs)
 tmp/
 
+# Local agent/plugin tooling marker dirs (not project source)
+.video_agent/
+frontend/.v2c/
+frontend/.video_agent/
+
 # Local ad-hoc deployment/incident reports (can contain infra details)
 report.md
 report-ops.md

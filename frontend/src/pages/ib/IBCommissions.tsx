@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Loader2, WalletCards } from 'lucide-react';
 import api from '../../api';
 import { PageContainer } from '../../components/PageContainer';
-import { formatUsdFixed } from '../../utils/format';
+import { formatUsdFixed , formatPct } from '../../utils/format';
 
 const formatDate = (value?: string) => {
   if (!value) return '—';
@@ -200,10 +200,10 @@ export const IBCommissions = () => {
                             Tier {rate.tier_level}
                           </td>
                           <td className="px-3 py-2 tabular-nums text-emerald-300">
-                            {rate.commission_rate_pct.toFixed(2)}%
+                            {formatPct(rate.commission_rate_pct, 2)}
                           </td>
                           <td className="px-3 py-2 tabular-nums text-violet-300">
-                            {rate.rebate_rate_pct.toFixed(2)}%
+                            {formatPct(rate.rebate_rate_pct, 2)}
                           </td>
                           <td className="px-3 py-2 text-slate-400">{rate.description || '—'}</td>
                         </tr>

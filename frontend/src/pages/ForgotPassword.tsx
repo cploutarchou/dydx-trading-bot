@@ -12,15 +12,19 @@ import api from '../api';
 export const ForgotPasswordPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const emailError = submitted && !/^\S+@\S+\.\S+$/.test(email.trim()) ? 'Enter a valid email address' : '';
+  const isValidEmail = (value: string): boolean => /^\S+@\S+\.\S+$/.test(value.trim());
+  const emailError = submitted && !isValidEmail(email) ? 'Enter a valid email address' : '';
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitted(true);
-    if (emailError) return;
+    // Validate against the live value — the rendered `emailError` is one
+    // render behind `setSubmitted` and would let the first bad submit pass.
+    if (!isValidEmail(email)) return;
 
     try {
       setLoading(true);
@@ -34,8 +38,6 @@ export const ForgotPasswordPage: React.FC = () => {
       setLoading(false);
     }
   };
-
-  const [sent, setSent] = useState(false);
 
   return (
     <AuthExperienceShell

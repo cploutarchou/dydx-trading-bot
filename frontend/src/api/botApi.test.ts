@@ -1,8 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-let parseJsonResponse: typeof import('./enhancedClient').parseJsonResponse;
-let resolveEnhancedApiUrl: typeof import('./enhancedClient').resolveEnhancedApiUrl;
-let enhancedApiClient: typeof import('./enhancedClient').enhancedApiClient;
+let botApi: typeof import('./botApi').botApi;
 let baseApiClient: typeof import('../api').default;
 
 beforeAll(async () => {
@@ -20,8 +18,7 @@ beforeAll(async () => {
     configurable: true,
   });
 
-  ({ parseJsonResponse, resolveEnhancedApiUrl } = await import('./enhancedClient'));
-  ({ enhancedApiClient } = await import('./enhancedClient'));
+  ({ botApi } = await import('./botApi'));
   ({ default: baseApiClient } = await import('../api'));
 });
 
@@ -29,24 +26,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('enhanced API client helpers', () => {
-  it('resolves bot API requests against the configured backend URL', () => {
-    expect(resolveEnhancedApiUrl('/api/v1/bots', 'http://localhost:8888')).toBe(
-      'http://localhost:8888/api/v1/bots'
-    );
-  });
-
-  it('throws a readable error when HTML is returned instead of JSON', async () => {
-    const response = new Response('<!doctype html><html><body>Not JSON</body></html>', {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/html',
-      },
-    });
-
-    await expect(parseJsonResponse(response)).rejects.toThrow(/expected json/i);
-  });
-
+describe('bot API surface (consolidated on the axios client)', () => {
   it('uses list progress without calling the unstable status endpoint', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
 
@@ -67,9 +47,9 @@ describe('enhanced API client helpers', () => {
         ],
       },
       timestamp: new Date().toISOString(),
-    });
+    } as Awaited<ReturnType<typeof baseApiClient.listBacktests>>);
 
-    const status = await enhancedApiClient.getBacktestStatus('run-1');
+    const status = await botApi.getBacktestStatus('run-1');
 
     expect(status.run_id).toBe('run-1');
     expect(status.status).toBe('RUNNING');
@@ -101,12 +81,12 @@ describe('enhanced API client helpers', () => {
         ],
       },
       timestamp: new Date().toISOString(),
-    });
+    } as Awaited<ReturnType<typeof baseApiClient.listBacktests>>);
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
 
     const [firstStatus, secondStatus] = await Promise.all([
-      enhancedApiClient.getBacktestStatus('run-1'),
-      enhancedApiClient.getBacktestStatus('run-2'),
+      botApi.getBacktestStatus('run-1'),
+      botApi.getBacktestStatus('run-2'),
     ]);
 
     expect(firstStatus.progress_percent).toBe(77);

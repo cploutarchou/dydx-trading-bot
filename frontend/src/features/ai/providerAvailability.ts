@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import api, { type AIMarketProvider, type AIProviderStatus } from '../../api';
 
 export const AI_PROVIDER_LABELS: Record<AIMarketProvider, string> = {
@@ -61,18 +62,33 @@ export function useAIProviderAvailability() {
     staleTime: 30_000,
   });
 
-  const providerStatuses = statusQuery.data?.providers || [];
-  const statusMap: Partial<Record<AIMarketProvider, AIProviderStatus>> = providerStatuses.reduce(
-    (acc, status) => {
-      acc[status.provider] = status;
-      return acc;
-    },
-    {} as Partial<Record<AIMarketProvider, AIProviderStatus>>
+  // Memoized against the query data so the derived identities are stable
+  // across renders — consumers run render-time state adjustment keyed on
+  // these identities, and a fresh array each render would loop React.
+  const providerStatuses = useMemo(
+    () => statusQuery.data?.providers ?? [],
+    [statusQuery.data]
+  );
+  const statusMap = useMemo<Partial<Record<AIMarketProvider, AIProviderStatus>>>(
+    () =>
+      providerStatuses.reduce<Partial<Record<AIMarketProvider, AIProviderStatus>>>(
+        (acc, status) => {
+          acc[status.provider] = status;
+          return acc;
+        },
+        {}
+      ),
+    [providerStatuses]
   );
 
-  const availableProviders = AI_PROVIDER_ORDER.filter((provider) => statusMap[provider]?.available);
-  const unavailableProviders = AI_PROVIDER_ORDER.filter(
-    (provider) => !statusMap[provider]?.available && !!statusMap[provider]
+  const availableProviders = useMemo(
+    () => AI_PROVIDER_ORDER.filter((provider) => statusMap[provider]?.available),
+    [statusMap]
+  );
+  const unavailableProviders = useMemo(
+    () =>
+      AI_PROVIDER_ORDER.filter((provider) => !statusMap[provider]?.available && !!statusMap[provider]),
+    [statusMap]
   );
 
   return {

@@ -90,9 +90,10 @@ export const DYDXKeyManager: React.FC = () => {
     }
   }, []);
 
-  // Load keys once on mount (no polling — keys are user-controlled)
+  // Load keys once on mount (no polling — keys are user-controlled).
+  // Microtask keeps the loader's synchronous state reset out of the effect.
   useEffect(() => {
-    void loadKeys();
+    void Promise.resolve().then(() => loadKeys());
   }, [loadKeys]);
 
   // Clear messages after 5 seconds
@@ -316,9 +317,12 @@ export const DYDXKeyManager: React.FC = () => {
 
           {/* Chain Address */}
           <div className="mb-6">
-            <label className="mb-2 block font-medium text-white" htmlFor="chain-address">Chain Address
-              <span className="text-red-400 ml-1">*</span></label>
-            <input id="chain-address"
+            <label className="mb-2 block font-medium text-white" htmlFor="chain-address">
+              Chain Address
+              <span className="text-red-400 ml-1">*</span>
+            </label>
+            <input
+              id="chain-address"
               type="text"
               placeholder="dydx1xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
               value={formData.chain_address}

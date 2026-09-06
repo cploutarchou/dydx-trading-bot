@@ -39,6 +39,7 @@ import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/
 import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
 import { Strategy, useStrategyStore } from '../store/strategies';
 import { useNow } from '../hooks/useNow';
+import { formatPct, formatSignedUsd, formatUsdFixed } from '../utils/format';
 import { AIRuntimeDigest } from './AIRuntimeDigest';
 import { AIStrategyAdvisor } from './AIStrategyAdvisor';
 import { CodexAssetIntelStrip } from './CodexAssetIntelStrip';
@@ -337,25 +338,29 @@ export default function StrategyManager() {
     focusedCardId !== null
   );
 
-  useEffect(() => {
-    if (focusedCardId === null || !strategyBacktestsQuery.data) {
-      return;
+  // Query data -> per-strategy summaries, adjusted during render when the
+  // focused card or query data identity changes (sanctioned pattern).
+  const [prevFocusedCardId, setPrevFocusedCardId] = useState(focusedCardId);
+  const [prevBacktestsData, setPrevBacktestsData] = useState(strategyBacktestsQuery.data);
+  if (focusedCardId !== prevFocusedCardId || strategyBacktestsQuery.data !== prevBacktestsData) {
+    setPrevFocusedCardId(focusedCardId);
+    setPrevBacktestsData(strategyBacktestsQuery.data);
+    if (focusedCardId !== null && strategyBacktestsQuery.data) {
+      const items = Array.isArray(strategyBacktestsQuery.data.data?.backtests)
+        ? strategyBacktestsQuery.data.data.backtests
+        : [];
+
+      const summaries: AIBacktestSummary[] = items
+        .map((backtest) => toAIBacktestSummary(backtest))
+        .filter((summary): summary is AIBacktestSummary => summary !== null);
+
+      setStrategyBacktests((prev) => {
+        const next = new Map(prev);
+        next.set(focusedCardId, summaries);
+        return next;
+      });
     }
-
-    const items = Array.isArray(strategyBacktestsQuery.data.data?.backtests)
-      ? strategyBacktestsQuery.data.data.backtests
-      : [];
-
-    const summaries: AIBacktestSummary[] = items
-      .map((backtest) => toAIBacktestSummary(backtest))
-      .filter((summary): summary is AIBacktestSummary => summary !== null);
-
-    setStrategyBacktests((prev) => {
-      const next = new Map(prev);
-      next.set(focusedCardId, summaries);
-      return next;
-    });
-  }, [focusedCardId, strategyBacktestsQuery.data]);
+  }
 
   const recordSuccessfulAction = (
     strategyId: number,
@@ -518,7 +523,8 @@ export default function StrategyManager() {
   // Derive strategyStatuses / runningCount / heartbeatTrend from React Query results
   useEffect(() => {
     if (strategyIds.length === 0) {
-      applyStrategyStatuses([]);
+      // Applied out-of-band so no setState runs synchronously in the effect.
+      void Promise.resolve().then(() => applyStrategyStatuses([]));
       return;
     }
 
@@ -544,7 +550,7 @@ export default function StrategyManager() {
       };
     });
 
-    applyStrategyStatuses(nextStatuses);
+    void Promise.resolve().then(() => applyStrategyStatuses(nextStatuses));
     // Signature deps are deliberate: applyStrategyStatuses always installs a
     // new Map, so depending on the raw strategyStatuses/runtimeQueries would
     // re-run this effect in a loop. The signatures change only when the
@@ -1595,7 +1601,7 @@ export default function StrategyManager() {
             }`}
           >
             {runtimeHealthSummary.totalPnl !== undefined
-              ? `$${runtimeHealthSummary.totalPnl.toFixed(2)}`
+              ? formatSignedUsd(runtimeHealthSummary.totalPnl)
               : '—'}
           </p>
           <p className="mt-1 text-xs text-slate-500">
@@ -1996,7 +2002,7 @@ export default function StrategyManager() {
                             : 'text-slate-400'
                         }`}
                       >
-                        {status.pnl !== undefined ? `$${status.pnl.toFixed(2)}` : '—'}
+                        {status.pnl !== undefined ? formatSignedUsd(status.pnl) : '—'}
                       </p>
                     </div>
                     <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 p-3.5">
@@ -2305,7 +2311,7 @@ export default function StrategyManager() {
                           Free Collateral
                         </p>
                         <p className="mt-2 text-lg font-semibold text-white">
-                          ${startDialogReadiness.available_collateral.toFixed(2)}
+                          {formatUsdFixed(startDialogReadiness.available_collateral)}
                         </p>
                       </div>
                       <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
@@ -2313,7 +2319,7 @@ export default function StrategyManager() {
                           Trade Size
                         </p>
                         <p className="mt-2 text-lg font-semibold text-white">
-                          ${startDialogReadiness.usd_per_trade.toFixed(2)}
+                          {formatUsdFixed(startDialogReadiness.usd_per_trade)}
                         </p>
                       </div>
                       <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
@@ -2406,13 +2412,13 @@ export default function StrategyManager() {
                           <div className="flex items-center justify-between">
                             <span>Capital allocation target</span>
                             <span className="font-medium text-white">
-                              ${startDialogReadiness.capital_allocation_usd.toFixed(2)}
+                              {formatUsdFixed(startDialogReadiness.capital_allocation_usd)}
                             </span>
                           </div>
                           <div className="flex items-center justify-between">
                             <span>Min collateral guard</span>
                             <span className="font-medium text-white">
-                              ${startDialogReadiness.usd_min_collateral.toFixed(2)}
+                              {formatUsdFixed(startDialogReadiness.usd_min_collateral)}
                             </span>
                           </div>
                           {startDialogReadiness.trade_size_to_collateral_ratio !== null &&
@@ -2420,10 +2426,10 @@ export default function StrategyManager() {
                               <div className="flex items-center justify-between">
                                 <span>Trade size / free collateral</span>
                                 <span className="font-medium text-white">
-                                  {(
-                                    startDialogReadiness.trade_size_to_collateral_ratio * 100
-                                  ).toFixed(2)}
-                                  %
+                                  {formatPct(
+                                    startDialogReadiness.trade_size_to_collateral_ratio * 100,
+                                    2
+                                  )}
                                 </span>
                               </div>
                             )}

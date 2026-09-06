@@ -291,6 +291,63 @@ func TestLogin_MFARequired_IssuesPendingSessionOnly(t *testing.T) {
 	}
 }
 
+// A pending (password-only) session must not be reported as an established
+// session by /auth/refresh: clients use refresh to decide whether they are
+// logged in, so it answers with the challenge-required contract instead of a
+// session payload, and neither promotes the session nor issues tokens.
+func TestAuthRefresh_PendingMFASession_ReportsChallengeRequired(t *testing.T) {
+	router, dbConn, userID := setupLoginMFATestRouter(t)
+	t.Cleanup(func() { _ = dbConn.Close() })
+	enrollMFA(t, router, userID)
+
+	loginRes := doLogin(t, router)
+	if loginRes.Code != http.StatusOK {
+		t.Fatalf("login expected 200, got %d body=%s", loginRes.Code, loginRes.Body.String())
+	}
+	sessionCookie := sessionCookieFrom(t, loginRes)
+
+	refreshRes := httptest.NewRecorder()
+	router.ServeHTTP(
+		refreshRes,
+		requestWithSessionCookie(http.MethodPost, "/api/v1/auth/refresh", sessionCookie, []byte(`{}`)),
+	)
+	if refreshRes.Code != http.StatusOK {
+		t.Fatalf("refresh expected 200, got %d body=%s", refreshRes.Code, refreshRes.Body.String())
+	}
+
+	var body struct {
+		Success      bool   `json:"success"`
+		MFARequired  bool   `json:"mfa_required"`
+		Code         string `json:"code"`
+		TokenType    string `json:"token_type"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.Unmarshal(refreshRes.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode refresh response: %v", err)
+	}
+	if !body.Success || !body.MFARequired || body.Code != "mfa_challenge_required" {
+		t.Fatalf("expected mfa_challenge_required contract, got %s", refreshRes.Body.String())
+	}
+	if body.TokenType != "mfa_challenge" {
+		t.Fatalf("expected token_type=mfa_challenge, got %q", body.TokenType)
+	}
+	if body.AccessToken != "" || body.RefreshToken != "" {
+		t.Fatalf("pending refresh must not issue tokens: %s", refreshRes.Body.String())
+	}
+	if hasSetCookie(refreshRes, "refresh_token") {
+		t.Fatal("pending refresh must not issue a refresh cookie")
+	}
+
+	// The refresh must not have promoted the session: ordinary routes still
+	// reject it with the challenge-required contract.
+	meRes := httptest.NewRecorder()
+	router.ServeHTTP(meRes, requestWithSessionCookie(http.MethodGet, "/api/v1/users/me", sessionCookie, nil))
+	if meRes.Code != http.StatusUnauthorized {
+		t.Fatalf("pending session must still be rejected after refresh, got %d body=%s", meRes.Code, meRes.Body.String())
+	}
+}
+
 func TestLogin_MFAChallenge_CompletesLogin(t *testing.T) {
 	router, dbConn, userID := setupLoginMFATestRouter(t)
 	t.Cleanup(func() { _ = dbConn.Close() })

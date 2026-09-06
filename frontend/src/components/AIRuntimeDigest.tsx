@@ -1,7 +1,10 @@
 import { BrainCircuit, Loader, RefreshCw, Sparkles } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import api, { type AIMarketProvider, type AIRuntimeDigestRequest } from '../api';
-import { getAIProviderDisplayName, useAIProviderAvailability } from '../features/ai/providerAvailability';
+import {
+  getAIProviderDisplayName,
+  useAIProviderAvailability,
+} from '../features/ai/providerAvailability';
 
 interface Props {
   runningBots: number;
@@ -35,11 +38,16 @@ export function AIRuntimeDigest({
     isLoading: providerStatusLoading,
   } = useAIProviderAvailability();
 
-  useEffect(() => {
-    if (availableProviders.length > 0 && !availableProviders.includes(provider)) {
-      setProvider((availableProviders[0] ?? availableProviders[0]!));
+  // Repair an unavailable provider selection when the availability list
+  // changes — adjusted during render instead of a cascading effect render.
+  const [prevAvailableProviders, setPrevAvailableProviders] = useState(availableProviders);
+  if (availableProviders !== prevAvailableProviders) {
+    setPrevAvailableProviders(availableProviders);
+    const firstProvider = availableProviders[0];
+    if (availableProviders.length > 0 && !availableProviders.includes(provider) && firstProvider) {
+      setProvider(firstProvider);
     }
-  }, [availableProviders, provider]);
+  }
 
   const run = async () => {
     setLoading(true);

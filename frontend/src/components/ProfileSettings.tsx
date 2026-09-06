@@ -5,7 +5,7 @@
 
 import { useMutation } from '@tanstack/react-query';
 import { Camera, Check, Upload, X } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import apiClient from '../api';
 import { useAuthStore } from '../store/auth';
 
@@ -44,11 +44,15 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
     mutationFn: (profileData: ProfileUpdateData) => apiClient.updateProfile(profileData),
   });
 
-  useEffect(() => {
+  // Profile -> editable drafts, adjusted during render when the user
+  // identity changes (sanctioned pattern).
+  const [prevUser, setPrevUser] = useState(user);
+  if (user !== prevUser) {
+    setPrevUser(user);
     setFullName(user?.full_name || '');
     setEmail(user?.email || '');
     setAvatar(user?.avatar || null);
-  }, [user?.avatar, user?.email, user?.full_name]);
+  }
 
   const handleAvatarClick = () => {
     fileInputRef.current?.click();

@@ -1,15 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
 import {
-    KeyRound,
-    Loader2,
-    LucideIcon,
-    MessageCircle,
-    Send,
-    ShieldCheck,
-    Trash2,
+  KeyRound,
+  Loader2,
+  LucideIcon,
+  MessageCircle,
+  Send,
+  ShieldCheck,
+  Trash2,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import api, { TelegramConfigPayload, TelegramSettingsScope } from '../api';
 import { useToastStore } from './ErrorBoundary';
 
@@ -146,15 +146,20 @@ export function TelegramScopeSettingsPanel({
   const status = statusQuery.data;
   const hasConfig = Boolean(status?.shared_token_present || status?.chat_id);
 
-  useEffect(() => {
-    if (!status) return;
-    if (status.shared_token_label) {
-      setLabel(status.shared_token_label);
+  // Server status -> editable drafts, adjusted during render when the data
+  // identity changes (sanctioned pattern).
+  const [prevStatus, setPrevStatus] = useState(status);
+  if (status !== prevStatus) {
+    setPrevStatus(status);
+    if (status) {
+      if (status.shared_token_label) {
+        setLabel(status.shared_token_label);
+      }
+      if (status.chat_id) {
+        setChatId(status.chat_id);
+      }
     }
-    if (status.chat_id) {
-      setChatId(status.chat_id);
-    }
-  }, [status]);
+  }
 
   return (
     <section className="premium-panel p-6">

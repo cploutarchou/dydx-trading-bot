@@ -1,7 +1,7 @@
 // WebSocket Service for Real-Time Updates
 // Handles connections, reconnection, message queuing, and subscriptions
 
-import { enhancedApiClient } from './enhancedClient';
+import api from '../api';
 import { resolveBackendWebSocketUrl } from './origin';
 
 // WebSocket connection states
@@ -87,7 +87,7 @@ export class WebSocketManager {
     };
 
     // Auto-connect when authenticated
-    if (enhancedApiClient.isAuthenticated()) {
+    if (api.hasToken()) {
       this.connect();
     }
   }
@@ -497,10 +497,10 @@ export const wsManager = new WebSocketManager();
 // Auto-connect when authentication state changes. api.ts dispatches
 // `auth:changed` from its token set/clear choke points (and
 // `auth:session-expired` on forced logout), so no polling interval is needed.
-let wasAuthenticated = enhancedApiClient.isAuthenticated();
+let wasAuthenticated = api.hasToken();
 
 const syncAuthState = (authenticated?: boolean): void => {
-  const isAuthenticated = authenticated ?? enhancedApiClient.isAuthenticated();
+  const isAuthenticated = authenticated ?? api.hasToken();
 
   if (isAuthenticated && !wasAuthenticated) {
     // User just logged in

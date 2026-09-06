@@ -10,7 +10,7 @@ import {
 } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import api, { TelegramConfigPayload, TelegramSettingsScope } from '../api';
-import { enhancedApiClient as apiClient } from './enhancedClient';
+import { botApi } from './botApi';
 import { cacheUtils, queryConfigs, queryKeys } from './queryClient';
 import type {
   BacktestConfig,
@@ -367,9 +367,9 @@ export function useDeleteTelegramConfig(scope: TelegramSettingsScope = 'user') {
 export function useCurrentUser() {
   return useQuery({
     queryKey: queryKeys.currentUser,
-    queryFn: () => apiClient.getCurrentUser(),
+    queryFn: () => api.getCurrentUser(),
     ...queryConfigs.static,
-    enabled: apiClient.isAuthenticated(),
+    enabled: api.hasToken(),
   });
 }
 
@@ -385,7 +385,12 @@ export function useLogin() {
       username: string;
       password: string;
       turnstileToken?: string;
-    }) => apiClient.login(username, password, turnstileToken),
+    }) =>
+      api.login({
+        username,
+        password,
+        ...(turnstileToken ? { cf_turnstile_response: turnstileToken } : {}),
+      }),
     onSuccess: () => {
       // Invalidate user queries after successful login
       queryClient.invalidateQueries({ queryKey: ['auth'] });
@@ -399,7 +404,7 @@ export function useLogout() {
 
   return useMutation({
     mutationFn: () => {
-      apiClient.logout();
+      api.logout();
       return Promise.resolve();
     },
     onSuccess: () => {
@@ -423,7 +428,14 @@ export function useRegister() {
       password: string;
       invitationCode?: string;
       turnstileToken?: string;
-    }) => apiClient.register(username, email, password, invitationCode, turnstileToken),
+    }) =>
+      api.register({
+        username,
+        email,
+        password,
+        ...(invitationCode ? { invitation_code: invitationCode } : {}),
+        ...(turnstileToken ? { cf_turnstile_response: turnstileToken } : {}),
+      }),
   });
 }
 
@@ -431,7 +443,7 @@ export function useUpdateProfile() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (profile: Partial<User>) => apiClient.updateProfile(profile),
+    mutationFn: (profile: Partial<User>) => api.updateProfile(profile as Record<string, unknown>),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.currentUser });
     },
@@ -443,7 +455,7 @@ export function useUpdateProfile() {
 export function useBotInstances(params: ListBotsParams = {}) {
   return useQuery({
     queryKey: queryKeys.bots(params),
-    queryFn: () => apiClient.listBotInstances(params),
+    queryFn: () => botApi.listBotInstances(params),
     ...queryConfigs.trading,
   });
 }
@@ -451,7 +463,7 @@ export function useBotInstances(params: ListBotsParams = {}) {
 export function useBotInstance(instanceId: string, enabled: boolean = true) {
   return useQuery({
     queryKey: queryKeys.bot(instanceId),
-    queryFn: () => apiClient.getBotInstance(instanceId),
+    queryFn: () => botApi.getBotInstance(instanceId),
     ...queryConfigs.trading,
     enabled: enabled && !!instanceId,
   });
@@ -460,7 +472,7 @@ export function useBotInstance(instanceId: string, enabled: boolean = true) {
 export function useBotStats(instanceId: string, enabled: boolean = true) {
   return useQuery({
     queryKey: queryKeys.botStats(instanceId),
-    queryFn: () => apiClient.getBotStats(instanceId),
+    queryFn: () => botApi.getBotStats(instanceId),
     ...queryConfigs.trading,
     enabled: enabled && !!instanceId,
   });
@@ -478,7 +490,7 @@ export function useBotSummary(
 ) {
   return useQuery({
     queryKey: queryKeys.botSummary(instanceId),
-    queryFn: () => apiClient.getBotSummary(instanceId, params),
+    queryFn: () => botApi.getBotSummary(instanceId, params),
     ...queryConfigs.trading,
     enabled: enabled && !!instanceId,
   });
@@ -487,7 +499,7 @@ export function useBotSummary(
 export function useBotTrades(instanceId: string, params: ListTradesParams = {}) {
   return useQuery({
     queryKey: queryKeys.botTrades(instanceId, params),
-    queryFn: () => apiClient.getBotTrades(instanceId, params),
+    queryFn: () => botApi.getBotTrades(instanceId, params),
     ...queryConfigs.trading,
     enabled: !!instanceId,
   });
@@ -500,7 +512,7 @@ export function useBotTradesInfinite(
   return useInfiniteQuery({
     queryKey: queryKeys.botTrades(instanceId, params),
     queryFn: ({ pageParam = 0 }) =>
-      apiClient.getBotTrades(instanceId, { ...params, offset: pageParam }),
+      botApi.getBotTrades(instanceId, { ...params, offset: pageParam }),
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => {
       const hasMore = lastPage.data.length === (params.limit || 50);
@@ -513,7 +525,7 @@ export function useBotTradesInfinite(
 
 export function useCreateBotInstance() {
   return useMutation({
-    mutationFn: (config: CreateBotRequest) => apiClient.createBotInstance(config),
+    mutationFn: (config: CreateBotRequest) => botApi.createBotInstance(config),
     onSuccess: () => {
       cacheUtils.invalidateBotQueries();
     },
@@ -522,7 +534,7 @@ export function useCreateBotInstance() {
 
 export function useUpdateBotInstance(instanceId: string) {
   return useMutation({
-    mutationFn: (updates: UpdateBotRequest) => apiClient.updateBotInstance(instanceId, updates),
+    mutationFn: (updates: UpdateBotRequest) => botApi.updateBotInstance(instanceId, updates),
     onSuccess: () => {
       cacheUtils.invalidateBotQueries(instanceId);
     },
@@ -532,7 +544,7 @@ export function useUpdateBotInstance(instanceId: string) {
 export function useStartBotInstance() {
   return useMutation({
     mutationFn: ({ instanceId, config }: { instanceId: string; config?: StartBotRequest }) =>
-      apiClient.startBotInstance(instanceId, config),
+      botApi.startBotInstance(instanceId, config),
     onSuccess: (_, { instanceId }) => {
       cacheUtils.invalidateBotQueries(instanceId);
     },
@@ -541,7 +553,7 @@ export function useStartBotInstance() {
 
 export function useStopBotInstance() {
   return useMutation({
-    mutationFn: (instanceId: string) => apiClient.stopBotInstance(instanceId),
+    mutationFn: (instanceId: string) => botApi.stopBotInstance(instanceId),
     onSuccess: (_, instanceId) => {
       cacheUtils.invalidateBotQueries(instanceId);
     },
@@ -550,7 +562,7 @@ export function useStopBotInstance() {
 
 export function useRestartBotInstance() {
   return useMutation({
-    mutationFn: (instanceId: string) => apiClient.restartBotInstance(instanceId),
+    mutationFn: (instanceId: string) => botApi.restartBotInstance(instanceId),
     onSuccess: (_, instanceId) => {
       cacheUtils.invalidateBotQueries(instanceId);
     },
@@ -559,7 +571,7 @@ export function useRestartBotInstance() {
 
 export function useDeleteBotInstance() {
   return useMutation({
-    mutationFn: (instanceId: string) => apiClient.deleteBotInstance(instanceId),
+    mutationFn: (instanceId: string) => botApi.deleteBotInstance(instanceId),
     onSuccess: () => {
       cacheUtils.invalidateBotQueries();
     },
@@ -576,7 +588,7 @@ export function useQuickDeployBot() {
       instanceName: string;
       autoStart: boolean;
       config: QuickDeployBotRequest;
-    }) => apiClient.quickDeployBot(instanceName, autoStart, config as Record<string, unknown>),
+    }) => botApi.quickDeployBot(instanceName, autoStart, config as Record<string, unknown>),
     onSuccess: () => {
       cacheUtils.invalidateBotQueries();
     },
@@ -588,7 +600,7 @@ export function useQuickDeployBot() {
 export function useBotPositions(instanceId: string, enabled: boolean = true) {
   return useQuery({
     queryKey: queryKeys.botPositions(instanceId),
-    queryFn: () => apiClient.getCurrentPositions(instanceId),
+    queryFn: () => botApi.getCurrentPositions(instanceId),
     ...queryConfigs.realtime,
     enabled: enabled && !!instanceId,
   });
@@ -597,7 +609,7 @@ export function useBotPositions(instanceId: string, enabled: boolean = true) {
 export function useBotPosition(instanceId: string, positionId: string, enabled: boolean = true) {
   return useQuery({
     queryKey: queryKeys.botPosition(instanceId, positionId),
-    queryFn: () => apiClient.getPosition(instanceId, positionId),
+    queryFn: () => botApi.getPosition(instanceId, positionId),
     ...queryConfigs.realtime,
     enabled: enabled && !!instanceId && !!positionId,
   });
@@ -606,7 +618,7 @@ export function useBotPosition(instanceId: string, positionId: string, enabled: 
 export function useBotRealtimeStats(instanceId: string, enabled: boolean = true) {
   return useQuery({
     queryKey: queryKeys.botRealtimeStats(instanceId),
-    queryFn: () => apiClient.getRealtimeStats(instanceId),
+    queryFn: () => botApi.getRealtimeStats(instanceId),
     ...queryConfigs.realtime,
     enabled: enabled && !!instanceId,
   });
@@ -763,7 +775,7 @@ export function useBotRuntimeStatsStream(instanceId: string, enabled: boolean = 
     const bootstrap = async () => {
       setIsLoading(true);
       try {
-        const result = await apiClient.getRealtimeStats(instanceId);
+        const result = await botApi.getRealtimeStats(instanceId);
         const statsPayload = extractStatsPayload(result);
         if (!cancelled && statsPayload) {
           setData(statsPayload);
@@ -826,7 +838,7 @@ export function useBotRuntimeStatsStream(instanceId: string, enabled: boolean = 
         return;
       }
       try {
-        const result = await apiClient.getRealtimeStats(instanceId);
+        const result = await botApi.getRealtimeStats(instanceId);
         const statsPayload = extractStatsPayload(result);
         if (statsPayload) {
           setData((current) => mergeRuntimeStatsState(current, statsPayload));
@@ -854,7 +866,7 @@ export function useBotRuntimeStatsStream(instanceId: string, enabled: boolean = 
 export function useBotMarketData(instanceId: string, enabled: boolean = true) {
   return useQuery({
     queryKey: queryKeys.botMarketData(instanceId),
-    queryFn: () => apiClient.getMarketData(instanceId),
+    queryFn: () => botApi.getMarketData(instanceId),
     ...queryConfigs.realtime,
     enabled: enabled && !!instanceId,
   });
@@ -863,7 +875,7 @@ export function useBotMarketData(instanceId: string, enabled: boolean = true) {
 export function useBotAlerts(instanceId: string, params: ListAlertsParams = {}) {
   return useQuery({
     queryKey: queryKeys.botAlerts(instanceId, params),
-    queryFn: () => apiClient.getAlerts(instanceId, params),
+    queryFn: () => botApi.getAlerts(instanceId, params),
     ...queryConfigs.trading,
     enabled: !!instanceId,
   });
@@ -873,7 +885,7 @@ export function useBotJobs(instanceId: string, days: number = 7, enabled: boolea
   return useQuery({
     queryKey: queryKeys.botJobs(instanceId, days),
     queryFn: async (): Promise<BotJob[]> => {
-      const result = await apiClient.getBotJobs(instanceId, days);
+      const result = await botApi.getBotJobs(instanceId, days);
       const raw = result as { jobs?: unknown; data?: { jobs?: unknown } };
       const jobs: unknown[] = Array.isArray(raw.jobs)
         ? (raw.jobs as unknown[])
@@ -928,7 +940,7 @@ export function useBotJobs(instanceId: string, days: number = 7, enabled: boolea
 export function useBacktests(params: ListBacktestsParams = {}) {
   return useQuery({
     queryKey: queryKeys.backtests(params),
-    queryFn: () => apiClient.listBacktests(params),
+    queryFn: () => botApi.listBacktests(params),
     ...queryConfigs.historical,
   });
 }
@@ -936,7 +948,7 @@ export function useBacktests(params: ListBacktestsParams = {}) {
 export function useBacktest(runId: string, enabled: boolean = true) {
   return useQuery({
     queryKey: queryKeys.backtest(runId),
-    queryFn: () => apiClient.getBacktest(runId),
+    queryFn: () => botApi.getBacktest(runId),
     ...queryConfigs.historical,
     enabled: enabled && !!runId,
   });
@@ -945,7 +957,7 @@ export function useBacktest(runId: string, enabled: boolean = true) {
 export function useBacktestStatus(runId: string, enabled: boolean = true) {
   return useQuery({
     queryKey: queryKeys.backtestStatus(runId),
-    queryFn: () => apiClient.getBacktestStatus(runId),
+    queryFn: () => botApi.getBacktestStatus(runId),
     ...queryConfigs.realtime,
     enabled: enabled && !!runId,
   });
@@ -954,7 +966,7 @@ export function useBacktestStatus(runId: string, enabled: boolean = true) {
 export function useBacktestTrades(runId: string, limit: number = 50, offset: number = 0) {
   return useQuery({
     queryKey: queryKeys.backtestTrades(runId, { limit, offset }),
-    queryFn: () => apiClient.getBacktestTrades(runId, limit, offset),
+    queryFn: () => botApi.getBacktestTrades(runId, limit, offset),
     ...queryConfigs.historical,
     enabled: !!runId,
   });
@@ -963,7 +975,7 @@ export function useBacktestTrades(runId: string, limit: number = 50, offset: num
 export function useBacktestMetrics(runId: string, enabled: boolean = true) {
   return useQuery({
     queryKey: queryKeys.backtestMetrics(runId),
-    queryFn: () => apiClient.getBacktestMetrics(runId),
+    queryFn: () => botApi.getBacktestMetrics(runId),
     ...queryConfigs.historical,
     enabled: enabled && !!runId,
   });
@@ -990,7 +1002,7 @@ export function useBacktestSummary(runId: string) {
 
 export function useCreateBacktest() {
   return useMutation({
-    mutationFn: (config: BacktestConfig) => apiClient.createBacktest(config),
+    mutationFn: (config: BacktestConfig) => botApi.createBacktest(config),
     onSuccess: () => {
       cacheUtils.invalidateBacktestQueries();
     },
@@ -999,7 +1011,7 @@ export function useCreateBacktest() {
 
 export function useDeleteBacktest() {
   return useMutation({
-    mutationFn: (runId: string) => apiClient.deleteBacktest(runId),
+    mutationFn: (runId: string) => botApi.deleteBacktest(runId),
     onSuccess: () => {
       cacheUtils.invalidateBacktestQueries();
     },
@@ -1008,7 +1020,7 @@ export function useDeleteBacktest() {
 
 export function useCancelBacktest() {
   return useMutation({
-    mutationFn: (runId: string) => apiClient.cancelBacktest(runId),
+    mutationFn: (runId: string) => botApi.cancelBacktest(runId),
     onSuccess: (_, runId) => {
       cacheUtils.invalidateBacktestQueries(runId);
     },
@@ -1018,7 +1030,7 @@ export function useCancelBacktest() {
 export function useCompareBacktests() {
   return useMutation({
     mutationFn: ({ runIds, metrics }: { runIds: string[]; metrics: string[] }) =>
-      apiClient.compareBacktests(runIds, metrics),
+      botApi.compareBacktests(runIds, metrics),
   });
 }
 
@@ -1027,7 +1039,7 @@ export function useCompareBacktests() {
 export function useSystemStatus() {
   return useQuery({
     queryKey: queryKeys.systemStatus,
-    queryFn: () => apiClient.getSystemStatus(),
+    queryFn: () => botApi.getSystemStatus(),
     ...queryConfigs.realtime,
   });
 }
@@ -1035,7 +1047,7 @@ export function useSystemStatus() {
 export function useHealth() {
   return useQuery({
     queryKey: queryKeys.health,
-    queryFn: () => apiClient.getHealth(),
+    queryFn: () => botApi.getHealth(),
     ...queryConfigs.realtime,
     retry: 1, // Health checks should fail fast
   });
@@ -1044,7 +1056,7 @@ export function useHealth() {
 export function useReadiness() {
   return useQuery({
     queryKey: queryKeys.readiness,
-    queryFn: () => apiClient.getReadiness(),
+    queryFn: () => botApi.getReadiness(),
     ...queryConfigs.realtime,
     retry: 1,
   });
@@ -1053,7 +1065,7 @@ export function useReadiness() {
 export function useBotCapabilities() {
   return useQuery({
     queryKey: queryKeys.botCapabilities,
-    queryFn: () => apiClient.getCapabilities(),
+    queryFn: () => botApi.getCapabilities(),
     ...queryConfigs.static,
   });
 }
@@ -1061,7 +1073,7 @@ export function useBotCapabilities() {
 export function useRuntimeDBConfig(enabled: boolean = true) {
   return useQuery({
     queryKey: queryKeys.runtimeDbConfig,
-    queryFn: () => apiClient.getRuntimeDBConfig(),
+    queryFn: () => botApi.getRuntimeDBConfig(),
     ...queryConfigs.static,
     enabled,
   });
@@ -1074,7 +1086,7 @@ export function useInterruptedBacktests(
 ) {
   return useQuery({
     queryKey: queryKeys.backtestInterrupted(admin, limit),
-    queryFn: () => apiClient.getInterruptedBacktests(limit, admin),
+    queryFn: () => botApi.getInterruptedBacktests(limit, admin),
     ...queryConfigs.trading,
     enabled,
   });
@@ -1085,7 +1097,7 @@ export function useReconcileInterruptedBacktests() {
 
   return useMutation({
     mutationFn: ({ dryRun = true, admin = false }: { dryRun?: boolean; admin?: boolean }) =>
-      apiClient.reconcileInterruptedBacktests(dryRun, admin),
+      botApi.reconcileInterruptedBacktests(dryRun, admin),
     onSuccess: (_, { admin }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.backtestInterrupted(admin) });
     },
@@ -1326,7 +1338,7 @@ export function useBacktestProgress(runId: string) {
     const bootstrap = async () => {
       setIsLoading(true);
       try {
-        const result = await apiClient.getBacktestStatus(runId);
+        const result = await botApi.getBacktestStatus(runId);
         if (!cancelled) {
           setData(result as unknown as Record<string, unknown>);
           setBootstrapError(null);
@@ -1415,7 +1427,7 @@ export function useBacktestProgress(runId: string) {
         return;
       }
       try {
-        const result = await apiClient.getBacktestStatus(runId);
+        const result = await botApi.getBacktestStatus(runId);
         if (result && typeof result === 'object') {
           httpFailureCountRef.current = 0;
           nextHttpAttemptAtRef.current = 0;
@@ -1454,7 +1466,7 @@ export function useBacktestProgress(runId: string) {
       }
 
       try {
-        const result = await apiClient.getBacktestStatus(runId);
+        const result = await botApi.getBacktestStatus(runId);
         if (cancelled || !result || typeof result !== 'object') {
           return;
         }
@@ -1542,14 +1554,14 @@ export function usePrefetchBotData() {
     prefetchBot: (instanceId: string) => {
       queryClient.prefetchQuery({
         queryKey: queryKeys.bot(instanceId),
-        queryFn: () => apiClient.getBotInstance(instanceId),
+        queryFn: () => botApi.getBotInstance(instanceId),
         staleTime: queryConfigs.trading.staleTime,
       });
     },
     prefetchBotStats: (instanceId: string) => {
       queryClient.prefetchQuery({
         queryKey: queryKeys.botStats(instanceId),
-        queryFn: () => apiClient.getBotStats(instanceId),
+        queryFn: () => botApi.getBotStats(instanceId),
         staleTime: queryConfigs.trading.staleTime,
       });
     },

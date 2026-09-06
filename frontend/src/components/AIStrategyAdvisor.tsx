@@ -114,15 +114,16 @@ export function AIStrategyAdvisor({
     isLoading: providerStatusLoading,
   } = useAIProviderAvailability();
 
-  useEffect(() => {
-    if (availableProviders.length === 0) {
-      return;
+  // Repair an unavailable provider selection when the availability list
+  // changes — adjusted during render instead of a cascading effect render.
+  const [prevAvailableProviders, setPrevAvailableProviders] = useState(availableProviders);
+  if (availableProviders !== prevAvailableProviders) {
+    setPrevAvailableProviders(availableProviders);
+    const firstProvider = availableProviders[0];
+    if (availableProviders.length > 0 && !availableProviders.includes(provider) && firstProvider) {
+      setProvider(firstProvider);
     }
-
-    if (!availableProviders.includes(provider)) {
-      setProvider(availableProviders[0] ?? availableProviders[0]!);
-    }
-  }, [availableProviders, provider]);
+  }
 
   useEffect(() => {
     if (typeof window === 'undefined') {

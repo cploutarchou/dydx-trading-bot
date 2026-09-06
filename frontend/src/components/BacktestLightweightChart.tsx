@@ -1,14 +1,14 @@
 import {
-    AreaSeries,
-    createSeriesMarkers,
-    type HistogramData,
-    HistogramSeries,
-    type IChartApi,
-    type ISeriesApi,
-    type LineData,
-    type MouseEventParams,
-    type SeriesMarker,
-    type Time,
+  AreaSeries,
+  createSeriesMarkers,
+  type HistogramData,
+  HistogramSeries,
+  type IChartApi,
+  type ISeriesApi,
+  type LineData,
+  type MouseEventParams,
+  type SeriesMarker,
+  type Time,
 } from 'lightweight-charts';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useUIPreferencesStore } from '../store/uiPreferences';
@@ -111,8 +111,9 @@ export const BacktestLightweightChart: React.FC<BacktestLightweightChartProps> =
   }, [markers]);
 
   useEffect(() => {
+    // Ref-only sync; the visible point falls back to the latest datum at
+    // consumption (activePoint), so no state reset is needed on data change.
     latestDataRef.current = normalizedData;
-    setHoverPoint(normalizedData[normalizedData.length - 1] ?? null);
   }, [normalizedData]);
 
   useEffect(() => {
@@ -269,4 +270,3 @@ export const BacktestLightweightChart: React.FC<BacktestLightweightChartProps> =
     </div>
   );
 };
-

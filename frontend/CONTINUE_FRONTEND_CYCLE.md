@@ -18,13 +18,19 @@ plus one optional perf item re-filed below.
   BacktestDetailsV2, plus the earlier 5 surfaces. SyncHealthPanel stays
   manual BY DESIGN (adaptive 10s→60s backoff).
 
-## Only remaining (optional, perf-only)
+## PERF-1: closed by measurement (2026-09-06)
 
-**PERF-1** (backlog P3): per-portal endpoint modules so admin/ICO/CRM/
-analytics API groups tree-shake out of portal builds. Measured baseline:
-a manualChunks carve of api.ts costs +16KB gzip first load (rejected);
-the real fix is moving endpoint groups to modules + migrating call sites
-across admin surfaces. Nice-to-have, not debt.
+Per-portal endpoint modules were investigated to a decision with two data
+points: a manualChunks carve costs **+16KB gzip** first load (shared helpers
+hoisted eager), and stripping all 48 admin-only methods from the class
+before building caps the extraction win at **−1.5KB gzip** (10.3KB raw) —
+gzip flattens the repetitive axios/try-catch bodies. Realizing that ceiling
+means re-plumbing the 7.3KB auth/interceptor core (the FE-002/003 P1
+security code) plus ~20 call-site migrations. Negative ROI; closed. Reopen
+only if api.ts grows an order of magnitude or portals diverge further.
+
+**Nothing else remains — the audit cycle is 100% closed:** every item is
+either shipped or rejected-on-data.
 
 ## Environment (for future work)
 

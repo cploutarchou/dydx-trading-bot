@@ -40,7 +40,7 @@ clickhouse-connect==1.3.0
 pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
-coverage==7.15.4
+coverage==7.16.0
 loguru==0.7.3
 celery[redis]>=5.6.3,<6.0
 # redis.asyncio client: shared L2 market-data cache, JWT token blacklist, and the

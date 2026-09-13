@@ -1,0 +1,31 @@
+name: History Budget
+
+# Repository rule: the commit history on master carries at most 4 commits
+# per calendar day. Every push to master is checked; days touched by the
+# push are validated against the FULL branch history (merged commits
+# included), so merge-based build-ups are caught too.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: history-budget-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  commit-budget:
+    name: Max 4 commits per day
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce commit history budget
+        run: python3 scripts/check_commit_history_budget.py "${{ github.event.before }}" "${{ github.sha }}"

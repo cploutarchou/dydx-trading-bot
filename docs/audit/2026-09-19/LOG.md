@@ -98,39 +98,43 @@ Verification: see "final gates before commit" above. Staged-diff secret grep: no
 - Branching: low-risk tasks are batched on this branch. High-blast-radius tasks get their own branch and pull request: INFRA-P0-001L (live start-up lock), BOT-P1-011 (signing SDK), BOT-P1-003 (entry intent + migration).
 - Guard hook still not installed (skill `scripts/` absent from the installed location); guard run by hand before each commit and PR.
 
-## 2026-09-19 — BOT-P0-002 (uncommitted)
+## 2026-09-19 — BOT-P0-002
 Files: `bot/src/api/v1/auth/__init__.py`, `bot/src/api/v1/bot_lifecycle.py`, `bot/tests/test_bot_lifecycle_routes.py`, `bot/tests/test_auth_self_registration_gate.py` (new), `bot/README.md`.
 Checks before the change: the backend never calls the bot's register route (`grep -rn auth/register backend/internal` → only the backend's own route list); the backend sends the service token when `BOT_API_TOKEN` is configured (`bot_api_client.go:225-236`), and that token maps to a superuser principal (`auth_middleware.py:159`), so delegated lifecycle calls keep working. A deployment that forwards end-user JWTs instead gets 403 for non-admins (documented in the README).
 Test changes: the lifecycle fixture user is now an admin (the routes require one); the dependency assertion is stricter (admin on mutations, active user on reads). The bot user model has `is_admin` only, so "admin/operator" maps to the existing `get_admin_user` dependency.
 Verification (from `bot/`): full suite → 1458 passed, 13 skipped; `mypy src` clean; black/isort clean.
 
-## 2026-09-19 — BACK-P1-003, BACK-P1-004 (uncommitted)
+## 2026-09-19 — BACK-P1-003, BACK-P1-004
 Files: `backend/internal/db/db.go`, `backend/internal/db/migration_force_recovery_test.go` (new), `docker-compose.stack.yml`, `docker-compose.stack.arm64.yml`, `LOCAL_SETUP_GUIDE.md`.
 Verification: `go vet ./internal/db/`, `go test -race -count=1 ./internal/db/ ./cmd/...` → ok; `docker compose -f docker-compose.stack{,.arm64}.yml config -q` → ok; rendered config: `backend-migrate` command `["up"]`, `backend-api` depends on it with `service_completed_successfully`, `DB_AUTO_MIGRATE: "false"`; `make docs-governance` → OK.
 Notes: the cluster already runs per-release `backend-migrate` / `bot-migrate` jobs (observed). Whether the cluster's backend config still sets `DB_AUTO_MIGRATE=true` lives in the GitOps repository and must be checked there. Migration 000070 itself is unchanged: rehearsing it on a copy is a human step. `Force` recovery keeps an explicit local escape hatch because historical migrations contain non-idempotent index creation; it is off by default everywhere. The stack was not started here (config rendered only).
 
-## 2026-09-19 — BACK-P1-005 (uncommitted)
+## 2026-09-19 — BACK-P1-005
 Files: `backend/internal/app/router.go`, `backend/internal/app/trusted_proxies.go` (new), `backend/internal/app/trusted_proxies_test.go` (new), `backend/internal/routes/password_reset_routes.go`, `backend/internal/routes/auth_routes.go`, `backend/internal/routes/auth_credential_rate_limit_test.go` (new), `backend/README.md`, `.env.example`.
 Verification (from `backend/`): `go build ./...`, `go vet ./...`, `go vet -tags integration ./internal/routes/` ok; `go test -race -count=1 ./...` → every package ok.
 Deployment note: until the GitOps repository sets `TRUSTED_PROXIES` to the pod CIDR, all users behind Traefik share one client IP, so the new credential budget (1 rps, burst 20) is shared by everyone. Set the variable in the same release.
 
-## 2026-09-20 — FRONT-P1-006, FRONT-P1-002 (uncommitted)
+## 2026-09-20 — FRONT-P1-006, FRONT-P1-002
 Files: `frontend/src/utils/runtimeForm.ts` (new), `frontend/src/utils/runtimeForm.test.ts` (new), `frontend/src/components/BotManager.tsx`, `frontend/src/components/StrategyManager.tsx`.
 Verification (from `frontend/`): `npm run lint` clean; `npm run typecheck` clean; `npm test` → 27 files / 148 tests passed; `npx playwright test` → 10 passed.
 Notes: the "Use Testnet" checkbox is replaced by a read-only network line derived from the chain id (mainnet is labelled as trading real funds). The stop dialog text makes no claim about positions being closed or kept, because that behaviour was not verified.
 
-## 2026-09-20 — REPO-P2-003, REPO-P2-001, REPO-P3-001, INFRA-P3-001 (uncommitted)
+## 2026-09-20 — REPO-P2-003, REPO-P2-001, REPO-P3-001, INFRA-P3-001
 - REPO-P2-003: `.github/workflows/container-images.yml` gains `wait-for-quality-gate`; `bot-quality.yml` path filters now cover `docker/**`, the image workflow and the drift script. The wait script was extracted from the YAML and run locally: gate success on `95b7409a` → exit 0; pull_request event → exit 0; commit with no gate check → exit 1 after the (shortened) appearance window. The first version looped forever on a missing check (empty API output was not mapped to `missing`); fixed and re-run. The failed-gate branch was not exercised against a real failed check.
 - REPO-P2-001: `backend/go.mod` → `go 1.27.0`; with go1.27.0: `go build ./...`, `go vet ./...`, `go vet -tags integration ./internal/routes/`, `go test -race -count=1 ./...` → all ok. CI Node → 26 (local Node is 24.21, so lint/typecheck/tests/e2e on Node 26 are verified by PR CI only). `python3 scripts/check_toolchain_drift.py` → exit 1 before the Node bump, `OK (Go 1.27, Node 26)` after; wired into the `Docker Compose validation` job.
 - REPO-P3-001: version statements corrected. The devcontainer base tag stays at `go:1-1.25-bookworm`: `docker manifest inspect` could not confirm any tag (it also failed for the tag in use), so only the comment was made truthful.
 - INFRA-P3-001: `git rm -r deploy`, `git rm scripts/check_no_plaintext_k8s_secrets.py`; CI jobs `k8s-secret-scan` and `kustomize-validate` removed from the workflow and from the gate's `needs` (13 jobs left, YAML parses); `validate-k8s-secrets` make target removed; README, setup guide, AGENTS.md, expert profiles updated. Dated reports (`docs/FINAL_*`, `bot/tasks.md`) keep their historical references; the blocked item P4.1 carries a resolution note. `make docs-governance` → OK; compose configs ok. The GitOps repository URL is not recorded because it is not known from this repository.
 
-## 2026-09-20 — INFRA-P1-010 (uncommitted)
+## 2026-09-20 — INFRA-P1-010
 Files: `Makefile`, `docker-compose.stack.yml`, `docker-compose.stack.arm64.yml`, `docker-compose.infra.yml`, `docker-compose.infra.arm64.yml`, `LOCAL_SETUP_GUIDE.md`.
 Verification: `docker compose -f <file> config -q` → ok for all five compose files; `grep` for published ports not starting with `127.0.0.1` → none; `make -n stack-up-prod` → "No rule to make target"; `make docs-governance` → OK.
 Deviation from the plan record: the `${VAR:?missing}` change for secrets was not made. CI validates the compose files with no environment set and the local bootstrap relies on the placeholders; with the production path removed and every port on loopback, the placeholders no longer guard anything reachable. The stacks were not started here.
 
-## 2026-09-20 — BACK-P1-001, REPO-P3-004 (uncommitted)
+## 2026-09-20 — BACK-P1-001, REPO-P3-004
 Files: `backend/internal/routes/quick_deploy_attribution.go` (new), `backend/internal/routes/quick_deploy_attribution_test.go` (new), `backend/internal/routes/bot_api_delegate_routes.go`, `.github/CODEOWNERS` (new).
 Verification (from `backend/`, go1.27.0): `go build ./...`, `go vet ./...`, `go vet -tags integration ./internal/routes/` ok; `go test -race -count=1 ./...` → every package ok.
 Notes: the ownership row stores trading parameters only; credentials from the request body are never persisted (asserted by test). The quota race is closed by a re-count after the insert rather than a transaction, because the count and insert go through the existing repository methods on separate statements. A handler-level HTTP test was not added: the delegate routes' HTTP tests live under the `integration` tag whose harness is broken (BACK-P2-011); the logic is covered through the extracted function.
+
+## 2026-09-19T21:15Z — commit f0dbc203
+Tasks: BOT-P0-002, BACK-P1-001, BACK-P1-003, BACK-P1-004, BACK-P1-005, FRONT-P1-006, FRONT-P1-002, REPO-P2-003, REPO-P2-001, REPO-P3-001, INFRA-P3-001, INFRA-P1-010, REPO-P3-004
+Verification: per-task entries above. Guard: scan-staged OK, check OK. Staged-diff secret grep: no hits.

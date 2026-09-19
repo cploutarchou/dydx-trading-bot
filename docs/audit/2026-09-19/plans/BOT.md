@@ -31,7 +31,7 @@ All fixes are verified with the hermetic suite (fakes only). Nothing in this pla
 - Effort: S | Blast radius: med (response shape) | Status: done (36723306) — status view drops mnemonic and Telegram token, adds presence flags; 1 test
 
 ### BOT-P0-002 — Open self-registration issues an active user and JWT; lifecycle routes need only any active user
-- Status: done (pending commit) — register returns 403 unless BOT_API_ALLOW_SELF_REGISTRATION=true; six mutating lifecycle routes need an admin principal; 17 tests
+- Status: done (f0dbc203) — register returns 403 unless BOT_API_ALLOW_SELF_REGISTRATION=true; six mutating lifecycle routes need an admin principal; 17 tests
 
 ## P1
 

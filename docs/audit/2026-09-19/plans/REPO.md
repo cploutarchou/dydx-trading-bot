@@ -31,18 +31,18 @@ Evidence, impact and root cause for every ID: `../findings/REPO.md`.
 ### REPO-P2-003 — Publish images only after `quality-gate`
 - Decision: direct pushes to `master` stay; `container-images.yml` publishes only when `quality-gate` succeeded for the same commit. Not a required status check.
 - Verification: workflow YAML parses; PR builds still run without pushing; first push to `master` shows publish waiting on the gate.
-- Effort: S | Blast radius: med | Status: done (pending commit) — image workflow waits for the Quality gate check of the same commit on push; gate workflow now runs for every image path; wait script exercised locally (success, missing, PR paths)
+- Effort: S | Blast radius: med | Status: done (f0dbc203) — image workflow waits for the Quality gate check of the same commit on push; gate workflow now runs for every image path; wait script exercised locally (success, missing, PR paths)
 
 ### REPO-P2-001 — One toolchain for tests and images
 - Decision: move CI up to the images: `go.mod` go 1.27, CI Node 26, plus a CI check that fails when image tags and tested versions drift.
 - Verification: `go build ./... && go vet ./... && go test -race ./...` on 1.27; frontend gates on Node 26; drift check red when a tag is changed on purpose.
-- Effort: S | Blast radius: med | Status: done (pending commit) — go.mod go 1.27.0, CI Node 26, scripts/check_toolchain_drift.py enforced in CI; backend gates green on go1.27.0; Node 26 gates run in PR CI only (local Node is 24)
+- Effort: S | Blast radius: med | Status: done (f0dbc203) — go.mod go 1.27.0, CI Node 26, scripts/check_toolchain_drift.py enforced in CI; backend gates green on go1.27.0; Node 26 gates run in PR CI only (local Node is 24)
 
 ### REPO-P3-001 — Correct Go version statements
 - Verification: `grep -rn 'Go 1\.' zcode-marketplace/plugins/monorepo-experts/references backend/.devcontainer/Dockerfile` agrees with `go.mod`.
-- Effort: S | Blast radius: low | Depends on: REPO-P2-001 | Status: done (pending commit) — profiles, AGENTS.md and devcontainer comment state the real versions; devcontainer base tag left at 1.25 (newer tag could not be verified)
+- Effort: S | Blast radius: low | Depends on: REPO-P2-001 | Status: done (f0dbc203) — profiles, AGENTS.md and devcontainer comment state the real versions; devcontainer base tag left at 1.25 (newer tag could not be verified)
 
 ### REPO-P3-004 — Add `CODEOWNERS` (moved from proposal at the owner's request)
 - Fix: `.github/CODEOWNERS` with the repository owner (`@cploutarchou`) as default owner and explicit entries for the order path (`bot/src/trading/`), auth (`backend/internal/auth/`, `backend/internal/middleware/`, `bot/src/middleware/`), migrations and workflows, so ownership is recorded and review requests route automatically when collaborators are added.
 - Verification: GitHub reports no CODEOWNERS errors for the branch (`gh api repos/cploutarchou/dydx-trading-bot/codeowners/errors`).
-- Effort: S | Blast radius: low | Status: done (pending commit) — .github/CODEOWNERS added; every listed path exists; GitHub-side validation after the push
+- Effort: S | Blast radius: low | Status: done (f0dbc203) — .github/CODEOWNERS added; every listed path exists; GitHub-side validation after the push

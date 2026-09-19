@@ -21,6 +21,7 @@ from src.constants import (
     USD_PER_TRADE,
     ZSCORE_THRESH,
 )
+from src.exceptions import UnhedgedExposureError
 from src.infrastructure.domain.cointegration_storage import pair_storage
 from src.shared.dataframe_utils import (
     cleanup_dataframe,
@@ -29,6 +30,7 @@ from src.shared.dataframe_utils import (
 )
 from src.shared.notifications import TelegramMessenger
 from src.shared.utils import format_number, format_size_down
+from src.trading import entry_halt
 from src.trading.account_manager import (
     get_account,
     get_open_positions,
@@ -772,6 +774,19 @@ async def open_positions(client: Any) -> None:
     scan_cycle_id = uuid4().hex[:12]
     increment_metric("arbitrage_scan_cycles_total")
 
+    # A failed emergency close may have left a leg open with no hedge. No new
+    # pair is opened until an operator has verified the account and cleared
+    # the latch (python -m src.trading.entry_halt --clear). Exits keep running.
+    halt_state = entry_halt.entries_halted()
+    if halt_state is not None:
+        increment_metric("arbitrage_entries_halted_cycles_total")
+        logger.critical(
+            "Entries are halted since {}: {}. Verify the account, then clear the latch.",
+            halt_state.get("halted_at", "unknown"),
+            halt_state.get("reason", "unknown"),
+        )
+        return
+
     # Initialize Telegram messenger
     messenger = TelegramMessenger()
 
@@ -1215,6 +1230,46 @@ async def open_positions(client: Any) -> None:
                         )
                         try:
                             bot_open_dict = await bot_agent.open_trades()
+                        except UnhedgedExposureError as exc:
+                            # The pair could not be flattened. Stop opening
+                            # pairs now, in this cycle and the following ones.
+                            record_rejection("entry_unhedged_exposure")
+                            _record_entry_failure(pair_key, exc)
+                            entry_halt.halt_entries(
+                                f"emergency close failed for {base_market} / {quote_market}",
+                                {
+                                    "market_1": base_market,
+                                    "market_2": quote_market,
+                                    "error": str(exc),
+                                    "scan_cycle_id": scan_cycle_id,
+                                },
+                            )
+                            persist_trade_activity_event(
+                                "trade_entries_halted",
+                                f"New entries halted: emergency close failed for {base_market} / {quote_market}",
+                                severity="critical",
+                                details={
+                                    "market_1": base_market,
+                                    "market_2": quote_market,
+                                    "error": str(exc),
+                                },
+                            )
+                            messenger.send_error_message(
+                                "CRITICAL: New entries halted",
+                                f"Emergency close failed for {base_market} / {quote_market}. "
+                                "A leg may be open without a hedge. No new pairs will be opened "
+                                "until the account is verified and the latch is cleared.",
+                                is_critical=True,
+                                category="execution_emergency_cleanup",
+                            )
+                            logger.critical(
+                                "Unhedged exposure after {} / {}; entries halted",
+                                base_market,
+                                quote_market,
+                            )
+                            # break, not return: the scan's cleanup below
+                            # (DataFrame tracking) must still run.
+                            break
                         except Exception as exc:
                             record_rejection("entry_execution_failed")
                             _record_entry_failure(pair_key, exc)

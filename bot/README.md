@@ -282,6 +282,21 @@ be set, and every one that is set must carry an allowed label. API startup is re
 no environment set, with any other label (`production`, `prod`, `live`, `mainnet`, `staging`, ...), or when a
 development label in one variable conflicts with a production label in another.
 
+### Entry halt latch
+
+When an emergency close fails, a leg may be open without a hedge. The pair agent raises `UnhedgedExposureError`, the
+entry scan stops immediately, and a persisted latch (`entries_halted.json` next to the instance's `bot_agents.json`)
+blocks new entries in every following cycle, across restarts. Exits and risk controls keep running. A critical
+notification and a `trade_entries_halted` activity event are emitted once. After verifying the account on the exchange:
+
+```bash
+python -m src.trading.entry_halt          # show the latch
+python -m src.trading.entry_halt --clear  # resume entries
+```
+
+A rejected order transaction raises `OrderRejectedError` at placement, with the node's code and reason, instead of
+timing out on the indexer lookup.
+
 Lifecycle mutations (`POST /api/v1/bots`, `DELETE /api/v1/bots/{id}`, `start`, `stop`, `restart`, `quick-deploy`)
 require an admin principal; reads need any authenticated active user. The backend's service token (`BOT_API_TOKEN`)
 maps to a superuser principal and passes this gate. A deployment that forwards end-user JWTs instead of the service
@@ -431,9 +446,11 @@ Store the key securely (e.g. in your secrets manager). **Losing it makes sealed 
   persistence and `POST /api/v1/bots`). The
   `config_meta.schema_version` is `2`; sealed rows carry `credentials_sealed` /
   `telegram_sealed` envelopes instead of plaintext blocks.
-- Without a key, storage falls back to plaintext and the bot logs a one-time warning (non-breaking upgrade path). Set
-  `BOT_CREDENTIALS_ENCRYPTION_REQUIRED=true`
-  to make writes **fail** instead of storing plaintext — use this in production once the key is deployed.
+- Without a key, plaintext storage (with a one-time warning) is allowed **only** in an explicit local/dev/test
+  environment: at least one of `APP_CONFIG_ENV`, `CONFIG_ENV`, `ENVIRONMENT`, `APP_ENV` is set and every one that is
+  set is `development`, `dev`, `local`, `test`, `testing` or `ci`. Everywhere else (unset, production-like, or mixed
+  labels) credential writes **fail** until a key is provisioned. `BOT_CREDENTIALS_ENCRYPTION_REQUIRED=true` forces the
+  same behaviour in development. Existing plaintext rows are re-sealed with `make encrypt-bot-credentials`.
 - All read paths (instance recovery, runtime worker startup, lifecycle notifications) decrypt transparently. Legacy
   plaintext rows (schema version 1)
   keep working and are re-sealed lazily on the next write.

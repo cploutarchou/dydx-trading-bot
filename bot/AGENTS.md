@@ -411,8 +411,9 @@ module `reset_*()` helpers.
 - **Credential encryption at rest**: `bot_instances.config` credentials are sealed with AES-256-GCM via
   `src/shared/credentials_cipher.py` using a dedicated key (`BOT_CREDENTIALS_ENCRYPTION_KEY` /
   `BOT_CREDENTIALS_ENCRYPTION_KEY_FILE`); `config_meta.schema_version` is `2` and legacy v1 plaintext rows are re-sealed
-  lazily on write. Without a key, storage falls back to plaintext with a one-time warning; set
-  `BOT_CREDENTIALS_ENCRYPTION_REQUIRED=true` to fail writes instead (production). Provision with
+  lazily on write. Without a key, plaintext storage is allowed only in an explicit local/dev/test environment
+  (`src/shared/environment.py`); anywhere else credential writes fail. `BOT_CREDENTIALS_ENCRYPTION_REQUIRED=true`
+  forces that in development too. Provision with
   `make credentials-keygen`; backfill with `make encrypt-bot-credentials` (`ARGS=--dry-run` to preview).
 - **Startup recovery**: Stale backtests and orphaned live bots are reconciled to failed state by default; use
   `BACKTEST_AUTO_RECOVERY_MODE=restart` and `BOT_AUTO_RECOVER_LIVE_*` flags to enable auto-recovery.

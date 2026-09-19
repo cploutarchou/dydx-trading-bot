@@ -20,3 +20,7 @@ All twelve questions were answered by the owner on 2026-09-19, or resolved by a 
 ## Observed during the cluster check (not part of the audit scope)
 
 - The `dns-guard` CronJob in `executionlab-staging` is failing: the last three runs each left three `Failed` pods. Needs triage in the GitOps repository.
+
+## Raised during queue 2
+
+- [BOT-P1-007] On dYdX v4, when a short-term reduce-only order is re-submitted with the same client id (same OrderId) and a later goodTilBlock after the first attempt's outcome is unknown, does the chain count fills already made against that OrderId (so the retry cannot over-close), or does it reject the replacement? Needs a testnet check. Blocks: reusing one client id per logical close.

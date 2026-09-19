@@ -138,3 +138,20 @@ Notes: the ownership row stores trading parameters only; credentials from the re
 ## 2026-09-19T21:15Z — commit f0dbc203
 Tasks: BOT-P0-002, BACK-P1-001, BACK-P1-003, BACK-P1-004, BACK-P1-005, FRONT-P1-006, FRONT-P1-002, REPO-P2-003, REPO-P2-001, REPO-P3-001, INFRA-P3-001, INFRA-P1-010, REPO-P3-004
 Verification: per-task entries above. Guard: scan-staged OK, check OK. Staged-diff secret grep: no hits.
+
+## 2026-09-20 — BOT-P1-001, BOT-P1-006 (uncommitted); BOT-P1-007 deferred
+Branch: `audit/2026-09-19-orderpath`, stacked on `audit/2026-09-19-queue2`.
+Files: `bot/src/exceptions.py`, `bot/src/trading/account_manager.py`, `bot/src/trading/bot_agent.py`, `bot/tests/test_account_manager_order_lookup.py`, `bot/tests/test_bot_agent_emergency_cleanup.py`, `bot/tests/test_exception_handling_ratchet.py`.
+Verification (from `bot/`): full suite → 1473 passed, 13 skipped; `mypy src` clean.
+Notes:
+- BOT-P1-001: the old `"code" in str(order)` check only logged. Leg-1 rejection still goes through the existing reduce-only cleanup in `open_trades` (a no-op for an order that never existed), which was left as is.
+- BOT-P1-006: the first version returned quietly when every placement failed and the indexer reported the position flat. The existing test `test_bot_agent_open_trades_connection_error` requires escalation in that case, and indexer lag makes the flat reading untrustworthy right after an unknown-outcome entry, so a flat reading now counts only after a close order was actually placed. The broad-catch ratchet baseline moves 306 → 307 with the justification the ratchet asks for.
+- BOT-P1-007 deferred: chain semantics unknown (question recorded).
+
+## 2026-09-20 — BOT-P1-012, BOT-P1-008 (uncommitted)
+Files: `bot/src/shared/environment.py` (new), `bot/src/shared/credentials_cipher.py`, `bot/src/middleware/auth_middleware.py`, `bot/src/exceptions.py`, `bot/src/trading/entry_halt.py` (new), `bot/src/trading/bot_agent.py`, `bot/src/trading/position_manager.py`, `bot/tests/test_credentials_encryption_requirement.py` (new), `bot/tests/test_entry_halt_latch.py` (new), `bot/README.md`, `bot/AGENTS.md`.
+Verification (from `bot/`): full suite → 1491 passed, 13 skipped; `mypy src` → no issues in 100 files; isort, black, flake8 clean; `make docs-governance` → OK.
+Notes:
+- BOT-P1-012: no new re-seal command was needed; `make encrypt-bot-credentials` already exists. The worker image bakes `APP_ENV=prod`/`ENVIRONMENT=prod` while the local stack adds `APP_CONFIG_ENV=development`; mixed labels are not "explicit dev", so a worker in the local stack that writes credentials needs a key. The API image (where instance creation writes credentials) carries only the development label in the stack.
+- BOT-P1-008: `UnhedgedExposureError` also subclasses `RuntimeError`, so existing handlers and tests that expect `RuntimeError` are unchanged. The scan uses `break` so its DataFrame cleanup still runs. A first full run failed `test_portfolio_risk` because the new test module leaked per-pair backoff state; its fixture now clears it on teardown.
+- PR #54 CI (first batch): all 25 checks passed, including the frontend on Node 26, the backend on Go 1.27 and `Wait for quality gate`; GitHub reports 0 CODEOWNERS errors.

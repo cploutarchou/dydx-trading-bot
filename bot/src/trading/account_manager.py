@@ -11,6 +11,7 @@ from loguru import logger
 from v4_proto.dydxprotocol.clob.order_pb2 import Order
 
 from src.constants import DYDX_ADDRESS, DYDX_API_THROTTLE_SECONDS, SUBACCOUNT_NUMBER
+from src.exceptions import OrderRejectedError
 from src.infrastructure import resilience
 from src.shared.utils import format_number
 from src.trading.arbitrage_observability import increment_metric
@@ -424,6 +425,17 @@ async def place_market_order(
         timeout=NODE_CALL_TIMEOUT_SECONDS,
     )
 
+    # A non-zero broadcast code means the node rejected the transaction: no
+    # order exists. Fail now with the node's reason instead of polling the
+    # indexer for an order that will never appear.
+    rejection = _broadcast_rejection(order)
+    if rejection is not None:
+        code, detail = rejection
+        logger.error(
+            "Order for {} rejected by the node: code={} {}", ticker, code, detail
+        )
+        raise OrderRejectedError(ticker, code, detail)
+
     order_lookup_address = _resolve_client_address(client)
     order_id = await _resolve_recent_order_id(
         client=client,
@@ -433,11 +445,9 @@ async def place_market_order(
         expected_side=side,
         expected_size=size,
         expected_reduce_only=reduce_only,
+        min_created_height=int(current_block),
+        min_good_til_block=int(good_til_block),
     )
-
-    # Print something if error returned
-    if "code" in str(order):
-        logger.error("Order returned error payload: {}", order)
 
     # Return result
     return (order, order_id)
@@ -466,6 +476,58 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _broadcast_rejection(response: Any) -> Optional[Tuple[int, str]]:
+    """Return ``(code, detail)`` when a broadcast response reports a rejection.
+
+    Handles the protobuf ``BroadcastTxResponse`` (``tx_response.code``) and the
+    dict shapes used by REST fallbacks and fakes. A missing or zero code is
+    success; an unreadable code is treated as success here because the
+    deterministic order lookup that follows still has to find the order.
+    """
+    carrier: Any = response
+    if isinstance(response, dict):
+        carrier = response.get("tx_response") or response.get("txResponse") or response
+        code = carrier.get("code") if isinstance(carrier, dict) else None
+        detail = (
+            (carrier.get("raw_log") or carrier.get("rawLog") or "")
+            if isinstance(carrier, dict)
+            else ""
+        )
+    else:
+        carrier = getattr(response, "tx_response", response)
+        code = getattr(carrier, "code", None)
+        detail = getattr(carrier, "raw_log", "") or ""
+    try:
+        numeric_code = int(code) if code is not None else 0
+    except (TypeError, ValueError):
+        return None
+    if numeric_code == 0:
+        return None
+    return numeric_code, str(detail)
+
+
+def _placed_at_or_after(
+    order: dict[str, Any],
+    min_created_height: Optional[int],
+    min_good_til_block: Optional[int],
+) -> bool:
+    """Whether an indexer order can be the one just placed (not an older one).
+
+    Short-term orders expose ``goodTilBlock`` (ours is the placement block plus
+    a fixed offset, so any earlier order has a smaller value); stateful orders
+    expose ``createdAtHeight``. An order with neither bound is rejected.
+    """
+    if min_created_height is None and min_good_til_block is None:
+        return True
+    created = _safe_int(order.get("createdAtHeight"), default=-1)
+    if min_created_height is not None and created >= 0:
+        return created >= min_created_height
+    good_til = _safe_int(order.get("goodTilBlock"), default=-1)
+    if min_good_til_block is not None and good_til >= 0:
+        return good_til >= min_good_til_block
+    return False
+
+
 def _resolve_order_from_snapshot(
     orders: list[dict[str, Any]],
     *,
@@ -474,6 +536,8 @@ def _resolve_order_from_snapshot(
     expected_size: Any,
     expected_reduce_only: bool,
     allow_fallback: bool = False,
+    min_created_height: Optional[int] = None,
+    min_good_til_block: Optional[int] = None,
 ) -> Optional[str]:
     """Resolve placed order ID from a recent indexer snapshot."""
     expected_client_id = int(market_order_id.client_id)
@@ -508,6 +572,12 @@ def _resolve_order_from_snapshot(
         if order_reduce_only != normalized_reduce_only:
             continue
 
+        # Sizes repeat (every entry is USD_PER_TRADE / price floored to the
+        # step), so an older, already filled order can look identical. Only an
+        # order placed at or after this placement may be bound.
+        if not _placed_at_or_after(order, min_created_height, min_good_til_block):
+            continue
+
         order_size = abs(_safe_float(order.get("size"), 0.0))
         if expected_size_value > 0 and order_size > 0:
             # Accept tiny rounding differences.
@@ -540,6 +610,8 @@ async def _resolve_recent_order_id(
     max_attempts: int = 5,
     initial_delay_seconds: float = 1.2,
     retry_delay_seconds: float = 0.75,
+    min_created_height: Optional[int] = None,
+    min_good_til_block: Optional[int] = None,
 ) -> str:
     """Retry indexer lookups to resolve recently placed order ID."""
     latest_snapshot: list[dict[str, Any]] = []
@@ -581,6 +653,8 @@ async def _resolve_recent_order_id(
             expected_size=expected_size,
             expected_reduce_only=expected_reduce_only,
             allow_fallback=(attempt == max_attempts),
+            min_created_height=min_created_height,
+            min_good_til_block=min_good_til_block,
         )
         if order_id:
             return order_id

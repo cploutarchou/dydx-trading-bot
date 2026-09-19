@@ -92,22 +92,22 @@ Each is its own change with tests on fakes only; nothing connects to an exchange
 ### BOT-P1-001 — Detect transaction rejection from the broadcast response; bind order ids deterministically
 - Fix: inspect the broadcast response and raise a typed `OrderRejectedError` on a non-zero code instead of matching `"code" in str(order)`; resolve the order by its client id, never by "latest order" heuristics.
 - Verification: `pytest tests/ -q -k "place_market_order or resolve_order"` with new tests (rejected tx raises; an older order is never bound); full bot suite.
-- Effort: M | Blast radius: low | Status: todo
+- Effort: M | Blast radius: low | Status: done (pending commit) — non-zero broadcast code raises OrderRejectedError before any polling; the order-id fallback only binds orders placed at or after this placement (createdAtHeight or goodTilBlock); 10 tests
 
 ### BOT-P1-006 — Emergency-close retry loop must survive placement exceptions
 - Fix: wrap placement in the retry loop, always fall through to the open-position check (fail closed on error), and only report success when the position is verified flat.
 - Verification: `pytest tests/ -q -k "emergency_close"` with a test where the first placement raises and the second fills; full bot suite.
-- Effort: S | Blast radius: low | Depends on: BOT-P1-001 | Status: todo
+- Effort: S | Blast radius: low | Depends on: BOT-P1-001 | Status: done (pending commit) — a failed attempt no longer ends the close loop; a flat reading counts only after a close order was placed; 4 tests, existing escalation test unchanged
 
 ### BOT-P1-007 — One client id per logical reduce-only close
 - Fix: generate the `client_id` once per logical close and reuse it across retries, so an unknown-outcome first attempt cannot be doubled by the retry on a shared subaccount.
 - Verification: `pytest tests/ -q -k "reduce_only_close"` with a test asserting the same client id across attempts; full bot suite.
-- Effort: M | Blast radius: low | Depends on: BOT-P1-001 | Status: todo
+- Effort: M | Blast radius: low | Depends on: BOT-P1-001 | Status: deferred (needs the dYdX v4 semantics for re-submitting a short-term order with the same client id after an unknown outcome, verified on testnet; guessing a chain contract on the close path is not acceptable. See OPEN-QUESTIONS.md)
 
 ### BOT-P1-008 — Halt new entries after a failed emergency cleanup
 - Fix: raise a typed `UnhedgedExposureError`; on it set a persisted, instance-level "entries halted" latch that blocks new entries until an operator clears it; alert through the messenger. Exits and risk controls keep running.
 - Verification: `pytest tests/ -q -k "open_positions and halt"` (no entry is attempted while latched; latch survives restart; explicit reset clears it); full bot suite.
-- Effort: M | Blast radius: low | Status: todo
+- Effort: M | Blast radius: low | Status: done (pending commit) — UnhedgedExposureError from every emergency-closure failure; persisted per-instance entry halt latch honoured by the scan, set mid-cycle, cleared only by the operator CLI; 5 tests
 
 ### BOT-P1-004 — Tracked-position store must not ignore write failures
 - Fix: one authoritative store per deployment; a failed DB write raises/alerts and marks the instance degraded instead of a DEBUG log, so reads can never prefer a store that silently missed writes.
@@ -127,4 +127,4 @@ Each is its own change with tests on fakes only; nothing connects to an exchange
 ### BOT-P1-012 — Refuse to store mnemonics in plaintext outside dev/test
 - Fix: require the credentials encryption key whenever the instance network is mainnet or the environment is not an explicit dev/test label; start-up and instance creation fail with a clear error otherwise. Existing plaintext records are not rewritten silently: a documented one-off re-seal command is provided.
 - Verification: `pytest tests/ -q -k "credentials_cipher"` (mainnet without key → refused; dev without key → allowed with a warning; with key → sealed); full bot suite. Deployment note: the GitOps repository must provision the key before this ships.
-- Effort: S | Blast radius: med | Status: todo
+- Effort: S | Blast radius: med | Status: done (pending commit) — plaintext credential storage only in an explicit dev/test environment; shared fail-closed environment helper reused by the auth bypass gate; 13 tests

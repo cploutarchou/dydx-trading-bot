@@ -15,18 +15,17 @@ from sqlalchemy.orm import Session
 from src.api.auth_utils import JWTUtils
 from src.infrastructure.database import get_session
 from src.infrastructure.domain.models.auth_models import User
+from src.shared.environment import (
+    DEV_OR_TEST_ENVIRONMENTS,
+    ENVIRONMENT_VARIABLES,
+    explicit_environment_values,
+    is_explicit_dev_or_test_environment,
+)
 
 # FastAPI security scheme for JWT Bearer tokens
 security = HTTPBearer(auto_error=False)
 
-_AUTH_BYPASS_ALLOWED_ENVIRONMENTS = {
-    "development",
-    "dev",
-    "local",
-    "test",
-    "testing",
-    "ci",
-}
+_AUTH_BYPASS_ALLOWED_ENVIRONMENTS = DEV_OR_TEST_ENVIRONMENTS
 
 
 @dataclass
@@ -57,14 +56,6 @@ def auth_bypass_requested() -> bool:
     return os.getenv("API_BYPASS_AUTH", "false").strip().lower() == "true"
 
 
-_ENVIRONMENT_VARIABLES = ("APP_CONFIG_ENV", "CONFIG_ENV", "ENVIRONMENT", "APP_ENV")
-
-
-def _explicit_environment_values() -> list[str]:
-    values = (os.getenv(key, "").strip().lower() for key in _ENVIRONMENT_VARIABLES)
-    return [value for value in values if value]
-
-
 def auth_bypass_is_allowed_environment(environment: Optional[str] = None) -> bool:
     """Whether the auth bypass may be honoured. Fails closed.
 
@@ -77,10 +68,7 @@ def auth_bypass_is_allowed_environment(environment: Optional[str] = None) -> boo
     """
     if environment is not None and str(environment).strip():
         return str(environment).strip().lower() in _AUTH_BYPASS_ALLOWED_ENVIRONMENTS
-    explicit = _explicit_environment_values()
-    return bool(explicit) and all(
-        value in _AUTH_BYPASS_ALLOWED_ENVIRONMENTS for value in explicit
-    )
+    return is_explicit_dev_or_test_environment()
 
 
 def validate_auth_bypass_configuration() -> None:
@@ -90,10 +78,10 @@ def validate_auth_bypass_configuration() -> None:
     if auth_bypass_is_allowed_environment():
         return
 
-    explicit = _explicit_environment_values()
+    explicit = explicit_environment_values()
     raise RuntimeError(
         "API_BYPASS_AUTH=true is forbidden outside explicit local/dev/test environments. "
-        f"Environment variables ({', '.join(_ENVIRONMENT_VARIABLES)}) resolve to "
+        f"Environment variables ({', '.join(ENVIRONMENT_VARIABLES)}) resolve to "
         f"{explicit or 'unset'}; every one that is set must be one of: "
         "development, dev, local, test, testing, ci, and at least one must be set."
     )

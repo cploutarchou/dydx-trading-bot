@@ -857,3 +857,122 @@ def test_check_order_status_treats_unknown_fills_as_partial(monkeypatch):
 
     assert result == "partial"
     assert agent.order_dict["pair_status"] == "PARTIAL"
+
+
+# --- the emergency close loop must survive a failing attempt ------------------
+
+
+def _wire_emergency_close(monkeypatch, *, place, status="FILLED", still_open=True):
+    class DummyMessenger:
+        def send_error_message(self, *args, **kwargs):
+            return None
+
+    async def fake_check_order_status(_client, _order_id):
+        return status
+
+    async def fake_is_open_positions(_client, _market):
+        return still_open
+
+    async def _fast_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr("src.trading.bot_agent.TelegramMessenger", DummyMessenger)
+    monkeypatch.setattr("src.trading.bot_agent.place_market_order", place)
+    monkeypatch.setattr(
+        "src.trading.bot_agent.check_order_status", fake_check_order_status
+    )
+    monkeypatch.setattr(
+        "src.trading.bot_agent.is_open_positions", fake_is_open_positions
+    )
+    monkeypatch.setattr("src.trading.bot_agent.asyncio.sleep", _fast_sleep)
+
+
+def test_emergency_close_retries_after_a_placement_exception(monkeypatch):
+    attempts = []
+
+    async def flaky_place(_client, market, side, size, price, reduce_only):
+        attempts.append(market)
+        if len(attempts) == 1:
+            raise ConnectionError("node timeout")
+        return ({"ok": True}, "close-2")
+
+    _wire_emergency_close(monkeypatch, place=flaky_place)
+    agent = _make_agent()
+
+    order_id = asyncio.run(
+        agent._emergency_close_leg(
+            market="ETH-USD", side="SELL", size="1", price="5100"
+        )
+    )
+
+    assert order_id == "close-2"
+    assert attempts == ["ETH-USD", "ETH-USD"]
+
+
+def test_emergency_close_raises_only_after_every_attempt_failed(monkeypatch):
+    attempts = []
+
+    async def always_failing_place(_client, market, side, size, price, reduce_only):
+        attempts.append(market)
+        raise ConnectionError("node timeout")
+
+    _wire_emergency_close(monkeypatch, place=always_failing_place)
+    agent = _make_agent()
+
+    try:
+        asyncio.run(
+            agent._emergency_close_leg(
+                market="ETH-USD", side="SELL", size="1", price="5100"
+            )
+        )
+    except RuntimeError as exc:
+        assert "ETH-USD" in str(exc)
+    else:
+        assert False, "an unclosed leg must raise"
+
+    assert len(attempts) == 3
+
+
+def test_emergency_close_escalates_when_no_close_order_could_be_placed(monkeypatch):
+    """A flat reading is not trusted when nothing was ever sent (indexer lag)."""
+    attempts = []
+
+    async def failing_place(_client, market, side, size, price, reduce_only):
+        attempts.append(market)
+        raise ConnectionError("node timeout")
+
+    _wire_emergency_close(monkeypatch, place=failing_place, still_open=False)
+    agent = _make_agent()
+
+    try:
+        asyncio.run(
+            agent._emergency_close_leg(
+                market="ETH-USD", side="SELL", size="1", price="5100"
+            )
+        )
+    except RuntimeError as exc:
+        assert "ETH-USD" in str(exc)
+    else:
+        assert False, "no close order was placed; this must escalate"
+
+    assert len(attempts) == 3
+
+
+def test_emergency_close_accepts_flat_after_a_close_order_was_placed(monkeypatch):
+    attempts = []
+
+    async def place(_client, market, side, size, price, reduce_only):
+        attempts.append(market)
+        return ({"ok": True}, "close-1")
+
+    _wire_emergency_close(monkeypatch, place=place, status="CANCELED", still_open=False)
+    agent = _make_agent()
+
+    order_id = asyncio.run(
+        agent._emergency_close_leg(
+            market="ETH-USD", side="SELL", size="1", price="5100"
+        )
+    )
+
+    assert order_id == "close-1"
+    assert len(attempts) == 1

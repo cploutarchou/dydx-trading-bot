@@ -23,6 +23,12 @@ vi.mock('../api', () => ({
   default: apiMock,
 }));
 
+const clearUserScopedQueriesMock = vi.fn();
+
+vi.mock('../api/queryClient', () => ({
+  clearUserScopedQueries: clearUserScopedQueriesMock,
+}));
+
 vi.mock('../utils/perf', () => ({
   perfMark: vi.fn(),
   perfMeasure: vi.fn(),
@@ -117,5 +123,17 @@ describe('auth store session bootstrap', () => {
     expect(useAuthStore.getState().isAuthenticated()).toBe(false);
     expect(useAuthStore.getState().sessionInitialized).toBe(true);
     expect(useAuthStore.getState().sessionLoading).toBe(false);
+  });
+});
+
+describe('auth store logout', () => {
+  it('clears user-scoped queries so the next user never sees cached data', () => {
+    clearUserScopedQueriesMock.mockClear();
+
+    useAuthStore.getState().logout();
+
+    expect(apiMock.logout).toHaveBeenCalled();
+    expect(clearUserScopedQueriesMock).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().user).toBeNull();
   });
 });

@@ -19,7 +19,7 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
-              containerPort: 8080
+              containerPort: 80
           envFrom:
             - configMapRef:
                 name: platform-config
@@ -190,7 +190,12 @@ kind: Deployment
 metadata:
   name: bot-api
 spec:
-  replicas: 2
+  # bot-api supervises trading processes as pod-local children tracked by PID.
+  # More than one pod (or a surge pod during a rollout) means start/stop/status
+  # requests land on a pod that does not own the process. Keep exactly one.
+  replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: bot-api
@@ -272,22 +277,16 @@ spec:
       port: 8889
       targetPort: http
 ---
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: bot-api
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: bot-api
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: bot-worker
 spec:
   replicas: 1
+  # A rolling update starts the new trader before the old one stops: two
+  # processes would trade the same instance on the same account.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: bot-worker
@@ -304,7 +303,8 @@ spec:
           command:
             - python
           args:
-            - src/main_instance.py
+            - -m
+            - src.main_instance
             - --instance-id
             - bot-1
           envFrom:
@@ -339,7 +339,7 @@ spec:
               command:
                 - sh
                 - -ec
-                - pgrep -f 'src/main_instance.py' >/dev/null
+                - pgrep -f 'src[.]main_instance' >/dev/null
             initialDelaySeconds: 20
             periodSeconds: 15
           livenessProbe:
@@ -347,7 +347,7 @@ spec:
               command:
                 - sh
                 - -ec
-                - pgrep -f 'src/main_instance.py' >/dev/null
+                - pgrep -f 'src[.]main_instance' >/dev/null
             initialDelaySeconds: 30
             periodSeconds: 20
           resources:

@@ -163,6 +163,22 @@ class BotInstanceState(BaseModel):
     )
     recovery_reason: Optional[str] = None  # Why recovery state was activated
 
+    def public_config(self) -> Dict[str, Any]:
+        """Config view that is safe to return from the API.
+
+        The signing mnemonic and the Telegram bot token never leave the
+        process: they are dropped (not masked, so a client cannot round-trip a
+        placeholder back as a credential) and replaced by presence flags.
+        """
+        config = self.config.model_dump()
+        credentials = config.get("credentials")
+        if isinstance(credentials, dict):
+            credentials["mnemonic_configured"] = bool(credentials.pop("mnemonic", ""))
+        telegram = config.get("telegram")
+        if isinstance(telegram, dict):
+            telegram["token_configured"] = bool(telegram.pop("token", ""))
+        return config
+
     def to_api_status(self) -> BotInstanceStatus:
         """Convert internal state to API status view."""
         process_id = self.process_info.get("pid")
@@ -181,6 +197,6 @@ class BotInstanceState(BaseModel):
             process_id=process_id,
             uptime_seconds=uptime_seconds,
             last_update=self.last_update,
-            config=self.config.model_dump(),
+            config=self.public_config(),
             trading_stats=self.trading_stats,
         )

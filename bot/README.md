@@ -277,7 +277,13 @@ Async background work must be launched through the supervised job helper so task
 traceback summaries are persisted in the `jobs` table instead of disappearing as unobserved task exceptions.
 
 `API_BYPASS_AUTH=true` is restricted to explicit local/test environments only (`development`, `dev`, `local`, `test`,
-`testing`, `ci`). API startup fails closed if auth bypass is enabled in `production`, `prod`, `live`, or `mainnet`.
+`testing`, `ci`). The check fails closed: at least one of `APP_CONFIG_ENV`, `CONFIG_ENV`, `ENVIRONMENT`, `APP_ENV` must
+be set, and every one that is set must carry an allowed label. API startup is refused when the bypass is requested with
+no environment set, with any other label (`production`, `prod`, `live`, `mainnet`, `staging`, ...), or when a
+development label in one variable conflicts with a production label in another.
+
+Bot status responses (`GET /api/v1/bots`, `GET /api/v1/bots/{instance_id}`) never contain the wallet mnemonic or the
+Telegram bot token. `config.credentials.mnemonic_configured` and `config.telegram.token_configured` report presence only.
 
 JWT sessions can be terminated explicitly via the auth router:
 

@@ -24,6 +24,7 @@ import {
   useStopBotInstance,
 } from '../api/hooks';
 import { formatSignedUsd } from '../utils/format';
+import { summarizeErrorForLog } from '../utils/apiErrors';
 import { ArbitrageImprovementPanel } from './ArbitrageImprovementPanel';
 import { Field } from './ui/Field';
 import { useToastStore } from './ErrorBoundary';
@@ -714,7 +715,8 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
         `${createForm.instance_id} is ready for review and can be started from the desk.`
       );
     } catch (err) {
-      console.error('Failed to create bot:', err);
+      // Never log the raw error: its request config carries the seed phrase.
+      console.error('Failed to create bot:', summarizeErrorForLog(err));
       const message = toOperatorErrorMessage(err, 'Failed to create bot instance');
       setError(message);
       errorToast('Unable to create runtime', message);
@@ -1108,6 +1110,8 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
             >
               <input
                 type="password"
+                autoComplete="off"
+                spellCheck={false}
                 placeholder="Your seed phrase..."
                 value={createForm.mnemonic}
                 onChange={(e) => setCreateForm({ ...createForm, mnemonic: e.target.value })}

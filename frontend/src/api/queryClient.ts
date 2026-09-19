@@ -105,12 +105,25 @@ export const queryClient = new QueryClient({
       refetchOnReconnect: true,
     },
     mutations: {
-      // Retry mutations once
-      retry: 1,
-      retryDelay: 1000,
+      // Never retry mutations automatically: create/start/stop/backtest POSTs
+      // are not idempotent, and a retry after a timeout whose request did
+      // reach the server would run the action twice. A mutation that is safe
+      // to repeat can opt in with its own `retry` option.
+      retry: 0,
     },
   },
 });
+
+/**
+ * Drop every cached query that can hold one user's data. Queries under the
+ * `public` key prefix are kept: the app shell renders from
+ * `['public', 'app-config']`, and removing it while it is in flight (session
+ * bootstrap ends in the logged-out state too) leaves the shell blank because
+ * a removed query never notifies its observer.
+ */
+export const clearUserScopedQueries = (): void => {
+  queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'public' });
+};
 
 // Query Client Provider Component is in QueryProvider.tsx
 

@@ -24,3 +24,6 @@ All twelve questions were answered by the owner on 2026-09-19, or resolved by a 
 ## Raised during queue 2
 
 - [BOT-P1-007] On dYdX v4, when a short-term reduce-only order is re-submitted with the same client id (same OrderId) and a later goodTilBlock after the first attempt's outcome is unknown, does the chain count fills already made against that OrderId (so the retry cannot over-close), or does it reject the replacement? Needs a testnet check. Blocks: reusing one client id per logical close.
+- [BOT-P1-003] May the write-ahead entry intent add a table to the bot database (expand-only migration), and is there a testnet account on which a killed entry can be rehearsed? Blocks: BOT-P1-003.
+- [GitOps] Which settings does the cluster's backend and bot configuration carry today for `DB_AUTO_MIGRATE`, `BOT_API_TOKEN`, `BOT_CREDENTIALS_ENCRYPTION_KEY`, the environment labels, and the pods' termination grace period? Blocks: deploying queue 2 safely.
+- [INFRA] Does anything sit between the bot and PostgreSQL that pools connections per transaction? The single-writer lock needs a direct session. Blocks: relying on INFRA-P0-001L in the cluster.

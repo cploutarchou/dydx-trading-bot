@@ -82,3 +82,79 @@ See `LOG.md` for every command with its result. Gates: bot pytest with the 82% c
 ## Open questions
 
 See `OPEN-QUESTIONS.md` (12 questions, each tied to the task it blocks).
+
+---
+
+# Queue 2 report — 2026-09-20
+
+Two pull requests: #54 (`audit/2026-09-19-queue2`, thirteen batched tasks) and the order-path pull request stacked on it (`audit/2026-09-19-orderpath`, nine tasks). 22 tasks done, 2 deferred.
+
+## 1. Architecture facts learned in this queue
+
+- The cluster is deployed by Flux from a separate GitOps repository (namespace `executionlab-staging`, Traefik, cert-manager, CloudNativePG with the barman-cloud plugin). The in-repo Kubernetes manifests were not what runs and were removed.
+- The backend authenticates to the bot API with a service token that maps to a superuser principal; end-user tokens are forwarded only when no token is configured.
+- The bot runtime requires a database (`bot_instances.config` is DB-backed), which made a mandatory PostgreSQL advisory lock possible.
+- Tracked positions are written as full snapshots to both the database and a file; exit prices were already fill VWAPs.
+
+## 2. Implemented changes
+
+Batch (#54): BOT-P0-002, BACK-P1-001, BACK-P1-003, BACK-P1-004, BACK-P1-005, FRONT-P1-006, FRONT-P1-002, REPO-P2-003, REPO-P2-001, REPO-P3-001, INFRA-P3-001, INFRA-P1-010, REPO-P3-004. See that pull request's description.
+
+Order path:
+- BOT-P1-001 a non-zero broadcast code raises `OrderRejectedError` before any polling; the order-id fallback only binds orders placed at or after this placement.
+- BOT-P1-006 the emergency close loop survives a failing attempt; a flat reading counts only after a close order was placed.
+- BOT-P1-008 `UnhedgedExposureError` plus a persisted per-instance entry halt latch, cleared only by the operator CLI.
+- BOT-P1-012 plaintext credential storage only in an explicit dev/test environment (shared fail-closed environment helper).
+- INFRA-P0-001L PostgreSQL session-level advisory lock per instance id on a pool-detached connection, mandatory outside dev/test, re-checked every cycle.
+- BOT-P1-002 cooperative shutdown: the signal handler no longer raises into the running frame.
+- BOT-P1-011 the SDK advisory covers only the removed malicious release; `pip-audit` is blocking with two documented, dated ignores and is part of the quality gate.
+- BOT-P1-004 a failed database write marks the database copy stale; reads use the file until a write succeeds.
+- BOT-P1-009 net realised P&L (Decimal, fees of all four orders) written to the columns the statistics read.
+
+Deferred: BOT-P1-007 (chain semantics for a reused client id unknown), BOT-P1-003 (write-ahead intent; design recorded in `plans/BOT.md`).
+
+## 3. Files changed
+
+`git diff --stat master...audit/2026-09-19-orderpath` lists them; new modules: `bot/src/shared/environment.py`, `bot/src/trading/entry_halt.py`, `bot/src/trading/instance_lock.py`, `bot/src/trading/realized_pnl.py`, `backend/internal/app/trusted_proxies.go`, `backend/internal/routes/quick_deploy_attribution.go`, `frontend/src/utils/runtimeForm.ts`, `scripts/check_toolchain_drift.py`, `.github/CODEOWNERS`. Removed: `deploy/`, `scripts/check_no_plaintext_k8s_secrets.py`.
+
+## 4. Database migrations added
+
+None. (BOT-P1-003, deferred, will need one.)
+
+## 5. API endpoints added or changed
+
+- Bot: `POST /api/v1/auth/register` → 403 unless `BOT_API_ALLOW_SELF_REGISTRATION=true`; create/delete/start/stop/restart/quick-deploy require an admin principal.
+- Backend: credential endpoints share a per-IP budget (429 beyond 1 rps / burst 20); quick-deploy can answer 429 (quota after a concurrent request) or 502 (deploy rolled back because ownership could not be recorded).
+- No response shape changed.
+
+## 6. Tests added or updated
+
+bot 1458 → 1534 passing in this queue (76 new), including one test that runs against a real PostgreSQL in CI; backend +5 files (proxy parsing, force recovery, credential limiter, quick-deploy attribution); frontend 138 → 148. The lifecycle test fixture user became an admin because the routes now require one; the broad-catch ratchet moved 306 → 307 with the justification it demands. No test was removed or weakened.
+
+## 7. Commands executed
+
+All recorded in `LOG.md` with their results.
+
+## 8. Validation results (real output)
+
+- bot: `1534 passed, 14 skipped`, coverage 83.84% (floor 82%); `mypy src` → no issues in 102 files; isort, black, flake8 clean.
+- Instance lock against a throwaway `postgres:17-alpine`: `15 passed`. Its first run failed and exposed a real defect (a pooled connection keeps the lock after `close()`), fixed by detaching the connection.
+- backend (go1.27.0): build, vet (both tag sets), `go test -race -count=1 ./...` → all packages ok.
+- frontend: lint, typecheck, 148 unit tests, Playwright `10 passed` (Node 24 locally).
+- Pull request #54 CI: all 25 checks passed, including the frontend on Node 26, the backend on Go 1.27, `Wait for quality gate`; GitHub reports 0 CODEOWNERS errors.
+- Not run: anything against an exchange, the cluster or a shared database; the compose stack; image builds locally.
+
+## 9. Remaining risks and limitations
+
+- A hard crash between leg 1 and leg 2 is still unrecovered (BOT-P1-003). The halt latch, cooperative shutdown, lock and fail-closed abort bound it but do not close it.
+- BOT-P1-007: a reduce-only close retried after an unknown outcome still uses a new client id.
+- Realised P&L excludes funding; fees have no column of their own; money columns are still `Float` (BOT-P2-001).
+- Session-level advisory locks need a direct PostgreSQL connection; a transaction-pooling proxy in front of the bot database would break the lock.
+- The deployment must change with this code: `TRUSTED_PROXIES` for the backend, the credentials encryption key for the bot (it now refuses plaintext outside dev/test), `BOT_API_TOKEN` configured, `DB_AUTO_MIGRATE` off, and a termination grace period that covers one full pair entry plus cleanup.
+- The `integration`-tagged backend route tests are still not run by CI (BACK-P2-011).
+- 45 P2/P3 findings remain deferred in the service plans.
+
+## 10. Screens requiring manual visual verification
+
+- Manual runtime form (`BotManager`): testnet is preselected, the network line switches to a mainnet warning, invalid numbers are rejected with a toast.
+- Strategy desk (`StrategyManager`): stopping a runtime opens a confirmation naming it; the `S` shortcut no longer does anything and the hint no longer lists it.

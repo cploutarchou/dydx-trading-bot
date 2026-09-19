@@ -586,10 +586,15 @@ class TradeRepository:
         exit_price2: Optional[float] = None,
         exit_size1: Optional[float] = None,
         exit_size2: Optional[float] = None,
-        realized_pnl: float = 0.0,
-        realized_pnl_pct: float = 0.0,
+        realized_pnl: Optional[float] = None,
+        realized_pnl_pct: Optional[float] = None,
     ) -> None:
-        """Update trade exit information"""
+        """Update trade exit information.
+
+        ``None`` for the P&L arguments means "not computed": the stored values
+        are left as they are. Writing a default 0.0 here used to record every
+        live trade as break-even, which the statistics then counted as a loss.
+        """
         trade = self.get_by_position_id(position_id)
         if trade:
             if exit_price1 is not None:
@@ -600,8 +605,13 @@ class TradeRepository:
                 trade.exit_size1 = exit_size1
             if exit_size2 is not None:
                 trade.exit_size2 = exit_size2
-            trade.realized_pnl = realized_pnl
-            trade.realized_pnl_pct = realized_pnl_pct
+            if realized_pnl is not None:
+                trade.realized_pnl = realized_pnl
+                # profit_loss is the column the trade statistics read.
+                trade.profit_loss = realized_pnl
+            if realized_pnl_pct is not None:
+                trade.realized_pnl_pct = realized_pnl_pct
+                trade.profit_loss_percentage = realized_pnl_pct
             trade.status = TradeStatusEnum.CLOSED
             trade.closed_at = utc_now()
             self.session.commit()

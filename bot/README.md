@@ -305,6 +305,30 @@ lock is released and the process exits. A request that arrives during start-up (
 (`GracefulShutdownException`), as before. Size the deployment's termination grace period for one full pair entry
 including its emergency cleanup.
 
+### Tracked-position durability
+
+Tracked positions are written to the database row for the instance and to `bot_states/.../bot_agents.json` on every
+change; each write is a full snapshot, so the file is never behind the database. Reads prefer the database. When a
+database write fails, a persisted marker (`.bot_agents.json.db_stale`) switches reads to the file, because the
+database row is then older and reading it would drop the newest positions from exit management. A critical log line
+is emitted once. The next successful database write removes the marker and resynchronises the row.
+
+Restart and reconciliation: the marker survives a restart on the same volume. If the state directory is lost while
+the marker was set (an ephemeral pod disk), the database row is the only copy left and may miss positions opened
+during the outage; reconcile against the exchange before resuming (the entry halt latch and the abort flow both
+fail closed on unknown exposure).
+
+### Realised P&L of live trades
+
+When a pair is confirmed flat, `src/trading/realized_pnl.py` computes its realised P&L from the recorded fill VWAPs:
+per leg `(exit - entry) * size` for a leg entered with `BUY` and `(entry - exit) * size` for one entered with `SELL`,
+minus the trading fees of all four orders (read from the orders' fills; a maker rebate is a negative fee). Funding
+payments are not included. Arithmetic is `Decimal`, rounded half-even to six decimal places for storage, and written
+to `trades.realized_pnl` / `profit_loss` (the column the statistics read) and their percentage counterparts
+(percentage of entry notional). When a fee cannot be read the figure is net of the known fees only and the position
+record carries `realized_pnl_fees_complete = false`. When the entry data is unusable nothing is written: a missing
+number is never stored as a zero P&L.
+
 ### Entry halt latch
 
 When an emergency close fails, a leg may be open without a hedge. The pair agent raises `UnhedgedExposureError`, the

@@ -4,9 +4,11 @@ import asyncio
 import os
 import time
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
+import httpx
 import pandas as pd
 from loguru import logger
 
@@ -21,7 +23,7 @@ from src.constants import (
     USD_PER_TRADE,
     ZSCORE_THRESH,
 )
-from src.exceptions import UnhedgedExposureError
+from src.exceptions import BotError, UnhedgedExposureError
 from src.infrastructure.domain.cointegration_storage import pair_storage
 from src.shared.dataframe_utils import (
     cleanup_dataframe,
@@ -56,6 +58,12 @@ from src.trading.bot_agents_state import (
 from src.trading.market_data import get_candles_recent, get_markets
 from src.trading.pair_priority import PairPriorityScore, prioritize_pairs
 from src.trading.portfolio_risk import check_portfolio_entry_guard
+from src.trading.realized_pnl import (
+    RealizedPnl,
+    RealizedPnlInputError,
+    compute_pair_realized_pnl,
+    sum_fill_fees,
+)
 from src.trading.trade_persistence import (
     persist_live_trade_closed,
     persist_live_trade_opened,
@@ -448,6 +456,82 @@ async def detect_untracked_exchange_exposure(
             details={"market": market, "side": side, "size": size},
         )
     return untracked
+
+
+# What an indexer fills lookup raises when it cannot answer: transport errors,
+# the circuit breaker and other bot-domain errors, and malformed payloads.
+_FILL_LOOKUP_ERRORS = (httpx.HTTPError, OSError, BotError, RuntimeError, ValueError)
+
+
+async def _order_fee_from_fills(
+    client: Any, order_id: Any, market: str
+) -> Optional[Decimal]:
+    """Fee paid on one order, or ``None`` when it cannot be read."""
+    if not order_id:
+        return None
+    try:
+        fills = await get_order_fills(client, str(order_id), market=market)
+    except _FILL_LOOKUP_ERRORS as exc:
+        logger.warning(
+            "Could not fetch fills for fee of order {} on {}: {}", order_id, market, exc
+        )
+        return None
+    return sum_fill_fees(fills)
+
+
+async def _realized_pnl_for_closed_pair(
+    client: Any,
+    position: Dict[str, Any],
+    *,
+    exit_price_m1: Any,
+    exit_price_m2: Any,
+    exit_size_m1: Any,
+    exit_size_m2: Any,
+    close_order_m1_id: Any,
+    close_order_m2_id: Any,
+) -> Optional[RealizedPnl]:
+    """Net realised P&L of a pair that was just closed.
+
+    Returns ``None`` (and logs) when the entry data is unusable; a missing
+    number must never be stored as a zero P&L.
+    """
+    market_1 = str(position.get("market_1", ""))
+    market_2 = str(position.get("market_2", ""))
+    fees = [
+        await _order_fee_from_fills(client, position.get("order_id_m1"), market_1),
+        await _order_fee_from_fills(client, position.get("order_id_m2"), market_2),
+        await _order_fee_from_fills(client, close_order_m1_id, market_1),
+        await _order_fee_from_fills(client, close_order_m2_id, market_2),
+    ]
+    try:
+        realized = compute_pair_realized_pnl(
+            side1=position.get("order_m1_side"),
+            entry_price1=position.get("order_m1_price"),
+            exit_price1=exit_price_m1,
+            size1=exit_size_m1,
+            side2=position.get("order_m2_side"),
+            entry_price2=position.get("order_m2_price"),
+            exit_price2=exit_price_m2,
+            size2=exit_size_m2,
+            fees=fees,
+        )
+    except RealizedPnlInputError as exc:
+        logger.error(
+            "Realised P&L not recorded for {} / {}: {}", market_1, market_2, exc
+        )
+        return None
+    position["realized_pnl"] = str(realized.net)
+    position["realized_pnl_gross"] = str(realized.gross)
+    position["realized_pnl_fees"] = str(realized.fees)
+    position["realized_pnl_fees_complete"] = realized.fees_complete
+    if not realized.fees_complete:
+        logger.warning(
+            "Realised P&L for {} / {} is net of known fees only ({} of 4 orders)",
+            market_1,
+            market_2,
+            sum(1 for fee in fees if fee is not None),
+        )
+    return realized
 
 
 async def _exit_price_from_fills(
@@ -1915,12 +1999,24 @@ async def manage_trade_exits(client: Any) -> str | None:
                         )
                         position["exit_price_m1_source"] = exit_price_m1_source
                         position["exit_price_m2_source"] = exit_price_m2_source
+                        realized = await _realized_pnl_for_closed_pair(
+                            client,
+                            position,
+                            exit_price_m1=exit_price_m1,
+                            exit_price_m2=exit_price_m2,
+                            exit_size_m1=position_size_m1,
+                            exit_size_m2=position_size_m2,
+                            close_order_m1_id=close_order_m1_id,
+                            close_order_m2_id=close_order_m2_id,
+                        )
                         persisted_trade_id = persist_live_trade_closed(
                             position,
                             exit_price1=exit_price_m1,
                             exit_price2=exit_price_m2,
                             exit_size1=position_size_m1,
                             exit_size2=position_size_m2,
+                            realized_pnl=realized.net if realized else None,
+                            realized_pnl_pct=realized.net_pct if realized else None,
                         )
                         persist_trade_activity_event(
                             "trade_exit_close_confirmed",

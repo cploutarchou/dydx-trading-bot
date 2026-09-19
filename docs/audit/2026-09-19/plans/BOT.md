@@ -83,7 +83,7 @@ All fixes are verified with the hermetic suite (fakes only). Nothing in this pla
 ### BOT-P1-009 — Realised P&L for live trades
 - Decision: net of fees, from fills. Per leg (exit VWAP − entry VWAP) × size × side, minus fees on all four fills; funding stored separately; `Decimal`, 6 dp at storage.
 - Verification: unit tests with fixed fills (long/short legs, partial fills, fees); stats count winners and losers correctly; full bot suite.
-- Effort: M | Blast radius: med | Status: todo
+- Effort: M | Blast radius: med | Status: done (pending commit) — net realised P&L from fill VWAPs minus the fees of all four orders, Decimal with half-even 6 dp storage, written to realized_pnl and the profit_loss columns the statistics read; never a false zero; 19 tests. Funding is not included and there is no fee column yet
 
 ### Order-path items moved from proposal to the queue at the owner's request (2026-09-19)
 
@@ -112,7 +112,7 @@ Each is its own change with tests on fakes only; nothing connects to an exchange
 ### BOT-P1-004 — Tracked-position store must not ignore write failures
 - Fix: one authoritative store per deployment; a failed DB write raises/alerts and marks the instance degraded instead of a DEBUG log, so reads can never prefer a store that silently missed writes.
 - Verification: `pytest tests/ -q -k "bot_agents_state"` with a failing-writer fake; full bot suite. Document restart/reconciliation behaviour (state-safety rule).
-- Effort: M | Blast radius: low | Status: todo
+- Effort: M | Blast radius: low | Status: done (pending commit) — a failed database write sets a persisted stale marker; reads use the always-written file until a database write succeeds again; failures log at CRITICAL/ERROR instead of DEBUG; 5 tests
 
 ### BOT-P1-002 — Cooperative shutdown instead of raising from the signal handler
 - Fix: `loop.add_signal_handler` sets a stop flag / `asyncio.Event`; the in-flight entry or exit completes (or runs its cleanup) before the loop ends; bounded by a timeout below the deployment's grace period.

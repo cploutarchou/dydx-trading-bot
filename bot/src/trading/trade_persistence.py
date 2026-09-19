@@ -164,8 +164,15 @@ def persist_live_trade_closed(
     exit_price2: Any,
     exit_size1: Any,
     exit_size2: Any,
+    realized_pnl: Any = None,
+    realized_pnl_pct: Any = None,
 ) -> Optional[str]:
-    """Mark an existing live trade/position closed when both reduce-only exits submit."""
+    """Mark an existing live trade/position closed when both reduce-only exits submit.
+
+    ``realized_pnl`` / ``realized_pnl_pct`` are the net figures computed by
+    :mod:`src.trading.realized_pnl`. ``None`` means "could not be computed" and
+    leaves the stored values untouched instead of recording a false zero.
+    """
     instance_id = _runtime_instance_id()
     if not instance_id or not _db_persistence_enabled():
         return None
@@ -182,6 +189,10 @@ def persist_live_trade_closed(
             exit_price2=_float_or_zero(exit_price2),
             exit_size1=_float_or_zero(exit_size1),
             exit_size2=_float_or_zero(exit_size2),
+            realized_pnl=None if realized_pnl is None else float(realized_pnl),
+            realized_pnl_pct=(
+                None if realized_pnl_pct is None else float(realized_pnl_pct)
+            ),
         )
         realtime.positions.close_position(trade_id)
         return trade_id

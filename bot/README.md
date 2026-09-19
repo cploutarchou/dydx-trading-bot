@@ -282,6 +282,68 @@ be set, and every one that is set must carry an allowed label. API startup is re
 no environment set, with any other label (`production`, `prod`, `live`, `mainnet`, `staging`, ...), or when a
 development label in one variable conflicts with a production label in another.
 
+### Single-writer lock per instance
+
+`main_instance` takes a PostgreSQL session-level advisory lock keyed by the instance id before it connects to the
+exchange, holds it on a dedicated connection that is detached from the pool, and re-checks it every trading cycle. A
+second process for the same instance id refuses to start (`InstanceAlreadyRunningError`). PostgreSQL releases the lock
+when the process or its connection dies, so a crash never leaves a stale lock; if the connection drops, the runtime
+re-takes the lock once and stops trading when it cannot. Outside an explicit local/dev/test environment the lock is
+mandatory (no PostgreSQL or no connection means no start). Session-level advisory locks need a direct PostgreSQL
+connection: a transaction-pooling proxy in front of the bot's database would break it.
+
+Restart behaviour: a restarted runtime can take the lock as soon as the previous process has exited. If the previous
+process is hung but still connected, the restart is refused until that process is stopped.
+
+### Shutdown
+
+`SIGTERM`/`SIGINT` request a cooperative stop. The handler only sets flags; it never raises into the running frame, so
+a signal that lands between the two legs of an entry cannot abort the pair half built. The entry or exit in flight
+finishes (or runs its own cleanup), the entry scan stops before the next pair, no new scan starts, the single-writer
+lock is released and the process exits. A request that arrives during start-up (for example during
+`abortAllPositions`) is honoured as soon as start-up completes. A **second** signal stops immediately
+(`GracefulShutdownException`), as before. Size the deployment's termination grace period for one full pair entry
+including its emergency cleanup.
+
+### Tracked-position durability
+
+Tracked positions are written to the database row for the instance and to `bot_states/.../bot_agents.json` on every
+change; each write is a full snapshot, so the file is never behind the database. Reads prefer the database. When a
+database write fails, a persisted marker (`.bot_agents.json.db_stale`) switches reads to the file, because the
+database row is then older and reading it would drop the newest positions from exit management. A critical log line
+is emitted once. The next successful database write removes the marker and resynchronises the row.
+
+Restart and reconciliation: the marker survives a restart on the same volume. If the state directory is lost while
+the marker was set (an ephemeral pod disk), the database row is the only copy left and may miss positions opened
+during the outage; reconcile against the exchange before resuming (the entry halt latch and the abort flow both
+fail closed on unknown exposure).
+
+### Realised P&L of live trades
+
+When a pair is confirmed flat, `src/trading/realized_pnl.py` computes its realised P&L from the recorded fill VWAPs:
+per leg `(exit - entry) * size` for a leg entered with `BUY` and `(entry - exit) * size` for one entered with `SELL`,
+minus the trading fees of all four orders (read from the orders' fills; a maker rebate is a negative fee). Funding
+payments are not included. Arithmetic is `Decimal`, rounded half-even to six decimal places for storage, and written
+to `trades.realized_pnl` / `profit_loss` (the column the statistics read) and their percentage counterparts
+(percentage of entry notional). When a fee cannot be read the figure is net of the known fees only and the position
+record carries `realized_pnl_fees_complete = false`. When the entry data is unusable nothing is written: a missing
+number is never stored as a zero P&L.
+
+### Entry halt latch
+
+When an emergency close fails, a leg may be open without a hedge. The pair agent raises `UnhedgedExposureError`, the
+entry scan stops immediately, and a persisted latch (`entries_halted.json` next to the instance's `bot_agents.json`)
+blocks new entries in every following cycle, across restarts. Exits and risk controls keep running. A critical
+notification and a `trade_entries_halted` activity event are emitted once. After verifying the account on the exchange:
+
+```bash
+python -m src.trading.entry_halt          # show the latch
+python -m src.trading.entry_halt --clear  # resume entries
+```
+
+A rejected order transaction raises `OrderRejectedError` at placement, with the node's code and reason, instead of
+timing out on the indexer lookup.
+
 Lifecycle mutations (`POST /api/v1/bots`, `DELETE /api/v1/bots/{id}`, `start`, `stop`, `restart`, `quick-deploy`)
 require an admin principal; reads need any authenticated active user. The backend's service token (`BOT_API_TOKEN`)
 maps to a superuser principal and passes this gate. A deployment that forwards end-user JWTs instead of the service
@@ -431,9 +493,11 @@ Store the key securely (e.g. in your secrets manager). **Losing it makes sealed 
   persistence and `POST /api/v1/bots`). The
   `config_meta.schema_version` is `2`; sealed rows carry `credentials_sealed` /
   `telegram_sealed` envelopes instead of plaintext blocks.
-- Without a key, storage falls back to plaintext and the bot logs a one-time warning (non-breaking upgrade path). Set
-  `BOT_CREDENTIALS_ENCRYPTION_REQUIRED=true`
-  to make writes **fail** instead of storing plaintext — use this in production once the key is deployed.
+- Without a key, plaintext storage (with a one-time warning) is allowed **only** in an explicit local/dev/test
+  environment: at least one of `APP_CONFIG_ENV`, `CONFIG_ENV`, `ENVIRONMENT`, `APP_ENV` is set and every one that is
+  set is `development`, `dev`, `local`, `test`, `testing` or `ci`. Everywhere else (unset, production-like, or mixed
+  labels) credential writes **fail** until a key is provisioned. `BOT_CREDENTIALS_ENCRYPTION_REQUIRED=true` forces the
+  same behaviour in development. Existing plaintext rows are re-sealed with `make encrypt-bot-credentials`.
 - All read paths (instance recovery, runtime worker startup, lifecycle notifications) decrypt transparently. Legacy
   plaintext rows (schema version 1)
   keep working and are re-sealed lazily on the next write.

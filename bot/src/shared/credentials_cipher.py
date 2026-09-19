@@ -54,13 +54,17 @@ SEALED_BLOCKS = ("credentials", "telegram")
 # --- Exceptions --------------------------------------------------------------
 
 
-# Canonical definitions live in :mod:`src.exceptions` (under ``CredentialError``);
-# re-imported here so existing ``from src.shared.credentials_cipher import ...``
-# paths keep resolving to the same class objects.
 from src.exceptions import (  # noqa: E402
     CredentialCipherError,
     CredentialDecryptionError,
     CredentialEncryptionError,
+)
+
+# Canonical definitions live in :mod:`src.exceptions` (under ``CredentialError``);
+# re-imported here so existing ``from src.shared.credentials_cipher import ...``
+# paths keep resolving to the same class objects.
+from src.shared.environment import (  # noqa: E402
+    is_explicit_dev_or_test_environment,
 )
 
 # --- Key resolution ----------------------------------------------------------
@@ -133,8 +137,16 @@ def is_encryption_available() -> bool:
 
 
 def is_encryption_required() -> bool:
-    """True when writes must fail if no key is provisioned."""
-    return os.getenv(ENV_REQUIRED, "").strip().lower() in {"1", "true", "yes", "on"}
+    """True when writes must fail if no key is provisioned.
+
+    Plaintext storage of a signing mnemonic is a development convenience only.
+    It is allowed solely in an explicit local/dev/test environment; an unset
+    or production-like environment requires the key, and so does an explicit
+    ``BOT_CREDENTIALS_ENCRYPTION_REQUIRED=true`` anywhere.
+    """
+    if os.getenv(ENV_REQUIRED, "").strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    return not is_explicit_dev_or_test_environment()
 
 
 # Tracks env states for which the no-key warning has already been emitted, so the

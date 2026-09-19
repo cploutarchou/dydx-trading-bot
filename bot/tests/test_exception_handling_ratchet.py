@@ -95,7 +95,12 @@ from pathlib import Path
 #   - pre-close aggregate snapshot guard: a failed snapshot only degrades
 #     shared-subaccount confirmation to legacy semantics; the close itself
 #     must proceed.
-BROAD_CATCH_BASELINE = 306
+# 306 -> 307 (2026-09-20, emergency close loop): one genuinely broad catch added in
+# `BotAgent._emergency_close_leg`. Any failure of a single close attempt (node
+# timeout, indexer error, rejected tx) must not end the retry loop, because that
+# loop is the only code that will try to flatten the leg; the failure is logged,
+# the loop retries, and it still raises when no attempt succeeds.
+BROAD_CATCH_BASELINE = 307
 
 # Matches "except Exception", "except Exception as e", "except Exception:" and bare "except:".
 _BROAD_CATCH_RE = re.compile(r"\bexcept\s+(Exception|BaseException)\b|^\s*except\s*:")

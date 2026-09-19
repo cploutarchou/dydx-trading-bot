@@ -15,12 +15,14 @@ import signal
 from typing import Any, Awaitable, Dict, Optional, TypeVar, cast, overload
 
 from loguru import logger
+from sqlalchemy.exc import SQLAlchemyError
 
 # Import configuration and bot functions
 from config.config import config
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
 from src.shared.credentials_cipher import open_config_secrets
+from src.shared.environment import is_explicit_dev_or_test_environment
 from src.shared.live_risk_controls import assert_supported_live_risk_controls
 from src.shared.logging_setup import setup_logging
 from src.shared.notifications import TelegramMessenger
@@ -28,8 +30,14 @@ from src.trading.account_manager import abort_all_positions
 from src.trading.analysis.cointegration import store_cointegration_results
 from src.trading.bot_agents_state import load_tracked_positions
 from src.trading.dydx_client import connect_dydx_runtime
+from src.trading.instance_lock import InstanceLock, InstanceLockError
 from src.trading.market_data import construct_market_prices
-from src.trading.position_manager import manage_trade_exits, open_positions
+from src.trading.position_manager import (
+    manage_trade_exits,
+    open_positions,
+    request_entry_stop,
+    reset_entry_stop,
+)
 
 _T = TypeVar("_T")
 
@@ -44,7 +52,9 @@ class BotInstance:
         self.logger: Optional[Any] = None
         self.client: Optional[Any] = None
         self.messenger: Optional[TelegramMessenger] = None
+        self.instance_lock: Optional[InstanceLock] = None
         self.running = False
+        self._shutdown_requested = False
         self.config = None
 
         # Instance-specific file paths
@@ -562,20 +572,89 @@ class BotInstance:
         """Setup signal handlers for graceful shutdown"""
 
         def signal_handler(signum: int, frame: Any) -> None:
+            # Never raise from here on the first signal: the handler runs in
+            # whatever frame is executing, which can be between the two legs of
+            # an entry. Raising there aborts the pair half built and the
+            # exception is swallowed by the nearest broad handler. Instead ask
+            # the loop to stop: the in-flight entry or exit finishes (or runs
+            # its own cleanup), no new pair is opened, and the loop ends.
+            if self._shutdown_requested:
+                self._require_logger().warning(
+                    f"Received signal {signum} again; stopping instance "
+                    f"{self.instance_id} immediately"
+                )
+                raise GracefulShutdownException("Second shutdown signal received")
             self._require_logger().info(
-                f"Received signal {signum}, shutting down instance {self.instance_id}..."
+                f"Received signal {signum}, finishing the current operation and "
+                f"shutting down instance {self.instance_id}..."
             )
-            self.running = False
-            raise GracefulShutdownException("Shutdown signal received")
+            self.request_shutdown()
 
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
+    def request_shutdown(self) -> None:
+        """Cooperative stop: finish what is in flight, open nothing new."""
+        self._shutdown_requested = True
+        self.running = False
+        request_entry_stop()
+
+    async def _sleep_until_next_cycle(self, seconds: float) -> None:
+        """Sleep in short slices so a shutdown request ends the wait promptly."""
+        remaining = seconds
+        while remaining > 0 and not self._shutdown_requested:
+            step = min(0.5, remaining)
+            await asyncio.sleep(step)
+            remaining -= step
+
+    def _acquire_instance_lock(self) -> None:
+        """Become the only process trading this instance id, or refuse to start.
+
+        Outside an explicit local/dev/test environment the lock is mandatory:
+        any failure to take it (another process holds it, the database is not
+        PostgreSQL or is unreachable) stops the start. In dev/test a missing
+        database only disables the lock with a warning, so local file-mode
+        runs keep working; a lock held by another process still refuses.
+        """
+        runtime_logger = self._require_logger()
+        lock = InstanceLock(db.get_engine(), self.instance_id)
+        try:
+            lock.acquire()
+        except InstanceLockError:
+            if lock.supported or not is_explicit_dev_or_test_environment():
+                raise
+            runtime_logger.warning(
+                "Single-writer lock unavailable for {} (non-PostgreSQL database in "
+                "a dev/test environment); continuing without it",
+                self.instance_id,
+            )
+            return
+        except (SQLAlchemyError, OSError):
+            if not is_explicit_dev_or_test_environment():
+                raise
+            runtime_logger.warning(
+                "Single-writer lock unavailable for {} (database unreachable in a "
+                "dev/test environment); continuing without it",
+                self.instance_id,
+            )
+            return
+        self.instance_lock = lock
+
+    def _release_instance_lock(self) -> None:
+        lock, self.instance_lock = self.instance_lock, None
+        if lock is not None:
+            lock.release()
+
     async def initialize(self) -> None:
         """Initialize bot instance"""
         try:
+            # The entry-stop flag is process-wide; a fresh runtime starts clear.
+            reset_entry_stop()
             self.setup_logging()
             self.load_config()
+            # Before anything can reach the exchange: a second process for the
+            # same instance id must stop here.
+            self._acquire_instance_lock()
             self.setup_signal_handlers()
 
             runtime_logger = self._require_logger()
@@ -740,7 +819,8 @@ class BotInstance:
 
     async def trading_loop(self) -> None:
         """Main trading loop"""
-        self.running = True
+        # A shutdown requested during start-up must not be overwritten here.
+        self.running = not self._shutdown_requested
         runtime_logger = self._require_logger()
         runtime_config = self._require_config()
         runtime_messenger = self._require_messenger()
@@ -748,6 +828,11 @@ class BotInstance:
 
         try:
             while self.running:
+                # The lock dies with its connection. Prove it is still ours
+                # every cycle; if it cannot be proven, stop before trading.
+                if self.instance_lock is not None:
+                    self.instance_lock.ensure_held()
+
                 bot_settings = runtime_config.botSettings
 
                 # Manage existing positions
@@ -767,7 +852,7 @@ class BotInstance:
                         )
 
                 # Place new trades
-                if bot_settings.placeTrades:
+                if bot_settings.placeTrades and not self._shutdown_requested:
                     try:
                         runtime_logger.debug("Finding trading opportunities...")
                         await self._maybe_await(open_positions(self.client))
@@ -781,8 +866,16 @@ class BotInstance:
                             category="execution_entry",
                         )
 
-                # Sleep between iterations
-                await asyncio.sleep(5)  # 5 second cycle
+                # Sleep between iterations (5 second cycle)
+                await self._sleep_until_next_cycle(5)
+
+            if self._shutdown_requested:
+                runtime_logger.info(
+                    f"Bot instance {self.instance_id} stopped after a shutdown request"
+                )
+                runtime_messenger.send_shutdown_message(
+                    f"Shutdown signal (instance {self.instance_id})"
+                )
 
         except (KeyboardInterrupt, GracefulShutdownException):
             runtime_logger.info(f"Bot instance {self.instance_id} stopped by user")
@@ -804,6 +897,12 @@ class BotInstance:
 
     async def run(self) -> None:
         """Run the complete bot instance"""
+        try:
+            await self._run()
+        finally:
+            self._release_instance_lock()
+
+    async def _run(self) -> None:
         try:
             await self.initialize()
             await self.run_initial_setup()

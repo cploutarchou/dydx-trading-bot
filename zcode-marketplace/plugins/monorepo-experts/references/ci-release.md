@@ -7,7 +7,7 @@ Read before touching `.github/workflows/**` or release tooling.
 ### bot-quality.yml (the merge gate)
 Jobs (all blocking unless noted): bot unit tests (coverage floor 82,
 hermetic `.ci-run.json`), bot lint (isort/Black/flake8 E9,F63,F7,F82),
-bot mypy (0-error baseline), bandit (reporting), pip-audit (reporting),
+bot mypy (0-error baseline), bandit (reporting), pip-audit (blocking; documented, dated ignores only),
 multi-worker broadcast (real Postgres+Valkey), external-service
 integration, compose validation and toolchain drift check,
 backend Go tests (`-race`, `POSTGRES_TEST_DSN` harness), frontend quality
@@ -29,7 +29,7 @@ Onboarding target/setup-guide/infra-config validation.
   `bot/tests/test_exception_handling_ratchet.py` with documented
   justification for any increase).
 - Reporting-only scans are explicitly `continue-on-error` with a promotion
-  note (bandit, pip-audit, golangci phase 1).
+  note (bandit, golangci phase 1).
 - CI never deploys. Images are published to ghcr only after the Quality gate
   passed for the commit; Flux deploys them from the separate GitOps repository.
 

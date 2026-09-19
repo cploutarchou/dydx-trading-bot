@@ -78,12 +78,12 @@ All fixes are verified with the hermetic suite (fakes only). Nothing in this pla
 ### BOT-P1-011 — Signing SDK advisory
 - Decision: verify the advisory's affected range and the installed package integrity first, then upgrade `dydx-v4-client` in a dedicated change; make `pip-audit` blocking with a dated ignore for `ecdsa`.
 - Verification: `pip-audit -r requirements.txt` clean apart from the documented ignore; full bot suite; no order-signing test regressions.
-- Effort: M | Blast radius: high (signing path) | Status: todo
+- Effort: M | Blast radius: high (signing path) | Status: done (2c5e19ba) — advisory verified: it covers only the removed malicious release 1.1.5.post1; the pinned 1.1.6 is the latest, post-incident release and the installed files match their RECORD hashes, so no upgrade exists or is needed. pip-audit is now blocking and part of the quality gate with two documented, dated ignores
 
 ### BOT-P1-009 — Realised P&L for live trades
 - Decision: net of fees, from fills. Per leg (exit VWAP − entry VWAP) × size × side, minus fees on all four fills; funding stored separately; `Decimal`, 6 dp at storage.
 - Verification: unit tests with fixed fills (long/short legs, partial fills, fees); stats count winners and losers correctly; full bot suite.
-- Effort: M | Blast radius: med | Status: todo
+- Effort: M | Blast radius: med | Status: done (41378fa1) — net realised P&L from fill VWAPs minus the fees of all four orders, Decimal with half-even 6 dp storage, written to realized_pnl and the profit_loss columns the statistics read; never a false zero; 19 tests. Funding is not included and there is no fee column yet
 
 ### Order-path items moved from proposal to the queue at the owner's request (2026-09-19)
 
@@ -92,39 +92,45 @@ Each is its own change with tests on fakes only; nothing connects to an exchange
 ### BOT-P1-001 — Detect transaction rejection from the broadcast response; bind order ids deterministically
 - Fix: inspect the broadcast response and raise a typed `OrderRejectedError` on a non-zero code instead of matching `"code" in str(order)`; resolve the order by its client id, never by "latest order" heuristics.
 - Verification: `pytest tests/ -q -k "place_market_order or resolve_order"` with new tests (rejected tx raises; an older order is never bound); full bot suite.
-- Effort: M | Blast radius: low | Status: todo
+- Effort: M | Blast radius: low | Status: done (b357131e) — non-zero broadcast code raises OrderRejectedError before any polling; the order-id fallback only binds orders placed at or after this placement (createdAtHeight or goodTilBlock); 10 tests
 
 ### BOT-P1-006 — Emergency-close retry loop must survive placement exceptions
 - Fix: wrap placement in the retry loop, always fall through to the open-position check (fail closed on error), and only report success when the position is verified flat.
 - Verification: `pytest tests/ -q -k "emergency_close"` with a test where the first placement raises and the second fills; full bot suite.
-- Effort: S | Blast radius: low | Depends on: BOT-P1-001 | Status: todo
+- Effort: S | Blast radius: low | Depends on: BOT-P1-001 | Status: done (b357131e) — a failed attempt no longer ends the close loop; a flat reading counts only after a close order was placed; 4 tests, existing escalation test unchanged
 
 ### BOT-P1-007 — One client id per logical reduce-only close
 - Fix: generate the `client_id` once per logical close and reuse it across retries, so an unknown-outcome first attempt cannot be doubled by the retry on a shared subaccount.
 - Verification: `pytest tests/ -q -k "reduce_only_close"` with a test asserting the same client id across attempts; full bot suite.
-- Effort: M | Blast radius: low | Depends on: BOT-P1-001 | Status: todo
+- Effort: M | Blast radius: low | Depends on: BOT-P1-001 | Status: deferred (needs the dYdX v4 semantics for re-submitting a short-term order with the same client id after an unknown outcome, verified on testnet; guessing a chain contract on the close path is not acceptable. See OPEN-QUESTIONS.md)
 
 ### BOT-P1-008 — Halt new entries after a failed emergency cleanup
 - Fix: raise a typed `UnhedgedExposureError`; on it set a persisted, instance-level "entries halted" latch that blocks new entries until an operator clears it; alert through the messenger. Exits and risk controls keep running.
 - Verification: `pytest tests/ -q -k "open_positions and halt"` (no entry is attempted while latched; latch survives restart; explicit reset clears it); full bot suite.
-- Effort: M | Blast radius: low | Status: todo
+- Effort: M | Blast radius: low | Status: done (b357131e) — UnhedgedExposureError from every emergency-closure failure; persisted per-instance entry halt latch honoured by the scan, set mid-cycle, cleared only by the operator CLI; 5 tests
 
 ### BOT-P1-004 — Tracked-position store must not ignore write failures
 - Fix: one authoritative store per deployment; a failed DB write raises/alerts and marks the instance degraded instead of a DEBUG log, so reads can never prefer a store that silently missed writes.
 - Verification: `pytest tests/ -q -k "bot_agents_state"` with a failing-writer fake; full bot suite. Document restart/reconciliation behaviour (state-safety rule).
-- Effort: M | Blast radius: low | Status: todo
+- Effort: M | Blast radius: low | Status: done (41378fa1) — a failed database write sets a persisted stale marker; reads use the always-written file until a database write succeeds again; failures log at CRITICAL/ERROR instead of DEBUG; 5 tests
 
 ### BOT-P1-002 — Cooperative shutdown instead of raising from the signal handler
 - Fix: `loop.add_signal_handler` sets a stop flag / `asyncio.Event`; the in-flight entry or exit completes (or runs its cleanup) before the loop ends; bounded by a timeout below the deployment's grace period.
 - Verification: `pytest tests/ -q -k "main_instance and signal"` with a test that signals mid-entry and asserts both legs end consistent; full bot suite.
-- Effort: M | Blast radius: med | Status: todo
+- Effort: M | Blast radius: med | Status: done (2c5e19ba) — the signal handler requests a cooperative stop instead of raising; the in-flight entry finishes, the scan stops before the next pair, a second signal stops immediately; 5 tests
 
 ### BOT-P1-003 — Write-ahead entry intent and restart recovery
-- Fix: persist an intent (pair, sides, sizes, client ids) before leg 1, update it after each step, and on start-up reconcile any unfinished intent against the exchange: complete the hedge or flatten, fail closed when the state is unknown. Needs a migration in `bot/migrations` (expand-only).
-- Verification: `pytest tests/ -q -k "entry_intent or restart_recovery"` (crash between legs → recovery flattens or completes; unknown → halts via BOT-P1-008); migration applies and rolls back on a scratch database only; full bot suite.
-- Effort: L | Blast radius: med | Depends on: BOT-P1-004, BOT-P1-008 | Status: todo
+- Status: deferred (L; a new table with its migration, a state machine across both legs and a start-up reconciliation that decides between completing and flattening a half-built pair. Building part of it on the live entry path is worse than none, and it needs a testnet rehearsal. The exposure it addresses is now bounded by work done in this run: a failed cleanup halts new entries (BOT-P1-008), a shutdown signal no longer interrupts a pair between its legs (BOT-P1-002), a second process cannot trade the same instance (INFRA-P0-001L), and abort fails closed on unknown exposure (BOT-P0-004). What is still uncovered is a hard crash, SIGKILL or power loss, between leg 1 and leg 2.)
+- Design to implement:
+  - Table `entry_intents` (expand-only migration in `bot/migrations`): `id`, `instance_id`, `pair_key`, `market_1`, `market_2`, `side_1`, `side_2`, `size_1`, `size_2`, `client_id_1`, `client_id_2`, `state`, `order_id_1`, `order_id_2`, `created_at`, `updated_at`; unique on (`instance_id`, `pair_key`) where `state` is not terminal.
+  - States: `intent_recorded` → `leg1_submitted` → `leg1_filled` → `leg2_submitted` → `complete`; failure exits `cleanup_started` → `flat` or `unhedged` (which sets the entry halt latch). Every transition is written before the next exchange call, in its own committed transaction.
+  - The client ids are generated before leg 1 and stored with the intent, so recovery can find the orders deterministically (this also answers the lookup half of BOT-P1-001 after a crash).
+  - Start-up reconciliation, after the single-writer lock and before the trading loop: for each non-terminal intent, look the orders up by client id and read the open positions. Both legs filled → append the tracked position and mark `complete`. Leg 1 only → reduce-only close leg 1, verify flat, mark `flat`. Anything unknown → set the entry halt latch, alert, leave the intent for the operator. Never open leg 2 during recovery: the signal that justified the pair is stale.
+  - If the intent cannot be written (database down), the entry is not attempted.
+- Verification: `pytest tests/ -q -k "entry_intent or restart_recovery"` with a fake exchange: crash injected after each transition, recovery result asserted for each; migration applied and rolled back on a scratch database only; a full entry and a killed entry rehearsed on testnet before it is enabled for mainnet.
+- Effort: L | Blast radius: med | Depends on: BOT-P1-004 (done), BOT-P1-008 (done), INFRA-P0-001L (done)
 
 ### BOT-P1-012 — Refuse to store mnemonics in plaintext outside dev/test
 - Fix: require the credentials encryption key whenever the instance network is mainnet or the environment is not an explicit dev/test label; start-up and instance creation fail with a clear error otherwise. Existing plaintext records are not rewritten silently: a documented one-off re-seal command is provided.
 - Verification: `pytest tests/ -q -k "credentials_cipher"` (mainnet without key → refused; dev without key → allowed with a warning; with key → sealed); full bot suite. Deployment note: the GitOps repository must provision the key before this ships.
-- Effort: S | Blast radius: med | Status: todo
+- Effort: S | Blast radius: med | Status: done (b357131e) — plaintext credential storage only in an explicit dev/test environment; shared fail-closed environment helper reused by the auth bypass gate; 13 tests

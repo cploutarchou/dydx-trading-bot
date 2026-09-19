@@ -4,9 +4,11 @@ import asyncio
 import os
 import time
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
+import httpx
 import pandas as pd
 from loguru import logger
 
@@ -21,6 +23,7 @@ from src.constants import (
     USD_PER_TRADE,
     ZSCORE_THRESH,
 )
+from src.exceptions import BotError, UnhedgedExposureError
 from src.infrastructure.domain.cointegration_storage import pair_storage
 from src.shared.dataframe_utils import (
     cleanup_dataframe,
@@ -29,6 +32,7 @@ from src.shared.dataframe_utils import (
 )
 from src.shared.notifications import TelegramMessenger
 from src.shared.utils import format_number, format_size_down
+from src.trading import entry_halt
 from src.trading.account_manager import (
     get_account,
     get_open_positions,
@@ -54,6 +58,12 @@ from src.trading.bot_agents_state import (
 from src.trading.market_data import get_candles_recent, get_markets
 from src.trading.pair_priority import PairPriorityScore, prioritize_pairs
 from src.trading.portfolio_risk import check_portfolio_entry_guard
+from src.trading.realized_pnl import (
+    RealizedPnl,
+    RealizedPnlInputError,
+    compute_pair_realized_pnl,
+    sum_fill_fees,
+)
 from src.trading.trade_persistence import (
     persist_live_trade_closed,
     persist_live_trade_opened,
@@ -448,6 +458,82 @@ async def detect_untracked_exchange_exposure(
     return untracked
 
 
+# What an indexer fills lookup raises when it cannot answer: transport errors,
+# the circuit breaker and other bot-domain errors, and malformed payloads.
+_FILL_LOOKUP_ERRORS = (httpx.HTTPError, OSError, BotError, RuntimeError, ValueError)
+
+
+async def _order_fee_from_fills(
+    client: Any, order_id: Any, market: str
+) -> Optional[Decimal]:
+    """Fee paid on one order, or ``None`` when it cannot be read."""
+    if not order_id:
+        return None
+    try:
+        fills = await get_order_fills(client, str(order_id), market=market)
+    except _FILL_LOOKUP_ERRORS as exc:
+        logger.warning(
+            "Could not fetch fills for fee of order {} on {}: {}", order_id, market, exc
+        )
+        return None
+    return sum_fill_fees(fills)
+
+
+async def _realized_pnl_for_closed_pair(
+    client: Any,
+    position: Dict[str, Any],
+    *,
+    exit_price_m1: Any,
+    exit_price_m2: Any,
+    exit_size_m1: Any,
+    exit_size_m2: Any,
+    close_order_m1_id: Any,
+    close_order_m2_id: Any,
+) -> Optional[RealizedPnl]:
+    """Net realised P&L of a pair that was just closed.
+
+    Returns ``None`` (and logs) when the entry data is unusable; a missing
+    number must never be stored as a zero P&L.
+    """
+    market_1 = str(position.get("market_1", ""))
+    market_2 = str(position.get("market_2", ""))
+    fees = [
+        await _order_fee_from_fills(client, position.get("order_id_m1"), market_1),
+        await _order_fee_from_fills(client, position.get("order_id_m2"), market_2),
+        await _order_fee_from_fills(client, close_order_m1_id, market_1),
+        await _order_fee_from_fills(client, close_order_m2_id, market_2),
+    ]
+    try:
+        realized = compute_pair_realized_pnl(
+            side1=position.get("order_m1_side"),
+            entry_price1=position.get("order_m1_price"),
+            exit_price1=exit_price_m1,
+            size1=exit_size_m1,
+            side2=position.get("order_m2_side"),
+            entry_price2=position.get("order_m2_price"),
+            exit_price2=exit_price_m2,
+            size2=exit_size_m2,
+            fees=fees,
+        )
+    except RealizedPnlInputError as exc:
+        logger.error(
+            "Realised P&L not recorded for {} / {}: {}", market_1, market_2, exc
+        )
+        return None
+    position["realized_pnl"] = str(realized.net)
+    position["realized_pnl_gross"] = str(realized.gross)
+    position["realized_pnl_fees"] = str(realized.fees)
+    position["realized_pnl_fees_complete"] = realized.fees_complete
+    if not realized.fees_complete:
+        logger.warning(
+            "Realised P&L for {} / {} is net of known fees only ({} of 4 orders)",
+            market_1,
+            market_2,
+            sum(1 for fee in fees if fee is not None),
+        )
+    return realized
+
+
 async def _exit_price_from_fills(
     client: Any, order_id: str, market: str, fallback: str
 ) -> tuple[str, str]:
@@ -761,6 +847,24 @@ async def _close_orphan_exchange_leg(
         return False
 
 
+# Set by the runtime when a shutdown was requested. The entry scan checks it
+# before every pair so a stopping instance finishes the entry in flight but
+# opens nothing new (a scan can otherwise outlive the deployment's grace period
+# and be killed between two legs).
+_ENTRY_STOP_REQUESTED = False
+
+
+def request_entry_stop() -> None:
+    global _ENTRY_STOP_REQUESTED
+    _ENTRY_STOP_REQUESTED = True
+
+
+def reset_entry_stop() -> None:
+    """For a fresh runtime in the same process (tests, supervised restarts)."""
+    global _ENTRY_STOP_REQUESTED
+    _ENTRY_STOP_REQUESTED = False
+
+
 async def open_positions(client: Any) -> None:
     """
     Manage finding triggers for trade entry.
@@ -771,6 +875,19 @@ async def open_positions(client: Any) -> None:
 
     scan_cycle_id = uuid4().hex[:12]
     increment_metric("arbitrage_scan_cycles_total")
+
+    # A failed emergency close may have left a leg open with no hedge. No new
+    # pair is opened until an operator has verified the account and cleared
+    # the latch (python -m src.trading.entry_halt --clear). Exits keep running.
+    halt_state = entry_halt.entries_halted()
+    if halt_state is not None:
+        increment_metric("arbitrage_entries_halted_cycles_total")
+        logger.critical(
+            "Entries are halted since {}: {}. Verify the account, then clear the latch.",
+            halt_state.get("halted_at", "unknown"),
+            halt_state.get("reason", "unknown"),
+        )
+        return
 
     # Initialize Telegram messenger
     messenger = TelegramMessenger()
@@ -826,6 +943,13 @@ async def open_positions(client: Any) -> None:
 
     # Find ZScore triggers
     for index, row in df.iterrows():
+        if _ENTRY_STOP_REQUESTED:
+            logger.info(
+                "scan_cycle={} stopping the entry scan: shutdown requested",
+                scan_cycle_id,
+            )
+            break
+
         # Extract variables
         base_market = row["base_market"]
         quote_market = row["quote_market"]
@@ -1215,6 +1339,46 @@ async def open_positions(client: Any) -> None:
                         )
                         try:
                             bot_open_dict = await bot_agent.open_trades()
+                        except UnhedgedExposureError as exc:
+                            # The pair could not be flattened. Stop opening
+                            # pairs now, in this cycle and the following ones.
+                            record_rejection("entry_unhedged_exposure")
+                            _record_entry_failure(pair_key, exc)
+                            entry_halt.halt_entries(
+                                f"emergency close failed for {base_market} / {quote_market}",
+                                {
+                                    "market_1": base_market,
+                                    "market_2": quote_market,
+                                    "error": str(exc),
+                                    "scan_cycle_id": scan_cycle_id,
+                                },
+                            )
+                            persist_trade_activity_event(
+                                "trade_entries_halted",
+                                f"New entries halted: emergency close failed for {base_market} / {quote_market}",
+                                severity="critical",
+                                details={
+                                    "market_1": base_market,
+                                    "market_2": quote_market,
+                                    "error": str(exc),
+                                },
+                            )
+                            messenger.send_error_message(
+                                "CRITICAL: New entries halted",
+                                f"Emergency close failed for {base_market} / {quote_market}. "
+                                "A leg may be open without a hedge. No new pairs will be opened "
+                                "until the account is verified and the latch is cleared.",
+                                is_critical=True,
+                                category="execution_emergency_cleanup",
+                            )
+                            logger.critical(
+                                "Unhedged exposure after {} / {}; entries halted",
+                                base_market,
+                                quote_market,
+                            )
+                            # break, not return: the scan's cleanup below
+                            # (DataFrame tracking) must still run.
+                            break
                         except Exception as exc:
                             record_rejection("entry_execution_failed")
                             _record_entry_failure(pair_key, exc)
@@ -1835,12 +1999,24 @@ async def manage_trade_exits(client: Any) -> str | None:
                         )
                         position["exit_price_m1_source"] = exit_price_m1_source
                         position["exit_price_m2_source"] = exit_price_m2_source
+                        realized = await _realized_pnl_for_closed_pair(
+                            client,
+                            position,
+                            exit_price_m1=exit_price_m1,
+                            exit_price_m2=exit_price_m2,
+                            exit_size_m1=position_size_m1,
+                            exit_size_m2=position_size_m2,
+                            close_order_m1_id=close_order_m1_id,
+                            close_order_m2_id=close_order_m2_id,
+                        )
                         persisted_trade_id = persist_live_trade_closed(
                             position,
                             exit_price1=exit_price_m1,
                             exit_price2=exit_price_m2,
                             exit_size1=position_size_m1,
                             exit_size2=position_size_m2,
+                            realized_pnl=realized.net if realized else None,
+                            realized_pnl_pct=realized.net_pct if realized else None,
                         )
                         persist_trade_activity_event(
                             "trade_exit_close_confirmed",

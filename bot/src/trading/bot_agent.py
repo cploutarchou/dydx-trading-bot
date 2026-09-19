@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from loguru import logger
 
+from src.exceptions import UnhedgedExposureError
 from src.shared.notifications import TelegramMessenger
 from src.trading.account_manager import (
     cancel_order,
@@ -135,19 +136,38 @@ class BotAgent:
         retries = 3
         last_status = "unknown"
         order_id: str = ""
+        close_order_placed = False
         for attempt in range(1, retries + 1):
-            close_order, order_id = await place_market_order(
-                self.client,
-                market=market,
-                side=close_side,
-                size=size,
-                price=price,
-                reduce_only=True,
-            )
-            _ = close_order
+            # A failed placement or status read must not end the loop: the
+            # position may still be open, and this is the only code that will
+            # try to close it. Record the failure and fall through to the
+            # position check, which decides whether another attempt is needed.
+            order_status_close_order: Any = "unknown"
+            try:
+                close_order, order_id = await place_market_order(
+                    self.client,
+                    market=market,
+                    side=close_side,
+                    size=size,
+                    price=price,
+                    reduce_only=True,
+                )
+                _ = close_order
+                close_order_placed = True
 
-            await asyncio.sleep(2)
-            order_status_close_order = await check_order_status(self.client, order_id)
+                await asyncio.sleep(2)
+                order_status_close_order = await check_order_status(
+                    self.client, order_id
+                )
+            except Exception as attempt_error:
+                order_status_close_order = f"error: {attempt_error}"
+                logger.error(
+                    "Emergency close attempt {}/{} for {} failed: {}",
+                    attempt,
+                    retries,
+                    market,
+                    attempt_error,
+                )
             last_status = str(order_status_close_order)
 
             # Primary success state from indexer order lifecycle.
@@ -165,7 +185,11 @@ class BotAgent:
                     e,
                 )
 
-            if not still_open:
+            # "Flat" only counts once a close order actually went out. When
+            # every placement failed, a flat reading right after an
+            # unknown-outcome entry can simply be indexer lag, so keep trying
+            # and escalate instead of returning quietly.
+            if not still_open and close_order_placed:
                 logger.warning(
                     "Emergency close order for {} returned status {} but position is no longer open; treating as closed",
                     market,
@@ -197,7 +221,7 @@ class BotAgent:
             category="execution_emergency_cleanup",
         )
 
-        raise RuntimeError(
+        raise UnhedgedExposureError(
             f"Failed emergency closure for {market}; "
             f"telemetry={self._telemetry_fragment(cleanup_status='failed', close_order_status=last_status, position_open_after_cleanup=True)}"
         )
@@ -424,7 +448,7 @@ class BotAgent:
             self.order_dict["comments"] = (
                 f"{self.market_1}: {reason}; close failed: {close_error}"
             )
-            raise RuntimeError(
+            raise UnhedgedExposureError(
                 f"Unexpected emergency closure error for {self.market_1}; "
                 f"telemetry={self._telemetry_fragment(cleanup_status='failed', cleanup_error=str(close_error), position_open_after_cleanup='unknown')}"
             ) from close_error
@@ -539,7 +563,7 @@ class BotAgent:
                     f"Market 2 {self.market_2}: {e}; "
                     f"Close Market 1 {self.market_1}: {close_error}"
                 )
-                raise RuntimeError(
+                raise UnhedgedExposureError(
                     f"Unexpected emergency closure error for {self.market_1}; "
                     f"telemetry={self._telemetry_fragment(cleanup_status='failed', cleanup_error=str(close_error), position_open_after_cleanup='unknown')}"
                 ) from close_error
@@ -580,7 +604,7 @@ class BotAgent:
                 self.order_dict["comments"] = (
                     f"status check error: {e}; close failures: {'; '.join(errors)}"
                 )
-                raise RuntimeError(
+                raise UnhedgedExposureError(
                     f"Emergency closure errors after second-order status failure; "
                     f"telemetry={self._telemetry_fragment(cleanup_status='failed', cleanup_errors=errors, position_open_after_cleanup='unknown')}"
                 ) from e
@@ -610,7 +634,7 @@ class BotAgent:
                 errors.append(f"leg1 {self.market_1}: {leg1_error}")
             if errors:
                 self.order_dict["comments"] += f"; close failures: {'; '.join(errors)}"
-                raise RuntimeError(
+                raise UnhedgedExposureError(
                     f"Emergency closure errors after partial second-leg fill; "
                     f"telemetry={self._telemetry_fragment(cleanup_status='failed', cleanup_errors=errors, position_open_after_cleanup='unknown')}"
                 )
@@ -640,7 +664,7 @@ class BotAgent:
                     category="execution_emergency_cleanup",
                 )
 
-                raise RuntimeError(
+                raise UnhedgedExposureError(
                     f"Unexpected emergency closure error for {self.market_1}; "
                     f"telemetry={self._telemetry_fragment(cleanup_status='failed', close_order_status=status_snapshot, position_open_after_cleanup=True)}"
                 ) from e

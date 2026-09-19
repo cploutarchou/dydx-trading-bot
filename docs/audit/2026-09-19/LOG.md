@@ -138,3 +138,63 @@ Notes: the ownership row stores trading parameters only; credentials from the re
 ## 2026-09-19T21:15Z — commit f0dbc203
 Tasks: BOT-P0-002, BACK-P1-001, BACK-P1-003, BACK-P1-004, BACK-P1-005, FRONT-P1-006, FRONT-P1-002, REPO-P2-003, REPO-P2-001, REPO-P3-001, INFRA-P3-001, INFRA-P1-010, REPO-P3-004
 Verification: per-task entries above. Guard: scan-staged OK, check OK. Staged-diff secret grep: no hits.
+
+## 2026-09-20 — BOT-P1-001, BOT-P1-006; BOT-P1-007 deferred
+Branch: `audit/2026-09-19-orderpath`, stacked on `audit/2026-09-19-queue2`.
+Files: `bot/src/exceptions.py`, `bot/src/trading/account_manager.py`, `bot/src/trading/bot_agent.py`, `bot/tests/test_account_manager_order_lookup.py`, `bot/tests/test_bot_agent_emergency_cleanup.py`, `bot/tests/test_exception_handling_ratchet.py`.
+Verification (from `bot/`): full suite → 1473 passed, 13 skipped; `mypy src` clean.
+Notes:
+- BOT-P1-001: the old `"code" in str(order)` check only logged. Leg-1 rejection still goes through the existing reduce-only cleanup in `open_trades` (a no-op for an order that never existed), which was left as is.
+- BOT-P1-006: the first version returned quietly when every placement failed and the indexer reported the position flat. The existing test `test_bot_agent_open_trades_connection_error` requires escalation in that case, and indexer lag makes the flat reading untrustworthy right after an unknown-outcome entry, so a flat reading now counts only after a close order was actually placed. The broad-catch ratchet baseline moves 306 → 307 with the justification the ratchet asks for.
+- BOT-P1-007 deferred: chain semantics unknown (question recorded).
+
+## 2026-09-20 — BOT-P1-012, BOT-P1-008
+Files: `bot/src/shared/environment.py` (new), `bot/src/shared/credentials_cipher.py`, `bot/src/middleware/auth_middleware.py`, `bot/src/exceptions.py`, `bot/src/trading/entry_halt.py` (new), `bot/src/trading/bot_agent.py`, `bot/src/trading/position_manager.py`, `bot/tests/test_credentials_encryption_requirement.py` (new), `bot/tests/test_entry_halt_latch.py` (new), `bot/README.md`, `bot/AGENTS.md`.
+Verification (from `bot/`): full suite → 1491 passed, 13 skipped; `mypy src` → no issues in 100 files; isort, black, flake8 clean; `make docs-governance` → OK.
+Notes:
+- BOT-P1-012: no new re-seal command was needed; `make encrypt-bot-credentials` already exists. The worker image bakes `APP_ENV=prod`/`ENVIRONMENT=prod` while the local stack adds `APP_CONFIG_ENV=development`; mixed labels are not "explicit dev", so a worker in the local stack that writes credentials needs a key. The API image (where instance creation writes credentials) carries only the development label in the stack.
+- BOT-P1-008: `UnhedgedExposureError` also subclasses `RuntimeError`, so existing handlers and tests that expect `RuntimeError` are unchanged. The scan uses `break` so its DataFrame cleanup still runs. A first full run failed `test_portfolio_risk` because the new test module leaked per-pair backoff state; its fixture now clears it on teardown.
+- PR #54 CI (first batch): all 25 checks passed, including the frontend on Node 26, the backend on Go 1.27 and `Wait for quality gate`; GitHub reports 0 CODEOWNERS errors.
+
+## 2026-09-19T21:29Z — commit b357131e
+Tasks: BOT-P1-001, BOT-P1-006, BOT-P1-008, BOT-P1-012 (BOT-P1-007 deferred)
+Verification: per-task entries above. Guard: scan-staged OK, check OK.
+
+## 2026-09-20 — INFRA-P0-001L (commit daa9514a)
+Files: `bot/src/trading/instance_lock.py` (new), `bot/src/main_instance.py`, `bot/tests/test_instance_lock.py` (new), `bot/README.md`, `.github/workflows/bot-quality.yml`.
+Verification (from `bot/`):
+- Unit and wiring tests with a fake engine → 14 passed.
+- Real PostgreSQL: a throwaway `postgres:17-alpine` container on a random loopback port (removed afterwards; the unrelated Postgres container already running on this machine was not touched), `INSTANCE_LOCK_TEST_DSN=postgresql+psycopg2://…` → 15 passed: one holder per instance id, the `pg_locks` probe finds its own lock, a different instance id is independent, dropping the holder's connection frees the lock.
+- Full suite with the coverage floor → 1505 passed, 14 skipped, coverage 83.56%; `mypy src` → no issues in 101 files; isort, black, flake8 clean.
+Notes:
+- The first real-database run FAILED and exposed a real defect the fakes could not: SQLAlchemy's `close()` returns a pooled connection to the pool, so the session and its advisory lock stayed alive (and could have been handed to unrelated code). The lock connection is now detached from the pool.
+- A second draft added four broad catches and tripped the broad-catch ratchet; they are narrowed to `(SQLAlchemyError, OSError)` and the baseline stays at 307.
+- CI: the `bot-multiworker` job (which already has a Postgres service) now runs `tests/test_instance_lock.py` with the DSN set.
+- Kept on the order-path branch as its own commit instead of a third stacked pull request; it is called out separately in that pull request.
+
+## 2026-09-20 — BOT-P1-011 (commit 2c5e19ba)
+Files: `.github/workflows/bot-quality.yml`, `zcode-marketplace/plugins/monorepo-experts/references/ci-release.md`.
+Verification:
+- `gh api /advisories/GHSA-4f84-67cv-qrv3` → severity critical, vulnerable range `= 1.1.5.post1`, "patched" 1.1.5: a compromised PyPI account uploaded a malicious post-release with an obfuscated loader.
+- `bot/requirements.txt:31` pins `dydx-v4-client==1.1.6`; `pip show` → 1.1.6. PyPI JSON: releases 1.1.0 … 1.1.6, `1.1.5.post1` no longer listed, latest 1.1.6 uploaded 2026-02-12 (after the advisory of 2026-02-06), not yanked.
+- Installed package: 40 files hashed against the dist-info `RECORD` → 0 mismatches; `grep` for the advisory's indicator (`priceoracle`) and for `exec(` / `marshal.loads` in the package → 0 hits.
+- `pip-audit -r requirements.txt` → flags 1.1.6 (the advisory's "fixed" version 1.1.5 is lower than the malicious one, so every later version matches) and `ecdsa 0.19.2` PYSEC-2026-1325 (= CVE-2024-23342, Minerva timing side channel on P-256, no fixed release). With the two ignores → `No known vulnerabilities found, 3 ignored`, exit 0.
+Result: no SDK upgrade (none exists, none needed). The audit step lost `continue-on-error`, carries both ignores with justification and review dates in the workflow, and `bot-deps-audit` joined the quality gate's `needs`. Bandit stays reporting-only (3 reviewed Medium findings would need inline annotations first).
+
+## 2026-09-20 — BOT-P1-002 (commit 2c5e19ba)
+Files: `bot/src/main_instance.py`, `bot/src/trading/position_manager.py`, `bot/tests/test_cooperative_shutdown.py` (new), `bot/README.md`.
+Verification (from `bot/`): full suite with the coverage floor → 1510 passed, 14 skipped, coverage 83.66%; `mypy src` clean; isort, black, flake8 clean.
+Notes: the old handler raised `GracefulShutdownException` (an `Exception`) into the running frame. Inside `open_positions` that was swallowed by the loop's `except Exception` ("Error opening positions"), and inside `open_trades` it was treated as a placement failure. The new test delivers the signal between two simulated legs and asserts both complete. Not covered: the grace period configured in the cluster (GitOps repository) must allow one full entry plus cleanup.
+
+## 2026-09-20 — BOT-P1-004 (commit 41378fa1)
+Files: `bot/src/trading/bot_agents_state.py`, `bot/tests/test_bot_agents_state_db_failure.py` (new), `bot/README.md`.
+Verification (from `bot/`): full suite with the coverage floor → 1515 passed, 14 skipped, coverage 83.77%; `mypy src` clean; isort, black, flake8 clean.
+Notes: the finding proposed one authoritative store per deployment. The smaller fix keeps both stores and removes the actual failure: every write is a full snapshot and the file write cannot be skipped, so the file is never behind the database; only a failed database write makes the database the stale side, which the marker now records. Only an explicit `False` counts as a failed write, so the test suite's file-mode stubs (which return `None`) are unaffected. Residual risk documented in the README: marker and file lost together on an ephemeral disk.
+
+## 2026-09-20 — BOT-P1-009 (commit 41378fa1)
+Files: `bot/src/trading/realized_pnl.py` (new), `bot/src/trading/position_manager.py`, `bot/src/trading/trade_persistence.py`, `bot/src/infrastructure/persistence/repository.py`, `bot/tests/test_realized_pnl.py` (new), `bot/tests/test_position_manager_realized_pnl.py` (new), `bot/tests/test_trade_repository.py`, `bot/README.md`.
+Verification (from `bot/`): full suite with the coverage floor → 1534 passed, 14 skipped, coverage 83.84%; `mypy src` → no issues in 102 files; isort, black, flake8 clean.
+Notes: exit prices were already fill VWAPs (`_exit_price_from_fills`); only the P&L itself was missing. The trade model has no fee or funding columns and its money columns are `Float` (BOT-P2-001, deferred), so fees are netted into the stored figure and kept on the position record, and the Decimal result is converted to float only at the column boundary. Entry fees come from the entry orders' fills; for an old entry those fills can be beyond the pagination window, which the `fees_complete` flag reports. Four extra indexer reads per closed pair. A first draft tripped the broad-catch ratchet; the fee lookup now catches a named tuple of lookup errors.
+
+## 2026-09-19T21:50Z — end of queue 2
+No `todo` task remains: 22 done, 2 deferred (BOT-P1-007, BOT-P1-003). REPORT.md has the queue 2 section; three questions added to OPEN-QUESTIONS.md.

@@ -282,6 +282,19 @@ be set, and every one that is set must carry an allowed label. API startup is re
 no environment set, with any other label (`production`, `prod`, `live`, `mainnet`, `staging`, ...), or when a
 development label in one variable conflicts with a production label in another.
 
+### Single-writer lock per instance
+
+`main_instance` takes a PostgreSQL session-level advisory lock keyed by the instance id before it connects to the
+exchange, holds it on a dedicated connection that is detached from the pool, and re-checks it every trading cycle. A
+second process for the same instance id refuses to start (`InstanceAlreadyRunningError`). PostgreSQL releases the lock
+when the process or its connection dies, so a crash never leaves a stale lock; if the connection drops, the runtime
+re-takes the lock once and stops trading when it cannot. Outside an explicit local/dev/test environment the lock is
+mandatory (no PostgreSQL or no connection means no start). Session-level advisory locks need a direct PostgreSQL
+connection: a transaction-pooling proxy in front of the bot's database would break it.
+
+Restart behaviour: a restarted runtime can take the lock as soon as the previous process has exited. If the previous
+process is hung but still connected, the restart is refused until that process is stopped.
+
 ### Entry halt latch
 
 When an emergency close fails, a leg may be open without a hedge. The pair agent raises `UnhedgedExposureError`, the

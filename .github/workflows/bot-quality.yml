@@ -484,6 +484,16 @@ jobs:
                   set -o pipefail
                   python -m pytest tests/test_multi_worker_broadcast.py -vv -s --tb=short 2>&1 | tee multiworker-output.txt
 
+            # The single-writer lock is a PostgreSQL session-level advisory lock;
+            # only a real server proves one holder per instance id and release
+            # on disconnect. Reuses this job's Postgres service.
+            - name: Run the instance lock test against real PostgreSQL
+              env:
+                  INSTANCE_LOCK_TEST_DSN: postgresql+psycopg2://dydx_bot:change-me-db-password@127.0.0.1:5432/dydx_bot
+              run: |
+                  set -o pipefail
+                  python -m pytest tests/test_instance_lock.py -v --tb=short -rs
+
             - name: Publish multi-worker summary
               if: always()
               run: |

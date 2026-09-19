@@ -4,7 +4,7 @@ phase: execute
 branch: audit/2026-09-19-orderpath (stacked on audit/2026-09-19-queue2)
 base: master
 last commit: b357131e (2026-09-19T21:29Z)
-updated: 2026-09-19T21:29Z
+updated: 2026-09-19T21:36Z
 scope: all
 
 Findings: BOT 24, BACK 20, FRONT 19, INFRA 20, REPO 7 (90 total; 6 merged as duplicates).
@@ -36,7 +36,7 @@ business decision, and effort M/L items are proposals or deferred with a reason 
 
 ## Queue 2 — unblocked by the owner's decisions of 2026-09-19 (see OPEN-QUESTIONS.md); the last eleven were moved from proposal at the owner's request
 - [x] BOT-P0-002 Disable bot-API self-registration; admin/operator on lifecycle routes — plans/BOT.md — done (f0dbc203) — register returns 403 unless BOT_API_ALLOW_SELF_REGISTRATION=true; six mutating lifecycle routes need an admin principal; 17 tests
-- [ ] INFRA-P0-001L Postgres advisory lock per trading instance in main_instance — plans/INFRA.md — todo
+- [x] INFRA-P0-001L Postgres advisory lock per trading instance in main_instance — plans/INFRA.md — done (pending commit) — PostgreSQL advisory lock per instance id on a pool-detached connection, mandatory outside dev/test, re-checked every cycle, released on shutdown; verified against real PostgreSQL; 15 tests
 - [x] BACK-P1-003 Migrations via the explicit migrator only; DB_AUTO_MIGRATE=false in deployables — plans/BACK.md — done (f0dbc203) — local stack gets a one-shot backend-migrate service; backend-api waits for it; DB_AUTO_MIGRATE=false in both stack files
 - [x] BACK-P1-004 Remove Force(version) startup recovery — plans/BACK.md — done (f0dbc203) — Force(version) recovery is explicit opt-in only and refused for production labels (CONFIG_ENV included); table test
 - [x] BACK-P1-005 Configurable TRUSTED_PROXIES, no raw X-Forwarded-For, auth endpoint limiter — plans/BACK.md — done (f0dbc203) — validated TRUSTED_PROXIES, raw X-Forwarded-For helper removed, shared per-IP limiter on credential endpoints; 3 tests. Deployment must set TRUSTED_PROXIES to the pod CIDR

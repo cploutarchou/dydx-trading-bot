@@ -159,3 +159,15 @@ Notes:
 ## 2026-09-19T21:29Z — commit b357131e
 Tasks: BOT-P1-001, BOT-P1-006, BOT-P1-008, BOT-P1-012 (BOT-P1-007 deferred)
 Verification: per-task entries above. Guard: scan-staged OK, check OK.
+
+## 2026-09-20 — INFRA-P0-001L (uncommitted)
+Files: `bot/src/trading/instance_lock.py` (new), `bot/src/main_instance.py`, `bot/tests/test_instance_lock.py` (new), `bot/README.md`, `.github/workflows/bot-quality.yml`.
+Verification (from `bot/`):
+- Unit and wiring tests with a fake engine → 14 passed.
+- Real PostgreSQL: a throwaway `postgres:17-alpine` container on a random loopback port (removed afterwards; the unrelated Postgres container already running on this machine was not touched), `INSTANCE_LOCK_TEST_DSN=postgresql+psycopg2://…` → 15 passed: one holder per instance id, the `pg_locks` probe finds its own lock, a different instance id is independent, dropping the holder's connection frees the lock.
+- Full suite with the coverage floor → 1505 passed, 14 skipped, coverage 83.56%; `mypy src` → no issues in 101 files; isort, black, flake8 clean.
+Notes:
+- The first real-database run FAILED and exposed a real defect the fakes could not: SQLAlchemy's `close()` returns a pooled connection to the pool, so the session and its advisory lock stayed alive (and could have been handed to unrelated code). The lock connection is now detached from the pool.
+- A second draft added four broad catches and tripped the broad-catch ratchet; they are narrowed to `(SQLAlchemyError, OSError)` and the baseline stays at 307.
+- CI: the `bot-multiworker` job (which already has a Postgres service) now runs `tests/test_instance_lock.py` with the DSN set.
+- Kept on the order-path branch as its own commit instead of a third stacked pull request; it is called out separately in that pull request.

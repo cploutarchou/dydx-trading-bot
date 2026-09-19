@@ -15,12 +15,14 @@ import signal
 from typing import Any, Awaitable, Dict, Optional, TypeVar, cast, overload
 
 from loguru import logger
+from sqlalchemy.exc import SQLAlchemyError
 
 # Import configuration and bot functions
 from config.config import config
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
 from src.shared.credentials_cipher import open_config_secrets
+from src.shared.environment import is_explicit_dev_or_test_environment
 from src.shared.live_risk_controls import assert_supported_live_risk_controls
 from src.shared.logging_setup import setup_logging
 from src.shared.notifications import TelegramMessenger
@@ -28,6 +30,7 @@ from src.trading.account_manager import abort_all_positions
 from src.trading.analysis.cointegration import store_cointegration_results
 from src.trading.bot_agents_state import load_tracked_positions
 from src.trading.dydx_client import connect_dydx_runtime
+from src.trading.instance_lock import InstanceLock, InstanceLockError
 from src.trading.market_data import construct_market_prices
 from src.trading.position_manager import manage_trade_exits, open_positions
 
@@ -44,6 +47,7 @@ class BotInstance:
         self.logger: Optional[Any] = None
         self.client: Optional[Any] = None
         self.messenger: Optional[TelegramMessenger] = None
+        self.instance_lock: Optional[InstanceLock] = None
         self.running = False
         self.config = None
 
@@ -571,11 +575,52 @@ class BotInstance:
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
+    def _acquire_instance_lock(self) -> None:
+        """Become the only process trading this instance id, or refuse to start.
+
+        Outside an explicit local/dev/test environment the lock is mandatory:
+        any failure to take it (another process holds it, the database is not
+        PostgreSQL or is unreachable) stops the start. In dev/test a missing
+        database only disables the lock with a warning, so local file-mode
+        runs keep working; a lock held by another process still refuses.
+        """
+        runtime_logger = self._require_logger()
+        lock = InstanceLock(db.get_engine(), self.instance_id)
+        try:
+            lock.acquire()
+        except InstanceLockError:
+            if lock.supported or not is_explicit_dev_or_test_environment():
+                raise
+            runtime_logger.warning(
+                "Single-writer lock unavailable for {} (non-PostgreSQL database in "
+                "a dev/test environment); continuing without it",
+                self.instance_id,
+            )
+            return
+        except (SQLAlchemyError, OSError):
+            if not is_explicit_dev_or_test_environment():
+                raise
+            runtime_logger.warning(
+                "Single-writer lock unavailable for {} (database unreachable in a "
+                "dev/test environment); continuing without it",
+                self.instance_id,
+            )
+            return
+        self.instance_lock = lock
+
+    def _release_instance_lock(self) -> None:
+        lock, self.instance_lock = self.instance_lock, None
+        if lock is not None:
+            lock.release()
+
     async def initialize(self) -> None:
         """Initialize bot instance"""
         try:
             self.setup_logging()
             self.load_config()
+            # Before anything can reach the exchange: a second process for the
+            # same instance id must stop here.
+            self._acquire_instance_lock()
             self.setup_signal_handlers()
 
             runtime_logger = self._require_logger()
@@ -748,6 +793,11 @@ class BotInstance:
 
         try:
             while self.running:
+                # The lock dies with its connection. Prove it is still ours
+                # every cycle; if it cannot be proven, stop before trading.
+                if self.instance_lock is not None:
+                    self.instance_lock.ensure_held()
+
                 bot_settings = runtime_config.botSettings
 
                 # Manage existing positions
@@ -804,6 +854,12 @@ class BotInstance:
 
     async def run(self) -> None:
         """Run the complete bot instance"""
+        try:
+            await self._run()
+        finally:
+            self._release_instance_lock()
+
+    async def _run(self) -> None:
         try:
             await self.initialize()
             await self.run_initial_setup()

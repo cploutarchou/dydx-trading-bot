@@ -60,7 +60,7 @@ Nothing in this plan is applied to a cluster or starts a container. Manifests ar
 ### INFRA-P0-001L — Postgres advisory lock per trading instance
 - Decision: session-level `pg_advisory_lock` keyed by instance id, taken at the start of `main_instance`; a second process refuses to trade and exits with a clear error. Released automatically when the process or connection ends.
 - Verification: tests with a fake/locked connection: second acquirer refuses; lock failure (DB down) fails closed for live mode; full bot suite. Document restart behaviour per the bot's state-safety rule.
-- Effort: M | Blast radius: high (live start-up path) | Status: todo
+- Effort: M | Blast radius: high (live start-up path) | Status: done (pending commit) — PostgreSQL advisory lock per instance id on a pool-detached connection, mandatory outside dev/test, re-checked every cycle, released on shutdown; verified against real PostgreSQL; 15 tests
 
 ### INFRA-P3-001 — Delete `deploy/k8s` and `deploy/k8s-next`
 - Decision: the cluster is deployed by Flux from a separate GitOps repository; remove both directories, the Kustomize/k8s-secret CI jobs that only serve them, and the dead Makefile targets; add a docs pointer to the GitOps repository. The k8s findings listed in MASTER-PLAN.md move there.

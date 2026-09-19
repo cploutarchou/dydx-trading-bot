@@ -69,3 +69,8 @@ Verification baseline (2026-09-19, go1.26.6): `go build ./...`, `go vet ./...`, 
 - Decision: Traefik ingress in k3s. Configurable `TRUSTED_PROXIES` (default loopback; the deployment sets the pod CIDR), client IP only through Gin's trusted-proxy logic, dedicated limiter on auth endpoints.
 - Verification: tests: spoofed `X-Forwarded-For` from an untrusted peer is ignored; per-IP buckets differ behind a trusted proxy; auth limiter trips; `go test -race ./...`.
 - Effort: M | Blast radius: med | Status: todo
+
+### BACK-P1-001 — Quick-deploy must create an owned backend row and honour the quota (moved from proposal at the owner's request)
+- Fix: after a successful upstream quick-deploy, insert the `bot_instances` row for the caller using the same create-then-rollback sequence as `BotInstanceService.CreateBotInstanceWithConfig` (or route quick-deploy through that service); make the count-and-insert atomic; delete the upstream instance when the insert fails; drop the `requested_by_user_id` injection the bot ignores.
+- Verification: `go test -race -count=1 ./internal/routes/ -run QuickDeploy`: a row owned by the caller exists after 200; the N+1th quick-deploy returns 429; upstream delete is called when the insert fails. Full backend suite.
+- Effort: M | Blast radius: med | Status: todo

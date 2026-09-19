@@ -41,3 +41,8 @@ Evidence, impact and root cause for every ID: `../findings/REPO.md`.
 ### REPO-P3-001 — Correct Go version statements
 - Verification: `grep -rn 'Go 1\.' zcode-marketplace/plugins/monorepo-experts/references backend/.devcontainer/Dockerfile` agrees with `go.mod`.
 - Effort: S | Blast radius: low | Depends on: REPO-P2-001 | Status: todo
+
+### REPO-P3-004 — Add `CODEOWNERS` (moved from proposal at the owner's request)
+- Fix: `.github/CODEOWNERS` with the repository owner (`@cploutarchou`) as default owner and explicit entries for the order path (`bot/src/trading/`), auth (`backend/internal/auth/`, `backend/internal/middleware/`, `bot/src/middleware/`), migrations and workflows, so ownership is recorded and review requests route automatically when collaborators are added.
+- Verification: GitHub reports no CODEOWNERS errors for the branch (`gh api repos/cploutarchou/dydx-trading-bot/codeowners/errors`).
+- Effort: S | Blast radius: low | Status: todo

@@ -34,7 +34,7 @@ business decision, and effort M/L items are proposals or deferred with a reason 
 - [x] BACK-P3-001 url.PathEscape used for query values — plans/BACK.md — done (36723306) — quick-deploy and benchmark queries built with url.Values; 2 tests
 - [x] REPO-P3-002 history-budget workflow pins checkout v4 — plans/REPO.md — done (36723306) — checkout v7
 
-## Queue 2 — unblocked by the owner's decisions of 2026-09-19 (see OPEN-QUESTIONS.md)
+## Queue 2 — unblocked by the owner's decisions of 2026-09-19 (see OPEN-QUESTIONS.md); the last eleven were moved from proposal at the owner's request
 - [ ] BOT-P0-002 Disable bot-API self-registration; admin/operator on lifecycle routes — plans/BOT.md — todo
 - [ ] INFRA-P0-001L Postgres advisory lock per trading instance in main_instance — plans/INFRA.md — todo
 - [ ] BACK-P1-003 Migrations via the explicit migrator only; DB_AUTO_MIGRATE=false in deployables — plans/BACK.md — todo
@@ -48,12 +48,20 @@ business decision, and effort M/L items are proposals or deferred with a reason 
 - [ ] REPO-P2-001 go.mod 1.27 and CI Node 26, plus a drift check — plans/REPO.md — todo
 - [ ] INFRA-P3-001 Delete deploy/k8s and deploy/k8s-next, their CI validation and dead make targets; point docs to the GitOps repository — plans/INFRA.md — todo
 - [ ] REPO-P3-001 Correct Go version statements in docs and devcontainer — plans/REPO.md — todo
+- [ ] BOT-P1-001 Detect tx rejection from the broadcast response; bind order ids by client id — plans/BOT.md — todo
+- [ ] BOT-P1-006 Emergency-close retry loop survives placement exceptions — plans/BOT.md — todo
+- [ ] BOT-P1-007 One client id per logical reduce-only close — plans/BOT.md — todo
+- [ ] BOT-P1-008 Halt new entries after a failed emergency cleanup (persisted latch) — plans/BOT.md — todo
+- [ ] BOT-P1-004 Tracked-position store must not ignore write failures — plans/BOT.md — todo
+- [ ] BOT-P1-002 Cooperative shutdown instead of raising from the signal handler — plans/BOT.md — todo
+- [ ] BOT-P1-003 Write-ahead entry intent and restart recovery — plans/BOT.md — todo
+- [ ] BOT-P1-012 Refuse plaintext mnemonics outside dev/test — plans/BOT.md — todo
+- [ ] BACK-P1-001 Quick-deploy creates an owned row and honours the quota — plans/BACK.md — todo
+- [ ] INFRA-P1-010 Remove the compose prod path; loopback-only ports; no default secrets — plans/INFRA.md — todo
+- [ ] REPO-P3-004 Add CODEOWNERS — plans/REPO.md — todo
 
 ## Proposal-only (needs a human decision; not executed)
-- [ ] BOT-P1-001, BOT-P1-002, BOT-P1-003, BOT-P1-004, BOT-P1-006, BOT-P1-007, BOT-P1-008, BOT-P1-012 — order path / design-level — plans/BOT.md
-- [ ] BACK-P1-001 — plans/BACK.md
-- [ ] INFRA-P1-010 — plans/INFRA.md
-- [ ] REPO-P3-004 — plans/REPO.md
+- none: every proposal was either decided and queued above or moved to the GitOps repository.
 
 ## Moved to the GitOps repository (not applicable here once deploy/k8s-next is deleted)
 - INFRA-P1-001, INFRA-P1-002, INFRA-P1-005, INFRA-P1-006, INFRA-P1-007, INFRA-P1-008 (PITR, RPO about 5 min, verify the CloudNativePG backup configuration), INFRA-P1-009, INFRA-P2-002, INFRA-P2-005, INFRA-P2-007, and the manifest halves of INFRA-P0-001, INFRA-P0-002, INFRA-P1-003, INFRA-P1-004, INFRA-P2-001, INFRA-P2-003: check each against the GitOps manifests.

@@ -3,7 +3,7 @@
 phase: execute
 branch: audit/2026-09-19-orderpath (stacked on audit/2026-09-19-queue2)
 base: master
-last commit: daa9514a (2026-09-19T21:36Z)
+last commit: 2c5e19ba (2026-09-19T21:41Z)
 updated: 2026-09-19T21:41Z
 scope: all
 
@@ -40,7 +40,7 @@ business decision, and effort M/L items are proposals or deferred with a reason 
 - [x] BACK-P1-003 Migrations via the explicit migrator only; DB_AUTO_MIGRATE=false in deployables — plans/BACK.md — done (f0dbc203) — local stack gets a one-shot backend-migrate service; backend-api waits for it; DB_AUTO_MIGRATE=false in both stack files
 - [x] BACK-P1-004 Remove Force(version) startup recovery — plans/BACK.md — done (f0dbc203) — Force(version) recovery is explicit opt-in only and refused for production labels (CONFIG_ENV included); table test
 - [x] BACK-P1-005 Configurable TRUSTED_PROXIES, no raw X-Forwarded-For, auth endpoint limiter — plans/BACK.md — done (f0dbc203) — validated TRUSTED_PROXIES, raw X-Forwarded-For helper removed, shared per-IP limiter on credential endpoints; 3 tests. Deployment must set TRUSTED_PROXIES to the pod CIDR
-- [x] BOT-P1-011 Verify the signing SDK advisory, upgrade in a dedicated change, blocking pip-audit — plans/BOT.md — done (pending commit) — advisory verified: it covers only the removed malicious release 1.1.5.post1; the pinned 1.1.6 is the latest, post-incident release and the installed files match their RECORD hashes, so no upgrade exists or is needed. pip-audit is now blocking and part of the quality gate with two documented, dated ignores
+- [x] BOT-P1-011 Verify the signing SDK advisory, upgrade in a dedicated change, blocking pip-audit — plans/BOT.md — done (2c5e19ba) — advisory verified: it covers only the removed malicious release 1.1.5.post1; the pinned 1.1.6 is the latest, post-incident release and the installed files match their RECORD hashes, so no upgrade exists or is needed. pip-audit is now blocking and part of the quality gate with two documented, dated ignores
 - [ ] BOT-P1-009 Realised P&L net of fees from fills, Decimal, funding separate — plans/BOT.md — todo
 - [x] FRONT-P1-006 Testnet default; is_testnet derived from chain_id; numeric validation — plans/FRONT.md — done (f0dbc203) — form defaults to testnet; network and is_testnet derived from chain_id; NaN/zero/negative numerics rejected; 10 tests
 - [x] FRONT-P1-002 Confirm runtime stop; remove the bare-key shortcut — plans/FRONT.md — done (f0dbc203) — stop asks for confirmation naming the runtime; the s shortcut and its hint are removed. No component test (StrategyManager has no test harness, FRONT-P2-014); verified by lint, typecheck and the e2e smoke suite
@@ -53,7 +53,7 @@ business decision, and effort M/L items are proposals or deferred with a reason 
 - [x] BOT-P1-007 One client id per logical reduce-only close — plans/BOT.md — deferred (needs the dYdX v4 semantics for re-submitting a short-term order with the same client id after an unknown outcome, verified on testnet; guessing a chain contract on the close path is not acceptable. See OPEN-QUESTIONS.md)
 - [x] BOT-P1-008 Halt new entries after a failed emergency cleanup (persisted latch) — plans/BOT.md — done (b357131e) — UnhedgedExposureError from every emergency-closure failure; persisted per-instance entry halt latch honoured by the scan, set mid-cycle, cleared only by the operator CLI; 5 tests
 - [ ] BOT-P1-004 Tracked-position store must not ignore write failures — plans/BOT.md — todo
-- [x] BOT-P1-002 Cooperative shutdown instead of raising from the signal handler — plans/BOT.md — done (pending commit) — the signal handler requests a cooperative stop instead of raising; the in-flight entry finishes, the scan stops before the next pair, a second signal stops immediately; 5 tests
+- [x] BOT-P1-002 Cooperative shutdown instead of raising from the signal handler — plans/BOT.md — done (2c5e19ba) — the signal handler requests a cooperative stop instead of raising; the in-flight entry finishes, the scan stops before the next pair, a second signal stops immediately; 5 tests
 - [ ] BOT-P1-003 Write-ahead entry intent and restart recovery — plans/BOT.md — todo
 - [x] BOT-P1-012 Refuse plaintext mnemonics outside dev/test — plans/BOT.md — done (b357131e) — plaintext credential storage only in an explicit dev/test environment; shared fail-closed environment helper reused by the auth bypass gate; 13 tests
 - [x] BACK-P1-001 Quick-deploy creates an owned row and honours the quota — plans/BACK.md — done (f0dbc203) — quick-deploy writes an owned bot_instances row (no credentials), rolls the upstream runtime back when that fails, and re-checks the quota after the insert; the unused requested_by_user_id injection is removed; 5 tests

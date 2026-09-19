@@ -172,7 +172,7 @@ Notes:
 - CI: the `bot-multiworker` job (which already has a Postgres service) now runs `tests/test_instance_lock.py` with the DSN set.
 - Kept on the order-path branch as its own commit instead of a third stacked pull request; it is called out separately in that pull request.
 
-## 2026-09-20 — BOT-P1-011 (uncommitted)
+## 2026-09-20 — BOT-P1-011 (commit 2c5e19ba)
 Files: `.github/workflows/bot-quality.yml`, `zcode-marketplace/plugins/monorepo-experts/references/ci-release.md`.
 Verification:
 - `gh api /advisories/GHSA-4f84-67cv-qrv3` → severity critical, vulnerable range `= 1.1.5.post1`, "patched" 1.1.5: a compromised PyPI account uploaded a malicious post-release with an obfuscated loader.
@@ -181,7 +181,7 @@ Verification:
 - `pip-audit -r requirements.txt` → flags 1.1.6 (the advisory's "fixed" version 1.1.5 is lower than the malicious one, so every later version matches) and `ecdsa 0.19.2` PYSEC-2026-1325 (= CVE-2024-23342, Minerva timing side channel on P-256, no fixed release). With the two ignores → `No known vulnerabilities found, 3 ignored`, exit 0.
 Result: no SDK upgrade (none exists, none needed). The audit step lost `continue-on-error`, carries both ignores with justification and review dates in the workflow, and `bot-deps-audit` joined the quality gate's `needs`. Bandit stays reporting-only (3 reviewed Medium findings would need inline annotations first).
 
-## 2026-09-20 — BOT-P1-002 (uncommitted)
+## 2026-09-20 — BOT-P1-002 (commit 2c5e19ba)
 Files: `bot/src/main_instance.py`, `bot/src/trading/position_manager.py`, `bot/tests/test_cooperative_shutdown.py` (new), `bot/README.md`.
 Verification (from `bot/`): full suite with the coverage floor → 1510 passed, 14 skipped, coverage 83.66%; `mypy src` clean; isort, black, flake8 clean.
 Notes: the old handler raised `GracefulShutdownException` (an `Exception`) into the running frame. Inside `open_positions` that was swallowed by the loop's `except Exception` ("Error opening positions"), and inside `open_trades` it was treated as a placement failure. The new test delivers the signal between two simulated legs and asserts both complete. Not covered: the grace period configured in the cluster (GitOps repository) must allow one full entry plus cleanup.

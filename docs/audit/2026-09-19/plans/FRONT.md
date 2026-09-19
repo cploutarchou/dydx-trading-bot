@@ -9,24 +9,24 @@ Verification baseline (2026-09-19): `npm run lint` clean; `npm run typecheck` cl
 - Root cause: the query client retries every mutation once; create/start/backtest POSTs carry no idempotency key.
 - Fix: `mutations.retry: 0` globally (a mutation that is safe to retry opts in locally); test the default.
 - Verification: new vitest on the query client defaults; `npm run lint && npm run typecheck && npm test`.
-- Effort: S | Blast radius: low | Status: done (pending commit) — mutations.retry 0 globally; 1 test
+- Effort: S | Blast radius: low | Status: done (36723306) — mutations.retry 0 globally; 1 test
 
 ### FRONT-P1-003 — Wallet mnemonic reaches the browser console through raw error logging
 - Root cause: `console.error('Failed to create bot:', err)` logs the Axios error, whose `config.data` holds the request body (mnemonic).
 - Fix: log a sanitised summary (status, code, operator message) instead of the raw error in the create path; add `autoComplete="off"` and `spellCheck={false}` to the seed input.
 - Verification: vitest asserting the logged value does not contain the request body; lint, typecheck, tests.
-- Effort: S | Blast radius: low | Status: done (pending commit) — create path logs a sanitised summary; seed input autocomplete/spellcheck off; 2 tests
+- Effort: S | Blast radius: low | Status: done (36723306) — create path logs a sanitised summary; seed input autocomplete/spellcheck off; 2 tests
 
 ### FRONT-P1-004 — Logout never clears the React Query cache
 - Fix: clear the query cache on logout in the code path the sidebar actually uses (the existing `useLogout` hook is unused); test.
 - Verification: vitest: after logout the cache is empty; lint, typecheck, tests.
-- Effort: S | Blast radius: low | Status: done (pending commit) — every logged-out transition clears the query cache; 1 test
+- Effort: S | Blast radius: low | Status: done (36723306) — every logged-out transition clears the query cache; 1 test
 
 ### FRONT-P1-005 — `formatUsdFixed` strips the sign and renders missing values as `$0.00`
 - Root cause: `Math.abs(value)` and a `$0.00` fallback; used for Free Collateral in the go-live dialog.
 - Fix: keep the sign (`-$12.50`) and render missing/non-finite values as `—`; update the existing format tests; check each call site renders sensibly.
 - Verification: `npm test` (format tests updated and extended); lint, typecheck.
-- Effort: S | Blast radius: med (shared formatter) | Status: done (pending commit) — new formatUsdBalance (signed, missing renders as em dash) used in the go-live dialog; shared formatters left unchanged; 1 test
+- Effort: S | Blast radius: med (shared formatter) | Status: done (36723306) — new formatUsdBalance (signed, missing renders as em dash) used in the go-live dialog; shared formatters left unchanged; 1 test
 
 ### Proposal-only / deferred
 - FRONT-P1-002 stopping a live runtime has no confirmation and is bound to a bare `s` key — proposal (operator workflow change on a live-trading control; proposed: confirmation dialog naming the target, remove the bare-key binding or require a modifier).

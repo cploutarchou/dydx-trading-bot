@@ -9,14 +9,14 @@ Verification baseline (2026-09-19, go1.26.6): `go build ./...`, `go vet ./...`, 
 - Root cause: `SessionStore.BumpUserGeneration` is called only from change-password, logout and reset-password; the admin user update path changes `is_active` / role without it, and the refresh path slides the TTL without re-checking either.
 - Fix: bump the user's session generation in the admin update path whenever `is_active` becomes false or the role changes (fail the request if revocation fails, so an operator never sees "deactivated" while sessions live on); add an `is_active` re-check on session refresh.
 - Verification: new route tests: deactivate → existing session rejected; role change → existing session rejected; `go test -race -count=1 ./internal/routes/... ./internal/auth/...`, then the full suite.
-- Effort: S | Blast radius: med | Status: done (pending commit) — admin update/role/status and admin password reset revoke sessions before the write; 4 tests. Refresh-time is_active re-check not added (revocation already invalidates refresh via the generation check)
+- Effort: S | Blast radius: med | Status: done (36723306) — admin update/role/status and admin password reset revoke sessions before the write; 4 tests. Refresh-time is_active re-check not added (revocation already invalidates refresh via the generation check)
 
 ## P1
 
 ### BACK-P1-002 — NATS pending-command reconciler can never republish (envelope lacks the required CorrelationID)
 - Fix: build the republish envelope with the stored command's correlation id (generate one when absent); add the missing unit test that runs `Validate()` on the reconciler's envelope.
 - Verification: new test in `internal/nats`; `go test -race ./internal/nats/...`.
-- Effort: S | Blast radius: low | Status: done (pending commit) — reconciler sets a correlation id and rebuilds the first-publish payload shape via a shared builder; 3 tests
+- Effort: S | Blast radius: low | Status: done (36723306) — reconciler sets a correlation id and rebuilds the first-publish payload shape via a shared builder; 3 tests
 
 ### Proposal-only / deferred
 - BACK-P1-001 quick-deploy quota and attribution ineffective — proposal (needs the ownership contract between backend `bot_instances` and the bot API; cross-service change).
@@ -29,7 +29,7 @@ Verification baseline (2026-09-19, go1.26.6): `go build ./...`, `go vet ./...`, 
 ### BACK-P2-001 — Redis-backed sessions are required only when `APP_ENV == "production"`; the repo also uses `prod`
 - Fix: reuse the codebase's existing production-environment predicate (or accept both labels) in `requireRedisSessions`; test both labels.
 - Verification: new unit test; `go test -race ./internal/...`.
-- Effort: S | Blast radius: low | Status: done (pending commit) — prod and production accepted in APP_ENV or ENVIRONMENT; table test
+- Effort: S | Blast radius: low | Status: done (36723306) — prod and production accepted in APP_ENV or ENVIRONMENT; table test
 
 ### Deferred to the next run
 - BACK-P2-002 commission sums as `float64` — deferred (money arithmetic; needs decimal type decision).
@@ -48,7 +48,7 @@ Verification baseline (2026-09-19, go1.26.6): `go build ./...`, `go vet ./...`, 
 ### BACK-P3-001 — `url.PathEscape` used for query values
 - Fix: use `url.QueryEscape` / `url.Values` for the quick-deploy and benchmark query parameters; test a value containing `&` and `=`.
 - Verification: new unit test; `go test -race ./internal/...`.
-- Effort: S | Blast radius: low | Status: done (pending commit) — quick-deploy and benchmark queries built with url.Values; 2 tests
+- Effort: S | Blast radius: low | Status: done (36723306) — quick-deploy and benchmark queries built with url.Values; 2 tests
 
 - BACK-P3-002 Dockerfiles root / tag-only bases / Go version disagreement — merged into INFRA-P2-001, INFRA-P2-006 and REPO-P2-001.
 - BACK-P3-003 no `govulncheck`; lint non-gating; `cmd/migrate` untested — merged into REPO-P2-002 (scanner) / deferred (tests).

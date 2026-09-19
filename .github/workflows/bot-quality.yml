@@ -361,16 +361,33 @@ jobs:
               # isolation. Pinned to match bot/requirements.txt.
               run: pip install pip-audit==2.10.1
 
+            # Blocking. Every ignore below is documented and carries a review
+            # date; an ignore without both must not be added.
+            #
+            # GHSA-4f84-67cv-qrv3 (dydx-v4-client): affects ONLY the malicious
+            #   release 1.1.5.post1, which PyPI removed. The pin is 1.1.6, published
+            #   after the incident. pip-audit matches 1.1.6 because the advisory
+            #   lists 1.1.5 as the "fixed" version. Verified 2026-09-20: advisory
+            #   range "= 1.1.5.post1"; installed files match their RECORD hashes;
+            #   no indicator of compromise in the package. Re-check on every bump
+            #   of this dependency.
+            # PYSEC-2026-1325 / CVE-2024-23342 (ecdsa): Minerva timing side channel
+            #   on P-256 signing; upstream considers side channels out of scope, so
+            #   there is no fixed release. The bot signs locally and exposes no
+            #   signing oracle to measure. Review by 2027-03-31, or sooner when a
+            #   fixed release or a replacement signing dependency appears.
             - name: Audit dependencies
-              continue-on-error: true # phase 1: reporting-only, does not gate
               run: |
                   set -o pipefail
-                  pip-audit -r requirements.txt --progress-spinner off 2>&1 | tee deps-audit-output.txt
+                  pip-audit -r requirements.txt --progress-spinner off \
+                    --ignore-vuln GHSA-4f84-67cv-qrv3 \
+                    --ignore-vuln PYSEC-2026-1325 \
+                    2>&1 | tee deps-audit-output.txt
 
             - name: Publish dependency audit summary
               if: always()
               run: |
-                  echo "### 📦 Dependency audit (pip-audit — phase 1, non-blocking)" >> "$GITHUB_STEP_SUMMARY"
+                  echo "### 📦 Dependency audit (pip-audit — blocking, documented ignores only)" >> "$GITHUB_STEP_SUMMARY"
                   echo "" >> "$GITHUB_STEP_SUMMARY"
                   echo "Resolved bot/requirements.txt tree vs the PyPI advisory DB. Reporting-only; promote to a gate after triage policy is decided (see workflow comments)." >> "$GITHUB_STEP_SUMMARY"
                   echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -842,6 +859,7 @@ jobs:
             - backend-tests
             - frontend-quality
             - docker-compose-validate
+            - bot-deps-audit
         if: always()
 
         steps:

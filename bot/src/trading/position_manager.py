@@ -763,6 +763,24 @@ async def _close_orphan_exchange_leg(
         return False
 
 
+# Set by the runtime when a shutdown was requested. The entry scan checks it
+# before every pair so a stopping instance finishes the entry in flight but
+# opens nothing new (a scan can otherwise outlive the deployment's grace period
+# and be killed between two legs).
+_ENTRY_STOP_REQUESTED = False
+
+
+def request_entry_stop() -> None:
+    global _ENTRY_STOP_REQUESTED
+    _ENTRY_STOP_REQUESTED = True
+
+
+def reset_entry_stop() -> None:
+    """For a fresh runtime in the same process (tests, supervised restarts)."""
+    global _ENTRY_STOP_REQUESTED
+    _ENTRY_STOP_REQUESTED = False
+
+
 async def open_positions(client: Any) -> None:
     """
     Manage finding triggers for trade entry.
@@ -841,6 +859,13 @@ async def open_positions(client: Any) -> None:
 
     # Find ZScore triggers
     for index, row in df.iterrows():
+        if _ENTRY_STOP_REQUESTED:
+            logger.info(
+                "scan_cycle={} stopping the entry scan: shutdown requested",
+                scan_cycle_id,
+            )
+            break
+
         # Extract variables
         base_market = row["base_market"]
         quote_market = row["quote_market"]

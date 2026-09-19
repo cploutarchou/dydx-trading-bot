@@ -295,6 +295,16 @@ connection: a transaction-pooling proxy in front of the bot's database would bre
 Restart behaviour: a restarted runtime can take the lock as soon as the previous process has exited. If the previous
 process is hung but still connected, the restart is refused until that process is stopped.
 
+### Shutdown
+
+`SIGTERM`/`SIGINT` request a cooperative stop. The handler only sets flags; it never raises into the running frame, so
+a signal that lands between the two legs of an entry cannot abort the pair half built. The entry or exit in flight
+finishes (or runs its own cleanup), the entry scan stops before the next pair, no new scan starts, the single-writer
+lock is released and the process exits. A request that arrives during start-up (for example during
+`abortAllPositions`) is honoured as soon as start-up completes. A **second** signal stops immediately
+(`GracefulShutdownException`), as before. Size the deployment's termination grace period for one full pair entry
+including its emergency cleanup.
+
 ### Entry halt latch
 
 When an emergency close fails, a leg may be open without a hedge. The pair agent raises `UnhedgedExposureError`, the

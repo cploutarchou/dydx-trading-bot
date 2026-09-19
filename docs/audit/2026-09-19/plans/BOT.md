@@ -78,7 +78,7 @@ All fixes are verified with the hermetic suite (fakes only). Nothing in this pla
 ### BOT-P1-011 — Signing SDK advisory
 - Decision: verify the advisory's affected range and the installed package integrity first, then upgrade `dydx-v4-client` in a dedicated change; make `pip-audit` blocking with a dated ignore for `ecdsa`.
 - Verification: `pip-audit -r requirements.txt` clean apart from the documented ignore; full bot suite; no order-signing test regressions.
-- Effort: M | Blast radius: high (signing path) | Status: todo
+- Effort: M | Blast radius: high (signing path) | Status: done (pending commit) — advisory verified: it covers only the removed malicious release 1.1.5.post1; the pinned 1.1.6 is the latest, post-incident release and the installed files match their RECORD hashes, so no upgrade exists or is needed. pip-audit is now blocking and part of the quality gate with two documented, dated ignores
 
 ### BOT-P1-009 — Realised P&L for live trades
 - Decision: net of fees, from fills. Per leg (exit VWAP − entry VWAP) × size × side, minus fees on all four fills; funding stored separately; `Decimal`, 6 dp at storage.
@@ -117,7 +117,7 @@ Each is its own change with tests on fakes only; nothing connects to an exchange
 ### BOT-P1-002 — Cooperative shutdown instead of raising from the signal handler
 - Fix: `loop.add_signal_handler` sets a stop flag / `asyncio.Event`; the in-flight entry or exit completes (or runs its cleanup) before the loop ends; bounded by a timeout below the deployment's grace period.
 - Verification: `pytest tests/ -q -k "main_instance and signal"` with a test that signals mid-entry and asserts both legs end consistent; full bot suite.
-- Effort: M | Blast radius: med | Status: todo
+- Effort: M | Blast radius: med | Status: done (pending commit) — the signal handler requests a cooperative stop instead of raising; the in-flight entry finishes, the scan stops before the next pair, a second signal stops immediately; 5 tests
 
 ### BOT-P1-003 — Write-ahead entry intent and restart recovery
 - Fix: persist an intent (pair, sides, sizes, client ids) before leg 1, update it after each step, and on start-up reconcile any unfinished intent against the exchange: complete the hedge or flatten, fail closed when the state is unknown. Needs a migration in `bot/migrations` (expand-only).

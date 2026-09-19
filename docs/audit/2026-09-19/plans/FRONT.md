@@ -52,9 +52,9 @@ Verification baseline (2026-09-19): `npm run lint` clean; `npm run typecheck` cl
 ### FRONT-P1-006 — Manual runtime form network default
 - Decision: default to testnet; derive `is_testnet` from `chain_id`; validate numeric inputs; mainnet is an explicit choice.
 - Verification: vitest on the payload builder (no contradictory pair possible, NaN rejected); lint, typecheck, unit and Playwright suites.
-- Effort: S | Blast radius: low | Status: todo
+- Effort: S | Blast radius: low | Status: done (pending commit) — form defaults to testnet; network and is_testnet derived from chain_id; NaN/zero/negative numerics rejected; 10 tests
 
 ### FRONT-P1-002 — Confirm runtime stop
 - Decision: confirmation dialog naming the runtime; remove the bare `s` shortcut.
 - Verification: vitest/RTL: stop is not sent before confirm; key press does nothing; lint, typecheck, unit and Playwright suites.
-- Effort: S | Blast radius: low | Status: todo
+- Effort: S | Blast radius: low | Status: done (pending commit) — stop asks for confirmation naming the runtime; the s shortcut and its hint are removed. No component test (StrategyManager has no test harness, FRONT-P2-014); verified by lint, typecheck and the e2e smoke suite

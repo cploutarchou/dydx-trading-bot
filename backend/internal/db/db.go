@@ -441,7 +441,7 @@ func runMigrations(cfg Config) error {
 			return fmt.Errorf("migration execution failed: %w", err)
 		}
 		if !migrationForceRecoveryAllowed() {
-			return fmt.Errorf("migration execution failed with recoverable state but automatic force recovery is disabled in production: %w", err)
+			return fmt.Errorf("migration left the schema in a dirty or partially applied state; fix it with the migrator (force recovery is off: it needs DB_MIGRATION_FORCE_RECOVERY=true outside production): %w", err)
 		}
 
 		ver, _, vErr := m.Version()
@@ -472,21 +472,25 @@ func isAlreadyExistsMigrationError(errLower string) bool {
 		strings.Contains(errLower, "table")
 }
 
+// migrationForceRecoveryAllowed reports whether runMigrations may call
+// Force(version) after a dirty or "already exists" failure. Forcing a version
+// marks a half-applied migration as done, so it is never automatic: it needs
+// DB_MIGRATION_FORCE_RECOVERY=true, and it is refused outright when any
+// environment variable names production. Everywhere else a dirty schema stops
+// the start with the original error so a human looks at it.
 func migrationForceRecoveryAllowed() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("DB_MIGRATION_FORCE_RECOVERY"))) {
-	case "1", "true", "yes", "on":
-		return true
-	case "0", "false", "no", "off":
-		return false
-	}
-
-	for _, key := range []string{"APP_CONFIG_ENV", "APP_ENV", "ENVIRONMENT"} {
+	for _, key := range []string{"APP_CONFIG_ENV", "CONFIG_ENV", "APP_ENV", "ENVIRONMENT"} {
 		switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
 		case "production", "prod":
 			return false
 		}
 	}
-	return true
+
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("DB_MIGRATION_FORCE_RECOVERY"))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
 
 // BuildMigrateDatabaseURL converts cfg.Driver and cfg.DSN into a URL acceptable by golang-migrate

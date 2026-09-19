@@ -55,10 +55,72 @@ jobs:
                   docker compose -f docker-compose.stack.yml config > /dev/null
                   echo "✓ docker-compose.stack.yml syntax valid"
 
+    # Images are published only for commits whose quality gate passed. On a push
+    # this job waits for the "Quality gate" check of the same commit (Bot Quality
+    # runs for every path this workflow builds from) and fails when the gate
+    # fails, is missing, or does not finish in time. Pull requests build without
+    # pushing and a manual dispatch is an explicit operator decision, so both
+    # pass straight through.
+    wait-for-quality-gate:
+        name: Wait for quality gate
+        runs-on: ubuntu-latest
+        permissions:
+            checks: read
+            contents: read
+        steps:
+            - name: Wait for the Quality gate check on this commit
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ github.sha }}
+                  EVENT_NAME: ${{ github.event_name }}
+              run: |
+                  set -euo pipefail
+                  if [ "${EVENT_NAME}" != "push" ]; then
+                    echo "Event ${EVENT_NAME}: nothing is published automatically; not waiting."
+                    exit 0
+                  fi
+
+                  deadline=$(( $(date +%s) + 45 * 60 ))
+                  appear_deadline=$(( $(date +%s) + 10 * 60 ))
+                  while true; do
+                    result="$(gh api "repos/${REPO}/commits/${SHA}/check-runs?check_name=Quality%20gate" \
+                      --jq '[.check_runs[] | {status, conclusion}] | sort_by(.status) | last // empty')"
+                    # No check run for this commit yields empty output, not JSON.
+                    if [ -z "${result}" ]; then
+                      status="missing"
+                      conclusion=""
+                    else
+                      status="$(printf '%s' "${result}" | jq -r '.status')"
+                      conclusion="$(printf '%s' "${result}" | jq -r '.conclusion // ""')"
+                    fi
+                    echo "Quality gate: status=${status} conclusion=${conclusion}"
+
+                    if [ "${status}" = "completed" ]; then
+                      if [ "${conclusion}" = "success" ]; then
+                        exit 0
+                      fi
+                      echo "::error::Quality gate concluded '${conclusion}'; images are not published for this commit."
+                      exit 1
+                    fi
+                    now=$(date +%s)
+                    if [ "${status}" = "missing" ] && [ "${now}" -ge "${appear_deadline}" ]; then
+                      echo "::error::No Quality gate check appeared for ${SHA} within 10 minutes; not publishing."
+                      exit 1
+                    fi
+                    if [ "${now}" -ge "${deadline}" ]; then
+                      echo "::error::Quality gate did not finish within 45 minutes; not publishing."
+                      exit 1
+                    fi
+                    sleep 30
+                  done
+
     build-and-publish:
         name: Build ${{ matrix.service }} image
         runs-on: ubuntu-latest
-        needs: validate-compose
+        needs:
+            - validate-compose
+            - wait-for-quality-gate
         strategy:
             fail-fast: false
             matrix:

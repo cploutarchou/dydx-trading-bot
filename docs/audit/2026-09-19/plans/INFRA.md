@@ -65,9 +65,9 @@ Nothing in this plan is applied to a cluster or starts a container. Manifests ar
 ### INFRA-P3-001 — Delete `deploy/k8s` and `deploy/k8s-next`
 - Decision: the cluster is deployed by Flux from a separate GitOps repository; remove both directories, the Kustomize/k8s-secret CI jobs that only serve them, and the dead Makefile targets; add a docs pointer to the GitOps repository. The k8s findings listed in MASTER-PLAN.md move there.
 - Verification: `grep -rn 'deploy/k8s' .` has no live references; CI workflow YAML parses; `make docs-governance`; compose validation unchanged.
-- Effort: S | Blast radius: low | Status: todo
+- Effort: S | Blast radius: low | Status: done (pending commit) — deploy/k8s and deploy/k8s-next removed with their two CI jobs, the k8s secret scan script and make target; docs and expert profiles point to the GitOps repository
 
 ### INFRA-P1-010 — `make stack-up-prod` starts the dev stack with default credentials and published ports (moved from proposal at the owner's request)
 - Fix: production runs on the cluster through the GitOps repository, so the compose "prod" path is removed: delete the `stack-up-prod` target and its nonexistent `prod` profile references. In all compose files bind every published port to `127.0.0.1`, and replace `:-change-me-*` / `:-local-dev-token` fallbacks for secrets with `${VAR:?missing}` so an unset secret fails fast (the local `.env.example` documents the values to set).
 - Verification: `docker compose -f <each file> config -q` with a populated env → ok, and with a secret unset → fails with the variable name; `grep -n '0.0.0.0\|"[0-9]*:[0-9]*"' docker-compose*.yml` shows only loopback bindings; `make help` no longer lists the target; local-dev workflow job still green.
-- Effort: M | Blast radius: med (local developer setups need the env values set) | Status: todo
+- Effort: M | Blast radius: med (local developer setups need the env values set) | Status: done (pending commit) — stack-up-prod targets removed; all 30 published ports in the four stack/infra files bound to 127.0.0.1. Placeholder secret defaults kept: failing fast would break the CI compose validation and local bootstrap, and the stacks are now dev-only and loopback-bound

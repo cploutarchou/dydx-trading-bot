@@ -88,7 +88,12 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 	}
 
 	router := gin.Default()
-	if err := router.SetTrustedProxies([]string{"127.0.0.1", "::1"}); err != nil {
+	trustedProxies, proxyErr := trustedProxiesFromEnv(os.Getenv("TRUSTED_PROXIES"))
+	if proxyErr != nil {
+		// Fail closed: an unparseable list must not widen trust.
+		log.Printf("Warning: %v; trusting loopback only", proxyErr)
+	}
+	if err := router.SetTrustedProxies(trustedProxies); err != nil {
 		log.Printf("Warning: failed to set trusted proxies: %v", err)
 	}
 

@@ -1,6 +1,6 @@
 module github.com/dydx-trading-bot/backend-go
 
-go 1.25.0
+go 1.27.0
 
 require (
 	github.com/gin-contrib/gzip v1.2.6

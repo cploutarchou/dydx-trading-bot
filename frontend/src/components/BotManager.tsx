@@ -25,6 +25,11 @@ import {
 } from '../api/hooks';
 import { formatSignedUsd } from '../utils/format';
 import { summarizeErrorForLog } from '../utils/apiErrors';
+import {
+  buildRuntimeCreatePayload,
+  initialRuntimeCreateForm,
+  isTestnetChain,
+} from '../utils/runtimeForm';
 import { ArbitrageImprovementPanel } from './ArbitrageImprovementPanel';
 import { Field } from './ui/Field';
 import { useToastStore } from './ErrorBoundary';
@@ -564,16 +569,7 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
   const errorToast = useToastStore((state) => state.error);
   const infoToast = useToastStore((state) => state.info);
 
-  const [createForm, setCreateForm] = useState({
-    instance_id: '',
-    chain_id: 'dydx-mainnet-1',
-    address: '',
-    mnemonic: '',
-    is_testnet: false,
-    zscore_threshold: 1.5,
-    max_half_life: 24,
-    usd_per_trade: 10,
-  });
+  const [createForm, setCreateForm] = useState(initialRuntimeCreateForm);
 
   const botsQuery = useBotInstances({ limit: 100 });
   const bots = mapBots(botsQuery.data?.data);
@@ -613,16 +609,7 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
   };
 
   const resetCreateForm = () => {
-    setCreateForm({
-      instance_id: '',
-      chain_id: 'dydx-mainnet-1',
-      address: '',
-      mnemonic: '',
-      is_testnet: false,
-      zscore_threshold: 1.5,
-      max_half_life: 24,
-      usd_per_trade: 10,
-    });
+    setCreateForm(initialRuntimeCreateForm());
   };
 
   const pendingBot = useMemo(
@@ -677,35 +664,15 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
 
   const handleCreateBot = async () => {
     try {
-      if (!createForm.instance_id || !createForm.address || !createForm.mnemonic) {
-        const message =
-          'Complete the runtime ID, wallet address, and secret phrase before creating a new bot.';
-        setError(message);
-        errorToast('Runtime details missing', message);
+      const result = buildRuntimeCreatePayload(createForm);
+      if (!result.ok) {
+        setError(result.message);
+        errorToast(result.title, result.message);
         return;
       }
 
       setError(null);
-      await createBotMutation.mutateAsync({
-        instance_id: createForm.instance_id,
-        name: createForm.instance_id,
-        credentials: {
-          address: createForm.address,
-          mnemonic: createForm.mnemonic,
-          network: createForm.is_testnet ? 'testnet' : 'mainnet',
-          chain_id: createForm.chain_id,
-          secret_phrase: createForm.mnemonic,
-        },
-        trading_params: {
-          is_testnet: createForm.is_testnet,
-          zscore_threshold: createForm.zscore_threshold,
-          max_half_life: createForm.max_half_life,
-          usd_per_trade: createForm.usd_per_trade,
-          max_positions: 5,
-          slippage_tolerance: 0.001,
-          risk_multiplier: 1,
-        },
-      });
+      await createBotMutation.mutateAsync(result.payload);
 
       setShowCreateForm(false);
       resetCreateForm();
@@ -1083,8 +1050,8 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
                 onChange={(e) => setCreateForm({ ...createForm, chain_id: e.target.value })}
                 className="premium-input"
               >
-                <option value="dydx-mainnet-1">dYdX Mainnet</option>
                 <option value="dydx-testnet-4">dYdX Testnet</option>
+                <option value="dydx-mainnet-1">dYdX Mainnet (real funds)</option>
               </select>
             </Field>
 
@@ -1163,17 +1130,11 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
               />
             </Field>
 
-            <div>
-              <label className="mt-6 flex items-center gap-2 text-sm font-medium text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={createForm.is_testnet}
-                  onChange={(e) => setCreateForm({ ...createForm, is_testnet: e.target.checked })}
-                  className="rounded"
-                />
-                Use Testnet
-              </label>
-            </div>
+            <p className="mt-6 text-sm font-medium text-slate-300" role="status">
+              {isTestnetChain(createForm.chain_id)
+                ? 'Network: testnet (no real funds).'
+                : 'Network: MAINNET. This runtime will trade real funds.'}
+            </p>
           </div>
 
           <div className="flex gap-3">

@@ -50,7 +50,8 @@ The current project is organized around service ownership plus shared deployment
 - `config/`: Encrypted structured runtime profiles plus examples. Root `run.json` is generated from this flow and is not hand-maintained.
 - `docker/`: Dockerfiles and Nginx config for service images.
 - `platform/`: Platform registry metadata and service deployment descriptors.
-- `deploy/`: Rendered deployment output and deployment history.
+- Deployment manifests are not kept here: the cluster is deployed by Flux from a separate GitOps repository, which is
+  the single source of truth for Kubernetes resources, secrets, TLS and backups.
 - `scripts/`: Repository-level operational, config, validation, and backtest helper scripts.
 - `docs/`: Wiki-style platform documentation and rollout/audit notes.
 
@@ -158,8 +159,8 @@ This path submits a real Nomad job (`nomad job run ...`) so allocations and stat
 - Compose syntax validation: `docker compose -f docker-compose.infra.yml config` and `docker compose -f docker-compose.stack.yml config`
 
 Backtest runtime tuning note: active long-running backtests refresh their heartbeat periodically to avoid false stale
-classification. `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS` controls that cadence, and staging already pins it in
-`deploy/k8s/dydx-trading-bot-staging.yaml`.
+classification. `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS` controls that cadence; deployed environments set it in the
+GitOps repository.
 
 If a legacy backtest cannot be restarted because its original request blob is missing, use
 `bot/scripts/repair_backtest_requests.py` to backfill the restart payload from persisted run fields first.

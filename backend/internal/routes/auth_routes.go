@@ -25,27 +25,41 @@ import (
 )
 
 // RegisterAuthRoutes registers all authentication routes
+// Per-IP budget for unauthenticated credential endpoints (login, register,
+// password reset, MFA challenge): a sustained 1 request/second with a burst of
+// 20. Interactive use never reaches it; password spraying does.
+const (
+	authCredentialRequestsPerSecond = 1.0
+	authCredentialBurst             = 20
+)
+
 func RegisterAuthRoutes(router *gin.Engine, database *sql.DB) {
 	authRoutes := router.Group("/api/v1/auth")
+	// Credential endpoints get their own, much tighter per-IP budget than the
+	// global limiter: they are unauthenticated and each call costs a password
+	// hash or an email. One limiter is shared by the group so an attacker
+	// cannot multiply the budget by rotating endpoints. The client IP comes
+	// from Gin's trusted-proxy logic (TRUSTED_PROXIES).
+	credentialLimiter := middleware.RateLimitMiddleware(authCredentialRequestsPerSecond, authCredentialBurst)
 	{
-		authRoutes.POST("/register", registerHandler(database))
+		authRoutes.POST("/register", credentialLimiter, registerHandler(database))
 		authRoutes.GET("/registration-status", registrationStatusHandler(database))
 		authRoutes.GET("/session", middleware.RequireAuth(), authSessionHandler(database))
-		authRoutes.POST("/login", loginHandler(database))
+		authRoutes.POST("/login", credentialLimiter, loginHandler(database))
 		authRoutes.POST("/refresh", refreshHandler(database))
 		authRoutes.POST("/logout", logoutHandler())
 		authRoutes.POST("/2fa/setup", middleware.RequireAuth(), setup2FAHandler(database))
 		authRoutes.POST("/2fa/verify", middleware.RequireAuth(), verify2FAHandler(database))
 		// Completes the login-time TOTP challenge for users with MFA enrolled.
 		// The only route that accepts sessions still pending their challenge.
-		authRoutes.POST("/2fa/challenge", middleware.RequireAuthAllowPendingMFA(), mfaChallengeHandler(database))
+		authRoutes.POST("/2fa/challenge", credentialLimiter, middleware.RequireAuthAllowPendingMFA(), mfaChallengeHandler(database))
 		// Re-verifies TOTP for an already-authenticated session, refreshing the
 		// session's MFAVerifiedAt window that RequireRecentMFA-protected routes
 		// (e.g. GET /keys/:network/secret) demand.
 		authRoutes.POST("/2fa/step-up", middleware.RequireAuth(), mfaStepUpHandler(database))
 		authRoutes.PUT("/change-password", middleware.RequireAuth(), changePasswordHandler(database))
-		authRoutes.POST("/forgot-password", forgotPasswordHandler(database))
-		authRoutes.POST("/reset-password", resetPasswordHandler(database))
+		authRoutes.POST("/forgot-password", credentialLimiter, forgotPasswordHandler(database))
+		authRoutes.POST("/reset-password", credentialLimiter, resetPasswordHandler(database))
 	}
 
 	// User routes (require authentication)

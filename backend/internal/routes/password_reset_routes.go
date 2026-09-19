@@ -15,14 +15,6 @@ import (
 	"github.com/dydx-trading-bot/backend-go/internal/services"
 )
 
-func clientIPOf(c *gin.Context) string {
-	forwarded := strings.TrimSpace(c.GetHeader("X-Forwarded-For"))
-	if forwarded != "" {
-		return strings.TrimSpace(strings.Split(forwarded, ",")[0])
-	}
-	return c.ClientIP()
-}
-
 func newPasswordResetService(database *sql.DB) *services.PasswordResetService {
 	userRepo := repository.NewUserRepository(database)
 	credentialRepo := repository.NewExternalAPICredentialRepository(database)
@@ -55,7 +47,7 @@ func forgotPasswordHandler(database *sql.DB) gin.HandlerFunc {
 		user, err := userRepo.GetByEmail(strings.TrimSpace(strings.ToLower(req.Email)))
 		if err == nil && user != nil && user.IsActive {
 			if err := newPasswordResetService(database).IssueResetToken(
-				c.Request.Context(), user.ID, user.Email, user.Username, clientIPOf(c)); err != nil {
+				c.Request.Context(), user.ID, user.Email, user.Username, c.ClientIP()); err != nil {
 				// Logged for operators; the client still gets the generic
 				// response so the endpoint never reveals account state.
 				log.Printf("forgotPasswordHandler: user=%d: %v", user.ID, err)

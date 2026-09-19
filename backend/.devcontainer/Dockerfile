@@ -1,6 +1,8 @@
 # Dev container for the Go backend API (backend/).
-# Base image ships Go 1.25 (matches backend/go.mod `go 1.25.0` and
-# docker/Dockerfile.backend `golang:1.25-alpine`), git, and a non-root
+# Base image ships Go 1.25. backend/go.mod requires go 1.27.0 (the version the
+# production image docker/Dockerfile.backend builds with), so the Go command
+# downloads that toolchain on first use (GOTOOLCHAIN=auto). Move this tag up
+# when a matching devcontainer image is available. Also ships git and a non-root
 # `vscode` user.
 FROM mcr.microsoft.com/devcontainers/go:1-1.25-bookworm
 

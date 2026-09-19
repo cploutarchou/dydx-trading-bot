@@ -617,13 +617,13 @@ func createAdminUserHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		mailgunService := services.NewMailgunService(
+		emailService := services.NewEmailService(
 			services.NewExternalAPICredentialService(repository.NewExternalAPICredentialRepository(database)),
 			repository.NewSettingsRepository(database),
 			userRepo,
 		)
 		onboardingNotice := "User created. Share the temporary password through a secure channel."
-		if result, err := mailgunService.SendPasswordRotationNotice(context.Background(), user); err == nil && result != nil {
+		if result, err := emailService.SendPasswordRotationNotice(context.Background(), user); err == nil && result != nil {
 			onboardingNotice = result.Message
 		}
 

@@ -93,8 +93,8 @@ export const AdminICOPage = () => {
         title={readiness?.ready ? 'ICO production gate clear' : 'Not production ready'}
         description={
           readiness?.ready
-            ? 'All configured legal, token, Mailgun, and operations checks are recorded as complete.'
-            : 'Token-sale, tokenomics, legal, jurisdiction, KYC, smart-contract, Mailgun DNS, and operations checks must be completed before publication.'
+            ? 'All configured legal, token, email, and operations checks are recorded as complete.'
+            : 'Token-sale, tokenomics, legal, jurisdiction, KYC, smart-contract, email DNS, and operations checks must be completed before publication.'
         }
       />
 
@@ -131,7 +131,7 @@ export const AdminICOPage = () => {
 
       <PlatformPanel
         title="Production readiness gate"
-        description="Track final tokenomics, sale terms, Mailgun DNS, and operating checks. Publication is blocked by the API until every required item is complete."
+        description="Track final tokenomics, sale terms, email DNS, and operating checks. Publication is blocked by the API until every required item is complete."
         action={
           <span className="surface-label">
             <CheckCircle2 className="h-3.5 w-3.5" />
@@ -402,7 +402,7 @@ const readinessTextFields: ReadinessTextField[] = [
 const readinessBooleanFields: ReadinessBooleanField[] = [
   { key: 'tokenomics_allocation_finalized', label: 'Allocation approved' },
   { key: 'vesting_schedule_finalized', label: 'Vesting approved' },
-  { key: 'mailgun_dns_verified', label: 'Mailgun DNS verified' },
+  { key: 'mailgun_dns_verified', label: 'Email DNS verified' },
   { key: 'spf_verified', label: 'SPF verified' },
   { key: 'dkim_verified', label: 'DKIM verified' },
   { key: 'dmarc_verified', label: 'DMARC verified' },

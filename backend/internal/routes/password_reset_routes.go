@@ -20,7 +20,7 @@ func newPasswordResetService(database *sql.DB) *services.PasswordResetService {
 	credentialRepo := repository.NewExternalAPICredentialRepository(database)
 	settingsRepo := repository.NewSettingsRepository(database)
 	credentialService := services.NewExternalAPICredentialService(credentialRepo)
-	mail := services.NewMailgunService(credentialService, settingsRepo, userRepo)
+	mail := services.NewEmailService(credentialService, settingsRepo, userRepo)
 	return services.NewPasswordResetService(
 		repository.NewPasswordResetTokenRepository(database), mail)
 }
@@ -55,8 +55,8 @@ func forgotPasswordHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": "If an account exists for that email, a reset link is on its way. The link works for 30 minutes and can be used once.",
+			"success":   true,
+			"message":   "If an account exists for that email, a reset link is on its way. The link works for 30 minutes and can be used once.",
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})
 	}
@@ -147,8 +147,8 @@ func resetPasswordHandler(database *sql.DB) gin.HandlerFunc {
 		_ = tokenRepo.DeleteExpired(c.Request.Context())
 
 		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": "Password updated. Sign in with your new password.",
+			"success":   true,
+			"message":   "Password updated. Sign in with your new password.",
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})
 	}

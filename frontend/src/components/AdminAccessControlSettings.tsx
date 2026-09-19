@@ -230,10 +230,10 @@ export function AdminAccessControlSettings() {
     staleTime: 30_000,
   });
 
-  const mailgunStatusQuery = useQuery({
-    queryKey: ['mailgun', 'status', 'access-control'],
+  const emailStatusQuery = useQuery({
+    queryKey: ['email', 'status', 'access-control'],
     queryFn: async () => {
-      const response = await api.getMailgunStatus();
+      const response = await api.getEmailStatus();
       return response.data;
     },
     staleTime: 30_000,
@@ -420,7 +420,7 @@ export function AdminAccessControlSettings() {
         'The new platform account is ready and assigned to the selected role.'
       );
       void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-      void queryClient.invalidateQueries({ queryKey: ['mailgun'] });
+      void queryClient.invalidateQueries({ queryKey: ['email'] });
       const notice = response.data?.onboarding_notice;
       if (typeof notice === 'string' && notice.trim().length > 0) {
         if (
@@ -902,9 +902,9 @@ export function AdminAccessControlSettings() {
           </div>
         </div>
 
-        {!mailgunStatusQuery.data?.configured && pendingPasswordChanges > 0 && (
+        {!emailStatusQuery.data?.configured && pendingPasswordChanges > 0 && (
           <div className="mt-6 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-4 text-sm text-amber-100">
-            Mailgun is still not configured, and {pendingPasswordChanges} user account
+            Email delivery is still not configured, and {pendingPasswordChanges} user account
             {pendingPasswordChanges === 1 ? '' : 's'} still require a first-login password change.
             The platform will enforce password rotation, but onboarding emails are currently
             skipped.

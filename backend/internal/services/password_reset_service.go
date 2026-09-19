@@ -16,7 +16,7 @@ import (
 // The raw token exists only in the email; the repository stores its SHA-256.
 type PasswordResetService struct {
 	tokens PasswordResetTokenStore
-	mail   *MailgunService
+	mail   *EmailService
 }
 
 // PasswordResetTokenStore is the persistence seam (implemented by the
@@ -27,11 +27,11 @@ type PasswordResetTokenStore interface {
 }
 
 const (
-	passwordResetTokenTTL    = 30 * time.Minute
-	passwordResetCooldown    = time.Minute
+	passwordResetTokenTTL = 30 * time.Minute
+	passwordResetCooldown = time.Minute
 )
 
-func NewPasswordResetService(tokens PasswordResetTokenStore, mail *MailgunService) *PasswordResetService {
+func NewPasswordResetService(tokens PasswordResetTokenStore, mail *EmailService) *PasswordResetService {
 	return &PasswordResetService{tokens: tokens, mail: mail}
 }
 

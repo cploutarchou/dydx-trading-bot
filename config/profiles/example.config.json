@@ -101,8 +101,7 @@
     "CODEX_IO_BASE_URL": "https://graph.codex.io/graphql",
     "CODEX_IO_API_KEY": "",
     "COINDESK_RSS_URL": "https://www.coindesk.com/arc/outboundfeeds/rss/",
-    "MAILGUN_API_BASE_URL": "",
-    "MAILGUN_API_BASE_URL_EU": ""
+    "PLUNK_API_URL": ""
   },
   "infrastructure": {
     "NATS_URL": "nats://localhost:4222",

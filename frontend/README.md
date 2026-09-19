@@ -63,7 +63,7 @@ the dev server itself (first run needs `npx playwright install chromium`).
 The portal shell is selected with `VITE_APP_PORTAL_TYPE=client|backoffice|ib`.
 
 - Client Portal (`apps/client-portal`): dashboard, client area, strategies, backtests, bot operations, profile, security, Telegram, and wallet/API key management. It does not register CRM, IB admin, Admin Hub, global settings, access-control, Celery Ops, or operator integration routes.
-- CRM / Backoffice (`apps/backoffice`): Admin Hub, CRM clients, registration pipeline, hierarchy, commissions, security events, IB oversight, Celery Ops, and operator settings for access control, registration policy, Mailgun, Telegram, Market News, API, Redis, and trading configuration.
+- CRM / Backoffice (`apps/backoffice`): Admin Hub, CRM clients, registration pipeline, hierarchy, commissions, security events, IB oversight, Celery Ops, and operator settings for access control, registration policy, Email, Telegram, Market News, API, Redis, and trading configuration.
 - IB Portal (`apps/ib-portal`): IB dashboard, client tree, applications/invitations, commission metrics, reports, referral tokens where role-authorized, profile, and security.
 
 Shared boundaries are exposed under:

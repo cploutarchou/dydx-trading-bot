@@ -5,7 +5,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import api from '../api';
-import { queryClient } from '../api/queryClient';
+import { clearUserScopedQueries } from '../api/queryClient';
 import { perfMark, perfMeasure } from '../utils/perf';
 
 const withTimeout = async <T>(
@@ -41,10 +41,10 @@ const getVerifiedTwoFAMessage = (response: {
 };
 
 // Every transition to the logged-out state (explicit logout, expired or
-// rejected session) drops the React Query cache, so the next user on this
-// browser never sees the previous user's balances, bots or trades.
+// rejected session) drops the user-scoped React Query cache, so the next user
+// on this browser never sees the previous user's balances, bots or trades.
 const buildLoggedOutState = () => {
-  queryClient.clear();
+  clearUserScopedQueries();
   return loggedOutState();
 };
 

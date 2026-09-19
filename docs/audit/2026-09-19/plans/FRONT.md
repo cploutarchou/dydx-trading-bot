@@ -20,7 +20,7 @@ Verification baseline (2026-09-19): `npm run lint` clean; `npm run typecheck` cl
 ### FRONT-P1-004 — Logout never clears the React Query cache
 - Fix: clear the query cache on logout in the code path the sidebar actually uses (the existing `useLogout` hook is unused); test.
 - Verification: vitest: after logout the cache is empty; lint, typecheck, tests.
-- Effort: S | Blast radius: low | Status: done (36723306) — every logged-out transition clears the query cache; 1 test
+- Effort: S | Blast radius: low | Status: done (36723306) — every logged-out transition clears user-scoped queries (public queries kept; a full clear blanked the app shell and failed e2e); 2 tests
 
 ### FRONT-P1-005 — `formatUsdFixed` strips the sign and renders missing values as `$0.00`
 - Root cause: `Math.abs(value)` and a `$0.00` fallback; used for Free Collateral in the go-live dialog.

@@ -80,3 +80,9 @@ Verification: both YAML files parse (`yaml.safe_load`); update config lists pip,
 ## 2026-09-19T18:10Z — commit 36723306
 Tasks: BOT-P0-001, BOT-P0-003, BOT-P0-004, BOT-P0-005, BACK-P0-001, INFRA-P0-001, INFRA-P0-002, BACK-P1-002, BOT-P1-005, BOT-P1-010, FRONT-P1-001, FRONT-P1-003, FRONT-P1-004, FRONT-P1-005, INFRA-P1-003, INFRA-P1-004, BACK-P2-001, REPO-P2-002, INFRA-P2-004, BACK-P3-001, REPO-P3-002
 Verification: see "final gates before commit" above. Staged-diff secret grep: no hits beyond the quoted scan command in this log. Guard: scan-staged OK, check OK.
+
+## 2026-09-19T18:20Z — CI failure on the pull request and fix (FRONT-P1-004)
+- PR CI: every job passed except `Frontend quality` (and therefore `Quality gate`): 6 of 10 Playwright smoke tests failed with a blank page. All four image builds passed, which exercises the new `.dockerignore` for real.
+- Root cause: the first FRONT-P1-004 change called `queryClient.clear()` on every logged-out transition. Session bootstrap also ends in the logged-out state, so the in-flight `['public', 'app-config']` query the app shell renders from was removed; a removed query never notifies its observer and the shell stayed blank. Unit tests, lint and typecheck could not see this; the e2e suite had not been run locally before the push.
+- Fix: `clearUserScopedQueries()` removes every query whose key does not start with `public`; test added that public data survives and user data does not.
+- Verification (from `frontend/`): `npm run lint` clean; `npm run typecheck` clean; `npm test` → 26 files / 138 tests passed; `npx playwright test` → 10 passed (reproduced 6 failures before the fix).

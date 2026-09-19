@@ -22,7 +22,7 @@ P1
 - BACK-P1-002 the NATS reconciler publishes a valid envelope with the same payload shape as the first publish.
 - BOT-P1-005 fill pagination advances (cursor = oldest fill of the page, with a no-progress guard).
 - BOT-P1-010 the auth bypass needs an explicit dev/test environment label and no conflicting label.
-- FRONT-P1-001 mutations are never retried automatically. FRONT-P1-003 the create-runtime error log is sanitised. FRONT-P1-004 every logged-out transition clears the query cache. FRONT-P1-005 the go-live dialog shows signed balances and `—` for missing values.
+- FRONT-P1-001 mutations are never retried automatically. FRONT-P1-003 the create-runtime error log is sanitised. FRONT-P1-004 every logged-out transition clears the user-scoped query cache (public queries are kept). FRONT-P1-005 the go-live dialog shows signed balances and `—` for missing values.
 - INFRA-P1-004 worker runs `python -m src.main_instance`. INFRA-P1-003 frontend containerPort matches nginx (80).
 
 P2 / P3
@@ -47,7 +47,7 @@ None.
 
 ## 6. Tests added or updated
 
-bot +17 (1424 → 1441 passing), backend +4 tagged route tests, +3 reconciler, +2 query-escape, +1 table test (9 cases), frontend +5 (132 → 137). Two existing bot tests were extended with price assertions; 12 test constructors gained the new required argument. No test was removed or weakened.
+bot +17 (1424 → 1441 passing), backend +4 tagged route tests, +3 reconciler, +2 query-escape, +1 table test (9 cases), frontend +6 (132 → 138). Two existing bot tests were extended with price assertions; 12 test constructors gained the new required argument. No test was removed or weakened.
 
 ## 7. Commands executed
 
@@ -57,10 +57,10 @@ See `LOG.md` for every command with its result. Gates: bot pytest with the 82% c
 
 - bot: `1441 passed, 13 skipped`, coverage `83.29%` (floor 82%); `mypy`: `Success: no issues found in 98 source files`; isort/black/flake8 clean.
 - backend: `go test -race -count=1 ./...` → all 12 packages `ok`; build and vet clean.
-- frontend: `26 files / 137 tests passed`; lint 0 warnings; typecheck clean.
+- frontend: `26 files / 138 tests passed`; lint 0 warnings; typecheck clean; Playwright smoke suite `10 passed` (after fixing a regression the first push introduced, see LOG.md).
 - infra: staging and production overlays → `33 resources, Valid: 33, Invalid: 0`.
 - docs governance: `[OK] Documentation governance validated across 31 markdown files`.
-- Not run: `npm run build`, Playwright e2e, any image build, anything against a cluster, an exchange, or a shared database. `govulncheck`, `staticcheck`, `gitleaks` are not installed; `npm audit` could not complete (registry advisory endpoint returned HTTP 503).
+- Not run locally: `npm run build`, any image build (both ran green in PR CI), anything against a cluster, an exchange, or a shared database. `govulncheck`, `staticcheck`, `gitleaks` are not installed; `npm audit` could not complete (registry advisory endpoint returned HTTP 503).
 
 ## 9. Remaining risks and limitations
 

@@ -4,7 +4,7 @@ pandas != 2.1.0, >= 1.4
 uvicorn==0.49.0
 pydantic==2.13.4
 psutil==7.2.2
-python-dotenv==1.2.2
+python-dotenv==1.2.3
 sqlalchemy==2.0.52
 alembic==1.18.5
 psycopg2-binary==2.9.12
@@ -16,7 +16,7 @@ python-multipart==0.0.32
 pyotp==2.10.0
 qrcode[pil]==8.2
 # Email support
-aiosmtplib==5.1.2
+aiosmtplib==5.1.3
 jinja2==3.1.6
 # Additional security
 python-decouple==3.8
@@ -26,7 +26,7 @@ email-validator==2.3.0
 numpy==2.5.0
 pandas>=2.3.0
 scipy>=1.18.1
-statsmodels>=0.14.0,<0.15.0
+statsmodels>=0.15.0,<0.16.0
 # dYdX V4 Client (for trading and market data)
 dydx-v4-client==1.1.6
 # Keep dYdX client dependency resolution deterministic on Windows.
@@ -40,7 +40,7 @@ clickhouse-connect==1.3.0
 pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
-coverage==7.15.4
+coverage==7.16.1
 loguru==0.7.3
 celery[redis]>=5.6.3,<6.0
 # redis.asyncio client: shared L2 market-data cache, JWT token blacklist, and the
@@ -48,14 +48,14 @@ celery[redis]>=5.6.3,<6.0
 # explicitly so a major bump cannot silently change the pub/sub / asyncio API.
 redis>=5.0,<7.0
 flower>=2.0,<3.0
-aiolimiter>=1.2.1,<2.0
+aiolimiter>=1.3.0,<2.0
 pybreaker>=1.4.1,<2.0
-pandas-stubs==3.0.5.260730
-types-psutil==7.2.2.20260827
-types-requests==2.33.0.20260712
-types-PyYAML==6.0.12.20260815
+pandas-stubs==3.0.5.260914
+types-psutil==7.2.2.20260906
+types-requests==2.33.0.20260906
+types-PyYAML==6.0.12.20260906
 black==26.5.1
-isort==9.0.0
+isort==9.0.1
 pre-commit==4.6.2
 mypy==2.3.1
 bandit==1.9.4

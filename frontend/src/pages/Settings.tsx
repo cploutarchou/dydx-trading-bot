@@ -51,7 +51,7 @@ import { CodexSettings } from '../components/CodexSettings';
 import { CoinDeskNewsSettings } from '../components/CoinDeskNewsSettings';
 import { DYDXKeyManager } from '../components/DYDXKeyManager';
 import { useToastStore } from '../components/ErrorBoundary';
-import { MailgunSettings } from '../components/MailgunSettings';
+import { EmailSettings } from '../components/EmailSettings';
 import { PageContainer } from '../components/PageContainer';
 import { ProfileSettings } from '../components/ProfileSettings';
 import { TelegramSettings } from '../components/TelegramSettings';
@@ -125,7 +125,7 @@ const MANUAL_SECTION_IDS = new Set([
   'codex_io',
   'ai_market_filters',
   'market_news',
-  'mailgun',
+  'email',
   'telegram',
   'profile',
   'dydx_keys',
@@ -148,7 +148,7 @@ const SECTION_ICON_MAP: Record<string, ComponentType<{ className?: string }>> = 
   access_control: Users,
   arbitrage_runtime: SlidersHorizontal,
   telegram: MessageSquare,
-  mailgun: Mail,
+  email: Mail,
   market_news: Newspaper,
   security: ShieldCheck,
   coming_soon: ShieldCheck,
@@ -162,7 +162,7 @@ const SIDEBAR_GROUPS: Array<{ label: string; sectionIds: string[] }> = [
   { label: 'API Keys', sectionIds: ['dydx_keys', 'ai_market_filters', 'codex_io'] },
   {
     label: 'Integrations',
-    sectionIds: ['access_control', 'telegram', 'mailgun', 'market_news', 'arbitrage_runtime'],
+    sectionIds: ['access_control', 'telegram', 'email', 'market_news', 'arbitrage_runtime'],
   },
   { label: 'Platform', sectionIds: ['coming_soon'] },
 ];
@@ -471,7 +471,7 @@ export default function Settings() {
               title: 'Access Control',
               description: 'Roles & registration',
             },
-            { section: 'mailgun', title: 'Mailgun', description: 'Outbound email' },
+            { section: 'email', title: 'Email', description: 'Outbound email' },
             {
               section: 'coming_soon',
               title: 'Coming Soon',
@@ -960,7 +960,7 @@ export default function Settings() {
           {activeSection === 'coming_soon' && canManageBackofficeSettings && (
             <AdminComingSoonSettings />
           )}
-          {activeSection === 'mailgun' && canManageBackofficeSettings && <MailgunSettings />}
+          {activeSection === 'email' && canManageBackofficeSettings && <EmailSettings />}
           {activeSection === 'telegram' && <TelegramSettings />}
           {activeSection === 'market_news' && canManageBackofficeSettings && (
             <CoinDeskNewsSettings />

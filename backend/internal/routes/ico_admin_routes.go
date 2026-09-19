@@ -17,8 +17,8 @@ func RegisterICOAdminRoutes(router *gin.Engine, database *sql.DB) {
 	settingsRepo := repository.NewSettingsRepository(database)
 	userRepo := repository.NewUserRepository(database)
 	credentialService := services.NewExternalAPICredentialService(credentialRepo)
-	mailgunService := services.NewMailgunService(credentialService, settingsRepo, userRepo)
-	outboxService := services.NewICOEmailOutboxService(whitelistRepo, mailgunService)
+	emailService := services.NewEmailService(credentialService, settingsRepo, userRepo)
+	outboxService := services.NewICOEmailOutboxService(whitelistRepo, emailService)
 	readinessService := services.NewICOReadinessService(readinessRepo)
 	handler := handlers.NewICOAdminHandler(whitelistRepo, outboxService, readinessService)
 

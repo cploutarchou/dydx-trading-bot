@@ -243,7 +243,7 @@ func registerFeatureRoutes(workerCtx context.Context, router *gin.Engine, databa
 	routes.RegisterAIMarketRoutes(router, database, apiClient)
 	routes.RegisterKeyRoutes(router, database)
 	routes.RegisterArbitrageSettingsRoutes(router, database, apiClient)
-	routes.RegisterMailgunRoutes(router, database)
+	routes.RegisterEmailRoutes(router, database)
 	routes.RegisterTelegramRoutes(router, database)
 	routes.RegisterCodexRoutes(router, database)
 	routes.RegisterNewsRoutes(router, database)
@@ -261,9 +261,9 @@ func startICOEmailOutboxWorker(workerCtx context.Context, sqlDB *sql.DB) {
 	settingsRepo := repository.NewSettingsRepository(sqlDB)
 	userRepo := repository.NewUserRepository(sqlDB)
 	credentialService := services.NewExternalAPICredentialService(credentialRepo)
-	mailgunService := services.NewMailgunService(credentialService, settingsRepo, userRepo)
+	emailService := services.NewEmailService(credentialService, settingsRepo, userRepo)
 	whitelistRepo := repository.NewICOWhitelistRepository(sqlDB)
-	outboxService := services.NewICOEmailOutboxService(whitelistRepo, mailgunService)
+	outboxService := services.NewICOEmailOutboxService(whitelistRepo, emailService)
 
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)

@@ -714,27 +714,33 @@ export interface IBHierarchyTreeResponse extends Record<string, unknown> {
   max_depth: number;
 }
 
-export interface MailgunStatusResponse extends Record<string, unknown> {
+export interface EmailStatusResponse extends Record<string, unknown> {
   provider: string;
   configured: boolean;
   shared_key_present: boolean;
   shared_key_masked?: string;
   shared_key_label?: string;
-  domain?: string;
+  api_url?: string;
   from_email?: string;
   from_name?: string;
-  region?: 'us' | 'eu' | string;
-  base_url?: string;
+  reply_to?: string;
   pending_password_change_count: number;
 }
 
-export interface MailgunConfigPayload extends Record<string, unknown> {
+export interface EmailConfigPayload extends Record<string, unknown> {
+  /** Blank keeps the secret key already on file. */
   api_key: string;
   label?: string;
-  domain: string;
+  api_url: string;
   from_email: string;
   from_name?: string;
-  region?: 'us' | 'eu' | string;
+  reply_to?: string;
+}
+
+export interface EmailSendResultResponse extends Record<string, unknown> {
+  delivered: boolean;
+  message: string;
+  message_id?: string;
 }
 
 export interface TelegramStatusResponse extends Record<string, unknown> {
@@ -1860,8 +1866,7 @@ class ApiClient {
           // session exists but still awaits its TOTP challenge, so a silent
           // refresh cannot fix the request. Route the app to the challenge.
           const errorBody = error.response?.data as
-            | { code?: string; error_code?: string }
-            | undefined;
+            { code?: string; error_code?: string } | undefined;
           const errorCode = errorBody?.code ?? errorBody?.error_code;
           if (errorCode === 'mfa_challenge_required') {
             console.warn('🔐 api.ts: session awaits its MFA challenge');
@@ -4666,10 +4671,10 @@ class ApiClient {
     return response.data;
   }
 
-  async getMailgunStatus(): Promise<ApiResponse<MailgunStatusResponse>> {
+  async getEmailStatus(): Promise<ApiResponse<EmailStatusResponse>> {
     this.ensureTokenLoaded();
     const response =
-      await this.client.get<ApiResponse<MailgunStatusResponse>>('/api/v1/mailgun/status');
+      await this.client.get<ApiResponse<EmailStatusResponse>>('/api/v1/email/status');
     return response.data;
   }
 
@@ -4763,19 +4768,29 @@ class ApiClient {
     return response.data;
   }
 
-  async saveMailgunConfig(data: MailgunConfigPayload): Promise<ApiResponse<MailgunStatusResponse>> {
+  async saveEmailConfig(data: EmailConfigPayload): Promise<ApiResponse<EmailStatusResponse>> {
     this.ensureTokenLoaded();
-    const response = await this.client.put<ApiResponse<MailgunStatusResponse>>(
-      '/api/v1/mailgun/config',
+    const response = await this.client.put<ApiResponse<EmailStatusResponse>>(
+      '/api/v1/email/config',
       data
     );
     return response.data;
   }
 
-  async deleteMailgunConfig(): Promise<ApiResponse<Record<string, unknown>>> {
+  async deleteEmailConfig(): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
     const response =
-      await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/mailgun/config');
+      await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/email/config');
+    return response.data;
+  }
+
+  /** Blank recipient sends the test message to the signed-in admin's own address. */
+  async sendEmailTest(to: string): Promise<ApiResponse<EmailSendResultResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<EmailSendResultResponse>>(
+      '/api/v1/email/test',
+      to ? { to } : {}
+    );
     return response.data;
   }
 

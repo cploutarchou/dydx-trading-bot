@@ -3,7 +3,7 @@
 phase: execute
 branch: audit/2026-09-19-orderpath (stacked on audit/2026-09-19-queue2)
 base: master
-last commit: f0dbc203 (2026-09-19T21:15Z)
+last commit: b357131e (2026-09-19T21:29Z)
 updated: 2026-09-19T21:29Z
 scope: all
 
@@ -48,14 +48,14 @@ business decision, and effort M/L items are proposals or deferred with a reason 
 - [x] REPO-P2-001 go.mod 1.27 and CI Node 26, plus a drift check — plans/REPO.md — done (f0dbc203) — go.mod go 1.27.0, CI Node 26, scripts/check_toolchain_drift.py enforced in CI; backend gates green on go1.27.0; Node 26 gates run in PR CI only (local Node is 24)
 - [x] INFRA-P3-001 Delete deploy/k8s and deploy/k8s-next, their CI validation and dead make targets; point docs to the GitOps repository — plans/INFRA.md — done (f0dbc203) — deploy/k8s and deploy/k8s-next removed with their two CI jobs, the k8s secret scan script and make target; docs and expert profiles point to the GitOps repository
 - [x] REPO-P3-001 Correct Go version statements in docs and devcontainer — plans/REPO.md — done (f0dbc203) — profiles, AGENTS.md and devcontainer comment state the real versions; devcontainer base tag left at 1.25 (newer tag could not be verified)
-- [x] BOT-P1-001 Detect tx rejection from the broadcast response; bind order ids by client id — plans/BOT.md — done (pending commit) — non-zero broadcast code raises OrderRejectedError before any polling; the order-id fallback only binds orders placed at or after this placement (createdAtHeight or goodTilBlock); 10 tests
-- [x] BOT-P1-006 Emergency-close retry loop survives placement exceptions — plans/BOT.md — done (pending commit) — a failed attempt no longer ends the close loop; a flat reading counts only after a close order was placed; 4 tests, existing escalation test unchanged
+- [x] BOT-P1-001 Detect tx rejection from the broadcast response; bind order ids by client id — plans/BOT.md — done (b357131e) — non-zero broadcast code raises OrderRejectedError before any polling; the order-id fallback only binds orders placed at or after this placement (createdAtHeight or goodTilBlock); 10 tests
+- [x] BOT-P1-006 Emergency-close retry loop survives placement exceptions — plans/BOT.md — done (b357131e) — a failed attempt no longer ends the close loop; a flat reading counts only after a close order was placed; 4 tests, existing escalation test unchanged
 - [x] BOT-P1-007 One client id per logical reduce-only close — plans/BOT.md — deferred (needs the dYdX v4 semantics for re-submitting a short-term order with the same client id after an unknown outcome, verified on testnet; guessing a chain contract on the close path is not acceptable. See OPEN-QUESTIONS.md)
-- [x] BOT-P1-008 Halt new entries after a failed emergency cleanup (persisted latch) — plans/BOT.md — done (pending commit) — UnhedgedExposureError from every emergency-closure failure; persisted per-instance entry halt latch honoured by the scan, set mid-cycle, cleared only by the operator CLI; 5 tests
+- [x] BOT-P1-008 Halt new entries after a failed emergency cleanup (persisted latch) — plans/BOT.md — done (b357131e) — UnhedgedExposureError from every emergency-closure failure; persisted per-instance entry halt latch honoured by the scan, set mid-cycle, cleared only by the operator CLI; 5 tests
 - [ ] BOT-P1-004 Tracked-position store must not ignore write failures — plans/BOT.md — todo
 - [ ] BOT-P1-002 Cooperative shutdown instead of raising from the signal handler — plans/BOT.md — todo
 - [ ] BOT-P1-003 Write-ahead entry intent and restart recovery — plans/BOT.md — todo
-- [x] BOT-P1-012 Refuse plaintext mnemonics outside dev/test — plans/BOT.md — done (pending commit) — plaintext credential storage only in an explicit dev/test environment; shared fail-closed environment helper reused by the auth bypass gate; 13 tests
+- [x] BOT-P1-012 Refuse plaintext mnemonics outside dev/test — plans/BOT.md — done (b357131e) — plaintext credential storage only in an explicit dev/test environment; shared fail-closed environment helper reused by the auth bypass gate; 13 tests
 - [x] BACK-P1-001 Quick-deploy creates an owned row and honours the quota — plans/BACK.md — done (f0dbc203) — quick-deploy writes an owned bot_instances row (no credentials), rolls the upstream runtime back when that fails, and re-checks the quota after the insert; the unused requested_by_user_id injection is removed; 5 tests
 - [x] INFRA-P1-010 Remove the compose prod path; loopback-only ports; no default secrets — plans/INFRA.md — done (f0dbc203) — stack-up-prod targets removed; all 30 published ports in the four stack/infra files bound to 127.0.0.1. Placeholder secret defaults kept: failing fast would break the CI compose validation and local bootstrap, and the stacks are now dev-only and loopback-bound
 - [x] REPO-P3-004 Add CODEOWNERS — plans/REPO.md — done (f0dbc203) — .github/CODEOWNERS added; every listed path exists; GitHub-side validation after the push

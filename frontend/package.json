@@ -12,7 +12,7 @@
     "lightweight-charts": "^5.2.0",
     "lucide-react": "^1.17.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7",
+    "react-dom": "^19.3.0",
     "react-hook-form": "^7.77.0",
     "react-router-dom": "^7.17.0",
     "zustand": "^5.0.14"
@@ -29,7 +29,7 @@
     "@testing-library/user-event": "^14.6.7",
     "@types/node": "^25.9.2",
     "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.2",
+    "@types/react-dom": "^19.3.0",
     "@typescript-eslint/eslint-plugin": "^8.60.1",
     "@typescript-eslint/parser": "^8.60.1",
     "@vitejs/plugin-react": "6.0.2",

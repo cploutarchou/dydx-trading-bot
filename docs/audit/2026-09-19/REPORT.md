@@ -152,7 +152,7 @@ All recorded in `LOG.md` with their results.
 - Session-level advisory locks need a direct PostgreSQL connection; a transaction-pooling proxy in front of the bot database would break the lock.
 - The deployment must change with this code: `TRUSTED_PROXIES` for the backend, the credentials encryption key for the bot (it now refuses plaintext outside dev/test), `BOT_API_TOKEN` configured, `DB_AUTO_MIGRATE` off, and a termination grace period that covers one full pair entry plus cleanup.
 - The `integration`-tagged backend route tests are still not run by CI (BACK-P2-011).
-- 45 P2/P3 findings remain deferred in the service plans.
+- 39 findings remain listed as deferred in the service plans (mostly P2/P3), and the in-repo Kubernetes findings moved to the GitOps repository still have to be checked there.
 
 ## 10. Screens requiring manual visual verification
 

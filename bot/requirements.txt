@@ -48,7 +48,7 @@ celery[redis]>=5.6.3,<6.0
 # explicitly so a major bump cannot silently change the pub/sub / asyncio API.
 redis>=5.0,<7.0
 flower>=2.0,<3.0
-aiolimiter>=1.2.1,<2.0
+aiolimiter>=1.3.0,<2.0
 pybreaker>=1.4.1,<2.0
 pandas-stubs==3.0.5.260730
 types-psutil==7.2.2.20260827

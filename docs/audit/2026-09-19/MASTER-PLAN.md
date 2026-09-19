@@ -1,10 +1,10 @@
 # Master plan — dydx-trading-bot — 2026-09-19
 
 phase: execute
-branch: audit/2026-09-19-all
+branch: audit/2026-09-19-queue2
 base: master
-last commit: 36723306 (2026-09-19T18:10Z)
-updated: 2026-09-19T20:12Z
+last commit: f0dbc203 (2026-09-19T21:15Z)
+updated: 2026-09-19T21:15Z
 scope: all
 
 Findings: BOT 24, BACK 20, FRONT 19, INFRA 20, REPO 7 (90 total; 6 merged as duplicates).
@@ -35,19 +35,19 @@ business decision, and effort M/L items are proposals or deferred with a reason 
 - [x] REPO-P3-002 history-budget workflow pins checkout v4 — plans/REPO.md — done (36723306) — checkout v7
 
 ## Queue 2 — unblocked by the owner's decisions of 2026-09-19 (see OPEN-QUESTIONS.md); the last eleven were moved from proposal at the owner's request
-- [ ] BOT-P0-002 Disable bot-API self-registration; admin/operator on lifecycle routes — plans/BOT.md — todo
+- [x] BOT-P0-002 Disable bot-API self-registration; admin/operator on lifecycle routes — plans/BOT.md — done (f0dbc203) — register returns 403 unless BOT_API_ALLOW_SELF_REGISTRATION=true; six mutating lifecycle routes need an admin principal; 17 tests
 - [ ] INFRA-P0-001L Postgres advisory lock per trading instance in main_instance — plans/INFRA.md — todo
-- [ ] BACK-P1-003 Migrations via the explicit migrator only; DB_AUTO_MIGRATE=false in deployables — plans/BACK.md — todo
-- [ ] BACK-P1-004 Remove Force(version) startup recovery — plans/BACK.md — todo
-- [ ] BACK-P1-005 Configurable TRUSTED_PROXIES, no raw X-Forwarded-For, auth endpoint limiter — plans/BACK.md — todo
+- [x] BACK-P1-003 Migrations via the explicit migrator only; DB_AUTO_MIGRATE=false in deployables — plans/BACK.md — done (f0dbc203) — local stack gets a one-shot backend-migrate service; backend-api waits for it; DB_AUTO_MIGRATE=false in both stack files
+- [x] BACK-P1-004 Remove Force(version) startup recovery — plans/BACK.md — done (f0dbc203) — Force(version) recovery is explicit opt-in only and refused for production labels (CONFIG_ENV included); table test
+- [x] BACK-P1-005 Configurable TRUSTED_PROXIES, no raw X-Forwarded-For, auth endpoint limiter — plans/BACK.md — done (f0dbc203) — validated TRUSTED_PROXIES, raw X-Forwarded-For helper removed, shared per-IP limiter on credential endpoints; 3 tests. Deployment must set TRUSTED_PROXIES to the pod CIDR
 - [ ] BOT-P1-011 Verify the signing SDK advisory, upgrade in a dedicated change, blocking pip-audit — plans/BOT.md — todo
 - [ ] BOT-P1-009 Realised P&L net of fees from fills, Decimal, funding separate — plans/BOT.md — todo
-- [ ] FRONT-P1-006 Testnet default; is_testnet derived from chain_id; numeric validation — plans/FRONT.md — todo
-- [ ] FRONT-P1-002 Confirm runtime stop; remove the bare-key shortcut — plans/FRONT.md — todo
-- [ ] REPO-P2-003 Publish images only after quality-gate succeeded — plans/REPO.md — todo
-- [ ] REPO-P2-001 go.mod 1.27 and CI Node 26, plus a drift check — plans/REPO.md — todo
-- [ ] INFRA-P3-001 Delete deploy/k8s and deploy/k8s-next, their CI validation and dead make targets; point docs to the GitOps repository — plans/INFRA.md — todo
-- [ ] REPO-P3-001 Correct Go version statements in docs and devcontainer — plans/REPO.md — todo
+- [x] FRONT-P1-006 Testnet default; is_testnet derived from chain_id; numeric validation — plans/FRONT.md — done (f0dbc203) — form defaults to testnet; network and is_testnet derived from chain_id; NaN/zero/negative numerics rejected; 10 tests
+- [x] FRONT-P1-002 Confirm runtime stop; remove the bare-key shortcut — plans/FRONT.md — done (f0dbc203) — stop asks for confirmation naming the runtime; the s shortcut and its hint are removed. No component test (StrategyManager has no test harness, FRONT-P2-014); verified by lint, typecheck and the e2e smoke suite
+- [x] REPO-P2-003 Publish images only after quality-gate succeeded — plans/REPO.md — done (f0dbc203) — image workflow waits for the Quality gate check of the same commit on push; gate workflow now runs for every image path; wait script exercised locally (success, missing, PR paths)
+- [x] REPO-P2-001 go.mod 1.27 and CI Node 26, plus a drift check — plans/REPO.md — done (f0dbc203) — go.mod go 1.27.0, CI Node 26, scripts/check_toolchain_drift.py enforced in CI; backend gates green on go1.27.0; Node 26 gates run in PR CI only (local Node is 24)
+- [x] INFRA-P3-001 Delete deploy/k8s and deploy/k8s-next, their CI validation and dead make targets; point docs to the GitOps repository — plans/INFRA.md — done (f0dbc203) — deploy/k8s and deploy/k8s-next removed with their two CI jobs, the k8s secret scan script and make target; docs and expert profiles point to the GitOps repository
+- [x] REPO-P3-001 Correct Go version statements in docs and devcontainer — plans/REPO.md — done (f0dbc203) — profiles, AGENTS.md and devcontainer comment state the real versions; devcontainer base tag left at 1.25 (newer tag could not be verified)
 - [ ] BOT-P1-001 Detect tx rejection from the broadcast response; bind order ids by client id — plans/BOT.md — todo
 - [ ] BOT-P1-006 Emergency-close retry loop survives placement exceptions — plans/BOT.md — todo
 - [ ] BOT-P1-007 One client id per logical reduce-only close — plans/BOT.md — todo
@@ -56,9 +56,9 @@ business decision, and effort M/L items are proposals or deferred with a reason 
 - [ ] BOT-P1-002 Cooperative shutdown instead of raising from the signal handler — plans/BOT.md — todo
 - [ ] BOT-P1-003 Write-ahead entry intent and restart recovery — plans/BOT.md — todo
 - [ ] BOT-P1-012 Refuse plaintext mnemonics outside dev/test — plans/BOT.md — todo
-- [ ] BACK-P1-001 Quick-deploy creates an owned row and honours the quota — plans/BACK.md — todo
-- [ ] INFRA-P1-010 Remove the compose prod path; loopback-only ports; no default secrets — plans/INFRA.md — todo
-- [ ] REPO-P3-004 Add CODEOWNERS — plans/REPO.md — todo
+- [x] BACK-P1-001 Quick-deploy creates an owned row and honours the quota — plans/BACK.md — done (f0dbc203) — quick-deploy writes an owned bot_instances row (no credentials), rolls the upstream runtime back when that fails, and re-checks the quota after the insert; the unused requested_by_user_id injection is removed; 5 tests
+- [x] INFRA-P1-010 Remove the compose prod path; loopback-only ports; no default secrets — plans/INFRA.md — done (f0dbc203) — stack-up-prod targets removed; all 30 published ports in the four stack/infra files bound to 127.0.0.1. Placeholder secret defaults kept: failing fast would break the CI compose validation and local bootstrap, and the stacks are now dev-only and loopback-bound
+- [x] REPO-P3-004 Add CODEOWNERS — plans/REPO.md — done (f0dbc203) — .github/CODEOWNERS added; every listed path exists; GitHub-side validation after the push
 
 ## Proposal-only (needs a human decision; not executed)
 - none: every proposal was either decided and queued above or moved to the GitOps repository.

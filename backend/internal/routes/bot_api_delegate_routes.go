@@ -3313,13 +3313,29 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 				return
 			}
 
-			// Force server-side attribution; a caller-supplied value is
-			// ignored so the spawned instance is attributable to this user.
-			config["requested_by_user_id"] = userID
-
 			result, err := requestClient.QuickDeployBot(instanceName, autoStart, config)
 			if err != nil {
 				respondBotAPIError(c, err)
+				return
+			}
+
+			// The bot API has no notion of backend users, so ownership and the
+			// quota live in the backend row written here.
+			if _, recordErr := recordQuickDeployedInstance(botInstanceRepo, requestClient, userID, maxBotInstances, instanceName, autoStart, config, result); recordErr != nil {
+				statusCode := http.StatusBadGateway
+				message := "quick deploy could not be attributed to your account and was rolled back"
+				if errors.Is(recordErr, errQuickDeployQuotaExceeded) {
+					statusCode = http.StatusTooManyRequests
+					message = "bot instance limit reached"
+				}
+				log.Printf("quick-deploy: user=%d: %v", userID, recordErr)
+				c.JSON(statusCode, gin.H{
+					"success":   false,
+					"error":     message,
+					"message":   message,
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+					"trace_id":  middleware.GetTraceID(c),
+				})
 				return
 			}
 			c.JSON(200, result)

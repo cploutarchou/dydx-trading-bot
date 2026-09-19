@@ -135,6 +135,21 @@ PostgreSQL migrations in `migrations/postgres` are the runtime migration
 source of truth. New migrations should be created with
 `make migrate-create NAME=...`, which writes to `migrations/postgres`.
 
+Startup never forces a migration version on its own. A dirty or partially applied schema stops the start with the
+original error; `DB_MIGRATION_FORCE_RECOVERY=true` enables the legacy `Force(version)` retry for a local database only
+and is refused when `APP_CONFIG_ENV`, `CONFIG_ENV`, `APP_ENV` or `ENVIRONMENT` names production. The local compose
+stack runs migrations through the one-shot `backend-migrate` service with `DB_AUTO_MIGRATE=false`.
+
+## Client IP, Proxies and Auth Rate Limits
+
+- `TRUSTED_PROXIES` (comma-separated IPs/CIDRs, loopback always included) lists the peers allowed to set
+  `X-Forwarded-For`. Behind an ingress controller set it to the cluster pod CIDR; without it every client shares the
+  proxy's address for rate limiting and audit logs. An invalid entry, or one that trusts every address, falls back to
+  loopback only. Handlers read the client address with `c.ClientIP()` only; raw forwarded headers are never trusted.
+- `POST /api/v1/auth/login`, `/register`, `/forgot-password`, `/reset-password` and `/2fa/challenge` share one per-IP
+  budget (1 request/second, burst 20) on top of the global limiter. With `TRUSTED_PROXIES` unset behind a proxy that
+  budget is shared by all users, so set it before deploying.
+
 ## Related Docs
 
 - [Root README](/home/chris/workspace/dydx-trading-bot/README.md)

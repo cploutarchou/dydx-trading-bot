@@ -31,7 +31,7 @@ All fixes are verified with the hermetic suite (fakes only). Nothing in this pla
 - Effort: S | Blast radius: med (response shape) | Status: done (36723306) — status view drops mnemonic and Telegram token, adds presence flags; 1 test
 
 ### BOT-P0-002 — Open self-registration issues an active user and JWT; lifecycle routes need only any active user
-- Status: proposal (needs human decision: is self-registration on the bot API intended at all, and which role may create/start/stop/delete instances?). Proposed change: disable the register routes unless an explicit env flag is set, and require an admin/operator role plus ownership on lifecycle routes. See OPEN-QUESTIONS.md.
+- Status: done (f0dbc203) — register returns 403 unless BOT_API_ALLOW_SELF_REGISTRATION=true; six mutating lifecycle routes need an admin principal; 17 tests
 
 ## P1
 

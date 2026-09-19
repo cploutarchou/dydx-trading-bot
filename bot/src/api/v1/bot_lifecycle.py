@@ -36,7 +36,7 @@ from src.infrastructure.domain.bot_api_models import (
 )
 from src.infrastructure.domain.models.auth_models import User
 from src.infrastructure.persistence.repository import UnitOfWork
-from src.middleware.auth_middleware import get_current_active_user
+from src.middleware.auth_middleware import get_admin_user, get_current_active_user
 from src.shared.credentials_cipher import open_config_secrets, seal_config_secrets
 from src.shared.live_risk_controls import assert_supported_live_risk_controls
 from src.shared.notifications import TelegramMessenger
@@ -296,7 +296,7 @@ router = APIRouter()
 @router.post("/api/v1/bots", response_model=BotOperationResult)
 async def create_bot_instance(
     config: BotInstanceConfig,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_admin_user),
     _rate: None = Depends(_check_instance_rate_limit),
 ) -> JSONResponse:
     """Create a new bot instance"""
@@ -467,7 +467,7 @@ async def get_bot_instance(
 @router.delete("/api/v1/bots/{instance_id}")
 async def delete_bot_instance(
     instance_id: str,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_admin_user),
 ) -> JSONResponse:
     """Delete bot instance"""
 
@@ -527,7 +527,7 @@ async def delete_bot_instance(
 async def start_bot_instance(
     instance_id: str,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_admin_user),
 ) -> JSONResponse:
     """Start bot instance"""
 
@@ -605,7 +605,7 @@ async def start_bot_instance(
 async def stop_bot_instance(
     instance_id: str,
     force: bool = False,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_admin_user),
 ) -> JSONResponse:
     """Stop bot instance"""
 
@@ -681,7 +681,7 @@ async def stop_bot_instance(
 @router.post("/api/v1/bots/{instance_id}/restart")
 async def restart_bot_instance(
     instance_id: str,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_admin_user),
 ) -> JSONResponse:
     """Restart bot instance"""
 
@@ -814,7 +814,7 @@ async def quick_deploy_bot(
     credentials: BotCredentials,
     trading_params: TradingParameters,
     auto_start: bool = True,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_admin_user),
 ) -> JSONResponse:
     """Quick deploy and optionally start a new bot instance"""
 

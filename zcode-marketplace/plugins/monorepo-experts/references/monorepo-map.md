@@ -14,7 +14,7 @@ strategy is profitable from test results.
 
 ```
 frontend/ (React 19 + TS + Vite, dev :5173)
-  -> backend/ (Go 1.26 / Gin API gateway, :8888)
+  -> backend/ (Go 1.27 / Gin API gateway, :8888)
        -> bot/ (Python 3.12 FastAPI control plane, :8889)
             -> per-instance worker processes + infra (Postgres, Valkey, NATS, ClickHouse, MinIO)
 ```
@@ -29,7 +29,7 @@ frontend call the bot API directly or backend import bot code.
   areas:
   - `bot/`: uv-managed (`uv.lock`, `requirements.txt`, Python 3.12 only)
   - `backend/`: Go modules (`go.mod`/`go.sum`)
-  - `frontend/`: npm (`package.json`/`package-lock.json`, Node 24)
+  - `frontend/`: npm (`package.json`/`package-lock.json`, Node 26)
 
 ## Canonical validation matrix (derived from CI + service configs)
 

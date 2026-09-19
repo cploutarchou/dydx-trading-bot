@@ -58,19 +58,19 @@ Verification baseline (2026-09-19, go1.26.6): `go build ./...`, `go vet ./...`, 
 ### BACK-P1-003 — Migrations run through the explicit migrator only
 - Decision: 000070 has not been applied anywhere that matters. `DB_AUTO_MIGRATE=false` in compose/deployable config; the migrator image/job is the only path; 000070 is rehearsed on a copy before it runs anywhere.
 - Verification: `docker compose config` shows the flag off for deployable stacks; backend starts without migrating (test); docs updated.
-- Effort: S | Blast radius: med | Status: todo
+- Effort: S | Blast radius: med | Status: done (f0dbc203) — local stack gets a one-shot backend-migrate service; backend-api waits for it; DB_AUTO_MIGRATE=false in both stack files
 
 ### BACK-P1-004 — Remove the `Force(version)` startup recovery
 - Decision: a dirty or mismatched schema stops the start with a clear error in every environment; no automatic `Force`.
 - Verification: unit test on the recovery path; `go test -race ./...`.
-- Effort: S | Blast radius: med | Depends on: BACK-P1-003 | Status: todo
+- Effort: S | Blast radius: med | Depends on: BACK-P1-003 | Status: done (f0dbc203) — Force(version) recovery is explicit opt-in only and refused for production labels (CONFIG_ENV included); table test
 
 ### BACK-P1-005 — Trusted proxies and client IP
 - Decision: Traefik ingress in k3s. Configurable `TRUSTED_PROXIES` (default loopback; the deployment sets the pod CIDR), client IP only through Gin's trusted-proxy logic, dedicated limiter on auth endpoints.
 - Verification: tests: spoofed `X-Forwarded-For` from an untrusted peer is ignored; per-IP buckets differ behind a trusted proxy; auth limiter trips; `go test -race ./...`.
-- Effort: M | Blast radius: med | Status: todo
+- Effort: M | Blast radius: med | Status: done (f0dbc203) — validated TRUSTED_PROXIES, raw X-Forwarded-For helper removed, shared per-IP limiter on credential endpoints; 3 tests. Deployment must set TRUSTED_PROXIES to the pod CIDR
 
 ### BACK-P1-001 — Quick-deploy must create an owned backend row and honour the quota (moved from proposal at the owner's request)
 - Fix: after a successful upstream quick-deploy, insert the `bot_instances` row for the caller using the same create-then-rollback sequence as `BotInstanceService.CreateBotInstanceWithConfig` (or route quick-deploy through that service); make the count-and-insert atomic; delete the upstream instance when the insert fails; drop the `requested_by_user_id` injection the bot ignores.
 - Verification: `go test -race -count=1 ./internal/routes/ -run QuickDeploy`: a row owned by the caller exists after 200; the N+1th quick-deploy returns 429; upstream delete is called when the insert fails. Full backend suite.
-- Effort: M | Blast radius: med | Status: todo
+- Effort: M | Blast radius: med | Status: done (f0dbc203) — quick-deploy writes an owned bot_instances row (no credentials), rolls the upstream runtime back when that fails, and re-checks the quota after the insert; the unused requested_by_user_id injection is removed; 5 tests

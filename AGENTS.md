@@ -31,7 +31,9 @@ layer. Correctness ≠ profitability — never claim the strategy is profitable.
   migrations, images). No Nx/Turborepo.
 - `bot/`: Python 3.12 + uv (`uv.lock`, `requirements.txt`).
 - `backend/`: Go modules (`go.mod`/`go.sum`).
-- `frontend/`: npm (`package-lock.json`, Node 24).
+- `frontend/`: npm (`package-lock.json`, Node 26).
+- Tested and shipped toolchains move together: `backend/go.mod` with the `golang:` image tags, CI `node-version`
+  with the `node:` image tag (`python3 scripts/check_toolchain_drift.py`, enforced in CI).
 - Dependencies stay pinned per area; no lockfile churn without a dedicated,
   explained change; never install packages just to complete a task.
 
@@ -54,7 +56,7 @@ layer. Correctness ≠ profitability — never claim the strategy is profitable.
 | Backend | `cd backend && go build ./... && go vet ./... && go test -race -count=1 ./...` |
 | Frontend | `cd frontend && npm run lint && npm run typecheck && npm run test:contracts && npm run build` |
 | Docs | `make docs-governance` |
-| Infra | `docker compose -f docker-compose.infra.yml config` ; `python3 scripts/check_no_plaintext_k8s_secrets.py` |
+| Infra | `docker compose -f docker-compose.infra.yml config` ; `docker compose -f docker-compose.stack.yml config` ; `python3 scripts/check_toolchain_drift.py` |
 
 The bot suite is hermetic (conftest-enforced); safe to run with local infra up.
 

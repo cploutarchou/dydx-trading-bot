@@ -98,8 +98,8 @@ services:
       - -sd
       - /data
     ports:
-      - "4222:4222"
-      - "8222:8222"
+      - "127.0.0.1:4222:4222"
+      - "127.0.0.1:8222:8222"
     volumes:
       - nats_data:/data
     healthcheck:
@@ -121,8 +121,8 @@ services:
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-change-me-clickhouse}
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
     ports:
-      - "8123:8123"
-      - "9000:9000"
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
     volumes:
       - clickhouse_data:/var/lib/clickhouse
     healthcheck:
@@ -147,8 +147,8 @@ services:
       - --console-address
       - :9001
     ports:
-      - "9010:9000"
-      - "9011:9001"
+      - "127.0.0.1:9010:9000"
+      - "127.0.0.1:9011:9001"
     volumes:
       - minio_data:/data
     healthcheck:
@@ -175,7 +175,7 @@ services:
     container_name: dydx-frontend-arm64
     restart: unless-stopped
     ports:
-      - "5173:80"
+      - "127.0.0.1:5173:80"
     depends_on:
       - backend-api
     healthcheck:
@@ -183,6 +183,33 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - dydx-stack-arm64
+
+  # One-shot schema migration. The API never migrates at startup
+  # (DB_AUTO_MIGRATE=false): it waits for this job to finish successfully, the
+  # same order the cluster uses.
+  backend-migrate:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend-migrator
+    image: dydx-trading-bot/backend-migrator:dev-arm64
+    platform: linux/arm64
+    container_name: dydx-backend-migrate-arm64
+    restart: "no"
+    command: ["up"]
+    environment:
+      MIGRATION_SKIP_STRUCTURED_CONFIG: "true"
+      DB_TYPE: postgres
+      DB_HOST: postgresql
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-dydx_bot}
+      DB_USER: ${POSTGRES_USER:-dydx_bot}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
+      DATABASE_URL: postgres://${POSTGRES_USER:-dydx_bot}:${POSTGRES_PASSWORD:-change-me-db-password}@postgresql:5432/${POSTGRES_DB:-dydx_bot}?sslmode=disable
+    depends_on:
+      postgresql:
+        condition: service_healthy
     networks:
       - dydx-stack-arm64
 
@@ -208,7 +235,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-dydx_bot}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-db-password}
       DATABASE_URL: postgres://${POSTGRES_USER:-dydx_bot}:${POSTGRES_PASSWORD:-change-me-db-password}@postgresql:5432/${POSTGRES_DB:-dydx_bot}?sslmode=disable
-      DB_AUTO_MIGRATE: "true"
+      DB_AUTO_MIGRATE: "false"
       # Cache
       REDIS_ENABLED: "true"
       REDIS_HOST: valkey
@@ -232,8 +259,10 @@ services:
       API_HOST: 0.0.0.0
       APP_CONFIG_ENV: development
     ports:
-      - "8888:8888"
+      - "127.0.0.1:8888:8888"
     depends_on:
+      backend-migrate:
+        condition: service_completed_successfully
       postgresql:
         condition: service_healthy
       valkey:
@@ -331,7 +360,7 @@ services:
       BOT_API_TOKEN: ${BOT_API_TOKEN:-local-dev-token}
       APP_CONFIG_ENV: development
     ports:
-      - "8889:8889"
+      - "127.0.0.1:8889:8889"
     depends_on:
       postgresql:
         condition: service_healthy

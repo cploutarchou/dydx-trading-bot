@@ -1,0 +1,24 @@
+# Ownership for review routing. The last matching pattern wins.
+# Paths that move money, place orders, or decide who may do so are listed
+# explicitly so they keep a named owner when more collaborators are added.
+
+*                                   @cploutarchou
+
+# Order path, positions and account state
+/bot/src/trading/                   @cploutarchou
+/bot/src/main_instance.py           @cploutarchou
+/bot/src/bot_instance_manager.py    @cploutarchou
+
+# Authentication, authorization and sessions
+/bot/src/middleware/                @cploutarchou
+/bot/src/api/v1/auth/               @cploutarchou
+/backend/internal/auth/             @cploutarchou
+/backend/internal/middleware/       @cploutarchou
+
+# Schema migrations
+/backend/migrations/                @cploutarchou
+/bot/migrations/                    @cploutarchou
+
+# CI, image publishing and dependency policy
+/.github/                           @cploutarchou
+/docker/                            @cploutarchou

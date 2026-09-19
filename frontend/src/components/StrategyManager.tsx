@@ -44,6 +44,7 @@ import { AIRuntimeDigest } from './AIRuntimeDigest';
 import { AIStrategyAdvisor } from './AIStrategyAdvisor';
 import { CodexAssetIntelStrip } from './CodexAssetIntelStrip';
 import { PageContainer } from './PageContainer';
+import { ActionDialog } from './ui/PlatformUI';
 
 interface StrategyStatus {
   strategyId: number;
@@ -313,6 +314,7 @@ export default function StrategyManager() {
   const [runningCount, setRunningCount] = useState(0);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [startDialogStrategy, setStartDialogStrategy] = useState<Strategy | null>(null);
+  const [stopConfirmStrategy, setStopConfirmStrategy] = useState<Strategy | null>(null);
   const [startDialogNetwork, setStartDialogNetwork] = useState<'testnet' | 'mainnet'>('testnet');
   const [startDialogSubmitting, setStartDialogSubmitting] = useState(false);
   const [viewPreset, setViewPreset] = useState<'operator' | 'analyst'>('analyst');
@@ -935,6 +937,17 @@ export default function StrategyManager() {
       return;
     }
 
+    // Stopping a live runtime is never a single action: ask first, naming the
+    // runtime, so a stray click cannot take a strategy out of the market.
+    setStopConfirmStrategy(strategy);
+  };
+
+  const confirmRuntimeStop = async () => {
+    const strategy = stopConfirmStrategy;
+    if (!strategy) return;
+    setStopConfirmStrategy(null);
+    const currentStatus = strategyStatuses.get(strategy.id);
+
     setRuntimePending((prev) => ({
       ...prev,
       [strategy.id]: 'stop',
@@ -1297,12 +1310,6 @@ export default function StrategyManager() {
     }
 
     const key = event.key.toLowerCase();
-
-    if (key === 's') {
-      event.preventDefault();
-      void handleRuntimeToggle(strategy);
-      return;
-    }
 
     if (key === 'c') {
       event.preventDefault();
@@ -2165,8 +2172,7 @@ export default function StrategyManager() {
                 </div>
 
                 <p className="mt-3 text-[11px] text-slate-500">
-                  Shortcuts while card is focused: <span className="text-slate-300">S</span>{' '}
-                  start/stop, <span className="text-slate-300">C</span> configure,{' '}
+                  Shortcuts while card is focused: <span className="text-slate-300">C</span> configure,{' '}
                   <span className="text-slate-300">B</span> backtest,{' '}
                   <span className="text-slate-300">D</span> duplicate,{' '}
                   <span className="text-slate-300">Delete</span> remove.
@@ -2186,6 +2192,16 @@ export default function StrategyManager() {
           })
         )}
       </div>
+
+      <ActionDialog
+        open={stopConfirmStrategy !== null}
+        title={`Stop ${stopConfirmStrategy?.name ?? 'runtime'}?`}
+        description="This stops the live runtime for this strategy. It places no further trades until it is started again. Check open positions on the desk afterwards."
+        confirmLabel="Stop runtime"
+        confirmTone="danger"
+        onClose={() => setStopConfirmStrategy(null)}
+        onConfirm={() => void confirmRuntimeStop()}
+      />
 
       {startDialogStrategy &&
         typeof document !== 'undefined' &&

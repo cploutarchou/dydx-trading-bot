@@ -20,7 +20,7 @@ from src.infrastructure.domain.bot_api_models import (
     BotOperationResult,
     BotStatus,
 )
-from src.middleware.auth_middleware import get_current_active_user
+from src.middleware.auth_middleware import get_admin_user, get_current_active_user
 
 _CREATE_PAYLOAD = {
     "instance_id": "bot-flow-1",
@@ -61,6 +61,7 @@ def authed_app(monkeypatch):
     async def _active_user():
         return SimpleNamespace(
             is_active=True,
+            is_admin=True,
             username="operator",
             email="operator@example.test",
         )
@@ -217,7 +218,13 @@ def test_lifecycle_router_shape_auth_registration_and_reexports():
 
     for route in routes:
         dependencies = [dependency.call for dependency in route.dependant.dependencies]
-        assert get_current_active_user in dependencies
+        methods = (route.methods or set()) - {"HEAD", "OPTIONS"}
+        # Anything that creates, starts, stops or deletes a trading runtime
+        # needs an admin; reads need an authenticated active user.
+        if methods & {"POST", "PUT", "PATCH", "DELETE"}:
+            assert get_admin_user in dependencies, route.path
+        else:
+            assert get_current_active_user in dependencies, route.path
         assert route.endpoint.__module__ == "src.api.v1.bot_lifecycle"
 
     create_route = next(
@@ -529,3 +536,45 @@ async def test_readiness_remains_strict_for_manager_availability(monkeypatch):
     assert not_ready.json()["data"]["bot_manager_ready"] is False
     assert ready.status_code == 200
     assert ready.json()["data"]["bot_manager_ready"] is True
+
+
+# --- authorization: lifecycle mutations need an admin ------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("POST", "/api/v1/bots"),
+        ("DELETE", "/api/v1/bots/bot-x"),
+        ("POST", "/api/v1/bots/bot-x/start"),
+        ("POST", "/api/v1/bots/bot-x/stop"),
+        ("POST", "/api/v1/bots/bot-x/restart"),
+        ("POST", "/api/v1/bots/quick-deploy?instance_name=bot-x"),
+    ],
+)
+async def test_lifecycle_mutations_reject_a_non_admin_user(monkeypatch, method, path):
+    async def _plain_user():
+        return SimpleNamespace(
+            is_active=True,
+            is_admin=False,
+            is_superuser=False,
+            username="viewer",
+            email="viewer@example.test",
+        )
+
+    monkeypatch.setitem(
+        server.app.dependency_overrides, get_current_active_user, _plain_user
+    )
+
+    response = await _request(method, path, json=_CREATE_PAYLOAD)
+
+    assert response.status_code == 403, response.text
+
+
+@pytest.mark.asyncio
+async def test_service_token_principal_passes_the_admin_gate():
+    """The backend's service token maps to a superuser principal."""
+    principal = SimpleNamespace(is_active=True, is_superuser=True, username="svc")
+
+    assert await get_admin_user(principal) is principal

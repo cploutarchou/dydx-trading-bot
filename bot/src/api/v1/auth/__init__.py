@@ -1,5 +1,6 @@
 """Authentication router."""
 
+import os
 from datetime import datetime, timezone
 from typing import Any, Optional, cast
 
@@ -195,12 +196,27 @@ async def login(
     )
 
 
+def self_registration_enabled() -> bool:
+    """Self-registration on the bot API is off unless explicitly enabled.
+
+    The Go gateway owns user management; an open register route here hands any
+    caller that can reach the bot API an active account and a token.
+    """
+    value = os.getenv("BOT_API_ALLOW_SELF_REGISTRATION", "false")
+    return value.strip().lower() in {"1", "true", "yes"}
+
+
 @router.post("/register")
 async def register(
     payload: RegisterRequest,
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
-    """Register endpoint."""
+    """Register endpoint (disabled unless BOT_API_ALLOW_SELF_REGISTRATION=true)."""
+    if not self_registration_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Self-registration is disabled on the bot API",
+        )
     username = SecurityUtils.sanitize_input(payload.username, max_length=50)
     full_name = SecurityUtils.sanitize_input(payload.full_name, max_length=100)
     email = payload.email.strip().lower()

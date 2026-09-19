@@ -282,6 +282,13 @@ be set, and every one that is set must carry an allowed label. API startup is re
 no environment set, with any other label (`production`, `prod`, `live`, `mainnet`, `staging`, ...), or when a
 development label in one variable conflicts with a production label in another.
 
+Lifecycle mutations (`POST /api/v1/bots`, `DELETE /api/v1/bots/{id}`, `start`, `stop`, `restart`, `quick-deploy`)
+require an admin principal; reads need any authenticated active user. The backend's service token (`BOT_API_TOKEN`)
+maps to a superuser principal and passes this gate. A deployment that forwards end-user JWTs instead of the service
+token (`BOT_API_USE_SERVICE_TOKEN=false` or no token configured) will get `403` for non-admin users: configure the
+service token. Self-registration (`POST /api/v1/auth/register`) returns `403` unless
+`BOT_API_ALLOW_SELF_REGISTRATION=true`; the Go gateway owns user management.
+
 Bot status responses (`GET /api/v1/bots`, `GET /api/v1/bots/{instance_id}`) never contain the wallet mnemonic or the
 Telegram bot token. `config.credentials.mnemonic_configured` and `config.telegram.token_configured` report presence only.
 

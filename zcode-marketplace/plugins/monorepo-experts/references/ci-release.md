@@ -9,7 +9,7 @@ Jobs (all blocking unless noted): bot unit tests (coverage floor 82,
 hermetic `.ci-run.json`), bot lint (isort/Black/flake8 E9,F63,F7,F82),
 bot mypy (0-error baseline), bandit (reporting), pip-audit (reporting),
 multi-worker broadcast (real Postgres+Valkey), external-service
-integration, k8s secret scan, compose validation, kustomize validation,
+integration, compose validation and toolchain drift check,
 backend Go tests (`-race`, `POSTGRES_TEST_DSN` harness), frontend quality
 (lint `--max-warnings 0`, typecheck, contracts, build), docs governance,
 backend lint golangci v2 (reporting-only, phase 1), quality-gate
@@ -30,14 +30,14 @@ Onboarding target/setup-guide/infra-config validation.
   justification for any increase).
 - Reporting-only scans are explicitly `continue-on-error` with a promotion
   note (bandit, pip-audit, golangci phase 1).
-- CI never deploys; images/deploys are operator-driven (`make images-*`,
-  kustomize overlays).
+- CI never deploys. Images are published to ghcr only after the Quality gate
+  passed for the commit; Flux deploys them from the separate GitOps repository.
 
 ## Release path
 
 No automated release workflow detected (unknown/unset beyond image
 publishing): images tagged via `make images-build/push IMAGE_TAG=...`;
-deployment via `deploy/k8s-next` overlays. Maintainers should document a
+deployment through the GitOps repository (Flux). Maintainers should document a
 versioning scheme here if one is adopted.
 
 ## Workflow-change rules

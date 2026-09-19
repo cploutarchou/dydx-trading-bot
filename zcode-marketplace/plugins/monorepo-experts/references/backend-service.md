@@ -11,7 +11,7 @@ platform PostgreSQL schema.
 
 ## Stack
 
-Go 1.26, Gin, database/sql + PostgreSQL (placeholder rewrite via
+Go 1.27, Gin, database/sql + PostgreSQL (placeholder rewrite via
 `internal/repository/schema_cache.go`), golangci-lint v2 config.
 
 ## Entry points

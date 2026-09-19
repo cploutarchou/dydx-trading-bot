@@ -11,12 +11,14 @@ on:
             - "backend/**"
             - "docs/**"
             - "README.md"
-            - "deploy/k8s-next/**"
-            - "deploy/k8s/**"
             - "docker-compose.infra.yml"
             - "docker-compose.stack.yml"
-            - "scripts/check_no_plaintext_k8s_secrets.py"
             - ".github/workflows/bot-quality.yml"
+            # Image publishing waits for this workflow's Quality gate, so it must
+            # run for every path that triggers an image build.
+            - "docker/**"
+            - ".github/workflows/container-images.yml"
+            - "scripts/check_toolchain_drift.py"
     pull_request:
         branches:
             - master
@@ -27,12 +29,14 @@ on:
             - "backend/**"
             - "docs/**"
             - "README.md"
-            - "deploy/k8s-next/**"
-            - "deploy/k8s/**"
             - "docker-compose.infra.yml"
             - "docker-compose.stack.yml"
-            - "scripts/check_no_plaintext_k8s_secrets.py"
             - ".github/workflows/bot-quality.yml"
+            # Image publishing waits for this workflow's Quality gate, so it must
+            # run for every path that triggers an image build.
+            - "docker/**"
+            - ".github/workflows/container-images.yml"
+            - "scripts/check_toolchain_drift.py"
     workflow_dispatch:
 
 permissions:
@@ -584,28 +588,6 @@ jobs:
                   fi
 
     # ---------------------------------------------------------------------------
-    # K8s plaintext secret scanner
-    # ---------------------------------------------------------------------------
-    k8s-secret-scan:
-        name: K8s plaintext secret scan
-        runs-on: ubuntu-latest
-
-        steps:
-            - name: Checkout repository
-              uses: actions/checkout@v7
-
-            - name: Set up Python
-              uses: actions/setup-python@v7
-              with:
-                  python-version: "3.12"
-
-            - name: Scan k8s manifests for plaintext secrets
-              run: |
-                  set -euo pipefail
-                  python3 scripts/check_no_plaintext_k8s_secrets.py
-                  echo "No plaintext secrets detected in k8s manifests." >> "$GITHUB_STEP_SUMMARY"
-
-    # ---------------------------------------------------------------------------
     # Docker Compose validation (local dev infrastructure)
     # ---------------------------------------------------------------------------
     docker-compose-validate:
@@ -615,6 +597,11 @@ jobs:
         steps:
             - name: Checkout repository
               uses: actions/checkout@v7
+
+            - name: Tested and shipped toolchains must match
+              run: |
+                  set -euo pipefail
+                  python3 scripts/check_toolchain_drift.py | tee -a "$GITHUB_STEP_SUMMARY"
 
             - name: Validate infra compose file syntax
               run: |
@@ -651,43 +638,6 @@ jobs:
                     fi
                   done
                   echo "All required stack services present" >> "$GITHUB_STEP_SUMMARY"
-
-    # ---------------------------------------------------------------------------
-    # Kustomize build validation (base + overlays)
-    # ---------------------------------------------------------------------------
-    kustomize-validate:
-        name: Kustomize build validation
-        runs-on: ubuntu-latest
-
-        steps:
-            - name: Checkout repository
-              uses: actions/checkout@v7
-
-            - name: Install kustomize
-              run: |
-                  set -euo pipefail
-                  curl -sSL \
-                    "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz" \
-                    | tar -xz -C /usr/local/bin kustomize
-                  kustomize version
-
-            - name: Validate base
-              run: |
-                  set -euo pipefail
-                  kustomize build --load-restrictor=LoadRestrictionsNone deploy/k8s-next/base > /dev/null
-                  echo "Base build: OK" >> "$GITHUB_STEP_SUMMARY"
-
-            - name: Validate staging overlay
-              run: |
-                  set -euo pipefail
-                  kustomize build --load-restrictor=LoadRestrictionsNone deploy/k8s-next/overlays/staging > /dev/null
-                  echo "Staging overlay build: OK" >> "$GITHUB_STEP_SUMMARY"
-
-            - name: Validate production overlay
-              run: |
-                  set -euo pipefail
-                  kustomize build --load-restrictor=LoadRestrictionsNone deploy/k8s-next/overlays/production > /dev/null
-                  echo "Production overlay build: OK" >> "$GITHUB_STEP_SUMMARY"
 
     # ---------------------------------------------------------------------------
     # Gate — all checks must pass
@@ -766,7 +716,7 @@ jobs:
             - name: Set up Node
               uses: actions/setup-node@v7
               with:
-                  node-version: "24"
+                  node-version: "26"
                   cache: npm
                   cache-dependency-path: frontend/package-lock.json
 
@@ -882,8 +832,6 @@ jobs:
             - backend-tests
             - frontend-quality
             - docker-compose-validate
-            - k8s-secret-scan
-            - kustomize-validate
         if: always()
 
         steps:

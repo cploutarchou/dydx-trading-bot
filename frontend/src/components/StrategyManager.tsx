@@ -39,7 +39,7 @@ import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/
 import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
 import { Strategy, useStrategyStore } from '../store/strategies';
 import { useNow } from '../hooks/useNow';
-import { formatPct, formatSignedUsd, formatUsdFixed } from '../utils/format';
+import { formatPct, formatSignedUsd, formatUsdBalance } from '../utils/format';
 import { AIRuntimeDigest } from './AIRuntimeDigest';
 import { AIStrategyAdvisor } from './AIStrategyAdvisor';
 import { CodexAssetIntelStrip } from './CodexAssetIntelStrip';
@@ -2311,7 +2311,7 @@ export default function StrategyManager() {
                           Free Collateral
                         </p>
                         <p className="mt-2 text-lg font-semibold text-white">
-                          {formatUsdFixed(startDialogReadiness.available_collateral)}
+                          {formatUsdBalance(startDialogReadiness.available_collateral)}
                         </p>
                       </div>
                       <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
@@ -2319,7 +2319,7 @@ export default function StrategyManager() {
                           Trade Size
                         </p>
                         <p className="mt-2 text-lg font-semibold text-white">
-                          {formatUsdFixed(startDialogReadiness.usd_per_trade)}
+                          {formatUsdBalance(startDialogReadiness.usd_per_trade)}
                         </p>
                       </div>
                       <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
@@ -2412,13 +2412,13 @@ export default function StrategyManager() {
                           <div className="flex items-center justify-between">
                             <span>Capital allocation target</span>
                             <span className="font-medium text-white">
-                              {formatUsdFixed(startDialogReadiness.capital_allocation_usd)}
+                              {formatUsdBalance(startDialogReadiness.capital_allocation_usd)}
                             </span>
                           </div>
                           <div className="flex items-center justify-between">
                             <span>Min collateral guard</span>
                             <span className="font-medium text-white">
-                              {formatUsdFixed(startDialogReadiness.usd_min_collateral)}
+                              {formatUsdBalance(startDialogReadiness.usd_min_collateral)}
                             </span>
                           </div>
                           {startDialogReadiness.trade_size_to_collateral_ratio !== null &&

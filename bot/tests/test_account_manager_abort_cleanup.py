@@ -334,3 +334,137 @@ def test_abort_all_positions_scoped_to_tracked_markets(monkeypatch, tmp_path):
     # Only the tracked market's position was closed; OTHER-USD untouched.
     assert closes == ["BTC-USD"]
     assert len(result) == 1
+
+
+def _abort_harness(monkeypatch, tmp_path, *, positions=None, fetch_error=None):
+    """Wire abort_all_positions to fakes; returns (tracked_path, calls)."""
+    bot_agents_path = tmp_path / "bot_agents.json"
+    bot_agents_path.write_text(
+        json.dumps([{"market_1": "BTC-USD", "market_2": "ETH-USD"}]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(bot_agents_state, "BOT_AGENTS_PATH", bot_agents_path)
+    calls = {"cancel": [], "close": [], "fetch": 0}
+
+    async def fake_cancel_all_orders(_client, markets=None):
+        calls["cancel"].append(markets)
+        return []
+
+    async def fake_get_markets(_client):
+        return {
+            "markets": {
+                "BTC-USD": {"tickSize": "0.1"},
+                "ETH-USD": {"tickSize": "0.1"},
+            }
+        }
+
+    async def fake_get_open_positions(_client):
+        calls["fetch"] += 1
+        if fetch_error is not None:
+            raise fetch_error
+        return positions or {}
+
+    async def fake_place_market_order(_client, market, side, size, price, reduce_only):
+        calls["close"].append(market)
+        return {"id": f"close-{market}"}, f"close-{market}"
+
+    async def fake_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(account_manager, "cancel_all_orders", fake_cancel_all_orders)
+    monkeypatch.setattr(account_manager, "get_markets", fake_get_markets)
+    monkeypatch.setattr(account_manager, "get_open_positions", fake_get_open_positions)
+    monkeypatch.setattr(account_manager, "place_market_order", fake_place_market_order)
+    monkeypatch.setattr(account_manager.asyncio, "sleep", fake_sleep)
+    return bot_agents_path, calls
+
+
+_OPEN_BTC = {
+    "BTC-USD": {
+        "market": "BTC-USD",
+        "side": "LONG",
+        "entryPrice": "100.0",
+        "sumOpen": "0.25",
+    }
+}
+
+
+def test_abort_with_empty_scope_touches_nothing(monkeypatch, tmp_path):
+    """An instance tracking no markets must not fall back to the whole subaccount."""
+    tracked_path, calls = _abort_harness(monkeypatch, tmp_path, positions=_OPEN_BTC)
+
+    result = asyncio.run(account_manager.abort_all_positions(object(), markets=[]))
+
+    assert result == []
+    assert calls == {"cancel": [], "close": [], "fetch": 0}
+    assert json.loads(tracked_path.read_text(encoding="utf-8")) != []
+
+
+def test_abort_with_blank_only_scope_touches_nothing(monkeypatch, tmp_path):
+    _, calls = _abort_harness(monkeypatch, tmp_path, positions=_OPEN_BTC)
+
+    result = asyncio.run(
+        account_manager.abort_all_positions(object(), markets=["", " "])
+    )
+
+    assert result == []
+    assert calls["close"] == []
+
+
+def test_abort_without_scope_keeps_whole_subaccount_semantics(monkeypatch, tmp_path):
+    tracked_path, calls = _abort_harness(monkeypatch, tmp_path, positions=_OPEN_BTC)
+
+    asyncio.run(account_manager.abort_all_positions(object()))
+
+    assert calls["close"] == ["BTC-USD"]
+    assert json.loads(tracked_path.read_text(encoding="utf-8")) == []
+
+
+def test_cancel_all_orders_with_empty_scope_cancels_nothing(monkeypatch):
+    async def fail_lookup(*_args, **_kwargs):
+        raise AssertionError("order lookup must not run for an empty scope")
+
+    monkeypatch.setattr(
+        account_manager, "_get_subaccount_orders_with_metrics", fail_lookup
+    )
+
+    assert asyncio.run(account_manager.cancel_all_orders(object(), markets=[])) == []
+
+
+def test_abort_fails_closed_when_position_fetch_fails(monkeypatch, tmp_path):
+    tracked_path, calls = _abort_harness(
+        monkeypatch, tmp_path, fetch_error=RuntimeError("indexer 503")
+    )
+    before = tracked_path.read_text(encoding="utf-8")
+
+    try:
+        asyncio.run(account_manager.abort_all_positions(object()))
+    except RuntimeError as exc:
+        assert "get_open_positions" in str(exc)
+        assert "indexer 503" in str(exc)
+    else:
+        assert False, "a failed position fetch must not report a clean abort"
+
+    assert calls["close"] == []
+    assert tracked_path.read_text(encoding="utf-8") == before
+
+
+def test_abort_keeps_tracked_state_when_a_close_fails(monkeypatch, tmp_path):
+    tracked_path, _ = _abort_harness(monkeypatch, tmp_path, positions=_OPEN_BTC)
+    before = tracked_path.read_text(encoding="utf-8")
+
+    async def failing_place_market_order(*_args, **_kwargs):
+        raise RuntimeError("sequence mismatch")
+
+    monkeypatch.setattr(
+        account_manager, "place_market_order", failing_place_market_order
+    )
+
+    try:
+        asyncio.run(account_manager.abort_all_positions(object()))
+    except RuntimeError as exc:
+        assert "BTC-USD" in str(exc)
+    else:
+        assert False, "expected RuntimeError after a failed close"
+
+    assert tracked_path.read_text(encoding="utf-8") == before

@@ -219,29 +219,7 @@ func (s *NATSCommandService) publishToNATSAsync(
 		return
 	}
 
-	// Create a minimal payload for NATS message (reference-heavy per contract)
-	natsPayload := map[string]interface{}{
-		"command_id":      taskCmd.ID,
-		"run_id":          taskCmd.OwnerID,
-		"command_type":    taskCmd.CommandType,
-		"owner_type":      taskCmd.OwnerType,
-		"owner_id":        taskCmd.OwnerID,
-		"idempotency_key": taskCmd.IdempotencyKey,
-		"created_at":      taskCmd.CreatedAt.Format(time.RFC3339),
-		"status":          taskCmd.Status,
-	}
-
-	// Add minimal config references (not full config to keep payload small)
-	if config != nil {
-		if name, ok := config["name"].(string); ok && name != "" {
-			natsPayload["name"] = name
-		}
-		if strategyID, ok := config["strategy_id"].(float64); ok && strategyID > 0 {
-			natsPayload["strategy_id"] = int(strategyID)
-		}
-	}
-
-	payloadJSON, err := json.Marshal(natsPayload)
+	payloadJSON, err := buildCommandPayload(taskCmd, config)
 	if err != nil {
 		log.Printf("NATS Command Service: failed to marshal NATS payload: %v", err)
 		return
@@ -382,6 +360,35 @@ func (s *NATSCommandService) HealthCheck() error {
 	return nil
 }
 
+// buildCommandPayload builds the reference-heavy message body the backtest
+// consumer reads (command_id, run_id, owner, idempotency key). The first
+// publish and the reconciler must send the same shape: the consumer resolves
+// the run from these fields, not from the stored config.
+func buildCommandPayload(taskCmd *models.TaskCommand, config map[string]interface{}) ([]byte, error) {
+	natsPayload := map[string]interface{}{
+		"command_id":      taskCmd.ID,
+		"run_id":          taskCmd.OwnerID,
+		"command_type":    taskCmd.CommandType,
+		"owner_type":      taskCmd.OwnerType,
+		"owner_id":        taskCmd.OwnerID,
+		"idempotency_key": taskCmd.IdempotencyKey,
+		"created_at":      taskCmd.CreatedAt.Format(time.RFC3339),
+		"status":          taskCmd.Status,
+	}
+
+	// Add minimal config references (not full config to keep payload small)
+	if config != nil {
+		if name, ok := config["name"].(string); ok && name != "" {
+			natsPayload["name"] = name
+		}
+		if strategyID, ok := config["strategy_id"].(float64); ok && strategyID > 0 {
+			natsPayload["strategy_id"] = int(strategyID)
+		}
+	}
+
+	return json.Marshal(natsPayload)
+}
+
 // ReconcilePendingCommands re-publishes task commands stuck in "pending"
 // (publish lost to a NATS outage or a process restart mid-publish). The
 // JetStream Msg-Id equals the idempotency key, so re-publishing an already
@@ -409,16 +416,35 @@ func (s *NATSCommandService) ReconcilePendingCommands(ctx context.Context, older
 			break
 		}
 
+		// The stored payload is the serialized run config; rebuild the same
+		// message body the first publish sends. A config that no longer parses
+		// only loses the optional name/strategy references.
+		var config map[string]interface{}
+		if len(taskCmd.PayloadJSON) > 0 {
+			if err := json.Unmarshal(taskCmd.PayloadJSON, &config); err != nil {
+				log.Printf("NATS reconciler: stored config for command %s is not a JSON object: %v", taskCmd.ID, err)
+				config = nil
+			}
+		}
+		payloadJSON, err := buildCommandPayload(taskCmd, config)
+		if err != nil {
+			log.Printf("NATS reconciler: failed to build payload for command %s: %v", taskCmd.ID, err)
+			continue
+		}
+
 		envelope := nats.Envelope{
-			MessageID:       taskCmd.ID,
-			IdempotencyKey:  taskCmd.IdempotencyKey,
+			MessageID:      taskCmd.ID,
+			IdempotencyKey: taskCmd.IdempotencyKey,
+			// The original request trace id is not persisted; the command id
+			// keeps the re-publish traceable to its task_commands row.
+			CorrelationID:   taskCmd.ID,
 			OwnerType:       taskCmd.OwnerType,
 			OwnerID:         taskCmd.OwnerID,
 			OccurredAt:      s.clock().UTC(),
 			ProducerService: "backend-api-reconciler",
 			SchemaVersion:   nats.DefaultSchemaVersion,
 			Subject:         nats.Subject("backtest", "command", "start"),
-			Payload:         json.RawMessage(taskCmd.PayloadJSON),
+			Payload:         json.RawMessage(payloadJSON),
 		}
 		if err := envelope.Validate(); err != nil {
 			log.Printf("NATS reconciler: skipping invalid command %s: %v", taskCmd.ID, err)

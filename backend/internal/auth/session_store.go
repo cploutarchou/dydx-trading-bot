@@ -121,7 +121,16 @@ func requireRedisSessions() bool {
 	if value == "true" || value == "1" || value == "yes" {
 		return true
 	}
-	return strings.EqualFold(os.Getenv("APP_ENV"), "production")
+	// The repo labels production as both "prod" and "production", in APP_ENV
+	// or ENVIRONMENT. Missing one of them silently downgraded production to
+	// the in-memory store (sessions and revocations lost on restart).
+	for _, key := range []string{"APP_ENV", "ENVIRONMENT"} {
+		switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+		case "prod", "production":
+			return true
+		}
+	}
+	return false
 }
 
 func (s *SessionStore) Create(ctx context.Context, data SessionData, ttl time.Duration) (string, SessionData, error) {

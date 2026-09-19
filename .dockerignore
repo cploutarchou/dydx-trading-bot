@@ -15,3 +15,33 @@ pair_history
 frontend/coverage
 backend/bin
 *.log
+
+# Secret-bearing and local-only files. Every image is built with the repo root
+# as context and copies whole service directories (`COPY bot/ .`), so anything
+# not listed here can be baked into a layer. Images create their own stub
+# run.json; runtime configuration comes from the environment.
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+run.json
+**/run.json
+.configkey*
+**/.configkey*
+config/profiles
+**/*.pem
+**/*.key
+*.zip
+
+# Not needed by any build stage
+.github
+.devcontainer
+**/.devcontainer
+.vscode
+.vibe
+.video_agent
+docs
+deploy
+tmp

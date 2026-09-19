@@ -32,6 +32,19 @@ export const formatUsdFixed = (value: number | undefined | null): string =>
       })}`
     : '$0.00';
 
+/** `$1,234.50` / `-$12.50` / `—` — account balances on decision surfaces
+ * (go-live dialog). Unlike `formatUsdFixed`, the sign is kept and a missing or
+ * non-finite value renders as an em dash: an operator must never read a
+ * negative or unknown balance as a positive or zero one. */
+export const formatUsdBalance = (value: number | undefined | null): string => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+  const amount = Math.abs(value).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return value < 0 ? `-$${amount}` : `$${amount}`;
+};
+
 /** `12.3%` — percentage with fixed digits. */
 export const formatPct = (value: number, fractionDigits = 1): string =>
   `${Number.isFinite(value) ? value.toFixed(fractionDigits) : '0.0'}%`;

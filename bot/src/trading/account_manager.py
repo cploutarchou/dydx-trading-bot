@@ -276,23 +276,33 @@ async def get_order_fills(
         if not isinstance(fills, list) or not fills:
             break
 
+        # The next (older) page starts at the OLDEST fill of this page. Using
+        # the minimum timestamp (not a position) keeps this correct whatever
+        # order the indexer returns. The bound is inclusive, which re-delivers
+        # the boundary fill; ids de-duplicate it. Indexer timestamps share one
+        # ISO-8601 UTC format, so they order lexicographically.
         page_cursor: Optional[str] = None
+        new_fills = 0
         for fill in fills:
             if not isinstance(fill, dict):
                 continue
+            created_at = str(fill.get("createdAt") or fill.get("created_at") or "")
+            if created_at and (page_cursor is None or created_at < page_cursor):
+                page_cursor = created_at
             fill_id = str(fill.get("id") or fill.get("uuid") or "")
             if fill_id and fill_id in seen_fill_ids:
                 continue
             if fill_id:
                 seen_fill_ids.add(fill_id)
             collected.append(fill)
-            if page_cursor is None:
-                page_cursor = (
-                    str(fill.get("createdAt") or fill.get("created_at") or "") or None
-                )
-        cursor = page_cursor
+            new_fills += 1
         if len(fills) < limit:
             break
+        if new_fills == 0 or page_cursor is None or page_cursor == cursor:
+            # No progress is possible (no timestamps, or a full page sharing
+            # one timestamp): stop instead of re-reading the same window.
+            break
+        cursor = page_cursor
 
     order_id_text = str(order_id)
     return [
@@ -617,9 +627,15 @@ async def cancel_all_orders(
     ``markets`` scopes both the order lookup and the cancels: on a shared
     subaccount an instance must not cancel other instances' orders.
     """
+    # ``None`` means whole subaccount; an empty collection means "scope to
+    # nothing" and must never widen to every market.
     market_filter = (
-        {str(m).strip() for m in markets if str(m).strip()} if markets else None
+        {str(m).strip() for m in markets if str(m).strip()}
+        if markets is not None
+        else None
     )
+    if market_filter is not None and not market_filter:
+        return []
     try:
         order_lookup_address = _resolve_client_address(client)
         raw_orders = await _get_subaccount_orders_with_metrics(
@@ -689,20 +705,29 @@ async def abort_all_positions(
 
     This is used for emergency shutdown or mode switch. Fail-closed design:
     positions are always flattened best-effort (a failed cancel or a single
-    failed close must not skip the remaining closes), tracked state is
-    cleared, and any failure is re-raised afterwards so the caller aborts
-    with a CRITICAL signal instead of silently continuing.
+    failed close must not skip the remaining closes) and any failure is
+    re-raised afterwards so the caller aborts with a CRITICAL signal instead
+    of silently continuing. Tracked state is cleared unless the account could
+    not be confirmed flat (position fetch failed or a close order failed); in
+    that case it is kept so the possible exposure is not forgotten.
 
     ``markets`` scopes the abort to this instance's tracked markets: orders
     are cancelled and positions closed only on those markets, so on a shared
     subaccount one instance's abort does not flatten other instances'
     positions. ``None`` (default) keeps the legacy whole-subaccount kill
-    switch semantics.
+    switch semantics; an empty collection scopes the abort to nothing.
     """
     cleanup_errors: List[str] = []
     market_scope: Optional[set[str]] = (
-        {str(m).strip() for m in markets if str(m).strip()} if markets else None
+        {str(m).strip() for m in markets if str(m).strip()}
+        if markets is not None
+        else None
     )
+    if market_scope is not None and not market_scope:
+        # An instance that tracks no markets has nothing to abort. Falling
+        # through with an empty scope used to widen to the whole subaccount.
+        logger.info("Scoped abort with no tracked markets; nothing to cancel or close")
+        return []
 
     # Cancel open orders (best-effort; failures surface after flattening)
     try:
@@ -722,12 +747,19 @@ async def abort_all_positions(
     await asyncio.sleep(0.5)
 
     # Get all open positions
+    exposure_unknown = False
     try:
         positions = await get_open_positions(client)
     except Exception as e:
-        # If the indexer returns 404 or similar, assume no positions for this test account
-        logger.warning("Could not fetch open positions: {}", e)
+        # get_open_positions already maps a missing subaccount (404) to "no
+        # positions"; anything reaching here is unknown exposure and must fail
+        # closed instead of being treated as a flat account.
         positions = {}
+        exposure_unknown = True
+        cleanup_errors.append(f"get_open_positions: {e}")
+        logger.critical(
+            "Could not fetch open positions during abort; exposure unknown: {}", e
+        )
 
     # Handle open positions
     close_orders = []
@@ -772,6 +804,7 @@ async def abort_all_positions(
                 # Append the result
                 close_orders.append(order)
             except Exception as e:
+                exposure_unknown = True
                 cleanup_errors.append(f"close {pos.get('market', item)}: {e}")
                 logger.critical(
                     "Failed to place close order for {} during abort: {}",
@@ -783,7 +816,14 @@ async def abort_all_positions(
             if DYDX_API_THROTTLE_SECONDS > 0:
                 await asyncio.sleep(DYDX_API_THROTTLE_SECONDS)
 
-    await clear_tracked_positions()
+    if exposure_unknown:
+        # Positions may still be open; keep the tracked state so the next start
+        # and the operator still know about the possible exposure.
+        logger.critical(
+            "Keeping tracked positions: abort could not confirm the account is flat"
+        )
+    else:
+        await clear_tracked_positions()
 
     if cleanup_errors:
         raise RuntimeError(

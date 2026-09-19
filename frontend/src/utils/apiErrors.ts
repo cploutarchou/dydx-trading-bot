@@ -80,3 +80,31 @@ export const humanizeApiError = (error: unknown, context?: string): string => {
 
   return prefix + 'Something went wrong while reaching the backend. Retry in a moment.';
 };
+
+/**
+ * Reduce a thrown value to fields that are safe to write to the console.
+ *
+ * An axios error carries the full request (`config.data`, headers) and the raw
+ * response body; on credential-bearing calls that includes wallet seed
+ * phrases and tokens. Log this summary instead of the error object.
+ */
+export const summarizeErrorForLog = (
+  error: unknown
+): { name?: string; message: string; status?: number; code?: string } => {
+  if (typeof error === 'string') return { message: error };
+  if (typeof error !== 'object' || error === null) return { message: String(error) };
+
+  const candidate = error as {
+    name?: unknown;
+    message?: unknown;
+    code?: unknown;
+    response?: { status?: unknown };
+  };
+  const summary: { name?: string; message: string; status?: number; code?: string } = {
+    message: typeof candidate.message === 'string' ? candidate.message : 'Unknown error',
+  };
+  if (typeof candidate.name === 'string') summary.name = candidate.name;
+  if (typeof candidate.code === 'string') summary.code = candidate.code;
+  if (typeof candidate.response?.status === 'number') summary.status = candidate.response.status;
+  return summary;
+};

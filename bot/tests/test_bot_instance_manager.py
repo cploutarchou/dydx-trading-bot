@@ -3052,3 +3052,43 @@ def test_trading_params_env_round_trips_through_bot_settings_from_env(
     assert parsed.ZScoreThreshold == pytest.approx(1.75)
     assert parsed.selectedMarkets == ["SOL-USD"]
     assert parsed.closeAtZscoreCross == config.trading_params.close_at_zscore_cross
+
+
+# --- API status view must never carry credentials ---------------------------
+
+
+def test_api_status_view_never_exposes_mnemonic_or_telegram_token():
+    config = _strategy_config("strategy-9-1")
+    secret_mnemonic = "unit-test-mnemonic-value-not-a-real-seed"
+    secret_token = "unit-test-telegram-token"
+    config = config.model_copy(
+        update={
+            "credentials": config.credentials.model_copy(
+                update={"mnemonic": secret_mnemonic}
+            ),
+            "telegram": TelegramConfig(token=secret_token, chat_id="42"),
+        }
+    )
+    state = BotInstanceState(
+        instance_id="strategy-9-1",
+        config=config,
+        status=BotStatus.STOPPED,
+        process_info={},
+        trading_stats={},
+        created_at=datetime.now(timezone.utc),
+        last_update=datetime.now(timezone.utc),
+    )
+
+    payload = state.to_api_status().model_dump(mode="json")
+    serialized = json.dumps(payload)
+
+    assert secret_mnemonic not in serialized
+    assert secret_token not in serialized
+    assert "mnemonic" not in payload["config"]["credentials"]
+    assert "token" not in payload["config"]["telegram"]
+    assert payload["config"]["credentials"]["mnemonic_configured"] is True
+    assert payload["config"]["telegram"]["token_configured"] is True
+    assert payload["config"]["telegram"]["chat_id"] == "42"
+    assert payload["config"]["credentials"]["address"]
+    # The internal config object is untouched: the runtime still has its key.
+    assert state.config.credentials.mnemonic == secret_mnemonic

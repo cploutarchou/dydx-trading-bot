@@ -29,6 +29,24 @@ updates:
             - "pandas-stubs"
             - "types-*"
 
+    # Go modules for the backend API gateway (auth, sessions, delegated routes).
+    - package-ecosystem: gomod
+      directory: /backend
+      schedule:
+          interval: weekly
+      open-pull-requests-limit: 5
+
+    # npm dependencies for the frontend dashboard. Dev tooling is batched;
+    # runtime dependencies stay individually reviewable.
+    - package-ecosystem: npm
+      directory: /frontend
+      schedule:
+          interval: weekly
+      open-pull-requests-limit: 5
+      groups:
+        frontend-dev-tools:
+          dependency-type: development
+
     # GitHub Actions versions used by the workflows (actions/checkout etc.).
     - package-ecosystem: github-actions
       directory: /

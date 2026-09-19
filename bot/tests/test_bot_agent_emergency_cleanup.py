@@ -73,6 +73,7 @@ def test_open_trades_returns_error_dict_after_second_leg_failure(monkeypatch):
         quote_size="1",
         quote_price="3000",
         accept_failsafe_base_price="90000",
+        accept_failsafe_quote_price="5100",
         z_score=2.0,
         half_life=10,
         hedge_ratio=0.5,
@@ -156,6 +157,7 @@ def test_open_trades_emergency_closes_first_leg_when_second_leg_placement_raises
         quote_size="1",
         quote_price="3000",
         accept_failsafe_base_price="90000",
+        accept_failsafe_quote_price="5100",
         z_score=2.0,
         half_life=10,
         hedge_ratio=0.5,
@@ -251,6 +253,7 @@ def test_open_trades_reconciles_entry_prices_from_weighted_fills(monkeypatch):
         quote_size="1",
         quote_price="2900",
         accept_failsafe_base_price="90000",
+        accept_failsafe_quote_price="5100",
         z_score=2.0,
         half_life=10,
         hedge_ratio=0.5,
@@ -338,6 +341,7 @@ def test_open_trades_treats_non_filled_emergency_close_as_success_when_position_
         quote_size="1",
         quote_price="3000",
         accept_failsafe_base_price="0.9",
+        accept_failsafe_quote_price="5100",
         z_score=2.0,
         half_life=10,
         hedge_ratio=0.5,
@@ -409,6 +413,7 @@ def test_open_trades_emergency_failure_raises_json_telemetry(monkeypatch):
         quote_size="64",
         quote_price="0.1541",
         accept_failsafe_base_price="0.1",
+        accept_failsafe_quote_price="5100",
         z_score=-1.5,
         half_life=10,
         hedge_ratio=0.03,
@@ -462,6 +467,7 @@ def test_check_order_status_treats_failed_as_failed(monkeypatch):
         quote_size="1",
         quote_price="3000",
         accept_failsafe_base_price="90000",
+        accept_failsafe_quote_price="5100",
         z_score=2.0,
         half_life=10,
         hedge_ratio=0.5,
@@ -521,6 +527,7 @@ def test_check_order_status_treats_cancelled_variants_as_failed(monkeypatch):
             quote_size="1",
             quote_price="3000",
             accept_failsafe_base_price="90000",
+            accept_failsafe_quote_price="5100",
             z_score=2.0,
             half_life=10,
             hedge_ratio=0.5,
@@ -583,6 +590,7 @@ def test_check_order_status_cancels_non_filled_second_probe(monkeypatch):
         quote_size="1",
         quote_price="3000",
         accept_failsafe_base_price="90000",
+        accept_failsafe_quote_price="5100",
         z_score=2.0,
         half_life=10,
         hedge_ratio=0.5,
@@ -607,6 +615,7 @@ def _make_agent(**overrides):
         quote_size="1",
         quote_price="3000",
         accept_failsafe_base_price="90000",
+        accept_failsafe_quote_price="5100",
         z_score=2.0,
         half_life=10,
         hedge_ratio=0.5,
@@ -671,7 +680,14 @@ def test_open_trades_closes_both_legs_when_second_leg_status_check_raises(monkey
     calls = []
 
     async def fake_place_market_order(client, market, side, size, price, reduce_only):
-        calls.append({"market": market, "side": side, "reduce_only": reduce_only})
+        calls.append(
+            {
+                "market": market,
+                "side": side,
+                "price": price,
+                "reduce_only": reduce_only,
+            }
+        )
         return ({"ok": True}, f"order-{len(calls)}")
 
     async def fake_check_order_status(client, order_id):
@@ -702,6 +718,12 @@ def test_open_trades_closes_both_legs_when_second_leg_status_check_raises(monkey
     # Both legs received reduce-only closes.
     closes = [c for c in calls if c["reduce_only"]]
     assert {c["market"] for c in closes} == {"BTC-USD", "ETH-USD"}
+    # Each leg is closed with its own market's fail-safe price: a market-1
+    # price on market 2 is off-scale and leaves the leg open.
+    assert {c["market"]: c["price"] for c in closes} == {
+        "BTC-USD": "90000",
+        "ETH-USD": "5100",
+    }
 
 
 def test_open_trades_closes_residual_on_first_leg_partial_fill(monkeypatch):
@@ -760,7 +782,14 @@ def test_open_trades_closes_both_legs_on_second_leg_partial_fill(monkeypatch):
     calls = []
 
     async def fake_place_market_order(client, market, side, size, price, reduce_only):
-        calls.append({"market": market, "side": side, "reduce_only": reduce_only})
+        calls.append(
+            {
+                "market": market,
+                "side": side,
+                "price": price,
+                "reduce_only": reduce_only,
+            }
+        )
         return ({"ok": True}, f"order-{len(calls)}")
 
     async def fake_check_order_status(client, order_id):
@@ -792,6 +821,12 @@ def test_open_trades_closes_both_legs_on_second_leg_partial_fill(monkeypatch):
     assert result["pair_status"] == "ERROR"
     closes = [c for c in calls if c["reduce_only"]]
     assert {c["market"] for c in closes} == {"BTC-USD", "ETH-USD"}
+    # Each leg is closed with its own market's fail-safe price: a market-1
+    # price on market 2 is off-scale and leaves the leg open.
+    assert {c["market"]: c["price"] for c in closes} == {
+        "BTC-USD": "90000",
+        "ETH-USD": "5100",
+    }
 
 
 def test_check_order_status_treats_unknown_fills_as_partial(monkeypatch):

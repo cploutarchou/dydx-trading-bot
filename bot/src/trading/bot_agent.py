@@ -39,6 +39,7 @@ class BotAgent:
         quote_size: str,
         quote_price: str,
         accept_failsafe_base_price: str,
+        accept_failsafe_quote_price: str,
         z_score: float,
         half_life: float,
         hedge_ratio: float,
@@ -56,6 +57,9 @@ class BotAgent:
         self.quote_size = quote_size
         self.quote_price = quote_price
         self.accept_failsafe_base_price = accept_failsafe_base_price
+        # Leg 2 trades a different market: its emergency close needs its own
+        # fail-safe price (market 2 scale and tick size), never market 1's.
+        self.accept_failsafe_quote_price = accept_failsafe_quote_price
         self.z_score = z_score
         self.half_life = half_life
         self.hedge_ratio = hedge_ratio
@@ -563,7 +567,7 @@ class BotAgent:
                     market=self.market_2,
                     side=self.quote_side,
                     size=self.quote_size,
-                    price=self.accept_failsafe_base_price,
+                    price=self.accept_failsafe_quote_price,
                 )
             except Exception as leg2_error:
                 errors.append(f"leg2 {self.market_2}: {leg2_error}")
@@ -596,7 +600,7 @@ class BotAgent:
                     market=self.market_2,
                     side=self.quote_side,
                     size=self.quote_size,
-                    price=self.accept_failsafe_base_price,
+                    price=self.accept_failsafe_quote_price,
                 )
             except Exception as leg2_error:
                 errors.append(f"leg2 {self.market_2}: {leg2_error}")

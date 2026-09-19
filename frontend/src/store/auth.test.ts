@@ -23,6 +23,12 @@ vi.mock('../api', () => ({
   default: apiMock,
 }));
 
+const queryClientMock = { clear: vi.fn() };
+
+vi.mock('../api/queryClient', () => ({
+  queryClient: queryClientMock,
+}));
+
 vi.mock('../utils/perf', () => ({
   perfMark: vi.fn(),
   perfMeasure: vi.fn(),
@@ -117,5 +123,17 @@ describe('auth store session bootstrap', () => {
     expect(useAuthStore.getState().isAuthenticated()).toBe(false);
     expect(useAuthStore.getState().sessionInitialized).toBe(true);
     expect(useAuthStore.getState().sessionLoading).toBe(false);
+  });
+});
+
+describe('auth store logout', () => {
+  it('clears the query cache so the next user never sees cached data', () => {
+    queryClientMock.clear.mockClear();
+
+    useAuthStore.getState().logout();
+
+    expect(apiMock.logout).toHaveBeenCalled();
+    expect(queryClientMock.clear).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().user).toBeNull();
   });
 });

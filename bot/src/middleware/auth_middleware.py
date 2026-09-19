@@ -27,12 +27,6 @@ _AUTH_BYPASS_ALLOWED_ENVIRONMENTS = {
     "testing",
     "ci",
 }
-_AUTH_BYPASS_FORBIDDEN_ENVIRONMENTS = {
-    "production",
-    "prod",
-    "live",
-    "mainnet",
-}
 
 
 @dataclass
@@ -51,15 +45,6 @@ class _ServiceTokenUser:
     is_superuser: bool
 
 
-def _normalized_environment_name(raw: str) -> str:
-    value = str(raw or "").strip().lower()
-    if value in _AUTH_BYPASS_FORBIDDEN_ENVIRONMENTS:
-        return "production"
-    if value in _AUTH_BYPASS_ALLOWED_ENVIRONMENTS:
-        return "development" if value not in {"test", "testing", "ci"} else "test"
-    return value or "development"
-
-
 def current_environment_name() -> str:
     for key in ("APP_CONFIG_ENV", "CONFIG_ENV", "ENVIRONMENT", "APP_ENV"):
         value = os.getenv(key, "").strip()
@@ -72,24 +57,45 @@ def auth_bypass_requested() -> bool:
     return os.getenv("API_BYPASS_AUTH", "false").strip().lower() == "true"
 
 
+_ENVIRONMENT_VARIABLES = ("APP_CONFIG_ENV", "CONFIG_ENV", "ENVIRONMENT", "APP_ENV")
+
+
+def _explicit_environment_values() -> list[str]:
+    values = (os.getenv(key, "").strip().lower() for key in _ENVIRONMENT_VARIABLES)
+    return [value for value in values if value]
+
+
 def auth_bypass_is_allowed_environment(environment: Optional[str] = None) -> bool:
-    raw = str(environment or current_environment_name()).strip().lower()
-    return raw in _AUTH_BYPASS_ALLOWED_ENVIRONMENTS
+    """Whether the auth bypass may be honoured. Fails closed.
+
+    With an explicit ``environment`` only that value is checked. Otherwise the
+    process environment decides: at least one environment variable must be set
+    and every one that is set must name a local/dev/test environment. An unset
+    environment is NOT development (a production image that forgot the
+    variable must not accept the bypass), and a development label cannot
+    override a production label in another variable.
+    """
+    if environment is not None and str(environment).strip():
+        return str(environment).strip().lower() in _AUTH_BYPASS_ALLOWED_ENVIRONMENTS
+    explicit = _explicit_environment_values()
+    return bool(explicit) and all(
+        value in _AUTH_BYPASS_ALLOWED_ENVIRONMENTS for value in explicit
+    )
 
 
 def validate_auth_bypass_configuration() -> None:
     if not auth_bypass_requested():
         return
 
-    raw_environment = current_environment_name()
-    normalized_environment = _normalized_environment_name(raw_environment)
-    if auth_bypass_is_allowed_environment(raw_environment):
+    if auth_bypass_is_allowed_environment():
         return
 
+    explicit = _explicit_environment_values()
     raise RuntimeError(
         "API_BYPASS_AUTH=true is forbidden outside explicit local/dev/test environments. "
-        f"Resolved environment='{normalized_environment}' from ENVIRONMENT='{raw_environment or 'unset'}'. "
-        "Allowed values for auth bypass are: development, dev, local, test, testing, ci."
+        f"Environment variables ({', '.join(_ENVIRONMENT_VARIABLES)}) resolve to "
+        f"{explicit or 'unset'}; every one that is set must be one of: "
+        "development, dev, local, test, testing, ci, and at least one must be set."
     )
 
 

@@ -1087,6 +1087,13 @@ async def open_positions(client: Any) -> None:
                     failsafe_base_price = (
                         base_price * 0.05 if z_score < 0 else base_price * 1.7
                     )
+                    # Leg 2 is closed on the opposite side to leg 1, so its
+                    # fail-safe bound mirrors the base one on market 2's scale.
+                    failsafe_quote_price = (
+                        quote_price * 1.7
+                        if quote_side == "SELL"
+                        else quote_price * 0.05
+                    )
                     base_tick_size = markets["markets"][base_market]["tickSize"]
                     quote_tick_size = markets["markets"][quote_market]["tickSize"]
 
@@ -1099,6 +1106,9 @@ async def open_positions(client: Any) -> None:
                     )
                     accept_failsafe_base_price_formatted = format_number(
                         failsafe_base_price, base_tick_size
+                    )
+                    accept_failsafe_quote_price_formatted = format_number(
+                        failsafe_quote_price, quote_tick_size
                     )
 
                     # Get size
@@ -1185,6 +1195,7 @@ async def open_positions(client: Any) -> None:
                             quote_size=quote_size,
                             quote_price=accept_quote_price_formatted,
                             accept_failsafe_base_price=accept_failsafe_base_price_formatted,
+                            accept_failsafe_quote_price=accept_failsafe_quote_price_formatted,
                             z_score=z_score,
                             half_life=half_life,
                             hedge_ratio=hedge_ratio,

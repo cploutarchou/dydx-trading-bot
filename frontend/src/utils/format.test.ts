@@ -5,6 +5,7 @@ import {
   formatSignedUsd,
   formatSignedUsdCompact,
   formatUsd,
+  formatUsdBalance,
   formatUsdFixed,
 } from './format';
 
@@ -21,6 +22,15 @@ describe('shared formatters', () => {
     expect(formatUsdFixed(Number.NaN)).toBe('$0.00');
     expect(formatUsdFixed(undefined)).toBe('$0.00');
     expect(formatUsdFixed(null)).toBe('$0.00');
+  });
+
+  it('formatUsdBalance keeps the sign and never turns a missing balance into zero', () => {
+    expect(formatUsdBalance(1234.5)).toBe('$1,234.50');
+    expect(formatUsdBalance(0)).toBe('$0.00');
+    expect(formatUsdBalance(-12.5)).toBe('-$12.50');
+    expect(formatUsdBalance(undefined)).toBe('—');
+    expect(formatUsdBalance(null)).toBe('—');
+    expect(formatUsdBalance(Number.NaN)).toBe('—');
   });
 
   it('formatSignedUsd adds direction arrows and keeps zero neutral', () => {

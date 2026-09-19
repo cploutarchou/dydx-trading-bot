@@ -208,7 +208,8 @@ func (c *BotAPIClient) ValidateAgainstdYdXData(runID string) (map[string]interfa
 
 // GetAdvancedPerformanceMetrics retrieves advanced performance metrics
 func (c *BotAPIClient) GetAdvancedPerformanceMetrics(runID string, benchmark string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s/performance-metrics?benchmark=%s", url.PathEscape(runID), url.PathEscape(benchmark))
+	query := url.Values{"benchmark": {benchmark}}
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/performance-metrics?%s", url.PathEscape(runID), query.Encode())
 	return c.makeRequest("GET", endpoint, nil)
 }
 
@@ -226,7 +227,13 @@ func (c *BotAPIClient) UpdateBacktestMetadata(runID string, payload map[string]i
 
 // QuickDeployBot quickly deploys and optionally starts a new bot instance
 func (c *BotAPIClient) QuickDeployBot(instanceName string, autoStart bool, config map[string]interface{}) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/quick-deploy?instance_name=%s&auto_start=%v", url.PathEscape(instanceName), autoStart)
+	// Query values need query escaping: PathEscape leaves "&", "=" and "+"
+	// intact, which lets a caller-supplied name add or override parameters.
+	query := url.Values{
+		"instance_name": {instanceName},
+		"auto_start":    {strconv.FormatBool(autoStart)},
+	}
+	endpoint := "/api/v1/bots/quick-deploy?" + query.Encode()
 	return c.makeRequest("POST", endpoint, config)
 }
 

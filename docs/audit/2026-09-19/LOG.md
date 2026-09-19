@@ -160,7 +160,7 @@ Notes:
 Tasks: BOT-P1-001, BOT-P1-006, BOT-P1-008, BOT-P1-012 (BOT-P1-007 deferred)
 Verification: per-task entries above. Guard: scan-staged OK, check OK.
 
-## 2026-09-20 — INFRA-P0-001L (uncommitted)
+## 2026-09-20 — INFRA-P0-001L (commit daa9514a)
 Files: `bot/src/trading/instance_lock.py` (new), `bot/src/main_instance.py`, `bot/tests/test_instance_lock.py` (new), `bot/README.md`, `.github/workflows/bot-quality.yml`.
 Verification (from `bot/`):
 - Unit and wiring tests with a fake engine → 14 passed.

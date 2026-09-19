@@ -67,3 +67,64 @@ All fixes are verified with the hermetic suite (fakes only). Nothing in this pla
 - BOT-P2-005 internal exception text returned to clients — deferred (M; many sites).
 - BOT-P2-006 JWT secret falls back to a per-process random value — deferred (fail-closed start changes deployments; pair with BOT-P1-012).
 - BOT-P3-001 naive datetimes in pool monitor / DataFrame registry — deferred (S; low value this run).
+
+## Queue 2 — unblocked by the owner's decisions (2026-09-19)
+
+### BOT-P0-002 — Disable self-registration; admin/operator on lifecycle routes
+- Decision: registration off unless an explicit environment flag enables it; create/start/stop/delete need an admin or operator role. The backend's service token keeps working (it maps to a superuser principal today; verify in task).
+- Verification: route tests: register → 403/404 by default; lifecycle as a plain user → 403; service token → allowed; full bot suite; backend delegated-route tests.
+- Effort: M | Blast radius: med | Status: todo
+
+### BOT-P1-011 — Signing SDK advisory
+- Decision: verify the advisory's affected range and the installed package integrity first, then upgrade `dydx-v4-client` in a dedicated change; make `pip-audit` blocking with a dated ignore for `ecdsa`.
+- Verification: `pip-audit -r requirements.txt` clean apart from the documented ignore; full bot suite; no order-signing test regressions.
+- Effort: M | Blast radius: high (signing path) | Status: todo
+
+### BOT-P1-009 — Realised P&L for live trades
+- Decision: net of fees, from fills. Per leg (exit VWAP − entry VWAP) × size × side, minus fees on all four fills; funding stored separately; `Decimal`, 6 dp at storage.
+- Verification: unit tests with fixed fills (long/short legs, partial fills, fees); stats count winners and losers correctly; full bot suite.
+- Effort: M | Blast radius: med | Status: todo
+
+### Order-path items moved from proposal to the queue at the owner's request (2026-09-19)
+
+Each is its own change with tests on fakes only; nothing connects to an exchange. Full evidence and the detailed fix: `../findings/BOT.md`. Order follows the dependencies.
+
+### BOT-P1-001 — Detect transaction rejection from the broadcast response; bind order ids deterministically
+- Fix: inspect the broadcast response and raise a typed `OrderRejectedError` on a non-zero code instead of matching `"code" in str(order)`; resolve the order by its client id, never by "latest order" heuristics.
+- Verification: `pytest tests/ -q -k "place_market_order or resolve_order"` with new tests (rejected tx raises; an older order is never bound); full bot suite.
+- Effort: M | Blast radius: low | Status: todo
+
+### BOT-P1-006 — Emergency-close retry loop must survive placement exceptions
+- Fix: wrap placement in the retry loop, always fall through to the open-position check (fail closed on error), and only report success when the position is verified flat.
+- Verification: `pytest tests/ -q -k "emergency_close"` with a test where the first placement raises and the second fills; full bot suite.
+- Effort: S | Blast radius: low | Depends on: BOT-P1-001 | Status: todo
+
+### BOT-P1-007 — One client id per logical reduce-only close
+- Fix: generate the `client_id` once per logical close and reuse it across retries, so an unknown-outcome first attempt cannot be doubled by the retry on a shared subaccount.
+- Verification: `pytest tests/ -q -k "reduce_only_close"` with a test asserting the same client id across attempts; full bot suite.
+- Effort: M | Blast radius: low | Depends on: BOT-P1-001 | Status: todo
+
+### BOT-P1-008 — Halt new entries after a failed emergency cleanup
+- Fix: raise a typed `UnhedgedExposureError`; on it set a persisted, instance-level "entries halted" latch that blocks new entries until an operator clears it; alert through the messenger. Exits and risk controls keep running.
+- Verification: `pytest tests/ -q -k "open_positions and halt"` (no entry is attempted while latched; latch survives restart; explicit reset clears it); full bot suite.
+- Effort: M | Blast radius: low | Status: todo
+
+### BOT-P1-004 — Tracked-position store must not ignore write failures
+- Fix: one authoritative store per deployment; a failed DB write raises/alerts and marks the instance degraded instead of a DEBUG log, so reads can never prefer a store that silently missed writes.
+- Verification: `pytest tests/ -q -k "bot_agents_state"` with a failing-writer fake; full bot suite. Document restart/reconciliation behaviour (state-safety rule).
+- Effort: M | Blast radius: low | Status: todo
+
+### BOT-P1-002 — Cooperative shutdown instead of raising from the signal handler
+- Fix: `loop.add_signal_handler` sets a stop flag / `asyncio.Event`; the in-flight entry or exit completes (or runs its cleanup) before the loop ends; bounded by a timeout below the deployment's grace period.
+- Verification: `pytest tests/ -q -k "main_instance and signal"` with a test that signals mid-entry and asserts both legs end consistent; full bot suite.
+- Effort: M | Blast radius: med | Status: todo
+
+### BOT-P1-003 — Write-ahead entry intent and restart recovery
+- Fix: persist an intent (pair, sides, sizes, client ids) before leg 1, update it after each step, and on start-up reconcile any unfinished intent against the exchange: complete the hedge or flatten, fail closed when the state is unknown. Needs a migration in `bot/migrations` (expand-only).
+- Verification: `pytest tests/ -q -k "entry_intent or restart_recovery"` (crash between legs → recovery flattens or completes; unknown → halts via BOT-P1-008); migration applies and rolls back on a scratch database only; full bot suite.
+- Effort: L | Blast radius: med | Depends on: BOT-P1-004, BOT-P1-008 | Status: todo
+
+### BOT-P1-012 — Refuse to store mnemonics in plaintext outside dev/test
+- Fix: require the credentials encryption key whenever the instance network is mainnet or the environment is not an explicit dev/test label; start-up and instance creation fail with a clear error otherwise. Existing plaintext records are not rewritten silently: a documented one-off re-seal command is provided.
+- Verification: `pytest tests/ -q -k "credentials_cipher"` (mainnet without key → refused; dev without key → allowed with a warning; with key → sealed); full bot suite. Deployment note: the GitOps repository must provision the key before this ships.
+- Effort: S | Blast radius: med | Status: todo

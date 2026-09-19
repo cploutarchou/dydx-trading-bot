@@ -86,3 +86,9 @@ Verification: see "final gates before commit" above. Staged-diff secret grep: no
 - Root cause: the first FRONT-P1-004 change called `queryClient.clear()` on every logged-out transition. Session bootstrap also ends in the logged-out state, so the in-flight `['public', 'app-config']` query the app shell renders from was removed; a removed query never notifies its observer and the shell stayed blank. Unit tests, lint and typecheck could not see this; the e2e suite had not been run locally before the push.
 - Fix: `clearUserScopedQueries()` removes every query whose key does not start with `public`; test added that public data survives and user data does not.
 - Verification (from `frontend/`): `npm run lint` clean; `npm run typecheck` clean; `npm test` → 26 files / 138 tests passed; `npx playwright test` → 10 passed (reproduced 6 failures before the fix).
+
+## 2026-09-19T20:12Z — merge and decisions
+- PR #40 squash-merged into `master` as `95b7409a`; `History Budget` on the merge commit: success.
+- Owner answered the open questions (recorded in OPEN-QUESTIONS.md). Read-only cluster check: app runs in `executionlab-staging` behind Traefik, deployed by Flux from a separate GitOps repository; Postgres is a three-instance CloudNativePG cluster with the barman-cloud plugin; cert-manager and external-dns present; `dns-guard` CronJob failing.
+- MASTER-PLAN.md: 13 tasks moved to a second queue (`todo`); in-repo Kubernetes findings moved to the GitOps repository.
+- 2026-09-19T20:17Z: at the owner's request the remaining eleven proposals (eight order-path items, BACK-P1-001, INFRA-P1-010, REPO-P3-004) were moved to queue 2 as `todo`, each with its own task record and verification. Queue 2 now holds 24 tasks.

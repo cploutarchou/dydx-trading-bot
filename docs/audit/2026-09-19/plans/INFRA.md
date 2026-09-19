@@ -54,3 +54,15 @@ Nothing in this plan is applied to a cluster or starts a container. Manifests ar
 - INFRA-P2-006 non-reproducible builds (floating tags, unpinned requirements) — deferred (M; dependency policy change).
 - INFRA-P2-007 ClickHouse and NATS unauthenticated in cluster — deferred (M; depends on INFRA-P1-001).
 - INFRA-P3-001 environment drift and dead infra surface (legacy `deploy/k8s`, dead make targets) — proposal (deleting the legacy MariaDB manifests needs the owner's confirmation that they are retired).
+
+## Queue 2 — unblocked by the owner's decisions (2026-09-19)
+
+### INFRA-P0-001L — Postgres advisory lock per trading instance
+- Decision: session-level `pg_advisory_lock` keyed by instance id, taken at the start of `main_instance`; a second process refuses to trade and exits with a clear error. Released automatically when the process or connection ends.
+- Verification: tests with a fake/locked connection: second acquirer refuses; lock failure (DB down) fails closed for live mode; full bot suite. Document restart behaviour per the bot's state-safety rule.
+- Effort: M | Blast radius: high (live start-up path) | Status: todo
+
+### INFRA-P3-001 — Delete `deploy/k8s` and `deploy/k8s-next`
+- Decision: the cluster is deployed by Flux from a separate GitOps repository; remove both directories, the Kustomize/k8s-secret CI jobs that only serve them, and the dead Makefile targets; add a docs pointer to the GitOps repository. The k8s findings listed in MASTER-PLAN.md move there.
+- Verification: `grep -rn 'deploy/k8s' .` has no live references; CI workflow YAML parses; `make docs-governance`; compose validation unchanged.
+- Effort: S | Blast radius: low | Status: todo

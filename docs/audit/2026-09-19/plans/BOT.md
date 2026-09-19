@@ -67,3 +67,20 @@ All fixes are verified with the hermetic suite (fakes only). Nothing in this pla
 - BOT-P2-005 internal exception text returned to clients — deferred (M; many sites).
 - BOT-P2-006 JWT secret falls back to a per-process random value — deferred (fail-closed start changes deployments; pair with BOT-P1-012).
 - BOT-P3-001 naive datetimes in pool monitor / DataFrame registry — deferred (S; low value this run).
+
+## Queue 2 — unblocked by the owner's decisions (2026-09-19)
+
+### BOT-P0-002 — Disable self-registration; admin/operator on lifecycle routes
+- Decision: registration off unless an explicit environment flag enables it; create/start/stop/delete need an admin or operator role. The backend's service token keeps working (it maps to a superuser principal today; verify in task).
+- Verification: route tests: register → 403/404 by default; lifecycle as a plain user → 403; service token → allowed; full bot suite; backend delegated-route tests.
+- Effort: M | Blast radius: med | Status: todo
+
+### BOT-P1-011 — Signing SDK advisory
+- Decision: verify the advisory's affected range and the installed package integrity first, then upgrade `dydx-v4-client` in a dedicated change; make `pip-audit` blocking with a dated ignore for `ecdsa`.
+- Verification: `pip-audit -r requirements.txt` clean apart from the documented ignore; full bot suite; no order-signing test regressions.
+- Effort: M | Blast radius: high (signing path) | Status: todo
+
+### BOT-P1-009 — Realised P&L for live trades
+- Decision: net of fees, from fills. Per leg (exit VWAP − entry VWAP) × size × side, minus fees on all four fills; funding stored separately; `Decimal`, 6 dp at storage.
+- Verification: unit tests with fixed fills (long/short legs, partial fills, fees); stats count winners and losers correctly; full bot suite.
+- Effort: M | Blast radius: med | Status: todo

@@ -1,10 +1,10 @@
 # Master plan — dydx-trading-bot — 2026-09-19
 
-phase: done
+phase: execute
 branch: audit/2026-09-19-all
 base: master
 last commit: 36723306 (2026-09-19T18:10Z)
-updated: 2026-09-19T18:10Z
+updated: 2026-09-19T20:12Z
 scope: all
 
 Findings: BOT 24, BACK 20, FRONT 19, INFRA 20, REPO 7 (90 total; 6 merged as duplicates).
@@ -34,14 +34,29 @@ business decision, and effort M/L items are proposals or deferred with a reason 
 - [x] BACK-P3-001 url.PathEscape used for query values — plans/BACK.md — done (36723306) — quick-deploy and benchmark queries built with url.Values; 2 tests
 - [x] REPO-P3-002 history-budget workflow pins checkout v4 — plans/REPO.md — done (36723306) — checkout v7
 
+## Queue 2 — unblocked by the owner's decisions of 2026-09-19 (see OPEN-QUESTIONS.md)
+- [ ] BOT-P0-002 Disable bot-API self-registration; admin/operator on lifecycle routes — plans/BOT.md — todo
+- [ ] INFRA-P0-001L Postgres advisory lock per trading instance in main_instance — plans/INFRA.md — todo
+- [ ] BACK-P1-003 Migrations via the explicit migrator only; DB_AUTO_MIGRATE=false in deployables — plans/BACK.md — todo
+- [ ] BACK-P1-004 Remove Force(version) startup recovery — plans/BACK.md — todo
+- [ ] BACK-P1-005 Configurable TRUSTED_PROXIES, no raw X-Forwarded-For, auth endpoint limiter — plans/BACK.md — todo
+- [ ] BOT-P1-011 Verify the signing SDK advisory, upgrade in a dedicated change, blocking pip-audit — plans/BOT.md — todo
+- [ ] BOT-P1-009 Realised P&L net of fees from fills, Decimal, funding separate — plans/BOT.md — todo
+- [ ] FRONT-P1-006 Testnet default; is_testnet derived from chain_id; numeric validation — plans/FRONT.md — todo
+- [ ] FRONT-P1-002 Confirm runtime stop; remove the bare-key shortcut — plans/FRONT.md — todo
+- [ ] REPO-P2-003 Publish images only after quality-gate succeeded — plans/REPO.md — todo
+- [ ] REPO-P2-001 go.mod 1.27 and CI Node 26, plus a drift check — plans/REPO.md — todo
+- [ ] INFRA-P3-001 Delete deploy/k8s and deploy/k8s-next, their CI validation and dead make targets; point docs to the GitOps repository — plans/INFRA.md — todo
+- [ ] REPO-P3-001 Correct Go version statements in docs and devcontainer — plans/REPO.md — todo
+
 ## Proposal-only (needs a human decision; not executed)
-- [ ] BOT-P0-002 Open self-registration; lifecycle routes need only any active user — see OPEN-QUESTIONS.md
-- [ ] INFRA-P0-001 (lock part) single-writer lock per instance in main_instance — plans/INFRA.md
-- [ ] BOT-P1-001, BOT-P1-002, BOT-P1-003, BOT-P1-004, BOT-P1-006, BOT-P1-007, BOT-P1-008, BOT-P1-009, BOT-P1-012 — order path / design-level — plans/BOT.md
-- [ ] BACK-P1-001, BACK-P1-003, BACK-P1-004 — plans/BACK.md
-- [ ] FRONT-P1-002, FRONT-P1-006 — plans/FRONT.md
-- [ ] INFRA-P1-002, INFRA-P1-005, INFRA-P1-006, INFRA-P1-008, INFRA-P1-009, INFRA-P1-010, INFRA-P3-001 — plans/INFRA.md
-- [ ] REPO-P2-001, REPO-P2-003, REPO-P3-004 — plans/REPO.md
+- [ ] BOT-P1-001, BOT-P1-002, BOT-P1-003, BOT-P1-004, BOT-P1-006, BOT-P1-007, BOT-P1-008, BOT-P1-012 — order path / design-level — plans/BOT.md
+- [ ] BACK-P1-001 — plans/BACK.md
+- [ ] INFRA-P1-010 — plans/INFRA.md
+- [ ] REPO-P3-004 — plans/REPO.md
+
+## Moved to the GitOps repository (not applicable here once deploy/k8s-next is deleted)
+- INFRA-P1-001, INFRA-P1-002, INFRA-P1-005, INFRA-P1-006, INFRA-P1-007, INFRA-P1-008 (PITR, RPO about 5 min, verify the CloudNativePG backup configuration), INFRA-P1-009, INFRA-P2-002, INFRA-P2-005, INFRA-P2-007, and the manifest halves of INFRA-P0-001, INFRA-P0-002, INFRA-P1-003, INFRA-P1-004, INFRA-P2-001, INFRA-P2-003: check each against the GitOps manifests.
 
 ## Deferred / invalid
 - Deferred with reasons in the service plans: BOT-P1-011, BOT-P2-001..003, BOT-P2-005, BOT-P2-006, BOT-P3-001; BACK-P1-005, BACK-P2-002..011; FRONT-P2-007..015, FRONT-P3-018, FRONT-P3-019; INFRA-P1-001, INFRA-P1-007, INFRA-P2-001..003, INFRA-P2-005..007; REPO-P3-001, REPO-P3-003.

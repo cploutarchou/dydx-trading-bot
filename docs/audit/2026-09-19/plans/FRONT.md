@@ -46,3 +46,15 @@ Verification baseline (2026-09-19): `npm run lint` clean; `npm run typecheck` cl
 - FRONT-P3-017 Dockerfile: Node 26 vs CI 24, floating nginx tag, root — merged into REPO-P2-001, INFRA-P2-001, INFRA-P2-006.
 - FRONT-P3-018 dead client methods / duplicated bot API surface — deferred.
 - FRONT-P3-019 dead components and a never-executed nested workflow — deferred.
+
+## Queue 2 — unblocked by the owner's decisions (2026-09-19)
+
+### FRONT-P1-006 — Manual runtime form network default
+- Decision: default to testnet; derive `is_testnet` from `chain_id`; validate numeric inputs; mainnet is an explicit choice.
+- Verification: vitest on the payload builder (no contradictory pair possible, NaN rejected); lint, typecheck, unit and Playwright suites.
+- Effort: S | Blast radius: low | Status: todo
+
+### FRONT-P1-002 — Confirm runtime stop
+- Decision: confirmation dialog naming the runtime; remove the bare `s` shortcut.
+- Verification: vitest/RTL: stop is not sent before confirm; key press does nothing; lint, typecheck, unit and Playwright suites.
+- Effort: S | Blast radius: low | Status: todo

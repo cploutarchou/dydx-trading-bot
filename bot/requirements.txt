@@ -23,7 +23,7 @@ python-decouple==3.8
 # Email validation
 email-validator==2.3.0
 # Data science and analytics (for comprehensive backtest analytics)
-numpy==2.5.0
+numpy==2.5.3
 pandas>=2.3.0
 scipy>=1.18.1
 statsmodels>=0.15.0,<0.16.0

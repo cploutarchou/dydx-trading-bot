@@ -245,6 +245,21 @@ def test_selected_pairs_resolution_order():
     assert backtest_tasks._selected_pairs({"selected_pairs": ["A/B", "  "]}) == ["A/B"]
 
 
+def test_resolve_log_level_normalizes_for_loguru(monkeypatch):
+    # Loguru level names are upper-case; deployments commonly set "info".
+    monkeypatch.setenv("LOG_LEVEL", "info")
+    assert backtest_tasks._resolve_log_level() == "INFO"
+
+    monkeypatch.setenv("LOG_LEVEL", "  debug  ")
+    assert backtest_tasks._resolve_log_level() == "DEBUG"
+
+    monkeypatch.setenv("LOG_LEVEL", "")
+    assert backtest_tasks._resolve_log_level() == "INFO"
+
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+    assert backtest_tasks._resolve_log_level() == "INFO"
+
+
 def test_lock_ttl_seconds_env_matrix(monkeypatch):
     monkeypatch.delenv("BACKTEST_TASK_LOCK_TTL_SECONDS", raising=False)
     monkeypatch.delenv("BACKTEST_CELERY_TASK_TIME_LIMIT", raising=False)
@@ -526,6 +541,23 @@ def test_task_happy_path(monkeypatch):
     assert states[before]["meta"]["progress_percent"] == 50.0
     assert states[before]["meta"]["completed_pairs"] == 0  # 50% of 1 pair
     assert any(e.get("status") == "progress" for e in events)
+
+
+def test_task_runs_with_lowercase_log_level(monkeypatch):
+    # Regression: a lower-case LOG_LEVEL made logger.add raise
+    # ValueError("Level 'info' does not exist"), killing every run on startup.
+    monkeypatch.setenv("LOG_LEVEL", "info")
+    result, _, _ = _invoke_task(monkeypatch, "run-1", run_payload=_run_payload())
+
+    assert result == {"run_id": "run-1", "status": "completed"}
+
+
+def test_task_runs_with_unsupported_log_level(monkeypatch):
+    # A misconfigured level degrades to INFO instead of aborting the run.
+    monkeypatch.setenv("LOG_LEVEL", "verbose")
+    result, _, _ = _invoke_task(monkeypatch, "run-1", run_payload=_run_payload())
+
+    assert result == {"run_id": "run-1", "status": "completed"}
 
 
 def test_task_transient_error_retries(monkeypatch):

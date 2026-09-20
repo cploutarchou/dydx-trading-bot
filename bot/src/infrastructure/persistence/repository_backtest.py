@@ -1142,6 +1142,22 @@ class BacktestRepository:
             return {}
         return dict(snapshot.request_json or {})
 
+    @staticmethod
+    def _preserve_stored_request(
+        payload: Dict[str, Any], stored_request: Any
+    ) -> Dict[str, Any]:
+        """Keep the stored request when a save arrives without one.
+
+        The request is the run's immutable input and the only thing a restart
+        can be rebuilt from. save_run() replaces the whole row and rewrites the
+        request artifact, and _normalize_run_data() turns a missing request into
+        ``{}``, so a caller that re-saves a run from a projection without the
+        request (such as a list_runs() summary) would otherwise erase it.
+        """
+        if payload.get("request") or not stored_request:
+            return payload
+        return {**payload, "request": dict(stored_request)}
+
     def save_run(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
         payload = self._normalize_run_data(run_data)
         run_id = str(payload["run_id"])
@@ -1153,6 +1169,8 @@ class BacktestRepository:
             cleaned_request = self._sanitize_request_payload(incoming_request_payload)
             if cleaned_request:
                 BacktestRepository._memory_request_snapshots[run_id] = cleaned_request
+            stored = BacktestRepository._memory_runs.get(run_id) or {}
+            payload = self._preserve_stored_request(payload, stored.get("request"))
             BacktestRepository._memory_runs[run_id] = payload
             result = dict(payload)
             result.update(self._sync_backtest_sidecars(result))
@@ -1184,6 +1202,8 @@ class BacktestRepository:
         if record is None:
             record = BacktestRun(run_id=run_id)
             session.add(record)
+
+        payload = self._preserve_stored_request(payload, record.request_json)
 
         record.name = str(payload.get("name") or "unnamed-backtest")
         record.status = str(payload.get("status") or "pending")

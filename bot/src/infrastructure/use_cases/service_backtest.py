@@ -229,7 +229,13 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         return candidates
 
     def _build_interrupted_run_payload(self, run: Dict[str, Any]) -> Dict[str, Any]:
-        interrupted = dict(run)
+        # ``run`` normally comes from list_runs(), a summary projection with no
+        # request, trades, position snapshots or daily P&L. save_run() replaces
+        # all of those, so marking the summary as failed would erase the run's
+        # input and partial results. Mark the full stored run instead.
+        run_id = str(run.get("run_id") or "").strip()
+        stored = self._load_run_data(run_id) if run_id else None
+        interrupted = dict(stored or run)
         interrupted.update(
             {
                 "status": "failed",

@@ -20,45 +20,48 @@ type StrategyHandler struct {
 	service        *services.StrategyService
 	runtimeService *services.StrategyRuntimeService
 	userRepo       *repository.UserRepository
+	auditLogger    StrategyAuditLogger
 }
 
 type strategyPayload struct {
-	Name                   string    `json:"name" binding:"required"`
-	Description            string    `json:"description"`
-	Category               string    `json:"category"`
-	IsPublic               *bool     `json:"is_public"`
-	IsDefault              *bool     `json:"is_default"`
-	RuntimeStrategy        string    `json:"runtime_strategy"`
-	RuntimeNetwork         string    `json:"runtime_network"`
-	RuntimeSubaccount      *int      `json:"runtime_subaccount"`
-	PairSelectionMode      string    `json:"pair_selection_mode"`
-	SelectedMarkets        *[]string `json:"selected_markets"`
-	Resolution             string    `json:"resolution"`
-	CandleResolution       string    `json:"candle_resolution"`
-	ZscoreThreshold        float64   `json:"zscore_threshold"`
-	StatsWindow            int       `json:"stats_window"`
-	MaxHalfLife            float64   `json:"max_half_life"`
-	UsdPerTrade            float64   `json:"usd_per_trade"`
-	UsdMinCollateral       float64   `json:"usd_min_collateral"`
-	CloseAtZscoreCross     *bool     `json:"close_at_zscore_cross"`
-	FindCointegratedPairs  *bool     `json:"find_cointegrated_pairs"`
-	ManageExits            *bool     `json:"manage_exits"`
-	PlaceTrades            *bool     `json:"place_trades"`
-	AbortAllPositions      *bool     `json:"abort_all_positions"`
-	MaxDrawdownPct         float64   `json:"max_drawdown_pct"`
-	StopLossPct            float64   `json:"stop_loss_pct"`
-	TakeProfitPct          float64   `json:"take_profit_pct"`
-	TrailingStopPct        float64   `json:"trailing_stop_pct"`
-	MaxPositions           int       `json:"max_positions"`
-	RebalanceIntervalHours int       `json:"rebalance_interval_hours"`
-	PositionTimeoutHours   int       `json:"position_timeout_hours"`
-	StartingBalance        float64   `json:"starting_balance"`
-	InitialAmount          float64   `json:"initial_amount"`
-	TransactionFee         float64   `json:"transaction_fee"`
-	Slippage               float64   `json:"slippage"`
-	MaxHistoryDays         int       `json:"max_history_days"`
-	BenchmarkSymbol        string    `json:"benchmark_symbol"`
-	RiskFreeRate           float64   `json:"risk_free_rate"`
+	Name                  string    `json:"name" binding:"required"`
+	Description           string    `json:"description"`
+	Category              string    `json:"category"`
+	IsPublic              *bool     `json:"is_public"`
+	IsDefault             *bool     `json:"is_default"`
+	RuntimeStrategy       string    `json:"runtime_strategy"`
+	RuntimeNetwork        string    `json:"runtime_network"`
+	RuntimeSubaccount     *int      `json:"runtime_subaccount"`
+	PairSelectionMode     string    `json:"pair_selection_mode"`
+	SelectedMarkets       *[]string `json:"selected_markets"`
+	Resolution            string    `json:"resolution"`
+	CandleResolution      string    `json:"candle_resolution"`
+	ZscoreThreshold       float64   `json:"zscore_threshold"`
+	StatsWindow           int       `json:"stats_window"`
+	MaxHalfLife           float64   `json:"max_half_life"`
+	UsdPerTrade           float64   `json:"usd_per_trade"`
+	UsdMinCollateral      float64   `json:"usd_min_collateral"`
+	CloseAtZscoreCross    *bool     `json:"close_at_zscore_cross"`
+	FindCointegratedPairs *bool     `json:"find_cointegrated_pairs"`
+	ManageExits           *bool     `json:"manage_exits"`
+	PlaceTrades           *bool     `json:"place_trades"`
+	AbortAllPositions     *bool     `json:"abort_all_positions"`
+	// Pointers so an explicit 0 is honoured: the live runtime rejects both
+	// controls when > 0, and setting them to 0 is the documented way to start.
+	MaxDrawdownPct         *float64 `json:"max_drawdown_pct"`
+	StopLossPct            float64  `json:"stop_loss_pct"`
+	TakeProfitPct          float64  `json:"take_profit_pct"`
+	TrailingStopPct        *float64 `json:"trailing_stop_pct"`
+	MaxPositions           int      `json:"max_positions"`
+	RebalanceIntervalHours int      `json:"rebalance_interval_hours"`
+	PositionTimeoutHours   int      `json:"position_timeout_hours"`
+	StartingBalance        float64  `json:"starting_balance"`
+	InitialAmount          float64  `json:"initial_amount"`
+	TransactionFee         float64  `json:"transaction_fee"`
+	Slippage               float64  `json:"slippage"`
+	MaxHistoryDays         int      `json:"max_history_days"`
+	BenchmarkSymbol        string   `json:"benchmark_symbol"`
+	RiskFreeRate           float64  `json:"risk_free_rate"`
 }
 
 func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload) {
@@ -128,8 +131,8 @@ func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload
 	if req.AbortAllPositions != nil {
 		strategy.AbortAllPositions = *req.AbortAllPositions
 	}
-	if req.MaxDrawdownPct > 0 {
-		strategy.MaxDrawdownPct = req.MaxDrawdownPct
+	if req.MaxDrawdownPct != nil && *req.MaxDrawdownPct >= 0 {
+		strategy.MaxDrawdownPct = *req.MaxDrawdownPct
 	}
 	if req.StopLossPct > 0 {
 		strategy.StopLossPct = req.StopLossPct
@@ -137,8 +140,8 @@ func applyStrategyPayload(strategy *models.BacktestStrategy, req strategyPayload
 	if req.TakeProfitPct > 0 {
 		strategy.TakeProfitPct = req.TakeProfitPct
 	}
-	if req.TrailingStopPct > 0 {
-		strategy.TrailingStopPct = req.TrailingStopPct
+	if req.TrailingStopPct != nil && *req.TrailingStopPct >= 0 {
+		strategy.TrailingStopPct = *req.TrailingStopPct
 	}
 	if req.MaxPositions > 0 {
 		strategy.MaxPositions = req.MaxPositions
@@ -623,6 +626,119 @@ func (h *StrategyHandler) GetStrategyStartReadiness(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      readiness,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+// StrategyAuditLogger records an operator action on a strategy.
+type StrategyAuditLogger func(c *gin.Context, action string, strategyID int, details interface{})
+
+// SetAuditLogger wires audit logging for operator actions that change what a
+// live runtime will (not) enforce.
+func (h *StrategyHandler) SetAuditLogger(logger StrategyAuditLogger) {
+	h.auditLogger = logger
+}
+
+// disableableRiskControls are the operator-set controls the live runtime rejects
+// when > 0. Turning one off is the operator's decision, so it happens only
+// through this explicit, acknowledged and audited action.
+var disableableRiskControls = map[string]func(*models.BacktestStrategy) *float64{
+	"max_drawdown_pct":  func(s *models.BacktestStrategy) *float64 { return &s.MaxDrawdownPct },
+	"trailing_stop_pct": func(s *models.BacktestStrategy) *float64 { return &s.TrailingStopPct },
+}
+
+// DisableUnenforcedRiskControls sets the named unenforced risk controls to 0 on a
+// strategy after an explicit operator acknowledgement. It never makes the live
+// runtime accept a control it cannot enforce: the strategy simply stops asking
+// for it, and the stored strategy shows what will really run.
+func (h *StrategyHandler) DisableUnenforcedRiskControls(c *gin.Context) {
+	strategy, _, ok := h.getAuthorizedStrategy(c)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Fields       []string `json:"fields"`
+		Acknowledged bool     `json:"acknowledged"`
+		Network      string   `json:"network"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Invalid request: %v", err),
+		})
+		return
+	}
+	if !req.Acknowledged {
+		c.JSON(http.StatusBadRequest, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "acknowledged must be true: confirm that the live bot will run without these risk controls",
+		})
+		return
+	}
+	if len(req.Fields) == 0 {
+		c.JSON(http.StatusBadRequest, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "fields must name at least one risk control to turn off",
+		})
+		return
+	}
+
+	seen := make(map[string]struct{}, len(req.Fields))
+	fields := make([]string, 0, len(req.Fields))
+	for _, rawField := range req.Fields {
+		field := strings.ToLower(strings.TrimSpace(rawField))
+		if _, allowed := disableableRiskControls[field]; !allowed {
+			c.JSON(http.StatusBadRequest, APIResponse{
+				Success:   false,
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+				Error:     fmt.Sprintf("%q cannot be turned off here; allowed: max_drawdown_pct, trailing_stop_pct", rawField),
+			})
+			return
+		}
+		if _, duplicate := seen[field]; duplicate {
+			continue
+		}
+		seen[field] = struct{}{}
+		fields = append(fields, field)
+	}
+
+	disabled := make([]map[string]interface{}, 0, len(fields))
+	for _, field := range fields {
+		value := disableableRiskControls[field](strategy)
+		disabled = append(disabled, map[string]interface{}{
+			"field":          field,
+			"previous_value": *value,
+		})
+		*value = 0
+	}
+
+	if err := h.service.UpdateStrategy(strategy); err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to update strategy: %v", err),
+		})
+		return
+	}
+
+	if h.auditLogger != nil {
+		h.auditLogger(c, "strategy.risk_controls.disable_unenforced", strategy.ID, gin.H{
+			"strategy_name":          strategy.Name,
+			"network":                strings.ToLower(strings.TrimSpace(req.Network)),
+			"disabled_risk_controls": disabled,
+			"acknowledged":           true,
+		})
+	}
+
+	data := strategy.ToDict()
+	data["disabled_risk_controls"] = disabled
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      data,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }

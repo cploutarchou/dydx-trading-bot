@@ -132,6 +132,7 @@ from src.infrastructure.use_cases.async_job_manager import (  # noqa: E402
 from src.infrastructure.use_cases.service_backtest import BacktestService  # noqa: E402
 from src.shared.live_risk_controls import (  # noqa: E402
     assert_supported_live_risk_controls,
+    describe_unsupported_live_risk_controls,
 )
 
 # Celery inspection helpers (list_celery_tasks, get_celery_task, revoke_celery_task,
@@ -1005,13 +1006,19 @@ async def runtime_preflight(
 ) -> JSONResponse:
     """Evaluate whether a live runtime is ready to start on the selected environment."""
     del current_user
+    trading_params = request.trading_params.model_dump()
     try:
-        assert_supported_live_risk_controls(request.trading_params.model_dump())
+        assert_supported_live_risk_controls(trading_params)
     except ValueError as exc:
         return api_response(
             success=False,
             message=f"Validation error: {exc}",
-            data={"error": "UNSUPPORTED_RISK_CONTROL"},
+            data={
+                "error": "UNSUPPORTED_RISK_CONTROL",
+                "unsupported_fields": describe_unsupported_live_risk_controls(
+                    trading_params
+                ),
+            },
             status_code=422,
         )
 

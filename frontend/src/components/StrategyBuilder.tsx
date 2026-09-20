@@ -249,10 +249,12 @@ export default function StrategyBuilder() {
       place_trades: true,
       abort_all_positions: false,
       max_positions: 5,
-      max_drawdown_pct: 15.0,
+      // Off by default: the live runtime cannot enforce these two limits yet and
+      // refuses to start a bot while either is above zero.
+      max_drawdown_pct: 0,
       stop_loss_pct: 2.0,
       take_profit_pct: 5.0,
-      trailing_stop_pct: 1.0,
+      trailing_stop_pct: 0,
       rebalance_interval_hours: 24,
       position_timeout_hours: 72,
       initial_amount: 300.0,
@@ -630,9 +632,12 @@ export default function StrategyBuilder() {
           : aiMarketObjective === 'balanced'
             ? pairSelectionMode
             : aiMarketObjective;
+    // A drawdown limit of 0 means "off" (the default, see the form defaults), which
+    // says nothing about risk appetite, so it keeps the cautious weighting the
+    // previous 15% default produced.
     const riskWeight = Math.min(
       1,
-      Math.max(0.35, Number(formValues.max_drawdown_pct || 20) <= 15 ? 0.8 : 0.55)
+      Math.max(0.35, Number(formValues.max_drawdown_pct || 15) <= 15 ? 0.8 : 0.55)
     );
     const tradeSize = Number(formValues.usd_per_trade || 0);
     const needsTradeability = tradeSize >= 250 || Number(formValues.max_positions || 0) >= 4;
@@ -1832,14 +1837,19 @@ export default function StrategyBuilder() {
                       render={({ field }) => (
                         <input
                           {...field}
+                          id="max_drawdown_pct"
                           type="range"
-                          min="5"
+                          min="0"
                           max="50"
                           step="0.5"
+                          aria-describedby="max_drawdown_pct_hint"
                           className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
                         />
                       )}
                     />
+                    <p id="max_drawdown_pct_hint" className="mt-1 text-xs leading-5 text-amber-200">
+                      Not available on live bots yet. Leave at 0 to be able to start a live bot.
+                    </p>
                   </div>
 
                   {/* Stop Loss % */}
@@ -1913,14 +1923,22 @@ export default function StrategyBuilder() {
                       render={({ field }) => (
                         <input
                           {...field}
+                          id="trailing_stop_pct"
                           type="range"
-                          min="0.1"
+                          min="0"
                           max="5"
                           step="0.1"
+                          aria-describedby="trailing_stop_pct_hint"
                           className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
                         />
                       )}
                     />
+                    <p
+                      id="trailing_stop_pct_hint"
+                      className="mt-1 text-xs leading-5 text-amber-200"
+                    >
+                      Not available on live bots yet. Leave at 0 to be able to start a live bot.
+                    </p>
                   </div>
                 </div>
               </div>

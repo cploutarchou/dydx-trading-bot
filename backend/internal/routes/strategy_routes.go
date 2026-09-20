@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,6 +39,9 @@ func RegisterStrategyRoutes(router *gin.Engine, database *db.Database) {
 	botInstanceService := services.NewBotInstanceService(botInstanceRepo, botAPIClient)
 	runtimeService := services.NewStrategyRuntimeService(strategyService, keyService, telegramService, botInstanceService, botInstanceRepo)
 	strategyHandler := handlers.NewStrategyHandler(strategyService, runtimeService, userRepo)
+	strategyHandler.SetAuditLogger(func(c *gin.Context, action string, strategyID int, details interface{}) {
+		writeAuditLog(database.DB, c, action, "strategy", stringPointer(strconv.Itoa(strategyID)), details, "success")
+	})
 
 	v1 := router.Group("/api/v1")
 	{
@@ -56,6 +60,7 @@ func RegisterStrategyRoutes(router *gin.Engine, database *db.Database) {
 			strategies.POST("/:id/versions/:version_id/revert", strategyHandler.RevertVersion)
 			strategies.GET("/:id/runtime", strategyHandler.GetStrategyRuntime)
 			strategies.GET("/:id/start-readiness", strategyHandler.GetStrategyStartReadiness)
+			strategies.POST("/:id/unenforced-risk-controls/disable", strategyHandler.DisableUnenforcedRiskControls)
 			strategies.POST("/:id/start", strategyHandler.StartStrategyRuntime)
 			strategies.POST("/:id/stop", strategyHandler.StopStrategyRuntime)
 		}

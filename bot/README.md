@@ -383,8 +383,10 @@ position closed. The runtime waits for exchange-flat confirmation before closing
 or orphaned exits remain visible in tracked state and emit critical operator alerts.
 
 Unsupported live risk controls are rejected instead of being accepted as no-ops. Operators must keep
-`max_drawdown_pct`, `trailing_stop_pct`, and `capital_allocation_usd` at `0` until live enforcement exists. See
-`docs/bot-risk-control-matrix.md` for the current enforcement matrix.
+`max_drawdown_pct`, `trailing_stop_pct`, and `capital_allocation_usd` at `0` until live enforcement exists. The
+preflight 422 names each offending field in `data.unsupported_fields`, and the backend reports it as a start-readiness
+blocker that the operator resolves with an explicit, audited action. See `docs/bot-risk-control-matrix.md` for the
+current enforcement matrix.
 
 Startup recovery is fail-safe by default: stale orphaned in-progress backtests are reconciled to failed, and active live
 bot rows with missing workers are marked error. Set `BACKTEST_AUTO_RECOVERY_MODE=restart` for stale backtest requeueing

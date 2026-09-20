@@ -31,7 +31,7 @@ import {
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
-import api from '../api';
+import api, { type UnenforcedRiskControl } from '../api';
 import { botApi } from '../api/botApi';
 import { useBacktestProgress } from '../api/hooks';
 import { AIBacktestExplainer } from '../components/AIBacktestExplainer';
@@ -44,6 +44,7 @@ import { BacktestPositionsPanel } from '../components/BacktestPositionsPanel';
 import { BacktestResultsEnhanced } from '../components/BacktestResultsEnhanced';
 import { BacktestTradesPanel } from '../components/BacktestTradesPanel';
 import { PageContainer } from '../components/PageContainer';
+import { UnenforcedRiskControlsNotice } from '../components/UnenforcedRiskControlsNotice';
 import {
   LiveStateBadge,
   formatBacktestProgressSourceLabel,
@@ -51,6 +52,11 @@ import {
 } from '../components/ui/LiveState';
 import { usePersistentPreference } from '../hooks/usePersistentPreference';
 import { useAuthStore } from '../store/auth';
+import {
+  excludeRiskControlBlockers,
+  normalizeUnenforcedRiskControls,
+  riskControlLabel,
+} from '../utils/unenforcedRiskControls';
 
 interface Candle {
   market: string;
@@ -552,6 +558,19 @@ export const BacktestDetailsV2: React.FC = () => {
   const [promotionAction, setPromotionAction] = useState<'create' | 'start' | null>(null);
   const [promotionMessage, setPromotionMessage] = useState<string | null>(null);
   const [promotionError, setPromotionError] = useState<string | null>(null);
+  const [promotionBlockers, setPromotionBlockers] = useState<string[]>([]);
+  // The backend does not link a run to the strategy promoted from it, so the id
+  // is remembered here: a retry must start that strategy, not create another.
+  const [promotedStrategy, setPromotedStrategy] = useState<{
+    runId: string;
+    strategyId: number;
+  } | null>(null);
+  const [riskControlsNotice, setRiskControlsNotice] = useState<{
+    runId: string;
+    strategyId: number;
+    controls: UnenforcedRiskControl[];
+  } | null>(null);
+  const [riskControlsError, setRiskControlsError] = useState<string | null>(null);
   const [linkedStrategy, setLinkedStrategy] = useState<StrategySummary | null>(null);
   const [linkedStrategyLoading, setLinkedStrategyLoading] = useState(false);
   const [linkedStrategyError, setLinkedStrategyError] = useState<string | null>(null);
@@ -1765,6 +1784,13 @@ export const BacktestDetailsV2: React.FC = () => {
     return config;
   };
 
+  // Promotion state is keyed by run so it never leaks onto another backtest
+  // when the route param changes without remounting this page.
+  const promotedStrategyId =
+    promotedStrategy && promotedStrategy.runId === runId ? promotedStrategy.strategyId : null;
+  const activeRiskControlsNotice =
+    riskControlsNotice && riskControlsNotice.runId === runId ? riskControlsNotice : null;
+
   const createStrategyFromCurrentBacktest = async (): Promise<number> => {
     if (!runId) {
       throw new Error('Backtest run id is unavailable');
@@ -1784,48 +1810,128 @@ export const BacktestDetailsV2: React.FC = () => {
       ['backtests', 'detail', runId, 'meta'],
       (current) => (current ? { ...current, strategy_id: strategyId } : current)
     );
+    setPromotedStrategy({ runId, strategyId });
     return strategyId;
+  };
+
+  const refreshLinkedStrategy = async (strategyId: number) => {
+    try {
+      const strategyResponse = await api.getStrategy(strategyId);
+      setLinkedStrategy((strategyResponse.data as StrategySummary | undefined) ?? null);
+    } catch {
+      setLinkedStrategy(null);
+    }
+  };
+
+  // A readiness result (the pending risk-limit decision and the blockers) belongs
+  // to one network and one attempt, so it is always dropped as a whole.
+  const clearReadinessFeedback = () => {
+    setRiskControlsNotice(null);
+    setRiskControlsError(null);
+    setPromotionBlockers([]);
+    setPromotionError(null);
+  };
+
+  const handleRuntimeNetworkChange = (network: 'testnet' | 'mainnet') => {
+    setRuntimeNetwork(network);
+    clearReadinessFeedback();
+  };
+
+  /**
+   * Runs the readiness gate, then starts the runtime. The start is held back,
+   * without throwing, when the strategy sets risk limits the live runtime cannot
+   * enforce (the operator decides in the notice) or when other blockers remain.
+   */
+  const startRuntimeWhenReady = async (
+    strategyId: number,
+    turnedOffNote: string = ''
+  ): Promise<void> => {
+    const readiness = await api.getStrategyStartReadiness(strategyId, runtimeNetwork);
+    const readinessData = readiness.data;
+    const controls = normalizeUnenforcedRiskControls(readinessData?.unenforced_risk_controls);
+
+    if (controls.length > 0 || readinessData?.ready === false) {
+      const blockers = excludeRiskControlBlockers(readinessData?.blockers, controls);
+      if (controls.length > 0) {
+        setRiskControlsNotice({ runId: runId ?? '', strategyId, controls });
+      }
+      if (blockers.length > 0) {
+        setPromotionBlockers(blockers);
+        setPromotionError(
+          controls.length > 0 ? 'Also blocking the live bot:' : 'The live bot cannot start yet:'
+        );
+      } else if (controls.length === 0) {
+        setPromotionError('Runtime readiness check failed');
+      }
+      return;
+    }
+
+    const runtime = await api.startStrategyRuntime(strategyId, runtimeNetwork);
+    const runtimeData = asRecord(runtime.data);
+    setPromotionMessage(
+      `Live bot started for strategy #${strategyId}${
+        runtimeData?.instance_id ? ` (${runtimeData.instance_id})` : ''
+      }.${turnedOffNote ? ` ${turnedOffNote}` : ''}`
+    );
   };
 
   const handlePromoteBacktest = async (startRuntime: boolean) => {
     setPromotionAction(startRuntime ? 'start' : 'create');
-    setPromotionError(null);
     setPromotionMessage(null);
+    clearReadinessFeedback();
 
     try {
-      const existingStrategyId = firstFiniteNumber(liveBacktest.strategy_id);
+      const existingStrategyId = firstFiniteNumber(liveBacktest.strategy_id, promotedStrategyId);
       const strategyId =
         startRuntime && existingStrategyId
           ? existingStrategyId
           : await createStrategyFromCurrentBacktest();
 
       if (startRuntime) {
-        const readiness = await api.getStrategyStartReadiness(strategyId, runtimeNetwork);
-        if (readiness.data && readiness.data.ready === false) {
-          const blockers = Array.isArray(readiness.data.blockers)
-            ? readiness.data.blockers.join(' ')
-            : 'Runtime readiness check failed';
-          throw new Error(blockers || 'Runtime readiness check failed');
-        }
-        const runtime = await api.startStrategyRuntime(strategyId, runtimeNetwork);
-        const runtimeData = asRecord(runtime.data);
-        setPromotionMessage(
-          `Live bot started for strategy #${strategyId}${
-            runtimeData?.instance_id ? ` (${runtimeData.instance_id})` : ''
-          }.`
-        );
+        await startRuntimeWhenReady(strategyId);
       } else {
         setPromotionMessage(`Strategy #${strategyId} created from this backtest.`);
       }
 
-      try {
-        const strategyResponse = await api.getStrategy(strategyId);
-        setLinkedStrategy((strategyResponse.data as StrategySummary | undefined) ?? null);
-      } catch {
-        setLinkedStrategy(null);
-      }
+      await refreshLinkedStrategy(strategyId);
     } catch (err: unknown) {
       setPromotionError(err instanceof Error ? err.message : 'Unable to promote this backtest');
+    } finally {
+      setPromotionAction(null);
+    }
+  };
+
+  const handleDisableRiskControlsAndStart = async (fields: string[]) => {
+    if (!activeRiskControlsNotice || fields.length === 0) {
+      return;
+    }
+    const { strategyId } = activeRiskControlsNotice;
+
+    setPromotionAction('start');
+    setPromotionMessage(null);
+    setRiskControlsError(null);
+
+    try {
+      try {
+        await api.disableUnenforcedRiskControls(strategyId, fields, runtimeNetwork);
+      } catch (err: unknown) {
+        setRiskControlsError(
+          err instanceof Error ? err.message : 'Unable to turn off these risk limits'
+        );
+        return;
+      }
+
+      // The limits are off from here on, whatever happens to the start below;
+      // the notice and blockers are rebuilt from the fresh readiness check.
+      const turnedOffLabels = fields.map(riskControlLabel).join(', ');
+      clearReadinessFeedback();
+      setPromotionMessage(`Turned off on strategy #${strategyId}: ${turnedOffLabels}.`);
+      void queryClient.invalidateQueries({ queryKey: ['strategies'] });
+
+      await startRuntimeWhenReady(strategyId, `Turned off on this strategy: ${turnedOffLabels}.`);
+      await refreshLinkedStrategy(strategyId);
+    } catch (err: unknown) {
+      setPromotionError(err instanceof Error ? err.message : 'Unable to start the live bot');
     } finally {
       setPromotionAction(null);
     }
@@ -2354,7 +2460,9 @@ export const BacktestDetailsV2: React.FC = () => {
                   <h2 className="mt-1 text-xl font-semibold text-white">Create Runtime Strategy</h2>
                   <p className="mt-2 text-sm leading-6 text-slate-300">
                     Save this backtest configuration as a strategy, then optionally start a managed
-                    live bot with the same markets, risk limits, timeframe, and execution settings.
+                    live bot with the same markets, timeframe, and execution settings. Live bots
+                    enforce stop loss, take profit, position timeout, and position limits. Max
+                    drawdown and trailing stop are not available on live bots yet.
                   </p>
                 </div>
               </div>
@@ -2366,9 +2474,10 @@ export const BacktestDetailsV2: React.FC = () => {
                   <select
                     value={runtimeNetwork}
                     onChange={(event) =>
-                      setRuntimeNetwork(event.target.value as 'testnet' | 'mainnet')
+                      handleRuntimeNetworkChange(event.target.value as 'testnet' | 'mainnet')
                     }
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                    disabled={promotionAction !== null}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-45"
                   >
                     <option value="testnet">Testnet</option>
                     <option value="mainnet">Mainnet</option>
@@ -2403,10 +2512,34 @@ export const BacktestDetailsV2: React.FC = () => {
                   {promotionMessage}
                 </p>
               ) : null}
-              {promotionError ? (
-                <p className="mt-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
-                  {promotionError}
-                </p>
+              <div aria-live="polite">
+                {activeRiskControlsNotice ? (
+                  <UnenforcedRiskControlsNotice
+                    className="mt-3"
+                    controls={activeRiskControlsNotice.controls}
+                    network={runtimeNetwork}
+                    busy={promotionAction !== null}
+                    error={riskControlsError}
+                    confirmLabel="Turn off and start bot"
+                    onConfirm={(fields) => void handleDisableRiskControlsAndStart(fields)}
+                    onCancel={clearReadinessFeedback}
+                  />
+                ) : null}
+              </div>
+              {promotionError || promotionBlockers.length > 0 ? (
+                <div
+                  role="alert"
+                  className="mt-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200"
+                >
+                  {promotionError ? <p>{promotionError}</p> : null}
+                  {promotionBlockers.length > 0 ? (
+                    <ul className="mt-2 space-y-1">
+                      {promotionBlockers.map((blocker) => (
+                        <li key={blocker}>• {blocker}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           </div>

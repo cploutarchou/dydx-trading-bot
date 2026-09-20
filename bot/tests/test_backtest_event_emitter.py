@@ -13,6 +13,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
+import threading
+import types
 import unittest
 
 
@@ -141,6 +144,83 @@ class TestBacktestEventEmitter(unittest.TestCase):
                     _os.environ.pop(key, None)
                 else:
                     _os.environ[key] = val
+
+
+# --------------------------------------------------------------- hermetic
+# These need no NATS server, so they always run. They cover the two ways event
+# emission can break a backtest: staying enabled when the deployment turned
+# NATS off, and blocking forever on a server that is not there.
+
+
+def test_dormant_when_only_nats_flag_is_disabled(monkeypatch) -> None:
+    from src.infrastructure.workers import backtest_event_emitter as em
+
+    # Regression: a deployment that sets NATS_ENABLED=false and leaves
+    # BOT_COMMAND_BUS_ENABLED unset has no NATS server. The emitter used to
+    # default the second flag to "true", stay enabled, and hang the run.
+    monkeypatch.setenv("NATS_ENABLED", "false")
+    monkeypatch.delenv("BOT_COMMAND_BUS_ENABLED", raising=False)
+
+    def _must_not_connect(*_args, **_kwargs):
+        raise AssertionError("emitter connected to NATS while disabled")
+
+    fake_nats = types.ModuleType("nats")
+    fake_nats.connect = _must_not_connect  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "nats", fake_nats)
+
+    assert em._is_enabled() is False
+    assert em.emit_backtest_event_sync(run_id="run-x", status="started") is None
+
+
+def test_enabled_flag_matrix(monkeypatch) -> None:
+    from src.infrastructure.workers import backtest_event_emitter as em
+
+    # Unset means off, matching event_bus_nats.
+    monkeypatch.delenv("NATS_ENABLED", raising=False)
+    monkeypatch.delenv("BOT_COMMAND_BUS_ENABLED", raising=False)
+    assert em._is_enabled() is False
+
+    # Either flag turns it on (mirrors the consumer).
+    monkeypatch.setenv("NATS_ENABLED", "true")
+    assert em._is_enabled() is True
+
+    monkeypatch.setenv("NATS_ENABLED", "false")
+    monkeypatch.setenv("BOT_COMMAND_BUS_ENABLED", "true")
+    assert em._is_enabled() is True
+
+
+def test_unreachable_nats_cannot_block_the_run(monkeypatch) -> None:
+    from src.infrastructure.workers import backtest_event_emitter as em
+
+    # Regression: connect() ran in the client's retry-forever mode with no
+    # deadline, so an enabled-but-unreachable NATS never returned.
+    monkeypatch.setenv("NATS_ENABLED", "true")
+    monkeypatch.setattr(em, "_PUBLISH_TIMEOUT_SECONDS", 0.2, raising=False)
+    connect_kwargs: dict = {}
+
+    async def _never_connects(**kwargs):
+        connect_kwargs.update(kwargs)
+        await asyncio.Event().wait()
+
+    fake_nats = types.ModuleType("nats")
+    fake_nats.connect = _never_connects  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "nats", fake_nats)
+
+    results: list = []
+    worker = threading.Thread(
+        target=lambda: results.append(
+            em.emit_backtest_event_sync(run_id="run-x", status="started")
+        ),
+        daemon=True,
+    )
+    worker.start()
+    worker.join(timeout=5)
+
+    assert not worker.is_alive(), "emit blocked past its deadline"
+    assert results == [None]
+    # A per-event connection must not use the retry-forever mode (-1), and 0
+    # never discards the server either.
+    assert connect_kwargs["max_reconnect_attempts"] >= 1
 
 
 if __name__ == "__main__":

@@ -221,3 +221,64 @@ def test_celery_revoke_requires_admin(monkeypatch):
     client = TestClient(server.app, raise_server_exceptions=False)
     resp = client.post("/api/v1/celery/tasks/task-7/revoke", json={"terminate": True})
     assert resp.status_code == 403
+
+
+# --------------------------------------------------------------------------- #
+# Event-loop safety
+# --------------------------------------------------------------------------- #
+
+
+def test_slow_celery_inspection_does_not_block_other_requests(monkeypatch):
+    """A Celery inspect call must not freeze the server while it waits.
+
+    Regression: the handlers are ``async def`` but called the synchronous
+    celery_monitor helpers directly. Each helper waits ~2 s on a Celery inspect
+    broadcast, so an open Celery Ops page (three such endpoints every 10 s)
+    blocked the event loop, the 1 s liveness probe on /health timed out, and
+    Kubernetes restarted the API in a loop.
+    """
+    import asyncio
+    import time
+
+    import httpx
+    from fastapi import FastAPI
+
+    blocking_seconds = 0.8
+
+    def _slow_health():
+        time.sleep(blocking_seconds)
+        return {"broker": "ok"}
+
+    monkeypatch.setattr("src.api.v1.celery_admin.celery_health", _slow_health)
+
+    app = FastAPI()
+    app.include_router(celery_router)
+    app.dependency_overrides[get_admin_user] = lambda: SimpleNamespace(
+        is_active=True, is_admin=True
+    )
+
+    @app.get("/ping")
+    async def _ping():
+        return {"ok": True}
+
+    async def _scenario():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+            started = time.perf_counter()
+            slow = asyncio.create_task(c.get("/api/v1/celery/health"))
+            await asyncio.sleep(0.05)  # let the slow request reach its handler
+            ping = await c.get("/ping")
+            ping_done_after = time.perf_counter() - started
+            slow_response = await slow
+        return ping, ping_done_after, slow_response
+
+    ping, ping_done_after, slow_response = asyncio.run(_scenario())
+
+    assert ping.status_code == 200
+    assert slow_response.status_code == 200
+    assert slow_response.json()["data"] == {"broker": "ok"}
+    # With the loop free, /ping answers long before the slow call returns.
+    assert ping_done_after < blocking_seconds / 2, (
+        f"/ping took {ping_done_after:.2f}s while a {blocking_seconds}s "
+        "Celery inspection was in flight: the event loop was blocked"
+    )

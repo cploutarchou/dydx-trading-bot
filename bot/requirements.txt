@@ -46,7 +46,7 @@ celery[redis]>=5.6.3,<6.0
 # redis.asyncio client: shared L2 market-data cache, JWT token blacklist, and the
 # cross-worker WebSocket broadcast bus. Transitive via celery[redis]; pinned
 # explicitly so a major bump cannot silently change the pub/sub / asyncio API.
-redis>=5.0,<7.0
+redis>=8.1.0,<9.0
 flower>=2.0,<3.0
 aiolimiter>=1.3.0,<2.0
 pybreaker>=1.4.1,<2.0

@@ -14,8 +14,8 @@ on:
             - "docker-compose.infra.yml"
             - "docker-compose.stack.yml"
             - ".github/workflows/bot-quality.yml"
-            # Image publishing waits for this workflow's Quality gate, so it must
-            # run for every path that triggers an image build.
+            # Service images are built by the last job of this workflow, after the
+            # Quality gate, so it must run for every path that affects an image.
             - "docker/**"
             - ".github/workflows/container-images.yml"
             - "scripts/check_toolchain_drift.py"
@@ -32,8 +32,8 @@ on:
             - "docker-compose.infra.yml"
             - "docker-compose.stack.yml"
             - ".github/workflows/bot-quality.yml"
-            # Image publishing waits for this workflow's Quality gate, so it must
-            # run for every path that triggers an image build.
+            # Service images are built by the last job of this workflow, after the
+            # Quality gate, so it must run for every path that affects an image.
             - "docker/**"
             - ".github/workflows/container-images.yml"
             - "scripts/check_toolchain_drift.py"
@@ -48,9 +48,100 @@ concurrency:
 
 jobs:
     # ---------------------------------------------------------------------------
+    # Change detection
+    #
+    # Every job below runs only when the area it checks was touched, so a Python
+    # change does not pay for the Go tests and the frontend build (and the other
+    # way round). Detection uses the GitHub API, so it needs no checkout.
+    #
+    # It fails open: on any doubt (API error, truncated comparison, a change to
+    # these workflow files, a manual run) every job runs. A skipped job never
+    # hides a failure, because the Quality gate also depends on this job.
+    # ---------------------------------------------------------------------------
+    changes:
+        name: Detect changed areas
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            pull-requests: read
+        outputs:
+            bot: ${{ steps.detect.outputs.bot }}
+            backend: ${{ steps.detect.outputs.backend }}
+            frontend: ${{ steps.detect.outputs.frontend }}
+            docs: ${{ steps.detect.outputs.docs }}
+            stack: ${{ steps.detect.outputs.stack }}
+            images_pr: ${{ steps.detect.outputs.images_pr }}
+            images_push: ${{ steps.detect.outputs.images_push }}
+        steps:
+            - name: Classify changed files
+              id: detect
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  EVENT_NAME: ${{ github.event_name }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  BEFORE: ${{ github.event.before }}
+                  SHA: ${{ github.sha }}
+              run: |
+                  set -uo pipefail
+                  keys="bot backend frontend docs stack images_pr images_push"
+
+                  run_everything() {
+                    echo "Running every job: $1"
+                    for key in $keys; do echo "${key}=true" >> "$GITHUB_OUTPUT"; done
+                    exit 0
+                  }
+
+                  names='.[] | .filename, (.previous_filename // empty)'
+                  case "${EVENT_NAME}" in
+                    pull_request)
+                      files="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/files" --paginate --jq "${names}")" \
+                        || run_everything "could not list the pull request files"
+                      ;;
+                    push)
+                      if [ -z "${BEFORE}" ] || [ -z "${BEFORE//0/}" ]; then
+                        run_everything "no previous commit to compare against"
+                      fi
+                      response="$(gh api "repos/${REPO}/compare/${BEFORE}...${SHA}")" \
+                        || run_everything "could not compare ${BEFORE}...${SHA}"
+                      # The compare API lists at most 300 files.
+                      if [ "$(jq '.files | length' <<<"${response}")" -ge 300 ]; then
+                        run_everything "comparison truncated at 300 files"
+                      fi
+                      files="$(jq -r ".files${names}" <<<"${response}")"
+                      ;;
+                    *)
+                      run_everything "event ${EVENT_NAME}"
+                      ;;
+                  esac
+                  [ -n "${files}" ] || run_everything "empty file list"
+
+                  if grep -Eq '^\.github/workflows/(bot-quality|container-images)\.yml$' <<<"${files}"; then
+                    run_everything "a CI workflow changed"
+                  fi
+
+                  touched() { if grep -Eq "$1" <<<"${files}"; then echo true; else echo false; fi; }
+                  manifests='(^|/)(requirements[^/]*\.txt|uv\.lock|pyproject\.toml|go\.mod|go\.sum|package\.json|package-lock\.json)$'
+                  {
+                    echo "bot=$(touched '^bot/')"
+                    echo "backend=$(touched '^backend/')"
+                    echo "frontend=$(touched '^frontend/')"
+                    echo "docs=$(touched '^docs/|^README\.md$|^scripts/validate_docs_governance\.py$')"
+                    # Compose files, Dockerfiles and the toolchain pins they must match.
+                    echo "stack=$(touched '^docker/|^docker-compose\.[^/]*\.yml$|^backend/go\.mod$|^scripts/check_toolchain_drift\.py$')"
+                    # On a pull request an image build only proves the Dockerfiles still
+                    # build, so it runs when build inputs change. Source-only changes are
+                    # built after the merge, when the images are published.
+                    echo "images_pr=$(touched "^docker/|^docker-compose\.(infra|stack)\.yml$|${manifests}")"
+                    echo "images_push=$(touched '^(docker|bot|backend|frontend)/|^docker-compose\.(infra|stack)\.yml$')"
+                  } | tee -a "$GITHUB_OUTPUT"
+
+    # ---------------------------------------------------------------------------
     # Python bot unit tests
     # ---------------------------------------------------------------------------
     bot-tests:
+        needs: changes
+        if: needs.changes.outputs.bot == 'true'
         name: Bot unit tests (Python ${{ matrix.python-version }})
         runs-on: ubuntu-latest
         env:
@@ -195,6 +286,8 @@ jobs:
     # Bot lint — Black formatting + flake8 hard gate
     # ---------------------------------------------------------------------------
     bot-lint:
+        needs: changes
+        if: needs.changes.outputs.bot == 'true'
         name: Bot lint (isort + Black + flake8)
         runs-on: ubuntu-latest
         defaults:
@@ -243,6 +336,8 @@ jobs:
     # (check_untyped_defs, warn_unused_ignores, warn_redundant_casts) are enabled
     # there — the commented phase-3 options are the next tightening step.
     bot-typecheck:
+        needs: changes
+        if: needs.changes.outputs.bot == 'true'
         name: Bot type check (mypy)
         runs-on: ubuntu-latest
         defaults:
@@ -288,6 +383,8 @@ jobs:
     # Bandit security scan (non-blocking, phase 1 — mirrors bot-typecheck/mypy)
     # ---------------------------------------------------------------------------
     bot-security:
+        needs: changes
+        if: needs.changes.outputs.bot == 'true'
         name: Bot security scan (bandit)
         runs-on: ubuntu-latest
         defaults:
@@ -340,6 +437,8 @@ jobs:
     # (2026-08-15: the unused aiohttp pin was removed, clearing its 3 open
     # advisories at the root.)
     bot-deps-audit:
+        needs: changes
+        if: needs.changes.outputs.bot == 'true'
         name: Bot dependency audit (pip-audit)
         runs-on: ubuntu-latest
         defaults:
@@ -419,6 +518,8 @@ jobs:
     # If shared-runner flakiness appears, triage via MULTIWORKER_BURST_MESSAGES
     # without un-promoting the job.
     bot-multiworker:
+        needs: changes
+        if: needs.changes.outputs.bot == 'true'
         name: Bot multi-worker broadcast test
         runs-on: ubuntu-latest
         timeout-minutes: 15
@@ -541,6 +642,8 @@ jobs:
     # still skips (not fails) when outbound network is unavailable, so the gate
     # is offline-safe.
     bot-integration:
+        needs: changes
+        if: needs.changes.outputs.bot == 'true'
         name: Bot external-service integration tests
         runs-on: ubuntu-latest
         timeout-minutes: 15
@@ -618,6 +721,8 @@ jobs:
     # Docker Compose validation (local dev infrastructure)
     # ---------------------------------------------------------------------------
     docker-compose-validate:
+        needs: changes
+        if: needs.changes.outputs.stack == 'true'
         name: Docker Compose validation
         runs-on: ubuntu-latest
 
@@ -670,6 +775,8 @@ jobs:
     # Gate — all checks must pass
     # ---------------------------------------------------------------------------
     backend-tests:
+        needs: changes
+        if: needs.changes.outputs.backend == 'true'
         name: Backend tests (Go)
         runs-on: ubuntu-latest
         timeout-minutes: 20
@@ -723,6 +830,8 @@ jobs:
     # repo-root .github/workflows/ is loaded), so this root job is the effective
     # frontend gate. Commands mirror frontend/package.json scripts exactly.
     frontend-quality:
+        needs: changes
+        if: needs.changes.outputs.frontend == 'true'
         name: Frontend quality (lint + typecheck + contracts + build)
         runs-on: ubuntu-latest
         timeout-minutes: 15
@@ -783,6 +892,8 @@ jobs:
     # Documentation governance (canonical docs + link validation)
     # ---------------------------------------------------------------------------
     docs-governance:
+        needs: changes
+        if: needs.changes.outputs.docs == 'true'
         name: Docs governance (canonical tree + links)
         runs-on: ubuntu-latest
 
@@ -809,6 +920,8 @@ jobs:
     # precedent; drive findings down (or tune the config) and then promote
     # this job into the quality-gate needs.
     backend-lint:
+        needs: changes
+        if: needs.changes.outputs.backend == 'true'
         name: Backend lint (golangci-lint, phase 1)
         runs-on: ubuntu-latest
         timeout-minutes: 10
@@ -850,6 +963,7 @@ jobs:
         name: Quality gate
         runs-on: ubuntu-latest
         needs:
+            - changes
             - bot-tests
             - bot-lint
             - docs-governance
@@ -877,3 +991,23 @@ jobs:
                     exit 1
                   fi
                   echo "All quality checks passed." >> "$GITHUB_STEP_SUMMARY"
+
+    # ---------------------------------------------------------------------------
+    # Service images
+    #
+    # Runs after the Quality gate, in this workflow, so nothing has to poll for
+    # the gate on a paid runner. On a pull request the images are built but not
+    # pushed; everywhere else they are published.
+    # ---------------------------------------------------------------------------
+    images:
+        name: Service images
+        needs:
+            - changes
+            - quality-gate
+        if: >-
+            (github.event_name == 'pull_request' && needs.changes.outputs.images_pr == 'true') ||
+            (github.event_name != 'pull_request' && needs.changes.outputs.images_push == 'true')
+        permissions:
+            contents: read
+            packages: write
+        uses: ./.github/workflows/container-images.yml

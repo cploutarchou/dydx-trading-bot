@@ -4,14 +4,22 @@
 # Dependabot proactively opens version-bump PRs so pins move before advisories
 # land. Bot pins are deliberate (see bot/requirements.txt comments), so PRs are
 # reviewed/merged by a human — no auto-merge configured.
+#
+# Cost: every Dependabot PR runs the full CI, and with the default
+# rebase-strategy each open PR is rebased — and CI re-run — whenever master
+# moves. That was about 45% of all Actions minutes. So version updates are
+# monthly, few PRs are open at once, and PRs are not auto-rebased: comment
+# "@dependabot rebase" on the one you are about to review. Security updates are
+# a separate repository setting and are not delayed by this schedule.
 version: 2
 updates:
     # Python dependencies for the bot service (trading bot, API, workers).
     - package-ecosystem: pip
       directory: /bot
       schedule:
-          interval: weekly
-      open-pull-requests-limit: 5
+          interval: monthly
+      open-pull-requests-limit: 2
+      rebase-strategy: disabled
       groups:
         # Batch low-risk dev-tooling bumps into one PR; runtime deps stay
         # individually reviewable (they can change trading behavior).
@@ -33,30 +41,39 @@ updates:
     - package-ecosystem: gomod
       directory: /backend
       schedule:
-          interval: weekly
-      open-pull-requests-limit: 5
+          interval: monthly
+      open-pull-requests-limit: 2
+      rebase-strategy: disabled
 
     # npm dependencies for the frontend dashboard. Dev tooling is batched;
     # runtime dependencies stay individually reviewable.
     - package-ecosystem: npm
       directory: /frontend
       schedule:
-          interval: weekly
-      open-pull-requests-limit: 5
+          interval: monthly
+      open-pull-requests-limit: 2
+      rebase-strategy: disabled
       groups:
         frontend-dev-tools:
           dependency-type: development
 
     # GitHub Actions versions used by the workflows (actions/checkout etc.).
+    # CI tooling only, so every bump goes into one PR.
     - package-ecosystem: github-actions
       directory: /
       schedule:
-          interval: weekly
-      open-pull-requests-limit: 5
+          interval: monthly
+      open-pull-requests-limit: 1
+      rebase-strategy: disabled
+      groups:
+        github-actions:
+          patterns:
+            - "*"
 
     # Docker images (bot worker/API Dockerfiles live in /docker).
     - package-ecosystem: docker
       directory: /docker
       schedule:
-          interval: weekly
-      open-pull-requests-limit: 3
+          interval: monthly
+      open-pull-requests-limit: 1
+      rebase-strategy: disabled

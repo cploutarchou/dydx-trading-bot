@@ -120,6 +120,22 @@ test: ## Run pytest suite (tests/ directory only)
 docs-governance: ## Validate canonical docs links and archival policy
 	python3 scripts/validate_docs_governance.py
 
+# GitHub Actions bills per job-minute, so find failures here first. These mirror
+# the jobs in .github/workflows/bot-quality.yml (same area detection, same
+# commands, same pinned lint versions); see scripts/ci_local.sh for what stays
+# on GitHub.
+.PHONY: ci ci-all ci-hook
+ci: ## Run the CI checks locally for the areas changed against origin/master
+	./scripts/ci_local.sh
+
+ci-all: ## Run every local CI check regardless of what changed
+	./scripts/ci_local.sh --all
+
+ci-hook: ## Install a git pre-push hook that runs `make ci` (skip once with --no-verify)
+	@printf '%s\n' '#!/bin/sh' '# Installed by `make ci-hook`. Bypass once with: git push --no-verify' 'exec make --no-print-directory ci' > .git/hooks/pre-push
+	@chmod +x .git/hooks/pre-push
+	@echo "[OK] pre-push hook installed: .git/hooks/pre-push"
+
 lint: ## Check code with flake8 and pylint
 	.venv/bin/flake8 bot/src tests scripts --max-line-length=120 --exclude=__pycache__
 	.venv/bin/pylint bot/src --disable=C0111,W0212 || true

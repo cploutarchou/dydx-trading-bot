@@ -1153,10 +1153,20 @@ class BacktestRepository:
         request artifact, and _normalize_run_data() turns a missing request into
         ``{}``, so a caller that re-saves a run from a projection without the
         request (such as a list_runs() summary) would otherwise erase it.
+
+        A request that carries nothing but the runtime control block counts as
+        missing: the service re-attaches that block to every save, so the stale
+        verdict written from a list projection used to replace the stored
+        request with the control block alone. The stored request is kept and
+        the incoming control block, which is the newer one, is laid over it.
         """
-        if payload.get("request") or not stored_request:
+        incoming = payload.get("request")
+        incoming_request = incoming if isinstance(incoming, dict) else {}
+        if not stored_request or BacktestRepository._sanitize_request_payload(
+            incoming_request
+        ):
             return payload
-        return {**payload, "request": dict(stored_request)}
+        return {**payload, "request": {**dict(stored_request), **incoming_request}}
 
     def save_run(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
         payload = self._normalize_run_data(run_data)

@@ -1676,6 +1676,21 @@ interface StrategyRuntimeResponse extends Record<string, unknown> {
   last_synced_at?: string;
 }
 
+/**
+ * A risk limit configured on the strategy that the live runtime cannot enforce.
+ * The runtime refuses to start while any of these is set above zero.
+ */
+export interface UnenforcedRiskControl extends Record<string, unknown> {
+  field: string;
+  value: number;
+  message: string;
+}
+
+export interface DisabledRiskControl extends Record<string, unknown> {
+  field: string;
+  previous_value: number;
+}
+
 interface StrategyStartReadinessResponse extends Record<string, unknown> {
   strategy_id: number;
   strategy_name?: string;
@@ -1697,6 +1712,11 @@ interface StrategyStartReadinessResponse extends Record<string, unknown> {
   ready: boolean;
   blockers: string[];
   warnings: string[];
+  unenforced_risk_controls?: UnenforcedRiskControl[];
+}
+
+interface DisableUnenforcedRiskControlsResponse extends StrategyResponse {
+  disabled_risk_controls?: DisabledRiskControl[];
 }
 
 const normalizeStrategyPayload = (data: StrategyRequest): StrategyRequest => {
@@ -3813,6 +3833,35 @@ class ApiClient {
         `/api/v1/strategies/${strategyId}/start-readiness${query}`
       );
       return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
+  }
+
+  /**
+   * Sets the named risk limits to 0 on the strategy because the live runtime
+   * cannot enforce them. The backend only accepts `max_drawdown_pct` and
+   * `trailing_stop_pct`, requires the acknowledgement flag, and audit-logs the
+   * previous values. Callers must collect the operator's acknowledgement first.
+   */
+  async disableUnenforcedRiskControls(
+    strategyId: number,
+    fields: string[],
+    network?: 'testnet' | 'mainnet'
+  ): Promise<ApiResponse<DisableUnenforcedRiskControlsResponse>> {
+    try {
+      const response = await this.client.post<ApiResponse<DisableUnenforcedRiskControlsResponse>>(
+        `/api/v1/strategies/${strategyId}/unenforced-risk-controls/disable`,
+        {
+          fields,
+          acknowledged: true,
+          ...(network ? { network } : {}),
+        }
+      );
+      return {
+        ...response.data,
+        data: normalizeStrategyResponse(response.data.data),
+      };
     } catch (error: unknown) {
       throw new Error(getErrorMessage(error));
     }

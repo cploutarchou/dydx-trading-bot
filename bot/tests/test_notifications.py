@@ -272,10 +272,25 @@ def _install_post(monkeypatch, outcomes, sleeps):
             raise outcome
         return outcome
 
+    # notifications.time is the time module itself, so this replaces time.sleep
+    # for the whole process. A background thread left running by an earlier test
+    # would otherwise spin through the no-op sleep and flood ``sleeps``; threads
+    # that already exist keep the real sleep and are not recorded.
+    real_sleep = notifications.time.sleep
+    foreign_threads = {
+        thread.ident
+        for thread in threading.enumerate()
+        if thread is not threading.current_thread()
+    }
+
+    def _fake_sleep(seconds):
+        if threading.get_ident() in foreign_threads:
+            real_sleep(seconds)
+            return
+        sleeps.append(seconds)
+
     monkeypatch.setattr(notifications.requests, "post", _fake_post)
-    monkeypatch.setattr(
-        notifications.time, "sleep", lambda seconds: sleeps.append(seconds)
-    )
+    monkeypatch.setattr(notifications.time, "sleep", _fake_sleep)
     return calls
 
 

@@ -1738,6 +1738,32 @@ export function useStopStrategyRuntimeMutation() {
 }
 
 /**
+ * Turn off risk limits the live runtime cannot enforce (sets them to 0 on the strategy).
+ * Invalidates start-readiness plus the strategy list so open dialogs update in place.
+ */
+export function useDisableUnenforcedRiskControlsMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      strategyId,
+      fields,
+      network,
+    }: {
+      strategyId: number;
+      fields: string[];
+      network?: 'testnet' | 'mainnet';
+    }) => api.disableUnenforcedRiskControls(strategyId, fields, network),
+    onSuccess: (_, variables) => {
+      void cacheUtils.invalidateStrategyQueries(variables.strategyId);
+      void queryClient.invalidateQueries({
+        queryKey: ['strategies', variables.strategyId, 'start-readiness'],
+      });
+      void queryClient.invalidateQueries({ queryKey: ['strategies', 'list'] });
+    },
+  });
+}
+
+/**
  * Fetch recent completed backtests for a strategy (lazy — enabled only when needed).
  */
 export function useStrategyBacktests(

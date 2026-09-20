@@ -122,9 +122,14 @@ func recordBotAPIRequest(statusCode int, latency time.Duration, err error) {
 }
 
 // BotAPIError preserves upstream HTTP status and message for delegated routes.
+// Code and Data carry the machine-readable part of the bot's error envelope
+// (data.error and data), so callers can react to a specific rejection instead
+// of matching on message text.
 type BotAPIError struct {
 	StatusCode int
 	Message    string
+	Code       string
+	Data       map[string]interface{}
 }
 
 func (e *BotAPIError) Error() string {
@@ -578,7 +583,14 @@ func parseBotAPIError(statusCode int, respBytes []byte) error {
 		errorMsg = trimmed
 	}
 
-	return &BotAPIError{StatusCode: statusCode, Message: errorMsg}
+	apiErr := &BotAPIError{StatusCode: statusCode, Message: errorMsg}
+	if data, ok := result["data"].(map[string]interface{}); ok {
+		apiErr.Data = data
+		if code, ok := data["error"].(string); ok {
+			apiErr.Code = strings.TrimSpace(code)
+		}
+	}
+	return apiErr
 }
 
 // CreateBotInstance creates a new bot instance via the bot API

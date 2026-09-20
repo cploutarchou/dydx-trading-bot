@@ -5,7 +5,11 @@ from pathlib import Path
 import pytest
 
 from src.api import server
-from src.shared.live_risk_controls import assert_supported_live_risk_controls
+from src.shared.live_risk_controls import (
+    assert_supported_live_risk_controls,
+    describe_unsupported_live_risk_controls,
+    validate_live_risk_controls,
+)
 from src.trading import position_manager
 
 
@@ -68,6 +72,27 @@ def test_runtime_preflight_rejects_unsupported_risk_controls(monkeypatch):
 
     assert response.status_code == 422
     assert payload["data"]["error"] == "UNSUPPORTED_RISK_CONTROL"
+
+
+def test_runtime_preflight_names_each_unsupported_risk_control():
+    payload = _runtime_payload()
+    payload["trading_params"]["max_drawdown_pct"] = 15.0
+    payload["trading_params"]["trailing_stop_pct"] = 1.0
+    response = asyncio.run(
+        server.runtime_preflight(
+            server.RuntimePreflightRequest(**payload),
+            current_user=object(),
+        )
+    )
+    body = json.loads(response.body)
+
+    assert response.status_code == 422
+    unsupported = body["data"]["unsupported_fields"]
+    assert [(entry["field"], entry["value"]) for entry in unsupported] == [
+        ("max_drawdown_pct", 15.0),
+        ("trailing_stop_pct", 1.0),
+    ]
+    assert all(entry["field"] in entry["message"] for entry in unsupported)
 
 
 def test_create_bot_instance_rejects_unsupported_risk_controls(monkeypatch):
@@ -134,6 +159,30 @@ def test_unsupported_risk_controls_are_rejected():
                 "capital_allocation_usd": 0.0,
             }
         )
+
+
+def test_describing_unsupported_controls_never_relaxes_the_rejection():
+    payload = {
+        "max_drawdown_pct": 0.0,
+        "trailing_stop_pct": 2.5,
+        "capital_allocation_usd": 1000.0,
+    }
+
+    described = describe_unsupported_live_risk_controls(payload)
+
+    assert [entry["field"] for entry in described] == [
+        "trailing_stop_pct",
+        "capital_allocation_usd",
+    ]
+    assert validate_live_risk_controls(payload) == [
+        entry["message"] for entry in described
+    ]
+    with pytest.raises(ValueError, match="trailing_stop_pct"):
+        assert_supported_live_risk_controls(payload)
+    assert (
+        describe_unsupported_live_risk_controls(_runtime_payload()["trading_params"])
+        == []
+    )
 
 
 def test_risk_control_matrix_file_exists():

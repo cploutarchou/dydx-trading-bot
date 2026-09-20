@@ -13,6 +13,29 @@
 | `trailing_stop_pct`      | `src/shared/live_risk_controls.py`, `src/api/server.py::runtime_preflight`, `src/api/server.py::create_bot_instance`, `src/bot_instance_manager.py`, `src/main_instance.py` | Rejected          | Rejected         | Yes                                    | REJECTED | Rejected because trailing-stop logic is not implemented in the live runtime. Operators must set this to `0`.                         |
 | `capital_allocation_usd` | `src/shared/live_risk_controls.py`, `src/api/server.py::runtime_preflight`, `src/api/server.py::create_bot_instance`, `src/bot_instance_manager.py`, `src/main_instance.py` | Rejected          | Rejected         | Yes                                    | REJECTED | Rejected because the live runtime does not enforce cumulative allocation limits at order-entry time. Operators must set this to `0`. |
 
+### How an operator resolves a REJECTED control (2026-09-21)
+
+The rejection is unchanged: any of the three fields > 0 is refused at preflight, create, start and in the
+worker. What changed is that the refusal can now be understood and resolved from the UI instead of surfacing
+as an HTTP 500.
+
+- `POST /api/v1/runtime/preflight` still answers 422 `UNSUPPORTED_RISK_CONTROL`; its `data` now also lists
+  `unsupported_fields: [{field, value, message}]` (`describe_unsupported_live_risk_controls`). The list
+  describes the rejection and never relaxes it.
+- The backend's `GET /api/v1/strategies/:id/start-readiness` reports that refusal as `ready: false` with one
+  blocker per control and an `unenforced_risk_controls` list. Starting stays refused.
+- `max_drawdown_pct` and `trailing_stop_pct` are operator-set. They are turned off only by an explicit,
+  acknowledged action (`POST /api/v1/strategies/:id/unenforced-risk-controls/disable`, or saving the strategy
+  with the value `0`), which stores `0` on the strategy and writes a
+  `strategy.risk_controls.disable_unenforced` audit-log entry with the previous values. There is no bypass
+  flag: a non-zero value never reaches the instance config or the worker environment.
+- `capital_allocation_usd` was never operator-set on a strategy. The backend used to derive it from the
+  backtest's starting capital (`initial_amount`), which made every strategy unstartable. The backend now sends
+  `0` to the live runtime and shows the backtest capital as information only, with a readiness warning that it
+  is not a live limit.
+- The backtest engine does not apply any of the three controls either, so backtest results do not depend on
+  them.
+
 ## Account-Level (Portfolio) Controls — Phase A (2026-08-15)
 
 Cross-instance controls evaluate the SHARED dYdX subaccount (equity, free collateral, open perpetual

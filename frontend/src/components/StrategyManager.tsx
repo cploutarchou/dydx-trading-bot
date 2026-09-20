@@ -26,8 +26,10 @@ import apiClient, {
   DYDX_CANDLE_RESOLUTION_OPTIONS,
   normalizeDydxCandleResolution,
   toAIBacktestSummary,
+  type UnenforcedRiskControl,
 } from '../api';
 import {
+  useDisableUnenforcedRiskControlsMutation,
   useStartStrategyRuntimeMutation,
   useStopStrategyRuntimeMutation,
   useStrategies,
@@ -40,11 +42,17 @@ import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
 import { Strategy, useStrategyStore } from '../store/strategies';
 import { useNow } from '../hooks/useNow';
 import { formatPct, formatSignedUsd, formatUsdBalance } from '../utils/format';
+import {
+  excludeRiskControlBlockers,
+  normalizeUnenforcedRiskControls,
+  riskControlLabel,
+} from '../utils/unenforcedRiskControls';
 import { AIRuntimeDigest } from './AIRuntimeDigest';
 import { AIStrategyAdvisor } from './AIStrategyAdvisor';
 import { CodexAssetIntelStrip } from './CodexAssetIntelStrip';
 import { PageContainer } from './PageContainer';
 import { ActionDialog } from './ui/PlatformUI';
+import { UnenforcedRiskControlsNotice } from './UnenforcedRiskControlsNotice';
 
 interface StrategyStatus {
   strategyId: number;
@@ -95,6 +103,7 @@ interface StrategyStartReadiness {
   ready: boolean;
   blockers: string[];
   warnings: string[];
+  unenforced_risk_controls?: UnenforcedRiskControl[];
 }
 
 interface StrategyActivityEntry {
@@ -317,6 +326,7 @@ export default function StrategyManager() {
   const [stopConfirmStrategy, setStopConfirmStrategy] = useState<Strategy | null>(null);
   const [startDialogNetwork, setStartDialogNetwork] = useState<'testnet' | 'mainnet'>('testnet');
   const [startDialogSubmitting, setStartDialogSubmitting] = useState(false);
+  const [riskControlsError, setRiskControlsError] = useState<string | null>(null);
   const [viewPreset, setViewPreset] = useState<'operator' | 'analyst'>('analyst');
   const [focusedCardId, setFocusedCardId] = useState<number | null>(null);
   // startDialogReadiness, startDialogLoading, startDialogError are now derived from useStrategyStartReadiness
@@ -334,6 +344,7 @@ export default function StrategyManager() {
   const compactCards = viewPreset === 'operator';
   const startRuntimeMutation = useStartStrategyRuntimeMutation();
   const stopRuntimeMutation = useStopStrategyRuntimeMutation();
+  const disableRiskControlsMutation = useDisableUnenforcedRiskControlsMutation();
   const strategyBacktestsQuery = useStrategyBacktests(
     focusedCardId ?? 0,
     5,
@@ -573,6 +584,15 @@ export default function StrategyManager() {
   const startDialogError = readinessQuery.error
     ? getErrorMessage(readinessQuery.error, 'Failed to load runtime readiness')
     : null;
+  // Risk limits the live runtime cannot enforce get their own notice, so their
+  // sentences are left out of the generic blocker list instead of showing twice.
+  const startDialogRiskControls = normalizeUnenforcedRiskControls(
+    startDialogReadiness?.unenforced_risk_controls
+  );
+  const startDialogBlockers = excludeRiskControlBlockers(
+    startDialogReadiness?.blockers,
+    startDialogRiskControls
+  );
   // ─────────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -741,6 +761,7 @@ export default function StrategyManager() {
       typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
     setStartDialogStrategy(strategy);
     setStartDialogNetwork(strategy.runtime_network ?? 'testnet');
+    setRiskControlsError(null);
   };
 
   const closeConfigDialog = () => {
@@ -928,6 +949,34 @@ export default function StrategyManager() {
     }
   };
 
+  const handleDisableRiskControls = async (fields: string[]) => {
+    if (!startDialogStrategy || fields.length === 0) {
+      return;
+    }
+
+    const strategy = startDialogStrategy;
+    setRiskControlsError(null);
+    try {
+      // The mutation invalidates start-readiness and the strategy list, so the
+      // open dialog re-checks readiness in place; the operator then launches
+      // with the normal button.
+      await disableRiskControlsMutation.mutateAsync({
+        strategyId: strategy.id,
+        fields,
+        network: startDialogNetwork,
+      });
+      showTransientMessage(
+        {
+          type: 'success',
+          text: `✅ Turned off ${fields.map(riskControlLabel).join(', ')} for "${strategy.name}"`,
+        },
+        4000
+      );
+    } catch (error: unknown) {
+      setRiskControlsError(getErrorMessage(error, 'Failed to turn off these risk limits'));
+    }
+  };
+
   const handleRuntimeToggle = async (strategy: Strategy) => {
     const currentStatus = strategyStatuses.get(strategy.id);
     const shouldStop = currentStatus !== undefined && isRuntimeActiveStatus(currentStatus.status);
@@ -1012,8 +1061,18 @@ export default function StrategyManager() {
       errors.usd_per_trade = 'USD per trade must be >= $1';
     }
 
-    if (editingConfig.max_drawdown_pct && editingConfig.max_drawdown_pct > 100) {
-      errors.max_drawdown_pct = 'Max drawdown cannot exceed 100%';
+    // 0 is a valid value for both limits below: it means the limit is off, which
+    // is what a live bot needs because the runtime cannot enforce them yet.
+    if (editingConfig.max_drawdown_pct !== undefined) {
+      if (editingConfig.max_drawdown_pct > 100) {
+        errors.max_drawdown_pct = 'Max drawdown cannot exceed 100%';
+      } else if (editingConfig.max_drawdown_pct < 0) {
+        errors.max_drawdown_pct = 'Max drawdown cannot be negative';
+      }
+    }
+
+    if (editingConfig.trailing_stop_pct !== undefined && editingConfig.trailing_stop_pct < 0) {
+      errors.trailing_stop_pct = 'Trailing stop cannot be negative';
     }
 
     if (editingConfig.transaction_fee !== undefined && editingConfig.transaction_fee < 0) {
@@ -2254,9 +2313,10 @@ export default function StrategyManager() {
                       id="environment"
                       ref={startDialogNetworkRef}
                       value={startDialogNetwork}
-                      onChange={(event) =>
-                        setStartDialogNetwork(event.target.value as 'testnet' | 'mainnet')
-                      }
+                      onChange={(event) => {
+                        setStartDialogNetwork(event.target.value as 'testnet' | 'mainnet');
+                        setRiskControlsError(null);
+                      }}
                       className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white focus:border-cyan-400 focus:outline-none"
                     >
                       <option value="testnet">dYdX Testnet</option>
@@ -2426,7 +2486,7 @@ export default function StrategyManager() {
                             </span>
                           </div>
                           <div className="flex items-center justify-between">
-                            <span>Capital allocation target</span>
+                            <span>Backtest capital (not a live limit)</span>
                             <span className="font-medium text-white">
                               {formatUsdBalance(startDialogReadiness.capital_allocation_usd)}
                             </span>
@@ -2453,17 +2513,29 @@ export default function StrategyManager() {
                       </div>
                     </div>
 
-                    {Array.isArray(startDialogReadiness.blockers) &&
-                      startDialogReadiness.blockers.length > 0 && (
-                        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
-                          <p className="text-sm font-semibold text-amber-200">Launch blockers</p>
-                          <ul className="mt-3 space-y-2 text-sm text-amber-100">
-                            {startDialogReadiness.blockers.map((blocker) => (
-                              <li key={blocker}>• {blocker}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
+                    <UnenforcedRiskControlsNotice
+                      controls={startDialogRiskControls}
+                      network={startDialogNetwork}
+                      busy={
+                        disableRiskControlsMutation.isPending ||
+                        readinessQuery.isFetching ||
+                        startDialogSubmitting
+                      }
+                      error={riskControlsError}
+                      confirmLabel="Turn off for this strategy"
+                      onConfirm={(fields) => void handleDisableRiskControls(fields)}
+                    />
+
+                    {startDialogBlockers.length > 0 && (
+                      <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+                        <p className="text-sm font-semibold text-amber-200">Launch blockers</p>
+                        <ul className="mt-3 space-y-2 text-sm text-amber-100">
+                          {startDialogBlockers.map((blocker) => (
+                            <li key={blocker}>• {blocker}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
 
                     {Array.isArray(startDialogReadiness.warnings) &&
                       startDialogReadiness.warnings.length > 0 && (
@@ -2835,7 +2907,7 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">
+                      <label className="mb-2 block text-white font-medium" htmlFor="max-drawdown">
                         Max drawdown %
                         {configErrors.max_drawdown_pct && (
                           <span className="ml-2 text-sm text-red-400">
@@ -2844,16 +2916,21 @@ export default function StrategyManager() {
                         )}
                       </label>
                       <input
+                        id="max-drawdown"
                         type="number"
                         step="0.1"
                         min="0"
                         max="100"
-                        value={editingConfig.max_drawdown_pct ?? 15}
+                        aria-describedby="max-drawdown-hint"
+                        value={editingConfig.max_drawdown_pct ?? 0}
                         onChange={(e) =>
                           updateEditingConfig({ max_drawdown_pct: parseFloat(e.target.value) })
                         }
                         className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
                       />
+                      <p id="max-drawdown-hint" className="mt-2 text-xs text-amber-200">
+                        Not available on live bots yet. Leave at 0 to be able to start a live bot.
+                      </p>
                     </div>
                     <div>
                       <label className="mb-2 block text-white font-medium" htmlFor="stop-loss">
@@ -2890,18 +2967,27 @@ export default function StrategyManager() {
                     <div>
                       <label className="mb-2 block text-white font-medium" htmlFor="trailing-stop">
                         Trailing stop %
+                        {configErrors.trailing_stop_pct && (
+                          <span className="ml-2 text-sm text-red-400">
+                            • {configErrors.trailing_stop_pct}
+                          </span>
+                        )}
                       </label>
                       <input
                         id="trailing-stop"
                         type="number"
                         step="0.1"
                         min="0"
-                        value={editingConfig.trailing_stop_pct ?? 1}
+                        aria-describedby="trailing-stop-hint"
+                        value={editingConfig.trailing_stop_pct ?? 0}
                         onChange={(e) =>
                           updateEditingConfig({ trailing_stop_pct: parseFloat(e.target.value) })
                         }
                         className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
                       />
+                      <p id="trailing-stop-hint" className="mt-2 text-xs text-amber-200">
+                        Not available on live bots yet. Leave at 0 to be able to start a live bot.
+                      </p>
                     </div>
                     <div>
                       <label

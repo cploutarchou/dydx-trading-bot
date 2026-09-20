@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -151,6 +152,15 @@ func (s *StrategyRuntimeService) GetRuntimeStartReadiness(strategy *models.Backt
 		"ready":                       false,
 		"blockers":                    blockers,
 		"warnings":                    warnings,
+		"unenforced_risk_controls":    []map[string]interface{}{},
+	}
+
+	if backtestCapital := resolveCapitalAllocation(strategy); backtestCapital > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"Backtest capital of $%.2f is not a live limit: the live runtime does not cap total deployed capital. Exposure is bounded by trade size and max positions, the minimum-collateral guard and the account-level portfolio guard.",
+			backtestCapital,
+		))
+		response["warnings"] = warnings
 	}
 
 	keyInfo, err := s.keyService.GetKeyInfo(strategy.UserID, network)
@@ -189,12 +199,33 @@ func (s *StrategyRuntimeService) GetRuntimeStartReadiness(strategy *models.Backt
 
 	result, err := s.botService.GetRuntimePreflight(preflightPayload)
 	if err != nil {
+		// The bot refuses risk controls it cannot enforce. That is a readiness
+		// verdict the operator has to resolve, not a failure to evaluate: report
+		// it as blockers and keep the runtime unstartable.
+		if controls, refusal, ok := unenforcedRiskControlsFromError(err); ok {
+			if len(controls) == 0 {
+				blockers = append(blockers, refusal)
+			}
+			for _, control := range controls {
+				message, _ := control["message"].(string)
+				if message == "" {
+					message = fmt.Sprintf("%v is not enforced by the live runtime.", control["field"])
+				}
+				blockers = append(blockers, message)
+			}
+			response["unenforced_risk_controls"] = controls
+			response["blockers"] = dedupeOrderedStrings(blockers)
+			response["warnings"] = dedupeOrderedStrings(warnings)
+			return response, nil
+		}
 		return nil, fmt.Errorf("failed to evaluate runtime readiness: %w", err)
 	}
 
 	preflight := unwrapBotEnvelope(result)
 	for key, value := range preflight {
-		if key == "blockers" || key == "warnings" || key == "ready" {
+		// capital_allocation_usd stays the informational backtest capital set
+		// above; the runtime is sent 0 and would echo that back.
+		if key == "blockers" || key == "warnings" || key == "ready" || key == "capital_allocation_usd" {
 			continue
 		}
 		response[key] = value
@@ -616,9 +647,12 @@ func (s *StrategyRuntimeService) buildTradingParams(strategy *models.BacktestStr
 		selectedMarkets,
 	)
 	return map[string]interface{}{
-		"is_testnet":               !strings.EqualFold(network, "mainnet"),
-		"subaccount_number":        strategy.RuntimeSubaccount,
-		"capital_allocation_usd":   resolveCapitalAllocation(strategy),
+		"is_testnet":        !strings.EqualFold(network, "mainnet"),
+		"subaccount_number": strategy.RuntimeSubaccount,
+		// No operator-set allocation cap exists on a strategy, and the live
+		// runtime rejects any value > 0 because it cannot enforce one. The
+		// backtest's starting capital must not be presented to it as a cap.
+		"capital_allocation_usd":   0.0,
 		"find_cointegrated_pairs":  strategy.FindCointegratedPairs,
 		"manage_exits":             strategy.ManageExits,
 		"place_trades":             strategy.PlaceTrades,
@@ -1045,14 +1079,56 @@ func buildStrategyRuntimeResponse(
 	}
 }
 
+// resolveCapitalAllocation reports the backtest's starting capital for display.
+// It is informational only and is never sent to the live runtime as a limit.
 func resolveCapitalAllocation(strategy *models.BacktestStrategy) float64 {
-	if strategy == nil {
+	if strategy == nil || strategy.InitialAmount <= 0 {
 		return 0
 	}
-	if strategy.InitialAmount > 0 {
-		return strategy.InitialAmount
+	return strategy.InitialAmount
+}
+
+const botErrorCodeUnsupportedRiskControl = "UNSUPPORTED_RISK_CONTROL"
+
+// unenforcedRiskControlsFromError recognises the bot's refusal of risk controls
+// the live runtime cannot enforce. It returns the controls the bot named (empty
+// when an older bot sent only a message), the refusal text, and whether the
+// error was that refusal at all.
+func unenforcedRiskControlsFromError(err error) ([]map[string]interface{}, string, bool) {
+	var apiErr *BotAPIError
+	if !errors.As(err, &apiErr) || apiErr == nil {
+		return nil, "", false
 	}
-	return strategy.UsdMinCollateral
+	if apiErr.StatusCode != http.StatusUnprocessableEntity || apiErr.Code != botErrorCodeUnsupportedRiskControl {
+		return nil, "", false
+	}
+
+	controls := make([]map[string]interface{}, 0)
+	if rawFields, ok := apiErr.Data["unsupported_fields"].([]interface{}); ok {
+		for _, rawField := range rawFields {
+			entry, ok := rawField.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			field, _ := entry["field"].(string)
+			if strings.TrimSpace(field) == "" {
+				continue
+			}
+			value, _ := entry["value"].(float64)
+			message, _ := entry["message"].(string)
+			controls = append(controls, map[string]interface{}{
+				"field":   strings.TrimSpace(field),
+				"value":   value,
+				"message": strings.TrimSpace(message),
+			})
+		}
+	}
+
+	refusal := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(apiErr.Message), "Validation error:"))
+	if refusal == "" {
+		refusal = "The live runtime rejected a risk control it cannot enforce."
+	}
+	return controls, refusal, true
 }
 
 func strategyRuntimeInstanceID(strategy *models.BacktestStrategy) string {

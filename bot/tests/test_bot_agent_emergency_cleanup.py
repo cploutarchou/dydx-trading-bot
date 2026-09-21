@@ -976,3 +976,152 @@ def test_emergency_close_accepts_flat_after_a_close_order_was_placed(monkeypatch
 
     assert order_id == "close-1"
     assert len(attempts) == 1
+
+
+# --- "nothing to reduce" is accepted only with proof from the chain itself -----
+
+
+def _wire_chain_verified_close(monkeypatch, *, place, height, flat):
+    """Emergency close with a readable chain; records what the chain was asked."""
+    asked = {"verify_calls": [], "recovery_messages": []}
+
+    class DummyMessenger:
+        def send_error_message(self, *args, **kwargs):
+            return None
+
+        def send_recovery_message(self, title, details, category=""):
+            asked["recovery_messages"].append(title)
+
+    async def fake_check_order_status(_client, _order_id):
+        return "FILLED"
+
+    async def fake_is_open_positions(_client, _market):
+        # The indexer says flat; on its own that must never be enough.
+        return False
+
+    async def fake_chain_height(_client):
+        if isinstance(height, Exception):
+            raise height
+        return height
+
+    async def fake_verify_flat_on_chain(_client, market, *, not_before_height):
+        asked["verify_calls"].append((market, not_before_height))
+        return flat
+
+    async def _fast_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr("src.trading.bot_agent.TelegramMessenger", DummyMessenger)
+    monkeypatch.setattr("src.trading.bot_agent.place_market_order", place)
+    monkeypatch.setattr(
+        "src.trading.bot_agent.check_order_status", fake_check_order_status
+    )
+    monkeypatch.setattr(
+        "src.trading.bot_agent.is_open_positions", fake_is_open_positions
+    )
+    monkeypatch.setattr("src.trading.bot_agent.chain_height", fake_chain_height)
+    monkeypatch.setattr(
+        "src.trading.bot_agent.verify_flat_on_chain", fake_verify_flat_on_chain
+    )
+    monkeypatch.setattr("src.trading.bot_agent.asyncio.sleep", _fast_sleep)
+    return asked
+
+
+def _nothing_to_reduce_place(codes):
+    """A place_market_order that the node rejects with the given codes in turn."""
+    from src.exceptions import OrderRejectedError
+
+    remaining = list(codes)
+
+    async def place(_client, market, side, size, price, reduce_only):
+        code = remaining.pop(0)
+        if code is None:
+            raise ConnectionError("node timeout")
+        raise OrderRejectedError(market, code, "rejected")
+
+    return place
+
+
+def _close_avax(agent):
+    return asyncio.run(
+        agent._emergency_close_leg(
+            market="AVAX-USD", side="SELL", size="0.8", price="11.17"
+        )
+    )
+
+
+def test_emergency_close_accepts_nothing_to_reduce_once_the_chain_confirms_flat(
+    monkeypatch,
+):
+    # 2026-09-21 on testnet: the indexer was 19 h behind, the entry never filled,
+    # and the node refused all three reduce-only closes with code 2001.
+    asked = _wire_chain_verified_close(
+        monkeypatch,
+        place=_nothing_to_reduce_place([2001, 2001, 2001]),
+        height=1000,
+        flat=True,
+    )
+
+    assert _close_avax(_make_agent()) == ""
+
+    # The flat read waits until the entry order can no longer fill.
+    assert asked["verify_calls"] == [("AVAX-USD", 1000 + 11)]
+    assert asked["recovery_messages"] == ["Entry did not fill; nothing to close"]
+
+
+def test_emergency_close_escalates_when_the_chain_shows_a_position(monkeypatch):
+    asked = _wire_chain_verified_close(
+        monkeypatch,
+        place=_nothing_to_reduce_place([2001, 2001, 2001]),
+        height=1000,
+        flat=False,
+    )
+
+    try:
+        _close_avax(_make_agent())
+    except RuntimeError as exc:
+        assert "AVAX-USD" in str(exc)
+    else:
+        assert False, "the chain did not confirm flat; this must escalate"
+
+    assert len(asked["verify_calls"]) == 1
+    assert asked["recovery_messages"] == []
+
+
+def test_emergency_close_escalates_when_the_chain_height_is_unreadable(monkeypatch):
+    asked = _wire_chain_verified_close(
+        monkeypatch,
+        place=_nothing_to_reduce_place([2001, 2001, 2001]),
+        height=ConnectionError("node down"),
+        flat=True,
+    )
+
+    try:
+        _close_avax(_make_agent())
+    except RuntimeError:
+        pass
+    else:
+        assert False, "without a height the entry's expiry is unknown; escalate"
+
+    assert asked["verify_calls"] == []
+
+
+def test_emergency_close_escalates_unless_every_attempt_was_nothing_to_reduce(
+    monkeypatch,
+):
+    for codes in ([2001, None, 2001], [2001, 2001, 2003]):
+        asked = _wire_chain_verified_close(
+            monkeypatch,
+            place=_nothing_to_reduce_place(codes),
+            height=1000,
+            flat=True,
+        )
+
+        try:
+            _close_avax(_make_agent())
+        except RuntimeError:
+            pass
+        else:
+            assert False, f"{codes}: only a unanimous node verdict may be checked"
+
+        assert asked["verify_calls"] == [], codes

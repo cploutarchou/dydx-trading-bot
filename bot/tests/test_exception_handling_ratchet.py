@@ -100,7 +100,16 @@ from pathlib import Path
 # timeout, indexer error, rejected tx) must not end the retry loop, because that
 # loop is the only code that will try to flatten the leg; the failure is logged,
 # the loop retries, and it still raises when no attempt succeeds.
-BROAD_CATCH_BASELINE = 307
+# 307 -> 310 (2026-09-21, stale-indexer incident): three fail-closed checks where
+# ANY failure has to mean "not verified", whatever its type:
+#   - indexer_freshness.check_indexer_freshness height read: an unreadable
+#     height blocks entries for the cycle instead of raising out of the scan.
+#   - account_manager.verify_flat_on_chain: a node/lookup/decoding error returns
+#     False, so the emergency close escalates exactly as it did before.
+#   - BotAgent._emergency_close_leg chain-height read: without a height the
+#     entry order's expiry is unknown, so the chain check is skipped and the
+#     close loop still runs and escalates.
+BROAD_CATCH_BASELINE = 310
 
 # Matches "except Exception", "except Exception as e", "except Exception:" and bare "except:".
 _BROAD_CATCH_RE = re.compile(r"\bexcept\s+(Exception|BaseException)\b|^\s*except\s*:")

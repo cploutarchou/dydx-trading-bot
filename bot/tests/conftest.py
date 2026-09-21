@@ -360,3 +360,23 @@ def get_test_connection_string(
         f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db_name}"
         "?sslmode=disable"
     )
+
+
+# ============================================================================
+# Indexer freshness guard isolation
+# ============================================================================
+#
+# ``src/trading/indexer_freshness.py`` fails closed: a client whose indexer
+# height cannot be read blocks entries. The entry-path tests drive
+# ``open_positions`` and the runtime preflight with minimal client doubles that
+# have no indexer height, so the guard is pinned OFF by default and its alert
+# rate limiter is reset. Tests exercising the guard opt back in with
+# ``monkeypatch.delenv``/``setenv`` (function-scoped monkeypatch runs after this
+# fixture's setup and so takes precedence). The shipped default is pinned by
+# ``test_the_guard_is_on_by_default``.
+@pytest.fixture(autouse=True)
+def _isolate_indexer_freshness_guard(monkeypatch):
+    from src.trading import indexer_freshness
+
+    monkeypatch.setenv(indexer_freshness.ENV_MAX_LAG_SECONDS, "0")
+    monkeypatch.setattr(indexer_freshness, "_last_alert_at", None)

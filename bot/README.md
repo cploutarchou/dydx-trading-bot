@@ -382,6 +382,14 @@ Live runtime exit state is now confirmation-based: submitting reduce-only close 
 position closed. The runtime waits for exchange-flat confirmation before closing persistence state; partial, timed-out,
 or orphaned exits remain visible in tracked state and emit critical operator alerts.
 
+The runtime reads prices, positions and order status from the dYdX indexer, so it refuses to open new pairs while the
+indexer is behind the chain (`BOT_INDEXER_MAX_LAG_SECONDS`, default `120`, `0` disables; operator alert at most every
+`BOT_INDEXER_STALE_ALERT_SECONDS`, default `1800`). This is not a latch: entries resume once the indexer has caught up,
+exits keep running, and `POST /api/v1/runtime/preflight` reports the same condition as a blocker. When every reduce-only
+emergency close is refused by the node with code 2001 ("nothing to reduce"), the leg is treated as never opened only if
+the entry order has expired and the validator node's own subaccount state shows no position; otherwise the entry latch
+and the critical alert fire as before. See `docs/bot-risk-control-matrix.md`.
+
 Unsupported live risk controls are rejected instead of being accepted as no-ops. Operators must keep
 `max_drawdown_pct`, `trailing_stop_pct`, and `capital_allocation_usd` at `0` until live enforcement exists. The
 preflight 422 names each offending field in `data.unsupported_fields`, and the backend reports it as a start-readiness

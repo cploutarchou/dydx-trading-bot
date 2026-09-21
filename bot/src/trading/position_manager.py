@@ -32,7 +32,7 @@ from src.shared.dataframe_utils import (
 )
 from src.shared.notifications import TelegramMessenger
 from src.shared.utils import format_number, format_size_down
-from src.trading import entry_halt
+from src.trading import entry_halt, indexer_freshness
 from src.trading.account_manager import (
     get_account,
     get_open_positions,
@@ -891,6 +891,24 @@ async def open_positions(client: Any) -> None:
 
     # Initialize Telegram messenger
     messenger = TelegramMessenger()
+
+    # Prices, positions and order status all come from the indexer. While it is
+    # behind the chain an entry would be priced on old data and could not be
+    # confirmed afterwards, so this cycle opens nothing. Not a latch: entries
+    # resume by themselves once the indexer has caught up. Exits keep running.
+    staleness = await indexer_freshness.check_indexer_freshness(client)
+    if staleness is not None:
+        increment_metric("arbitrage_entries_blocked_stale_indexer_cycles_total")
+        logger.warning("Entries skipped this cycle: {}", staleness.describe())
+        if indexer_freshness.should_alert():
+            messenger.send_error_message(
+                "Entries paused: dYdX indexer is stale",
+                f"{staleness.describe()}. No new pairs are opened until it catches "
+                "up; open positions are still managed.",
+                is_critical=False,
+                category="execution_indexer_stale",
+            )
+        return
 
     # Load cointegrated pairs using enhanced storage
     pairs = pair_storage.load_pairs()

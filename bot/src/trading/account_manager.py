@@ -25,6 +25,14 @@ from src.trading.market_data import get_markets
 # pass, so abandoning a slow response is recoverable.
 NODE_CALL_TIMEOUT_SECONDS = 30.0
 
+# A short-term order is valid for this many blocks after the block it was built
+# against (good_til_block = current_block + SHORT_TERM_ORDER_VALID_BLOCKS).
+SHORT_TERM_ORDER_VALID_BLOCKS = 11
+
+# Node rejection: "Reduce-only orders cannot increase the position size". The
+# validator is saying there is nothing on that side for the order to reduce.
+REDUCE_ONLY_NOTHING_TO_REDUCE_CODE = 2001
+
 
 def _resolve_client_address(client: Any) -> str:
     """Resolve the best available wallet address as a concrete string."""
@@ -144,7 +152,7 @@ async def cancel_order(client: Any, order_id: str) -> None:
     current_block = await asyncio.wait_for(
         client.node.latest_block_height(), timeout=NODE_CALL_TIMEOUT_SECONDS
     )
-    good_til_block = current_block + 1 + 10
+    good_til_block = current_block + SHORT_TERM_ORDER_VALID_BLOCKS
     cancel = await asyncio.wait_for(
         client.node.cancel_order(
             client.wallet, market_order_id, good_til_block=good_til_block
@@ -314,6 +322,75 @@ async def get_order_fills(
     ]
 
 
+async def chain_height(client: Any) -> int:
+    """Latest block height according to the validator node (not the indexer)."""
+    return int(
+        await asyncio.wait_for(
+            client.node.latest_block_height(), timeout=NODE_CALL_TIMEOUT_SECONDS
+        )
+    )
+
+
+async def verify_flat_on_chain(
+    client: Any,
+    market: str,
+    *,
+    not_before_height: int,
+    max_wait_seconds: float = 45.0,
+) -> bool:
+    """Whether the validator node itself shows no position in ``market``.
+
+    The indexer can lag by seconds or, as on testnet on 2026-09-21, by hours, so
+    a flat reading from it proves little. The node's subaccount state is the
+    chain's own, real-time answer.
+
+    ``not_before_height`` must be a height at which every order that could
+    still change the position has expired; the read waits for the chain to
+    pass it, so a resting short-term order cannot fill after a flat verdict.
+
+    Returns ``False`` whenever flatness could not be established (timeout,
+    lookup or decoding failure, a non-zero position): the caller then escalates
+    exactly as it would have without this check.
+    """
+    try:
+        deadline = asyncio.get_running_loop().time() + max_wait_seconds
+        while await chain_height(client) <= not_before_height:
+            if asyncio.get_running_loop().time() >= deadline:
+                logger.warning(
+                    "Chain did not pass height {} in time; cannot verify {} on chain",
+                    not_before_height,
+                    market,
+                )
+                return False
+            await asyncio.sleep(1)
+
+        markets_payload = await _get_perpetual_markets_with_metrics(client, market)
+        clob_pair_id = int(markets_payload["markets"][market]["clobPairId"])
+        clob_pair = await asyncio.wait_for(
+            client.node.get_clob_pair(clob_pair_id), timeout=NODE_CALL_TIMEOUT_SECONDS
+        )
+        perpetual_id = int(clob_pair.perpetual_clob_metadata.perpetual_id)
+
+        subaccount = await asyncio.wait_for(
+            client.node.get_subaccount(
+                _resolve_client_address(client), _resolve_subaccount_number()
+            ),
+            timeout=NODE_CALL_TIMEOUT_SECONDS,
+        )
+        for position in subaccount.perpetual_positions:
+            if int(position.perpetual_id) == perpetual_id:
+                return int(position.quantums_decoded) == 0
+        return True
+    except Exception as exc:
+        logger.warning(
+            "Could not verify {} on chain ({}: {}); treating it as possibly open",
+            market,
+            type(exc).__name__,
+            exc,
+        )
+        return False
+
+
 async def is_open_positions(client: Any, market: str) -> bool:
     """Check if there are any open positions for a specific market."""
     # Protect API
@@ -402,7 +479,7 @@ async def place_market_order(
         random.randint(0, MAX_CLIENT_ID),
         OrderFlags.SHORT_TERM,
     )
-    good_til_block = current_block + 1 + 10
+    good_til_block = current_block + SHORT_TERM_ORDER_VALID_BLOCKS
 
     # Set Time In Force
     time_in_force = Order.TIME_IN_FORCE_UNSPECIFIED

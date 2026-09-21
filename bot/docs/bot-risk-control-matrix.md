@@ -36,6 +36,24 @@ as an HTTP 500.
 - The backtest engine does not apply any of the three controls either, so backtest results do not depend on
   them.
 
+### Execution data integrity (2026-09-21)
+
+Added after the first live strategy runtimes on staging raised a critical "leg may be open" alert for a
+position that never existed: the public dYdX testnet indexer was 19 hours behind the chain, so the runtime
+could not find the order it had just placed.
+
+| Control | Code path | Behaviour | Test Exists |
+|---|---|---|---|
+| Indexer freshness (`BOT_INDEXER_MAX_LAG_SECONDS`, default `120`, `0` = off) | `src/trading/indexer_freshness.py`, `position_manager.open_positions`, `server.runtime_preflight` | Entries are skipped for the cycle while the indexer's latest block is older than the limit, or its height cannot be read (fail closed). Not a latch; exits unaffected; preflight reports it as a blocker; operator alert rate-limited by `BOT_INDEXER_STALE_ALERT_SECONDS` (default `1800`). | Yes |
+| Chain-verified "nothing to close" | `account_manager.verify_flat_on_chain`, `bot_agent._emergency_close_leg` | Only when all close attempts were refused by the node with code 2001, the chain has passed the entry order's last valid block, and the validator node's subaccount state shows no position in that market. The indexer is not consulted. Any other outcome escalates as before (entry latch + critical alert). | Yes |
+
+Coverage: `tests/test_indexer_freshness_and_chain_state.py`, `tests/test_bot_agent_emergency_cleanup.py`.
+
+Known limits: the entry latch file (`bot_states/entries_halted.json`) is shared by every runtime in a bot-api
+pod and, on Kubernetes, lives in an `emptyDir`, so replacing the pod removes it. Two runtimes on one
+subaccount also share netted positions and the order history each of them searches; run one runtime per
+subaccount.
+
 ## Account-Level (Portfolio) Controls — Phase A (2026-08-15)
 
 Cross-instance controls evaluate the SHARED dYdX subaccount (equity, free collateral, open perpetual

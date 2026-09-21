@@ -7,16 +7,20 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from loguru import logger
 
-from src.exceptions import UnhedgedExposureError
+from src.exceptions import OrderRejectedError, UnhedgedExposureError
 from src.shared.notifications import TelegramMessenger
 from src.trading.account_manager import (
+    REDUCE_ONLY_NOTHING_TO_REDUCE_CODE,
+    SHORT_TERM_ORDER_VALID_BLOCKS,
     cancel_order,
     cancel_order_verified,
+    chain_height,
     check_order_status,
     get_order,
     get_order_fills,
     is_open_positions,
     place_market_order,
+    verify_flat_on_chain,
 )
 
 
@@ -137,6 +141,20 @@ class BotAgent:
         last_status = "unknown"
         order_id: str = ""
         close_order_placed = False
+        nothing_to_reduce_rejections = 0
+        # The entry order was built before this point, so it cannot still be
+        # valid once the chain has passed this height.
+        entry_expired_after_height: Optional[int] = None
+        try:
+            entry_expired_after_height = (
+                await chain_height(self.client) + SHORT_TERM_ORDER_VALID_BLOCKS
+            )
+        except Exception as height_error:
+            logger.warning(
+                "Could not read the chain height before closing {}: {}",
+                market,
+                height_error,
+            )
         for attempt in range(1, retries + 1):
             # A failed placement or status read must not end the loop: the
             # position may still be open, and this is the only code that will
@@ -161,6 +179,11 @@ class BotAgent:
                 )
             except Exception as attempt_error:
                 order_status_close_order = f"error: {attempt_error}"
+                if (
+                    isinstance(attempt_error, OrderRejectedError)
+                    and attempt_error.code == REDUCE_ONLY_NOTHING_TO_REDUCE_CODE
+                ):
+                    nothing_to_reduce_rejections += 1
                 logger.error(
                     "Emergency close attempt {}/{} for {} failed: {}",
                     attempt,
@@ -206,6 +229,34 @@ class BotAgent:
                     order_status_close_order,
                 )
                 await asyncio.sleep(1)
+
+        # Every close was refused by the validator because there is nothing to
+        # reduce. That alone is not trusted: the entry order has to have expired
+        # and the node's own subaccount state has to show no position. The
+        # indexer is deliberately not consulted; it may be far behind. Anything
+        # short of that positive proof falls through to the escalation below.
+        if (
+            nothing_to_reduce_rejections == retries
+            and entry_expired_after_height is not None
+            and await verify_flat_on_chain(
+                self.client, market, not_before_height=entry_expired_after_height
+            )
+        ):
+            logger.warning(
+                "No position to close for {}: the node refused every reduce-only "
+                "close (code {}) and its subaccount state shows none after height {}",
+                market,
+                REDUCE_ONLY_NOTHING_TO_REDUCE_CODE,
+                entry_expired_after_height,
+            )
+            self.messenger.send_recovery_message(
+                "Entry did not fill; nothing to close",
+                f"The entry order for {market} left no position: the node refused "
+                f"every reduce-only close (code {REDUCE_ONLY_NOTHING_TO_REDUCE_CODE}) "
+                "and the chain shows none. No exposure; entries continue.",
+                category="execution_emergency_cleanup",
+            )
+            return order_id
 
         logger.critical("ABORT PROGRAM - Failed to close hedged position")
         logger.critical(

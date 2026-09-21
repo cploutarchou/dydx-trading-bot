@@ -31,12 +31,14 @@ concurrency:
     cancel-in-progress: true
 
 jobs:
-    # ---------------------------------------------------------------------------
-    # Validate docker-compose files
-    # ---------------------------------------------------------------------------
-    docker-compose-syntax:
-        name: Docker Compose syntax
+    # One job on purpose. These checks take a few seconds in total, and every job
+    # is billed as a full minute, so four jobs plus a gate cost five minutes for
+    # under half a minute of work. Each step runs even when an earlier one fails,
+    # so a single run still reports every problem.
+    validation-gate:
+        name: Validation gate
         runs-on: ubuntu-latest
+        timeout-minutes: 5
 
         steps:
             - name: Checkout repository
@@ -49,23 +51,14 @@ jobs:
                   echo "✓ docker-compose.infra.yml syntax valid"
 
             - name: Validate docker-compose.stack.yml
+              if: ${{ !cancelled() }}
               run: |
                   set -euo pipefail
                   docker compose -f docker-compose.stack.yml config > /dev/null
                   echo "✓ docker-compose.stack.yml syntax valid"
 
-    # ---------------------------------------------------------------------------
-    # Validate Makefile targets
-    # ---------------------------------------------------------------------------
-    makefile-targets:
-        name: Makefile targets
-        runs-on: ubuntu-latest
-
-        steps:
-            - name: Checkout repository
-              uses: actions/checkout@v7
-
             - name: Check required Makefile targets exist
+              if: ${{ !cancelled() }}
               run: |
                   set -euo pipefail
                   required_targets=(
@@ -91,18 +84,8 @@ jobs:
                   done
                   echo "✓ All required Makefile targets present"
 
-    # ---------------------------------------------------------------------------
-    # Validate LOCAL_SETUP_GUIDE.md (optional but recommended)
-    # ---------------------------------------------------------------------------
-    setup-guide-validation:
-        name: Setup guide validation
-        runs-on: ubuntu-latest
-
-        steps:
-            - name: Checkout repository
-              uses: actions/checkout@v7
-
             - name: Check LOCAL_SETUP_GUIDE exists and has content
+              if: ${{ !cancelled() }}
               run: |
                   set -euo pipefail
                   if [ ! -f LOCAL_SETUP_GUIDE.md ]; then
@@ -116,6 +99,7 @@ jobs:
                   echo "✓ LOCAL_SETUP_GUIDE.md exists and has content"
 
             - name: Validate setup guide references key commands
+              if: ${{ !cancelled() }}
               run: |
                   set -euo pipefail
                   if [ ! -f LOCAL_SETUP_GUIDE.md ]; then
@@ -125,18 +109,8 @@ jobs:
                   grep -q "make stack-up-dev" LOCAL_SETUP_GUIDE.md || echo "Warning: missing make stack-up-dev reference" >> "$GITHUB_STEP_SUMMARY"
                   echo "✓ Setup guide validation complete"
 
-    # ---------------------------------------------------------------------------
-    # Validate infrastructure service configuration
-    # ---------------------------------------------------------------------------
-    infrastructure-config:
-        name: Infrastructure configuration
-        runs-on: ubuntu-latest
-
-        steps:
-            - name: Checkout repository
-              uses: actions/checkout@v7
-
             - name: Check infra compose has all required services
+              if: ${{ !cancelled() }}
               run: |
                   set -euo pipefail
                   required_services=(
@@ -156,6 +130,7 @@ jobs:
                   echo "✓ All required infra services configured"
 
             - name: Check stack compose has all required services
+              if: ${{ !cancelled() }}
               run: |
                   set -euo pipefail
                   required_services=(
@@ -177,32 +152,3 @@ jobs:
                     fi
                   done
                   echo "✓ All required stack services configured"
-
-    # ---------------------------------------------------------------------------
-    # Gate — all validations must pass
-    # ---------------------------------------------------------------------------
-    validation-gate:
-        name: Validation gate
-        runs-on: ubuntu-latest
-        needs:
-            - docker-compose-syntax
-            - makefile-targets
-            - setup-guide-validation
-            - infrastructure-config
-        if: always()
-
-        steps:
-            - name: Check all validations passed
-              run: |
-                  set -euo pipefail
-                  results='${{ toJSON(needs) }}'
-                  echo "Validation results: $results"
-                  if echo "$results" | grep -q '"result": "failure"'; then
-                    echo "One or more local dev setup validations failed." >&2
-                    exit 1
-                  fi
-                  if echo "$results" | grep -q '"result": "cancelled"'; then
-                    echo "One or more local dev setup validations were cancelled." >&2
-                    exit 1
-                  fi
-                  echo "✓ All local dev setup validations passed"

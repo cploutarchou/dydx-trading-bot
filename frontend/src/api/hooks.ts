@@ -9,7 +9,8 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import api, { TelegramConfigPayload, TelegramSettingsScope } from '../api';
+import api, { type EntryHaltState, TelegramConfigPayload, TelegramSettingsScope } from '../api';
+import { normalizeEntryHaltState } from '../utils/entryHalt';
 import { botApi } from './botApi';
 import { cacheUtils, queryConfigs, queryKeys } from './queryClient';
 import type {
@@ -1759,6 +1760,66 @@ export function useDisableUnenforcedRiskControlsMutation() {
         queryKey: ['strategies', variables.strategyId, 'start-readiness'],
       });
       void queryClient.invalidateQueries({ queryKey: ['strategies', 'list'] });
+    },
+  });
+}
+
+/**
+ * Entry-halt state for the subaccount a strategy trades on.
+ * Polls every 30 seconds while enabled; callers enable it only for runtimes
+ * that are live (or for an open start dialog) to keep polling light.
+ * `data` is null when the payload cannot be read: an unknown state never shows
+ * a halt. A failed poll is not retried; the next interval asks again.
+ */
+export function useStrategyEntryHalt(
+  strategyId: number | null,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
+  const resolvedStrategyId = strategyId ?? 0;
+  return useQuery({
+    queryKey: queryKeys.strategyEntryHalt(resolvedStrategyId),
+    queryFn: async () => {
+      const response = await api.getStrategyEntryHalt(resolvedStrategyId);
+      return normalizeEntryHaltState(response.data);
+    },
+    ...queryConfigs.trading,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    retry: false,
+    enabled: enabled && resolvedStrategyId > 0,
+  });
+}
+
+/**
+ * Clear an entry halt after the operator acknowledged the account check.
+ * A halt belongs to a subaccount, not to one strategy, so every cached
+ * entry-halt state is refreshed along with this strategy's runtime and
+ * start-readiness (readiness carries a warning while a halt is active).
+ */
+export function useClearStrategyEntryHaltMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ strategyId, note }: { strategyId: number; note?: string }) =>
+      api.clearStrategyEntryHalt(strategyId, note),
+    onSuccess: (response, variables) => {
+      if (response.data?.halted === false) {
+        const cleared: EntryHaltState = { halted: false, unverified: false, halt: null };
+        queryClient.setQueryData<EntryHaltState | null>(
+          queryKeys.strategyEntryHalt(variables.strategyId),
+          cleared
+        );
+      }
+      void cacheUtils.invalidateStrategyQueries(variables.strategyId);
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.strategyRuntime(variables.strategyId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ['strategies', variables.strategyId, 'start-readiness'],
+      });
+      void queryClient.invalidateQueries({
+        predicate: (query) =>
+          query.queryKey[0] === 'strategies' && query.queryKey[2] === 'entry-halt',
+      });
     },
   });
 }

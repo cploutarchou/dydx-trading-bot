@@ -74,6 +74,7 @@ export const queryKeys = {
   strategyRuntime: (strategyId: number) => ['strategies', strategyId, 'runtime'] as const,
   strategyStartReadiness: (strategyId: number, network?: string) =>
     ['strategies', strategyId, 'start-readiness', network ?? 'testnet'] as const,
+  strategyEntryHalt: (strategyId: number) => ['strategies', strategyId, 'entry-halt'] as const,
   strategyBacktests: (strategyId: number) => ['strategies', strategyId, 'backtests'] as const,
 } as const;
 

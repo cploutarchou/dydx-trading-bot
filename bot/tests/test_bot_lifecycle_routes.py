@@ -43,6 +43,8 @@ _LIFECYCLE_OPERATIONS = {
     ("POST", "/api/v1/bots/{instance_id}/start"),
     ("POST", "/api/v1/bots/{instance_id}/stop"),
     ("POST", "/api/v1/bots/{instance_id}/restart"),
+    ("GET", "/api/v1/bots/{instance_id}/entry-halt"),
+    ("POST", "/api/v1/bots/{instance_id}/entry-halt/clear"),
     ("POST", "/api/v1/bots/quick-deploy"),
 }
 

@@ -188,6 +188,9 @@ func (s *StrategyRuntimeService) GetRuntimeStartReadiness(strategy *models.Backt
 	}
 
 	preflightPayload := map[string]interface{}{
+		// Names the runtime being checked, so the one-runtime-per-subaccount
+		// check does not count it as sharing the subaccount with itself.
+		"instance_id":   strategyRuntimeInstanceID(strategy),
 		"instance_name": strategy.Name,
 		"credentials": map[string]interface{}{
 			"chain_id": chainIDForNetwork(network),
@@ -242,6 +245,48 @@ func (s *StrategyRuntimeService) GetRuntimeStartReadiness(strategy *models.Backt
 	response["warnings"] = dedupeOrderedStrings(warnings)
 	response["ready"] = preflightReady && len(dedupeOrderedStrings(blockers)) == 0
 	return response, nil
+}
+
+// ErrStrategyRuntimeNotFound means the bot has no runtime for the strategy.
+var ErrStrategyRuntimeNotFound = errors.New("strategy runtime not found on the bot")
+
+func isBotNotFound(err error) bool {
+	var apiErr *BotAPIError
+	return errors.As(err, &apiErr) && apiErr != nil && apiErr.StatusCode == http.StatusNotFound
+}
+
+// GetRuntimeEntryHalt reports whether new entries are halted on the subaccount
+// the strategy's runtime trades on. The bot owns and enforces the halt; this
+// only makes it visible.
+func (s *StrategyRuntimeService) GetRuntimeEntryHalt(strategy *models.BacktestStrategy) (map[string]interface{}, error) {
+	result, err := s.botService.GetRemoteEntryHalt(strategyRuntimeInstanceID(strategy))
+	if err != nil {
+		if isBotNotFound(err) {
+			// A strategy that was never started has no runtime on the bot. A halt
+			// on the subaccount it would use is reported by start-readiness.
+			return map[string]interface{}{"halted": false, "unverified": false, "halt": nil}, nil
+		}
+		return nil, fmt.Errorf("failed to read entry halt: %w", err)
+	}
+	return unwrapBotEnvelope(result), nil
+}
+
+// ClearRuntimeEntryHalt clears the entry halt after the operator acknowledged
+// that the account was verified on the exchange. clearedBy is the authenticated
+// operator; the bot records it with the note.
+func (s *StrategyRuntimeService) ClearRuntimeEntryHalt(strategy *models.BacktestStrategy, clearedBy string, note string) (map[string]interface{}, error) {
+	result, err := s.botService.ClearRemoteEntryHalt(strategyRuntimeInstanceID(strategy), map[string]interface{}{
+		"acknowledged": true,
+		"cleared_by":   clearedBy,
+		"note":         note,
+	})
+	if err != nil {
+		if isBotNotFound(err) {
+			return nil, ErrStrategyRuntimeNotFound
+		}
+		return nil, fmt.Errorf("failed to clear entry halt: %w", err)
+	}
+	return unwrapBotEnvelope(result), nil
 }
 
 func (s *StrategyRuntimeService) StartRuntimeWithForceRecreate(strategy *models.BacktestStrategy, requestedNetwork string) (map[string]interface{}, error) {

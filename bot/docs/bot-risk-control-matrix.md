@@ -49,10 +49,15 @@ could not find the order it had just placed.
 
 Coverage: `tests/test_indexer_freshness_and_chain_state.py`, `tests/test_bot_agent_emergency_cleanup.py`.
 
-Known limits: the entry latch file (`bot_states/entries_halted.json`) is shared by every runtime in a bot-api
-pod and, on Kubernetes, lives in an `emptyDir`, so replacing the pod removes it. Two runtimes on one
-subaccount also share netted positions and the order history each of them searches; run one runtime per
-subaccount.
+The entry latch is durable and scoped to the subaccount (`entry_halts` table, migration `0007_entry_halts`, plus a
+per-instance file as the write-first fallback); it is shown and cleared, with an acknowledgement and an audit
+record, through `/api/v1/bots/{instance_id}/entry-halt`. Two runtimes on one subaccount would share netted
+positions and the order history each of them searches, so start and preflight refuse a second active runtime on
+the same `(network, address, subaccount)`. Coverage: `tests/test_entry_halt_durable.py`,
+`tests/test_entry_halt_routes.py`, `tests/test_bot_instance_manager.py`.
+
+Known limits: the one-runtime-per-subaccount check covers the runtimes of one bot-api process; a standalone run
+or a second bot-api deployment on the same wallet is not seen.
 
 ## Account-Level (Portfolio) Controls — Phase A (2026-08-15)
 

@@ -109,7 +109,14 @@ from pathlib import Path
 #   - BotAgent._emergency_close_leg chain-height read: without a height the
 #     entry order's expiry is unknown, so the chain check is skipped and the
 #     close loop still runs and escalates.
-BROAD_CATCH_BASELINE = 310
+# 310 -> 311 (2026-09-22, durable entry halt): entry_halt.halt_entries records the
+# halt in the database after the latch file is written. It runs in the emergency
+# path right before the critical operator alert, so no database failure of any
+# type (driver import, engine initialisation, connection, SQL) may raise out of
+# it and suppress that alert; the file already holds the latch and the failure
+# is logged. The read path (entries_halted) is narrowed to typed errors: there an
+# unexpected error only means no entries are opened that cycle.
+BROAD_CATCH_BASELINE = 311
 
 # Matches "except Exception", "except Exception as e", "except Exception:" and bare "except:".
 _BROAD_CATCH_RE = re.compile(r"\bexcept\s+(Exception|BaseException)\b|^\s*except\s*:")

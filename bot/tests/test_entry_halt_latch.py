@@ -95,9 +95,10 @@ def test_latch_round_trip_and_first_reason_is_kept(instance_state):
     assert state["reason"] == "first failure"
     assert state["details"] == {"market_1": "BTC-USD"}
 
-    assert entry_halt.clear_entry_halt() is True
+    # clear_entry_halt() reports how many halts it cleared.
+    assert entry_halt.clear_entry_halt() == 1
     assert entry_halt.entries_halted() is None
-    assert entry_halt.clear_entry_halt() is False
+    assert entry_halt.clear_entry_halt() == 0
 
 
 def test_unreadable_latch_still_halts(instance_state):
@@ -173,3 +174,42 @@ def test_entries_resume_after_the_operator_clears_the_latch(
     entry_halt.clear_entry_halt()
     asyncio.run(position_manager.open_positions(object()))
     assert constructed == ["DOT-USD", "XLM-USD"]
+
+
+def test_operator_is_alerted_even_when_the_halt_cannot_be_stored(
+    monkeypatch, instance_state
+):
+    """If neither latch store takes the halt, the alert is the only thing left
+    between the operator and more entries, so it must still be sent and the
+    scan must still stop."""
+    constructed = []
+    alerts = []
+
+    class UnhedgedAgent:
+        def __init__(self, _client, **kwargs):
+            constructed.append(kwargs.get("market_1"))
+
+        async def open_trades(self):
+            raise UnhedgedExposureError("Failed emergency closure for DOT-USD")
+
+    class RecordingMessenger:
+        def send_error_message(self, title, message, **kwargs):
+            alerts.append((title, message, kwargs))
+
+    def _read_only(_path, _payload):
+        raise OSError("read-only file system")
+
+    _wire_two_pair_scan(monkeypatch, UnhedgedAgent)
+    monkeypatch.setattr(position_manager, "TelegramMessenger", RecordingMessenger)
+    monkeypatch.setattr(entry_halt, "_write_halt_file", _read_only)
+
+    asyncio.run(position_manager.open_positions(object()))
+
+    assert constructed == ["DOT-USD"]
+    assert entry_halt.entries_halted() is None
+    assert len(alerts) == 1
+    title, message, kwargs = alerts[0]
+    assert title == "CRITICAL: New entries halted"
+    assert "could NOT be recorded" in message
+    assert "read-only file system" in message
+    assert kwargs["is_critical"] is True

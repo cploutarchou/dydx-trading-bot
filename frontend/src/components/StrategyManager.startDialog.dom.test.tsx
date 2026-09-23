@@ -48,6 +48,8 @@ vi.mock('../api/hooks', () => ({
     mutateAsync: mocks.disableMutateAsync,
     isPending: false,
   }),
+  useStrategyEntryHalt: () => ({ data: undefined }),
+  useClearStrategyEntryHaltMutation: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock('../api', () => ({

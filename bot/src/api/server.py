@@ -111,6 +111,7 @@ from src.infrastructure.broadcast import get_broadcast_bus  # noqa: E402
 
 # Import database utilities
 from src.infrastructure.database import DatabaseConfig, db  # noqa: E402
+from src.infrastructure.db_offload import run_db  # noqa: E402
 
 # Import backtest modules
 from src.infrastructure.domain.models_backtest import (  # noqa: E402
@@ -140,6 +141,7 @@ from src.shared.live_risk_controls import (  # noqa: E402
 # imported directly by src/api/v1/celery_admin.py and no longer used here.
 from src.shared.logging_setup import setup_logging  # noqa: E402
 from src.shared.time_utils import utc_now_iso  # noqa: E402
+from src.trading import entry_halt  # noqa: E402
 from src.trading.arbitrage_observability import snapshot_metrics  # noqa: E402
 from src.trading.arbitrage_runtime_config import (  # noqa: E402
     get_feature_flags,
@@ -466,6 +468,9 @@ class RuntimePreflightRequest(BaseModel):
     credentials: BotCredentials
     trading_params: TradingParameters
     instance_name: Optional[str] = None
+    # The runtime the check is for, so it is not reported as sharing the
+    # subaccount with itself.
+    instance_id: Optional[str] = None
 
 
 # ArbitrageRuntimeSettingsRequest moved to src/api/v1/arbitrage.py (re-imported above).
@@ -1047,6 +1052,41 @@ async def runtime_preflight(
         if not wallet_ready:
             blockers.append(
                 "Unable to derive a dYdX wallet from the provided credentials."
+            )
+
+        # One runtime per subaccount, and an operator should know before starting
+        # that the subaccount's entries are halted.
+        manager = bot_manager
+        if manager is not None:
+            scoped_config = BotInstanceConfig(
+                instance_id=request.instance_id or "preflight",
+                instance_name=request.instance_name or "preflight",
+                credentials=request.credentials,
+                trading_params=request.trading_params,
+            )
+            sharing = manager.active_instance_on_subaccount(
+                scoped_config, exclude_instance_id=request.instance_id
+            )
+            if sharing is not None:
+                blockers.append(
+                    manager.subaccount_in_use_message(scoped_config, sharing)
+                )
+
+        halt = await run_db(
+            entry_halt.entries_halted,
+            entry_halt.HaltScope(
+                instance_id=request.instance_id or "preflight",
+                network=environment,
+                address=str(request.credentials.address or ""),
+                subaccount_number=subaccount_number,
+            ),
+        )
+        if halt is not None and not halt.get("unverified"):
+            warnings.append(
+                f"New entries are halted on {environment} subaccount "
+                f"{subaccount_number} since {halt.get('halted_at', 'unknown')}: "
+                f"{halt.get('reason', 'unknown')}. The bot will start and manage "
+                "open positions, but opens no new pairs until the halt is cleared."
             )
 
         # A runtime started against a stale indexer prices entries on old data

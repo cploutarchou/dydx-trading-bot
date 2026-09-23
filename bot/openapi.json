@@ -100,7 +100,7 @@
           "Authentication"
         ],
         "summary": "Register",
-        "description": "Register endpoint.",
+        "description": "Register endpoint (disabled unless BOT_API_ALLOW_SELF_REGISTRATION=true).",
         "operationId": "register_auth_register_post",
         "requestBody": {
           "content": {
@@ -290,7 +290,7 @@
           "Authentication"
         ],
         "summary": "Register",
-        "description": "Register endpoint.",
+        "description": "Register endpoint (disabled unless BOT_API_ALLOW_SELF_REGISTRATION=true).",
         "operationId": "register_api_v1_auth_register_post",
         "requestBody": {
           "content": {
@@ -2338,6 +2338,128 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/bots/{instance_id}/entry-halt": {
+      "get": {
+        "summary": "Get Bot Entry Halt",
+        "description": "Whether new entries are halted on the subaccount this instance trades on.",
+        "operationId": "get_bot_entry_halt_api_v1_bots__instance_id__entry_halt_get",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "instance_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Instance Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StandardApiResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-response-envelope": "StandardApiResponse"
+      }
+    },
+    "/api/v1/bots/{instance_id}/entry-halt/clear": {
+      "post": {
+        "summary": "Clear Bot Entry Halt",
+        "description": "Operator reset of the entry halt, after the account was verified.",
+        "operationId": "clear_bot_entry_halt_api_v1_bots__instance_id__entry_halt_clear_post",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "instance_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Instance Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntryHaltClearRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -7042,6 +7164,30 @@
         "title": "CeleryTaskRevokeRequest",
         "description": "Validated body for the admin Celery revoke endpoint.\n\n``terminate=True`` escalates the revoke to a SIGTERM of the executing task, so\nthe flag must be a real boolean \u2014 the previous raw-dict ``bool(payload.get(...))``\ncoerced JSON strings like ``\"false\"``/``\"0\"`` to ``True``. Unknown keys are\nignored so existing clients sending unrelated fields keep working."
       },
+      "EntryHaltClearRequest": {
+        "properties": {
+          "acknowledged": {
+            "type": "boolean",
+            "title": "Acknowledged",
+            "default": false
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Note",
+            "default": ""
+          },
+          "cleared_by": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Cleared By",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "EntryHaltClearRequest",
+        "description": "Operator confirmation that the account was checked before resuming entries."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -7137,6 +7283,17 @@
               }
             ],
             "title": "Instance Name"
+          },
+          "instance_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instance Id"
           }
         },
         "type": "object",

@@ -52,6 +52,7 @@ import { AIStrategyAdvisor } from './AIStrategyAdvisor';
 import { CodexAssetIntelStrip } from './CodexAssetIntelStrip';
 import { PageContainer } from './PageContainer';
 import { ActionDialog } from './ui/PlatformUI';
+import { StrategyEntryHaltNotice } from './EntryHaltNotice';
 import { UnenforcedRiskControlsNotice } from './UnenforcedRiskControlsNotice';
 
 interface StrategyStatus {
@@ -2122,6 +2123,12 @@ export default function StrategyManager() {
                   </div>
                 )}
 
+                <StrategyEntryHaltNotice
+                  strategyId={strategy.id}
+                  enabled={isRuntimeActiveStatus(status.status)}
+                  className="mt-4"
+                />
+
                 {/* Action Buttons */}
                 <div className="sticky bottom-2 z-10 mt-2 rounded-2xl border border-slate-700/60 bg-slate-950/70 p-2 backdrop-blur-sm">
                   <div className="flex flex-wrap items-center gap-2">
@@ -2512,6 +2519,10 @@ export default function StrategyManager() {
                         </div>
                       </div>
                     </div>
+
+                    {startDialogStrategy && (
+                      <StrategyEntryHaltNotice strategyId={startDialogStrategy.id} enabled />
+                    )}
 
                     <UnenforcedRiskControlsNotice
                       controls={startDialogRiskControls}

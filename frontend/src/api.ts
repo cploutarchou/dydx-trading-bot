@@ -1719,6 +1719,35 @@ interface DisableUnenforcedRiskControlsResponse extends StrategyResponse {
   disabled_risk_controls?: DisabledRiskControl[];
 }
 
+/**
+ * The durable record of an entry halt. A bot stops opening new pairs on a
+ * subaccount after an emergency close failed, and keeps managing exits until an
+ * operator has checked the account and cleared the halt.
+ */
+export interface EntryHalt extends Record<string, unknown> {
+  id: number;
+  instance_id: string;
+  network: 'testnet' | 'mainnet';
+  address: string;
+  subaccount_number: number;
+  reason: string;
+  /** May carry `market_1`, `market_2`, `error` and `scan_cycle_id`. */
+  details: Record<string, unknown>;
+  halted_at: string;
+}
+
+export interface EntryHaltState extends Record<string, unknown> {
+  halted: boolean;
+  /** True when the halt state could not be read; the bot treats that as halted. */
+  unverified: boolean;
+  halt: EntryHalt | null;
+}
+
+interface ClearEntryHaltResponse extends Record<string, unknown> {
+  halted: boolean;
+  cleared: number;
+}
+
 const normalizeStrategyPayload = (data: StrategyRequest): StrategyRequest => {
   const normalized: StrategyRequest = { ...data };
 
@@ -3862,6 +3891,45 @@ class ApiClient {
         ...response.data,
         data: normalizeStrategyResponse(response.data.data),
       };
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
+  }
+
+  /**
+   * Entry-halt state for the subaccount this strategy trades on. While halted
+   * the bot opens no new pairs; open positions are still managed.
+   */
+  async getStrategyEntryHalt(strategyId: number): Promise<ApiResponse<EntryHaltState>> {
+    try {
+      const response = await this.client.get<ApiResponse<EntryHaltState>>(
+        `/api/v1/strategies/${strategyId}/entry-halt`
+      );
+      return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
+  }
+
+  /**
+   * Clears the entry halt so the bot resumes opening pairs. The backend requires
+   * the acknowledgement flag and audit-logs the user with the optional note.
+   * Callers must collect the operator's acknowledgement first.
+   */
+  async clearStrategyEntryHalt(
+    strategyId: number,
+    note?: string
+  ): Promise<ApiResponse<ClearEntryHaltResponse>> {
+    try {
+      const trimmedNote = note?.trim();
+      const response = await this.client.post<ApiResponse<ClearEntryHaltResponse>>(
+        `/api/v1/strategies/${strategyId}/entry-halt/clear`,
+        {
+          acknowledged: true,
+          ...(trimmedNote ? { note: trimmedNote } : {}),
+        }
+      );
+      return response.data;
     } catch (error: unknown) {
       throw new Error(getErrorMessage(error));
     }

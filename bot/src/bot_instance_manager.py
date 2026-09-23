@@ -1133,6 +1133,46 @@ class BotInstanceManager:
 
         return status_changed
 
+    @staticmethod
+    def subaccount_scope(config: BotInstanceConfig) -> tuple[str, str, int]:
+        """``(network, address, subaccount)`` a runtime trades on."""
+        network = "testnet" if config.trading_params.is_testnet else "mainnet"
+        address = str(config.credentials.address or "").strip().lower()
+        return network, address, int(config.trading_params.subaccount_number or 0)
+
+    def active_instance_on_subaccount(
+        self, config: BotInstanceConfig, *, exclude_instance_id: Optional[str] = None
+    ) -> Optional[str]:
+        """Instance id of another active runtime on the same subaccount, if any.
+
+        One runtime per subaccount: dYdX nets positions per market within a
+        subaccount, so two runtimes would close each other's legs, and each
+        confirms its orders by searching the subaccount's recent orders, which
+        the other runtime's orders make ambiguous.
+        """
+        scope = self.subaccount_scope(config)
+        if not scope[1]:
+            return None
+        for other_id, other in self.instances.items():
+            if other_id == exclude_instance_id:
+                continue
+            if other.status not in self.ACTIVE_RUNTIME_STATUSES:
+                continue
+            if self.subaccount_scope(other.config) == scope:
+                return other_id
+        return None
+
+    @classmethod
+    def subaccount_in_use_message(
+        cls, config: BotInstanceConfig, other_instance_id: str
+    ) -> str:
+        network, _address, subaccount = cls.subaccount_scope(config)
+        return (
+            f"Another bot ({other_instance_id}) is already running on {network} "
+            f"subaccount {subaccount}. Run one bot per subaccount: stop that bot "
+            "or give this strategy a different subaccount."
+        )
+
     async def create_instance(self, config: BotInstanceConfig) -> BotOperationResult:
         """Create new bot instance"""
         try:
@@ -1226,6 +1266,17 @@ class BotInstanceManager:
                 return BotOperationResult(
                     success=False,
                     message=f"Instance {instance_id} is already {instance.status.value}",
+                    instance_id=instance_id,
+                    status=instance.status,
+                )
+
+            sharing = self.active_instance_on_subaccount(
+                instance.config, exclude_instance_id=instance_id
+            )
+            if sharing is not None:
+                return BotOperationResult(
+                    success=False,
+                    message=self.subaccount_in_use_message(instance.config, sharing),
                     instance_id=instance_id,
                     status=instance.status,
                 )

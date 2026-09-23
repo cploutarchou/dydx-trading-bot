@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -739,6 +740,109 @@ func (h *StrategyHandler) DisableUnenforcedRiskControls(c *gin.Context) {
 	c.JSON(http.StatusOK, APIResponse{
 		Success:   true,
 		Data:      data,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+// entryHaltNoteMaxLength matches the bot API's limit on the clear note.
+const entryHaltNoteMaxLength = 500
+
+// GetStrategyEntryHalt reports whether the bot has halted new entries on the
+// subaccount this strategy trades on.
+func (h *StrategyHandler) GetStrategyEntryHalt(c *gin.Context) {
+	strategy, _, ok := h.getAuthorizedStrategy(c)
+	if !ok {
+		return
+	}
+
+	state, err := h.runtimeService.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c)).GetRuntimeEntryHalt(strategy)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to get strategy entry halt: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      state,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+// ClearStrategyEntryHalt lets the bot resume opening pairs. The halt means a leg
+// may be open without its hedge, so it is cleared only through this explicit,
+// acknowledged and audited action, never as a side effect of another request.
+func (h *StrategyHandler) ClearStrategyEntryHalt(c *gin.Context) {
+	strategy, _, ok := h.getAuthorizedStrategy(c)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Acknowledged bool   `json:"acknowledged"`
+		Note         string `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Invalid request: %v", err),
+		})
+		return
+	}
+	if !req.Acknowledged {
+		c.JSON(http.StatusBadRequest, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "acknowledged must be true: confirm the account was checked on the exchange and no position is left without its hedge",
+		})
+		return
+	}
+	note := strings.TrimSpace(req.Note)
+	if len([]rune(note)) > entryHaltNoteMaxLength {
+		c.JSON(http.StatusBadRequest, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("note must be at most %d characters", entryHaltNoteMaxLength),
+		})
+		return
+	}
+
+	// The operator is taken from the session, never from the request body.
+	clearedBy := strings.TrimSpace(c.GetString("username"))
+	if clearedBy == "" {
+		clearedBy = fmt.Sprintf("user:%d", c.GetInt("user_id"))
+	}
+
+	result, err := h.runtimeService.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c)).ClearRuntimeEntryHalt(strategy, clearedBy, note)
+	if err != nil {
+		statusCode := http.StatusInternalServerError
+		if errors.Is(err, services.ErrStrategyRuntimeNotFound) {
+			statusCode = http.StatusNotFound
+		}
+		c.JSON(statusCode, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     fmt.Sprintf("Failed to clear strategy entry halt: %v", err),
+		})
+		return
+	}
+
+	if h.auditLogger != nil {
+		h.auditLogger(c, "strategy.entry_halt.clear", strategy.ID, gin.H{
+			"strategy_name": strategy.Name,
+			"cleared":       result["cleared"],
+			"note":          note,
+			"acknowledged":  true,
+		})
+	}
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success:   true,
+		Data:      result,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 }

@@ -332,13 +332,32 @@ number is never stored as a zero P&L.
 ### Entry halt latch
 
 When an emergency close fails, a leg may be open without a hedge. The pair agent raises `UnhedgedExposureError`, the
-entry scan stops immediately, and a persisted latch (`entries_halted.json` next to the instance's `bot_agents.json`)
-blocks new entries in every following cycle, across restarts. Exits and risk controls keep running. A critical
-notification and a `trade_entries_halted` activity event are emitted once. After verifying the account on the exchange:
+entry scan stops immediately, and a durable latch blocks new entries in every following cycle. Exits and risk controls
+keep running. A critical notification and a `trade_entries_halted` activity event are emitted once.
+
+The latch is scoped to the subaccount whose exposure is in doubt, `(network, address, subaccount_number)`, and is kept
+in two places:
+
+- the `entry_halts` table (migration `0007_entry_halts`): survives restarts and replaced pods, and records who cleared
+  the halt and why. A row with `cleared_at IS NULL` is an active halt.
+- a file next to the instance's tracked-position file (`entries_halted_<instance_id>.json`), written first so the latch
+  holds even when the database is unreachable. It is the only store for a standalone run (`BOT_INSTANCE_ID` unset).
+
+A managed runtime that cannot read the table treats the state as unknown and opens nothing that cycle. Runtime
+preflight warns when the subaccount is halted, and refuses a second active runtime on the same subaccount.
+
+After verifying the account on the exchange, an operator clears the halt from the strategy card in the dashboard, or:
 
 ```bash
-python -m src.trading.entry_halt          # show the latch
-python -m src.trading.entry_halt --clear  # resume entries
+GET  /api/v1/bots/{instance_id}/entry-halt
+POST /api/v1/bots/{instance_id}/entry-halt/clear   {"acknowledged": true, "note": "what was verified"}
+```
+
+For a standalone run:
+
+```bash
+python -m src.trading.entry_halt                          # show the latch
+python -m src.trading.entry_halt --clear --note "..."     # resume entries
 ```
 
 A rejected order transaction raises `OrderRejectedError` at placement, with the node's code and reason, instead of

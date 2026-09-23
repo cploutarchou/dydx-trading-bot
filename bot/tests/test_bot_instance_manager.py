@@ -3092,3 +3092,64 @@ def test_api_status_view_never_exposes_mnemonic_or_telegram_token():
     assert payload["config"]["credentials"]["address"]
     # The internal config object is untouched: the runtime still has its key.
     assert state.config.credentials.mnemonic == secret_mnemonic
+
+
+# --- one runtime per subaccount -------------------------------------------------
+
+
+def _config_on(instance_id, *, address="dydx1probe", subaccount=0, testnet=True):
+    config = _strategy_config(instance_id)
+    config.credentials.address = address
+    config.trading_params.subaccount_number = subaccount
+    config.trading_params.is_testnet = testnet
+    return config
+
+
+def test_a_second_runtime_on_the_same_subaccount_is_refused(tmp_path):
+    # 2026-09-21 on staging: two runtimes shared testnet subaccount 0. dYdX nets
+    # positions per market within a subaccount, and each runtime confirms its
+    # orders by searching the subaccount's recent orders.
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+    asyncio.run(manager.create_instance(_config_on("strategy-85-1")))
+    asyncio.run(manager.create_instance(_config_on("strategy-85-2")))
+    manager.instances["strategy-85-1"].status = BotStatus.RUNNING
+
+    result = asyncio.run(manager.start_instance("strategy-85-2"))
+
+    assert result.success is False
+    assert "strategy-85-1" in result.message
+    assert "testnet subaccount 0" in result.message
+    assert manager.instances["strategy-85-2"].status == BotStatus.STOPPED
+
+
+def test_only_an_active_runtime_on_the_very_same_subaccount_counts(tmp_path):
+    manager = BotInstanceManager(state_dir=str(tmp_path))
+    asyncio.run(manager.create_instance(_config_on("strategy-85-1")))
+    candidate = _config_on("strategy-85-2")
+
+    # Not running: the subaccount is free.
+    assert manager.active_instance_on_subaccount(candidate) is None
+
+    manager.instances["strategy-85-1"].status = BotStatus.RUNNING
+    assert manager.active_instance_on_subaccount(candidate) == "strategy-85-1"
+    # The address comparison ignores case and surrounding whitespace.
+    assert (
+        manager.active_instance_on_subaccount(
+            _config_on("strategy-85-2", address=" DYDX1PROBE ")
+        )
+        == "strategy-85-1"
+    )
+    # A runtime is never in conflict with itself.
+    assert (
+        manager.active_instance_on_subaccount(
+            _config_on("strategy-85-1"), exclude_instance_id="strategy-85-1"
+        )
+        is None
+    )
+    # Another subaccount, another network or another wallet is a different place.
+    for elsewhere in (
+        _config_on("strategy-85-2", subaccount=1),
+        _config_on("strategy-85-2", testnet=False),
+        _config_on("strategy-85-2", address="dydx1other"),
+    ):
+        assert manager.active_instance_on_subaccount(elsewhere) is None

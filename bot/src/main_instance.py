@@ -26,6 +26,7 @@ from src.shared.environment import is_explicit_dev_or_test_environment
 from src.shared.live_risk_controls import assert_supported_live_risk_controls
 from src.shared.logging_setup import setup_logging
 from src.shared.notifications import TelegramMessenger
+from src.trading import entry_halt
 from src.trading.account_manager import abort_all_positions
 from src.trading.analysis.cointegration import store_cointegration_results
 from src.trading.bot_agents_state import load_tracked_positions
@@ -711,6 +712,18 @@ class BotInstance:
                 raise RuntimeError(
                     f"No dYdX chain address configured for instance {self.instance_id}"
                 )
+            # The entry-halt latch is scoped to the subaccount this runtime
+            # trades on, which comes from the instance config, not src.constants.
+            entry_halt.set_runtime_scope(
+                entry_halt.HaltScope(
+                    instance_id=self.instance_id,
+                    network="testnet" if runtime_config.is_testnet else "mainnet",
+                    address=instance_address,
+                    subaccount_number=int(
+                        getattr(runtime_config.botSettings, "subaccountNumber", 0) or 0
+                    ),
+                )
+            )
             self.client = await connect_dydx_runtime(
                 address=instance_address,
                 mnemonic=instance_mnemonic,

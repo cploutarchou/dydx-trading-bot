@@ -882,6 +882,13 @@ async def open_positions(client: Any) -> None:
     halt_state = entry_halt.entries_halted()
     if halt_state is not None:
         increment_metric("arbitrage_entries_halted_cycles_total")
+        if halt_state.get("unverified"):
+            # The latch could not be read, so whether this subaccount was halted
+            # before a restart is unknown. Open nothing; the next cycle asks again.
+            logger.warning(
+                "Entries skipped this cycle: {}", halt_state.get("reason", "unknown")
+            )
+            return
         logger.critical(
             "Entries are halted since {}: {}. Verify the account, then clear the latch.",
             halt_state.get("halted_at", "unknown"),
@@ -1362,15 +1369,28 @@ async def open_positions(client: Any) -> None:
                             # pairs now, in this cycle and the following ones.
                             record_rejection("entry_unhedged_exposure")
                             _record_entry_failure(pair_key, exc)
-                            entry_halt.halt_entries(
-                                f"emergency close failed for {base_market} / {quote_market}",
-                                {
-                                    "market_1": base_market,
-                                    "market_2": quote_market,
-                                    "error": str(exc),
-                                    "scan_cycle_id": scan_cycle_id,
-                                },
-                            )
+                            # The alert below must go out whatever happens to
+                            # the latch: if neither store takes the halt, the
+                            # operator is the only thing stopping more entries.
+                            halt_error: Optional[str] = None
+                            try:
+                                entry_halt.halt_entries(
+                                    f"emergency close failed for {base_market} / {quote_market}",
+                                    {
+                                        "market_1": base_market,
+                                        "market_2": quote_market,
+                                        "error": str(exc),
+                                        "scan_cycle_id": scan_cycle_id,
+                                    },
+                                )
+                            except RuntimeError as halt_exc:
+                                halt_error = str(halt_exc)
+                                logger.critical(
+                                    "Entry halt could not be persisted after {} / {}: {}",
+                                    base_market,
+                                    quote_market,
+                                    halt_exc,
+                                )
                             persist_trade_activity_event(
                                 "trade_entries_halted",
                                 f"New entries halted: emergency close failed for {base_market} / {quote_market}",
@@ -1379,13 +1399,23 @@ async def open_positions(client: Any) -> None:
                                     "market_1": base_market,
                                     "market_2": quote_market,
                                     "error": str(exc),
+                                    "halt_persisted": halt_error is None,
+                                    **(
+                                        {"halt_error": halt_error} if halt_error else {}
+                                    ),
                                 },
+                            )
+                            latch_text = (
+                                "No new pairs will be opened until the account is "
+                                "verified and the latch is cleared."
+                                if halt_error is None
+                                else f"Stop this bot until the account is verified: "
+                                f"{halt_error}."
                             )
                             messenger.send_error_message(
                                 "CRITICAL: New entries halted",
                                 f"Emergency close failed for {base_market} / {quote_market}. "
-                                "A leg may be open without a hedge. No new pairs will be opened "
-                                "until the account is verified and the latch is cleared.",
+                                f"A leg may be open without a hedge. {latch_text}",
                                 is_critical=True,
                                 category="execution_emergency_cleanup",
                             )

@@ -61,6 +61,8 @@ func RegisterStrategyRoutes(router *gin.Engine, database *db.Database) {
 			strategies.GET("/:id/runtime", strategyHandler.GetStrategyRuntime)
 			strategies.GET("/:id/start-readiness", strategyHandler.GetStrategyStartReadiness)
 			strategies.POST("/:id/unenforced-risk-controls/disable", strategyHandler.DisableUnenforcedRiskControls)
+			strategies.GET("/:id/entry-halt", strategyHandler.GetStrategyEntryHalt)
+			strategies.POST("/:id/entry-halt/clear", strategyHandler.ClearStrategyEntryHalt)
 			strategies.POST("/:id/start", strategyHandler.StartStrategyRuntime)
 			strategies.POST("/:id/stop", strategyHandler.StopStrategyRuntime)
 		}

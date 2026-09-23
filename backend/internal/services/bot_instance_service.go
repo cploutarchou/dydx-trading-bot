@@ -439,6 +439,22 @@ func (s *BotInstanceService) GetRuntimePreflight(payload map[string]interface{})
 	return s.apiClient.GetRuntimePreflight(payload)
 }
 
+// GetRemoteEntryHalt reads the entry-halt state of an instance from the upstream bot API.
+func (s *BotInstanceService) GetRemoteEntryHalt(instanceID string) (map[string]interface{}, error) {
+	if s.apiClient == nil {
+		return nil, fmt.Errorf("bot API client not configured")
+	}
+	return s.apiClient.GetBotEntryHalt(instanceID)
+}
+
+// ClearRemoteEntryHalt clears the entry halt of an instance on the upstream bot API.
+func (s *BotInstanceService) ClearRemoteEntryHalt(instanceID string, payload map[string]interface{}) (map[string]interface{}, error) {
+	if s.apiClient == nil {
+		return nil, fmt.Errorf("bot API client not configured")
+	}
+	return s.apiClient.ClearBotEntryHalt(instanceID, payload)
+}
+
 // GetBotInstanceTrades gets trades for a bot instance using upstream status and pagination filtering.
 func (s *BotInstanceService) GetBotInstanceTrades(instanceID string, status *string, limit *int, offset *int) (map[string]interface{}, error) {
 	if s.apiClient == nil {

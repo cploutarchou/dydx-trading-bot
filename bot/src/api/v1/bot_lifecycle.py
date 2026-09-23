@@ -13,6 +13,7 @@ operators that replace ``server.bot_manager`` continue to affect these handlers.
 from __future__ import annotations
 
 import asyncio
+import functools
 import os
 import re
 from datetime import datetime, timezone
@@ -21,6 +22,7 @@ from typing import Any, Callable, Dict, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from fastapi.responses import JSONResponse
 from loguru import logger
+from pydantic import BaseModel, Field
 
 from internal.domain.models import BotStatusEnum
 from src.api.responses import api_response
@@ -40,6 +42,8 @@ from src.middleware.auth_middleware import get_admin_user, get_current_active_us
 from src.shared.credentials_cipher import open_config_secrets, seal_config_secrets
 from src.shared.live_risk_controls import assert_supported_live_risk_controls
 from src.shared.notifications import TelegramMessenger
+from src.trading import entry_halt
+from src.trading.entry_halt import HaltScope
 
 BotManagerProvider = Callable[[], Any]
 InstanceRateLimiter = Callable[[Request], None]
@@ -521,6 +525,127 @@ async def delete_bot_instance(
             message=f"Internal server error: {str(exc)}",
             status_code=500,
         )
+
+
+class EntryHaltClearRequest(BaseModel):
+    """Operator confirmation that the account was checked before resuming entries."""
+
+    acknowledged: bool = False
+    note: str = Field(default="", max_length=500)
+    cleared_by: str = Field(default="", max_length=128)
+
+
+def _entry_halt_scope(bot_manager: Any, instance_id: str) -> Optional[HaltScope]:
+    instance = bot_manager.instances.get(instance_id)
+    if instance is None:
+        return None
+    network, _normalized, subaccount = bot_manager.subaccount_scope(instance.config)
+    return HaltScope(
+        instance_id=instance_id,
+        network=network,
+        address=str(instance.config.credentials.address or ""),
+        subaccount_number=subaccount,
+    )
+
+
+def _entry_halt_state(scope: HaltScope) -> Dict[str, Any]:
+    halt = entry_halt.entries_halted(scope)
+    if halt is None:
+        return {"halted": False, "unverified": False, "halt": None}
+    if halt.get("unverified"):
+        return {"halted": True, "unverified": True, "halt": None}
+    return {
+        "halted": True,
+        "unverified": False,
+        "halt": {
+            "id": halt.get("id"),
+            "instance_id": halt.get("instance_id", scope.instance_id),
+            "network": halt.get("network", scope.network),
+            "address": halt.get("address", scope.address),
+            "subaccount_number": halt.get("subaccount_number", scope.subaccount_number),
+            "reason": halt.get("reason", "unknown"),
+            "details": halt.get("details") or {},
+            "halted_at": halt.get("halted_at"),
+        },
+    }
+
+
+@router.get("/api/v1/bots/{instance_id}/entry-halt")
+async def get_bot_entry_halt(
+    instance_id: str,
+    current_user: User = Depends(get_current_active_user),
+) -> JSONResponse:
+    """Whether new entries are halted on the subaccount this instance trades on."""
+    del current_user
+    bot_manager = _get_bot_manager()
+    if bot_manager is None:
+        return _bot_manager_unavailable_response()
+    scope = _entry_halt_scope(bot_manager, instance_id)
+    if scope is None:
+        return api_response(
+            success=False,
+            message=f"Bot instance '{instance_id}' not found",
+            status_code=404,
+        )
+    return api_response(success=True, data=await run_db(_entry_halt_state, scope))
+
+
+@router.post("/api/v1/bots/{instance_id}/entry-halt/clear")
+async def clear_bot_entry_halt(
+    instance_id: str,
+    request: EntryHaltClearRequest,
+    current_user: User = Depends(get_admin_user),
+) -> JSONResponse:
+    """Operator reset of the entry halt, after the account was verified."""
+    if not request.acknowledged:
+        return api_response(
+            success=False,
+            message=(
+                "acknowledged must be true: confirm the account was checked on the "
+                "exchange and no position is left without its hedge"
+            ),
+            status_code=400,
+        )
+    bot_manager = _get_bot_manager()
+    if bot_manager is None:
+        return _bot_manager_unavailable_response()
+    scope = _entry_halt_scope(bot_manager, instance_id)
+    if scope is None:
+        return api_response(
+            success=False,
+            message=f"Bot instance '{instance_id}' not found",
+            status_code=404,
+        )
+
+    cleared_by = request.cleared_by.strip() or str(
+        getattr(current_user, "username", "") or "operator"
+    )
+    cleared = await run_db(
+        functools.partial(
+            entry_halt.clear_entry_halt,
+            cleared_by=cleared_by,
+            note=request.note.strip(),
+            scope=scope,
+        )
+    )
+    if cleared:
+        await run_db(
+            _persist_bot_status_and_event,
+            instance_id,
+            event_type="entry_halt_cleared",
+            severity="warning",
+            message=f"Entry halt cleared by {cleared_by}",
+            details={
+                "network": scope.network,
+                "subaccount_number": scope.subaccount_number,
+                "note": request.note.strip(),
+            },
+        )
+    return api_response(
+        success=True,
+        data={"halted": False, "cleared": int(cleared)},
+        message="Entry halt cleared" if cleared else "No entry halt was set",
+    )
 
 
 @router.post("/api/v1/bots/{instance_id}/start")

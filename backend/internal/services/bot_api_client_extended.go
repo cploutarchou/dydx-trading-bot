@@ -306,6 +306,20 @@ func (c *BotAPIClient) GetRuntimePreflight(config map[string]interface{}) (map[s
 	return c.makeRequest("POST", "/api/v1/runtime/preflight", config)
 }
 
+// GetBotEntryHalt reports whether new entries are halted on the subaccount the
+// instance trades on.
+func (c *BotAPIClient) GetBotEntryHalt(instanceID string) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/entry-halt", url.PathEscape(instanceID))
+	return c.makeRequest("GET", endpoint, nil)
+}
+
+// ClearBotEntryHalt clears the entry halt after an operator acknowledged that
+// the account was verified on the exchange.
+func (c *BotAPIClient) ClearBotEntryHalt(instanceID string, payload map[string]interface{}) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/entry-halt/clear", url.PathEscape(instanceID))
+	return c.makeRequest("POST", endpoint, payload)
+}
+
 // GetInterruptedBacktests retrieves interrupted/orphaned backtest visibility data.
 func (c *BotAPIClient) GetInterruptedBacktests(limit int, admin bool) (map[string]interface{}, error) {
 	query := url.Values{}

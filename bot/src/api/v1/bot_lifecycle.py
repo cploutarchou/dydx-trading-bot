@@ -559,6 +559,8 @@ def _entry_halt_state(scope: HaltScope) -> Dict[str, Any]:
         "unverified": False,
         "halt": {
             "id": halt.get("id"),
+            # Why entries stopped: "unhedged_exposure" or "max_drawdown".
+            "kind": entry_halt.halt_kind(halt),
             "instance_id": halt.get("instance_id", scope.instance_id),
             "network": halt.get("network", scope.network),
             "address": halt.get("address", scope.address),

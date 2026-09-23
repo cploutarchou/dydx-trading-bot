@@ -1074,6 +1074,11 @@ export default function StrategyManager() {
 
     if (editingConfig.trailing_stop_pct !== undefined && editingConfig.trailing_stop_pct < 0) {
       errors.trailing_stop_pct = 'Trailing stop cannot be negative';
+    } else if (
+      editingConfig.trailing_stop_pct !== undefined &&
+      editingConfig.trailing_stop_pct > 100
+    ) {
+      errors.trailing_stop_pct = 'Trailing stop cannot exceed 100%';
     }
 
     if (editingConfig.transaction_fee !== undefined && editingConfig.transaction_fee < 0) {
@@ -2238,8 +2243,8 @@ export default function StrategyManager() {
                 </div>
 
                 <p className="mt-3 text-[11px] text-slate-500">
-                  Shortcuts while card is focused: <span className="text-slate-300">C</span> configure,{' '}
-                  <span className="text-slate-300">B</span> backtest,{' '}
+                  Shortcuts while card is focused: <span className="text-slate-300">C</span>{' '}
+                  configure, <span className="text-slate-300">B</span> backtest,{' '}
                   <span className="text-slate-300">D</span> duplicate,{' '}
                   <span className="text-slate-300">Delete</span> remove.
                 </p>
@@ -2939,8 +2944,11 @@ export default function StrategyManager() {
                         }
                         className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
                       />
-                      <p id="max-drawdown-hint" className="mt-2 text-xs text-amber-200">
-                        Not available on live bots yet. Leave at 0 to be able to start a live bot.
+                      <p id="max-drawdown-hint" className="mt-2 text-xs text-slate-400">
+                        Measured on the equity of the subaccount the bot trades on. Once equity
+                        falls this far below its peak, the bot opens no new pairs until you clear
+                        the halt on the strategy card; open pairs keep their exits. Backtests do not
+                        stop at it. 0 turns it off.
                       </p>
                     </div>
                     <div>
@@ -2989,6 +2997,7 @@ export default function StrategyManager() {
                         type="number"
                         step="0.1"
                         min="0"
+                        max="100"
                         aria-describedby="trailing-stop-hint"
                         value={editingConfig.trailing_stop_pct ?? 0}
                         onChange={(e) =>
@@ -2996,8 +3005,11 @@ export default function StrategyManager() {
                         }
                         className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
                       />
-                      <p id="trailing-stop-hint" className="mt-2 text-xs text-amber-200">
-                        Not available on live bots yet. Leave at 0 to be able to start a live bot.
+                      <p id="trailing-stop-hint" className="mt-2 text-xs text-slate-400">
+                        Once a pair is up at least this much, it closes when it gives back this much
+                        from its best level, so it never closes below break-even. Measured like the
+                        stop loss, on the entry value of the pair, in live bots and backtests. 0
+                        turns it off.
                       </p>
                     </div>
                     <div>

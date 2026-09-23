@@ -1,5 +1,27 @@
 # Tasks Log
 
+## 2026-09-23 — DONE
+
+- **Strategy `max_drawdown_pct` and `trailing_stop_pct` enforced on live bots** (both were REJECTED since
+  2026-06-26; `capital_allocation_usd` stays REJECTED).
+    - Trailing stop: per-pair exit in `position_manager._resolve_exit_reason` (after stop loss and take profit),
+      on the pair's unrealized P&L % of entry notional. Arms once the best P&L reached the distance, fires on that
+      give-back, so it never exits below break-even or tightens the stop loss. Best level kept on the tracked
+      position; not judged on a cycle whose P&L could not be computed. Same rule in `_simulate_pair`, checked bar
+      by bar against the live function.
+    - Max drawdown: `src/trading/drawdown_guard.py`, once per entry cycle. Measured on the subaccount's equity from
+      a durable peak (`drawdown_peaks`, migration `0008_drawdown_peaks`); reaching it latches the entry halt with
+      `details.kind = "max_drawdown"`. Open pairs are not closed. Clearing a drawdown halt resets the peak first;
+      a tripped peak without a halt sets the halt again; unreadable equity or peak skips entries (fail closed).
+      Preflight states the limit in dollars. The backtest does not stop at the limit (documented divergence).
+    - Defaults off everywhere a strategy is created: backend `CreateStrategy` (was 15% / 1%), the bot's
+      `Strategy` model and `StrategyRequest` (was 15% / 2%; same `backtest_strategies` table the backend reads for
+      live runtimes), and the backtest request fallback (was 15% / 1%). `openapi.json` regenerated (two defaults).
+    - Frontend: editor hints describe the enforced behavior, the entry-halt notice has max-drawdown copy and
+      figures.
+    - Docs: risk-control matrix, README, `../docs/OPERATIONS.md`, skill
+      `.github/skills/live-risk-control-enforcement/SKILL.md`.
+
 ## 2026-08-25 — DONE
 
 - **WebSocket message throttling — CLOSED as stale after verification (IMPROVEMENTS.md perf moderate)**. No code

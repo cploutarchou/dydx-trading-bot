@@ -24,6 +24,11 @@
    positions on the subaccount, then alerts.
 3. **Credentials** — rotate on the exchange first, then re-encrypt the config
    profile (`make config-key-rotate`).
+4. **Entry halt** — a bot stops opening pairs on its subaccount after a failed
+   emergency close, or when the strategy's max drawdown is reached. Open
+   positions keep their exits. Check the account on dYdX, then clear the halt
+   from the strategy card (acknowledged and audit-logged). Clearing a drawdown
+   halt starts a new drawdown measurement from the current equity.
 
 ## Operational cautions
 
@@ -33,3 +38,10 @@
   schema changes. Seeded accounts (`admin`, `user`, `officer`, `ib`) must have
   their passwords rotated before any internet-facing deployment.
 - Never run tests against production infra; the suite is hermetic for a reason.
+- A strategy's max drawdown is measured on the equity of the subaccount the bot
+  trades on: a withdrawal counts as drawdown, and anything else held on that
+  subaccount moves its equity too. On a large account a small percentage is a
+  large dollar amount; preflight states the amount before a start.
+- Run the bot migration Job (up to `0008_drawdown_peaks`) before the new bot-api
+  serves runtimes. A runtime with a drawdown limit opens no pairs while it
+  cannot read its stored peak.

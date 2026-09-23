@@ -11,6 +11,7 @@ vi.mock('../api/hooks', () => ({
 
 const halt: EntryHalt = {
   id: 3,
+  kind: 'unhedged_exposure',
   instance_id: 'strategy-85-2',
   network: 'testnet',
   address: 'dydx1example',
@@ -25,6 +26,24 @@ const halt: EntryHalt = {
 };
 
 const halted: EntryHaltState = { halted: true, unverified: false, halt };
+
+const drawdownHalt: EntryHalt = {
+  id: 7,
+  kind: 'max_drawdown',
+  instance_id: 'strategy-85-3',
+  network: 'testnet',
+  address: 'dydx1example',
+  subaccount_number: 0,
+  reason: 'max drawdown reached: equity 979.00 is 2.10% below its peak 1,000.00 (limit 2%)',
+  details: {
+    kind: 'max_drawdown',
+    equity: 979,
+    peak_equity: 1000,
+    drawdown_pct: 2.1,
+    limit_pct: 2,
+  },
+  halted_at: '2026-09-23T16:45:00+00:00',
+};
 
 describe('EntryHaltNotice', () => {
   afterEach(() => cleanup());
@@ -121,10 +140,58 @@ describe('EntryHaltNotice', () => {
     expect(screen.queryByRole('button')).toBeNull();
   });
 
-  it('shows a failed clear and locks the form while busy', () => {
+  it('explains a max drawdown halt with its figures and its own acknowledgement', () => {
+    const onClear = vi.fn();
     render(
-      <EntryHaltNotice state={halted} busy error="Bot API unavailable" onClear={vi.fn()} />
+      <EntryHaltNotice
+        state={{ halted: true, unverified: false, halt: drawdownHalt }}
+        busy={false}
+        error={null}
+        onClear={onClear}
+      />
     );
+
+    expect(
+      screen.getByRole('heading', { name: 'New entries are halted: max drawdown reached' })
+    ).toBeVisible();
+    expect(screen.getByText('$979.00')).toBeVisible();
+    expect(screen.getByText('$1,000.00')).toBeVisible();
+    expect(screen.getByText(/2\.1% \(limit 2%\)/)).toBeVisible();
+    expect(screen.getByText(/starts a new drawdown measurement/)).toBeVisible();
+    // Nothing about unhedged legs: that is a different check.
+    expect(screen.queryByText(/without its hedge/)).toBeNull();
+
+    const clearButton = screen.getByRole('button', { name: 'Clear halt and resume entries' });
+    expect(clearButton).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: /I reviewed testnet subaccount 0 .*drawdown measured from its current equity/,
+      })
+    );
+    fireEvent.click(clearButton);
+    expect(onClear).toHaveBeenCalledWith('');
+  });
+
+  it('names real funds in the mainnet drawdown acknowledgement', () => {
+    render(
+      <EntryHaltNotice
+        state={{
+          halted: true,
+          unverified: false,
+          halt: { ...drawdownHalt, network: 'mainnet', subaccount_number: 1 },
+        }}
+        busy={false}
+        error={null}
+        onClear={vi.fn()}
+      />
+    );
+    expect(
+      screen.getByRole('checkbox', { name: /I reviewed MAINNET subaccount 1 .*Real funds/ })
+    ).toBeVisible();
+  });
+
+  it('shows a failed clear and locks the form while busy', () => {
+    render(<EntryHaltNotice state={halted} busy error="Bot API unavailable" onClear={vi.fn()} />);
     expect(screen.getByRole('alert')).toHaveTextContent('Bot API unavailable');
     expect(screen.getByRole('checkbox')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Working...' })).toBeDisabled();

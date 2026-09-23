@@ -2035,6 +2035,8 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         position_timeout_hours = float(
             params.get("position_timeout_hours", 72.0) or 0.0
         )
+        # Off unless set, as in src/constants.py (trailingStopPct=0.0).
+        trailing_stop_pct = max(0.0, float(params.get("trailing_stop_pct", 0.0) or 0.0))
 
         if len(prices_a) <= stats_window + 1:
             return [], [], {}
@@ -2160,8 +2162,8 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 continue
 
             # Mirror the live exit ladder (position_manager._resolve_exit_reason):
-            # stop-loss, then take-profit, then timeout, then z-score
-            # reversion — which requires BOTH a sign cross AND
+            # stop-loss, then take-profit, then trailing stop, then timeout,
+            # then z-score reversion — which requires BOTH a sign cross AND
             # |z_now| >= |z_entry|, not merely |z| decaying under 0.25.
             exit_reason: Optional[str] = None
             if open_pos is not None:
@@ -2183,10 +2185,31 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                     0.0, (exit_dt_chk - entry_dt_chk).total_seconds() / 3600.0
                 )
 
+                # Trailing stop, as live: the pair's best unrealized P&L since
+                # entry (first observation included) arms it once it reaches
+                # the trail distance, and it fires when P&L has fallen that
+                # distance below the best level. Judged at bar closes, so a
+                # peak inside a bar is not seen.
+                peak_pnl_pct: Optional[float] = None
+                if trailing_stop_pct > 0:
+                    previous_peak = open_pos.get("peak_pnl_pct")
+                    peak_pnl_pct = (
+                        unrealized_pnl_pct
+                        if previous_peak is None
+                        else max(float(previous_peak), unrealized_pnl_pct)
+                    )
+                    open_pos["peak_pnl_pct"] = peak_pnl_pct
+
                 if stop_loss_pct > 0 and unrealized_pnl_pct <= -stop_loss_pct:
                     exit_reason = "stop_loss"
                 elif take_profit_pct > 0 and unrealized_pnl_pct >= take_profit_pct:
                     exit_reason = "take_profit"
+                elif (
+                    peak_pnl_pct is not None
+                    and peak_pnl_pct >= trailing_stop_pct
+                    and unrealized_pnl_pct <= peak_pnl_pct - trailing_stop_pct
+                ):
+                    exit_reason = "trailing_stop"
                 elif position_timeout_hours > 0 and age_hours >= position_timeout_hours:
                     exit_reason = "timeout"
                 elif close_on_cross:

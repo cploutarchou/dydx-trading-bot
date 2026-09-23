@@ -27,32 +27,46 @@ func (s *StrategyService) CreateStrategy(userID int, name, description, category
 		return nil, fmt.Errorf("strategy name is required")
 	}
 
-	strategy := &models.BacktestStrategy{
-		UserID:                 userID,
-		Name:                   name,
-		Description:            description,
-		Category:               category,
-		IsPublic:               isPublic,
-		IsDefault:              isDefault,
-		RuntimeStrategy:        "cointegration",
-		RuntimeNetwork:         "testnet",
-		RuntimeSubaccount:      0,
-		PairSelectionMode:      "liquidity",
-		ZscoreThreshold:        1.5,
-		StatsWindow:            21,
-		MaxHalfLife:            24.0,
-		UsdPerTrade:            10.0,
-		UsdMinCollateral:       100.0,
-		CloseAtZscoreCross:     true,
-		FindCointegratedPairs:  true,
-		ManageExits:            true,
-		PlaceTrades:            true,
-		AbortAllPositions:      false,
-		MaxPositions:           5,
-		MaxDrawdownPct:         15.0,
+	strategy := newStrategyWithDefaults(userID, name, description, category, isPublic, isDefault)
+	if err := s.repo.CreateStrategy(strategy); err != nil {
+		return nil, fmt.Errorf("failed to create strategy: %w", err)
+	}
+
+	log.Printf("✅ Created strategy: %s (ID: %d)", name, strategy.ID)
+	return strategy, nil
+}
+
+// newStrategyWithDefaults is a new strategy before the operator changes it.
+func newStrategyWithDefaults(userID int, name, description, category string, isPublic, isDefault bool) *models.BacktestStrategy {
+	return &models.BacktestStrategy{
+		UserID:                userID,
+		Name:                  name,
+		Description:           description,
+		Category:              category,
+		IsPublic:              isPublic,
+		IsDefault:             isDefault,
+		RuntimeStrategy:       "cointegration",
+		RuntimeNetwork:        "testnet",
+		RuntimeSubaccount:     0,
+		PairSelectionMode:     "liquidity",
+		ZscoreThreshold:       1.5,
+		StatsWindow:           21,
+		MaxHalfLife:           24.0,
+		UsdPerTrade:           10.0,
+		UsdMinCollateral:      100.0,
+		CloseAtZscoreCross:    true,
+		FindCointegratedPairs: true,
+		ManageExits:           true,
+		PlaceTrades:           true,
+		AbortAllPositions:     false,
+		MaxPositions:          5,
+		// The live runtime enforces both (a drawdown limit that halts new
+		// entries, a per-pair trailing stop), so they start off and are
+		// turned on by the operator, not by a default.
+		MaxDrawdownPct:         0,
 		StopLossPct:            2.0,
 		TakeProfitPct:          5.0,
-		TrailingStopPct:        1.0,
+		TrailingStopPct:        0,
 		RebalanceIntervalHours: 24,
 		PositionTimeoutHours:   72,
 		TransactionFee:         0.0005,
@@ -67,13 +81,6 @@ func (s *StrategyService) CreateStrategy(userID int, name, description, category
 		CreatedAt:              time.Now().UTC(),
 		UpdatedAt:              time.Now().UTC(),
 	}
-
-	if err := s.repo.CreateStrategy(strategy); err != nil {
-		return nil, fmt.Errorf("failed to create strategy: %w", err)
-	}
-
-	log.Printf("✅ Created strategy: %s (ID: %d)", name, strategy.ID)
-	return strategy, nil
 }
 
 // GetStrategy retrieves a strategy by ID

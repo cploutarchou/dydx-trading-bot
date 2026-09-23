@@ -806,8 +806,11 @@ def _preflight_request(
     usd_min_collateral=100.0,
     capital_allocation_usd=0.0,
     trailing_stop_pct=0.0,
+    max_drawdown_pct=0.0,
+    instance_id=None,
 ):
     return server.RuntimePreflightRequest(
+        instance_id=instance_id,
         credentials=BotCredentials(
             chain_id=chain_id, address="dydx1abc", mnemonic="alpha beta gamma delta"
         ),
@@ -818,6 +821,7 @@ def _preflight_request(
             usd_min_collateral=usd_min_collateral,
             capital_allocation_usd=capital_allocation_usd,
             trailing_stop_pct=trailing_stop_pct,
+            max_drawdown_pct=max_drawdown_pct,
             stop_loss_pct=2.0,
             take_profit_pct=5.0,
         ),
@@ -840,11 +844,91 @@ def test_runtime_preflight_risk_control_rejection(monkeypatch):
     _preflight_client(monkeypatch, wallet=object())
     response = asyncio.run(
         server.runtime_preflight(
-            _preflight_request(trailing_stop_pct=1.5), current_user=object()
+            _preflight_request(capital_allocation_usd=1500.0), current_user=object()
         )
     )
     assert response.status_code == 422
     assert _payload(response)["data"]["error"] == "UNSUPPORTED_RISK_CONTROL"
+
+
+def _funded_subaccount(equity="6000.0"):
+    return _FakeSubaccountAPI(
+        payload={
+            "subaccount": {
+                "freeCollateral": "5000.0",
+                "equity": equity,
+                "openPerpetualPositions": {},
+            }
+        }
+    )
+
+
+def test_runtime_preflight_states_the_drawdown_limit_in_dollars(monkeypatch):
+    from src.trading import drawdown_guard
+
+    _preflight_client(monkeypatch, wallet=object(), subaccount_api=_funded_subaccount())
+    monkeypatch.setattr(drawdown_guard, "load_state", lambda scope: None)
+
+    response = asyncio.run(
+        server.runtime_preflight(
+            _preflight_request(
+                max_drawdown_pct=2.0, trailing_stop_pct=1.0, usd_per_trade=50.0
+            ),
+            current_user=object(),
+        )
+    )
+    data = _payload(response)["data"]
+
+    # Both controls are accepted, and the drawdown limit is explained in the
+    # dollars it means for this subaccount; it does not block the start.
+    assert response.status_code == 200
+    assert data["ready"] is True
+    assert data["blockers"] == []
+    assert any(
+        "Max drawdown 2%" in warning
+        and "$6,000.00" in warning
+        and "$120.00 below its peak" in warning
+        for warning in data["warnings"]
+    ), data["warnings"]
+
+
+def test_runtime_preflight_warns_when_the_recorded_peak_is_already_past_the_limit(
+    monkeypatch,
+):
+    from src.trading import drawdown_guard
+
+    seen_scopes = []
+
+    def _stored(scope):
+        seen_scopes.append(scope)
+        return drawdown_guard.DrawdownState(
+            peak_equity=6300.0,
+            peak_at="2026-09-20T10:00:00+00:00",
+            baseline_at="2026-09-20T09:00:00+00:00",
+        )
+
+    _preflight_client(monkeypatch, wallet=object(), subaccount_api=_funded_subaccount())
+    monkeypatch.setattr(drawdown_guard, "load_state", _stored)
+
+    response = asyncio.run(
+        server.runtime_preflight(
+            _preflight_request(
+                max_drawdown_pct=4.0,
+                usd_per_trade=50.0,
+                instance_id="strategy-85-3",
+            ),
+            current_user=object(),
+        )
+    )
+    data = _payload(response)["data"]
+
+    assert response.status_code == 200
+    assert seen_scopes and seen_scopes[0].instance_id == "strategy-85-3"
+    assert any(
+        "4.76% below this bot's recorded peak $6,300.00" in warning
+        and "halts new entries on its first cycle" in warning
+        for warning in data["warnings"]
+    ), data["warnings"]
 
 
 def test_runtime_preflight_blockers(monkeypatch):

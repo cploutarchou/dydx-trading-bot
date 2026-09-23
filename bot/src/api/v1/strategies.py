@@ -68,10 +68,11 @@ class StrategyRequest(BaseModel):
     place_trades: bool = True
     abort_all_positions: bool = False
     max_positions: int = Field(default=5, ge=0, le=100)
-    max_drawdown_pct: float = Field(default=15.0, ge=0.0, le=100.0)
+    # Enforced on live bots (drawdown halt, trailing stop): off unless set.
+    max_drawdown_pct: float = Field(default=0.0, ge=0.0, le=100.0)
     stop_loss_pct: float = Field(default=3.0, ge=0.0, le=100.0)
     take_profit_pct: float = Field(default=8.0, ge=0.0, le=1000.0)
-    trailing_stop_pct: float = Field(default=2.0, ge=0.0, le=100.0)
+    trailing_stop_pct: float = Field(default=0.0, ge=0.0, le=100.0)
     rebalance_interval_hours: int = Field(default=24, ge=0, le=8760)
     position_timeout_hours: int = Field(default=72, ge=0, le=8760)
     initial_amount: float = Field(default=1000.0, gt=0.0)

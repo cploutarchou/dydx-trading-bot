@@ -1,8 +1,9 @@
 /**
  * Entry Halt Notice
  *
- * Shown for a strategy whose bot has stopped opening new pairs because an
- * emergency close failed and a position leg may be open without its hedge. The
+ * Shown for a strategy whose bot has stopped opening new pairs, either because
+ * an emergency close failed and a position leg may be open without its hedge,
+ * or because the subaccount's equity fell to the strategy's max drawdown. The
  * bot keeps managing exits. The operator has to check the account on dYdX and
  * tick an explicit acknowledgement before the halt can be cleared. A halt this
  * screen cannot fully read is shown, but is never offered for clearing.
@@ -14,9 +15,12 @@ import { useClearStrategyEntryHaltMutation, useStrategyEntryHalt } from '../api/
 import {
   ENTRY_HALT_NOTE_MAX_LENGTH,
   entryHaltAccountLabel,
+  entryHaltDrawdown,
   entryHaltErrorText,
   entryHaltPairLabel,
+  formatEntryHaltPct,
   formatEntryHaltTime,
+  formatEntryHaltUsd,
   isEntryHaltVisible,
 } from '../utils/entryHalt';
 
@@ -65,20 +69,29 @@ export const EntryHaltNotice = ({
     );
   }
 
+  const isDrawdown = halt.kind === 'max_drawdown';
+  const drawdown = isDrawdown ? entryHaltDrawdown(halt.details) : null;
   const accountLabel = entryHaltAccountLabel(halt);
   const haltedAt = formatEntryHaltTime(halt.halted_at);
-  const pairLabel = entryHaltPairLabel(halt.details);
-  const errorText = entryHaltErrorText(halt.details);
+  const pairLabel = isDrawdown ? null : entryHaltPairLabel(halt.details);
+  const errorText = isDrawdown ? null : entryHaltErrorText(halt.details);
   const acknowledged = acknowledgedFor === halt.id;
-  const acknowledgementText =
-    halt.network === 'mainnet'
+  const mainnet = halt.network === 'mainnet';
+  const acknowledgementText = isDrawdown
+    ? mainnet
+      ? `I reviewed MAINNET subaccount ${halt.subaccount_number} and want its bots to open new pairs again, with drawdown measured from its current equity. Real funds are at stake.`
+      : `I reviewed testnet subaccount ${halt.subaccount_number} and want its bots to open new pairs again, with drawdown measured from its current equity.`
+    : mainnet
       ? `I checked MAINNET subaccount ${halt.subaccount_number} on dYdX: no position is left without its hedge, and real funds are at stake if I am wrong.`
       : `I checked testnet subaccount ${halt.subaccount_number} on dYdX: no position is left without its hedge.`;
+  const explanation = isDrawdown
+    ? "This subaccount's equity has fallen below its peak by at least the strategy's max drawdown. The bot keeps managing open positions and their exits, and opens no new pairs on this account until the halt is cleared. Clearing it starts a new drawdown measurement from the current equity. The halt covers every bot on this account."
+    : 'An emergency close failed, so a position leg may be open without its hedge. The bot keeps managing open positions and exits, and opens no new pairs on this account until the halt is cleared. Check the open positions of this subaccount on dYdX before clearing it. The halt covers every bot on this account.';
 
   return (
     <section aria-labelledby={headingId} className={sectionClass}>
       <h3 id={headingId} className="text-sm font-semibold text-red-200">
-        New entries are halted
+        {isDrawdown ? 'New entries are halted: max drawdown reached' : 'New entries are halted'}
       </h3>
 
       <dl className="mt-3 space-y-2 text-sm text-red-100">
@@ -98,6 +111,25 @@ export const EntryHaltNotice = ({
             <dd className="font-medium text-white">{pairLabel}</dd>
           </div>
         )}
+        {drawdown && (
+          <>
+            <div className="flex items-center justify-between gap-3">
+              <dt>Equity</dt>
+              <dd className="font-medium text-white">{formatEntryHaltUsd(drawdown.equity)}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <dt>Peak</dt>
+              <dd className="font-medium text-white">{formatEntryHaltUsd(drawdown.peakEquity)}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <dt>Drawdown</dt>
+              <dd className="font-medium text-white">
+                {formatEntryHaltPct(drawdown.drawdownPct)} (limit{' '}
+                {formatEntryHaltPct(drawdown.limitPct)})
+              </dd>
+            </div>
+          </>
+        )}
       </dl>
 
       <p className="mt-3 text-sm text-red-100">{halt.reason || 'No reason was recorded.'}</p>
@@ -107,12 +139,7 @@ export const EntryHaltNotice = ({
         </pre>
       )}
 
-      <p className="mt-3 text-sm text-red-100">
-        An emergency close failed, so a position leg may be open without its hedge. The bot keeps
-        managing open positions and exits, and opens no new pairs on this account until the halt is
-        cleared. Check the open positions of this subaccount on dYdX before clearing it. The halt
-        covers every bot on this account.
-      </p>
+      <p className="mt-3 text-sm text-red-100">{explanation}</p>
 
       <label className="mt-4 flex items-start gap-3 text-sm text-red-50">
         <input
@@ -136,7 +163,11 @@ export const EntryHaltNotice = ({
         disabled={busy}
         onChange={(event) => setNote(event.target.value)}
         className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-red-400 focus:outline-none"
-        placeholder="e.g. no AVAX-USD position on chain, 9 older positions unchanged"
+        placeholder={
+          isDrawdown
+            ? 'e.g. losses reviewed, limit kept at 2%'
+            : 'e.g. no AVAX-USD position on chain, 9 older positions unchanged'
+        }
       />
 
       {error && (

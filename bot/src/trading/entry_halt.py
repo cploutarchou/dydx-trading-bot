@@ -45,6 +45,11 @@ HALT_FILE_NAME = "entries_halted.json"
 STANDALONE_INSTANCE_ID = "default"
 UNVERIFIED_REASON = "entry halt state could not be verified"
 
+# ``details["kind"]`` says why entries stopped. Halts recorded before kinds
+# existed have none and were all set after a failed emergency close.
+KIND_UNHEDGED_EXPOSURE = "unhedged_exposure"
+KIND_MAX_DRAWDOWN = "max_drawdown"
+
 
 @dataclass(frozen=True)
 class HaltScope:
@@ -115,6 +120,14 @@ def _write_halt_file(path: Path, payload: Dict[str, Any]) -> None:
     tmp_path = path.with_name(f".{path.name}.tmp")
     tmp_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     os.replace(tmp_path, path)
+
+
+def halt_kind(payload: Optional[Dict[str, Any]]) -> str:
+    """Why a halt was set: ``details["kind"]``, else the one cause that existed
+    before kinds were recorded."""
+    details = payload.get("details") if isinstance(payload, dict) else None
+    kind = details.get("kind") if isinstance(details, dict) else None
+    return str(kind).strip() if kind else KIND_UNHEDGED_EXPOSURE
 
 
 def _read_halt_file(path: Path) -> Optional[Dict[str, Any]]:
@@ -329,13 +342,31 @@ def clear_entry_halt(
 
     The database is cleared before the file: if the database is unreachable the
     file stays, so the halt is never half-cleared into an unrecorded state.
+
+    Clearing a drawdown halt also restarts the drawdown measurement from the
+    equity the runtime sees next; otherwise the next cycle would measure from
+    the old peak and halt again at once. That reset runs first, so a failed
+    reset leaves the halt in place.
     """
     scope = scope or current_scope()
+    path = halt_file_for(scope.instance_id)
+    kinds: set[str] = set()
+    file_payload = _read_halt_file(path)
+    if file_payload is not None:
+        kinds.add(halt_kind(file_payload))
+    if _uses_database(scope):
+        active = _db_active_halt(scope)
+        if active is not None:
+            kinds.add(halt_kind(active))
+    if KIND_MAX_DRAWDOWN in kinds:
+        from src.trading import drawdown_guard
+
+        drawdown_guard.reset_baselines(scope)
+
     cleared = 0
     if _uses_database(scope):
         cleared += _db_clear_halts(scope, cleared_by, note)
 
-    path = halt_file_for(scope.instance_id)
     if path.exists():
         path.unlink()
         cleared = max(cleared, 1)

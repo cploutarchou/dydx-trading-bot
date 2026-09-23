@@ -31,8 +31,9 @@ class TradingParameters(BaseModel):
     Numeric fields carry explicit bounds so invalid trades (negative sizes,
     zero stats windows, etc.) are rejected at the API boundary with a 422
     instead of reaching the live runtime. Values left unbounded here are either
-    config-driven free-form strings (``resolution_timeframe``, ``strategy``) or
-    rejected later by ``assert_supported_live_risk_controls`` when > 0.
+    config-driven free-form strings (``resolution_timeframe``, ``strategy``) or,
+    for ``capital_allocation_usd``, rejected later by
+    ``assert_supported_live_risk_controls`` when > 0.
     """
 
     is_testnet: bool = True
@@ -55,12 +56,12 @@ class TradingParameters(BaseModel):
     max_positions: int = Field(default=5, ge=0, le=100)
     max_drawdown_pct: float = Field(
         default=0.0, ge=0.0, le=100.0
-    )  # rejected if > 0 by live risk controls
+    )  # halts new entries at this drawdown of the subaccount's equity; 0 = off
     stop_loss_pct: float = Field(default=2.0, ge=0.0, le=100.0)
     take_profit_pct: float = Field(default=5.0, ge=0.0, le=1000.0)
     trailing_stop_pct: float = Field(
         default=0.0, ge=0.0, le=100.0
-    )  # rejected if > 0 by live risk controls
+    )  # per-pair trailing stop on unrealized P&L %; 0 = off
     rebalance_interval_hours: int = Field(default=24, ge=0, le=8760)
     position_timeout_hours: int = Field(default=72, ge=0, le=8760)
     selected_markets: List[str] = Field(default_factory=list)

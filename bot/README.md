@@ -329,11 +329,50 @@ to `trades.realized_pnl` / `profit_loss` (the column the statistics read) and th
 record carries `realized_pnl_fees_complete = false`. When the entry data is unusable nothing is written: a missing
 number is never stored as a zero P&L.
 
+### Trailing stop
+
+`trailing_stop_pct` is a per-pair exit in the live exit ladder (`position_manager._resolve_exit_reason`, after the
+stop loss and take profit, before the timeout and the z-score reversion). It is measured on the pair's unrealized P&L
+as a percentage of its entry notional, the number the stop loss and take profit use. It arms once the pair's best
+P&L since entry has reached the trail distance, and closes the pair when P&L has fallen that distance below the best
+level. The stop level is therefore never below break-even, and a pair that never gets that far is left to the stop
+loss: the trail never tightens it. The best level is kept on the tracked position (`peak_unrealized_pnl_pct`), so it
+survives a restart; a cycle whose P&L cannot be computed neither moves it nor judges the trail. A trailing-stop close
+uses the wide stop-loss accept band. The backtest applies the same rule at bar closes (`tests/test_backtest_live_parity.py`).
+`0` turns it off.
+
+### Max drawdown
+
+`max_drawdown_pct` is measured on the equity of the subaccount the runtime trades on, as the exchange reports it
+(marked to market, after fees and funding), from the highest equity seen since the measurement began: when the runtime
+first observed that subaccount, or when an operator last cleared a drawdown halt. Once equity is that far below the
+peak, `src/trading/drawdown_guard.py` sets the entry halt below (kind `max_drawdown`) and emits a critical alert and a
+`trade_entries_halted` activity event. Open pairs are not closed; their own exits keep running. The check runs once
+per entry cycle, after the halt and indexer-freshness checks and before any pair is read.
+
+The peak is stored per runtime and subaccount in the `drawdown_peaks` table (migration `0008_drawdown_peaks`), or in
+`bot_states/drawdown_peak.json` for a standalone run, so a restart or a replaced pod does not reset it. Clearing a
+drawdown halt deletes the subaccount's stored peaks first, so the next cycle measures from the current equity instead
+of halting again; if that reset fails, the halt is not cleared. A peak marked as tripped without an active halt (the
+halt never reached the database and its file was lost) sets the halt again. When equity or the stored peak cannot be
+read or saved, no pair is opened that cycle (fail closed, alert at most every 30 minutes). With the limit at `0` the
+guard reads and stores nothing.
+
+A withdrawal lowers equity and counts as drawdown, a deposit raises the peak, and other positions on the same
+subaccount move its equity too. Runtime preflight states the limit in dollars for the subaccount, and warns when the
+recorded peak already puts it at or past the limit. This is separate from the deployment-wide
+`BOT_PORTFOLIO_MAX_DRAWDOWN_PCT` guard, which keeps its peak in Redis, skips itself when Redis is down, and denies
+entries cycle by cycle without latching. The backtest reports drawdown as a result metric but does not stop entries at
+the limit: its equity base (the strategy's starting balance plus realized P&L) is not the subaccount's equity.
+
 ### Entry halt latch
 
 When an emergency close fails, a leg may be open without a hedge. The pair agent raises `UnhedgedExposureError`, the
 entry scan stops immediately, and a durable latch blocks new entries in every following cycle. Exits and risk controls
-keep running. A critical notification and a `trade_entries_halted` activity event are emitted once.
+keep running. A critical notification and a `trade_entries_halted` activity event are emitted once. The same latch is
+set when the strategy's max drawdown is reached. `details.kind` says which (`unhedged_exposure` or `max_drawdown`;
+halts recorded before kinds existed have none and were all unhedged), and the entry-halt API returns it as
+`halt.kind`.
 
 The latch is scoped to the subaccount whose exposure is in doubt, `(network, address, subaccount_number)`, and is kept
 in two places:
@@ -409,11 +448,10 @@ emergency close is refused by the node with code 2001 ("nothing to reduce"), the
 the entry order has expired and the validator node's own subaccount state shows no position; otherwise the entry latch
 and the critical alert fire as before. See `docs/bot-risk-control-matrix.md`.
 
-Unsupported live risk controls are rejected instead of being accepted as no-ops. Operators must keep
-`max_drawdown_pct`, `trailing_stop_pct`, and `capital_allocation_usd` at `0` until live enforcement exists. The
-preflight 422 names each offending field in `data.unsupported_fields`, and the backend reports it as a start-readiness
-blocker that the operator resolves with an explicit, audited action. See `docs/bot-risk-control-matrix.md` for the
-current enforcement matrix.
+Unsupported live risk controls are rejected instead of being accepted as no-ops. `max_drawdown_pct` and
+`trailing_stop_pct` are enforced (see above); `capital_allocation_usd` is still rejected when above `0`. The preflight
+422 names each offending field in `data.unsupported_fields`, and the backend reports it as a start-readiness blocker.
+See `docs/bot-risk-control-matrix.md` for the current enforcement matrix.
 
 Startup recovery is fail-safe by default: stale orphaned in-progress backtests are reconciled to failed, and active live
 bot rows with missing workers are marked error. Set `BACKTEST_AUTO_RECOVERY_MODE=restart` for stale backtest requeueing

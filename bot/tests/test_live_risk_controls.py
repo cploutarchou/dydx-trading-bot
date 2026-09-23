@@ -61,7 +61,7 @@ def _runtime_payload():
 
 def test_runtime_preflight_rejects_unsupported_risk_controls(monkeypatch):
     payload = _runtime_payload()
-    payload["trading_params"]["max_drawdown_pct"] = 1.0
+    payload["trading_params"]["capital_allocation_usd"] = 1000.0
     response = asyncio.run(
         server.runtime_preflight(
             server.RuntimePreflightRequest(**payload),
@@ -78,6 +78,7 @@ def test_runtime_preflight_names_each_unsupported_risk_control():
     payload = _runtime_payload()
     payload["trading_params"]["max_drawdown_pct"] = 15.0
     payload["trading_params"]["trailing_stop_pct"] = 1.0
+    payload["trading_params"]["capital_allocation_usd"] = 500.0
     response = asyncio.run(
         server.runtime_preflight(
             server.RuntimePreflightRequest(**payload),
@@ -86,18 +87,19 @@ def test_runtime_preflight_names_each_unsupported_risk_control():
     )
     body = json.loads(response.body)
 
+    # The drawdown limit and the trailing stop are enforced now; only the
+    # allocation cap is still refused, and it is the only one named.
     assert response.status_code == 422
     unsupported = body["data"]["unsupported_fields"]
     assert [(entry["field"], entry["value"]) for entry in unsupported] == [
-        ("max_drawdown_pct", 15.0),
-        ("trailing_stop_pct", 1.0),
+        ("capital_allocation_usd", 500.0),
     ]
     assert all(entry["field"] in entry["message"] for entry in unsupported)
 
 
 def test_create_bot_instance_rejects_unsupported_risk_controls(monkeypatch):
     payload = _runtime_payload()
-    payload["trading_params"]["trailing_stop_pct"] = 1.0
+    payload["trading_params"]["capital_allocation_usd"] = 1.0
     response = asyncio.run(
         server.create_bot_instance(
             server.BotInstanceConfig(**payload),
@@ -113,6 +115,16 @@ def test_create_bot_instance_rejects_unsupported_risk_controls(monkeypatch):
 
 def test_supported_live_risk_controls_pass_validation():
     assert_supported_live_risk_controls(_runtime_payload()["trading_params"])
+
+
+def test_drawdown_limit_and_trailing_stop_are_accepted_now_that_they_are_enforced():
+    params = _runtime_payload()["trading_params"]
+    params["max_drawdown_pct"] = 5.5
+    params["trailing_stop_pct"] = 1.0
+
+    assert_supported_live_risk_controls(params)
+    assert describe_unsupported_live_risk_controls(params) == []
+    assert validate_live_risk_controls(params) == []
 
 
 def test_stop_loss_take_profit_and_timeout_exit_rules_are_enforced(monkeypatch):
@@ -151,12 +163,12 @@ def test_stop_loss_take_profit_and_timeout_exit_rules_are_enforced(monkeypatch):
 
 
 def test_unsupported_risk_controls_are_rejected():
-    with pytest.raises(ValueError, match="max_drawdown_pct"):
+    with pytest.raises(ValueError, match="capital_allocation_usd"):
         assert_supported_live_risk_controls(
             {
                 "max_drawdown_pct": 1.0,
-                "trailing_stop_pct": 0.0,
-                "capital_allocation_usd": 0.0,
+                "trailing_stop_pct": 1.0,
+                "capital_allocation_usd": 250.0,
             }
         )
 
@@ -170,14 +182,11 @@ def test_describing_unsupported_controls_never_relaxes_the_rejection():
 
     described = describe_unsupported_live_risk_controls(payload)
 
-    assert [entry["field"] for entry in described] == [
-        "trailing_stop_pct",
-        "capital_allocation_usd",
-    ]
+    assert [entry["field"] for entry in described] == ["capital_allocation_usd"]
     assert validate_live_risk_controls(payload) == [
         entry["message"] for entry in described
     ]
-    with pytest.raises(ValueError, match="trailing_stop_pct"):
+    with pytest.raises(ValueError, match="capital_allocation_usd"):
         assert_supported_live_risk_controls(payload)
     assert (
         describe_unsupported_live_risk_controls(_runtime_payload()["trading_params"])

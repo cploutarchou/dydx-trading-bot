@@ -111,6 +111,8 @@ async def test_the_halt_a_runtime_set_is_shown_with_its_account_and_reason(
     assert data["halted"] is True and data["unverified"] is False
     assert data["halt"]["reason"] == "emergency close failed"
     assert data["halt"]["details"] == {"market_1": "AVAX-USD"}
+    # Halts recorded before kinds existed all came from a failed emergency close.
+    assert data["halt"]["kind"] == entry_halt.KIND_UNHEDGED_EXPOSURE
     assert (data["halt"]["network"], data["halt"]["subaccount_number"]) == (
         "testnet",
         0,
@@ -200,3 +202,43 @@ async def test_an_unknown_instance_is_not_found(operator_api):
     )
 
     assert (read.status_code, clear.status_code) == (404, 404)
+
+
+@pytest.mark.asyncio
+async def test_a_drawdown_halt_is_shown_as_one_and_clearing_it_restarts_the_measurement(
+    operator_api,
+):
+    from tests.test_drawdown_guard import DRAWDOWN_PEAKS_DDL
+
+    with operator_api.engine.begin() as connection:
+        connection.execute(text(DRAWDOWN_PEAKS_DDL))
+        connection.execute(
+            text(
+                "INSERT INTO drawdown_peaks (instance_id, network, address, "
+                "subaccount_number, peak_equity, peak_at, baseline_at, tripped_at, "
+                "updated_at) VALUES ('strategy-85-1', 'testnet', 'dydx1probe', 0, "
+                "1000.0, '2026-09-23T10:00:00+00:00', '2026-09-23T09:00:00+00:00', "
+                "'2026-09-23T11:00:00+00:00', '2026-09-23T11:00:00+00:00')"
+            )
+        )
+    entry_halt.halt_entries(
+        "max drawdown reached: equity 979.00 is 2.10% below its peak 1,000.00",
+        {"kind": entry_halt.KIND_MAX_DRAWDOWN, "equity": 979.0, "peak_equity": 1000.0},
+        scope=RUNTIME,
+    )
+
+    shown = await _request("GET", f"/api/v1/bots/{INSTANCE_ID}/entry-halt")
+    cleared = await _request(
+        "POST",
+        f"/api/v1/bots/{INSTANCE_ID}/entry-halt/clear",
+        json={"acknowledged": True, "note": "losses reviewed"},
+    )
+
+    assert shown.json()["data"]["halt"]["kind"] == entry_halt.KIND_MAX_DRAWDOWN
+    assert cleared.status_code == 200
+    assert entry_halt.entries_halted(RUNTIME) is None
+    with operator_api.engine.connect() as connection:
+        remaining = connection.execute(
+            text("SELECT COUNT(*) FROM drawdown_peaks")
+        ).scalar_one()
+    assert remaining == 0

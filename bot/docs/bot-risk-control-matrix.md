@@ -9,15 +9,43 @@
 | `take_profit_pct`        | `src/trading/position_manager.py::_resolve_exit_reason`, `manage_trade_exits`                                                                                               | No                | Yes              | Yes                                    | ENFORCED | Live exits now trigger when configured profit threshold is reached.                                                                  |
 | `position_timeout_hours` | `src/trading/position_manager.py::_resolve_exit_reason`, `manage_trade_exits`                                                                                               | No                | Yes              | Yes                                    | ENFORCED | Live exits now trigger when tracked position age reaches the configured timeout.                                                     |
 | `close_at_zscore_cross`  | `src/trading/position_manager.py::_resolve_exit_reason`, `manage_trade_exits`                                                                                               | No                | Yes              | Existing coverage + updated exit tests | ENFORCED | Existing z-score reversion exit remains active and now waits for exchange-flat confirmation before closure.                          |
-| `max_drawdown_pct`       | `src/shared/live_risk_controls.py`, `src/api/server.py::runtime_preflight`, `src/api/server.py::create_bot_instance`, `src/bot_instance_manager.py`, `src/main_instance.py` | Rejected          | Rejected         | Yes                                    | REJECTED | Rejected because no live runtime drawdown monitor currently enforces it. Operators must set this to `0`.                             |
-| `trailing_stop_pct`      | `src/shared/live_risk_controls.py`, `src/api/server.py::runtime_preflight`, `src/api/server.py::create_bot_instance`, `src/bot_instance_manager.py`, `src/main_instance.py` | Rejected          | Rejected         | Yes                                    | REJECTED | Rejected because trailing-stop logic is not implemented in the live runtime. Operators must set this to `0`.                         |
+| `max_drawdown_pct`       | `src/trading/drawdown_guard.py::check_entry_drawdown`, `src/trading/position_manager.py::open_positions`, `src/api/server.py::runtime_preflight` | Yes | No | Yes | ENFORCED | Halts new entries (durable entry halt, kind `max_drawdown`) once the subaccount's equity is this far below its peak. Open pairs are not closed. See below. |
+| `trailing_stop_pct`      | `src/trading/position_manager.py::_resolve_exit_reason`, `manage_trade_exits`, `src/infrastructure/use_cases/service_backtest.py::_simulate_pair` | No | Yes | Yes | ENFORCED | Closes a pair that gave back this much of its best unrealized P&L, once that best level reached the same distance. Same rule in the backtest. See below. |
 | `capital_allocation_usd` | `src/shared/live_risk_controls.py`, `src/api/server.py::runtime_preflight`, `src/api/server.py::create_bot_instance`, `src/bot_instance_manager.py`, `src/main_instance.py` | Rejected          | Rejected         | Yes                                    | REJECTED | Rejected because the live runtime does not enforce cumulative allocation limits at order-entry time. Operators must set this to `0`. |
+
+### Strategy drawdown limit and trailing stop (2026-09-23)
+
+Both used to be REJECTED like `capital_allocation_usd`. They are enforced now and accepted by
+`src/shared/live_risk_controls.py`; both are off at `0`, which is also the default for a new strategy in the
+backend and in the bot's own strategy API and model (both write `backtest_strategies`), and the backtest request
+fallback when a strategy record lacks the field.
+
+| Control | Measured on | Fires when | Action | Survives restart | Fails |
+|---|---|---|---|---|---|
+| `trailing_stop_pct` | The pair's unrealized P&L as % of its entry notional (same number as the stop loss) | Best P&L since entry has reached the distance, and P&L is now that distance below it | Closes the pair (exit reason `trailing_stop`, stop-loss accept band) | Best level stored on the tracked position (`peak_unrealized_pnl_pct`) | A cycle whose P&L cannot be computed neither moves the best level nor judges the trail |
+| `max_drawdown_pct` | Equity of the subaccount the runtime trades on, from the highest equity since the measurement began | Equity is the limit or more below that peak | Sets the durable entry halt (kind `max_drawdown`); open pairs keep their exits | Peak in `drawdown_peaks` (migration `0008_drawdown_peaks`), per runtime and subaccount | Unreadable equity or peak: no entries that cycle (fail closed) |
+
+- The trailing stop never exits below break-even and never tightens the stop loss: until the best level reaches
+  the distance, only the stop loss governs the downside. Ladder order: stop loss, take profit, trailing stop,
+  timeout, z-score reversion. The backtest applies the same rule at bar closes, so it does not see a peak inside a
+  bar.
+- The drawdown measurement begins when the runtime first observes the subaccount. Clearing a drawdown halt deletes
+  the subaccount's stored peaks before the halt is cleared (a failed reset leaves the halt), so the next cycle
+  measures from the current equity. A peak marked as tripped with no active halt sets the halt again. Preflight
+  states the limit in dollars and warns when the recorded peak is already at or past it.
+- Known limits: a withdrawal counts as drawdown, a deposit raises the peak, and anything else on the subaccount moves
+  its equity. The backtest reports drawdown as a result metric but does not stop entries at the limit, because its
+  equity base is the strategy's starting balance plus realized P&L, not the subaccount's equity. This control is
+  separate from the deployment-wide `BOT_PORTFOLIO_MAX_DRAWDOWN_PCT` below.
+
+Coverage: `tests/test_trailing_stop.py`, `tests/test_drawdown_guard.py`, `tests/test_backtest_live_parity.py`,
+`tests/test_live_risk_controls.py`, `tests/test_entry_halt_routes.py`, `tests/test_api_server_unit.py`.
 
 ### How an operator resolves a REJECTED control (2026-09-21)
 
-The rejection is unchanged: any of the three fields > 0 is refused at preflight, create, start and in the
-worker. What changed is that the refusal can now be understood and resolved from the UI instead of surfacing
-as an HTTP 500.
+Only `capital_allocation_usd` is still rejected; `max_drawdown_pct` and `trailing_stop_pct` are enforced since
+2026-09-23 (above), so readiness no longer reports them and the UI no longer offers to turn them off. The notes
+below describe how a rejection is reported and resolved.
 
 - `POST /api/v1/runtime/preflight` still answers 422 `UNSUPPORTED_RISK_CONTROL`; its `data` now also lists
   `unsupported_fields: [{field, value, message}]` (`describe_unsupported_live_risk_controls`). The list
@@ -33,8 +61,8 @@ as an HTTP 500.
   backtest's starting capital (`initial_amount`), which made every strategy unstartable. The backend now sends
   `0` to the live runtime and shows the backtest capital as information only, with a readiness warning that it
   is not a live limit.
-- The backtest engine does not apply any of the three controls either, so backtest results do not depend on
-  them.
+- The backtest engine does not apply `capital_allocation_usd` or `max_drawdown_pct`. It applies
+  `trailing_stop_pct` with the live rule.
 
 ### Execution data integrity (2026-09-21)
 
@@ -94,8 +122,8 @@ wallet address in Redis/Valkey (`bot:portfolio:peak_equity:<address>`, key = `ma
 concurrent workers race benignly; reset with `redis-cli DEL`). Redis is auxiliary coordination here, NOT a
 trading dependency: if Redis is unavailable the drawdown check skips itself (peak=None) while the
 exchange-read controls (markets / utilization / collateral floor) still fail closed. NOTE: this is the
-ACCOUNT-level control — the per-instance config field `max_drawdown_pct` remains REJECTED (bot-level
-semantics, still unenforced by a per-bot drawdown monitor).
+deployment-wide control. The per-strategy `max_drawdown_pct` is enforced separately by
+`src/trading/drawdown_guard.py` (durable peak, latches the entry halt, fails closed).
 
 **Slice 4 — multi-account aggregation (2026-08-16)**: deployment-wide caps across EVERY distinct wallet address
 configured in `bot_instances` (per network). Engine: `src/trading/portfolio_accounts.py` (enumeration +

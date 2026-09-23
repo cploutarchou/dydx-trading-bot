@@ -380,3 +380,21 @@ def _isolate_indexer_freshness_guard(monkeypatch):
 
     monkeypatch.setenv(indexer_freshness.ENV_MAX_LAG_SECONDS, "0")
     monkeypatch.setattr(indexer_freshness, "_last_alert_at", None)
+
+
+# Strategy drawdown limit and trailing stop isolation
+# ============================================================================
+#
+# ``position_manager`` binds MAX_DRAWDOWN_PCT and TRAILING_STOP_PCT by value
+# from the structured config, so a developer config with either set would make
+# every open_positions test read account equity and a drawdown peak from the
+# database. Both are pinned off and the drawdown alert rate limiter is reset.
+# Tests exercising them set the attribute themselves (function-scoped
+# monkeypatch runs after this fixture's setup and so takes precedence).
+@pytest.fixture(autouse=True)
+def _isolate_strategy_drawdown_and_trailing_stop(monkeypatch):
+    from src.trading import drawdown_guard, position_manager
+
+    monkeypatch.setattr(position_manager, "MAX_DRAWDOWN_PCT", 0.0)
+    monkeypatch.setattr(position_manager, "TRAILING_STOP_PCT", 0.0)
+    monkeypatch.setattr(drawdown_guard, "_last_alert_at", {})

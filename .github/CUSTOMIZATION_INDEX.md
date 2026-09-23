@@ -59,6 +59,12 @@ Root-agent selection:
   - entry/exit determinism with audit-trail observability
   - portfolio-risk guard interplay and fail-closed data handling
 
+- `.github/skills/live-risk-control-enforcement/SKILL.md`
+  Promote a strategy risk control from REJECTED to ENFORCED on live bots (bot, backend, frontend):
+  - semantics written down first (measure, trigger, action, scope, persistence, unknown input, reset)
+  - durable state, entry-halt latching by kind, typed excepts, fail-closed reads
+  - backtest parity or a documented divergence, defaults off, docs and rollout order
+
 - `.github/skills/config-infrastructure-management/SKILL.md`
   Runtime configuration, encrypted profiles, deployment config, environment management, infrastructure-as-code:
   - encrypted profile design and management

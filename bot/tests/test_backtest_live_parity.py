@@ -118,7 +118,13 @@ def test_simulate_pair_exit_rules_match_live_ladder():
         )
     )
 
-    allowed = {"stop_loss", "take_profit", "timeout", "zscore_reversion"}
+    allowed = {
+        "stop_loss",
+        "take_profit",
+        "trailing_stop",
+        "timeout",
+        "zscore_reversion",
+    }
     reversion_trades = 0
     for trade in trades:
         assert trade["exit_reason"] in allowed, trade["exit_reason"]
@@ -133,6 +139,78 @@ def test_simulate_pair_exit_rules_match_live_ladder():
                 f"(entry_z={entry_z}, exit_z={exit_z})"
             )
     assert reversion_trades > 0, "expected at least one zscore_reversion exit"
+
+
+def test_simulate_pair_trailing_stop_follows_the_live_rule_bar_by_bar(monkeypatch):
+    """Every simulated trailing-stop exit fires on the first bar where the live
+    ladder would fire, given the same P&L and the same running best level."""
+    from src.trading import position_manager
+
+    service = _make_service()
+    prices_a, prices_b = _synthetic_pair(seed=11)
+    ts = _timestamps(len(prices_a))
+    trail = 0.3
+    params = {
+        "stats_window": 21,
+        "zscore_threshold": 1.5,
+        "usd_per_trade": 10.0,
+        "close_at_zscore_cross": False,
+        "transaction_fee": 0.0,
+        "slippage": 0.0,
+        "refit_interval_bars": 10**9,
+        "stop_loss_pct": 0.0,
+        "take_profit_pct": 0.0,
+        "position_timeout_hours": 0.0,
+        "trailing_stop_pct": trail,
+    }
+
+    trades, _snapshots, _daily = asyncio.run(
+        service._simulate_pair(
+            "parity-run",
+            "AAA-USD",
+            "BBB-USD",
+            ts,
+            prices_a,
+            prices_b,
+            params,
+            trade_index_offset=0,
+        )
+    )
+
+    assert trades, "expected at least one trailing-stop exit"
+    assert {trade["exit_reason"] for trade in trades} == {"trailing_stop"}
+
+    monkeypatch.setattr(position_manager, "STOP_LOSS_PCT", 0.0)
+    monkeypatch.setattr(position_manager, "TAKE_PROFIT_PCT", 0.0)
+    monkeypatch.setattr(position_manager, "POSITION_TIMEOUT_HOURS", 0)
+    monkeypatch.setattr(position_manager, "CLOSE_AT_ZSCORE_CROSS", False)
+    monkeypatch.setattr(position_manager, "TRAILING_STOP_PCT", trail)
+
+    calibration_end = max(2 * 21, len(prices_a) // 2)
+    hedge = float(
+        np.polyfit(prices_b[:calibration_end], prices_a[:calibration_end], 1)[0]
+    )
+    ts_index = {t: i for i, t in enumerate(ts)}
+    for trade in trades:
+        entry = ts_index[trade["entry_timestamp"]]
+        exit_ = ts_index[trade["exit_timestamp"]]
+        ep1, ep2 = float(prices_a[entry]), float(prices_b[entry])
+        short = trade["entry_zscore"] > 0
+        notional = abs(ep1) + abs(hedge * ep2)
+        peak = None
+        for bar in range(entry + 1, exit_ + 1):
+            move = (float(prices_a[bar]) - ep1) - hedge * (float(prices_b[bar]) - ep2)
+            pnl = (-move if short else move) / notional * 100.0
+            peak = pnl if peak is None else max(peak, pnl)
+            live = position_manager._resolve_exit_reason(
+                z_score_current=0.0,
+                z_score_traded=1.0,
+                unrealized_pnl_pct=pnl,
+                position_age_hours=0.0,
+                peak_unrealized_pnl_pct=peak,
+            )
+            expected = "trailing_stop" if bar == exit_ else None
+            assert live == expected, (bar, entry, exit_, pnl, peak)
 
 
 def test_simulate_pair_stop_loss_param_bounds_losses():

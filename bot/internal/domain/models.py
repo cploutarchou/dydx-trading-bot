@@ -244,10 +244,11 @@ class Strategy(Base):
         Boolean, nullable=False, default=False
     )
     max_positions: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
-    max_drawdown_pct: Mapped[float] = mapped_column(Float, nullable=False, default=15.0)
+    # Enforced on live bots, so off unless the operator sets them.
+    max_drawdown_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     stop_loss_pct: Mapped[float] = mapped_column(Float, nullable=False, default=3.0)
     take_profit_pct: Mapped[float] = mapped_column(Float, nullable=False, default=8.0)
-    trailing_stop_pct: Mapped[float] = mapped_column(Float, nullable=False, default=2.0)
+    trailing_stop_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     rebalance_interval_hours: Mapped[int] = mapped_column(
         Integer, nullable=False, default=24
     )
@@ -402,7 +403,9 @@ class BacktestRunRequestPayload(Base):
 class ArtifactReference(Base):
     __tablename__ = "artifact_references"
     __table_args__ = (
-        UniqueConstraint("bucket", "object_key", name="uq_artifact_references_bucket_object"),
+        UniqueConstraint(
+            "bucket", "object_key", name="uq_artifact_references_bucket_object"
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

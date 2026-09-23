@@ -2,13 +2,14 @@
  * Entry halt
  *
  * A live bot stops opening new pairs on a subaccount after an emergency close
- * failed, because a position leg may be open without its hedge. Exits keep
- * running. The halt stays until an operator has checked the account on dYdX and
- * cleared it, so everything here is read defensively: a payload this screen
- * cannot fully read must never turn into a halt that can be acknowledged away.
+ * failed, because a position leg may be open without its hedge, or once the
+ * subaccount's equity fell to the strategy's max drawdown. Exits keep running.
+ * The halt stays until an operator has checked the account on dYdX and cleared
+ * it, so everything here is read defensively: a payload this screen cannot
+ * fully read must never turn into a halt that can be acknowledged away.
  */
 
-import type { EntryHalt, EntryHaltState } from '../api';
+import type { EntryHalt, EntryHaltKind, EntryHaltState } from '../api';
 
 export const ENTRY_HALT_NOTE_MAX_LENGTH = 280;
 
@@ -16,6 +17,51 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const toText = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+
+/**
+ * `max_drawdown`, or `unhedged_exposure` for anything else: halts recorded
+ * before kinds existed all came from a failed emergency close, and an unknown
+ * kind keeps the stricter hedge check.
+ */
+export const entryHaltKind = (value: unknown): EntryHaltKind =>
+  toText(value).toLowerCase() === 'max_drawdown' ? 'max_drawdown' : 'unhedged_exposure';
+
+const finiteNumber = (value: unknown): number | null => {
+  if (typeof value !== 'number' && typeof value !== 'string') {
+    return null;
+  }
+  if (typeof value === 'string' && value.trim() === '') {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+export interface EntryHaltDrawdown {
+  equity: number;
+  peakEquity: number;
+  drawdownPct: number;
+  limitPct: number;
+}
+
+/** The numbers behind a max-drawdown halt, or null when any of them is unusable. */
+export const entryHaltDrawdown = (details: Record<string, unknown>): EntryHaltDrawdown | null => {
+  const equity = finiteNumber(details.equity);
+  const peakEquity = finiteNumber(details.peak_equity);
+  const drawdownPct = finiteNumber(details.drawdown_pct);
+  const limitPct = finiteNumber(details.limit_pct);
+  if (equity === null || peakEquity === null || drawdownPct === null || limitPct === null) {
+    return null;
+  }
+  return { equity, peakEquity, drawdownPct, limitPct };
+};
+
+/** `$12,345.67` */
+export const formatEntryHaltUsd = (value: number): string =>
+  `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** `2.1%`, `2%` — at most two decimals, no padding. */
+export const formatEntryHaltPct = (value: number): string => `${Number(value.toFixed(2))}%`;
 
 /**
  * Reads the halt record. Returns null unless the id, the network and the
@@ -42,14 +88,17 @@ const normalizeEntryHalt = (value: unknown): EntryHalt | null => {
     return null;
   }
 
+  const details = isRecord(value.details) ? value.details : {};
+
   return {
     id,
+    kind: entryHaltKind(value.kind ?? details.kind),
     instance_id: toText(value.instance_id),
     network,
     address: toText(value.address),
     subaccount_number: subaccountNumber,
     reason: toText(value.reason),
-    details: isRecord(value.details) ? value.details : {},
+    details,
     halted_at: toText(value.halted_at),
   };
 };

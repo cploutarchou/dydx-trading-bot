@@ -1,6 +1,7 @@
 """Position entry and exit management for pairs trading."""
 
 import asyncio
+import math
 import os
 import time
 from datetime import datetime, timezone
@@ -15,10 +16,12 @@ from loguru import logger
 from src.constants import (
     CLOSE_AT_ZSCORE_CROSS,
     DYDX_API_THROTTLE_SECONDS,
+    MAX_DRAWDOWN_PCT,
     MAX_POSITIONS,
     POSITION_TIMEOUT_HOURS,
     STOP_LOSS_PCT,
     TAKE_PROFIT_PCT,
+    TRAILING_STOP_PCT,
     USD_MIN_COLLATERAL,
     USD_PER_TRADE,
     ZSCORE_THRESH,
@@ -32,7 +35,7 @@ from src.shared.dataframe_utils import (
 )
 from src.shared.notifications import TelegramMessenger
 from src.shared.utils import format_number, format_size_down
-from src.trading import entry_halt, indexer_freshness
+from src.trading import drawdown_guard, entry_halt, indexer_freshness
 from src.trading.account_manager import (
     get_account,
     get_open_positions,
@@ -198,17 +201,69 @@ def _position_open_age_hours(position: Dict[str, Any]) -> float:
     return max(0.0, (datetime.now(timezone.utc) - opened_at).total_seconds() / 3600.0)
 
 
+PEAK_PNL_KEY = "peak_unrealized_pnl_pct"
+PEAK_PNL_AT_KEY = "peak_unrealized_pnl_at"
+
+
+def _trailing_stop_triggered(
+    unrealized_pnl_pct: float, peak_unrealized_pnl_pct: Optional[float]
+) -> bool:
+    """Armed once the pair's best unrealized P&L has reached the trail distance;
+    fires when P&L has fallen that distance below its best level.
+
+    The stop level (best - distance) is then never below break-even, so the
+    stop loss keeps owning the downside and is never tightened by the trail.
+    """
+    if TRAILING_STOP_PCT <= 0 or peak_unrealized_pnl_pct is None:
+        return False
+    if peak_unrealized_pnl_pct < TRAILING_STOP_PCT:
+        return False
+    return unrealized_pnl_pct <= peak_unrealized_pnl_pct - TRAILING_STOP_PCT
+
+
+def _fold_peak_unrealized_pnl(
+    position: Dict[str, Any], unrealized_pnl_pct: float
+) -> float:
+    """Ratchet the pair's best unrealized P&L %, kept on the tracked position so
+    it survives restarts. A position tracked before the trailing stop existed,
+    or with an unusable stored value, starts from the current observation."""
+    previous: Optional[float] = None
+    stored = position.get(PEAK_PNL_KEY)
+    if stored is not None:
+        try:
+            previous = float(stored)
+        except (TypeError, ValueError):
+            previous = None
+        if previous is not None and not math.isfinite(previous):
+            previous = None
+        if previous is None:
+            logger.warning(
+                "Ignoring unusable stored peak P&L {!r} for {} / {}",
+                stored,
+                position.get("market_1", "?"),
+                position.get("market_2", "?"),
+            )
+    if previous is None or unrealized_pnl_pct > previous:
+        position[PEAK_PNL_KEY] = unrealized_pnl_pct
+        position[PEAK_PNL_AT_KEY] = _utc_now_iso()
+        return unrealized_pnl_pct
+    return previous
+
+
 def _resolve_exit_reason(
     *,
     z_score_current: float,
     z_score_traded: float,
     unrealized_pnl_pct: float,
     position_age_hours: float,
+    peak_unrealized_pnl_pct: Optional[float] = None,
 ) -> Optional[str]:
     if STOP_LOSS_PCT > 0 and unrealized_pnl_pct <= (-1.0 * STOP_LOSS_PCT):
         return "stop_loss"
     if TAKE_PROFIT_PCT > 0 and unrealized_pnl_pct >= TAKE_PROFIT_PCT:
         return "take_profit"
+    if _trailing_stop_triggered(unrealized_pnl_pct, peak_unrealized_pnl_pct):
+        return "trailing_stop"
     if POSITION_TIMEOUT_HOURS > 0 and position_age_hours >= POSITION_TIMEOUT_HOURS:
         return "timeout"
     if CLOSE_AT_ZSCORE_CROSS:
@@ -225,6 +280,7 @@ def _exit_reason_label(reason: str) -> str:
     labels = {
         "stop_loss": "Stop-loss",
         "take_profit": "Take-profit",
+        "trailing_stop": "Trailing stop",
         "timeout": "Position timeout",
         "zscore_reversion": "Z-score reversion",
     }
@@ -876,9 +932,11 @@ async def open_positions(client: Any) -> None:
     scan_cycle_id = uuid4().hex[:12]
     increment_metric("arbitrage_scan_cycles_total")
 
-    # A failed emergency close may have left a leg open with no hedge. No new
-    # pair is opened until an operator has verified the account and cleared
-    # the latch (python -m src.trading.entry_halt --clear). Exits keep running.
+    # The subaccount's entry halt: set after a failed emergency close (a leg
+    # may be open with no hedge) or when the drawdown limit was reached. No new
+    # pair is opened until an operator has checked the account and cleared it
+    # (strategy card, or python -m src.trading.entry_halt --clear). Exits keep
+    # running.
     halt_state = entry_halt.entries_halted()
     if halt_state is not None:
         increment_metric("arbitrage_entries_halted_cycles_total")
@@ -915,6 +973,18 @@ async def open_positions(client: Any) -> None:
                 is_critical=False,
                 category="execution_indexer_stale",
             )
+        return
+
+    # Bot-level max drawdown on the subaccount's equity. Reaching it latches
+    # the entry halt above; an unreadable equity or peak skips this cycle.
+    # Runs before any pair is looked at so the peak follows equity every cycle.
+    if not await drawdown_guard.check_entry_drawdown(
+        client,
+        limit_pct=MAX_DRAWDOWN_PCT,
+        messenger=messenger,
+        scan_cycle_id=scan_cycle_id,
+        read_account=get_account,
+    ):
         return
 
     # Load cointegrated pairs using enhanced storage
@@ -1377,6 +1447,7 @@ async def open_positions(client: Any) -> None:
                                 entry_halt.halt_entries(
                                     f"emergency close failed for {base_market} / {quote_market}",
                                     {
+                                        "kind": entry_halt.KIND_UNHEDGED_EXPOSURE,
                                         "market_1": base_market,
                                         "market_2": quote_market,
                                         "error": str(exc),
@@ -1826,13 +1897,15 @@ async def manage_trade_exits(client: Any) -> str | None:
             price_m1 = _as_float(series_1_numeric.iloc[-1], field_name="price_m1")
             price_m2 = _as_float(series_2_numeric.iloc[-1], field_name="price_m2")
             unrealized_pnl_pct = 0.0
-            if STOP_LOSS_PCT > 0 or TAKE_PROFIT_PCT > 0:
+            pnl_available = False
+            if STOP_LOSS_PCT > 0 or TAKE_PROFIT_PCT > 0 or TRAILING_STOP_PCT > 0:
                 try:
                     unrealized_pnl_pct = _pair_unrealized_pnl_pct(
                         position,
                         current_price1=price_m1,
                         current_price2=price_m2,
                     )
+                    pnl_available = True
                 except Exception as exc:
                     logger.warning(
                         "Unable to evaluate PnL-based exit controls for {} / {}: {}",
@@ -1842,6 +1915,14 @@ async def manage_trade_exits(client: Any) -> str | None:
                     )
                     position["last_exit_warning"] = str(exc)
                     position["last_exit_warning_at"] = _utc_now_iso()
+            # The trailing stop is only judged on a P&L that was actually
+            # computed: the 0.0 fallback above would read as a full give-back
+            # from any armed peak and close the pair for no reason.
+            peak_unrealized_pnl_pct: Optional[float] = None
+            if TRAILING_STOP_PCT > 0 and pnl_available:
+                peak_unrealized_pnl_pct = _fold_peak_unrealized_pnl(
+                    position, unrealized_pnl_pct
+                )
             position_age_hours = _position_open_age_hours(position)
 
             if CLOSE_AT_ZSCORE_CROSS:
@@ -1867,6 +1948,7 @@ async def manage_trade_exits(client: Any) -> str | None:
                 z_score_traded=z_score_traded,
                 unrealized_pnl_pct=unrealized_pnl_pct,
                 position_age_hours=position_age_hours,
+                peak_unrealized_pnl_pct=peak_unrealized_pnl_pct,
             )
             is_close = exit_reason is not None
 
@@ -1883,12 +1965,12 @@ async def manage_trade_exits(client: Any) -> str | None:
                 if position_side_m2 == "SELL":
                     side_m2 = "BUY"
 
-                # Accept-price band scales with exit urgency: stop-losses
-                # must fill NOW (a 5% band lets them sit unfilled through
-                # good-til-block expiry in fast markets); discretionary
-                # exits keep the tighter band.
+                # Accept-price band scales with exit urgency: stop-losses and
+                # trailing stops must fill NOW (a 5% band lets them sit
+                # unfilled through good-til-block expiry in fast markets);
+                # discretionary exits keep the tighter band.
                 exit_reason_key = str(exit_reason or "exit_signal")
-                if exit_reason_key == "stop_loss":
+                if exit_reason_key in ("stop_loss", "trailing_stop"):
                     _exit_buffer = 1.0 + _stop_exit_buffer_pct() / 100.0
                 else:
                     _exit_buffer = 1.0 + _exit_buffer_pct() / 100.0
@@ -1931,6 +2013,7 @@ async def manage_trade_exits(client: Any) -> str | None:
                         "z_score_traded": float(z_score_traded),
                         "exit_reason": exit_reason_key,
                         "unrealized_pnl_pct": float(unrealized_pnl_pct),
+                        "peak_unrealized_pnl_pct": peak_unrealized_pnl_pct,
                         "position_age_hours": float(position_age_hours),
                     },
                 )

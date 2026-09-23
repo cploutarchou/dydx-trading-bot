@@ -47,8 +47,8 @@ type strategyPayload struct {
 	ManageExits           *bool     `json:"manage_exits"`
 	PlaceTrades           *bool     `json:"place_trades"`
 	AbortAllPositions     *bool     `json:"abort_all_positions"`
-	// Pointers so an explicit 0 is honoured: the live runtime rejects both
-	// controls when > 0, and setting them to 0 is the documented way to start.
+	// Pointers so an explicit 0 (off) is honoured instead of keeping the
+	// stored value: both are enforced by the live runtime when > 0.
 	MaxDrawdownPct         *float64 `json:"max_drawdown_pct"`
 	StopLossPct            float64  `json:"stop_loss_pct"`
 	TakeProfitPct          float64  `json:"take_profit_pct"`
@@ -640,9 +640,11 @@ func (h *StrategyHandler) SetAuditLogger(logger StrategyAuditLogger) {
 	h.auditLogger = logger
 }
 
-// disableableRiskControls are the operator-set controls the live runtime rejects
-// when > 0. Turning one off is the operator's decision, so it happens only
-// through this explicit, acknowledged and audited action.
+// disableableRiskControls are operator-set controls that older live runtimes
+// rejected when > 0. The current runtime enforces both, so start-readiness no
+// longer reports them and the UI no longer offers this action; turning one off
+// through the API still happens only as an explicit, acknowledged and audited
+// action.
 var disableableRiskControls = map[string]func(*models.BacktestStrategy) *float64{
 	"max_drawdown_pct":  func(s *models.BacktestStrategy) *float64 { return &s.MaxDrawdownPct },
 	"trailing_stop_pct": func(s *models.BacktestStrategy) *float64 { return &s.TrailingStopPct },

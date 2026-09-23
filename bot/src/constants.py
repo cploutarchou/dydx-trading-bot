@@ -53,6 +53,15 @@ MAX_POSITIONS = int(getattr(bot_settings, "maxPositions", 5) or 0)
 STOP_LOSS_PCT = float(getattr(bot_settings, "stopLossPct", 2.0) or 0.0)
 TAKE_PROFIT_PCT = float(getattr(bot_settings, "takeProfitPct", 5.0) or 0.0)
 POSITION_TIMEOUT_HOURS = int(getattr(bot_settings, "positionTimeoutHours", 72) or 0)
+# Trailing stop: once a pair's best unrealized P&L (% of its entry notional, the
+# measure the stop loss uses) has reached this distance, the pair is closed when
+# its P&L falls this many points below that best level. 0 disables it.
+TRAILING_STOP_PCT = max(
+    0.0, float(getattr(bot_settings, "trailingStopPct", 0.0) or 0.0)
+)
+# Bot-level drawdown limit on the equity of the subaccount the runtime trades
+# on. Reaching it halts new entries (src/trading/drawdown_guard.py). 0 disables.
+MAX_DRAWDOWN_PCT = max(0.0, float(getattr(bot_settings, "maxDrawdownPct", 0.0) or 0.0))
 
 # Endpoint for Account Queries
 INDEXER_ENDPOINT_TESTNET = "https://indexer.v4testnet.dydx.exchange"
@@ -190,8 +199,9 @@ BOT_PORTFOLIO_MIN_FREE_COLLATERAL_USD: float = float(
 )
 # Account-level drawdown from the ratcheted all-time peak equity (Redis-backed
 # peak per wallet address). Denies new entries at/after the cap; 0 disables.
-# NOTE: this is the ACCOUNT-level control — the per-instance config field
-# `max_drawdown_pct` remains REJECTED (bot-level semantics, still unenforced).
+# NOTE: this is the deployment-wide control. The per-strategy `max_drawdown_pct`
+# (MAX_DRAWDOWN_PCT above) is separate: its peak is durable and it latches the
+# entry halt instead of denying cycle by cycle.
 BOT_PORTFOLIO_MAX_DRAWDOWN_PCT: float = float(
     _os.getenv("BOT_PORTFOLIO_MAX_DRAWDOWN_PCT", "0.0")
 )

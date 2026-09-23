@@ -1847,8 +1847,11 @@ export default function StrategyBuilder() {
                         />
                       )}
                     />
-                    <p id="max_drawdown_pct_hint" className="mt-1 text-xs leading-5 text-amber-200">
-                      Not available on live bots yet. Leave at 0 to be able to start a live bot.
+                    <p id="max_drawdown_pct_hint" className="mt-1 text-xs leading-5 text-slate-400">
+                      Measured on the equity of the subaccount the bot trades on. Once equity falls
+                      this far below its peak, the bot opens no new pairs until you clear the halt
+                      on the strategy card; open pairs keep their exits. Backtests do not stop at
+                      it. 0 turns it off.
                     </p>
                   </div>
 
@@ -1935,9 +1938,12 @@ export default function StrategyBuilder() {
                     />
                     <p
                       id="trailing_stop_pct_hint"
-                      className="mt-1 text-xs leading-5 text-amber-200"
+                      className="mt-1 text-xs leading-5 text-slate-400"
                     >
-                      Not available on live bots yet. Leave at 0 to be able to start a live bot.
+                      Once a pair is up at least this much, it closes when it gives back this much
+                      from its best level, so it never closes below break-even. Measured like the
+                      stop loss, on the entry value of the pair, in live bots and backtests. 0 turns
+                      it off.
                     </p>
                   </div>
                 </div>

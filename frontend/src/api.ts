@@ -1720,18 +1720,30 @@ interface DisableUnenforcedRiskControlsResponse extends StrategyResponse {
 }
 
 /**
+ * Why a bot stopped opening new pairs: an emergency close failed and a leg may
+ * be open without its hedge, or the subaccount's equity fell to the strategy's
+ * max drawdown.
+ */
+export type EntryHaltKind = 'unhedged_exposure' | 'max_drawdown';
+
+/**
  * The durable record of an entry halt. A bot stops opening new pairs on a
- * subaccount after an emergency close failed, and keeps managing exits until an
- * operator has checked the account and cleared the halt.
+ * subaccount, and keeps managing exits, until an operator has checked the
+ * account and cleared the halt.
  */
 export interface EntryHalt extends Record<string, unknown> {
   id: number;
+  kind: EntryHaltKind;
   instance_id: string;
   network: 'testnet' | 'mainnet';
   address: string;
   subaccount_number: number;
   reason: string;
-  /** May carry `market_1`, `market_2`, `error` and `scan_cycle_id`. */
+  /**
+   * An unhedged-exposure halt may carry `market_1`, `market_2`, `error` and
+   * `scan_cycle_id`; a max-drawdown halt carries `equity`, `peak_equity`,
+   * `drawdown_pct` and `limit_pct`.
+   */
   details: Record<string, unknown>;
   halted_at: string;
 }

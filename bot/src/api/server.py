@@ -141,7 +141,7 @@ from src.shared.live_risk_controls import (  # noqa: E402
 # imported directly by src/api/v1/celery_admin.py and no longer used here.
 from src.shared.logging_setup import setup_logging  # noqa: E402
 from src.shared.time_utils import utc_now_iso  # noqa: E402
-from src.trading import entry_halt  # noqa: E402
+from src.trading import drawdown_guard, entry_halt  # noqa: E402
 from src.trading.arbitrage_observability import snapshot_metrics  # noqa: E402
 from src.trading.arbitrage_runtime_config import (  # noqa: E402
     get_feature_flags,
@@ -1115,6 +1115,24 @@ async def runtime_preflight(
                 )
             else:
                 raise
+
+        # The drawdown limit is a percentage of this subaccount's equity; say
+        # what that is in dollars, and whether the runtime would halt at once.
+        max_drawdown_pct = float(request.trading_params.max_drawdown_pct or 0.0)
+        if account_exists and max_drawdown_pct > 0:
+            drawdown_warning = await run_db(
+                drawdown_guard.preflight_drawdown_warning,
+                entry_halt.HaltScope(
+                    instance_id=request.instance_id or "preflight",
+                    network=environment,
+                    address=str(request.credentials.address or ""),
+                    subaccount_number=subaccount_number,
+                ),
+                equity=equity,
+                limit_pct=max_drawdown_pct,
+            )
+            if drawdown_warning:
+                warnings.append(drawdown_warning)
 
         usd_per_trade = float(request.trading_params.usd_per_trade or 0.0)
         usd_min_collateral = float(request.trading_params.usd_min_collateral or 0.0)

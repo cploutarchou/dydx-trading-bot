@@ -198,3 +198,28 @@ describe('BacktestDetailsV2 risk and data checks', () => {
     expect(screen.getByText('Starting balance not loaded yet')).toBeVisible();
   });
 });
+
+describe('BacktestDetailsV2 tab badges', () => {
+  beforeEach(() => {
+    Object.values(mocks.api).forEach((mock) => mock.mockReset());
+    mocks.getBacktestStatus.mockReset();
+    mocks.progressData = undefined;
+    mocks.getBacktestStatus.mockResolvedValue({ run_id: RUN_ID, status: 'COMPLETED' });
+    mocks.api.getBacktest.mockResolvedValue({
+      data: { run_id: RUN_ID, status: 'completed', total_trades: 12 },
+    });
+  });
+
+  afterEach(() => cleanup());
+
+  it('says "Not loaded" for tabs that load on first open, not "Loading…"', async () => {
+    renderPage();
+
+    await screen.findByText('12 trades');
+    expect(screen.queryByText('Loading…')).toBeNull();
+    expect(screen.getAllByText('Not loaded')).toHaveLength(2);
+    // Nothing is fetched until the tab is opened.
+    expect(mocks.api.getBacktestAnalytics).not.toHaveBeenCalled();
+    expect(mocks.api.getBacktestPositionSnapshots).not.toHaveBeenCalled();
+  });
+});

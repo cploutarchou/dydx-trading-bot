@@ -1668,7 +1668,7 @@ interface StrategyListResponse extends Record<string, unknown> {
   total: number;
 }
 
-interface StrategyRuntimeResponse extends Record<string, unknown> {
+export interface StrategyRuntimeResponse extends Record<string, unknown> {
   strategy_id: number;
   strategy_name?: string;
   instance_id?: string;
@@ -1693,6 +1693,17 @@ interface StrategyRuntimeResponse extends Record<string, unknown> {
   next_run_at?: string;
   updated_at?: string;
   last_synced_at?: string;
+  /** False when the bot could not be reached for this poll. */
+  runtime_confirmed?: boolean;
+  /** The last time the bot answered for this runtime. */
+  last_confirmed_at?: string | null;
+  /** Open positions recorded for a runtime that is not running. */
+  exposure_unconfirmed?: boolean;
+}
+
+export interface StrategyRuntimeBatchResponse extends Record<string, unknown> {
+  runtimes: StrategyRuntimeResponse[];
+  count: number;
 }
 
 /**
@@ -3895,6 +3906,24 @@ class ApiClient {
     try {
       const response = await this.client.get<ApiResponse<StrategyRuntimeResponse>>(
         `/api/v1/strategies/${strategyId}/runtime`
+      );
+      return response.data;
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
+  }
+
+  /**
+   * Runtime status for several strategies in one request. The backend checks
+   * ownership per id and answers 403 when any id is not the caller's.
+   */
+  async getStrategyRuntimes(
+    strategyIds: number[]
+  ): Promise<ApiResponse<StrategyRuntimeBatchResponse>> {
+    try {
+      const ids = Array.from(new Set(strategyIds.filter((id) => Number.isInteger(id) && id > 0)));
+      const response = await this.client.get<ApiResponse<StrategyRuntimeBatchResponse>>(
+        `/api/v1/strategies/runtime?ids=${encodeURIComponent(ids.join(','))}`
       );
       return response.data;
     } catch (error: unknown) {

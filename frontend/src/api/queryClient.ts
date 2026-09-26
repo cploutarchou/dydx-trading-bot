@@ -72,6 +72,8 @@ export const queryKeys = {
   // Strategies
   strategies: (params?: QueryParams) => ['strategies', 'list', params] as const,
   strategyRuntime: (strategyId: number) => ['strategies', strategyId, 'runtime'] as const,
+  strategyRuntimeBatch: (strategyIds: readonly number[]) =>
+    ['strategies', 'runtime-batch', strategyIds.join(',')] as const,
   strategyStartReadiness: (strategyId: number, network?: string) =>
     ['strategies', strategyId, 'start-readiness', network ?? 'testnet'] as const,
   strategyEntryHalt: (strategyId: number) => ['strategies', strategyId, 'entry-halt'] as const,

@@ -38,7 +38,18 @@ import { ActionDialog, EmptyState, InlineNotice } from './ui/PlatformUI';
 
 interface BotInstance {
   instance_id: string;
-  status: 'CREATED' | 'RUNNING' | 'STOPPED' | 'FAILED' | 'ERROR' | 'STARTING' | 'STOPPING';
+  status:
+    | 'CREATED'
+    | 'RUNNING'
+    | 'STOPPED'
+    | 'FAILED'
+    | 'ERROR'
+    | 'STARTING'
+    | 'STOPPING'
+    | 'DEGRADED'
+    | 'RECOVERING'
+    | 'SAFEGUARDED'
+    | 'PAUSED';
   process_id?: number;
   configuration?: Record<string, unknown>;
   created_at?: string;
@@ -67,16 +78,27 @@ type PendingRuntimeAction = {
   instanceId: string;
 } | null;
 
-const normalizeStatus = (status: string | undefined): BotInstance['status'] => {
-  const normalized = String(status || '').toUpperCase();
-  if (
-    ['CREATED', 'RUNNING', 'STOPPED', 'FAILED', 'ERROR', 'STARTING', 'STOPPING'].includes(
-      normalized
-    )
-  ) {
-    return normalized as BotInstance['status'];
-  }
-  return 'CREATED';
+const KNOWN_BOT_STATUSES: ReadonlyArray<BotInstance['status']> = [
+  'CREATED',
+  'RUNNING',
+  'STOPPED',
+  'FAILED',
+  'ERROR',
+  'STARTING',
+  'STOPPING',
+  'DEGRADED',
+  'RECOVERING',
+  'SAFEGUARDED',
+  'PAUSED',
+];
+
+/**
+ * Keeps every status the bot reports. The recovery states used to collapse
+ * to CREATED, which read as "never started" for a runtime that was degraded.
+ */
+export const normalizeStatus = (status: string | undefined): BotInstance['status'] => {
+  const normalized = String(status || '').toUpperCase() as BotInstance['status'];
+  return KNOWN_BOT_STATUSES.includes(normalized) ? normalized : 'CREATED';
 };
 
 const toNumber = (value: unknown, fallback = 0): number => {
@@ -267,7 +289,14 @@ const getStatusTone = (
 ): 'positive' | 'accent' | 'warning' | 'danger' => {
   if (degraded || status === 'FAILED' || status === 'ERROR') return 'danger';
   if (status === 'RUNNING') return 'positive';
-  if (status === 'STARTING' || status === 'STOPPING') return 'accent';
+  if (
+    status === 'STARTING' ||
+    status === 'STOPPING' ||
+    status === 'RECOVERING' ||
+    status === 'DEGRADED' ||
+    status === 'SAFEGUARDED'
+  )
+    return 'accent';
   return 'warning';
 };
 

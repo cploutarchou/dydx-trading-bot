@@ -1,9 +1,9 @@
 ﻿# Frontend Integration Tasks
 
 ## Status Summary
-- Completed: `61`
+- Completed: `62`
 - Pending: `4`
-- Last updated: `2026-06-30`
+- Last updated: `2026-09-26`
 - Note: update these totals whenever any [x] or [ ] task changes.
 
 ## Cross-Repo Status Snapshot
@@ -166,6 +166,7 @@ Snapshot date: `2026-06-30`.
 - [x] Added first frontend implementation entries for sync-health panel and polling backoff updates.
 - [x] 2026-04-05: Strategy runtime controls are now live in `StrategyManager`; the UI consumes backend start/stop/runtime endpoints and safely handles bot websocket snapshots/lifecycle updates.
 - [x] 2026-06-30: Delegated backtest trade reads now stay on the bot/artifact path instead of relying on backend trade mirroring; frontend follow-up remains on sync-health trade-count semantics only.
+- [x] 2026-09-26: Strategy Manager and the dashboard header read strategy runtimes through the batch route with one hook and one poll; status derivation moved to `src/features/strategies/runtimeStatus.ts` with no error-to-running promotion, heartbeat tone from the runtime's own update time only, header totals over active runtimes only, and "Unconfirmed" / "Recorded exposure" badges; the Bots desk keeps DEGRADED, RECOVERING, SAFEGUARDED and PAUSED.
 
 ## Change Log Template
 - Date:

@@ -16,8 +16,6 @@ on ``BacktestService`` (they couple to the runtime-control codec — Phase 5).
 
 from __future__ import annotations
 
-import random
-from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set
 
 from loguru import logger
@@ -441,44 +439,15 @@ class BacktestQueryMixin:
                 "position_snapshots": data.get("position_snapshots", []),
                 "candles": daily_pnl_list,
                 "daily_pnl": daily_pnl_list,
+                "daily_pnl_available": True,
                 "created_at": data.get("created_at"),
                 "updated_at": data.get("updated_at"),
             }
 
-        total_pnl = float(data.get("total_pnl", 0))
-        total_trades = int(data.get("total_trades", 0))
-        start_date_str = data.get("start_date", "")
-        end_date_str = data.get("end_date", "")
-        try:
-            sd = (
-                date.fromisoformat(start_date_str)
-                if start_date_str
-                else date.today() - timedelta(days=30)
-            )
-            ed = date.fromisoformat(end_date_str) if end_date_str else date.today()
-            num_days = max(1, (ed - sd).days)
-        except (ValueError, TypeError):
-            sd = date.today() - timedelta(days=30)
-            num_days = 30
-        rng = random.Random(run_id + "analytics")
-        raw_series = [rng.gauss(0, 1) for _ in range(num_days)]
-        raw_sum = sum(raw_series) or 1.0
-        scale = total_pnl / raw_sum
+        # No stored daily P&L means the run has no equity curve to show. The
+        # previous fallback invented a seeded random series scaled to the total
+        # (and so did the trades route); report the gap instead.
         daily_pnl_list = []
-        for i, raw in enumerate(raw_series):
-            day = sd + timedelta(days=i)
-            resolution = "1DAY"
-            daily_pnl_list.append(
-                {
-                    "candle_id": f"{day.isoformat()}|PORTFOLIO|{resolution}",
-                    "date": day.isoformat(),
-                    "timestamp": f"{day.isoformat()}T00:00:00Z",
-                    "market": "PORTFOLIO",
-                    "resolution": resolution,
-                    "pnl": round(raw * scale, 2),
-                    "trades": max(0, round(total_trades / max(1, num_days))),
-                }
-            )
         return {
             "run_id": run_id,
             "status": data.get("status"),
@@ -493,6 +462,7 @@ class BacktestQueryMixin:
             "position_snapshots": data.get("position_snapshots", []),
             "candles": daily_pnl_list,
             "daily_pnl": daily_pnl_list,
+            "daily_pnl_available": bool(daily_pnl_list),
             "created_at": data.get("created_at"),
             "updated_at": data.get("updated_at"),
         }
@@ -522,65 +492,7 @@ class BacktestQueryMixin:
                 ]
             return snapshots[offset : offset + limit]
 
-        # Backward-compatible fallback for legacy in-memory runs
-        total_trades = max(1, int(data.get("total_trades", 0)))
-        win_rate = float(data.get("win_rate", 0.5))
-        total_pnl = float(data.get("total_pnl", 0))
-        start_date_str = data.get("start_date", "")
-        end_date_str = data.get("end_date", "")
-        try:
-            sd = (
-                date.fromisoformat(start_date_str)
-                if start_date_str
-                else date.today() - timedelta(days=30)
-            )
-            ed = date.fromisoformat(end_date_str) if end_date_str else date.today()
-            date_range = max(1, (ed - sd).days)
-        except (ValueError, TypeError):
-            sd = date.today() - timedelta(days=30)
-            date_range = 30
-        markets = [
-            ("BTC-USD", "ETH-USD"),
-            ("SOL-USD", "AVAX-USD"),
-            ("LINK-USD", "DOT-USD"),
-        ]
-        rng = random.Random(run_id + "positions")
-        winning_count = max(0, int(total_trades * win_rate))
-        per_win = (
-            (total_pnl / max(1, winning_count)) * 1.3 if winning_count > 0 else 5.0
-        )
-        per_loss = -(abs(per_win) * 0.6)
-        synthetic: List[Dict[str, Any]] = []
-        for i in range(total_trades):
-            pair = markets[i % len(markets)]
-            pair_key = f"{pair[0]}/{pair[1]}"
-            if market_pair and pair_key != market_pair:
-                continue
-            is_win = i < winning_count
-            entry_day = sd + timedelta(days=rng.randint(0, date_range - 1))
-            pnl = (
-                (per_win * rng.uniform(0.7, 1.3))
-                if is_win
-                else (per_loss * rng.uniform(0.7, 1.3))
-            )
-            synthetic.append(
-                {
-                    "timestamp": entry_day.isoformat() + "T00:00:00Z",
-                    "positions": [
-                        {
-                            "position_id": f"pos-{run_id}-{i:03d}",
-                            "market_1": pair[0],
-                            "market_2": pair[1],
-                            "entry_timestamp": entry_day.isoformat() + "T00:00:00Z",
-                            "exit_timestamp": None,
-                            "entry_price_m1": round(rng.uniform(1000.0, 50000.0), 2),
-                            "entry_price_m2": round(rng.uniform(100.0, 5000.0), 2),
-                            "hedge_ratio": round(rng.uniform(0.8, 1.2), 4),
-                            "entry_zscore": round(rng.uniform(1.5, 2.5), 3),
-                            "total_pnl_usd": round(pnl, 2),
-                            "status": "CLOSED" if is_win else "STOPPED",
-                        }
-                    ],
-                }
-            )
-        return synthetic[offset : offset + limit]
+        # No stored snapshots: report none. The previous fallback invented
+        # positions on fixed BTC/ETH, SOL/AVAX and LINK/DOT pairs with random
+        # prices, whatever markets the run traded.
+        return []

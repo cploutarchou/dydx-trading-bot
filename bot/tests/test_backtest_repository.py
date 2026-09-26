@@ -308,9 +308,10 @@ def test_save_run_writes_backtest_sidecars_and_analytics(tmp_path):
         session.query(BacktestRun).filter(BacktestRun.run_id == "run-sidecars").first()
     )
     assert db_run is not None
-    assert db_run.trades_json == []
-    assert db_run.position_snapshots_json == []
-    assert db_run.daily_pnl_json == []
+    # Without MinIO the database keeps the only copy every pod can read.
+    assert db_run.trades_json == [{"trade_id": "trade-1", "pnl": 12.5}]
+    assert db_run.position_snapshots_json == [{"snapshot_id": "position-1"}]
+    assert db_run.daily_pnl_json == [{"date": "2026-04-01", "pnl": 12.5}]
     assert db_run.artifact_refs is not None
     assert db_run.artifact_refs["request"] == (
         "artifact://backtests/run-sidecars/request.json"
@@ -606,3 +607,77 @@ def test_save_run_forces_clickhouse_flush_for_terminal_completed_run(tmp_path):
     assert len(analytics_client.inserts) == 3
 
     session.close()
+
+
+def _results_repository(tmp_path, name):
+    engine = create_engine(f"sqlite:///{tmp_path / name}", future=True)
+    Base.metadata.create_all(bind=engine)
+    session = sessionmaker(bind=engine, expire_on_commit=False)()
+    repository = BacktestRepository(
+        session,
+        artifact_store=_RecordingArtifactStore(),
+        analytics_writer=_RecordingAnalyticsWriter(),
+    )
+    return session, repository
+
+
+def _stored(session, run_id):
+    return session.query(BacktestRun).filter(BacktestRun.run_id == run_id).first()
+
+
+def test_results_survive_later_saves_without_results(tmp_path):
+    session, repository = _results_repository(tmp_path, "keep.sqlite")
+    repository.save_run(
+        {
+            "run_id": "run-keep",
+            "name": "keep",
+            "status": "completed",
+            "trades": [{"trade_id": "t-1", "pnl": 1.0}],
+            "position_snapshots": [{"snapshot_id": "s-1"}],
+            "daily_pnl": [{"date": "2026-04-01", "pnl": 1.0}],
+        }
+    )
+    # A follow-up save (metadata, status sync) carries no result rows.
+    repository.save_run({"run_id": "run-keep", "name": "keep", "status": "completed"})
+
+    stored = _stored(session, "run-keep")
+    assert stored.trades_json == [{"trade_id": "t-1", "pnl": 1.0}]
+    assert stored.position_snapshots_json == [{"snapshot_id": "s-1"}]
+    assert stored.daily_pnl_json == [{"date": "2026-04-01", "pnl": 1.0}]
+
+
+def test_running_saves_keep_daily_pnl_but_not_trades(tmp_path):
+    session, repository = _results_repository(tmp_path, "running.sqlite")
+    repository.save_run(
+        {
+            "run_id": "run-live",
+            "name": "live",
+            "status": "running",
+            "trades": [{"trade_id": "t-1", "pnl": 1.0}],
+            "daily_pnl": [{"date": "2026-04-01", "pnl": 1.0}],
+        }
+    )
+
+    stored = _stored(session, "run-live")
+    assert stored.daily_pnl_json == [{"date": "2026-04-01", "pnl": 1.0}]
+    assert stored.trades_json == []
+
+
+def test_minio_artifacts_keep_results_out_of_the_database(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        BacktestRepository, "_minio_artifacts_enabled", classmethod(lambda cls: True)
+    )
+    session, repository = _results_repository(tmp_path, "minio.sqlite")
+    repository.save_run(
+        {
+            "run_id": "run-minio",
+            "name": "minio",
+            "status": "completed",
+            "trades": [{"trade_id": "t-1", "pnl": 1.0}],
+            "daily_pnl": [{"date": "2026-04-01", "pnl": 1.0}],
+        }
+    )
+
+    stored = _stored(session, "run-minio")
+    assert stored.trades_json == []
+    assert stored.daily_pnl_json == []

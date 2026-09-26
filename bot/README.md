@@ -200,6 +200,10 @@ Useful environment variables:
   with `make portfolio-burn-in` before changing any default limit.
 - `NATS_URL` and `NATS_MONITORING_URL` for the optional command/event bus contract
 - `BACKTEST_ARTIFACT_STORAGE_ENABLED=false` keeps artifact persistence on the local fallback path
+- Unless MinIO artifacts are enabled, a run's trades, position snapshots and daily P&L are also kept in the
+  database (`backtest_runs` JSON columns): a local artifact directory is private to one pod and lost on restart.
+  Daily P&L is stored on every save, trades and snapshots when the run finishes. Runs without stored results report
+  none; nothing is synthesized.
 - `BACKTEST_CLICKHOUSE_WRITES_ENABLED=false` keeps analytical writes disabled by default
 - `BACKTEST_CLICKHOUSE_BATCH_SIZE=1000` and `BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS=5` control buffered analytical
   flushes when ClickHouse writes are enabled

@@ -1168,6 +1168,37 @@ class BacktestRepository:
             return payload
         return {**payload, "request": {**dict(stored_request), **incoming_request}}
 
+    _TERMINAL_RESULT_STATUSES = frozenset(
+        {"completed", "failed", "timeout", "timed_out", "cancelled", "stale", "stalled"}
+    )
+
+    def _store_result_rows(self, record: BacktestRun, payload: Dict[str, Any]) -> None:
+        """Keep trades, snapshots and daily P&L in the database.
+
+        Without MinIO the artifact store is a local directory, which another
+        pod cannot read and a restart erases, so the database is the only
+        copy every pod shares. Daily P&L is small and stored on every save;
+        trades and snapshots only once the run has finished, so a long run
+        does not rewrite them every few seconds. An empty incoming list never
+        erases rows already stored: small follow-up saves carry no results.
+        """
+        if self._minio_artifacts_enabled():
+            record.trades_json = []
+            record.position_snapshots_json = []
+            record.daily_pnl_json = []
+            return
+        daily_pnl = self._materialize_rows(payload.get("daily_pnl"))
+        if daily_pnl:
+            record.daily_pnl_json = daily_pnl
+        status = str(payload.get("status") or "").strip().lower()
+        if status in self._TERMINAL_RESULT_STATUSES:
+            trades = self._materialize_rows(payload.get("trades"))
+            if trades:
+                record.trades_json = trades
+            snapshots = self._materialize_rows(payload.get("position_snapshots"))
+            if snapshots:
+                record.position_snapshots_json = snapshots
+
     def save_run(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
         payload = self._normalize_run_data(run_data)
         run_id = str(payload["run_id"])
@@ -1231,9 +1262,7 @@ class BacktestRepository:
         record.error = payload.get("error")
         record.error_message = payload.get("error_message")
         record.request_json = payload.get("request") or {}
-        record.trades_json = []
-        record.position_snapshots_json = []
-        record.daily_pnl_json = []
+        self._store_result_rows(record, payload)
         record.cancel_requested = bool(payload.get("cancel_requested", False))
         parsed_created_at = self._parse_dt(
             payload.get("created_at"), default=self._now()

@@ -419,30 +419,22 @@ def test_get_comprehensive_analytics_passes_through_daily_pnl():
     assert result["performance"]["total_pnl"] == 10.0
 
 
-def test_get_comprehensive_analytics_synthesizes_series_when_missing():
+def test_get_comprehensive_analytics_reports_missing_series_instead_of_inventing():
     data = {
         "status": "completed",
         "total_pnl": 90.0,
         "total_trades": 9,
         "start_date": "2026-01-01",
-        "end_date": "2026-01-11",  # 10 days
+        "end_date": "2026-01-11",
     }
 
     result = _FakeHost(data=data).get_comprehensive_analytics("run-1")
 
-    series = result["daily_pnl"]
-    assert len(series) == 10
-    assert sum(entry["pnl"] for entry in series) == pytest.approx(90.0, abs=0.1)
-    assert {entry["market"] for entry in series} == {"PORTFOLIO"}
-    assert series[0]["trades"] == 1  # 9 trades / 10 days, rounded
-    # Deterministic per run id
-    again = _FakeHost(data=data).get_comprehensive_analytics("run-1")
-    assert again["daily_pnl"] == series
-
-    # Bad dates fall back to a 30-day window
-    bad_dates = dict(data, start_date="nope")
-    fallback = _FakeHost(data=bad_dates).get_comprehensive_analytics("run-2")
-    assert len(fallback["daily_pnl"]) == 30
+    assert result["daily_pnl"] == []
+    assert result["candles"] == []
+    assert result["daily_pnl_available"] is False
+    # The real totals are still reported.
+    assert result["performance"]["total_pnl"] == 90.0
 
 
 # --------------------------------------------------- position snapshots
@@ -464,7 +456,7 @@ def test_get_position_snapshots_filters_and_slices_raw():
     assert _FakeHost(data=None).get_position_snapshots("x") == []
 
 
-def test_get_position_snapshots_legacy_fallback():
+def test_get_position_snapshots_reports_none_instead_of_inventing():
     data = {
         "total_trades": 4,
         "win_rate": 0.5,
@@ -473,15 +465,10 @@ def test_get_position_snapshots_legacy_fallback():
         "end_date": "2026-01-05",
     }
 
-    result = _FakeHost(data=data).get_position_snapshots("run-1")
-
-    assert len(result) == 4
-    first_positions = result[0]["positions"]
-    assert first_positions[0]["market_1"] == "BTC-USD"
-    assert {s["positions"][0]["status"] for s in result} == {"CLOSED", "STOPPED"}
-
-    filtered = _FakeHost(data=data).get_position_snapshots(
-        "run-1", market_pair="SOL-USD/AVAX-USD"
+    assert _FakeHost(data=data).get_position_snapshots("run-1") == []
+    assert (
+        _FakeHost(data=data).get_position_snapshots(
+            "run-1", market_pair="SOL-USD/AVAX-USD"
+        )
+        == []
     )
-    assert len(filtered) == 1
-    assert filtered[0]["positions"][0]["market_1"] == "SOL-USD"

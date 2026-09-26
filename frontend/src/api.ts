@@ -2759,7 +2759,9 @@ class ApiClient {
 
   async getPerpetualMarkets(
     limit: number = 0,
-    options: { includeSettled?: boolean } = {}
+    // forBacktest lists the markets backtests replay (mainnet history by
+    // default), not the network strategy runtimes trade on.
+    options: { includeSettled?: boolean; forBacktest?: boolean } = {}
   ): Promise<ApiResponse<PerpetualMarketsResponse>> {
     this.ensureTokenLoaded();
     const params = new URLSearchParams();
@@ -2768,6 +2770,9 @@ class ApiClient {
     }
     if (options.includeSettled) {
       params.set('include_settled', 'true');
+    }
+    if (options.forBacktest) {
+      params.set('purpose', 'backtest');
     }
     const query = params.toString();
     const response = await this.client.get<ApiResponse<PerpetualMarketsResponse>>(

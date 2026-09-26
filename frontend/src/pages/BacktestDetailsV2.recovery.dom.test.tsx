@@ -223,3 +223,37 @@ describe('BacktestDetailsV2 tab badges', () => {
     expect(mocks.api.getBacktestPositionSnapshots).not.toHaveBeenCalled();
   });
 });
+
+describe('BacktestDetailsV2 window return', () => {
+  beforeEach(() => {
+    Object.values(mocks.api).forEach((mock) => mock.mockReset());
+    mocks.getBacktestStatus.mockReset();
+    mocks.getBacktestStatus.mockResolvedValue({ run_id: RUN_ID, status: 'COMPLETED' });
+  });
+
+  afterEach(() => cleanup());
+
+  it('measures the return against the starting balance, not the P&L curve', async () => {
+    mocks.progressData = {
+      run_id: RUN_ID,
+      status: 'COMPLETED',
+      request: { initial_balance: 100 },
+    };
+    mocks.api.getBacktest.mockResolvedValue({
+      data: { run_id: RUN_ID, status: 'completed', total_pnl: -0.45 },
+    });
+    renderPage();
+
+    expect(await screen.findByText('-0.45% selected range')).toBeVisible();
+  });
+
+  it('shows no return while the starting balance is unknown', async () => {
+    mocks.progressData = undefined;
+    mocks.api.getBacktest.mockResolvedValue({
+      data: { run_id: RUN_ID, status: 'completed', total_pnl: -0.45 },
+    });
+    renderPage();
+
+    expect(await screen.findByText('— selected range')).toBeVisible();
+  });
+});

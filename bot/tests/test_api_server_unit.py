@@ -1378,3 +1378,35 @@ def test_lifespan_fails_fast_when_leader_lock_unavailable(monkeypatch):
     # The critical section never ran and the lock was not released
     assert db_backend.calls == ["health_check"]
     assert db_backend.startup_lock.release_calls == 0
+
+
+def test_perpetual_markets_for_backtest_use_the_backtest_data_network(monkeypatch):
+    server._markets_cache.clear()
+    # A runtime (testnet) list is already cached; the backtest list must not reuse it.
+    server._markets_cache_set(
+        {"records": normalize_market_records({"TESTONLY-USD": {"status": "ACTIVE"}})}
+    )
+
+    async def _runtime_connect():
+        raise AssertionError("backtest markets must not use the runtime client")
+
+    async def _backtest_connect():
+        return _FakeMarketsClient(
+            payload={"markets": {"BTC-USD": {"status": "ACTIVE", "volume24H": "9"}}}
+        )
+
+    monkeypatch.setattr(server, "connect_dydx", _runtime_connect)
+    monkeypatch.setattr(server, "connect_backtest_market_data", _backtest_connect)
+
+    body = _payload(asyncio.run(server.list_perpetual_markets(purpose="backtest")))
+    assert body["data"]["markets"] == ["BTC-USD"]
+    assert body["data"]["source"] == "dydx"
+
+    # Cached separately: the next backtest request is a cache hit on its own
+    # list, and the runtime list is untouched.
+    cached = _payload(asyncio.run(server.list_perpetual_markets(purpose="backtest")))
+    assert cached["data"]["markets"] == ["BTC-USD"]
+    assert cached["data"]["source"] == "cache"
+    runtime = _payload(asyncio.run(server.list_perpetual_markets()))
+    assert runtime["data"]["markets"] == ["TESTONLY-USD"]
+    server._markets_cache.clear()

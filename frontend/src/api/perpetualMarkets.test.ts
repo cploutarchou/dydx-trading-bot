@@ -164,4 +164,14 @@ describe('api.getPerpetualMarkets', () => {
       '/api/v1/markets/perpetuals?limit=3&include_settled=true'
     );
   });
+
+  it('asks for the backtest market list when the caller runs backtests', async () => {
+    mockGet.mockResolvedValue({
+      data: { success: true, message: 'ok', data: { markets: [], count: 0, source: 'dydx' } },
+      headers: {},
+    });
+
+    await api.getPerpetualMarkets(0, { forBacktest: true });
+    expect(mockGet).toHaveBeenLastCalledWith('/api/v1/markets/perpetuals?purpose=backtest');
+  });
 });

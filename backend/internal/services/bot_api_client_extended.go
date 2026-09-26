@@ -255,7 +255,17 @@ func (c *BotAPIClient) GetRuntimeDBConfig() (map[string]interface{}, error) {
 // GetPerpetualMarkets retrieves the tradable dYdX perpetual markets: active
 // markets sorted by 24 h volume, or every market when includeSettled is set.
 func (c *BotAPIClient) GetPerpetualMarkets(limit int, includeSettled bool) (map[string]interface{}, error) {
+	return c.GetPerpetualMarketsFor(limit, includeSettled, false)
+}
+
+// GetPerpetualMarketsFor is GetPerpetualMarkets with a purpose: forBacktest lists
+// the markets backtests replay (the bot's backtest market-data network) rather
+// than the network runtimes trade on.
+func (c *BotAPIClient) GetPerpetualMarketsFor(limit int, includeSettled bool, forBacktest bool) (map[string]interface{}, error) {
 	query := url.Values{}
+	if forBacktest {
+		query.Set("purpose", "backtest")
+	}
 	if limit > 0 {
 		query.Set("limit", strconv.Itoa(limit))
 	}

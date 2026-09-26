@@ -1661,10 +1661,12 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 						snapshotSource = "bot_strategy_lookup"
 					}
 				}
-			} else if asMap(config["strategy_payload_snapshot"]) == nil {
+			} else if asMap(config["strategy_payload_snapshot"]) == nil && asMap(config["trading_parameters"]) == nil {
+				// Same rule as the bot: a one-off run needs a snapshot or its
+				// trading parameters (the New Backtest form sends the latter).
 				c.JSON(http.StatusUnprocessableEntity, gin.H{
 					"success":   false,
-					"message":   "STRATEGY_PAYLOAD_MISSING: one-off backtests require a strategy_payload_snapshot",
+					"message":   "STRATEGY_PAYLOAD_MISSING: one-off backtests require a strategy_payload_snapshot or trading_parameters",
 					"error":     "STRATEGY_PAYLOAD_MISSING",
 					"data":      gin.H{"error": "STRATEGY_PAYLOAD_MISSING"},
 					"timestamp": time.Now().UTC().Format(time.RFC3339),
@@ -1913,8 +1915,9 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 	router.GET("/api/v1/markets/perpetuals", middleware.RequireAuth(), withRequestScopedBotClient, func(c *gin.Context) {
 		requestClient := getRequestBotAPIClient(c, apiClient)
 		limit, includeSettled := parsePerpetualMarketsQuery(c)
+		forBacktest := strings.EqualFold(strings.TrimSpace(c.Query("purpose")), "backtest")
 		delegateJSON(c, apiClient, func(_ *services.BotAPIClient) (map[string]interface{}, error) {
-			return requestClient.GetPerpetualMarkets(limit, includeSettled)
+			return requestClient.GetPerpetualMarketsFor(limit, includeSettled, forBacktest)
 		})
 	})
 

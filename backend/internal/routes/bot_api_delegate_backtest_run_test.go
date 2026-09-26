@@ -2231,3 +2231,72 @@ func TestDelegatedBacktestArtifacts_HidesForeignRun(t *testing.T) {
 		t.Fatalf("expected 404 for foreign run, got %d", resp.StatusCode)
 	}
 }
+
+func postOneOffBacktest(t *testing.T, payload map[string]interface{}, upstream http.Handler) (int, map[string]interface{}) {
+	t.Helper()
+	router, dbConn := setupDelegatedBacktestAuthRouter(t, upstream)
+	defer func() { _ = dbConn.Close() }()
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+
+	token := loginDelegatedBacktestTestUser(t, backendServer.URL)
+	body, _ := json.Marshal(payload)
+	req, err := http.NewRequest(http.MethodPost, backendServer.URL+"/api/v1/backtests/run", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("post delegated run: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var got map[string]interface{}
+	_ = json.NewDecoder(resp.Body).Decode(&got)
+	return resp.StatusCode, got
+}
+
+func TestDelegatedBacktestRun_OneOffWithTradingParametersIsDelegated(t *testing.T) {
+	delegated := false
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, r *http.Request) {
+		var forwarded map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&forwarded)
+		if forwarded["trading_parameters"] == nil {
+			t.Errorf("trading_parameters not forwarded: %v", forwarded)
+		}
+		delegated = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"run_id":"run-oneoff","status":"pending"}}`))
+	})
+
+	status, got := postOneOffBacktest(t, map[string]interface{}{
+		"pairs":              []string{"BTC-USD", "ETH-USD"},
+		"start_date":         "2026-08-27",
+		"end_date":           "2026-09-26",
+		"trading_parameters": map[string]interface{}{"zscore_threshold": 1.5, "resolution": "1HOUR"},
+	}, upstreamMux)
+
+	if !delegated {
+		t.Fatalf("one-off run with trading_parameters was not delegated: %d %v", status, got)
+	}
+	if status != http.StatusOK && status != http.StatusCreated && status != http.StatusAccepted {
+		t.Fatalf("expected success status, got %d: %v", status, got)
+	}
+}
+
+func TestDelegatedBacktestRun_OneOffWithoutParametersIsRejected(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/backtests/run", func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("backend should reject a one-off run without snapshot or parameters")
+	})
+
+	status, got := postOneOffBacktest(t, map[string]interface{}{
+		"pairs": []string{"BTC-USD", "ETH-USD"},
+	}, upstreamMux)
+
+	if status != http.StatusUnprocessableEntity || got["error"] != "STRATEGY_PAYLOAD_MISSING" {
+		t.Fatalf("expected 422 STRATEGY_PAYLOAD_MISSING, got %d: %v", status, got)
+	}
+}

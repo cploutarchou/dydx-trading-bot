@@ -152,7 +152,11 @@ from src.trading.arbitrage_runtime_config import (  # noqa: E402
     get_feature_flags,
     get_runtime_settings,
 )
-from src.trading.dydx_client import connect_dydx, connect_dydx_runtime  # noqa: E402
+from src.trading.dydx_client import (  # noqa: E402
+    connect_backtest_market_data,
+    connect_dydx,
+    connect_dydx_runtime,
+)
 from src.trading.indexer_freshness import check_indexer_freshness  # noqa: E402
 
 # Filter noisy third-party warnings after imports
@@ -387,7 +391,9 @@ _markets_cache: Dict[str, Any] = {}
 _markets_cache_lock = threading.Lock()
 
 
-def _markets_cache_get(*, allow_stale: bool = False) -> Optional[Dict[str, Any]]:
+def _markets_cache_get(
+    *, allow_stale: bool = False, key: str = "last"
+) -> Optional[Dict[str, Any]]:
     """Return cached market data, optionally including expired (stale) entries.
 
     Returns a dict with keys ``data`` (the cached payload) and ``stale`` (bool),
@@ -395,7 +401,7 @@ def _markets_cache_get(*, allow_stale: bool = False) -> Optional[Dict[str, Any]]
     """
     now = time.monotonic()
     with _markets_cache_lock:
-        entry = _markets_cache.get("last")
+        entry = _markets_cache.get(key)
         if not entry:
             return None
         expires_at = float(entry.get("expires_at", 0.0))
@@ -407,13 +413,13 @@ def _markets_cache_get(*, allow_stale: bool = False) -> Optional[Dict[str, Any]]
         return None
 
 
-def _markets_cache_set(value: Dict[str, Any]) -> None:
+def _markets_cache_set(value: Dict[str, Any], key: str = "last") -> None:
     """Store a fresh market data payload in the cache."""
     if _MARKETS_CACHE_TTL_SECONDS <= 0:
         return
     now = time.monotonic()
     with _markets_cache_lock:
-        _markets_cache["last"] = {
+        _markets_cache[key] = {
             "value": value,
             "expires_at": now + float(_MARKETS_CACHE_TTL_SECONDS),
             "updated_at": now,
@@ -1540,7 +1546,7 @@ async def api_capabilities() -> JSONResponse:
 
 @app.get("/api/v1/markets/perpetuals")
 async def list_perpetual_markets(
-    limit: int = 0, include_settled: bool = False
+    limit: int = 0, include_settled: bool = False, purpose: str = "runtime"
 ) -> JSONResponse:
     """Return the tradable dYdX perpetual markets for run configuration.
 
@@ -1548,6 +1554,9 @@ async def list_perpetual_markets(
     volume (highest first, unknown volume last) and capped by ``limit`` only
     after sorting. ``markets`` lists the tickers; ``market_details`` carries the
     indexer metrics per ticker (volume, open interest, funding, oracle price).
+
+    ``purpose=backtest`` lists the markets backtests replay (the backtest
+    market-data network, mainnet by default) instead of the runtime network's.
 
     Results are cached for ``MARKETS_CACHE_TTL_SECONDS`` (default 60 s).
     When the live dYdX call fails, stale cache data is served (up to
@@ -1558,6 +1567,8 @@ async def list_perpetual_markets(
     """
     cap = _normalize_requested_pair_cap(limit)
     client = None
+    for_backtest = purpose.strip().lower() == "backtest"
+    cache_key = "backtest" if for_backtest else "last"
 
     def _payload(records: List[MarketRecord], source: str) -> Dict[str, Any]:
         return market_universe_payload(
@@ -1565,7 +1576,7 @@ async def list_perpetual_markets(
         )
 
     # Serve a fresh cache hit without making a network call.
-    cached = _markets_cache_get(allow_stale=False)
+    cached = _markets_cache_get(allow_stale=False, key=cache_key)
     if cached is not None:
         data = _payload(cached["data"]["records"], "cache")
         return api_response(
@@ -1580,7 +1591,7 @@ async def list_perpetual_markets(
 
     try:
         client = await asyncio.wait_for(
-            connect_dydx(),
+            connect_backtest_market_data() if for_backtest else connect_dydx(),
             timeout=_MARKETS_ENDPOINT_TIMEOUT_SECONDS,
         )
         payload = await asyncio.wait_for(
@@ -1609,7 +1620,7 @@ async def list_perpetual_markets(
 
     if live_error is not None:
         # Live call failed – try stale cache before giving up.
-        stale = _markets_cache_get(allow_stale=True)
+        stale = _markets_cache_get(allow_stale=True, key=cache_key)
         if stale is not None:
             data = _payload(stale["data"]["records"], "cache_stale")
             logger.info(
@@ -1633,7 +1644,7 @@ async def list_perpetual_markets(
         )
 
     # Successful live fetch – cache the normalized records and return.
-    _markets_cache_set({"records": records})
+    _markets_cache_set({"records": records}, key=cache_key)
     data = _payload(records, "dydx")
     return api_response(
         success=True,

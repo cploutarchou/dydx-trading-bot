@@ -608,6 +608,107 @@ func (h *StrategyHandler) GetStrategyRuntime(c *gin.Context) {
 	})
 }
 
+// maxStrategyRuntimeBatch caps ?ids= on the batch runtime route; each id costs
+// the same bot calls as the single route.
+const maxStrategyRuntimeBatch = 100
+
+// GetStrategyRuntimes reconciles every strategy in ?ids= and returns their
+// runtime states in one response. Ownership is checked per id the same way the
+// single-strategy route does, and one foreign id fails the whole request.
+func (h *StrategyHandler) GetStrategyRuntimes(c *gin.Context) {
+	ids, err := parseStrategyIDList(c.Query("ids"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     err.Error(),
+		})
+		return
+	}
+
+	userIDValue, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, APIResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     "Unauthorized",
+		})
+		return
+	}
+	userID := userIDValue.(int)
+	isAdmin := c.GetBool("is_admin")
+
+	strategies := make([]*models.BacktestStrategy, 0, len(ids))
+	for _, id := range ids {
+		strategy, err := h.service.GetStrategy(id)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, APIResponse{
+				Success:   false,
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+				Error:     fmt.Sprintf("Failed to get strategy: %v", err),
+			})
+			return
+		}
+		if strategy == nil {
+			c.JSON(http.StatusNotFound, APIResponse{
+				Success:   false,
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+				Error:     fmt.Sprintf("Strategy %d not found", id),
+			})
+			return
+		}
+		if strategy.UserID != userID && !isAdmin {
+			c.JSON(http.StatusForbidden, APIResponse{
+				Success:   false,
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+				Error:     "Forbidden: you do not own this strategy",
+			})
+			return
+		}
+		strategies = append(strategies, strategy)
+	}
+
+	runtimes := h.runtimeService.WithTraceID(middleware.GetTraceID(c)).WithAuthToken(extractAuthToken(c)).GetRuntimeStatuses(strategies)
+
+	c.JSON(http.StatusOK, APIResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"runtimes": runtimes,
+			"count":    len(runtimes),
+		},
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+// parseStrategyIDList reads a comma-separated list of positive strategy ids,
+// deduplicated, and refuses an empty, malformed or oversized list.
+func parseStrategyIDList(raw string) ([]int, error) {
+	seen := make(map[int]bool)
+	ids := make([]int, 0)
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		id, err := strconv.Atoi(part)
+		if err != nil || id <= 0 {
+			return nil, fmt.Errorf("invalid strategy id %q", part)
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+		if len(ids) > maxStrategyRuntimeBatch {
+			return nil, fmt.Errorf("at most %d strategy ids per request", maxStrategyRuntimeBatch)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("ids is required")
+	}
+	return ids, nil
+}
+
 func (h *StrategyHandler) GetStrategyStartReadiness(c *gin.Context) {
 	strategy, _, ok := h.getAuthorizedStrategy(c)
 	if !ok {

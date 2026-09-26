@@ -53,6 +53,9 @@ func RegisterStrategyRoutes(router *gin.Engine, database *db.Database) {
 			// CRUD operations
 			strategies.POST("", strategyHandler.CreateStrategy)
 			strategies.GET("", strategyHandler.ListStrategies)
+			// Batch runtime state; registered before the :id routes so the
+			// static segment is never read as a strategy id.
+			strategies.GET("/runtime", strategyHandler.GetStrategyRuntimes)
 			strategies.GET("/:id", strategyHandler.GetStrategy)
 			strategies.PUT("/:id", strategyHandler.UpdateStrategy)
 			strategies.DELETE("/:id", strategyHandler.DeleteStrategy)

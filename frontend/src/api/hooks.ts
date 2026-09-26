@@ -1,15 +1,14 @@
 // Custom React Query Hooks for API Endpoints
 // Provides optimized data fetching with loading states, error handling, and caching
 
-import {
-  useInfiniteQuery,
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import api, { type EntryHaltState, TelegramConfigPayload, TelegramSettingsScope } from '../api';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import api, {
+  type EntryHaltState,
+  type StrategyRuntimeResponse,
+  TelegramConfigPayload,
+  TelegramSettingsScope,
+} from '../api';
 import { normalizeEntryHaltState } from '../utils/entryHalt';
 import { botApi } from './botApi';
 import { cacheUtils, queryConfigs, queryKeys } from './queryClient';
@@ -1628,22 +1627,39 @@ export function useStrategyRuntime(strategyId: number, enabled: boolean = true) 
 }
 
 /**
- * Fetch runtime statuses for multiple strategies in parallel.
- * Used by StrategyManager to replace the manual Promise.allSettled useEffect.
+ * Runtime status for several strategies through the batch route, so every
+ * page shares one poll and one code path instead of one request per
+ * strategy. `byId` maps a strategy id to its runtime payload.
  */
 export function useStrategyRuntimes(strategyIds: number[]) {
-  return useQueries({
-    queries: strategyIds.map((id) => ({
-      queryKey: queryKeys.strategyRuntime(id),
-      queryFn: () => api.getStrategyRuntime(id),
-      staleTime: queryConfigs.trading.staleTime,
-      gcTime: queryConfigs.trading.gcTime,
-      refetchInterval: 15_000,
-      refetchIntervalInBackground: false,
-      retry: 1,
-      enabled: id > 0,
-    })),
+  // Callers rebuild the id array on every render; only its content matters.
+  const idsKey = Array.from(new Set(strategyIds.filter((id) => id > 0)))
+    .sort((a, b) => a - b)
+    .join(',');
+  const ids = useMemo(
+    () => (idsKey === '' ? [] : idsKey.split(',').map((value) => Number(value))),
+    [idsKey]
+  );
+  const query = useQuery({
+    queryKey: queryKeys.strategyRuntimeBatch(ids),
+    queryFn: () => api.getStrategyRuntimes(ids),
+    staleTime: queryConfigs.trading.staleTime,
+    gcTime: queryConfigs.trading.gcTime,
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
+    retry: 1,
+    enabled: ids.length > 0,
   });
+  const byId = useMemo(() => {
+    const map = new Map<number, StrategyRuntimeResponse>();
+    for (const runtime of query.data?.data?.runtimes ?? []) {
+      if (typeof runtime?.strategy_id === 'number') {
+        map.set(runtime.strategy_id, runtime);
+      }
+    }
+    return map;
+  }, [query.data]);
+  return { ...query, byId };
 }
 
 /**
@@ -1813,6 +1829,7 @@ export function useClearStrategyEntryHaltMutation() {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.strategyRuntime(variables.strategyId),
       });
+      void queryClient.invalidateQueries({ queryKey: ['strategies', 'runtime-batch'] });
       void queryClient.invalidateQueries({
         queryKey: ['strategies', variables.strategyId, 'start-readiness'],
       });

@@ -1,9 +1,9 @@
 ﻿# Backend Tasks
 
 ## Status Summary
-- Completed: `58`
+- Completed: `60`
 - Pending: `0`
-- Last updated: `2026-06-30`
+- Last updated: `2026-09-26`
 - Note: update these totals whenever any [x] or [ ] task changes.
 
 ## Cross-Repo Status Snapshot
@@ -98,6 +98,7 @@ Snapshot date: `2026-06-30`.
 - [x] 2026-06-30: Stopped mirroring delegated backtest trade payloads into backend `backtest_trades`; delegated trade reads stay on the bot/artifact path while positions/candles continue syncing locally.
 - [x] 2026-06-30: Bot-side backtest status persistence now refreshes DB-backed runs after cross-process worker completion, so delegated backend status reads receive truthful terminal states from the upstream bot API without contract changes.
 - 2026-04-05: Added real strategy runtime control endpoints (`GET /api/v1/strategies/:id/runtime`, `POST /api/v1/strategies/:id/start`, `POST /api/v1/strategies/:id/stop`) backed by deterministic bot-instance orchestration and verified route coverage.
+- [x] 2026-09-26: Strategy runtime state now reports the bot's status unchanged (no promotion of an errored runtime with recorded positions; new fields `runtime_confirmed`, `last_confirmed_at`, `exposure_unconfirmed`; a bot 404 for a stored active runtime becomes `error`/`missing`), persists the reconciled state only on a material change (confirmation refresh at most every 5 min), and adds `GET /api/v1/strategies/runtime?ids=` (batch, per-id ownership, max 100 ids).
 
 ## Change Log Template
 - Date:

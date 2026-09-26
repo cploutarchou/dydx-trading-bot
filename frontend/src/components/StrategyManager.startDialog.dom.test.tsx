@@ -30,7 +30,16 @@ vi.mock('../api/hooks', () => ({
       },
     ],
   }),
-  useStrategyRuntimes: () => [],
+  useStrategyRuntimes: () => ({
+    data: undefined,
+    isSuccess: false,
+    isError: false,
+    error: null,
+    dataUpdatedAt: 0,
+    errorUpdatedAt: 0,
+    fetchStatus: 'idle',
+    byId: new Map(),
+  }),
   useStrategyBacktests: () => ({ data: undefined }),
   useStrategyStartReadiness: (strategyId: number | null, network: string, enabled: boolean) => {
     mocks.readinessArgs.push([strategyId, network, enabled]);

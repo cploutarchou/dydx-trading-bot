@@ -37,6 +37,15 @@ import {
   useStrategyRuntimes,
   useStrategyStartReadiness,
 } from '../api/hooks';
+import {
+  isRuntimeActiveStatus,
+  isRuntimeOperationalStatus,
+  resolveHeartbeatTone,
+  summarizeRuntimeHealth,
+  toHeartbeatAgeSeconds,
+  toStrategyStatus,
+  type StrategyStatus,
+} from '../features/strategies/runtimeStatus';
 import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/intelligence';
 import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
 import { Strategy, useStrategyStore } from '../store/strategies';
@@ -54,34 +63,6 @@ import { PageContainer } from './PageContainer';
 import { ActionDialog } from './ui/PlatformUI';
 import { StrategyEntryHaltNotice } from './EntryHaltNotice';
 import { UnenforcedRiskControlsNotice } from './UnenforcedRiskControlsNotice';
-
-interface StrategyStatus {
-  strategyId: number;
-  status:
-    | 'stopped'
-    | 'starting'
-    | 'running'
-    | 'stopping'
-    | 'paused'
-    | 'degraded'
-    | 'recovering'
-    | 'safeguarded'
-    | 'error';
-  lastError?: string;
-  tradesExecuted?: number;
-  pnl?: number;
-  winRate?: number;
-  openPositions?: number;
-  uptimeSeconds?: number;
-  startedAt?: string;
-  runtimeUpdatedAt?: string;
-  updatedAt: string;
-  botStatus?: string;
-  instanceId?: string;
-  network?: string;
-  runtimeSubaccount?: number;
-  capitalAllocationUsd?: number;
-}
 
 interface StrategyStartReadiness {
   selected_runtime_network: 'testnet' | 'mainnet';
@@ -143,19 +124,6 @@ const extractUserBacktestQuota = (payload: unknown): number | null => {
 const countActiveBacktests = (payload: unknown): number =>
   extractBacktestRuns(payload).filter((run) => isActiveBacktestRun(run)).length;
 
-const asNumber = (value: unknown): number | undefined => {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === 'string') {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-  return undefined;
-};
-
 const formatRuntimeDuration = (seconds?: number): string => {
   if (seconds === undefined || Number.isNaN(seconds) || seconds < 0) return '—';
 
@@ -200,62 +168,8 @@ const formatRelativeTime = (value?: string): string => {
   return `${hoursAgo}h ago`;
 };
 
-const HEARTBEAT_LIVE_THRESHOLD_MS = 30_000;
-const HEARTBEAT_DELAYED_THRESHOLD_MS = 120_000;
 const HEARTBEAT_TREND_MAX_POINTS = 14;
 const HEARTBEAT_TREND_MAX_SECONDS = 180;
-
-const isRuntimeOperationalStatus = (status: StrategyStatus['status']): boolean =>
-  status === 'running' ||
-  status === 'degraded' ||
-  status === 'recovering' ||
-  status === 'safeguarded';
-
-const isRuntimeActiveStatus = (status: StrategyStatus['status']): boolean =>
-  isRuntimeOperationalStatus(status) || status === 'starting';
-
-type HeartbeatTone = 'live' | 'delayed' | 'stale' | 'unknown';
-
-const resolveHeartbeatTone = (
-  heartbeatAt: string | undefined,
-  webSocketConnected: boolean
-): { tone: HeartbeatTone; label: string } => {
-  if (!heartbeatAt) {
-    return {
-      tone: webSocketConnected ? 'unknown' : 'delayed',
-      label: webSocketConnected ? 'Awaiting first heartbeat' : 'Waiting for stream',
-    };
-  }
-
-  const parsed = new Date(heartbeatAt);
-  if (Number.isNaN(parsed.getTime())) {
-    return { tone: 'unknown', label: 'Invalid heartbeat timestamp' };
-  }
-
-  const ageMs = Date.now() - parsed.getTime();
-  if (ageMs <= HEARTBEAT_LIVE_THRESHOLD_MS && webSocketConnected) {
-    return { tone: 'live', label: 'Live updates healthy' };
-  }
-
-  if (ageMs <= HEARTBEAT_DELAYED_THRESHOLD_MS) {
-    return { tone: 'delayed', label: 'Updates slightly delayed' };
-  }
-
-  return { tone: 'stale', label: 'Updates stale, check runtime' };
-};
-
-const toHeartbeatAgeSeconds = (heartbeatAt?: string): number | null => {
-  if (!heartbeatAt) {
-    return null;
-  }
-
-  const parsed = new Date(heartbeatAt);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  return Math.max(0, Math.floor((Date.now() - parsed.getTime()) / 1000));
-};
 
 const buildSparklinePoints = (values: number[], width: number, height: number): string => {
   if (values.length === 0) {
@@ -408,7 +322,7 @@ export default function StrategyManager() {
     setHeartbeatTrend((prev) => {
       const next = new Map(prev);
       nextStatuses.forEach((status) => {
-        const ageSeconds = toHeartbeatAgeSeconds(status.runtimeUpdatedAt || status.updatedAt);
+        const ageSeconds = toHeartbeatAgeSeconds(status.runtimeUpdatedAt);
         if (ageSeconds === null) {
           return;
         }
@@ -433,7 +347,7 @@ export default function StrategyManager() {
 
     setHeartbeatTrend((prev) => {
       const next = new Map(prev);
-      const ageSeconds = toHeartbeatAgeSeconds(nextStatus.runtimeUpdatedAt || nextStatus.updatedAt);
+      const ageSeconds = toHeartbeatAgeSeconds(nextStatus.runtimeUpdatedAt);
       if (ageSeconds === null) {
         return next;
       }
@@ -444,97 +358,13 @@ export default function StrategyManager() {
     });
   };
 
-  const toStrategyStatus = (
-    strategyId: number,
-    runtimeData: Record<string, unknown> | undefined
-  ): StrategyStatus => {
-    const startedAt =
-      typeof runtimeData?.started_at === 'string' ? runtimeData.started_at : undefined;
-    const rawPnl = asNumber(runtimeData?.pnl);
-    const rawTrades = asNumber(runtimeData?.trades_executed);
-    const rawOpenPositions = asNumber(runtimeData?.open_positions);
-    const rawWinRate = asNumber(runtimeData?.win_rate);
-    const rawUptimeSeconds = asNumber(runtimeData?.uptime_seconds);
-    const updatedAt =
-      typeof runtimeData?.last_synced_at === 'string'
-        ? runtimeData.last_synced_at
-        : typeof runtimeData?.updated_at === 'string'
-          ? runtimeData.updated_at
-          : new Date().toISOString();
-    const runtimeUpdatedAt =
-      typeof runtimeData?.runtime_updated_at === 'string'
-        ? runtimeData.runtime_updated_at
-        : typeof runtimeData?.last_synced_at === 'string'
-          ? runtimeData.last_synced_at
-          : typeof runtimeData?.updated_at === 'string'
-            ? runtimeData.updated_at
-            : undefined;
-    const normalizedStatus =
-      typeof runtimeData?.status === 'string' ? runtimeData.status.toLowerCase() : 'stopped';
-    const acceptedStatus =
-      normalizedStatus === 'running' ||
-      normalizedStatus === 'starting' ||
-      normalizedStatus === 'stopping' ||
-      normalizedStatus === 'paused' ||
-      normalizedStatus === 'degraded' ||
-      normalizedStatus === 'recovering' ||
-      normalizedStatus === 'safeguarded' ||
-      normalizedStatus === 'error'
-        ? normalizedStatus
-        : 'stopped';
-    const hasLiveExposure = rawOpenPositions !== undefined && rawOpenPositions > 0;
-    const status = acceptedStatus === 'error' && hasLiveExposure ? 'running' : acceptedStatus;
-    const rawLastError =
-      typeof runtimeData?.last_error === 'string' ? runtimeData.last_error.trim() : '';
-
-    const computedUptimeSeconds =
-      rawUptimeSeconds !== undefined
-        ? rawUptimeSeconds
-        : startedAt && isRuntimeOperationalStatus(status)
-          ? Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000))
-          : undefined;
-
-    return {
-      strategyId,
-      status,
-      lastError: status === 'error' && rawLastError ? rawLastError : undefined,
-      updatedAt,
-      runtimeUpdatedAt,
-      startedAt,
-      tradesExecuted: rawTrades !== undefined ? Math.max(0, Math.floor(rawTrades)) : undefined,
-      pnl: rawPnl,
-      winRate:
-        rawWinRate !== undefined ? (rawWinRate <= 1 ? rawWinRate * 100 : rawWinRate) : undefined,
-      openPositions:
-        rawOpenPositions !== undefined ? Math.max(0, Math.floor(rawOpenPositions)) : undefined,
-      uptimeSeconds:
-        computedUptimeSeconds !== undefined
-          ? Math.max(0, Math.floor(computedUptimeSeconds))
-          : undefined,
-      botStatus: typeof runtimeData?.bot_status === 'string' ? runtimeData.bot_status : undefined,
-      instanceId:
-        typeof runtimeData?.instance_id === 'string' ? runtimeData.instance_id : undefined,
-      network: typeof runtimeData?.network === 'string' ? runtimeData.network : undefined,
-      runtimeSubaccount:
-        typeof runtimeData?.runtime_subaccount === 'number'
-          ? runtimeData.runtime_subaccount
-          : undefined,
-      capitalAllocationUsd:
-        typeof runtimeData?.capital_allocation_usd === 'number'
-          ? runtimeData.capital_allocation_usd
-          : undefined,
-    };
-  };
-
-  // ── Runtime status: use React Query instead of manual useEffect polling ─────
+  // ── Runtime status: one batch query for every strategy on the page ─────────
   const strategyIds = useMemo(() => safeStrategies.map((s) => s.id), [safeStrategies]);
-  const runtimeQueries = useStrategyRuntimes(strategyIds);
-  const runtimeQuerySignature = runtimeQueries
-    .map((q) => `${q.dataUpdatedAt}:${q.errorUpdatedAt}:${q.fetchStatus}`)
-    .join(',');
+  const runtimeQuery = useStrategyRuntimes(strategyIds);
+  const runtimeQuerySignature = `${runtimeQuery.dataUpdatedAt}:${runtimeQuery.errorUpdatedAt}:${runtimeQuery.fetchStatus}`;
   const strategyIdSignature = strategyIds.join(',');
 
-  // Derive strategyStatuses / runningCount / heartbeatTrend from React Query results
+  // Derive strategyStatuses / runningCount / heartbeatTrend from the batch result
   useEffect(() => {
     if (strategyIds.length === 0) {
       // Applied out-of-band so no setState runs synchronously in the effect.
@@ -542,33 +372,47 @@ export default function StrategyManager() {
       return;
     }
 
-    const nextStatuses = runtimeQueries.map((query, index) => {
-      const strategyId = strategyIds[index]!;
-      if (query.isSuccess && query.data) {
-        return toStrategyStatus(strategyId, query.data.data as Record<string, unknown> | undefined);
+    const nextStatuses: StrategyStatus[] = strategyIds.map((strategyId) => {
+      if (runtimeQuery.isSuccess) {
+        const runtimeData = runtimeQuery.byId.get(strategyId);
+        if (runtimeData) {
+          return toStrategyStatus(strategyId, runtimeData as Record<string, unknown>);
+        }
+        return {
+          strategyId,
+          status: 'error' as const,
+          lastError: 'Runtime status missing from the batch response',
+          updatedAt: new Date().toISOString(),
+          runtimeConfirmed: false,
+          exposureUnconfirmed: false,
+        };
       }
-      if (!query.isError) {
+      if (!runtimeQuery.isError) {
         return (
           strategyStatuses.get(strategyId) ?? {
             strategyId,
             status: 'stopped' as const,
             updatedAt: new Date().toISOString(),
+            runtimeConfirmed: true,
+            exposureUnconfirmed: false,
           }
         );
       }
       return {
         strategyId,
         status: 'error' as const,
-        lastError: getErrorMessage(query.error, 'Failed to load runtime status'),
+        lastError: getErrorMessage(runtimeQuery.error, 'Failed to load runtime status'),
         updatedAt: new Date().toISOString(),
+        runtimeConfirmed: false,
+        exposureUnconfirmed: false,
       };
     });
 
     void Promise.resolve().then(() => applyStrategyStatuses(nextStatuses));
     // Signature deps are deliberate: applyStrategyStatuses always installs a
-    // new Map, so depending on the raw strategyStatuses/runtimeQueries would
+    // new Map, so depending on the raw strategyStatuses/runtimeQuery would
     // re-run this effect in a loop. The signatures change only when the
-    // query payloads or the tracked id set actually change.
+    // query payload or the tracked id set actually change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runtimeQuerySignature, strategyIdSignature]);
   // ─────────────────────────────────────────────────────────────────────────────
@@ -1485,54 +1329,10 @@ export default function StrategyManager() {
     [strategyStatuses]
   );
 
-  const runtimeHealthSummary = useMemo(() => {
-    const statuses = Array.from(strategyStatuses.values());
-    const activeStatuses = statuses.filter((status) => isRuntimeActiveStatus(status.status));
-    const targetStatuses = activeStatuses.length > 0 ? activeStatuses : statuses;
-
-    const hasPnlData = targetStatuses.some((status) => status.pnl !== undefined);
-    const hasOpenPositionData = targetStatuses.some((status) => status.openPositions !== undefined);
-    const hasUptimeData = targetStatuses.some((status) => status.uptimeSeconds !== undefined);
-
-    const totalPnl = targetStatuses.reduce((sum, status) => sum + (status.pnl ?? 0), 0);
-    const totalOpenPositions = targetStatuses.reduce(
-      (sum, status) => sum + (status.openPositions ?? 0),
-      0
-    );
-    const longestUptimeSeconds = targetStatuses.reduce(
-      (max, status) => Math.max(max, status.uptimeSeconds ?? 0),
-      0
-    );
-
-    const latestUpdateMs = targetStatuses.reduce<number | null>((latest, status) => {
-      const candidate = status.runtimeUpdatedAt || status.updatedAt;
-      if (!candidate) return latest;
-      const parsedMs = new Date(candidate).getTime();
-      if (Number.isNaN(parsedMs)) return latest;
-      if (latest === null || parsedMs > latest) return parsedMs;
-      return latest;
-    }, null);
-
-    return {
-      scopedCount: targetStatuses.length,
-      totalPnl: hasPnlData ? totalPnl : undefined,
-      totalOpenPositions: hasOpenPositionData ? totalOpenPositions : undefined,
-      longestUptimeSeconds: hasUptimeData ? longestUptimeSeconds : undefined,
-      latestRuntimeUpdate:
-        latestUpdateMs !== null ? new Date(latestUpdateMs).toISOString() : undefined,
-      staleRuntimeCount: activeStatuses.filter((status) => {
-        const candidate = status.runtimeUpdatedAt || status.updatedAt;
-        if (!candidate) {
-          return true;
-        }
-        const parsedMs = new Date(candidate).getTime();
-        if (Number.isNaN(parsedMs)) {
-          return true;
-        }
-        return nowTs - parsedMs > HEARTBEAT_DELAYED_THRESHOLD_MS;
-      }).length,
-    };
-  }, [nowTs, strategyStatuses]);
+  const runtimeHealthSummary = useMemo(
+    () => summarizeRuntimeHealth(Array.from(strategyStatuses.values()), nowTs),
+    [nowTs, strategyStatuses]
+  );
 
   const heartbeatTone = useMemo(
     () => resolveHeartbeatTone(runtimeHealthSummary.latestRuntimeUpdate, webSocketConnected),
@@ -1690,6 +1490,12 @@ export default function StrategyManager() {
               : '—'}
           </p>
           <p className="mt-1 text-xs text-slate-500">Aggregated across active runtime scope</p>
+          {runtimeHealthSummary.unconfirmedExposurePositions > 0 && (
+            <p className="mt-1 text-xs text-amber-300">
+              {runtimeHealthSummary.unconfirmedExposurePositions} recorded on runtime
+              {runtimeHealthSummary.unconfirmedExposureCount === 1 ? '' : 's'} not running
+            </p>
+          )}
         </div>
 
         <div className="premium-panel border border-slate-700/70">
@@ -1777,8 +1583,11 @@ export default function StrategyManager() {
               strategyId: strategy.id,
               status: 'stopped' as const,
               updatedAt: new Date().toISOString(),
+              runtimeConfirmed: true,
+              exposureUnconfirmed: false,
             };
-            const strategyHeartbeatAt = status.runtimeUpdatedAt || status.updatedAt;
+            // Only the runtime's own update time is a heartbeat; the poll time is not.
+            const strategyHeartbeatAt = status.runtimeUpdatedAt;
             const strategyHeartbeat = resolveHeartbeatTone(strategyHeartbeatAt, webSocketConnected);
             const showStaleHeartbeatBadge =
               isRuntimeActiveStatus(status.status) && strategyHeartbeat.tone === 'stale';
@@ -1862,6 +1671,26 @@ export default function StrategyManager() {
                 <div
                   className={`mb-4 flex flex-wrap items-center gap-2 ${compactCards ? '' : 'mt-1'}`}
                 >
+                  {status.runtimeConfirmed === false && (
+                    <span
+                      className="rounded-full border border-slate-500/40 bg-slate-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-200"
+                      title={
+                        status.lastConfirmedAt
+                          ? `Bot unreachable; last confirmed ${formatRelativeTime(status.lastConfirmedAt)}`
+                          : 'The bot has not confirmed this runtime'
+                      }
+                    >
+                      Unconfirmed
+                    </span>
+                  )}
+                  {status.exposureUnconfirmed === true && (
+                    <span
+                      className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-200"
+                      title="Open positions are recorded for this runtime although it is not running. Check the exchange before restarting."
+                    >
+                      Recorded exposure
+                    </span>
+                  )}
                   {showStaleHeartbeatBadge && (
                     <span className="rounded-full border border-rose-500/40 bg-rose-500/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-rose-200">
                       Stale heartbeat
@@ -2092,6 +1921,11 @@ export default function StrategyManager() {
                       <p className="mt-1 font-mono text-sm text-slate-100">
                         {status.openPositions ?? '—'}
                       </p>
+                      {status.exposureUnconfirmed === true && (
+                        <p className="mt-1 text-[11px] text-amber-300">
+                          Recorded while the runtime is not running. Check the exchange.
+                        </p>
+                      )}
                     </div>
                     <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 p-3.5">
                       <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
@@ -2106,7 +1940,7 @@ export default function StrategyManager() {
                         Last Runtime Update
                       </p>
                       <p className="mt-1 font-mono text-sm text-slate-100">
-                        {formatRuntimeTime(status.runtimeUpdatedAt || status.updatedAt)}
+                        {formatRuntimeTime(status.runtimeUpdatedAt)}
                       </p>
                     </div>
                     <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 p-3.5">

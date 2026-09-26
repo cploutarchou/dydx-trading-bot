@@ -88,3 +88,65 @@ func TestArbitrageRuntimeSettingsRejectUnsupportedKeys(t *testing.T) {
 		t.Fatal("expected unsupported setting error")
 	}
 }
+
+func TestArbitrageRuntimeSettingsCostGateDefaultsAndBotPayload(t *testing.T) {
+	service := newArbitrageSettingsTestService(t)
+
+	defaults, err := loadArbitrageRuntimeSettings(service)
+	if err != nil {
+		t.Fatalf("load defaults: %v", err)
+	}
+	// Defaults mirror the bot's startup defaults so a save never changes the
+	// bot's behaviour for keys the operator did not touch.
+	expectedDefaults := map[string]interface{}{
+		"cost_gate_enabled":           false,
+		"cost_gate_edge_multiple":     2.5,
+		"cost_gate_taker_fee":         0.0005,
+		"cost_gate_slippage_bps":      5.0,
+		"funding_same_side_threshold": 0.00001,
+	}
+	for key, want := range expectedDefaults {
+		if defaults[key] != want {
+			t.Fatalf("default %s = %v, want %v", key, defaults[key], want)
+		}
+	}
+
+	err = saveArbitrageRuntimeSettings(service, map[string]interface{}{
+		"cost_gate_enabled":           true,
+		"cost_gate_edge_multiple":     3,
+		"cost_gate_slippage_bps":      "7.5",
+		"funding_same_side_threshold": 0.00002,
+	})
+	if err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+
+	loaded, err := loadArbitrageRuntimeSettings(service)
+	if err != nil {
+		t.Fatalf("reload settings: %v", err)
+	}
+	botPayload := arbitrageSettingsForBot(loaded)
+	expectedPayload := map[string]interface{}{
+		"COST_GATE_ENABLED":           true,
+		"COST_GATE_EDGE_MULTIPLE":     3.0,
+		"COST_GATE_TAKER_FEE":         0.0005,
+		"COST_GATE_SLIPPAGE_BPS":      7.5,
+		"FUNDING_SAME_SIDE_THRESHOLD": 0.00002,
+	}
+	for key, want := range expectedPayload {
+		if botPayload[key] != want {
+			t.Fatalf("bot payload %s = %v, want %v", key, botPayload[key], want)
+		}
+	}
+}
+
+func TestArbitrageRuntimeSettingsCostGateRejectsNegativeValues(t *testing.T) {
+	service := newArbitrageSettingsTestService(t)
+
+	err := saveArbitrageRuntimeSettings(service, map[string]interface{}{
+		"cost_gate_slippage_bps": -1,
+	})
+	if err == nil {
+		t.Fatal("expected a negative slippage to be rejected")
+	}
+}

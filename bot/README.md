@@ -152,6 +152,11 @@ Useful environment variables:
 - `BACKTEST_CELERY_RETRY_MAX_SECONDS=600`
 - `BACKTEST_CELERY_TASK_SOFT_TIME_LIMIT` and `BACKTEST_CELERY_TASK_TIME_LIMIT`
 - `BACKTEST_TASK_LOCK_TTL_SECONDS` or `BACKTEST_LOCK_REDIS_URL` for duplicate-run locking
+- `BACKTEST_MARKET_DATA_NETWORK=mainnet` (default) sets whose public candle history backtests replay, whatever
+  network runtimes trade on. `testnet` is only for debugging: testnet books are thin and their candles carry prints
+  far from the market. Single-bar prints more than 3x off both neighbouring medians are dropped and counted in the
+  run's history telemetry. A strategy's `max_drawdown_pct` halts new backtest entries once realized equity falls
+  that far below its peak, as the live runtime does.
 - `MARKET_SYNC_ENABLED=true` only when running Celery Beat for scheduled market candle sync
 - `MARKET_DATA_CACHE_ENABLED=true` (default) enables the shared Redis/Valkey L2 cache for markets and recent
   candles (read-through write; no-ops when Redis is absent). Override the URL with `MARKET_DATA_CACHE_REDIS_URL`
@@ -364,6 +369,62 @@ recorded peak already puts it at or past the limit. This is separate from the de
 `BOT_PORTFOLIO_MAX_DRAWDOWN_PCT` guard, which keeps its peak in Redis, skips itself when Redis is down, and denies
 entries cycle by cycle without latching. The backtest reports drawdown as a result metric but does not stop entries at
 the limit: its equity base (the strategy's starting balance plus realized P&L) is not the subaccount's equity.
+
+### Cost and funding entry gate
+
+Off by default (`COST_GATE_ENABLED=false`). When on, `open_positions` prices each z-score opportunity after the
+open-leg check and before the position cap and the portfolio guard, with the pure gate in
+`src/trading/entry_cost_gate.py` that the backtest calls too. Every term is a fraction of the gross pair notional
+`|p1| + |beta * p2|`, the normalisation the backtest P&L uses:
+
+- Edge: `(|z_entry| - z_exit) * sigma / notional`, with sigma over the z-score window. The z-score exit closes at the
+  mirror level (z has crossed zero and reached `-|z_entry|`), so the modelled travel is `2 * |z_entry|` standard
+  deviations. Stop loss, take profit, trailing stop and timeout sit above that rung and can close earlier, so the
+  edge is an upper-bound model estimate, not a forecast.
+- Cost: `2 * COST_GATE_TAKER_FEE + 2 * COST_GATE_SLIPPAGE_BPS / 10000 + funding` (the round-trip convention of the
+  backtest's per-trade cost). Funding is `max(0, w_long * r_long - w_short * r_short) * hold_hours` with beta weights,
+  each market's hourly `nextFundingRate` from the cycle's cached markets payload (no extra exchange call), and
+  `hold_hours = min(half_life * candle hours, positionTimeoutHours)`. Funding received never lowers the cost.
+
+Rejections, in this order, one reason each: `cost_inputs_invalid` (a missing or unparseable funding rate, a
+non-finite z-score, a zero sigma, or `close_at_zscore_cross` off, since there is then no z exit level to price),
+`funding_same_side` (both legs pay: the long leg's rate is above `FUNDING_SAME_SIDE_THRESHOLD` and the short leg's is
+below its negative; same-sign rates are a hedged pair and never reject), and `edge_lt_cost` (edge below
+`COST_GATE_EDGE_MULTIPLE` times the cost; an edge exactly at the boundary passes). A rejected pair is skipped and the
+scan goes on. Each rejection bumps `opportunities_rejected_total` and its reason bucket and logs
+`opportunity_rejected ... reason=<reason>` with the edge, fee, slippage, funding, hold hours and multiple; an accepted
+entry logs `cost_gate_passed` with the same fields.
+
+| Setting | Default | Clamp |
+|---|---|---|
+| `COST_GATE_ENABLED` | `false` | |
+| `COST_GATE_EDGE_MULTIPLE` | `2.5` | 1 to 20 |
+| `COST_GATE_TAKER_FEE` | `0.0005` (the backtest's default `transaction_fee`, one shared constant) | 0 to 0.01 |
+| `COST_GATE_SLIPPAGE_BPS` | `5` per fill | 0 to 1000 |
+| `FUNDING_SAME_SIDE_THRESHOLD` | `0.00001` per hour | 0 to 0.01 |
+
+The clamps are sanity rails. A runtime override that is not a finite number takes the startup value; a startup value
+of `nan` or `inf` takes the built-in default, and one that is not a number at all stops the process at import, like
+the other numeric settings.
+
+How the settings reach a bot: they are arbitrage runtime settings, but the runtime-settings route (and the backend
+settings page that calls it) changes the bot API process only. The override lives in memory and is lost when bot-api
+restarts, and trading workers copy the bot-api environment when they start, so they never see it. This holds for
+every arbitrage runtime flag. Running the gate on live bots therefore means setting the variables above on the
+bot-api deployment and restarting it. For the same reason the dashboard's rejection panel, which reads the API
+process's counters, does not show a worker's gate rejections: the per-instance worker log is the record.
+
+Known model limits: live sizes each leg at `usd_per_trade` and ignores the hedge ratio, while the gate (like the
+backtest) weights the legs by beta, so funding weights and notional are the model's, not the live position's. In the
+backtest, `cost_gate_enabled` (default false) and `cost_gate_edge_multiple` in the trading parameters turn the same
+gate on, with the run's own `transaction_fee` and `slippage`. It has no funding history: the funding term is zero and
+the both-legs-pay check is skipped (a documented divergence). Its counts go to the run's `cost_gate_diagnostics` (per
+bar evaluated; marked incomplete after a resume), never to the live counters.
+
+Every backtest trade records `fee_cost` and `slippage_cost`; their sum is the cost already deducted from `pnl_usd`.
+A completed run records `fees_total` and `slippage_total` from that ledger (null when a trade lacks the split),
+`funding_total: null` and `funding_modelled: false`. `sharpe_ratio` is computed from the daily net P&L, so it is
+already after fees and slippage.
 
 ### Entry halt latch
 

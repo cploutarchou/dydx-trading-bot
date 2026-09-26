@@ -223,6 +223,30 @@ async def connect_dydx_runtime(address: str, mnemonic: str, is_testnet: bool) ->
     return client
 
 
+def backtest_market_data_network() -> str:
+    """Network whose public price history backtests replay.
+
+    Independent of the network a runtime trades on: testnet order books are
+    thin and their candles carry prints far from the real market (SOL-USD
+    hourly closes ranged 112 to 11,094 within 100 hours in September 2026),
+    which turns a $10 trade into thousands of dollars of fake P&L. Mainnet
+    unless BACKTEST_MARKET_DATA_NETWORK=testnet.
+    """
+    raw = os.getenv("BACKTEST_MARKET_DATA_NETWORK", "mainnet").strip().lower()
+    return "testnet" if raw == "testnet" else "mainnet"
+
+
+async def connect_backtest_market_data() -> Client:
+    """Read-only indexer client for backtest history: no node, no wallet."""
+    network = backtest_market_data_network()
+    endpoint = (
+        INDEXER_ENDPOINT_TESTNET if network == "testnet" else INDEXER_ENDPOINT_MAINNET
+    )
+    indexer = IndexerClient(host=endpoint, api_timeout=5)
+    logger.info("Backtest market data from {} indexer {}", network, endpoint)
+    return Client(indexer, indexer, None, None)
+
+
 async def check_jurisdiction(client: Any, market: str) -> None:
     """
     Check if market trading is allowed from current location.

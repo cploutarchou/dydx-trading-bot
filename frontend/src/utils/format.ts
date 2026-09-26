@@ -62,3 +62,16 @@ export const formatSignedUsdCompact = (value: number): string => {
   }).format(Math.abs(value));
   return `${value > 0 ? '▲ +' : '▼ -'}$${compact}`;
 };
+
+/**
+ * The bot always reports drawdown in percent (0-100, never a 0-1 fraction), so
+ * no x100 guessing here: 0.5 means half a percent. Above 100% the simulated
+ * equity went below zero, which is flagged rather than clamped.
+ */
+export const formatDrawdownPct = (value: number | undefined | null): string => {
+  if (value === undefined || value === null) return 'N/A';
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 'N/A';
+  const text = `${Math.abs(numeric).toFixed(1)}%`;
+  return Math.abs(numeric) > 100 ? `${text} (equity below zero)` : text;
+};

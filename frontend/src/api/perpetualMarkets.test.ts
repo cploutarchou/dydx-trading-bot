@@ -109,4 +109,59 @@ describe('api.getPerpetualMarkets', () => {
     expect(response.data?.cache_stale).toBe(true);
     expect(response.data?.static_fallback).toBe(false);
   });
+
+  it('passes the market universe fields through untouched', async () => {
+    const detail = {
+      ticker: 'BTC-USD',
+      status: 'ACTIVE',
+      volume_24h: 2377823.0794,
+      open_interest: 191.639,
+      open_interest_usd: 16125208.1,
+      next_funding_rate: -0.00000027,
+      oracle_price: 84143.7,
+      trades_24h: 1346,
+    };
+    mockGet.mockResolvedValue({
+      data: {
+        success: true,
+        message: 'ok',
+        data: {
+          markets: ['BTC-USD'],
+          market_details: [detail],
+          count: 1,
+          source: 'dydx',
+          include_settled: false,
+          active_total: 78,
+          inactive_total: 218,
+        },
+        timestamp: '2026-09-26T00:00:00.000Z',
+      },
+      headers: {},
+    });
+
+    const response = await api.getPerpetualMarkets();
+
+    expect(response.data?.market_details).toEqual([detail]);
+    expect(response.data?.include_settled).toBe(false);
+    expect(response.data?.active_total).toBe(78);
+    expect(response.data?.inactive_total).toBe(218);
+  });
+
+  it('forwards the limit and the include_settled flag as query parameters', async () => {
+    mockGet.mockResolvedValue({
+      data: { success: true, message: 'ok', data: { markets: [], count: 0, source: 'dydx' } },
+      headers: {},
+    });
+
+    await api.getPerpetualMarkets(25);
+    expect(mockGet).toHaveBeenLastCalledWith('/api/v1/markets/perpetuals?limit=25');
+
+    await api.getPerpetualMarkets(0, { includeSettled: true });
+    expect(mockGet).toHaveBeenLastCalledWith('/api/v1/markets/perpetuals?include_settled=true');
+
+    await api.getPerpetualMarkets(3, { includeSettled: true });
+    expect(mockGet).toHaveBeenLastCalledWith(
+      '/api/v1/markets/perpetuals?limit=3&include_settled=true'
+    );
+  });
 });

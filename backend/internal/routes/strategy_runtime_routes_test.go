@@ -817,7 +817,7 @@ func TestStrategyRuntimeStatusClearsStaleErrorWhenRemoteIsRunning(t *testing.T) 
 	}
 }
 
-func TestStrategyRuntimeStatusPromotesLiveExposureFromStaleRemoteError(t *testing.T) {
+func TestStrategyRuntimeStatusKeepsBotErrorAndFlagsRecordedExposure(t *testing.T) {
 	upstreamMux := http.NewServeMux()
 	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -865,7 +865,7 @@ func TestStrategyRuntimeStatusPromotesLiveExposureFromStaleRemoteError(t *testin
 	if resp.StatusCode != http.StatusOK {
 		var payload map[string]interface{}
 		_ = json.NewDecoder(resp.Body).Decode(&payload)
-		t.Fatalf("expected 200 for live exposure runtime, got %d payload=%v", resp.StatusCode, payload)
+		t.Fatalf("expected 200 for an errored runtime with recorded positions, got %d payload=%v", resp.StatusCode, payload)
 	}
 
 	var payload map[string]interface{}
@@ -873,18 +873,149 @@ func TestStrategyRuntimeStatusPromotesLiveExposureFromStaleRemoteError(t *testin
 		t.Fatalf("decode runtime payload: %v", err)
 	}
 
+	// The bot says the process is gone. Recorded positions are reported as
+	// unconfirmed exposure; they never turn the runtime back into "running".
 	data, _ := payload["data"].(map[string]interface{})
-	if data["status"] != "running" {
-		t.Fatalf("expected live exposure to promote runtime status=running, got %v", data["status"])
+	if data["status"] != "error" {
+		t.Fatalf("expected the bot's error status to be kept, got %v", data["status"])
 	}
-	if data["bot_status"] != "running" {
-		t.Fatalf("expected live exposure to promote bot_status=running, got %v", data["bot_status"])
+	if data["bot_status"] != "error" {
+		t.Fatalf("expected bot_status=error, got %v", data["bot_status"])
+	}
+	if data["is_running"] != false {
+		t.Fatalf("expected is_running=false, got %v", data["is_running"])
 	}
 	if data["open_positions"] != float64(3) {
-		t.Fatalf("expected current positions to win open_positions=3, got %v", data["open_positions"])
+		t.Fatalf("expected current positions to be reported as open_positions=3, got %v", data["open_positions"])
 	}
-	if value, exists := data["last_error"]; exists && value != "" && value != nil {
-		t.Fatalf("expected stale runtime error to be cleared for live exposure, got %v", value)
+	if data["exposure_unconfirmed"] != true {
+		t.Fatalf("expected exposure_unconfirmed=true, got %v", data["exposure_unconfirmed"])
+	}
+	if data["runtime_confirmed"] != true {
+		t.Fatalf("expected runtime_confirmed=true when the bot answered, got %v", data["runtime_confirmed"])
+	}
+	if data["last_error"] != "upstream bot API request timed out" {
+		t.Fatalf("expected the bot's last_error to be kept, got %v", data["last_error"])
+	}
+}
+
+func seedRuntimeStrategyForUser(t *testing.T, dbConn *sql.DB, strategyID int, userID int) {
+	t.Helper()
+	if _, err := dbConn.Exec(
+		`INSERT INTO backtest_strategies (
+			id, user_id, name, description, category, is_public, is_default,
+			runtime_strategy, runtime_network, runtime_subaccount, pair_selection_mode,
+			selected_markets,
+			zscore_threshold, stats_window, max_half_life, usd_per_trade,
+			usd_min_collateral, close_at_zscore_cross, find_cointegrated_pairs,
+			manage_exits, place_trades, abort_all_positions, max_positions,
+			max_drawdown_pct, stop_loss_pct, take_profit_pct, trailing_stop_pct,
+			rebalance_interval_hours, position_timeout_hours, transaction_fee, slippage,
+			starting_balance, candle_resolution, max_history_days, benchmark_symbol,
+			risk_free_rate, initial_amount, usage_count, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		strategyID, userID, fmt.Sprintf("Strategy %d", strategyID), "Seeded", "pairs_trading", false, false,
+		"cointegration", "testnet", 0, "manual", `["BTC-USD","ETH-USD"]`,
+		1.5, 21, 24.0, 10.0, 100.0, true, true, true, true, false, 5,
+		15.0, 2.0, 5.0, 1.0, 24, 72, 0.0005, 0.001, 1000.0, "1HOUR", 90, "BTC-USD",
+		0.02, 1000.0, 0, time.Now().UTC(), time.Now().UTC(),
+	); err != nil {
+		t.Fatalf("seed strategy %d: %v", strategyID, err)
+	}
+}
+
+func TestStrategyRuntimeBatchRoute(t *testing.T) {
+	upstreamMux := http.NewServeMux()
+	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"instance_id":"strategy-1-101","status":"running","process_id":4242,"config":{"trading_params":{"is_testnet":true}}}}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101/realtime-stats", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"bot_instance_id":"strategy-1-101","stats":{"total_open_positions":2,"total_unrealized_pnl":1.5,"daily_trades_opened":1,"daily_trades_closed":0,"daily_win_rate":0}}}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-101/positions/current", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"bot_instance_id":"strategy-1-101","positions":[{"position_id":"pos-1"},{"position_id":"pos-2"}],"count":2}}`))
+	})
+	upstreamMux.HandleFunc("/api/v1/bots/strategy-1-103", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"success":false,"error":"not found"}`))
+	})
+
+	router, dbConn, upstreamServer := setupStrategyRuntimeRouter(t, upstreamMux)
+	defer func() { _ = dbConn.Close() }()
+	defer upstreamServer.Close()
+
+	// A second strategy owned by the same user, and one owned by someone else.
+	// Execution-state rows are seeded because this sqlite harness cannot run
+	// the create path (the same limitation the single-route tests work around).
+	seedRuntimeStrategyForUser(t, dbConn, 103, 1)
+	for _, strategyID := range []int{101, 103} {
+		if _, err := dbConn.Exec(
+			`INSERT INTO strategy_execution_states (strategy_id, is_running, last_run_at, next_run_at, state, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			strategyID, false, nil, nil,
+			fmt.Sprintf(`{"instance_id":"strategy-1-%d","status":"running","bot_status":"running"}`, strategyID),
+			time.Now().UTC(), time.Now().UTC(),
+		); err != nil {
+			t.Fatalf("seed execution state %d: %v", strategyID, err)
+		}
+	}
+	if _, err := dbConn.Exec(
+		`INSERT INTO users (username, email, full_name, avatar, hashed_password, is_active, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"other-user", "other-user@example.local", "Other", "", "x", true, false, time.Now().UTC(), time.Now().UTC(),
+	); err != nil {
+		t.Fatalf("insert other user: %v", err)
+	}
+	seedRuntimeStrategyForUser(t, dbConn, 202, 2)
+
+	backendServer := httptest.NewServer(router)
+	defer backendServer.Close()
+	token := loginStrategyRuntimeUser(t, backendServer.URL)
+
+	get := func(query string) (int, map[string]interface{}) {
+		req, _ := http.NewRequest(http.MethodGet, backendServer.URL+"/api/v1/strategies/runtime"+query, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("request batch runtime: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		var payload map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&payload)
+		return resp.StatusCode, payload
+	}
+
+	status, payload := get("?ids=101,103,101")
+	if status != http.StatusOK {
+		t.Fatalf("expected 200 for owned strategies, got %d payload=%v", status, payload)
+	}
+	data, _ := payload["data"].(map[string]interface{})
+	runtimes, _ := data["runtimes"].([]interface{})
+	if len(runtimes) != 2 || data["count"] != float64(2) {
+		t.Fatalf("expected two deduplicated runtimes, got count=%v runtimes=%v", data["count"], runtimes)
+	}
+	first, _ := runtimes[0].(map[string]interface{})
+	if first["strategy_id"] != float64(101) || first["status"] != "running" || first["is_running"] != true || first["exposure_unconfirmed"] != false {
+		t.Fatalf("unexpected runtime for 101: %v", first)
+	}
+	second, _ := runtimes[1].(map[string]interface{})
+	if second["strategy_id"] != float64(103) || second["is_running"] != false {
+		t.Fatalf("unexpected runtime for 103 (bot 404): %v", second)
+	}
+
+	if status, _ := get("?ids=101,202"); status != http.StatusForbidden {
+		t.Fatalf("expected 403 when one id belongs to another user, got %d", status)
+	}
+	if status, _ := get("?ids="); status != http.StatusBadRequest {
+		t.Fatalf("expected 400 for an empty id list, got %d", status)
+	}
+	if status, _ := get("?ids=101,abc"); status != http.StatusBadRequest {
+		t.Fatalf("expected 400 for a malformed id, got %d", status)
+	}
+	if status, _ := get("?ids=999"); status != http.StatusNotFound {
+		t.Fatalf("expected 404 for an unknown strategy, got %d", status)
 	}
 }
 

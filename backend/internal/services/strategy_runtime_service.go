@@ -32,6 +32,12 @@ type StrategyRuntimeState struct {
 	StoppedAt        *time.Time `json:"stopped_at,omitempty"`
 	RuntimeUpdatedAt *time.Time `json:"runtime_updated_at,omitempty"`
 	LastSyncedAt     *time.Time `json:"last_synced_at,omitempty"`
+	// LastConfirmedAt is the last time the bot API answered for this instance,
+	// so a reader can tell "the bot said so at T" from "the backend last polled".
+	LastConfirmedAt *time.Time `json:"last_confirmed_at,omitempty"`
+	// RuntimeConfirmed is true when the bot answered for this instance during
+	// the current request. It is derived per call and never stored.
+	RuntimeConfirmed bool `json:"-"`
 }
 
 type StrategyRuntimeService struct {
@@ -846,20 +852,29 @@ func (s *StrategyRuntimeService) reconcileRuntimeState(
 		return runtimeState, isRunning, nil
 	}
 
-	localInstance, localErr := s.botRepo.GetBotInstanceByInstanceID(runtimeState.InstanceID)
-	if localErr == nil && localInstance != nil {
+	// The bot answered but does not know this instance. A stored active status
+	// cannot be true any more, whatever the bot_instances row says.
+	now := time.Now().UTC()
+	runtimeState.LastConfirmedAt = &now
+	runtimeState.RuntimeConfirmed = true
+	localActive := false
+	if localInstance, localErr := s.botRepo.GetBotInstanceByInstanceID(runtimeState.InstanceID); localErr == nil && localInstance != nil {
 		localStatus := strings.ToLower(strings.TrimSpace(localInstance.Status))
 		// P1.7: Include recovery states in missing detection
-		if localStatus == "running" || localStatus == "starting" || localStatus == "recovering" {
-			runtimeState.Status = "error"
-			runtimeState.BotStatus = "missing"
-			runtimeState.LastError = "runtime instance missing from bot API; may be recovering"
-			if persistErr := s.persistRuntimeState(executionState, runtimeState, false); persistErr != nil {
-				return runtimeState, false, persistErr
-			}
-			_ = s.botRepo.UpdateBotInstanceError(runtimeState.InstanceID, runtimeState.LastError)
-			return runtimeState, false, nil
+		localActive = localStatus == "running" || localStatus == "starting" || localStatus == "recovering"
+	}
+	if isActiveRuntimeStatus(runtimeState.Status) || localActive {
+		runtimeState.Status = "error"
+		runtimeState.BotStatus = "missing"
+		runtimeState.LastError = "runtime instance missing from bot API; may be recovering"
+		runtimeState.ProcessID = nil
+		if persistErr := s.persistRuntimeState(executionState, runtimeState, false); persistErr != nil {
+			return runtimeState, false, persistErr
 		}
+		if localActive {
+			_ = s.botRepo.UpdateBotInstanceError(runtimeState.InstanceID, runtimeState.LastError)
+		}
+		return runtimeState, false, nil
 	}
 
 	if runtimeState.Status == "" {
@@ -924,6 +939,16 @@ func (s *StrategyRuntimeService) persistRuntimeState(
 		runtimeState.StoppedAt = &now
 	}
 
+	// Every page poll used to rewrite the row. Skip the write when nothing the
+	// row records has changed; only the confirmation time is refreshed, and
+	// only every runtimeConfirmationRefreshInterval.
+	if executionState.State.Valid {
+		stored := decodeStrategyRuntimeState(executionState.State)
+		if !shouldPersistRuntimeState(stored, executionState.IsRunning, runtimeState, isRunning, now) {
+			return nil
+		}
+	}
+
 	rawState, err := json.Marshal(runtimeState)
 	if err != nil {
 		return fmt.Errorf("failed to marshal strategy runtime state: %w", err)
@@ -940,6 +965,61 @@ func (s *StrategyRuntimeService) persistRuntimeState(
 	}
 
 	return s.strategyService.UpdateExecutionState(executionState)
+}
+
+// runtimeConfirmationRefreshInterval bounds how often an otherwise unchanged
+// runtime state is rewritten just to advance last_confirmed_at. A dead runtime
+// polled by two pages every 15 s now writes at most once per interval.
+const runtimeConfirmationRefreshInterval = 5 * time.Minute
+
+// runtimeStateMaterialProjection strips the fields that move on every poll
+// (sync and confirmation times, the derived uptime, the bot's stats clock),
+// so two polls that saw the same runtime compare equal.
+func runtimeStateMaterialProjection(state StrategyRuntimeState) string {
+	state.LastSyncedAt = nil
+	state.LastConfirmedAt = nil
+	state.UptimeSeconds = nil
+	state.RuntimeUpdatedAt = nil
+	state.RuntimeConfirmed = false
+	raw, err := json.Marshal(state)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+// shouldPersistRuntimeState reports whether the reconciled state differs
+// materially from the stored one, or whether the stored confirmation time is
+// old enough to refresh.
+func shouldPersistRuntimeState(
+	stored StrategyRuntimeState,
+	storedIsRunning bool,
+	next StrategyRuntimeState,
+	isRunning bool,
+	now time.Time,
+) bool {
+	if storedIsRunning != isRunning {
+		return true
+	}
+	if runtimeStateMaterialProjection(stored) != runtimeStateMaterialProjection(next) {
+		return true
+	}
+	if next.LastConfirmedAt == nil {
+		return false
+	}
+	if stored.LastConfirmedAt == nil {
+		return true
+	}
+	return now.Sub(*stored.LastConfirmedAt) >= runtimeConfirmationRefreshInterval
+}
+
+// isActiveRuntimeStatus mirrors isBotStatusRunning for a stored status string.
+func isActiveRuntimeStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "running", "starting", "degraded", "recovering", "safeguarded":
+		return true
+	}
+	return false
 }
 
 func shouldGracefullyDegradeRuntimeSyncError(err error) bool {
@@ -1006,13 +1086,14 @@ func mergeRemoteRuntimeState(runtimeState StrategyRuntimeState, remote map[strin
 	stats := nestedMap(remote, "stats")
 	performance := nestedMap(remote, "performance")
 	runtime := nestedMap(remote, "runtime")
-	if shouldTreatRemoteRuntimeAsLive(status, remote, stats, performance, runtime) {
-		status = "running"
-		remote["status"] = status
-	}
 
+	// The bot's status is the truth about the process. Recorded open positions
+	// on an errored runtime are a projection the dead process never closed;
+	// they are reported as exposure_unconfirmed, never as "running".
 	runtimeState.Status = status
 	runtimeState.BotStatus = status
+	runtimeState.LastConfirmedAt = &now
+	runtimeState.RuntimeConfirmed = true
 	runtimeState.ProcessID = extractIntPointer(remote["process_id"])
 	runtimeState.TradesExecuted = extractIntPointerPrioritized(
 		[]string{"trades_executed", "total_trades", "trades_count", "daily_trades_closed", "daily_trades_opened"},
@@ -1088,6 +1169,10 @@ func buildStrategyRuntimeResponse(
 	runtimeState StrategyRuntimeState,
 	isRunning bool,
 ) map[string]interface{} {
+	openPositions := 0
+	if runtimeState.OpenPositions != nil {
+		openPositions = *runtimeState.OpenPositions
+	}
 	uptimeSeconds := runtimeState.UptimeSeconds
 	if uptimeSeconds == nil && isRunning && runtimeState.StartedAt != nil {
 		elapsed := int(time.Since(*runtimeState.StartedAt).Seconds())
@@ -1121,7 +1206,44 @@ func buildStrategyRuntimeResponse(
 		"next_run_at":            executionState.NextRunAt,
 		"updated_at":             executionState.UpdatedAt,
 		"last_synced_at":         runtimeState.LastSyncedAt,
+		"runtime_confirmed":      runtimeState.RuntimeConfirmed,
+		"last_confirmed_at":      runtimeState.LastConfirmedAt,
+		// Positions the bot still records for a runtime that is not running:
+		// a projection the dead process never closed, not a live count. The
+		// operator has to check the exchange before trusting or restarting.
+		"exposure_unconfirmed": !isRunning && openPositions > 0,
 	}
+}
+
+// GetRuntimeStatuses reconciles several strategies in one call so a page can
+// refresh every runtime with one request. Each strategy still costs the same
+// bot calls as GetRuntimeStatus; the saving is one HTTP round trip and one
+// code path for every consumer. A strategy whose reconcile fails is reported
+// as unavailable instead of failing the batch.
+func (s *StrategyRuntimeService) GetRuntimeStatuses(strategies []*models.BacktestStrategy) []map[string]interface{} {
+	results := make([]map[string]interface{}, 0, len(strategies))
+	for _, strategy := range strategies {
+		if strategy == nil {
+			continue
+		}
+		status, err := s.GetRuntimeStatus(strategy)
+		if err != nil {
+			log.Printf("⚠️ strategy runtime batch: strategy_id=%d unavailable: %v", strategy.ID, err)
+			status = map[string]interface{}{
+				"strategy_id":          strategy.ID,
+				"strategy_name":        strategy.Name,
+				"instance_id":          strategyRuntimeInstanceID(strategy),
+				"status":               "error",
+				"bot_status":           "unavailable",
+				"is_running":           false,
+				"runtime_confirmed":    false,
+				"exposure_unconfirmed": false,
+				"last_error":           "runtime status unavailable",
+			}
+		}
+		results = append(results, status)
+	}
+	return results
 }
 
 // resolveCapitalAllocation reports the backtest's starting capital for display.
@@ -1205,17 +1327,6 @@ func nestedMap(payload map[string]interface{}, key string) map[string]interface{
 		return nested
 	}
 	return nil
-}
-
-func shouldTreatRemoteRuntimeAsLive(status string, payloads ...map[string]interface{}) bool {
-	switch status {
-	case "error", "failed", "unknown", "missing", "unavailable":
-	default:
-		return false
-	}
-
-	openPositions := resolveOpenPositions(payloads...)
-	return openPositions != nil && *openPositions > 0
 }
 
 func isNotFoundBotAPIError(err error) bool {

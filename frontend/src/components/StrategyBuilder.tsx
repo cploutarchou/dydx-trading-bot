@@ -12,6 +12,7 @@ import api, {
 } from '../api';
 import { getAIProviderLabel, useAIProviderAvailability } from '../features/ai/providerAvailability';
 import type { Strategy } from '../store/strategies';
+import { formatMarketVolume, volumeByTicker } from '../utils/marketUniverse';
 import { AIStrategyAdvisor } from './AIStrategyAdvisor';
 import { PageContainer } from './PageContainer';
 
@@ -146,6 +147,7 @@ export default function StrategyBuilder() {
   const [loadingExisting, setLoadingExisting] = useState(isEditMode);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [availableMarkets, setAvailableMarkets] = useState<string[]>([]);
+  const [marketVolumes, setMarketVolumes] = useState<Map<string, number | null>>(new Map());
   const [marketsLoading, setMarketsLoading] = useState(false);
   const [marketsError, setMarketsError] = useState<string | null>(null);
   const [marketFilterLoading, setMarketFilterLoading] = useState<
@@ -365,10 +367,13 @@ export default function StrategyBuilder() {
       setMarketsLoading(true);
       setMarketsError(null);
       try {
-        const response = await api.getPerpetualMarkets(160);
+        // The route returns the tradable universe: active markets sorted by
+        // 24 h volume. No cap, so nothing traded is left off the list.
+        const response = await api.getPerpetualMarkets();
         const markets = Array.isArray(response.data?.markets) ? response.data.markets : [];
         if (!cancelled) {
           setAvailableMarkets(markets);
+          setMarketVolumes(volumeByTicker(response.data?.market_details));
         }
       } catch (err: unknown) {
         if (!cancelled) {
@@ -824,6 +829,8 @@ export default function StrategyBuilder() {
     setMarketFilterError(null);
 
     if (preset === 'top20') {
+      // availableMarkets arrives sorted by 24 h volume, so the head of the
+      // list is the most traded markets, not the first in the alphabet.
       onChange(normalizeTopMarkets(availableMarkets));
       return;
     }
@@ -1555,6 +1562,7 @@ export default function StrategyBuilder() {
                       {filteredMarkets.map((market) => {
                         const checked = value.includes(market);
                         const disabled = !checked && value.length >= MAX_SELECTED_MARKETS;
+                        const volumeLabel = formatMarketVolume(marketVolumes.get(market));
                         return (
                           <label
                             key={market}
@@ -1572,6 +1580,11 @@ export default function StrategyBuilder() {
                               className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-cyan-500"
                             />
                             <span className="truncate">{market}</span>
+                            {volumeLabel && (
+                              <span className="ml-auto shrink-0 text-[10px] text-slate-500">
+                                {volumeLabel}
+                              </span>
+                            )}
                           </label>
                         );
                       })}

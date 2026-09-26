@@ -943,11 +943,25 @@ def test_reconstruct_restart_request_payload_paths():
     assert "strategy_id" not in reconstructed  # None values stripped
 
     fallback = BacktestService._reconstruct_restart_request_payload(
-        {"current_pair": "btc/eth", "initial_balance": None}
+        {
+            "current_pair": "btc/eth",
+            "initial_balance": None,
+            "start_date": "2026-01-01",
+            "end_date": "2026-02-01",
+        }
     )
     assert fallback["selected_pairs"] == ["BTC/ETH"]
     assert fallback["initial_balance"] == 10000.0
     assert fallback["source"] == "api"
+
+
+def test_reconstruct_restart_request_payload_needs_the_date_window():
+    for run_data in (
+        {"selected_pairs": ["BTC/ETH"], "end_date": "2026-02-01"},
+        {"selected_pairs": ["BTC/ETH"], "start_date": "2026-01-01"},
+        {"selected_pairs": ["BTC/ETH"], "start_date": " ", "end_date": ""},
+    ):
+        assert BacktestService._reconstruct_restart_request_payload(run_data) == {}
 
 
 def test_request_payload_hash_ignores_control_and_task_keys():
@@ -1788,7 +1802,7 @@ async def test_execute_backtest_strategy_and_pair_and_date_validation(monkeypatc
     async def _explode_connect():
         raise AssertionError("connect must not be reached")
 
-    monkeypatch.setattr(sb, "connect_dydx", _explode_connect)
+    monkeypatch.setattr(sb, "connect_backtest_market_data", _explode_connect)
 
     # strategy_id without a snapshot payload
     repo = _FakeRepo([_run("r1")])
@@ -1833,7 +1847,7 @@ async def test_execute_backtest_volatility_mode_precache_and_completion(monkeypa
     async def _fake_connect():
         return _FakeClient()
 
-    monkeypatch.setattr(sb, "connect_dydx", _fake_connect)
+    monkeypatch.setattr(sb, "connect_backtest_market_data", _fake_connect)
     monkeypatch.setattr(
         BacktestService,
         "_prioritize_pairs",
@@ -1864,12 +1878,24 @@ async def test_execute_backtest_volatility_mode_precache_and_completion(monkeypa
     )
     # Pre-cache loop fetched both markets once; per-pair lookups hit the cache.
     assert set(fetched) == {"BTC", "ETH"}
+    # The history phase is recorded, so the run does not look idle meanwhile.
+    history_updates = [
+        update
+        for update in repo.progress_updates
+        if str(update.get("current_task") or "").startswith("loading market history")
+    ]
+    assert history_updates[0]["current_task"] == "loading market history 1/2"
+    assert history_updates[0]["status"] == "running"
     completed = repo.saved[-1]
     assert completed["status"] == "completed"
     assert completed["progress_pct"] == 100.0
     assert completed["current_pair"] == "complete"
     # Empty (too-short) history -> zero trades but valid totals persisted.
     assert completed["total_trades"] == 0
+    metadata = completed["request"]["_task_context"]["metadata"]
+    assert metadata["market_data_network"] == "mainnet"
+    assert metadata["open_exposure"]["peak_open_positions"] == 0
+    assert "total_bad_prints_dropped" in metadata["history_fetch_telemetry"]
 
 
 @pytest.mark.asyncio
@@ -1880,7 +1906,7 @@ async def test_execute_backtest_timeout_propagates(monkeypatch):
         await asyncio.sleep(5.0)
         return _FakeClient()
 
-    monkeypatch.setattr(sb, "connect_dydx", _slow_connect)
+    monkeypatch.setattr(sb, "connect_backtest_market_data", _slow_connect)
     repo = _FakeRepo([_run("r1")])
     service = _make_service(repo)
     with pytest.raises(TimeoutError):

@@ -86,3 +86,28 @@ def test_check_jurisdiction_refreshes_expired_success(monkeypatch):
 
     assert calls["count"] == 1
     assert dydx_client._jurisdiction_success_cache["BTC-USD"] > stale
+
+
+def test_backtest_market_data_uses_mainnet_indexer_by_default(monkeypatch):
+    dydx_client = importlib.import_module("src.trading.dydx_client")
+    monkeypatch.delenv("BACKTEST_MARKET_DATA_NETWORK", raising=False)
+    monkeypatch.setattr(dydx_client, "IndexerClient", _FakeIndexerClient)
+
+    client = asyncio.run(dydx_client.connect_backtest_market_data())
+
+    assert client.indexer.host == dydx_client.INDEXER_ENDPOINT_MAINNET
+    # Read-only: no node connection and no wallet are opened for history.
+    assert client.node is None
+    assert client.wallet is None
+
+
+def test_backtest_market_data_network_override(monkeypatch):
+    dydx_client = importlib.import_module("src.trading.dydx_client")
+    monkeypatch.setattr(dydx_client, "IndexerClient", _FakeIndexerClient)
+
+    monkeypatch.setenv("BACKTEST_MARKET_DATA_NETWORK", " TestNet ")
+    client = asyncio.run(dydx_client.connect_backtest_market_data())
+    assert client.indexer.host == dydx_client.INDEXER_ENDPOINT_TESTNET
+
+    monkeypatch.setenv("BACKTEST_MARKET_DATA_NETWORK", "anything-else")
+    assert dydx_client.backtest_market_data_network() == "mainnet"

@@ -27,8 +27,39 @@ afterEach(() => {
 });
 
 describe('bot API surface (consolidated on the axios client)', () => {
-  it('uses list progress without calling the unstable status endpoint', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+  it('reads status and progress from the status route when it answers', async () => {
+    vi.spyOn(baseApiClient, 'getBacktestStatus').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: {
+        run_id: 'run-1',
+        status: 'running',
+        progress_pct: 37.5,
+        current_pair: 'BTC-USD/SOL-USD',
+        updated_at: '2026-09-26T11:25:00+00:00',
+        request_available: true,
+        restartable: false,
+        request: { initial_balance: 100 },
+      },
+      timestamp: new Date().toISOString(),
+    } as Awaited<ReturnType<typeof baseApiClient.getBacktestStatus>>);
+    const listSpy = vi.spyOn(baseApiClient, 'listBacktests');
+
+    const status = await botApi.getBacktestStatus('run-1');
+
+    expect(status.status).toBe('RUNNING');
+    expect(status.progress_percent).toBe(37.5);
+    expect(status.progress_source).toBe('status');
+    expect(status.current_pair).toBe('BTC-USD/SOL-USD');
+    expect(status.updated_at).toBe('2026-09-26T11:25:00+00:00');
+    expect(status.request_available).toBe(true);
+    expect(status.restartable).toBe(false);
+    expect(status.request).toEqual({ initial_balance: 100 });
+    expect(listSpy).not.toHaveBeenCalled();
+  });
+
+  it('falls back to list progress when the status route fails', async () => {
+    vi.spyOn(baseApiClient, 'getBacktestStatus').mockRejectedValue(new Error('timeout'));
 
     vi.spyOn(baseApiClient, 'listBacktests').mockResolvedValue({
       success: true,
@@ -56,10 +87,34 @@ describe('bot API surface (consolidated on the axios client)', () => {
     expect(status.progress_percent).toBe(42);
     expect(status.progress_source).toBe('list_fallback');
     expect(status.current_pair).toBe('BTC-USD/ETH-USD');
-    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('never reports the Go zero time as an update time', async () => {
+    vi.spyOn(baseApiClient, 'getBacktestStatus').mockRejectedValue(new Error('timeout'));
+    vi.spyOn(baseApiClient, 'listBacktests').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: {
+        total: 1,
+        backtests: [
+          {
+            run_id: 'run-1',
+            status: 'PENDING',
+            created_at: '2026-09-26T11:22:16Z',
+            updated_at: '0001-01-01T00:00:00Z',
+          },
+        ],
+      },
+      timestamp: new Date().toISOString(),
+    } as Awaited<ReturnType<typeof baseApiClient.listBacktests>>);
+
+    const status = await botApi.getBacktestStatus('run-1');
+
+    expect(status.updated_at).toBeUndefined();
   });
 
   it('shares an in-flight list fallback across concurrent status lookups', async () => {
+    vi.spyOn(baseApiClient, 'getBacktestStatus').mockRejectedValue(new Error('timeout'));
     const listSpy = vi.spyOn(baseApiClient, 'listBacktests').mockResolvedValue({
       success: true,
       message: 'ok',
@@ -82,7 +137,6 @@ describe('bot API surface (consolidated on the axios client)', () => {
       },
       timestamp: new Date().toISOString(),
     } as Awaited<ReturnType<typeof baseApiClient.listBacktests>>);
-    const fetchSpy = vi.spyOn(globalThis, 'fetch');
 
     const [firstStatus, secondStatus] = await Promise.all([
       botApi.getBacktestStatus('run-1'),
@@ -94,6 +148,5 @@ describe('bot API surface (consolidated on the axios client)', () => {
     expect(firstStatus.progress_source).toBe('list_fallback');
     expect(secondStatus.progress_source).toBe('list_fallback');
     expect(listSpy).toHaveBeenCalledTimes(1);
-    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

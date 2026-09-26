@@ -25,7 +25,7 @@ import {
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api, { classifyApiError } from '../api';
-import { useBotInstances } from '../api/hooks';
+import { useBotInstances, useStrategyRuntimes } from '../api/hooks';
 import { CumulativePnlChart, type PnlPoint } from '../components/CumulativePnlChart';
 import { PageContainer } from '../components/PageContainer';
 import { EmptyState, InlineNotice } from '../components/ui/PlatformUI';
@@ -471,26 +471,22 @@ export const DashboardPage: React.FC = () => {
     ['STARTING', 'STOPPING'].includes(String(bot.status ?? '').toUpperCase())
   );
 
-  // Fetch how many strategy runtimes are currently live so the Active Now KPI
-  // reflects real trading activity, not just active backtest runs.
-  const strategyRuntimesQuery = useQuery({
-    queryKey: ['strategy-runtimes', 'dashboard-active'],
-    queryFn: async (): Promise<number> => {
-      const strategies = strategiesQuery.data;
-      if (!strategies || strategies.length === 0) return 0;
-      const results = await Promise.allSettled(strategies.map((s) => api.getStrategyRuntime(s.id)));
-      return results.filter(
-        (r) =>
-          r.status === 'fulfilled' &&
-          String((r.value as { data?: { status?: string } }).data?.status ?? '').toLowerCase() ===
-            'running'
-      ).length;
-    },
-    enabled: (strategiesQuery.data?.length ?? 0) > 0,
-    staleTime: 15_000,
-    refetchInterval: 30_000,
-  });
-  const runningStrategyCount = strategyRuntimesQuery.data ?? 0;
+  // Strategy runtimes come from the same batch query the Strategy Manager
+  // uses, so the header count and the manager's cards read one source. A
+  // runtime counts as live only when the backend says is_running, which is
+  // the bot's own word about the process.
+  const strategyIds = useMemo(
+    () => (strategiesQuery.data ?? []).map((strategy) => strategy.id),
+    [strategiesQuery.data]
+  );
+  const strategyRuntimesQuery = useStrategyRuntimes(strategyIds);
+  const runningStrategyCount = useMemo(
+    () =>
+      Array.from(strategyRuntimesQuery.byId.values()).filter(
+        (runtime) => runtime.is_running === true
+      ).length,
+    [strategyRuntimesQuery.byId]
+  );
   const totalActiveCount = stats.running + runningStrategyCount + runningRuntimeBots.length;
   const countRunning = useCountUp(totalActiveCount);
   const botActiveCount = runningRuntimeBots.length + runningStrategyCount;

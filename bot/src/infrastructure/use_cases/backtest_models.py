@@ -89,6 +89,10 @@ class _BacktestTrade(BaseModel):
     pnl_pct: float
     duration_hours: float
     win: bool
+    # Round-trip fee and slippage cost of the trade (sum = the cost deducted
+    # from pnl_usd). None for trades recorded before the split existed.
+    fee_cost: Optional[float] = None
+    slippage_cost: Optional[float] = None
 
 
 class _BacktestRunDetails(BaseModel):
@@ -138,6 +142,15 @@ class _BacktestRunDetails(BaseModel):
     retry_count: Optional[int] = None
     artifact_refs: Dict[str, str] = {}
     analytics_rows_written: int = 0
+    # After-cost totals from the trade ledger (None for runs that predate them
+    # or whose ledger lacks the per-trade split). The backtest has no funding
+    # data: funding_total is always None and funding_modelled False.
+    fees_total: Optional[float] = None
+    slippage_total: Optional[float] = None
+    funding_total: Optional[float] = None
+    funding_modelled: Optional[bool] = None
+    # Cost + funding entry gate counts; None when the run did not enable it.
+    cost_gate_diagnostics: Optional[Dict[str, Any]] = None
 
 
 class _BacktestRunList(BaseModel):

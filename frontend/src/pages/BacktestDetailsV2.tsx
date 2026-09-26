@@ -57,6 +57,8 @@ import {
   normalizeUnenforcedRiskControls,
   riskControlLabel,
 } from '../utils/unenforcedRiskControls';
+import { formatDrawdownPct } from '../utils/format';
+import { meaningfulTimestamp } from '../utils/timestamps';
 
 interface Candle {
   market: string;
@@ -229,19 +231,15 @@ const normalizePercentValue = (value: unknown): number => {
 };
 
 const formatDateValue = (value: string | null | undefined): string => {
-  if (!value) return '-';
-  const parsed = new Date(value);
+  const meaningful = meaningfulTimestamp(value);
+  if (!meaningful) return '-';
+  const parsed = new Date(meaningful);
   return Number.isNaN(parsed.getTime())
     ? '-'
     : parsed.toISOString().replace('T', ' ').replace('Z', ' UTC');
 };
 
 const normalizeStatus = (value: unknown): string => String(value || '').toLowerCase();
-
-const shouldRenderListShellOnly = (status: unknown): boolean =>
-  ['pending', 'queued', 'starting', 'started', 'running', 'in_progress'].includes(
-    normalizeStatus(status)
-  );
 
 const firstFiniteNumber = (...values: unknown[]): number | null => {
   for (const value of values) {
@@ -288,16 +286,19 @@ const buildFallbackBacktestFromStatus = (
   const progress =
     firstFiniteNumber(payload.progress_percent, payload.progress_pct, payload.progress) ?? 0;
   const status = firstMeaningfulString(payload.status, payload.state) ?? 'PENDING';
-  const updatedAt = firstMeaningfulString(
-    payload.updated_at,
-    payload.timestamp,
-    payload.started_at
-  );
+  const updatedAt =
+    meaningfulTimestamp(payload.updated_at) ??
+    meaningfulTimestamp(payload.timestamp) ??
+    meaningfulTimestamp(payload.started_at);
 
   return {
     run_id: runId,
     status,
-    created_at: firstMeaningfulString(payload.created_at, payload.started_at, updatedAt) ?? now,
+    created_at:
+      meaningfulTimestamp(payload.created_at) ??
+      meaningfulTimestamp(payload.started_at) ??
+      updatedAt ??
+      now,
     updated_at: updatedAt ?? now,
     progress_percent: progress,
     progress_pct: progress,
@@ -315,7 +316,9 @@ const buildFallbackBacktestFromStatus = (
     cancellable: Boolean(payload.cancellable),
     pausable: Boolean(payload.pausable),
     resumable: Boolean(payload.resumable),
-    restartable: Boolean(payload.restartable ?? true),
+    restartable: Boolean(payload.restartable ?? false),
+    request_available:
+      typeof payload.request_available === 'boolean' ? payload.request_available : undefined,
     control_status: firstMeaningfulString(payload.control_status) ?? undefined,
     control_action: firstMeaningfulString(payload.control_action) ?? undefined,
     worker_backend: firstMeaningfulString(payload.worker_backend) ?? undefined,
@@ -515,10 +518,8 @@ export const BacktestDetailsV2: React.FC = () => {
         const liveStatusPayload = unwrapDataRecord(liveStatusResponse);
         const fallbackBacktest = buildFallbackBacktestFromStatus(safeRunId, liveStatusPayload);
 
-        if (shouldRenderListShellOnly(fallbackBacktest.status)) {
-          return fallbackBacktest;
-        }
-
+        // Active runs load the real record too: only it says whether the stored
+        // request exists, so the shell alone would show a false "payload missing".
         try {
           const response = await withTimeout(api.getBacktest(safeRunId), 12000, 'Backtest detail');
           const data = response?.data || response;
@@ -1149,13 +1150,15 @@ export const BacktestDetailsV2: React.FC = () => {
     cancellable: Boolean(liveRecord?.cancellable ?? backtest.cancellable),
     pausable: Boolean(liveRecord?.pausable ?? backtest.pausable),
     resumable: Boolean(liveRecord?.resumable ?? backtest.resumable),
-    restartable: Boolean(liveRecord?.restartable ?? backtest.restartable ?? true),
+    restartable: Boolean(liveRecord?.restartable ?? backtest.restartable ?? false),
     request_available:
       typeof liveRecord?.request_available === 'boolean'
         ? liveRecord.request_available
         : typeof backtest.request_available === 'boolean'
           ? backtest.request_available
-          : Boolean(asRecord(liveRecord?.request) || backtest.request),
+          : asRecord(liveRecord?.request) || backtest.request
+            ? true
+            : undefined,
     control_status:
       firstMeaningfulString(liveRecord?.control_status, backtest.control_status) ??
       backtest.control_status,
@@ -1289,6 +1292,15 @@ export const BacktestDetailsV2: React.FC = () => {
   const requestTaskContext = asRecord(requestPayload?._task_context);
   const requestMetadata = asRecord(requestTaskContext?.metadata);
   const historyFetchTelemetry = asRecord(requestMetadata?.history_fetch_telemetry);
+  // Written by the bot at completion; absent on runs from before these checks.
+  const drawdownHalt = asRecord(requestMetadata?.drawdown_halt);
+  const openExposure = asRecord(requestMetadata?.open_exposure);
+  const marketDataNetwork =
+    typeof requestMetadata?.market_data_network === 'string'
+      ? requestMetadata.market_data_network
+      : null;
+  const badPrintsDropped = toNumber(historyFetchTelemetry?.total_bad_prints_dropped, 0);
+  const riskChecksRecorded = openExposure !== null || marketDataNetwork !== null;
   const historyFetchMarketsRecord = asRecord(historyFetchTelemetry?.markets);
   const historyFetchTotalWindows = toNumber(historyFetchTelemetry?.total_windows, 0);
   const historyFetchTotalRetries = toNumber(historyFetchTelemetry?.total_retries, 0);
@@ -1368,14 +1380,13 @@ export const BacktestDetailsV2: React.FC = () => {
                 .filter((market) => market && market !== '-')
             )
           );
-  const initialCapital = Math.max(
-    1,
-    firstFiniteNumber(
-      requestPayload?.initial_balance,
-      requestParams?.starting_balance,
-      requestParams?.initial_amount
-    ) ?? 1000
+  // The run's own starting balance; no invented default when it has not loaded.
+  const knownCapital = firstFiniteNumber(
+    requestPayload?.initial_balance,
+    requestParams?.starting_balance,
+    requestParams?.initial_amount
   );
+  const initialCapital = knownCapital !== null && knownCapital > 0 ? knownCapital : null;
   const avgPnlPerTrade =
     trades.length > 0 ? trades.reduce((sum, trade) => sum + trade.pnl_usd, 0) / trades.length : 0;
   const avgTradeDurationHours =
@@ -1391,7 +1402,11 @@ export const BacktestDetailsV2: React.FC = () => {
   const computedProfitFactor =
     liveBacktest.profit_factor ??
     (grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? grossProfit : 0);
-  const capitalEfficiencyPct = (totalPnl / initialCapital) * 100;
+  const capitalEfficiencyPct = initialCapital !== null ? (totalPnl / initialCapital) * 100 : null;
+  const capitalEfficiencyText =
+    capitalEfficiencyPct === null
+      ? '—'
+      : `${capitalEfficiencyPct >= 0 ? '+' : ''}${capitalEfficiencyPct.toFixed(2)}%`;
   const topPairAbsPnl = topPairs.length > 0 ? Math.abs(topPairs[0]!.pnl) : 0;
   const aggregatePairAbsPnl = pairBreakdown.reduce((sum, pair) => sum + Math.abs(pair.pnl), 0);
   const pairConcentrationPct =
@@ -1422,11 +1437,14 @@ export const BacktestDetailsV2: React.FC = () => {
     },
     {
       label: 'Capital Efficiency',
-      value: `${capitalEfficiencyPct >= 0 ? '+' : ''}${capitalEfficiencyPct.toFixed(2)}%`,
-      detail: `${formatCurrency(totalPnl)} on ${formatCurrency(initialCapital)} test capital`,
+      value: capitalEfficiencyText,
+      detail:
+        initialCapital !== null
+          ? `${formatCurrency(totalPnl)} on ${formatCurrency(initialCapital)} starting balance`
+          : 'Starting balance not loaded yet',
       icon: Percent,
-      pct: Math.min(100, Math.abs(capitalEfficiencyPct) * 5),
-      tone: capitalEfficiencyPct >= 0 ? 'emerald' : 'rose',
+      pct: Math.min(100, Math.abs(capitalEfficiencyPct ?? 0) * 5),
+      tone: (capitalEfficiencyPct ?? 0) >= 0 ? 'emerald' : 'rose',
     },
     {
       label: 'Pair Concentration',
@@ -1524,7 +1542,7 @@ export const BacktestDetailsV2: React.FC = () => {
     },
     {
       label: 'Max Drawdown',
-      value: `${maxDrawdown.toFixed(1)}%`,
+      value: formatDrawdownPct(maxDrawdown),
       detail: `Low watermark ${formatCurrency(troughEquity)}`,
       icon: TrendingDown,
     },
@@ -1610,27 +1628,47 @@ export const BacktestDetailsV2: React.FC = () => {
     Boolean(runId) &&
     !controlBusy &&
     (liveBacktest.restartable || isFailed || isCompleted || isPaused);
-  const canRepairRestart = Boolean(runId) && !controlBusy && canRestart && isStrictAdmin;
+  // Unknown until the run record has loaded; never read absence as "missing".
+  const requestAvailable: boolean | undefined =
+    typeof liveBacktest.request_available === 'boolean'
+      ? liveBacktest.request_available
+      : liveBacktest.request
+        ? true
+        : undefined;
+  const requestMissing = requestAvailable === false;
+  const canRepairRestart =
+    Boolean(runId) && !controlBusy && canRestart && isStrictAdmin && requestMissing;
   const canRetry = Boolean(runId) && !controlBusy && isFailed;
-  const requestAvailable = Boolean(liveBacktest.request_available ?? liveBacktest.request);
-  const recoverySummaryLabel = requestAvailable
-    ? 'Request payload available'
-    : 'Request payload missing';
-  const recoverySummaryTone = requestAvailable
-    ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-100'
-    : canRepairRestart
-      ? 'border-fuchsia-500/25 bg-fuchsia-500/10 text-fuchsia-100'
-      : 'border-amber-500/25 bg-amber-500/10 text-amber-100';
-  const recoveryRepairability = requestAvailable
-    ? 'No repair needed'
-    : canRepairRestart
-      ? 'Repairable by admin'
-      : 'Repair blocked';
-  const recoverySummaryHint = requestAvailable
-    ? 'Restart uses the saved request directly.'
-    : canRepairRestart
-      ? 'Admin repair is available before restart.'
-      : 'Restart may fail until the request is repaired by an admin.';
+  const recoverySummaryLabel =
+    requestAvailable === undefined
+      ? 'Request payload not checked'
+      : requestAvailable
+        ? 'Request payload available'
+        : 'Request payload missing';
+  const recoverySummaryTone =
+    requestAvailable === undefined
+      ? 'border-slate-700 bg-slate-950/70 text-slate-200'
+      : requestAvailable
+        ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-100'
+        : canRepairRestart
+          ? 'border-fuchsia-500/25 bg-fuchsia-500/10 text-fuchsia-100'
+          : 'border-amber-500/25 bg-amber-500/10 text-amber-100';
+  const recoveryRepairability =
+    requestAvailable === undefined
+      ? 'Unknown'
+      : requestAvailable
+        ? 'No repair needed'
+        : canRepairRestart
+          ? 'Repairable by admin'
+          : 'Repair blocked';
+  const recoverySummaryHint =
+    requestAvailable === undefined
+      ? 'The bot has not reported whether this run kept its request.'
+      : requestAvailable
+        ? 'Restart uses the saved request directly.'
+        : canRepairRestart
+          ? 'Admin repair is available before restart.'
+          : 'Restart may fail until the request is repaired by an admin.';
 
   const handleBacktestControl = async (action: ControlAction) => {
     if (!runId) return;
@@ -2013,7 +2051,7 @@ export const BacktestDetailsV2: React.FC = () => {
                     Recovery status
                   </p>
                   <p className="mt-2 text-sm font-semibold text-white">{recoverySummaryLabel}</p>
-                  {canRepairRestart && !requestAvailable ? (
+                  {canRepairRestart ? (
                     <button
                       type="button"
                       onClick={() => handleBacktestControl('repairRestart')}
@@ -2720,7 +2758,7 @@ export const BacktestDetailsV2: React.FC = () => {
                 <div>
                   <dt className="text-xs uppercase tracking-wide text-slate-500">Max Drawdown</dt>
                   <dd className={`mt-1 ${isSummaryDense ? 'text-xs' : 'text-sm'} text-slate-200`}>
-                    {maxDrawdown.toFixed(1)}%
+                    {formatDrawdownPct(maxDrawdown)}
                   </dd>
                 </div>
                 <div>
@@ -2786,10 +2824,7 @@ export const BacktestDetailsV2: React.FC = () => {
                   <p className="text-[10px] uppercase tracking-[0.14em] text-cyan-200">
                     Capital efficiency
                   </p>
-                  <p className="mt-1 font-semibold text-cyan-100">
-                    {capitalEfficiencyPct >= 0 ? '+' : ''}
-                    {capitalEfficiencyPct.toFixed(2)}%
-                  </p>
+                  <p className="mt-1 font-semibold text-cyan-100">{capitalEfficiencyText}</p>
                 </div>
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
                   <p className="text-[10px] uppercase tracking-[0.14em] text-amber-200">
@@ -2878,6 +2913,56 @@ export const BacktestDetailsV2: React.FC = () => {
                         : 'silent fallback recovery'}
                       .
                     </p>
+                  </div>
+
+                  <div
+                    className={`rounded-2xl border border-slate-800 bg-slate-950/55 sm:col-span-2 ${isSummaryDense ? 'p-3' : 'p-4'}`}
+                  >
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                      Risk and data checks
+                    </p>
+                    {riskChecksRecorded ? (
+                      <ul className="mt-2 space-y-1 text-sm text-slate-300">
+                        <li>
+                          Market data:{' '}
+                          {marketDataNetwork === 'testnet'
+                            ? 'testnet history (thin books; results are unreliable)'
+                            : 'mainnet history'}
+                        </li>
+                        <li>
+                          {drawdownHalt === null
+                            ? 'No drawdown limit set for this run.'
+                            : drawdownHalt.reached
+                              ? `Drawdown limit ${toNumber(drawdownHalt.limit_pct, 0)}% reached ${formatDateValue(
+                                  typeof drawdownHalt.reached_at === 'string'
+                                    ? drawdownHalt.reached_at
+                                    : null
+                                )}; ${toNumber(drawdownHalt.trades_skipped, 0)} later entries skipped, as a live bot halts entries.`
+                              : `Drawdown limit ${toNumber(drawdownHalt.limit_pct, 0)}% never reached.`}
+                        </li>
+                        {openExposure !== null && (
+                          <li
+                            className={openExposure.exceeds_balance ? 'text-amber-300' : undefined}
+                          >
+                            Peak open exposure {toNumber(openExposure.peak_open_positions, 0)}{' '}
+                            positions,{' '}
+                            {formatCurrency(toNumber(openExposure.peak_open_notional_usd, 0))} on a{' '}
+                            {formatCurrency(toNumber(openExposure.initial_balance, 0))} balance
+                            {openExposure.exceeds_balance ? ': more than the balance.' : '.'}
+                          </li>
+                        )}
+                        {badPrintsDropped > 0 && (
+                          <li className="text-amber-300">
+                            {badPrintsDropped} bad price prints removed from the market history.
+                          </li>
+                        )}
+                      </ul>
+                    ) : (
+                      <p className="mt-2 text-sm text-slate-400">
+                        Not recorded: this run predates these checks and used the bot&apos;s runtime
+                        network for market data.
+                      </p>
+                    )}
                   </div>
 
                   <div

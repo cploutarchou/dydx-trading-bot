@@ -41,6 +41,27 @@ fallback when a strategy record lacks the field.
 Coverage: `tests/test_trailing_stop.py`, `tests/test_drawdown_guard.py`, `tests/test_backtest_live_parity.py`,
 `tests/test_live_risk_controls.py`, `tests/test_entry_halt_routes.py`, `tests/test_api_server_unit.py`.
 
+### Cost and funding entry gate (2026-09-26)
+
+A default-off entry gate (`src/trading/entry_cost_gate.py`, wired into `position_manager.open_positions` after the
+open-leg check and before `max_positions` and the portfolio guard). It is a runtime setting, not a strategy field.
+
+| Control | Measured on | Fires when | Action | Fails |
+|---|---|---|---|---|
+| `COST_GATE_ENABLED` + `COST_GATE_EDGE_MULTIPLE` | Modelled edge `2 * abs(z_entry) * sigma / (abs(p1) + abs(beta * p2))` vs round-trip cost `2 * fee + 2 * slippage + funding` | Edge is below the multiple times the cost (`edge_lt_cost`) | Skips the pair this cycle; rejection counted and logged with the breakdown | Any unusable input, including a missing `nextFundingRate` or `close_at_zscore_cross` off: `cost_inputs_invalid`, no entry |
+| `FUNDING_SAME_SIDE_THRESHOLD` | Each leg's hourly `nextFundingRate` from the cycle's markets payload | The long leg's rate is above the threshold and the short leg's is below its negative (`funding_same_side`) | Skips the pair this cycle | As above |
+
+- The edge is an upper-bound model estimate: the z-score exit fires at the mirror level, and the stop loss, take
+  profit, trailing stop and timeout can close earlier.
+- Live/backtest divergences: the backtest has no funding history (funding term zero, both-legs-pay check skipped);
+  live sizes each leg at `usd_per_trade` while the gate weights legs by beta, as the backtest P&L does.
+- Enabling: the runtime-settings route and the backend settings page change the bot API process only; trading
+  workers take the value from the bot-api environment at spawn. See `bot/README.md`.
+
+Coverage: `tests/test_entry_cost_gate.py`, `tests/test_position_manager_cost_gate.py`,
+`tests/test_backtest_live_parity.py`, `tests/test_arbitrage_routes.py`, `tests/test_arbitrage_observability.py`,
+`tests/test_backtest_checkpoint.py`, `tests/test_backtest_api_contract.py`.
+
 ### How an operator resolves a REJECTED control (2026-09-21)
 
 Only `capital_allocation_usd` is still rejected; `max_drawdown_pct` and `trailing_stop_pct` are enforced since

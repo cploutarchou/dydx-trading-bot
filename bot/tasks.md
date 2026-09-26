@@ -1,5 +1,38 @@
 # Tasks Log
 
+## 2026-09-26 — DONE
+
+- **Cost + funding entry gate for pairs entries** (default off, `COST_GATE_ENABLED=false`).
+    - Pure gate `src/trading/entry_cost_gate.py` (Decimal, no I/O), called by the live entry path and by
+      `_simulate_pair`. Edge `(|z_entry| - z_exit) * sigma / (|p1| + |beta * p2|)` with `z_exit = -|z_entry|` (the
+      z-score exit fires at the mirror level); cost `2 * fee + 2 * slippage + funding` from the markets' hourly
+      `nextFundingRate` and `min(half_life * candle hours, positionTimeoutHours)`. Reasons, in order:
+      `cost_inputs_invalid`, `funding_same_side`, `edge_lt_cost`.
+    - Live: after the open-leg check, before `max_positions` and the portfolio guard; one settings snapshot per
+      cycle; flag off computes nothing. Runtime settings `COST_GATE_ENABLED`, `COST_GATE_EDGE_MULTIPLE` (2.5, clamp
+      1-20), `COST_GATE_TAKER_FEE` (0.0005, shared with the backtest default), `COST_GATE_SLIPPAGE_BPS` (5),
+      `FUNDING_SAME_SIDE_THRESHOLD` (0.00001/h); bot request model and backend allowlist extended, backend defaults
+      equal the bot's. `openapi.json` regenerated (+5 optional request fields).
+    - Backtest: `cost_gate_enabled` / `cost_gate_edge_multiple` trading parameters; funding not modelled (term zero,
+      overlay skipped); counts in `cost_gate_diagnostics`. Per-trade `fee_cost` + `slippage_cost` (sum = the unchanged
+      deducted cost); run `fees_total`, `slippage_total`, `funding_total: null`, `funding_modelled: false`. Gate off:
+      trades and metrics bit-identical to before.
+    - Found, not changed: runtime-settings overrides reach the bot API process only, never the trading workers (all
+      arbitrage flags); worker rejection counters are not published to the API; `BacktestDetailResponse.metrics` is
+      declared but never populated. Frontend settings form does not render the new keys yet (follow-up).
+
+- **Perpetual markets route returns the tradable universe** (`GET /api/v1/markets/perpetuals`).
+    - `src/api/market_universe.py` (pure): the indexer map becomes typed records (`status`, `volume_24h`,
+      `open_interest`, `open_interest_usd`, `next_funding_rate`, `oracle_price`, `trades_24h`). The route returns
+      `ACTIVE` markets sorted by 24 h volume (unknown volume last, ticker tie-break), capped by `limit` only after
+      sorting; `include_settled=true` returns every market. `markets` stays the ticker list; `market_details`,
+      `include_settled`, `active_total` and `inactive_total` are additive. The cache holds the normalized records
+      and the fresh, live and stale paths apply the same selection. `openapi.json` regenerated.
+    - Before: the first N tickers alphabetically with no status filter, which on mainnet meant 120 of 160 settled
+      markets and no SOL-USD or XRP-USD in the pickers. The backend forwards `include_settled`; the frontend pickers
+      request no cap, show the volume beside each market, and the backtest form says every pair from the selected
+      markets runs.
+
 ## 2026-09-23 — DONE
 
 - **Strategy `max_drawdown_pct` and `trailing_stop_pct` enforced on live bots** (both were REJECTED since

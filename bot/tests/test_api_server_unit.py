@@ -22,6 +22,7 @@ from starlette.requests import Request
 
 import src.api.server as server
 import src.api.v1.backtests as backtests
+from src.api.market_universe import normalize_market_records
 from src.infrastructure.domain.bot_api_models import (
     BotCredentials,
     BotStatus,
@@ -1271,9 +1272,18 @@ class _FakeMarketsClient:
 def test_perpetual_markets_route_cache_live_stale_and_failure(monkeypatch):
     server._markets_cache.clear()
 
-    # Fresh cache hit serves without a network call and honors the cap.
+    # Fresh cache hit serves without a network call and honors the cap, which
+    # applies after the volume sort.
     server._markets_cache_set(
-        {"markets": ["BTC-USD", "ETH-USD", "SOL-USD"], "count": 3, "source": "dydx"}
+        {
+            "records": normalize_market_records(
+                {
+                    "SOL-USD": {"status": "ACTIVE", "volume24H": "1"},
+                    "BTC-USD": {"status": "ACTIVE", "volume24H": "3"},
+                    "ETH-USD": {"status": "ACTIVE", "volume24H": "2"},
+                }
+            )
+        }
     )
     response = asyncio.run(server.list_perpetual_markets(limit=2))
     body = _payload(response)
@@ -1283,10 +1293,17 @@ def test_perpetual_markets_route_cache_live_stale_and_failure(monkeypatch):
 
     server._markets_cache.clear()
 
-    # Live fetch populates the cache; failing closers are swallowed.
+    # Live fetch populates the cache; failing closers are swallowed. Unknown
+    # volume sorts by ticker.
     async def _connect():
         return _FakeMarketsClient(
-            payload={"markets": {"ETH-USD": {}, "BTC-USD": {}}},
+            payload={
+                "markets": {
+                    "ETH-USD": {"status": "ACTIVE"},
+                    "BTC-USD": {"status": "ACTIVE"},
+                    "OLD-USD": {"status": "FINAL_SETTLEMENT"},
+                }
+            },
             close_error=RuntimeError("x"),
         )
 

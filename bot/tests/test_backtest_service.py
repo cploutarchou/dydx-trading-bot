@@ -248,7 +248,7 @@ def test_backtest_runs_async_and_completes_with_trades(monkeypatch):
     async def _fake_connect():
         return _FakeClient()
 
-    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+    monkeypatch.setattr(service_module, "connect_backtest_market_data", _fake_connect)
 
     service = BacktestService(session=None)
 
@@ -297,7 +297,7 @@ def test_backtest_progress_callback_failure_does_not_fail_run(monkeypatch):
     async def _failing_progress(*_args):
         raise RuntimeError("websocket unavailable")
 
-    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+    monkeypatch.setattr(service_module, "connect_backtest_market_data", _fake_connect)
     service = BacktestService(session=None)
 
     async def _run():
@@ -318,7 +318,7 @@ def test_parameter_changes_produce_distinct_real_results(monkeypatch):
     async def _fake_connect():
         return _FakeClient()
 
-    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+    monkeypatch.setattr(service_module, "connect_backtest_market_data", _fake_connect)
 
     service = BacktestService(session=None)
 
@@ -365,7 +365,7 @@ def test_cancel_running_backtest(monkeypatch):
     async def _fake_connect():
         return _FakeClient()
 
-    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+    monkeypatch.setattr(service_module, "connect_backtest_market_data", _fake_connect)
 
     service = BacktestService(session=None)
 
@@ -393,7 +393,7 @@ def test_pause_and_resume_running_backtest(monkeypatch):
     async def _fake_connect():
         return _PausableClient()
 
-    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+    monkeypatch.setattr(service_module, "connect_backtest_market_data", _fake_connect)
 
     service = BacktestService(session=None)
 
@@ -432,7 +432,7 @@ def test_retry_backtest_starts_new_run_from_persisted_request(monkeypatch):
     async def _fake_connect():
         return _FakeClient()
 
-    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+    monkeypatch.setattr(service_module, "connect_backtest_market_data", _fake_connect)
 
     service = BacktestService(session=None)
 
@@ -461,7 +461,7 @@ def test_restart_backtest_reconstructs_missing_request_from_persisted_fields(
     async def _fake_connect():
         return _FakeClient()
 
-    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+    monkeypatch.setattr(service_module, "connect_backtest_market_data", _fake_connect)
 
     service = BacktestService(session=None)
     run_id = "legacy-restart-run"
@@ -499,7 +499,7 @@ def test_repair_backtest_request_restores_restartability(monkeypatch):
     async def _fake_connect():
         return _FakeClient()
 
-    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+    monkeypatch.setattr(service_module, "connect_backtest_market_data", _fake_connect)
 
     service = BacktestService(session=None)
     run_id = "legacy-repair-run"
@@ -539,6 +539,61 @@ def test_repair_backtest_request_restores_restartability(monkeypatch):
     restarted = asyncio.run(service.restart_backtest(run_id))
     assert restarted is not None
     assert restarted["new_run_id"] != run_id
+
+
+def test_only_finished_runs_report_restartable():
+    _, service_module = _load_modules()
+    service = service_module.BacktestService(session=None)
+    now = datetime.now(timezone.utc).isoformat()
+    for run_id, status in (("rs-running", "running"), ("rs-done", "completed")):
+        service.repository.save_run(
+            {
+                "run_id": run_id,
+                "name": run_id,
+                "status": status,
+                "progress_pct": 40.0,
+                "created_at": now,
+                "updated_at": now,
+                "start_date": "2026-03-20",
+                "end_date": "2026-04-19",
+                "request": {"pairs": ["BTC-USD", "ETH-USD"]},
+            }
+        )
+
+    try:
+        running = service.get_backtest_status("rs-running")
+        done = service.get_backtest_status("rs-done")
+    finally:
+        # The in-memory store is shared; a leftover active run skews queue depth.
+        service.repository.delete_run("rs-running")
+        service.repository.delete_run("rs-done")
+    assert running is not None and running.status == "running"
+    assert running.restartable is False
+    assert done is not None and done.restartable is True
+
+
+def test_repair_backtest_request_reports_unrepairable_without_dates():
+    _, service_module = _load_modules()
+    service = service_module.BacktestService(session=None)
+    now = datetime.now(timezone.utc).isoformat()
+    service.repository.save_run(
+        {
+            "run_id": "no-window-run",
+            "name": "no window",
+            "status": "failed",
+            "created_at": now,
+            "updated_at": now,
+            "selected_pairs": ["BTC-USD/ETH-USD"],
+            "request": {},
+        }
+    )
+
+    verdict = service.repair_backtest_request("no-window-run", dry_run=True)
+    assert verdict is not None
+    assert verdict["repairable"] is False
+    assert verdict["request_available"] is False
+    assert verdict["error"] == "insufficient_fields_to_reconstruct_request"
+    assert asyncio.run(service.restart_backtest("no-window-run")) is None
 
 
 def test_celery_worker_backend_queues_persisted_run(monkeypatch):
@@ -844,7 +899,9 @@ def test_failed_backtest_exposes_error_fields(monkeypatch):
     async def _failing_connect():
         raise RuntimeError("historical data fetch failed")
 
-    monkeypatch.setattr(service_module, "connect_dydx", _failing_connect)
+    monkeypatch.setattr(
+        service_module, "connect_backtest_market_data", _failing_connect
+    )
 
     service = BacktestService(session=None)
 
@@ -881,7 +938,7 @@ def test_backtest_times_out_and_exposes_heartbeat_fields(monkeypatch):
     async def _slow_connect():
         return _SlowClient()
 
-    monkeypatch.setattr(service_module, "connect_dydx", _slow_connect)
+    monkeypatch.setattr(service_module, "connect_backtest_market_data", _slow_connect)
     monkeypatch.setattr(BacktestService, "_MIN_TIMEOUT_SECONDS", 0.01)
 
     service = BacktestService(session=None)
@@ -997,7 +1054,7 @@ def test_backtest_keepalive_prevents_false_stale_during_slow_phase(monkeypatch):
     async def _slow_connect():
         return _HeartbeatSlowClient()
 
-    monkeypatch.setattr(service_module, "connect_dydx", _slow_connect)
+    monkeypatch.setattr(service_module, "connect_backtest_market_data", _slow_connect)
 
     service = BacktestService(session=None)
 
@@ -1032,7 +1089,9 @@ def test_backtest_watchdog_keeps_heartbeat_alive_during_blocking_phase(monkeypat
     async def _blocking_connect():
         return _BlockingHeartbeatClient()
 
-    monkeypatch.setattr(service_module, "connect_dydx", _blocking_connect)
+    monkeypatch.setattr(
+        service_module, "connect_backtest_market_data", _blocking_connect
+    )
 
     service = BacktestService(session=None)
     observed_statuses: list[str] = []
@@ -1277,7 +1336,7 @@ def test_live_progress_and_runtime_health_contract(monkeypatch):
     async def _fake_connect():
         return _FakeClient()
 
-    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+    monkeypatch.setattr(service_module, "connect_backtest_market_data", _fake_connect)
     service = BacktestService(session=None)
 
     async def _run():
@@ -1302,7 +1361,7 @@ def test_comprehensive_analytics_includes_sub_objects_and_candle_fields(monkeypa
     async def _fake_connect():
         return _FakeClient()
 
-    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+    monkeypatch.setattr(service_module, "connect_backtest_market_data", _fake_connect)
     service = BacktestService(session=None)
 
     async def _run():
@@ -1333,7 +1392,9 @@ def test_backtest_status_survives_service_recreation_with_db_repository(
     async def _failing_connect():
         raise RuntimeError("historical data fetch failed")
 
-    monkeypatch.setattr(service_module, "connect_dydx", _failing_connect)
+    monkeypatch.setattr(
+        service_module, "connect_backtest_market_data", _failing_connect
+    )
 
     db_path = tmp_path / "backtest_runs.sqlite"
     engine = create_engine(f"sqlite:///{db_path}", future=True)

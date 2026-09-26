@@ -33,6 +33,14 @@ var arbitrageSettingDefinitions = []arbitrageSettingDefinition{
 	{"auto_execution_changes_enabled", "AUTO_EXECUTION_CHANGES_ENABLED", "boolean", "false", "Enable future execution-safety behavior changes"},
 	{"pair_priority_max_pairs", "PAIR_PRIORITY_MAX_PAIRS", "integer", "0", "Optional top-N cap for pair-priority scanning; 0 keeps all pairs"},
 	{"pair_priority_stale_seconds", "PAIR_PRIORITY_STALE_SECONDS", "float", "86400", "Seconds before pair analysis is treated as stale"},
+	// Cost + funding entry gate. Every definition is forwarded to the bot on
+	// save, so these defaults must equal the bot's startup defaults
+	// (bot/src/constants.py); the bot clamps out-of-range values.
+	{"cost_gate_enabled", "COST_GATE_ENABLED", "boolean", "false", "Reject entries whose modelled edge does not cover fees, slippage and funding"},
+	{"cost_gate_edge_multiple", "COST_GATE_EDGE_MULTIPLE", "float", "2.5", "Required edge as a multiple of the round-trip cost (bot clamps to 1-20)"},
+	{"cost_gate_taker_fee", "COST_GATE_TAKER_FEE", "float", "0.0005", "Taker fee per fill as a fraction of notional"},
+	{"cost_gate_slippage_bps", "COST_GATE_SLIPPAGE_BPS", "float", "5", "Assumed slippage per fill in basis points"},
+	{"funding_same_side_threshold", "FUNDING_SAME_SIDE_THRESHOLD", "float", "0.00001", "Hourly funding rate above which a leg counts as paying; entries paying on both legs are rejected"},
 }
 
 func RegisterArbitrageSettingsRoutes(router *gin.Engine, database *db.Database, apiClient *services.BotAPIClient) {

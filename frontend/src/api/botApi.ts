@@ -274,6 +274,11 @@ class BotApiClient {
     updated_at?: string;
     checked_at?: string;
     progress_source?: 'status' | 'list_fallback' | 'default';
+    // Only the status route knows these; the list mirror and the detail route do not.
+    request_available?: boolean;
+    restartable?: boolean;
+    // The stored request (starting balance, trading parameters) for the run page.
+    request?: Record<string, unknown>;
   }> {
     const parseProgress = (value: unknown): number | null => {
       if (typeof value !== 'number' && typeof value !== 'string') {
@@ -330,6 +335,9 @@ class BotApiClient {
     let currentPair: string | undefined;
     let etaSeconds: number | undefined;
     let updatedAt: string | undefined;
+    let requestAvailable: boolean | undefined;
+    let restartable: boolean | undefined;
+    let request: Record<string, unknown> | undefined;
     let progressSource: 'status' | 'list_fallback' | 'default' = 'default';
 
     // The status route reads the bot's own run record (status, persisted progress)
@@ -354,6 +362,15 @@ class BotApiClient {
       currentPair = live.currentPair;
       etaSeconds = live.etaSeconds;
       updatedAt = live.updatedAt;
+      if (typeof statusRecord.request_available === 'boolean') {
+        requestAvailable = statusRecord.request_available;
+      }
+      if (typeof statusRecord.restartable === 'boolean') {
+        restartable = statusRecord.restartable;
+      }
+      if (isRecord(statusRecord.request)) {
+        request = statusRecord.request;
+      }
     } else {
       try {
         const listRuns = await this.getBacktestStatusList();
@@ -386,6 +403,9 @@ class BotApiClient {
       updated_at: updatedAt,
       checked_at: checkedAt,
       progress_source: progressSource,
+      request_available: requestAvailable,
+      restartable,
+      request,
     };
   }
 

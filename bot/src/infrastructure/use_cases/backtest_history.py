@@ -37,6 +37,11 @@ _HISTORY_MAX_RETRIES = 6
 _HISTORY_RETRY_BASE_SECONDS = 1.5
 _HISTORY_RETRY_MAX_SECONDS = 20.0
 _HISTORY_TELEMETRY_RECENT_FAILURES_LIMIT = 5
+# A close this many times above (or below) the median of its neighbours is a
+# bad print, not a market move: thin books print trades far from the market
+# for a single bar. Real moves persist, so they shift the median with them.
+_BAD_PRINT_RATIO = 3.0
+_BAD_PRINT_NEIGHBOURS = 5
 
 
 def _env_positive_int(name: str, default: int) -> int:
@@ -57,6 +62,45 @@ def _env_positive_float(name: str, default: float) -> float:
         return max(0.1, float(raw))
     except (TypeError, ValueError):
         return max(0.1, float(default))
+
+
+def _drop_bad_prints(history: Dict[str, float]) -> tuple[Dict[str, float], int]:
+    """Drop single-bar prints far from their neighbours; return (clean, dropped).
+
+    A close is a bad print when it is off by _BAD_PRINT_RATIO from the median
+    of the bars before it AND from the median of the bars after it. A real
+    step change agrees with one side, so it is kept.
+    """
+
+    def _median(values: list[float]) -> float:
+        ordered = sorted(values)
+        return ordered[len(ordered) // 2]
+
+    def _far(price: float, reference: float) -> bool:
+        return reference > 0 and (
+            price > reference * _BAD_PRINT_RATIO or price < reference / _BAD_PRINT_RATIO
+        )
+
+    items = sorted(history.items(), key=lambda kv: kv[0])
+    closes = [price for _, price in items]
+    clean: Dict[str, float] = {}
+    dropped = 0
+    for index, (ts, price) in enumerate(items):
+        if price <= 0:
+            dropped += 1
+            continue
+        before = [
+            p for p in closes[max(0, index - _BAD_PRINT_NEIGHBOURS) : index] if p > 0
+        ]
+        after = [
+            p for p in closes[index + 1 : index + 1 + _BAD_PRINT_NEIGHBOURS] if p > 0
+        ]
+        sides = [_far(price, _median(side)) for side in (before, after) if side]
+        if sides and all(sides):
+            dropped += 1
+            continue
+        clean[ts] = price
+    return clean, dropped
 
 
 def _remaining_seconds(deadline_monotonic: float) -> float:
@@ -185,6 +229,7 @@ def _history_fetch_summary(
     total_attempts = 0
     total_backoff_seconds = 0.0
     total_failed_windows = 0
+    total_bad_prints = 0
 
     for market, metrics in sorted(history_telemetry.items()):
         windows = int(metrics.get("windows") or 0)
@@ -195,6 +240,8 @@ def _history_fetch_summary(
         timeout_errors = int(metrics.get("timeout_errors") or 0)
         http_errors = int(metrics.get("http_errors") or 0)
         max_attempts_per_window = int(metrics.get("max_attempts_per_window") or 0)
+        bad_prints = int(metrics.get("bad_prints_dropped") or 0)
+        total_bad_prints += bad_prints
 
         total_windows += windows
         total_retries += retries
@@ -222,6 +269,7 @@ def _history_fetch_summary(
                 round(attempts / windows, 3) if windows > 0 else 0.0
             ),
             "max_attempts_per_window": max_attempts_per_window,
+            "bad_prints_dropped": bad_prints,
             "recent_failures": list(metrics.get("recent_failures") or []),
         }
 
@@ -233,6 +281,7 @@ def _history_fetch_summary(
         "total_retries": total_retries,
         "total_failed_windows": total_failed_windows,
         "total_backoff_seconds": round(total_backoff_seconds, 3),
+        "total_bad_prints_dropped": total_bad_prints,
         "avg_backoff_per_retry_seconds": (
             round(
                 total_backoff_seconds / total_retries,
@@ -446,4 +495,10 @@ async def _fetch_market_history(
             raise RuntimeError(f"Backtest history cursor stalled for {market}")
         cursor = next_cursor
 
-    return dict(sorted(merged.items(), key=lambda kv: kv[0]))
+    clean, dropped = _drop_bad_prints(merged)
+    if history_telemetry is not None and dropped:
+        market_telemetry = history_telemetry.setdefault(market, {})
+        market_telemetry["bad_prints_dropped"] = (
+            int(market_telemetry.get("bad_prints_dropped") or 0) + dropped
+        )
+    return clean

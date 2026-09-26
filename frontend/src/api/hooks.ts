@@ -1206,8 +1206,8 @@ export function useBacktestProgress(runId: string) {
       return 0;
     }
 
-    const normalized = Math.abs(parsed) <= 1 ? parsed * 100 : parsed;
-    return Math.min(100, Math.max(0, normalized));
+    // The bot reports progress in percent, so 0.5 is half a percent, not 50%.
+    return Math.min(100, Math.max(0, parsed));
   }, []);
 
   const extractCurrentPair = useCallback((data: unknown): string | null => {

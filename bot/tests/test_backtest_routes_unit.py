@@ -490,7 +490,7 @@ def test_resolve_backtest_markets_matrix(monkeypatch):
     async def _connect_ok():
         return _client(markets={"BTC-USD": {}, "ETH-USD": {}, "SOL-USD": {}})
 
-    monkeypatch.setattr(backtests, "connect_dydx", _connect_ok)
+    monkeypatch.setattr(backtests, "connect_backtest_market_data", _connect_ok)
     resolved = asyncio.run(
         backtests._resolve_backtest_markets(
             None, ["BTC-USD/ETH-USD", "ETH-USD/SOL-USD"], 0
@@ -510,7 +510,7 @@ def test_resolve_backtest_markets_matrix(monkeypatch):
     async def _connect_empty():
         return _client(markets={})
 
-    monkeypatch.setattr(backtests, "connect_dydx", _connect_empty)
+    monkeypatch.setattr(backtests, "connect_backtest_market_data", _connect_empty)
     with pytest.raises(ValueError, match="MARKET_RESOLUTION_FAILED"):
         asyncio.run(
             backtests._resolve_backtest_markets(["BTC-USD", "ETH-USD"], None, 0)
@@ -519,7 +519,7 @@ def test_resolve_backtest_markets_matrix(monkeypatch):
     async def _connect_boom():
         raise RuntimeError(" indexer unreachable ")
 
-    monkeypatch.setattr(backtests, "connect_dydx", _connect_boom)
+    monkeypatch.setattr(backtests, "connect_backtest_market_data", _connect_boom)
     with pytest.raises(ValueError, match="MARKET_RESOLUTION_FAILED"):
         asyncio.run(
             backtests._resolve_backtest_markets(["BTC-USD", "ETH-USD"], None, 0)
@@ -531,7 +531,7 @@ def test_resolve_backtest_markets_matrix(monkeypatch):
             markets={"BTC-USD": {}, "ETH-USD": {}}, close_error=RuntimeError("close")
         )
 
-    monkeypatch.setattr(backtests, "connect_dydx", _connect_close_error)
+    monkeypatch.setattr(backtests, "connect_backtest_market_data", _connect_close_error)
     resolved = asyncio.run(
         backtests._resolve_backtest_markets(["BTC-USD", "ETH-USD"], None, 0)
     )

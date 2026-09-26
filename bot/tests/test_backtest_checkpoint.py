@@ -406,7 +406,7 @@ def test_resume_skips_completed_pairs_and_matches_fresh_results(monkeypatch, tmp
     async def _fake_connect():
         return _FakeClient()
 
-    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+    monkeypatch.setattr(service_module, "connect_backtest_market_data", _fake_connect)
     monkeypatch.setenv("BACKTEST_WORKER_BACKEND", "asyncio")
     monkeypatch.setenv("BACKTEST_WORKER_BACKEND_AUTO_REPROBE", "false")
 
@@ -491,7 +491,7 @@ def test_resume_ignored_on_payload_hash_mismatch(monkeypatch, tmp_path, caplog):
     async def _fake_connect():
         return _FakeClient()
 
-    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+    monkeypatch.setattr(service_module, "connect_backtest_market_data", _fake_connect)
     monkeypatch.setenv("BACKTEST_WORKER_BACKEND", "asyncio")
     monkeypatch.setenv("BACKTEST_WORKER_BACKEND_AUTO_REPROBE", "false")
 
@@ -536,7 +536,7 @@ def test_checkpoint_deleted_after_terminal_completion(monkeypatch):
     async def _fake_connect():
         return _FakeClient()
 
-    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+    monkeypatch.setattr(service_module, "connect_backtest_market_data", _fake_connect)
     monkeypatch.setenv("BACKTEST_WORKER_BACKEND", "asyncio")
     monkeypatch.setenv("BACKTEST_WORKER_BACKEND_AUTO_REPROBE", "false")
 
@@ -572,7 +572,7 @@ def test_checkpoints_disabled_writes_and_resumes_nothing(monkeypatch):
     async def _fake_connect():
         return _FakeClient()
 
-    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+    monkeypatch.setattr(service_module, "connect_backtest_market_data", _fake_connect)
     monkeypatch.setenv("BACKTEST_WORKER_BACKEND", "asyncio")
     monkeypatch.setenv("BACKTEST_WORKER_BACKEND_AUTO_REPROBE", "false")
     monkeypatch.setenv("BACKTEST_CHECKPOINT_ENABLED", "false")
@@ -665,7 +665,7 @@ def _run_completed_backtest(monkeypatch, trading_overrides):
     async def _fake_connect():
         return _FakeClient()
 
-    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+    monkeypatch.setattr(service_module, "connect_backtest_market_data", _fake_connect)
     monkeypatch.setenv("BACKTEST_WORKER_BACKEND", "asyncio")
     monkeypatch.setenv("BACKTEST_WORKER_BACKEND_AUTO_REPROBE", "false")
     service = service_module.BacktestService(session=None)

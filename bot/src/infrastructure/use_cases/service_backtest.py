@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import hashlib
+import heapq
 import json
 import logging
 import math
@@ -22,7 +23,10 @@ import numpy as np
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.use_cases.async_job_manager import async_job_manager
-from src.trading.dydx_client import connect_dydx
+from src.trading.dydx_client import (
+    backtest_market_data_network,
+    connect_backtest_market_data,
+)
 from src.trading.entry_cost_gate import (
     DEFAULT_EDGE_MULTIPLE,
     DEFAULT_TAKER_FEE,
@@ -1948,6 +1952,110 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         return float(max_dd * 100.0)
 
     @staticmethod
+    def _apply_drawdown_halt(
+        trades: List[Dict[str, Any]],
+        initial_balance: float,
+        max_drawdown_pct: float,
+    ) -> tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        """Apply the strategy's drawdown limit the way the live runtime does.
+
+        Trades are replayed in entry order against realized equity. Once
+        equity has fallen max_drawdown_pct below its peak, no new position is
+        opened; positions already open still close normally. Returns the kept
+        trades (original order) and a record of the halt, or None when no
+        limit is set.
+        """
+        limit = float(max_drawdown_pct or 0.0)
+        balance = float(initial_balance or 0.0)
+        if limit <= 0 or balance <= 0:
+            return list(trades), None
+
+        ordered = sorted(
+            trades,
+            key=lambda t: (str(t["entry_timestamp"]), str(t["trade_id"])),
+        )
+        closing: List[tuple[str, int, float]] = []
+        equity = peak = balance
+        reached_at: Optional[str] = None
+        equity_at_halt: Optional[float] = None
+        kept_ids: set[str] = set()
+
+        def _settle(until: Optional[str]) -> None:
+            nonlocal equity, peak, reached_at, equity_at_halt
+            while closing and (until is None or closing[0][0] <= until):
+                exit_ts, _, pnl = heapq.heappop(closing)
+                equity += pnl
+                peak = max(peak, equity)
+                if reached_at is None and (peak - equity) / peak * 100.0 >= limit:
+                    reached_at = exit_ts
+                    equity_at_halt = equity
+
+        for trade in ordered:
+            _settle(str(trade["entry_timestamp"]))
+            if reached_at is not None:
+                continue
+            kept_ids.add(str(trade["trade_id"]))
+            heapq.heappush(
+                closing,
+                (str(trade["exit_timestamp"]), len(kept_ids), float(trade["pnl_usd"])),
+            )
+        _settle(None)
+
+        kept = [t for t in trades if str(t["trade_id"]) in kept_ids]
+        return kept, {
+            "limit_pct": limit,
+            "reached": reached_at is not None,
+            "reached_at": reached_at,
+            "equity_at_halt": (
+                round(equity_at_halt, 4) if equity_at_halt is not None else None
+            ),
+            "trades_skipped": len(trades) - len(kept),
+        }
+
+    @staticmethod
+    def _peak_open_exposure(
+        trades: List[Dict[str, Any]],
+        usd_per_trade: float,
+        initial_balance: float,
+    ) -> Dict[str, Any]:
+        """Most positions open at once, and whether their size exceeded the balance.
+
+        Each trade is sized independently, so nothing in the simulation stops
+        open exposure from outgrowing the starting balance; this reports it.
+        """
+        events: List[tuple[str, int]] = []
+        for trade in trades:
+            events.append((str(trade["entry_timestamp"]), 1))
+            events.append((str(trade["exit_timestamp"]), -1))
+        # Exits sort before entries at the same timestamp.
+        events.sort()
+        open_now = peak = 0
+        for _, delta in events:
+            open_now += delta
+            peak = max(peak, open_now)
+        notional = round(peak * float(usd_per_trade or 0.0), 4)
+        balance = float(initial_balance or 0.0)
+        return {
+            "peak_open_positions": peak,
+            "peak_open_notional_usd": notional,
+            "initial_balance": balance,
+            "exceeds_balance": balance > 0 and notional > balance,
+        }
+
+    @classmethod
+    def _attach_task_metadata(
+        cls, run_data: Dict[str, Any], key: str, value: Any
+    ) -> Dict[str, Any]:
+        request_payload = dict(run_data.get("request") or {})
+        task_context = cls._task_context_from_request(request_payload)
+        metadata = dict(task_context.get("metadata") or {})
+        metadata[key] = value
+        task_context["metadata"] = metadata
+        request_payload[cls._TASK_CONTEXT_KEY] = task_context
+        run_data["request"] = request_payload
+        return run_data
+
+    @staticmethod
     def _build_daily_pnl_rows(
         daily_pnl_agg: Dict[str, float],
         all_trades: List[Dict[str, Any]],
@@ -2605,7 +2713,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             heartbeat_thread.start()
 
             client = await self._await_with_deadline(
-                cast(Awaitable[Any], connect_dydx()),
+                cast(Awaitable[Any], connect_backtest_market_data()),
                 deadline_monotonic,
                 "connecting to dYdX",
             )
@@ -2634,7 +2742,17 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             # Modes using historical behavior require per-market history cache.
             # Skipped entirely on checkpoint resume (plan already computed).
             if not resumed and pair_selection_mode in {"volatility", "cointegration"}:
-                for market in unique_markets:
+                # This phase can take minutes before the first pair is scored;
+                # record it so the run does not look idle at 0%.
+                last_history_persist_at = 0.0
+                for market_index, market in enumerate(unique_markets, start=1):
+                    run_data["current_task"] = (
+                        f"loading market history {market_index}/{len(unique_markets)}"
+                    )
+                    run_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    if time.monotonic() - last_history_persist_at >= 5.0:
+                        run_data = self._persist_progress_data(run_data)
+                        last_history_persist_at = time.monotonic()
                     try:
                         market_history_cache[market] = await self._await_with_deadline(
                             _history._fetch_market_history(
@@ -2967,6 +3085,41 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 # Yield control so other coroutines (status polling) run smoothly.
                 await asyncio.sleep(0)
 
+            all_trades, drawdown_halt = self._apply_drawdown_halt(
+                all_trades,
+                initial_balance,
+                float(params.get("max_drawdown_pct", 0.0) or 0.0),
+            )
+            if drawdown_halt and drawdown_halt["trades_skipped"]:
+                # Entries after the limit never happened: rebuild every total
+                # from the trades that remain.
+                kept_positions = {f"pos-{t['trade_id']}" for t in all_trades}
+                all_snapshots = [
+                    snap
+                    for snap in all_snapshots
+                    if all(
+                        str(pos.get("position_id")) in kept_positions
+                        for pos in (snap.get("positions") or [])
+                    )
+                ]
+                running_total_pnl = 0.0
+                running_winners = 0
+                running_gross_profit = 0.0
+                running_gross_loss = 0.0
+                daily_pnl_agg = {}
+                for trade in all_trades:
+                    trade_pnl = float(trade["pnl_usd"])
+                    running_total_pnl += trade_pnl
+                    running_winners += 1 if bool(trade["win"]) else 0
+                    if trade_pnl > 0:
+                        running_gross_profit += trade_pnl
+                    elif trade_pnl < 0:
+                        running_gross_loss += trade_pnl
+                    day = str(trade["exit_timestamp"])[:10]
+                    daily_pnl_agg[day] = round(
+                        daily_pnl_agg.get(day, 0.0) + trade_pnl, 4
+                    )
+
             total_pnl = float(running_total_pnl)
             total_trades = len(all_trades)
             win_rate = running_winners / total_trades if total_trades > 0 else 0.0
@@ -3025,6 +3178,22 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             run_data = self._attach_history_fetch_summary(
                 run_data,
                 history_fetch_telemetry,
+            )
+            if drawdown_halt is not None:
+                run_data = self._attach_task_metadata(
+                    run_data, "drawdown_halt", drawdown_halt
+                )
+            run_data = self._attach_task_metadata(
+                run_data, "market_data_network", backtest_market_data_network()
+            )
+            run_data = self._attach_task_metadata(
+                run_data,
+                "open_exposure",
+                self._peak_open_exposure(
+                    all_trades,
+                    float(params.get("usd_per_trade", 10.0) or 10.0),
+                    initial_balance,
+                ),
             )
             run_data["request"] = self._clear_task_failure(
                 dict(run_data.get("request") or {})

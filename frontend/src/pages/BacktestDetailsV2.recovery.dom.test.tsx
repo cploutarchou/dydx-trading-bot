@@ -16,13 +16,14 @@ const mocks = vi.hoisted(() => ({
     getBacktestTradesDetailed: vi.fn(),
   },
   getBacktestStatus: vi.fn(),
+  progressData: undefined as Record<string, unknown> | undefined,
 }));
 
 vi.mock('../api', () => ({ default: mocks.api }));
 vi.mock('../api/botApi', () => ({ botApi: { getBacktestStatus: mocks.getBacktestStatus } }));
 vi.mock('../api/hooks', () => ({
   useBacktestProgress: () => ({
-    data: undefined,
+    data: mocks.progressData,
     lastSocketEvent: null,
     progressPercent: 40,
     progressSource: 'http',
@@ -60,6 +61,7 @@ describe('BacktestDetailsV2 recovery status', () => {
   beforeEach(() => {
     Object.values(mocks.api).forEach((mock) => mock.mockReset());
     mocks.getBacktestStatus.mockReset();
+    mocks.progressData = undefined;
     mocks.api.getBacktestAnalytics.mockResolvedValue({ data: {} });
     mocks.api.getBacktestPositionSnapshots.mockResolvedValue({ data: {} });
     mocks.api.getBacktestTradesDetailed.mockResolvedValue({ data: {} });
@@ -119,5 +121,80 @@ describe('BacktestDetailsV2 recovery status', () => {
 
     expect(await screen.findByText('Request payload missing')).toBeVisible();
     expect(repairButton()).not.toBeNull();
+  });
+
+  it('takes request availability from the live status when the detail record lacks it', async () => {
+    mocks.progressData = { run_id: RUN_ID, status: 'COMPLETED', request_available: true };
+    mocks.api.getBacktest.mockResolvedValue({
+      data: { run_id: RUN_ID, status: 'completed', restartable: true },
+    });
+    renderPage();
+
+    expect(await screen.findByText('Request payload available')).toBeVisible();
+    expect(screen.queryByText('Request payload not checked')).toBeNull();
+    expect(repairButton()).toBeNull();
+  });
+});
+
+describe('BacktestDetailsV2 risk and data checks', () => {
+  beforeEach(() => {
+    Object.values(mocks.api).forEach((mock) => mock.mockReset());
+    mocks.getBacktestStatus.mockReset();
+    mocks.progressData = undefined;
+    mocks.api.getBacktestAnalytics.mockResolvedValue({ data: {} });
+    mocks.api.getBacktestPositionSnapshots.mockResolvedValue({ data: {} });
+    mocks.api.getBacktestTradesDetailed.mockResolvedValue({ data: {} });
+    mocks.getBacktestStatus.mockResolvedValue({ run_id: RUN_ID, status: 'COMPLETED' });
+  });
+
+  afterEach(() => cleanup());
+
+  it('shows the data source, the drawdown halt, exposure and removed prints', async () => {
+    mocks.progressData = {
+      run_id: RUN_ID,
+      status: 'COMPLETED',
+      request_available: true,
+      request: {
+        initial_balance: 100,
+        _task_context: {
+          metadata: {
+            market_data_network: 'mainnet',
+            drawdown_halt: {
+              limit_pct: 10,
+              reached: true,
+              reached_at: '2026-09-02T00:00:00Z',
+              trades_skipped: 7,
+            },
+            open_exposure: {
+              peak_open_positions: 12,
+              peak_open_notional_usd: 120,
+              initial_balance: 100,
+              exceeds_balance: true,
+            },
+            history_fetch_telemetry: { total_bad_prints_dropped: 3, markets: {} },
+          },
+        },
+      },
+    };
+    mocks.api.getBacktest.mockResolvedValue({
+      data: { run_id: RUN_ID, status: 'completed', total_pnl: 5 },
+    });
+    renderPage();
+
+    expect(await screen.findByText('Market data: mainnet history')).toBeVisible();
+    expect(screen.getByText(/Drawdown limit 10% reached 2026-09-02/)).toBeVisible();
+    expect(screen.getByText(/7 later entries skipped/)).toBeVisible();
+    expect(screen.getByText(/Peak open exposure 12/)).toHaveTextContent('more than the balance');
+    expect(screen.getByText(/3 bad price prints removed/)).toBeVisible();
+    expect(screen.getByText(/on \$100(\.00)? starting balance/)).toBeVisible();
+    expect(screen.queryByText(/test capital/)).toBeNull();
+  });
+
+  it('says the checks were not recorded for an older run', async () => {
+    mocks.api.getBacktest.mockResolvedValue({ data: { run_id: RUN_ID, status: 'completed' } });
+    renderPage();
+
+    expect(await screen.findByText(/Not recorded: this run predates these checks/)).toBeVisible();
+    expect(screen.getByText('Starting balance not loaded yet')).toBeVisible();
   });
 });

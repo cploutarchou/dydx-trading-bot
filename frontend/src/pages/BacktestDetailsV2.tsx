@@ -57,6 +57,7 @@ import {
   normalizeUnenforcedRiskControls,
   riskControlLabel,
 } from '../utils/unenforcedRiskControls';
+import { formatDrawdownPct } from '../utils/format';
 import { meaningfulTimestamp } from '../utils/timestamps';
 
 interface Candle {
@@ -316,6 +317,8 @@ const buildFallbackBacktestFromStatus = (
     pausable: Boolean(payload.pausable),
     resumable: Boolean(payload.resumable),
     restartable: Boolean(payload.restartable ?? false),
+    request_available:
+      typeof payload.request_available === 'boolean' ? payload.request_available : undefined,
     control_status: firstMeaningfulString(payload.control_status) ?? undefined,
     control_action: firstMeaningfulString(payload.control_action) ?? undefined,
     worker_backend: firstMeaningfulString(payload.worker_backend) ?? undefined,
@@ -1289,6 +1292,15 @@ export const BacktestDetailsV2: React.FC = () => {
   const requestTaskContext = asRecord(requestPayload?._task_context);
   const requestMetadata = asRecord(requestTaskContext?.metadata);
   const historyFetchTelemetry = asRecord(requestMetadata?.history_fetch_telemetry);
+  // Written by the bot at completion; absent on runs from before these checks.
+  const drawdownHalt = asRecord(requestMetadata?.drawdown_halt);
+  const openExposure = asRecord(requestMetadata?.open_exposure);
+  const marketDataNetwork =
+    typeof requestMetadata?.market_data_network === 'string'
+      ? requestMetadata.market_data_network
+      : null;
+  const badPrintsDropped = toNumber(historyFetchTelemetry?.total_bad_prints_dropped, 0);
+  const riskChecksRecorded = openExposure !== null || marketDataNetwork !== null;
   const historyFetchMarketsRecord = asRecord(historyFetchTelemetry?.markets);
   const historyFetchTotalWindows = toNumber(historyFetchTelemetry?.total_windows, 0);
   const historyFetchTotalRetries = toNumber(historyFetchTelemetry?.total_retries, 0);
@@ -1368,14 +1380,13 @@ export const BacktestDetailsV2: React.FC = () => {
                 .filter((market) => market && market !== '-')
             )
           );
-  const initialCapital = Math.max(
-    1,
-    firstFiniteNumber(
-      requestPayload?.initial_balance,
-      requestParams?.starting_balance,
-      requestParams?.initial_amount
-    ) ?? 1000
+  // The run's own starting balance; no invented default when it has not loaded.
+  const knownCapital = firstFiniteNumber(
+    requestPayload?.initial_balance,
+    requestParams?.starting_balance,
+    requestParams?.initial_amount
   );
+  const initialCapital = knownCapital !== null && knownCapital > 0 ? knownCapital : null;
   const avgPnlPerTrade =
     trades.length > 0 ? trades.reduce((sum, trade) => sum + trade.pnl_usd, 0) / trades.length : 0;
   const avgTradeDurationHours =
@@ -1391,7 +1402,11 @@ export const BacktestDetailsV2: React.FC = () => {
   const computedProfitFactor =
     liveBacktest.profit_factor ??
     (grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? grossProfit : 0);
-  const capitalEfficiencyPct = (totalPnl / initialCapital) * 100;
+  const capitalEfficiencyPct = initialCapital !== null ? (totalPnl / initialCapital) * 100 : null;
+  const capitalEfficiencyText =
+    capitalEfficiencyPct === null
+      ? '—'
+      : `${capitalEfficiencyPct >= 0 ? '+' : ''}${capitalEfficiencyPct.toFixed(2)}%`;
   const topPairAbsPnl = topPairs.length > 0 ? Math.abs(topPairs[0]!.pnl) : 0;
   const aggregatePairAbsPnl = pairBreakdown.reduce((sum, pair) => sum + Math.abs(pair.pnl), 0);
   const pairConcentrationPct =
@@ -1422,11 +1437,14 @@ export const BacktestDetailsV2: React.FC = () => {
     },
     {
       label: 'Capital Efficiency',
-      value: `${capitalEfficiencyPct >= 0 ? '+' : ''}${capitalEfficiencyPct.toFixed(2)}%`,
-      detail: `${formatCurrency(totalPnl)} on ${formatCurrency(initialCapital)} test capital`,
+      value: capitalEfficiencyText,
+      detail:
+        initialCapital !== null
+          ? `${formatCurrency(totalPnl)} on ${formatCurrency(initialCapital)} starting balance`
+          : 'Starting balance not loaded yet',
       icon: Percent,
-      pct: Math.min(100, Math.abs(capitalEfficiencyPct) * 5),
-      tone: capitalEfficiencyPct >= 0 ? 'emerald' : 'rose',
+      pct: Math.min(100, Math.abs(capitalEfficiencyPct ?? 0) * 5),
+      tone: (capitalEfficiencyPct ?? 0) >= 0 ? 'emerald' : 'rose',
     },
     {
       label: 'Pair Concentration',
@@ -1524,7 +1542,7 @@ export const BacktestDetailsV2: React.FC = () => {
     },
     {
       label: 'Max Drawdown',
-      value: `${maxDrawdown.toFixed(1)}%`,
+      value: formatDrawdownPct(maxDrawdown),
       detail: `Low watermark ${formatCurrency(troughEquity)}`,
       icon: TrendingDown,
     },
@@ -1645,7 +1663,7 @@ export const BacktestDetailsV2: React.FC = () => {
           : 'Repair blocked';
   const recoverySummaryHint =
     requestAvailable === undefined
-      ? 'The run record has not loaded yet, so the stored request was not checked.'
+      ? 'The bot has not reported whether this run kept its request.'
       : requestAvailable
         ? 'Restart uses the saved request directly.'
         : canRepairRestart
@@ -2740,7 +2758,7 @@ export const BacktestDetailsV2: React.FC = () => {
                 <div>
                   <dt className="text-xs uppercase tracking-wide text-slate-500">Max Drawdown</dt>
                   <dd className={`mt-1 ${isSummaryDense ? 'text-xs' : 'text-sm'} text-slate-200`}>
-                    {maxDrawdown.toFixed(1)}%
+                    {formatDrawdownPct(maxDrawdown)}
                   </dd>
                 </div>
                 <div>
@@ -2806,10 +2824,7 @@ export const BacktestDetailsV2: React.FC = () => {
                   <p className="text-[10px] uppercase tracking-[0.14em] text-cyan-200">
                     Capital efficiency
                   </p>
-                  <p className="mt-1 font-semibold text-cyan-100">
-                    {capitalEfficiencyPct >= 0 ? '+' : ''}
-                    {capitalEfficiencyPct.toFixed(2)}%
-                  </p>
+                  <p className="mt-1 font-semibold text-cyan-100">{capitalEfficiencyText}</p>
                 </div>
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
                   <p className="text-[10px] uppercase tracking-[0.14em] text-amber-200">
@@ -2898,6 +2913,56 @@ export const BacktestDetailsV2: React.FC = () => {
                         : 'silent fallback recovery'}
                       .
                     </p>
+                  </div>
+
+                  <div
+                    className={`rounded-2xl border border-slate-800 bg-slate-950/55 sm:col-span-2 ${isSummaryDense ? 'p-3' : 'p-4'}`}
+                  >
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                      Risk and data checks
+                    </p>
+                    {riskChecksRecorded ? (
+                      <ul className="mt-2 space-y-1 text-sm text-slate-300">
+                        <li>
+                          Market data:{' '}
+                          {marketDataNetwork === 'testnet'
+                            ? 'testnet history (thin books; results are unreliable)'
+                            : 'mainnet history'}
+                        </li>
+                        <li>
+                          {drawdownHalt === null
+                            ? 'No drawdown limit set for this run.'
+                            : drawdownHalt.reached
+                              ? `Drawdown limit ${toNumber(drawdownHalt.limit_pct, 0)}% reached ${formatDateValue(
+                                  typeof drawdownHalt.reached_at === 'string'
+                                    ? drawdownHalt.reached_at
+                                    : null
+                                )}; ${toNumber(drawdownHalt.trades_skipped, 0)} later entries skipped, as a live bot halts entries.`
+                              : `Drawdown limit ${toNumber(drawdownHalt.limit_pct, 0)}% never reached.`}
+                        </li>
+                        {openExposure !== null && (
+                          <li
+                            className={openExposure.exceeds_balance ? 'text-amber-300' : undefined}
+                          >
+                            Peak open exposure {toNumber(openExposure.peak_open_positions, 0)}{' '}
+                            positions,{' '}
+                            {formatCurrency(toNumber(openExposure.peak_open_notional_usd, 0))} on a{' '}
+                            {formatCurrency(toNumber(openExposure.initial_balance, 0))} balance
+                            {openExposure.exceeds_balance ? ': more than the balance.' : '.'}
+                          </li>
+                        )}
+                        {badPrintsDropped > 0 && (
+                          <li className="text-amber-300">
+                            {badPrintsDropped} bad price prints removed from the market history.
+                          </li>
+                        )}
+                      </ul>
+                    ) : (
+                      <p className="mt-2 text-sm text-slate-400">
+                        Not recorded: this run predates these checks and used the bot&apos;s runtime
+                        network for market data.
+                      </p>
+                    )}
                   </div>
 
                   <div

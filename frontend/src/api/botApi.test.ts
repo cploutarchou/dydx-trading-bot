@@ -37,6 +37,9 @@ describe('bot API surface (consolidated on the axios client)', () => {
         progress_pct: 37.5,
         current_pair: 'BTC-USD/SOL-USD',
         updated_at: '2026-09-26T11:25:00+00:00',
+        request_available: true,
+        restartable: false,
+        request: { initial_balance: 100 },
       },
       timestamp: new Date().toISOString(),
     } as Awaited<ReturnType<typeof baseApiClient.getBacktestStatus>>);
@@ -49,6 +52,9 @@ describe('bot API surface (consolidated on the axios client)', () => {
     expect(status.progress_source).toBe('status');
     expect(status.current_pair).toBe('BTC-USD/SOL-USD');
     expect(status.updated_at).toBe('2026-09-26T11:25:00+00:00');
+    expect(status.request_available).toBe(true);
+    expect(status.restartable).toBe(false);
+    expect(status.request).toEqual({ initial_balance: 100 });
     expect(listSpy).not.toHaveBeenCalled();
   });
 

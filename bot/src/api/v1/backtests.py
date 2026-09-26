@@ -52,7 +52,7 @@ from src.shared.trading_validators import (
     normalize_market_list,
     validate_iso_date_range,
 )
-from src.trading.dydx_client import connect_dydx
+from src.trading.dydx_client import connect_backtest_market_data
 
 CompatibilityNamespaceProvider = Callable[[], Mapping[str, Any]]
 BacktestRateLimitProvider = Callable[[Request], None]
@@ -710,7 +710,7 @@ async def _resolve_backtest_markets(
     client = None
     try:
         client = await asyncio.wait_for(
-            connect_dydx(),
+            connect_backtest_market_data(),
             timeout=MARKET_RESOLUTION_TIMEOUT_SECONDS,
         )
         payload = await asyncio.wait_for(

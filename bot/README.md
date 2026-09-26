@@ -152,6 +152,11 @@ Useful environment variables:
 - `BACKTEST_CELERY_RETRY_MAX_SECONDS=600`
 - `BACKTEST_CELERY_TASK_SOFT_TIME_LIMIT` and `BACKTEST_CELERY_TASK_TIME_LIMIT`
 - `BACKTEST_TASK_LOCK_TTL_SECONDS` or `BACKTEST_LOCK_REDIS_URL` for duplicate-run locking
+- `BACKTEST_MARKET_DATA_NETWORK=mainnet` (default) sets whose public candle history backtests replay, whatever
+  network runtimes trade on. `testnet` is only for debugging: testnet books are thin and their candles carry prints
+  far from the market. Single-bar prints more than 3x off both neighbouring medians are dropped and counted in the
+  run's history telemetry. A strategy's `max_drawdown_pct` halts new backtest entries once realized equity falls
+  that far below its peak, as the live runtime does.
 - `MARKET_SYNC_ENABLED=true` only when running Celery Beat for scheduled market candle sync
 - `MARKET_DATA_CACHE_ENABLED=true` (default) enables the shared Redis/Valkey L2 cache for markets and recent
   candles (read-through write; no-ops when Redis is absent). Override the URL with `MARKET_DATA_CACHE_REDIS_URL`

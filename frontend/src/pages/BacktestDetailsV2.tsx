@@ -789,7 +789,8 @@ export const BacktestDetailsV2: React.FC = () => {
       : selectedMarket && markets.includes(selectedMarket)
         ? selectedMarket
         : (markets[0] ?? null);
-  const analyticsLoading = analyticsQuery.isPending && !analyticsQuery.data;
+  // Tabs load on first open: a never-opened tab is pending but idle, not loading.
+  const analyticsLoading = analyticsQuery.isLoading;
   const analyticsError = analyticsQuery.isError
     ? analyticsQuery.error instanceof Error
       ? analyticsQuery.error.message
@@ -858,7 +859,7 @@ export const BacktestDetailsV2: React.FC = () => {
   });
 
   const positions = positionsQuery.data ?? [];
-  const positionsLoading = positionsQuery.isPending && !positionsQuery.data;
+  const positionsLoading = positionsQuery.isLoading;
   const positionsError = positionsQuery.isError
     ? positionsQuery.error instanceof Error
       ? positionsQuery.error.message
@@ -919,7 +920,7 @@ export const BacktestDetailsV2: React.FC = () => {
   });
 
   const trades = tradesQuery.data ?? [];
-  const tradesLoading = tradesQuery.isPending && !tradesQuery.data;
+  const tradesLoading = tradesQuery.isLoading;
   const tradesError = tradesQuery.isError
     ? tradesQuery.error instanceof Error
       ? tradesQuery.error.message
@@ -1590,11 +1591,11 @@ export const BacktestDetailsV2: React.FC = () => {
       isLoading: false,
     },
     candles: {
-      countLabel: `${filteredChartPoints.length} bars`,
+      countLabel: analyticsQuery.isPending ? 'Not loaded' : `${filteredChartPoints.length} bars`,
       isLoading: analyticsLoading,
     },
     positions: {
-      countLabel: `${positions.length} rows`,
+      countLabel: positionsQuery.isPending ? 'Not loaded' : `${positions.length} rows`,
       isLoading: positionsLoading,
     },
     trades: {

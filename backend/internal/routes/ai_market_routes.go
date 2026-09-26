@@ -37,7 +37,8 @@ func RegisterAIMarketRoutes(router *gin.Engine, database *db.Database, apiClient
 				return
 			}
 
-			payload, err := apiClient.GetPerpetualMarkets(0)
+			// The AI selector ranks the tradable universe: active markets only.
+			payload, err := apiClient.GetPerpetualMarkets(0, false)
 			if err != nil {
 				respondBotAPIError(c, err)
 				return

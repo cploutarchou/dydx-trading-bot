@@ -6,6 +6,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import api from '../api';
 import { clearUserScopedQueries } from '../api/queryClient';
+import { describeSessionError, isAuthRejection } from '../api/sessionErrors';
 import { perfMark, perfMeasure } from '../utils/perf';
 
 const withTimeout = async <T>(
@@ -28,6 +29,23 @@ const withTimeout = async <T>(
     }
   }
 };
+
+// Retry schedule for a session bootstrap that failed without a backend
+// rejection (network error, timeout, 5xx). Short and bounded: the first
+// failure already swaps the spinner for the connection notice.
+const SESSION_RESTORE_RETRY_DELAYS_MS = [1000, 3000];
+const SESSION_CALL_TIMEOUT_MS = 10000;
+const SESSION_UNCONFIRMED_MESSAGE =
+  'Signed in, but the session could not be confirmed. Retry in a moment.';
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Result of a /users/me probe. 'rejected' is the only outcome that ends the
+ * session; 'unavailable' means the backend could not be reached and nothing
+ * about the session is known.
+ */
+export type SessionProbeOutcome = 'ok' | 'rejected' | 'unavailable';
 
 const getVerifiedTwoFAMessage = (response: {
   success: boolean;
@@ -53,6 +71,7 @@ const loggedOutState = () => ({
   loading: false,
   sessionLoading: false,
   sessionInitialized: true,
+  sessionUnavailable: false,
   error: null,
   twoFARequired: false,
   twoFASecret: undefined,
@@ -83,6 +102,13 @@ interface AuthStore {
   loading: boolean;
   sessionLoading: boolean;
   sessionInitialized: boolean;
+  /**
+   * True when the last session call failed without a backend rejection (a
+   * network error, timeout or 5xx). The server session is untouched and the
+   * session hint is kept; the route guards show a retry notice instead of
+   * redirecting to the login page.
+   */
+  sessionUnavailable: boolean;
   error: string | null;
   twoFARequired: boolean;
   /** True after a password-only login for an MFA-enrolled account. */
@@ -105,7 +131,7 @@ interface AuthStore {
   setup2FA: () => Promise<void>;
   verify2FA: (token: string) => Promise<void>;
   logout: () => void;
-  getCurrentUser: () => Promise<void>;
+  getCurrentUser: () => Promise<SessionProbeOutcome>;
   initializeSession: () => Promise<void>;
   isAuthenticated: () => boolean;
   has2FAEnabled: () => boolean;
@@ -118,6 +144,7 @@ export const useAuthStore = create<AuthStore>()(
       loading: false,
       sessionLoading: false,
       sessionInitialized: false,
+      sessionUnavailable: false,
       error: null,
       twoFARequired: false,
       mfaChallengeRequired: false,
@@ -145,7 +172,10 @@ export const useAuthStore = create<AuthStore>()(
             return;
           }
 
-          await get().getCurrentUser();
+          if ((await get().getCurrentUser()) === 'unavailable') {
+            // The credentials were accepted; only the profile load failed.
+            set({ error: SESSION_UNCONFIRMED_MESSAGE });
+          }
         } catch (error: unknown) {
           console.error('❌ auth.ts: Login failed');
           set({ error: 'Unable to sign in with those credentials.', user: null });
@@ -227,11 +257,27 @@ export const useAuthStore = create<AuthStore>()(
           if (!userData) {
             throw new Error('Current user response did not include a user payload');
           }
-          set({ user: userData, error: null });
+          set({ user: userData, error: null, sessionUnavailable: false });
+          return 'ok';
         } catch (error) {
-          console.error('❌ auth.ts: getCurrentUser failed:', error);
-          api.logout();
-          set(buildLoggedOutState());
+          if (isAuthRejection(error)) {
+            console.error(
+              '❌ auth.ts: getCurrentUser rejected by the backend, logging out:',
+              error
+            );
+            api.logout();
+            set(buildLoggedOutState());
+            return 'rejected';
+          }
+          // A network error, timeout or server fault says nothing about the
+          // session. Keep the user and the session hint, and never send the
+          // logout that would delete the server session for every tab.
+          console.warn(
+            '⚠️ auth.ts: getCurrentUser could not reach the backend, keeping the session:',
+            describeSessionError(error)
+          );
+          set({ sessionUnavailable: true });
+          return 'unavailable';
         }
       },
 
@@ -240,19 +286,18 @@ export const useAuthStore = create<AuthStore>()(
           return activeInitializeSession;
         }
 
-        // Signal that auth bootstrap is in flight so ProtectedRoute can show a skeleton
-        // instead of redirecting to /login prematurely.
-        activeInitializeSession = (async () => {
-          set({ sessionLoading: true, sessionInitialized: false, error: null });
-          perfMark('session:init:start');
-
+        // One bootstrap pass: restore the cookie session, then load the user.
+        // 'settled' means the store now holds the answer (signed in, signed
+        // out, or the MFA challenge armed); 'unavailable' means the backend
+        // could not be reached, so nothing about the session is known yet.
+        const restoreOnce = async (): Promise<'settled' | 'unavailable'> => {
           try {
             const allowCookieRefresh = api.shouldAttemptCookieRefresh();
             const restored = await withTimeout(
               api.restoreSession({
                 allowCookieRefresh,
               }),
-              10000,
+              SESSION_CALL_TIMEOUT_MS,
               'restoreSession'
             );
             if (!restored) {
@@ -261,34 +306,81 @@ export const useAuthStore = create<AuthStore>()(
                 // of probing /users/me — the probe would 401 and log out,
                 // destroying the pending challenge session.
                 set({ ...buildLoggedOutState(), mfaChallengeRequired: true });
-                return;
+                return 'settled';
               }
               if (allowCookieRefresh) {
                 console.warn(
                   '⚠️ auth.ts: restoreSession did not recover a token, probing current user via cookie session'
                 );
-                await withTimeout(
+                const probe = await withTimeout(
                   get().getCurrentUser(),
-                  10000,
+                  SESSION_CALL_TIMEOUT_MS,
                   'initializeSession cookie session probe'
                 );
+                if (probe === 'unavailable') {
+                  return 'unavailable';
+                }
                 if (get().user) {
-                  return;
+                  return 'settled';
                 }
               }
 
               set(buildLoggedOutState());
-              return;
+              return 'settled';
             }
 
-            await withTimeout(get().getCurrentUser(), 10000, 'initializeSession current user');
+            const probe = await withTimeout(
+              get().getCurrentUser(),
+              SESSION_CALL_TIMEOUT_MS,
+              'initializeSession current user'
+            );
+            return probe === 'unavailable' ? 'unavailable' : 'settled';
           } catch (error: unknown) {
-            console.error('❌ auth.ts: initializeSession failed:', error);
-            api.logout();
-            set({
-              ...buildLoggedOutState(),
-              error: error instanceof Error ? error.message : 'Session restore failed',
-            });
+            if (isAuthRejection(error)) {
+              console.error('❌ auth.ts: initializeSession rejected by the backend:', error);
+              api.logout();
+              set({
+                ...buildLoggedOutState(),
+                error: error instanceof Error ? error.message : 'Session restore failed',
+              });
+              return 'settled';
+            }
+            // Timeouts and network faults land here. The session hint stays
+            // and no logout is sent: the server session may be perfectly fine.
+            console.warn(
+              '⚠️ auth.ts: initializeSession could not reach the backend:',
+              describeSessionError(error)
+            );
+            return 'unavailable';
+          }
+        };
+
+        // Signal that auth bootstrap is in flight so ProtectedRoute can show a skeleton
+        // instead of redirecting to /login prematurely.
+        activeInitializeSession = (async () => {
+          set({
+            sessionLoading: true,
+            sessionInitialized: false,
+            sessionUnavailable: false,
+            error: null,
+          });
+          perfMark('session:init:start');
+
+          try {
+            for (let attempt = 0; attempt <= SESSION_RESTORE_RETRY_DELAYS_MS.length; attempt += 1) {
+              if (attempt > 0) {
+                await sleep(SESSION_RESTORE_RETRY_DELAYS_MS[attempt - 1] ?? 0);
+              }
+              if ((await restoreOnce()) === 'settled') {
+                return;
+              }
+              // Swap the spinner for the connection notice (or the last known
+              // user) while the remaining retries run.
+              set({ sessionUnavailable: true, sessionLoading: false, sessionInitialized: true });
+            }
+            console.warn(
+              '⚠️ auth.ts: session restore still unavailable after retries; keeping the session hint'
+            );
           } finally {
             perfMark('session:init:end');
             perfMeasure('session:init:duration', 'session:init:start', 'session:init:end');
@@ -376,6 +468,7 @@ export const useAuthStore = create<AuthStore>()(
           state.loading = false;
           state.sessionLoading = false;
           state.sessionInitialized = false;
+          state.sessionUnavailable = false;
           state.twoFARequired = false;
           state.twoFASecret = undefined;
           state.twoFAQRCode = undefined;

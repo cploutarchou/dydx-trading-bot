@@ -10,6 +10,7 @@ import api, {
 } from '../api';
 import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/intelligence';
 import { useStrategyStore } from '../store/strategies';
+import { formatMarketVolume, pairCount, volumeByTicker } from '../utils/marketUniverse';
 import { useToastStore } from './ErrorBoundary';
 import { Field } from './ui/Field';
 import { InlineNotice } from './ui/PlatformUI';
@@ -141,6 +142,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [availableMarkets, setAvailableMarkets] = useState<string[]>([]);
+  const [marketVolumes, setMarketVolumes] = useState<Map<string, number | null>>(new Map());
   const [selectedMarkets, setSelectedMarkets] = useState<string[]>([]);
   const [marketsLoading, setMarketsLoading] = useState(false);
   const [marketsError, setMarketsError] = useState<string | null>(null);
@@ -188,7 +190,9 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       setMarketsLoading(true);
       setMarketsError(null);
       try {
-        const response = await api.getPerpetualMarkets(120);
+        // The route returns the tradable universe: active markets sorted by
+        // 24 h volume. No cap, so nothing traded is left off the list.
+        const response = await api.getPerpetualMarkets();
         const markets = Array.isArray(response.data?.markets) ? response.data.markets : [];
         const responseData = (response.data || {}) as PerpetualMarketsResponse;
         const source = String(responseData.source || 'unknown');
@@ -198,12 +202,14 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         if (!cancelled) {
           if (staticFallback) {
             setAvailableMarkets([]);
+            setMarketVolumes(new Map());
             setMarketsSource(source);
             setMarketsStale(false);
             setMarketsError('Market list came from a static fallback. Live dYdX data is required.');
             return;
           }
           setAvailableMarkets(markets);
+          setMarketVolumes(volumeByTicker(responseData.market_details));
           setMarketsSource(source);
           setMarketsStale(Boolean(responseData.cache_stale));
         }
@@ -565,7 +571,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
 
   const scanScopeLabel =
     selectedMarkets.length > 0
-      ? `${selectedPairPreview.length} pair${selectedPairPreview.length === 1 ? '' : 's'} from ${selectedMarkets.length} markets`
+      ? `${pairCount(selectedMarkets.length)} pair${pairCount(selectedMarkets.length) === 1 ? '' : 's'} from ${selectedMarkets.length} markets`
       : Number(formData.max_pairs) > 0
         ? `${formData.max_pairs} markets`
         : 'All available markets';
@@ -838,7 +844,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
                   disabled={availableMarkets.length === 0}
                   className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 disabled:opacity-50"
                 >
-                  First 5
+                  Top 5
                 </button>
                 <button
                   type="button"
@@ -860,6 +866,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
                   {availableMarkets.map((market) => {
                     const checked = selectedMarkets.includes(market);
                     const disabled = !checked && selectedMarkets.length >= 5;
+                    const volumeLabel = formatMarketVolume(marketVolumes.get(market));
                     return (
                       <label
                         key={market}
@@ -877,6 +884,11 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
                           className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-cyan-500"
                         />
                         <span className="truncate">{market}</span>
+                        {volumeLabel && (
+                          <span className="ml-auto shrink-0 text-[10px] text-slate-500">
+                            {volumeLabel}
+                          </span>
+                        )}
                       </label>
                     );
                   })}
@@ -887,8 +899,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               <p className="mt-2 text-xs text-amber-200">{marketSourceWarning}</p>
             )}
             <p className="mt-1 text-xs text-gray-400">
-              Optional. Select 2-5 markets; the run processes the first five generated pair
-              combinations.
+              Optional. Select 2 to 5 markets; every pair from the selection runs (10 pairs for 5
+              markets). Markets are listed by 24h volume; settled markets are hidden.
             </p>
             {selectedPairPreview.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">
@@ -900,6 +912,11 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
                     {pair}
                   </span>
                 ))}
+                {pairCount(selectedMarkets.length) > selectedPairPreview.length && (
+                  <span className="px-2 py-1 text-xs text-slate-400">
+                    +{pairCount(selectedMarkets.length) - selectedPairPreview.length} more
+                  </span>
+                )}
               </div>
             )}
           </div>

@@ -21,6 +21,18 @@
       arbitrage flags); worker rejection counters are not published to the API; `BacktestDetailResponse.metrics` is
       declared but never populated. Frontend settings form does not render the new keys yet (follow-up).
 
+- **Perpetual markets route returns the tradable universe** (`GET /api/v1/markets/perpetuals`).
+    - `src/api/market_universe.py` (pure): the indexer map becomes typed records (`status`, `volume_24h`,
+      `open_interest`, `open_interest_usd`, `next_funding_rate`, `oracle_price`, `trades_24h`). The route returns
+      `ACTIVE` markets sorted by 24 h volume (unknown volume last, ticker tie-break), capped by `limit` only after
+      sorting; `include_settled=true` returns every market. `markets` stays the ticker list; `market_details`,
+      `include_settled`, `active_total` and `inactive_total` are additive. The cache holds the normalized records
+      and the fresh, live and stale paths apply the same selection. `openapi.json` regenerated.
+    - Before: the first N tickers alphabetically with no status filter, which on mainnet meant 120 of 160 settled
+      markets and no SOL-USD or XRP-USD in the pickers. The backend forwards `include_settled`; the frontend pickers
+      request no cap, show the volume beside each market, and the backtest form says every pair from the selected
+      markets runs.
+
 ## 2026-09-23 — DONE
 
 - **Strategy `max_drawdown_pct` and `trailing_stop_pct` enforced on live bots** (both were REJECTED since

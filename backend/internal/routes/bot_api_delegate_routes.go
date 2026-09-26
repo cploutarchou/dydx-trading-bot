@@ -1912,14 +1912,9 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 
 	router.GET("/api/v1/markets/perpetuals", middleware.RequireAuth(), withRequestScopedBotClient, func(c *gin.Context) {
 		requestClient := getRequestBotAPIClient(c, apiClient)
-		limit := 0
-		if rawLimit := strings.TrimSpace(c.Query("limit")); rawLimit != "" {
-			if parsed, err := strconv.Atoi(rawLimit); err == nil && parsed > 0 {
-				limit = parsed
-			}
-		}
+		limit, includeSettled := parsePerpetualMarketsQuery(c)
 		delegateJSON(c, apiClient, func(_ *services.BotAPIClient) (map[string]interface{}, error) {
-			return requestClient.GetPerpetualMarkets(limit)
+			return requestClient.GetPerpetualMarkets(limit, includeSettled)
 		})
 	})
 
@@ -3600,4 +3595,22 @@ func normalizeRealtimeBotInstanceID(instanceID string) (string, error) {
 		return "", fmt.Errorf("instance_id is required")
 	}
 	return trimmed, nil
+}
+
+// parsePerpetualMarketsQuery reads the optional market-universe filters the
+// bot route accepts: a positive limit and an include_settled flag. Anything
+// else keeps the bot's defaults (active markets only, no cap).
+func parsePerpetualMarketsQuery(c *gin.Context) (int, bool) {
+	limit := 0
+	if rawLimit := strings.TrimSpace(c.Query("limit")); rawLimit != "" {
+		if parsed, err := strconv.Atoi(rawLimit); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	includeSettled := false
+	switch strings.ToLower(strings.TrimSpace(c.Query("include_settled"))) {
+	case "1", "true", "yes", "on":
+		includeSettled = true
+	}
+	return limit, includeSettled
 }

@@ -25,6 +25,7 @@ import {
 import { MainLayout } from './components/MainLayout';
 import { RegistrationDisabledLoginGate } from './components/RegistrationDisabledLoginGate';
 import { RouteErrorBoundary } from './components/RouteErrorBoundary';
+import { SessionUnavailableNotice } from './components/SessionUnavailableNotice';
 import { ThemeProvider } from './components/ThemeProvider';
 import { ForgotPasswordPage } from './pages/ForgotPassword';
 import { LoginPage } from './pages/Login';
@@ -102,6 +103,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: Works
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
   const sessionLoading = useAuthStore((state) => state.sessionLoading);
   const sessionInitialized = useAuthStore((state) => state.sessionInitialized);
+  const sessionUnavailable = useAuthStore((state) => state.sessionUnavailable);
   const user = useAuthStore((state) => state.user);
 
   // Wait until bootstrap resolves before deciding to redirect.
@@ -110,6 +112,11 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: Works
   }
 
   if (!isAuthenticated || !user) {
+    if (sessionUnavailable) {
+      // The backend could not be reached, so nothing says the session is
+      // gone: offer a retry instead of bouncing to the login page.
+      return <SessionUnavailableNotice />;
+    }
     return <Navigate to="/login" replace />;
   }
 
@@ -136,6 +143,7 @@ const PasswordRotationRoute: React.FC = () => {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
   const sessionLoading = useAuthStore((state) => state.sessionLoading);
   const sessionInitialized = useAuthStore((state) => state.sessionInitialized);
+  const sessionUnavailable = useAuthStore((state) => state.sessionUnavailable);
   const user = useAuthStore((state) => state.user);
 
   if (!sessionInitialized || (!isAuthenticated && sessionLoading)) {
@@ -143,6 +151,11 @@ const PasswordRotationRoute: React.FC = () => {
   }
 
   if (!isAuthenticated || !user) {
+    if (sessionUnavailable) {
+      // The backend could not be reached, so nothing says the session is
+      // gone: offer a retry instead of bouncing to the login page.
+      return <SessionUnavailableNotice />;
+    }
     return <Navigate to="/login" replace />;
   }
 
@@ -157,6 +170,7 @@ const ComingSoonGate: React.FC<{ children: React.ReactNode }> = ({ children }) =
   const portal = getCurrentPortalType();
   const location = useLocation();
   const user = useAuthStore((state) => state.user);
+  const sessionUnavailable = useAuthStore((state) => state.sessionUnavailable);
   const isAuthBypassPath = isComingSoonBypassPath(location.pathname);
   const appConfigQuery = useQuery({
     queryKey: ['public', 'app-config'],
@@ -186,8 +200,10 @@ const ComingSoonGate: React.FC<{ children: React.ReactNode }> = ({ children }) =
   }
 
   // Authenticated users always bypass the coming-soon gate so they can
-  // reach the dashboard and admin surfaces normally.
-  if (user) {
+  // reach the dashboard and admin surfaces normally. So does a session the
+  // backend could not confirm: the protected route shows the retry notice,
+  // not the public page.
+  if (user || sessionUnavailable) {
     return <>{children}</>;
   }
 
@@ -210,7 +226,8 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     // Auth bootstrap runs in the background — the UI renders immediately and
-    // protected routes redirect to /login if the session cannot be restored.
+    // protected routes redirect to /login if the backend rejects the session.
+    // A backend that cannot be reached keeps the session and retries instead.
     const bootstrapAuth = async () => {
       try {
         await withTimeout(initializeSession(), AUTH_BOOTSTRAP_TIMEOUT_MS, 'Auth bootstrap');
@@ -218,8 +235,8 @@ export const App: React.FC = () => {
         console.warn('⚠️ App.tsx: auth bootstrap failed', error);
         if (error instanceof Error && error.message.includes('timed out')) {
           toastWarning(
-            'Session restore timed out',
-            'Continuing to login. You can sign in again if needed.',
+            'Session restore is taking longer than expected',
+            'Still trying to restore your session in the background.',
             { duration: 5000 }
           );
         }

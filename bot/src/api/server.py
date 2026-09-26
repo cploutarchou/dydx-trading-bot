@@ -91,6 +91,11 @@ from src.api.endpoint_timing import (  # noqa: E402
 )
 from src.api.endpoint_timing import log_endpoint_timing as _log_endpoint_timing
 from src.api.endpoint_timing import payload_size_bytes as _payload_size_bytes
+from src.api.market_universe import (  # noqa: E402
+    MarketRecord,
+    market_universe_payload,
+    normalize_market_records,
+)
 from src.api.responses import (  # noqa: E402
     INTERNAL_ERROR_MESSAGE,
     api_response,
@@ -1534,8 +1539,15 @@ async def api_capabilities() -> JSONResponse:
 
 
 @app.get("/api/v1/markets/perpetuals")
-async def list_perpetual_markets(limit: int = 0) -> JSONResponse:
-    """Return available dYdX perpetual markets for run configuration.
+async def list_perpetual_markets(
+    limit: int = 0, include_settled: bool = False
+) -> JSONResponse:
+    """Return the tradable dYdX perpetual markets for run configuration.
+
+    Markets are ``ACTIVE`` only unless ``include_settled=true``, sorted by 24 h
+    volume (highest first, unknown volume last) and capped by ``limit`` only
+    after sorting. ``markets`` lists the tickers; ``market_details`` carries the
+    indexer metrics per ticker (volume, open interest, funding, oracle price).
 
     Results are cached for ``MARKETS_CACHE_TTL_SECONDS`` (default 60 s).
     When the live dYdX call fails, stale cache data is served (up to
@@ -1547,23 +1559,23 @@ async def list_perpetual_markets(limit: int = 0) -> JSONResponse:
     cap = _normalize_requested_pair_cap(limit)
     client = None
 
+    def _payload(records: List[MarketRecord], source: str) -> Dict[str, Any]:
+        return market_universe_payload(
+            records, include_settled=include_settled, cap=cap, source=source
+        )
+
     # Serve a fresh cache hit without making a network call.
     cached = _markets_cache_get(allow_stale=False)
     if cached is not None:
-        data = cached["data"]
-        result_markets = data["markets"] if cap is None else data["markets"][:cap]
+        data = _payload(cached["data"]["records"], "cache")
         return api_response(
             success=True,
-            data={
-                "markets": result_markets,
-                "count": len(result_markets),
-                "source": "cache",
-            },
-            message=f"Retrieved {len(result_markets)} perpetual markets",
+            data=data,
+            message=f"Retrieved {data['count']} perpetual markets",
             headers={"X-Cache-Hit": "1"},
         )
 
-    markets: List[str] = []
+    records: List[MarketRecord] = []
     live_error: Optional[Exception] = None
 
     try:
@@ -1576,8 +1588,7 @@ async def list_perpetual_markets(limit: int = 0) -> JSONResponse:
             timeout=_MARKETS_ENDPOINT_TIMEOUT_SECONDS,
         )
         raw_map = payload.get("markets", {}) if isinstance(payload, dict) else {}
-        if isinstance(raw_map, dict):
-            markets = sorted(str(k) for k in raw_map.keys() if str(k).strip())
+        records = normalize_market_records(raw_map)
     except Exception as err:
         live_error = err
         logger.warning(
@@ -1600,22 +1611,17 @@ async def list_perpetual_markets(limit: int = 0) -> JSONResponse:
         # Live call failed – try stale cache before giving up.
         stale = _markets_cache_get(allow_stale=True)
         if stale is not None:
-            data = stale["data"]
-            result_markets = data["markets"] if cap is None else data["markets"][:cap]
+            data = _payload(stale["data"]["records"], "cache_stale")
             logger.info(
                 "markets_stale_fallback endpoint=/api/v1/markets/perpetuals "
                 "count={} error={}",
-                len(result_markets),
+                data["count"],
                 live_error,
             )
             return api_response(
                 success=True,
-                data={
-                    "markets": result_markets,
-                    "count": len(result_markets),
-                    "source": "cache_stale",
-                },
-                message=f"Retrieved {len(result_markets)} perpetual markets (stale cache fallback)",
+                data=data,
+                message=f"Retrieved {data['count']} perpetual markets (stale cache fallback)",
                 headers={"X-Cache-Stale": "1"},
             )
 
@@ -1626,16 +1632,13 @@ async def list_perpetual_markets(limit: int = 0) -> JSONResponse:
             status_code=503,
         )
 
-    # Successful live fetch – populate cache and return.
-    _markets_cache_set({"markets": markets, "count": len(markets), "source": "dydx"})
-
-    if cap is not None:
-        markets = markets[:cap]
-
+    # Successful live fetch – cache the normalized records and return.
+    _markets_cache_set({"records": records})
+    data = _payload(records, "dydx")
     return api_response(
         success=True,
-        data={"markets": markets, "count": len(markets), "source": "dydx"},
-        message=f"Retrieved {len(markets)} perpetual markets",
+        data=data,
+        message=f"Retrieved {data['count']} perpetual markets",
     )
 
 

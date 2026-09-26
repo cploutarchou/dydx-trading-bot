@@ -21,6 +21,7 @@ import {
   resolveBackendWebSocketUrl,
   shouldAttemptCookieSessionBootstrap,
 } from './api/origin';
+import { isAuthRejection } from './api/sessionErrors';
 import { attachTraceHeader, traceHeaderName } from './api/trace';
 import { getCurrentPortalType } from './app/portal';
 
@@ -1069,10 +1070,28 @@ export const normalizeBacktestPayload = (data: BacktestRequest): BacktestRequest
   return normalizedPayload;
 };
 
+/** Indexer metrics for one market; every metric is null when the indexer did not report it. */
+export interface PerpetualMarketDetail extends Record<string, unknown> {
+  ticker: string;
+  status: string;
+  volume_24h: number | null;
+  open_interest: number | null;
+  open_interest_usd: number | null;
+  next_funding_rate: number | null;
+  oracle_price: number | null;
+  trades_24h: number | null;
+}
+
 export interface PerpetualMarketsResponse extends Record<string, unknown> {
+  /** Tickers, active markets only by default, sorted by 24 h volume. */
   markets: string[];
+  /** One record per entry of `markets`, in the same order. */
+  market_details?: PerpetualMarketDetail[];
   count: number;
   source: string;
+  include_settled?: boolean;
+  active_total?: number;
+  inactive_total?: number;
   cache_stale?: boolean;
   static_fallback?: boolean;
   cache_hit?: boolean;
@@ -2017,7 +2036,7 @@ class ApiClient {
               isAxiosError(refreshError) && refreshError.response
                 ? refreshError.response.status
                 : null;
-            const shouldExpireSession = refreshStatus === 401 || refreshStatus === 403;
+            const shouldExpireSession = isAuthRejection(refreshError);
             console.error('❌ api.ts: Token refresh failed', errorMsg);
             this.notifyRefreshFailure(refreshError);
             if (shouldExpireSession && typeof window !== 'undefined') {
@@ -2182,14 +2201,28 @@ class ApiClient {
       } catch (error) {
         this.refreshBlockedUntil = Date.now() + this.refreshFailureCooldownMs;
         this.accessToken = null;
-        this.sessionEstablished = false;
-        if (typeof localStorage !== 'undefined') {
-          try {
-            localStorage.removeItem('_dydx_access_token');
-            localStorage.removeItem(SESSION_HINT_KEY);
-          } catch (e) {
-            console.warn('❌ api.ts: Failed to clear stale session hints after refresh failure', e);
+        if (isAuthRejection(error)) {
+          // The backend rejected the cookie session, so the hint that one
+          // exists goes with it.
+          this.sessionEstablished = false;
+          if (typeof localStorage !== 'undefined') {
+            try {
+              localStorage.removeItem('_dydx_access_token');
+              localStorage.removeItem(SESSION_HINT_KEY);
+            } catch (e) {
+              console.warn(
+                '❌ api.ts: Failed to clear stale session hints after refresh failure',
+                e
+              );
+            }
           }
+        } else {
+          // A network error, timeout or server fault says nothing about the
+          // cookie session: keep the session hint so the cookie-backed
+          // /users/me probe, or the next page load, can still recover it.
+          console.warn(
+            '⚠️ api.ts: refresh failed without an auth rejection; keeping the session hint'
+          );
         }
         throw error;
       }
@@ -2256,15 +2289,14 @@ class ApiClient {
       // authenticated session; the challenge is armed for the login page.
       const payload = await this.refreshAccessToken();
       return !payload.mfa_required;
-    } catch {
-      // Clear any stale token from localStorage if refresh fails
-      if (typeof localStorage !== 'undefined') {
-        try {
-          localStorage.removeItem('_dydx_access_token');
-          localStorage.removeItem(SESSION_HINT_KEY);
-        } catch (e) {
-          console.warn('❌ api.ts: Failed to clear token from localStorage', e);
-        }
+    } catch (error) {
+      // refreshAccessToken already dropped the session hint when the backend
+      // rejected the session. Any other failure is transient and keeps it, so
+      // the caller can probe /users/me over the cookie or retry later.
+      if (!isAuthRejection(error)) {
+        console.warn(
+          '⚠️ api.ts: restoreSession could not reach the refresh endpoint; session hint kept'
+        );
       }
       return false;
     }
@@ -2714,11 +2746,21 @@ class ApiClient {
     return response.data;
   }
 
-  async getPerpetualMarkets(limit: number = 0): Promise<ApiResponse<PerpetualMarketsResponse>> {
+  async getPerpetualMarkets(
+    limit: number = 0,
+    options: { includeSettled?: boolean } = {}
+  ): Promise<ApiResponse<PerpetualMarketsResponse>> {
     this.ensureTokenLoaded();
-    const query = limit > 0 ? `?limit=${encodeURIComponent(String(limit))}` : '';
+    const params = new URLSearchParams();
+    if (limit > 0) {
+      params.set('limit', String(limit));
+    }
+    if (options.includeSettled) {
+      params.set('include_settled', 'true');
+    }
+    const query = params.toString();
     const response = await this.client.get<ApiResponse<PerpetualMarketsResponse>>(
-      `/api/v1/markets/perpetuals${query}`
+      `/api/v1/markets/perpetuals${query ? `?${query}` : ''}`
     );
     const headerValue = (name: string): string => {
       const raw = response.headers?.[name];

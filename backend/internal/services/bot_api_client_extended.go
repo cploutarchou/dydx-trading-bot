@@ -252,11 +252,15 @@ func (c *BotAPIClient) GetRuntimeDBConfig() (map[string]interface{}, error) {
 	return c.makeRequest("GET", "/api/v1/runtime/db-config", nil)
 }
 
-// GetPerpetualMarkets retrieves the available dYdX perpetual market symbols.
-func (c *BotAPIClient) GetPerpetualMarkets(limit int) (map[string]interface{}, error) {
+// GetPerpetualMarkets retrieves the tradable dYdX perpetual markets: active
+// markets sorted by 24 h volume, or every market when includeSettled is set.
+func (c *BotAPIClient) GetPerpetualMarkets(limit int, includeSettled bool) (map[string]interface{}, error) {
 	query := url.Values{}
 	if limit > 0 {
 		query.Set("limit", strconv.Itoa(limit))
+	}
+	if includeSettled {
+		query.Set("include_settled", "true")
 	}
 
 	endpoint := "/api/v1/markets/perpetuals"

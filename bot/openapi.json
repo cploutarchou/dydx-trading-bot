@@ -5422,7 +5422,7 @@
     "/api/v1/markets/perpetuals": {
       "get": {
         "summary": "List Perpetual Markets",
-        "description": "Return available dYdX perpetual markets for run configuration.\n\nResults are cached for ``MARKETS_CACHE_TTL_SECONDS`` (default 60 s).\nWhen the live dYdX call fails, stale cache data is served (up to\n``MARKETS_STALE_TTL_SECONDS``, default 300 s) with an ``X-Cache-Stale: 1``\nheader so callers can distinguish live vs fallback responses.\nWhen both live resolution and stale cache data are unavailable, the endpoint\nreturns 503 instead of inventing a market list.",
+        "description": "Return the tradable dYdX perpetual markets for run configuration.\n\nMarkets are ``ACTIVE`` only unless ``include_settled=true``, sorted by 24 h\nvolume (highest first, unknown volume last) and capped by ``limit`` only\nafter sorting. ``markets`` lists the tickers; ``market_details`` carries the\nindexer metrics per ticker (volume, open interest, funding, oracle price).\n\nResults are cached for ``MARKETS_CACHE_TTL_SECONDS`` (default 60 s).\nWhen the live dYdX call fails, stale cache data is served (up to\n``MARKETS_STALE_TTL_SECONDS``, default 300 s) with an ``X-Cache-Stale: 1``\nheader so callers can distinguish live vs fallback responses.\nWhen both live resolution and stale cache data are unavailable, the endpoint\nreturns 503 instead of inventing a market list.",
         "operationId": "list_perpetual_markets_api_v1_markets_perpetuals_get",
         "parameters": [
           {
@@ -5433,6 +5433,16 @@
               "type": "integer",
               "default": 0,
               "title": "Limit"
+            }
+          },
+          {
+            "name": "include_settled",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Settled"
             }
           }
         ],

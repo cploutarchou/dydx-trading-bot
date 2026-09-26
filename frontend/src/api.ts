@@ -1070,10 +1070,28 @@ export const normalizeBacktestPayload = (data: BacktestRequest): BacktestRequest
   return normalizedPayload;
 };
 
+/** Indexer metrics for one market; every metric is null when the indexer did not report it. */
+export interface PerpetualMarketDetail extends Record<string, unknown> {
+  ticker: string;
+  status: string;
+  volume_24h: number | null;
+  open_interest: number | null;
+  open_interest_usd: number | null;
+  next_funding_rate: number | null;
+  oracle_price: number | null;
+  trades_24h: number | null;
+}
+
 export interface PerpetualMarketsResponse extends Record<string, unknown> {
+  /** Tickers, active markets only by default, sorted by 24 h volume. */
   markets: string[];
+  /** One record per entry of `markets`, in the same order. */
+  market_details?: PerpetualMarketDetail[];
   count: number;
   source: string;
+  include_settled?: boolean;
+  active_total?: number;
+  inactive_total?: number;
   cache_stale?: boolean;
   static_fallback?: boolean;
   cache_hit?: boolean;
@@ -2728,11 +2746,21 @@ class ApiClient {
     return response.data;
   }
 
-  async getPerpetualMarkets(limit: number = 0): Promise<ApiResponse<PerpetualMarketsResponse>> {
+  async getPerpetualMarkets(
+    limit: number = 0,
+    options: { includeSettled?: boolean } = {}
+  ): Promise<ApiResponse<PerpetualMarketsResponse>> {
     this.ensureTokenLoaded();
-    const query = limit > 0 ? `?limit=${encodeURIComponent(String(limit))}` : '';
+    const params = new URLSearchParams();
+    if (limit > 0) {
+      params.set('limit', String(limit));
+    }
+    if (options.includeSettled) {
+      params.set('include_settled', 'true');
+    }
+    const query = params.toString();
     const response = await this.client.get<ApiResponse<PerpetualMarketsResponse>>(
-      `/api/v1/markets/perpetuals${query}`
+      `/api/v1/markets/perpetuals${query ? `?${query}` : ''}`
     );
     const headerValue = (name: string): string => {
       const raw = response.headers?.[name];

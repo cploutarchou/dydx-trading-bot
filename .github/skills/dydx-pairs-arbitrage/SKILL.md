@@ -32,8 +32,11 @@ fail-safe, auditable, and validated against both the live-decision tests and bac
 
 Feature flags live in `arbitrage_runtime_config.FEATURE_FLAG_KEYS`:
 `ARBITRAGE_IMPROVEMENTS_ENABLED`, `PAIR_PRIORITY_ENGINE_ENABLED`, `POLYMARKET_SIGNALS_ENABLED`,
-`DEFILLAMA_SIGNALS_ENABLED`, `NEWS_SIGNALS_ENABLED`, `AUTO_EXECUTION_CHANGES_ENABLED` — plus
-integer/float settings `PAIR_PRIORITY_MAX_PAIRS` and `PAIR_PRIORITY_STALE_SECONDS`.
+`DEFILLAMA_SIGNALS_ENABLED`, `NEWS_SIGNALS_ENABLED`, `AUTO_EXECUTION_CHANGES_ENABLED`, `COST_GATE_ENABLED` — plus
+integer/float settings `PAIR_PRIORITY_MAX_PAIRS`, `PAIR_PRIORITY_STALE_SECONDS` and the cost-gate settings
+(`COST_GATE_EDGE_MULTIPLE`, `COST_GATE_TAKER_FEE`, `COST_GATE_SLIPPAGE_BPS`, `FUNDING_SAME_SIDE_THRESHOLD`; see
+`src/trading/entry_cost_gate.py`). Runtime overrides reach the bot API process only, not trading workers, which read
+the bot-api environment at spawn.
 
 Rules:
 - Env vars are **startup defaults**; the backend/admin may override at runtime via

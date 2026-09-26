@@ -5804,6 +5804,65 @@
               }
             ],
             "title": "Pair Priority Stale Seconds"
+          },
+          "COST_GATE_ENABLED": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Gate Enabled"
+          },
+          "COST_GATE_EDGE_MULTIPLE": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Gate Edge Multiple"
+          },
+          "COST_GATE_TAKER_FEE": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Gate Taker Fee"
+          },
+          "COST_GATE_SLIPPAGE_BPS": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Gate Slippage Bps"
+          },
+          "FUNDING_SAME_SIDE_THRESHOLD": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Funding Same Side Threshold"
           }
         },
         "type": "object",

@@ -35,3 +35,24 @@ def test_snapshot_includes_sorted_reason_buckets_and_reset_clears_them():
     assert cleared["counters"]["opportunities_detected_total"] == 0.0
     assert cleared["counters"]["opportunities_rejected_total"] == 0.0
     assert cleared["rejection_reasons"] == {}
+
+
+def test_cost_gate_reasons_land_in_rejection_buckets_and_total():
+    from src.trading.entry_cost_gate import REJECTION_REASONS
+
+    reset_metrics()
+
+    for reason in REJECTION_REASONS:
+        record_rejection(reason)
+    record_rejection("edge_lt_cost")
+
+    snap = snapshot_metrics()
+    assert snap["counters"]["opportunities_rejected_total"] == float(
+        len(REJECTION_REASONS) + 1
+    )
+    assert snap["rejection_reasons"] == {
+        "cost_inputs_invalid": 1.0,
+        "edge_lt_cost": 2.0,
+        "funding_same_side": 1.0,
+    }
+    reset_metrics()

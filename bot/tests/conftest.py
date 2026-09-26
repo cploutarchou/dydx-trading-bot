@@ -398,3 +398,22 @@ def _isolate_strategy_drawdown_and_trailing_stop(monkeypatch):
     monkeypatch.setattr(position_manager, "MAX_DRAWDOWN_PCT", 0.0)
     monkeypatch.setattr(position_manager, "TRAILING_STOP_PCT", 0.0)
     monkeypatch.setattr(drawdown_guard, "_last_alert_at", {})
+
+
+# Cost + funding entry gate isolation
+# ============================================================================
+#
+# ``COST_GATE_ENABLED`` is a runtime setting whose startup default comes from
+# the environment, and runtime overrides are process-global. A developer
+# environment with the gate on (or a test that left an override behind) would
+# make every open_positions test price entries against funding rates the fakes
+# do not carry. The default is pinned off and any leaked override removed;
+# tests that exercise the gate set the override themselves via monkeypatch.
+@pytest.fixture(autouse=True)
+def _isolate_cost_gate_settings(monkeypatch):
+    from src.trading import arbitrage_runtime_config
+
+    monkeypatch.setitem(arbitrage_runtime_config._DEFAULTS, "COST_GATE_ENABLED", False)
+    monkeypatch.delitem(
+        arbitrage_runtime_config._overrides, "COST_GATE_ENABLED", raising=False
+    )

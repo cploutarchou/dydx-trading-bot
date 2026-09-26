@@ -23,6 +23,13 @@ from src.infrastructure.database import db
 from src.infrastructure.persistence.repository_backtest import BacktestRepository
 from src.infrastructure.use_cases.async_job_manager import async_job_manager
 from src.trading.dydx_client import connect_dydx
+from src.trading.entry_cost_gate import (
+    DEFAULT_EDGE_MULTIPLE,
+    DEFAULT_TAKER_FEE,
+    EntryCostDecision,
+    evaluate_entry_cost,
+    ladder_exit_z,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +88,8 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
     _SIMULATION_YIELD_EVERY_STEPS = 200
     # dYdX v4 base taker fee tier (0.05% per fill) — used when a request does
     # not specify transaction_fee. Zero-fee defaults overstated results.
-    _DEFAULT_TRANSACTION_FEE = 0.0005
+    # Shared with the live cost gate's default taker fee (entry_cost_gate).
+    _DEFAULT_TRANSACTION_FEE = DEFAULT_TAKER_FEE
     _HEAVY_PROGRESS_PERSIST_EVERY_PAIRS = 10
     _HEAVY_PROGRESS_PERSIST_EVERY_SECONDS = 15.0
     _HEARTBEAT_KEEPALIVE_SECONDS = 30.0
@@ -1997,6 +2005,110 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             pair_markets, mode, market_map, history_by_market
         )
 
+    @staticmethod
+    def _backtest_entry_cost_decision(
+        *,
+        z: float,
+        spread_std: float,
+        price_1: float,
+        price_2: float,
+        hedge_ratio: float,
+        close_on_cross: bool,
+        transaction_fee: float,
+        slippage: float,
+        multiple: Any,
+    ) -> EntryCostDecision:
+        """Backtest wrapper of the shared cost + funding entry gate.
+
+        Parity fork: the backtest has no historical funding or order book
+        data, so the funding term is zero and the both-legs-pay funding check
+        is skipped. Live evaluates both from the indexer's ``nextFundingRate``.
+        Fee and slippage are the run's own ``transaction_fee`` and
+        ``slippage`` (fractions per fill), the inputs of the per-trade cost.
+        """
+        return evaluate_entry_cost(
+            z_entry=z,
+            z_exit=ladder_exit_z(z, close_at_zscore_cross=close_on_cross),
+            spread_std=spread_std,
+            price_1=price_1,
+            price_2=price_2,
+            hedge_ratio=hedge_ratio,
+            taker_fee=transaction_fee,
+            slippage_per_fill=slippage,
+            multiple=multiple,
+            funding=None,
+        )
+
+    @staticmethod
+    def _record_cost_gate_decision(
+        diagnostics: Optional[Dict[str, Any]], decision: EntryCostDecision
+    ) -> None:
+        """Count a backtest gate evaluation in the run's diagnostics (never in
+        the live arbitrage counters). Counts are per bar evaluated, as live
+        counts are per scan cycle."""
+        if diagnostics is None:
+            return
+        diagnostics["evaluated"] = int(diagnostics.get("evaluated", 0)) + 1
+        if decision.multiple is not None:
+            diagnostics["edge_multiple"] = float(decision.multiple)
+        if decision.accepted:
+            diagnostics["accepted"] = int(diagnostics.get("accepted", 0)) + 1
+            return
+        by_reason = diagnostics.setdefault("rejected_by_reason", {})
+        reason = str(decision.reason)
+        by_reason[reason] = int(by_reason.get(reason, 0)) + 1
+
+    @staticmethod
+    def _ledger_cost_totals(
+        trades: List[Dict[str, Any]],
+    ) -> tuple[Optional[float], Optional[float]]:
+        """Sum the per-trade fee and slippage costs of the trade ledger.
+
+        ``(None, None)`` when any trade lacks either field (for example trades
+        restored from a checkpoint written before the split existed): a
+        partial sum would understate the cost.
+        """
+        fees_total = 0.0
+        slippage_total = 0.0
+        for trade in trades:
+            fee = trade.get("fee_cost")
+            slip = trade.get("slippage_cost")
+            if (
+                isinstance(fee, bool)
+                or isinstance(slip, bool)
+                or not isinstance(fee, (int, float))
+                or not isinstance(slip, (int, float))
+            ):
+                return None, None
+            fees_total += float(fee)
+            slippage_total += float(slip)
+        return round(fees_total, 8), round(slippage_total, 8)
+
+    @classmethod
+    def _cost_gate_run_diagnostics(
+        cls,
+        params: Dict[str, Any],
+        counts: Dict[str, Any],
+        *,
+        partial: bool,
+    ) -> Optional[Dict[str, Any]]:
+        """Run-level cost-gate diagnostics, or ``None`` when the gate was off."""
+        if not cls._coerce_bool(params.get("cost_gate_enabled"), default=False):
+            return None
+        rejected = counts.get("rejected_by_reason") or {}
+        return {
+            "enabled": True,
+            "edge_multiple": counts.get("edge_multiple"),
+            "funding_modelled": False,
+            "evaluated": int(counts.get("evaluated", 0)),
+            "accepted": int(counts.get("accepted", 0)),
+            "rejected_by_reason": {
+                str(reason): int(count) for reason, count in sorted(rejected.items())
+            },
+            # A resumed attempt only counts the pairs it simulated itself.
+            "complete": not partial,
+        }
+
     async def _simulate_pair(
         self,
         run_id: str,
@@ -2008,6 +2120,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         params: Dict[str, Any],
         trade_index_offset: int,
         heartbeat_callback: Optional[Any] = None,
+        cost_gate_diagnostics: Optional[Dict[str, Any]] = None,
     ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, float]]:
         stats_window = max(5, int(params.get("stats_window", 21) or 21))
         entry_z = float(params.get("zscore_threshold", 1.5) or 1.5)
@@ -2026,6 +2139,17 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             else self._DEFAULT_TRANSACTION_FEE
         )
         slippage = float(params.get("slippage", 0.0) or 0.0)
+        # Cost + funding entry gate: off unless the run asks for it, like the
+        # live COST_GATE_ENABLED default. The multiple is clamped by the gate.
+        cost_gate_enabled = self._coerce_bool(
+            params.get("cost_gate_enabled"), default=False
+        )
+        raw_cost_gate_multiple = params.get("cost_gate_edge_multiple")
+        cost_gate_multiple = (
+            DEFAULT_EDGE_MULTIPLE
+            if raw_cost_gate_multiple is None
+            else raw_cost_gate_multiple
+        )
         # Exit controls mirror the live ladder in
         # position_manager._resolve_exit_reason; defaults follow src/constants.py
         # (stopLossPct=2.0, takeProfitPct=5.0, positionTimeoutHours=72) so a
@@ -2129,6 +2253,8 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 continue
             z = (float(spread[idx]) - mean) / std
             ts = timestamps[idx]
+            # The fit this bar's z and std were measured on, before any refit.
+            signal_hedge_ratio = hedge_ratio
 
             # Walk-forward refit (expanding window, strictly historical).
             if idx >= next_refit and idx + 1 < len(spread):
@@ -2141,6 +2267,23 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                     # Signal cannot fill within the sample under the delay
                     # model; skip the entry.
                     continue
+                if cost_gate_enabled and (z >= entry_z or z <= -entry_z):
+                    cost_decision = self._backtest_entry_cost_decision(
+                        z=z,
+                        spread_std=std,
+                        price_1=float(prices_a[idx]),
+                        price_2=float(prices_b[idx]),
+                        hedge_ratio=signal_hedge_ratio,
+                        close_on_cross=close_on_cross,
+                        transaction_fee=transaction_fee,
+                        slippage=slippage,
+                        multiple=cost_gate_multiple,
+                    )
+                    self._record_cost_gate_decision(
+                        cost_gate_diagnostics, cost_decision
+                    )
+                    if not cost_decision.accepted:
+                        continue
                 if z >= entry_z:
                     open_pos = {
                         "side": "short_spread",
@@ -2241,6 +2384,9 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             pnl_gross = (spread_move / notional) * usd_per_trade
             fee_cost = usd_per_trade * (transaction_fee + slippage) * 2.0
             pnl = pnl_gross - fee_cost
+            # Ledger split of that same round-trip cost; pnl is unchanged.
+            fee_only_cost = usd_per_trade * transaction_fee * 2.0
+            slippage_cost = fee_cost - fee_only_cost
             pnl_pct = (pnl / max(1e-9, usd_per_trade)) * 100.0
 
             trade_id = f"t-{run_id}-{trade_index_offset + len(trades):03d}"
@@ -2269,6 +2415,8 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                     "hedge_ratio": round(hedge_ratio, 6),
                     "pnl_usd": round(float(pnl), 4),
                     "pnl_pct": round(float(pnl_pct), 4),
+                    "fee_cost": round(float(fee_only_cost), 8),
+                    "slippage_cost": round(float(slippage_cost), 8),
                     "duration_hours": round(duration_hours, 3),
                     "exit_reason": exit_reason,
                     "win": bool(pnl > 0),
@@ -2564,6 +2712,9 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             )
             last_heavy_persist_at = time.monotonic()
             checkpoint_payload_hash = self._request_payload_hash(request_payload)
+            # Cost-gate evaluations of this attempt: run diagnostics only,
+            # never the live arbitrage counters.
+            cost_gate_counts: Dict[str, Any] = {}
 
             def _save_run_checkpoint(completed_pairs_count: int) -> None:
                 if checkpoint_store is None:
@@ -2729,6 +2880,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                     params=params,
                     trade_index_offset=len(all_trades),
                     heartbeat_callback=lambda: self._touch_run_heartbeat_async(run_id),
+                    cost_gate_diagnostics=cost_gate_counts,
                 )
 
                 for trade in trades:
@@ -2824,6 +2976,10 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 ordered_daily, initial_balance
             )
 
+            # After-cost fields from the real trade ledger. The backtest has
+            # no funding data: funding_total stays None (never 0.0).
+            fees_total, slippage_total = self._ledger_cost_totals(all_trades)
+
             finished_at = datetime.now(timezone.utc).isoformat()
             run_data.update(
                 {
@@ -2837,6 +2993,15 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                     "max_drawdown_pct": round(max_drawdown_pct, 4),
                     "total_trades": total_trades,
                     "profit_factor": round(float(profit_factor), 4),
+                    "fees_total": fees_total,
+                    "slippage_total": slippage_total,
+                    "funding_total": None,
+                    "funding_modelled": False,
+                    "cost_gate_diagnostics": self._cost_gate_run_diagnostics(
+                        params,
+                        cost_gate_counts,
+                        partial=resumed and resumed_completed > 0,
+                    ),
                     "trades": all_trades,
                     "position_snapshots": all_snapshots,
                     "daily_pnl": self._build_daily_pnl_rows(

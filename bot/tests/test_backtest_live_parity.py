@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from src.trading.analysis.cointegration import calculate_zscore
 
@@ -383,3 +384,214 @@ def test_simulate_pair_walk_forward_refits_use_only_past_data():
     ]
     for trade in post:
         assert abs(trade["hedge_ratio"] - round(float(partial[0]), 6)) < 1e-4
+
+
+# --- cost + funding entry gate parity ---------------------------------------
+
+
+def _gate_params(**extra):
+    params = {
+        "stats_window": 21,
+        "zscore_threshold": 1.5,
+        "usd_per_trade": 10.0,
+        "close_at_zscore_cross": True,
+        "transaction_fee": 0.0005,
+        "slippage": 0.001,
+    }
+    params.update(extra)
+    return params
+
+
+def _simulate(service, prices_a, prices_b, params, diagnostics=None):
+    kwargs = {}
+    if diagnostics is not None:
+        kwargs["cost_gate_diagnostics"] = diagnostics
+    return asyncio.run(
+        service._simulate_pair(
+            "gate-run",
+            "AAA-USD",
+            "BBB-USD",
+            _timestamps(len(prices_a)),
+            prices_a,
+            prices_b,
+            params,
+            trade_index_offset=0,
+            **kwargs,
+        )
+    )
+
+
+def test_live_and_backtest_cost_gate_wrappers_agree_with_zero_funding(monkeypatch):
+    """Same inputs, funding = 0: the live and backtest wrappers decide alike.
+
+    Sigma is computed by each side itself (live: calculate_spread_std on the
+    spread series; backtest: the simulator's window std), so this also pins
+    that both measure the same sigma.
+    """
+    from src.trading import position_manager
+    from src.trading.analysis.cointegration import WINDOW
+
+    monkeypatch.setattr(position_manager, "CLOSE_AT_ZSCORE_CROSS", True)
+    service = _make_service()
+    prices_a, prices_b = _synthetic_pair(n=120, seed=5)
+    hedge_ratio = 0.8
+    spread = prices_a - hedge_ratio * prices_b
+    live_z = float(calculate_zscore(pd.Series(spread)).iloc[-1])
+    window = spread[-WINDOW:]
+    backtest_std = float(np.std(window, ddof=1))
+
+    cases = [
+        # (taker fee, slippage per fill, multiple)
+        (0.0005, 0.0005, 2.5),
+        (0.0005, 0.001, 20.0),
+        (0.002, 0.003, 5.0),
+        (0.0, 0.0, 1.0),
+    ]
+    seen = set()
+    for fee, slip, multiple in cases:
+        live = position_manager._live_entry_cost_decision(
+            settings={
+                "COST_GATE_TAKER_FEE": fee,
+                "COST_GATE_SLIPPAGE_BPS": slip * 10000,
+                "COST_GATE_EDGE_MULTIPLE": multiple,
+                "FUNDING_SAME_SIDE_THRESHOLD": 0.00001,
+            },
+            z_score=live_z,
+            spread=pd.Series(spread),
+            price_1=float(prices_a[-1]),
+            price_2=float(prices_b[-1]),
+            hedge_ratio=hedge_ratio,
+            half_life=10.0,
+            market_1={"nextFundingRate": "0"},
+            market_2={"nextFundingRate": "0"},
+        )
+        backtest = service._backtest_entry_cost_decision(
+            z=live_z,
+            spread_std=backtest_std,
+            price_1=float(prices_a[-1]),
+            price_2=float(prices_b[-1]),
+            hedge_ratio=hedge_ratio,
+            close_on_cross=True,
+            transaction_fee=fee,
+            slippage=slip,
+            multiple=multiple,
+        )
+        assert live.accepted == backtest.accepted
+        assert live.reason == backtest.reason
+        assert live.funding_frac == 0 and backtest.funding_frac == 0
+        assert float(live.edge_frac) == pytest.approx(float(backtest.edge_frac))
+        assert live.fee_frac == backtest.fee_frac
+        assert live.slippage_frac == backtest.slippage_frac
+        assert live.multiple == backtest.multiple
+        seen.add(live.accepted)
+    assert seen == {True, False}, "cases should cover an accept and a reject"
+
+
+def test_cost_gate_off_leaves_backtest_trades_and_metrics_unchanged():
+    service = _make_service()
+    prices_a, prices_b = _synthetic_pair(n=600, seed=7)
+
+    absent = _simulate(service, prices_a, prices_b, _gate_params())
+    explicit_off = _simulate(
+        service,
+        prices_a,
+        prices_b,
+        _gate_params(cost_gate_enabled=False, cost_gate_edge_multiple=20),
+    )
+    diagnostics = {}
+    off_with_diagnostics = _simulate(
+        service, prices_a, prices_b, _gate_params(), diagnostics=diagnostics
+    )
+
+    assert absent[0], "expected synthetic trades"
+    assert absent == explicit_off == off_with_diagnostics
+    assert diagnostics == {}
+
+
+def test_backtest_ledger_splits_the_unchanged_round_trip_cost():
+    service = _make_service()
+    prices_a, prices_b = _synthetic_pair(n=600, seed=7)
+    usd, fee, slip = 10.0, 0.0005, 0.001
+
+    trades, _snapshots, _daily = _simulate(
+        service, prices_a, prices_b, _gate_params(transaction_fee=fee, slippage=slip)
+    )
+
+    assert trades
+    for trade in trades:
+        assert trade["fee_cost"] == pytest.approx(usd * fee * 2.0, abs=1e-8)
+        assert trade["slippage_cost"] == pytest.approx(usd * slip * 2.0, abs=1e-8)
+        # The split sums to the combined cost the P&L deducts.
+        assert trade["fee_cost"] + trade["slippage_cost"] == pytest.approx(
+            usd * (fee + slip) * 2.0, abs=1e-8
+        )
+
+
+def test_cost_gate_rejections_go_to_run_diagnostics_not_live_counters():
+    from src.trading.arbitrage_observability import reset_metrics, snapshot_metrics
+
+    reset_metrics()
+    service = _make_service()
+    prices_a, prices_b = _synthetic_pair(n=600, seed=7)
+    baseline, _s, _d = _simulate(service, prices_a, prices_b, _gate_params())
+
+    diagnostics = {}
+    gated, _s, _d = _simulate(
+        service,
+        prices_a,
+        prices_b,
+        _gate_params(
+            cost_gate_enabled=True,
+            cost_gate_edge_multiple=20,
+            transaction_fee=0.01,
+            slippage=0.01,
+        ),
+        diagnostics=diagnostics,
+    )
+
+    assert len(gated) < len(baseline)
+    rejected = diagnostics["rejected_by_reason"]
+    assert set(rejected) == {"edge_lt_cost"}
+    assert diagnostics["evaluated"] == diagnostics.get("accepted", 0) + sum(
+        rejected.values()
+    )
+    assert diagnostics["edge_multiple"] == 20.0
+    assert snapshot_metrics()["rejection_reasons"] == {}
+    assert snapshot_metrics()["counters"]["opportunities_rejected_total"] == 0.0
+
+
+def test_cost_gate_with_zero_cost_never_rejects_a_backtest_entry():
+    service = _make_service()
+    prices_a, prices_b = _synthetic_pair(n=600, seed=11)
+    free = _gate_params(transaction_fee=0.0, slippage=0.0)
+
+    baseline = _simulate(service, prices_a, prices_b, free)
+    diagnostics = {}
+    gated = _simulate(
+        service,
+        prices_a,
+        prices_b,
+        dict(free, cost_gate_enabled=True, cost_gate_edge_multiple=1),
+        diagnostics=diagnostics,
+    )
+
+    assert baseline[0]
+    assert gated == baseline
+    assert diagnostics["accepted"] == diagnostics["evaluated"] > 0
+
+
+def test_cost_gate_fails_closed_in_backtest_without_a_zscore_exit():
+    service = _make_service()
+    prices_a, prices_b = _synthetic_pair(n=600, seed=11)
+    diagnostics = {}
+
+    trades, _s, _d = _simulate(
+        service,
+        prices_a,
+        prices_b,
+        _gate_params(close_at_zscore_cross=False, cost_gate_enabled=True),
+        diagnostics=diagnostics,
+    )
+
+    assert trades == []
+    assert set(diagnostics["rejected_by_reason"]) == {"cost_inputs_invalid"}

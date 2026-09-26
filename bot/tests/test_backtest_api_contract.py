@@ -1392,3 +1392,71 @@ def test_check_backtest_admission_blocks_on_persistence_overload(monkeypatch):
     assert payload["data"]["error"] == "backtest_capacity_reached"
     assert payload["data"]["reason"] == "persistence_pool_overload"
     assert payload["data"]["cannot_accept_new_runs"] is True
+
+
+def test_backtest_detail_and_trade_payloads_carry_after_cost_fields():
+    """Additive contract: runs and trades recorded before the after-cost
+    fields still load (fields read as None); new records carry them."""
+    from src.infrastructure.use_cases.backtest_models import (
+        _BacktestRunDetails,
+        _BacktestTrade,
+    )
+
+    run = {
+        "run_id": "run-1",
+        "name": "cost-run",
+        "status": "completed",
+        "total_pnl": 1.0,
+        "win_rate": 0.5,
+        "sharpe_ratio": 0.1,
+        "max_drawdown_pct": 1.0,
+        "total_trades": 2,
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "updated_at": "2026-01-01T00:05:00+00:00",
+    }
+    legacy = _BacktestRunDetails(**run).model_dump()
+    for field in (
+        "fees_total",
+        "slippage_total",
+        "funding_total",
+        "funding_modelled",
+        "cost_gate_diagnostics",
+    ):
+        assert legacy[field] is None
+
+    current = _BacktestRunDetails(
+        **run,
+        fees_total=0.02,
+        slippage_total=0.04,
+        funding_total=None,
+        funding_modelled=False,
+        cost_gate_diagnostics={"enabled": True, "evaluated": 3},
+    ).model_dump()
+    assert current["fees_total"] == 0.02
+    assert current["slippage_total"] == 0.04
+    assert current["funding_total"] is None
+    assert current["funding_modelled"] is False
+    assert current["cost_gate_diagnostics"] == {"enabled": True, "evaluated": 3}
+
+    trade = {
+        "trade_id": "t-1",
+        "market_1": "AAA-USD",
+        "market_2": "BBB-USD",
+        "entry_timestamp": "2026-01-01T00:00:00Z",
+        "exit_timestamp": "2026-01-01T05:00:00Z",
+        "entry_zscore": 2.0,
+        "exit_zscore": -2.0,
+        "entry_price_m1": 1.0,
+        "exit_price_m1": 1.1,
+        "entry_price_m2": 2.0,
+        "exit_price_m2": 2.1,
+        "hedge_ratio": 0.5,
+        "pnl_usd": 0.1,
+        "pnl_pct": 1.0,
+        "duration_hours": 5.0,
+        "win": True,
+    }
+    assert _BacktestTrade(**trade).fee_cost is None
+    with_costs = _BacktestTrade(**trade, fee_cost=0.01, slippage_cost=0.02)
+    assert with_costs.model_dump()["fee_cost"] == 0.01
+    assert with_costs.model_dump()["slippage_cost"] == 0.02

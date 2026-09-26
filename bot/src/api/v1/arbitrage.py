@@ -51,6 +51,13 @@ class ArbitrageRuntimeSettingsRequest(BaseModel):
     AUTO_EXECUTION_CHANGES_ENABLED: Optional[bool] = None
     PAIR_PRIORITY_MAX_PAIRS: Optional[int] = Field(default=None, ge=0)
     PAIR_PRIORITY_STALE_SECONDS: Optional[float] = Field(default=None, ge=0.0)
+    # Cost + funding entry gate. Out-of-range values are clamped by
+    # ``update_runtime_settings`` (see ``src/trading/entry_cost_gate.py``).
+    COST_GATE_ENABLED: Optional[bool] = None
+    COST_GATE_EDGE_MULTIPLE: Optional[float] = Field(default=None, ge=0.0)
+    COST_GATE_TAKER_FEE: Optional[float] = Field(default=None, ge=0.0)
+    COST_GATE_SLIPPAGE_BPS: Optional[float] = Field(default=None, ge=0.0)
+    FUNDING_SAME_SIDE_THRESHOLD: Optional[float] = Field(default=None, ge=0.0)
 
 
 router = APIRouter(prefix="/api/v1/arbitrage")

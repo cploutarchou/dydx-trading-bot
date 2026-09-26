@@ -192,6 +192,102 @@ async def test_runtime_settings_validation_uses_standard_envelope(authed_app):
 
 
 @pytest.mark.asyncio
+async def test_cost_gate_settings_round_trip_and_clamp(authed_app, monkeypatch):
+    """The new keys pass the request model, clamp, and read back via GET."""
+    _ = authed_app
+    from src.trading import arbitrage_runtime_config
+
+    monkeypatch.setattr(arbitrage_runtime_config, "_overrides", {})
+
+    response = await _request(
+        "PUT",
+        "/api/v1/arbitrage/runtime-settings",
+        json={
+            "COST_GATE_ENABLED": True,
+            "COST_GATE_EDGE_MULTIPLE": 50,
+            "COST_GATE_TAKER_FEE": 0.0007,
+            "COST_GATE_SLIPPAGE_BPS": 5000,
+            "FUNDING_SAME_SIDE_THRESHOLD": 0.00002,
+        },
+    )
+    assert response.status_code == 200
+    settings = response.json()["data"]["settings"]
+    assert settings["COST_GATE_ENABLED"] is True
+    assert settings["COST_GATE_EDGE_MULTIPLE"] == 20.0
+    assert settings["COST_GATE_TAKER_FEE"] == 0.0007
+    assert settings["COST_GATE_SLIPPAGE_BPS"] == 1000.0
+    assert settings["FUNDING_SAME_SIDE_THRESHOLD"] == 0.00002
+    assert response.json()["data"]["feature_flags"]["COST_GATE_ENABLED"] is True
+
+    response = await _request(
+        "PUT",
+        "/api/v1/arbitrage/runtime-settings",
+        json={"COST_GATE_EDGE_MULTIPLE": 0.5, "COST_GATE_ENABLED": False},
+    )
+    assert response.status_code == 200
+
+    response = await _request("GET", "/api/v1/arbitrage/runtime-settings")
+    assert response.status_code == 200
+    settings = response.json()["data"]["settings"]
+    assert settings["COST_GATE_EDGE_MULTIPLE"] == 1.0
+    assert settings["COST_GATE_ENABLED"] is False
+    # Keys not sent in the second PUT keep their earlier values.
+    assert settings["COST_GATE_SLIPPAGE_BPS"] == 1000.0
+
+
+@pytest.mark.asyncio
+async def test_cost_gate_settings_reject_negative_values(authed_app, monkeypatch):
+    _ = authed_app
+    from src.trading import arbitrage_runtime_config
+
+    monkeypatch.setattr(arbitrage_runtime_config, "_overrides", {})
+    response = await _request(
+        "PUT",
+        "/api/v1/arbitrage/runtime-settings",
+        json={"COST_GATE_SLIPPAGE_BPS": -1},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["success"] is False
+    assert arbitrage_runtime_config._overrides == {}
+
+
+def test_cost_gate_runtime_defaults_are_off_and_clamped():
+    from src.trading import arbitrage_runtime_config
+
+    defaults = arbitrage_runtime_config._DEFAULTS
+    assert "COST_GATE_ENABLED" in arbitrage_runtime_config.FEATURE_FLAG_KEYS
+    for key in (
+        "COST_GATE_EDGE_MULTIPLE",
+        "COST_GATE_TAKER_FEE",
+        "COST_GATE_SLIPPAGE_BPS",
+        "FUNDING_SAME_SIDE_THRESHOLD",
+    ):
+        assert key in arbitrage_runtime_config.FLOAT_SETTING_KEYS
+        (lower, upper), _fallback = arbitrage_runtime_config._FLOAT_SETTING_CLAMPS[key]
+        assert lower <= defaults[key] <= upper
+
+
+def test_cost_gate_non_finite_override_falls_back_to_startup_default(monkeypatch):
+    from src.trading import arbitrage_runtime_config
+
+    monkeypatch.setattr(arbitrage_runtime_config, "_overrides", {})
+    monkeypatch.setitem(
+        arbitrage_runtime_config._DEFAULTS, "COST_GATE_SLIPPAGE_BPS", 7.0
+    )
+
+    settings = arbitrage_runtime_config.update_runtime_settings(
+        {"COST_GATE_SLIPPAGE_BPS": "nan", "COST_GATE_EDGE_MULTIPLE": "inf"}
+    )
+
+    assert settings["COST_GATE_SLIPPAGE_BPS"] == 7.0
+    assert (
+        settings["COST_GATE_EDGE_MULTIPLE"]
+        == arbitrage_runtime_config._DEFAULTS["COST_GATE_EDGE_MULTIPLE"]
+    )
+
+
+@pytest.mark.asyncio
 async def test_pair_priority_clamps_limit_and_formats_scores(authed_app, monkeypatch):
     _ = authed_app
     pair = SimpleNamespace(base_market="BTC-USD", quote_market="ETH-USD")

@@ -45,3 +45,14 @@
 - Run the bot migration Job (up to `0008_drawdown_peaks`) before the new bot-api
   serves runtimes. A runtime with a drawdown limit opens no pairs while it
   cannot read its stored peak.
+- The cost and funding entry gate (`COST_GATE_ENABLED`, default off) is enabled
+  on live bots through the bot-api deployment environment plus a restart. The
+  arbitrage runtime-settings page changes the bot API process only, and
+  trading workers never see those overrides (true of every arbitrage runtime
+  flag). With the gate on, a bot opens no pairs while the markets payload lacks
+  `nextFundingRate`, or while the strategy's z-score exit
+  (`close_at_zscore_cross`) is off: both are deliberate fail-closed states.
+  Gate rejections are in the per-instance worker log (`opportunity_rejected
+  ... reason=edge_lt_cost|funding_same_side|cost_inputs_invalid`); the
+  dashboard's rejection panel shows the API process's counters, not the
+  workers'. See [bot/README.md](../bot/README.md#cost-and-funding-entry-gate).

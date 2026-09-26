@@ -5,6 +5,7 @@
 // and backtest endpoints plus the infra probes.
 
 import apiClient from '../api';
+import { meaningfulTimestamp } from '../utils/timestamps';
 
 type Entity = Record<string, unknown>;
 type QueryParams = object;
@@ -312,11 +313,7 @@ class BotApiClient {
         typeof etaRaw === 'number' || typeof etaRaw === 'string' ? Number(etaRaw) : Number.NaN;
       const etaSeconds = Number.isFinite(etaParsed) && etaParsed >= 0 ? etaParsed : undefined;
       const updatedAt =
-        typeof run.updated_at === 'string' && run.updated_at.trim().length > 0
-          ? run.updated_at
-          : typeof run.last_heartbeat_at === 'string' && run.last_heartbeat_at.trim().length > 0
-            ? run.last_heartbeat_at
-            : undefined;
+        meaningfulTimestamp(run.updated_at) ?? meaningfulTimestamp(run.last_heartbeat_at);
 
       return {
         status,
@@ -335,25 +332,47 @@ class BotApiClient {
     let updatedAt: string | undefined;
     let progressSource: 'status' | 'list_fallback' | 'default' = 'default';
 
-    // The dedicated status endpoint currently times out for some active runs.
-    // The list response carries the same live fields without producing browser-level fetch errors.
+    // The status route reads the bot's own run record (status, persisted progress)
+    // and refreshes the backend's list mirror as a side effect. The list mirror
+    // alone never leaves PENDING while a run executes, so it is only a fallback
+    // for when the status route errors or times out.
+    let statusRecord: Record<string, unknown> | undefined;
     try {
-      const listRuns = await this.getBacktestStatusList();
-      const matchedRun = listRuns.find((item) => item.run_id === runId);
-
-      if (isRecord(matchedRun)) {
-        const fallbackStatusProgress = extractFromRunRecord(matchedRun);
-        status = fallbackStatusProgress.status ?? status;
-        if (fallbackStatusProgress.progress !== undefined) {
-          progress = fallbackStatusProgress.progress;
-          progressSource = 'list_fallback';
-        }
-        currentPair = fallbackStatusProgress.currentPair ?? currentPair;
-        etaSeconds = fallbackStatusProgress.etaSeconds ?? etaSeconds;
-        updatedAt = fallbackStatusProgress.updatedAt ?? updatedAt;
+      const statusResult = await this.baseClient.getBacktestStatus(runId);
+      if (isRecord(statusResult.data) && typeof statusResult.data.status === 'string') {
+        statusRecord = statusResult.data;
       }
     } catch (error) {
-      console.warn('📊 botApi.ts: failed to fetch list fallback for backtest status', error);
+      console.warn('📊 botApi.ts: backtest status route failed, using the list mirror', error);
+    }
+
+    if (statusRecord) {
+      const live = extractFromRunRecord(statusRecord);
+      status = live.status ?? status;
+      progress = live.progress;
+      progressSource = live.progress !== undefined ? 'status' : progressSource;
+      currentPair = live.currentPair;
+      etaSeconds = live.etaSeconds;
+      updatedAt = live.updatedAt;
+    } else {
+      try {
+        const listRuns = await this.getBacktestStatusList();
+        const matchedRun = listRuns.find((item) => item.run_id === runId);
+
+        if (isRecord(matchedRun)) {
+          const fallbackStatusProgress = extractFromRunRecord(matchedRun);
+          status = fallbackStatusProgress.status ?? status;
+          if (fallbackStatusProgress.progress !== undefined) {
+            progress = fallbackStatusProgress.progress;
+            progressSource = 'list_fallback';
+          }
+          currentPair = fallbackStatusProgress.currentPair ?? currentPair;
+          etaSeconds = fallbackStatusProgress.etaSeconds ?? etaSeconds;
+          updatedAt = fallbackStatusProgress.updatedAt ?? updatedAt;
+        }
+      } catch (error) {
+        console.warn('📊 botApi.ts: failed to fetch list fallback for backtest status', error);
+      }
     }
 
     const computedProgress = progress !== undefined ? progress : status === 'COMPLETED' ? 100 : 0;

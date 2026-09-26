@@ -943,11 +943,25 @@ def test_reconstruct_restart_request_payload_paths():
     assert "strategy_id" not in reconstructed  # None values stripped
 
     fallback = BacktestService._reconstruct_restart_request_payload(
-        {"current_pair": "btc/eth", "initial_balance": None}
+        {
+            "current_pair": "btc/eth",
+            "initial_balance": None,
+            "start_date": "2026-01-01",
+            "end_date": "2026-02-01",
+        }
     )
     assert fallback["selected_pairs"] == ["BTC/ETH"]
     assert fallback["initial_balance"] == 10000.0
     assert fallback["source"] == "api"
+
+
+def test_reconstruct_restart_request_payload_needs_the_date_window():
+    for run_data in (
+        {"selected_pairs": ["BTC/ETH"], "end_date": "2026-02-01"},
+        {"selected_pairs": ["BTC/ETH"], "start_date": "2026-01-01"},
+        {"selected_pairs": ["BTC/ETH"], "start_date": " ", "end_date": ""},
+    ):
+        assert BacktestService._reconstruct_restart_request_payload(run_data) == {}
 
 
 def test_request_payload_hash_ignores_control_and_task_keys():

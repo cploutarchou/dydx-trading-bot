@@ -38,6 +38,7 @@ import {
 } from '../features/backtests/intelligence';
 import { buildBacktestIntelRequest } from '../features/codex/marketIntel';
 import { usePersistentPreference } from '../hooks/usePersistentPreference';
+import { meaningfulTimestamp } from '../utils/timestamps';
 
 export type BacktestsView = 'dashboard' | 'new' | 'runs' | 'experiments';
 
@@ -191,10 +192,11 @@ const BacktestsModeSwitcher: React.FC<{ view: BacktestsView }> = ({ view }) => {
 };
 
 const parseTimestampMs = (value: unknown): number | undefined => {
-  if (typeof value !== 'string') {
+  const meaningful = meaningfulTimestamp(value);
+  if (!meaningful) {
     return undefined;
   }
-  const parsed = new Date(value).getTime();
+  const parsed = new Date(meaningful).getTime();
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 

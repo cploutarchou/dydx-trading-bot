@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import api, { classifyApiError } from '../api';
 import { useNow } from '../hooks/useNow';
 import { getEnvelopeList, toApiRecord } from '../api/normalizers';
+import { formatDrawdownPct } from '../utils/format';
 
 type RunStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'STALE' | 'TIMEOUT';
 
@@ -816,7 +817,7 @@ export const BacktestList: React.FC<{
                     <div>
                       <p className="text-xs text-slate-500">Risk</p>
                       <p className="mt-1 text-slate-200">
-                        DD {formatPct(maxDdValue(run))} · WR {formatPct(run.win_rate)}
+                        DD {formatDrawdownPct(maxDdValue(run))} · WR {formatPct(run.win_rate)}
                       </p>
                     </div>
                   </div>
@@ -984,7 +985,9 @@ export const BacktestList: React.FC<{
                         <td className="px-4 py-2 text-right">
                           {run.sharpe_ratio ? run.sharpe_ratio.toFixed(2) : 'N/A'}
                         </td>
-                        <td className="px-4 py-2 text-right">{formatPct(maxDdValue(run))}</td>
+                        <td className="px-4 py-2 text-right">
+                          {formatDrawdownPct(maxDdValue(run))}
+                        </td>
                         <td className="px-4 py-2 text-center">
                           <div className="flex flex-col items-center gap-1">
                             <span

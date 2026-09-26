@@ -541,6 +541,61 @@ def test_repair_backtest_request_restores_restartability(monkeypatch):
     assert restarted["new_run_id"] != run_id
 
 
+def test_only_finished_runs_report_restartable():
+    _, service_module = _load_modules()
+    service = service_module.BacktestService(session=None)
+    now = datetime.now(timezone.utc).isoformat()
+    for run_id, status in (("rs-running", "running"), ("rs-done", "completed")):
+        service.repository.save_run(
+            {
+                "run_id": run_id,
+                "name": run_id,
+                "status": status,
+                "progress_pct": 40.0,
+                "created_at": now,
+                "updated_at": now,
+                "start_date": "2026-03-20",
+                "end_date": "2026-04-19",
+                "request": {"pairs": ["BTC-USD", "ETH-USD"]},
+            }
+        )
+
+    try:
+        running = service.get_backtest_status("rs-running")
+        done = service.get_backtest_status("rs-done")
+    finally:
+        # The in-memory store is shared; a leftover active run skews queue depth.
+        service.repository.delete_run("rs-running")
+        service.repository.delete_run("rs-done")
+    assert running is not None and running.status == "running"
+    assert running.restartable is False
+    assert done is not None and done.restartable is True
+
+
+def test_repair_backtest_request_reports_unrepairable_without_dates():
+    _, service_module = _load_modules()
+    service = service_module.BacktestService(session=None)
+    now = datetime.now(timezone.utc).isoformat()
+    service.repository.save_run(
+        {
+            "run_id": "no-window-run",
+            "name": "no window",
+            "status": "failed",
+            "created_at": now,
+            "updated_at": now,
+            "selected_pairs": ["BTC-USD/ETH-USD"],
+            "request": {},
+        }
+    )
+
+    verdict = service.repair_backtest_request("no-window-run", dry_run=True)
+    assert verdict is not None
+    assert verdict["repairable"] is False
+    assert verdict["request_available"] is False
+    assert verdict["error"] == "insufficient_fields_to_reconstruct_request"
+    assert asyncio.run(service.restart_backtest("no-window-run")) is None
+
+
 def test_celery_worker_backend_queues_persisted_run(monkeypatch):
     _, service_module = _load_modules()
     BacktestService = service_module.BacktestService

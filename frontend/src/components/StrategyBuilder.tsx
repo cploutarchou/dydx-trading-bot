@@ -1863,8 +1863,8 @@ export default function StrategyBuilder() {
                     <p id="max_drawdown_pct_hint" className="mt-1 text-xs leading-5 text-slate-400">
                       Measured on the equity of the subaccount the bot trades on. Once equity falls
                       this far below its peak, the bot opens no new pairs until you clear the halt
-                      on the strategy card; open pairs keep their exits. Backtests do not stop at
-                      it. 0 turns it off.
+                      on the strategy card; open pairs keep their exits. Backtests apply it the same
+                      way on closed-trade equity. 0 turns it off.
                     </p>
                   </div>
 

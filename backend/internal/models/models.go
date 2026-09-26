@@ -194,7 +194,6 @@ type BacktestRun struct {
 	Config            sql.NullString `db:"config" json:"config"`
 	StrategySnapshot  sql.NullString `db:"strategy_snapshot" json:"strategy_snapshot"`
 	CreatedAt         time.Time      `db:"created_at" json:"created_at"`
-	UpdatedAt         time.Time      `db:"updated_at" json:"updated_at"`
 }
 
 type BacktestExperimentRunSummary struct {

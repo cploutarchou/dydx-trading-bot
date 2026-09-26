@@ -57,6 +57,7 @@ import {
   normalizeUnenforcedRiskControls,
   riskControlLabel,
 } from '../utils/unenforcedRiskControls';
+import { meaningfulTimestamp } from '../utils/timestamps';
 
 interface Candle {
   market: string;
@@ -229,19 +230,15 @@ const normalizePercentValue = (value: unknown): number => {
 };
 
 const formatDateValue = (value: string | null | undefined): string => {
-  if (!value) return '-';
-  const parsed = new Date(value);
+  const meaningful = meaningfulTimestamp(value);
+  if (!meaningful) return '-';
+  const parsed = new Date(meaningful);
   return Number.isNaN(parsed.getTime())
     ? '-'
     : parsed.toISOString().replace('T', ' ').replace('Z', ' UTC');
 };
 
 const normalizeStatus = (value: unknown): string => String(value || '').toLowerCase();
-
-const shouldRenderListShellOnly = (status: unknown): boolean =>
-  ['pending', 'queued', 'starting', 'started', 'running', 'in_progress'].includes(
-    normalizeStatus(status)
-  );
 
 const firstFiniteNumber = (...values: unknown[]): number | null => {
   for (const value of values) {
@@ -288,16 +285,19 @@ const buildFallbackBacktestFromStatus = (
   const progress =
     firstFiniteNumber(payload.progress_percent, payload.progress_pct, payload.progress) ?? 0;
   const status = firstMeaningfulString(payload.status, payload.state) ?? 'PENDING';
-  const updatedAt = firstMeaningfulString(
-    payload.updated_at,
-    payload.timestamp,
-    payload.started_at
-  );
+  const updatedAt =
+    meaningfulTimestamp(payload.updated_at) ??
+    meaningfulTimestamp(payload.timestamp) ??
+    meaningfulTimestamp(payload.started_at);
 
   return {
     run_id: runId,
     status,
-    created_at: firstMeaningfulString(payload.created_at, payload.started_at, updatedAt) ?? now,
+    created_at:
+      meaningfulTimestamp(payload.created_at) ??
+      meaningfulTimestamp(payload.started_at) ??
+      updatedAt ??
+      now,
     updated_at: updatedAt ?? now,
     progress_percent: progress,
     progress_pct: progress,
@@ -315,7 +315,7 @@ const buildFallbackBacktestFromStatus = (
     cancellable: Boolean(payload.cancellable),
     pausable: Boolean(payload.pausable),
     resumable: Boolean(payload.resumable),
-    restartable: Boolean(payload.restartable ?? true),
+    restartable: Boolean(payload.restartable ?? false),
     control_status: firstMeaningfulString(payload.control_status) ?? undefined,
     control_action: firstMeaningfulString(payload.control_action) ?? undefined,
     worker_backend: firstMeaningfulString(payload.worker_backend) ?? undefined,
@@ -515,10 +515,8 @@ export const BacktestDetailsV2: React.FC = () => {
         const liveStatusPayload = unwrapDataRecord(liveStatusResponse);
         const fallbackBacktest = buildFallbackBacktestFromStatus(safeRunId, liveStatusPayload);
 
-        if (shouldRenderListShellOnly(fallbackBacktest.status)) {
-          return fallbackBacktest;
-        }
-
+        // Active runs load the real record too: only it says whether the stored
+        // request exists, so the shell alone would show a false "payload missing".
         try {
           const response = await withTimeout(api.getBacktest(safeRunId), 12000, 'Backtest detail');
           const data = response?.data || response;
@@ -1149,13 +1147,15 @@ export const BacktestDetailsV2: React.FC = () => {
     cancellable: Boolean(liveRecord?.cancellable ?? backtest.cancellable),
     pausable: Boolean(liveRecord?.pausable ?? backtest.pausable),
     resumable: Boolean(liveRecord?.resumable ?? backtest.resumable),
-    restartable: Boolean(liveRecord?.restartable ?? backtest.restartable ?? true),
+    restartable: Boolean(liveRecord?.restartable ?? backtest.restartable ?? false),
     request_available:
       typeof liveRecord?.request_available === 'boolean'
         ? liveRecord.request_available
         : typeof backtest.request_available === 'boolean'
           ? backtest.request_available
-          : Boolean(asRecord(liveRecord?.request) || backtest.request),
+          : asRecord(liveRecord?.request) || backtest.request
+            ? true
+            : undefined,
     control_status:
       firstMeaningfulString(liveRecord?.control_status, backtest.control_status) ??
       backtest.control_status,
@@ -1610,27 +1610,47 @@ export const BacktestDetailsV2: React.FC = () => {
     Boolean(runId) &&
     !controlBusy &&
     (liveBacktest.restartable || isFailed || isCompleted || isPaused);
-  const canRepairRestart = Boolean(runId) && !controlBusy && canRestart && isStrictAdmin;
+  // Unknown until the run record has loaded; never read absence as "missing".
+  const requestAvailable: boolean | undefined =
+    typeof liveBacktest.request_available === 'boolean'
+      ? liveBacktest.request_available
+      : liveBacktest.request
+        ? true
+        : undefined;
+  const requestMissing = requestAvailable === false;
+  const canRepairRestart =
+    Boolean(runId) && !controlBusy && canRestart && isStrictAdmin && requestMissing;
   const canRetry = Boolean(runId) && !controlBusy && isFailed;
-  const requestAvailable = Boolean(liveBacktest.request_available ?? liveBacktest.request);
-  const recoverySummaryLabel = requestAvailable
-    ? 'Request payload available'
-    : 'Request payload missing';
-  const recoverySummaryTone = requestAvailable
-    ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-100'
-    : canRepairRestart
-      ? 'border-fuchsia-500/25 bg-fuchsia-500/10 text-fuchsia-100'
-      : 'border-amber-500/25 bg-amber-500/10 text-amber-100';
-  const recoveryRepairability = requestAvailable
-    ? 'No repair needed'
-    : canRepairRestart
-      ? 'Repairable by admin'
-      : 'Repair blocked';
-  const recoverySummaryHint = requestAvailable
-    ? 'Restart uses the saved request directly.'
-    : canRepairRestart
-      ? 'Admin repair is available before restart.'
-      : 'Restart may fail until the request is repaired by an admin.';
+  const recoverySummaryLabel =
+    requestAvailable === undefined
+      ? 'Request payload not checked'
+      : requestAvailable
+        ? 'Request payload available'
+        : 'Request payload missing';
+  const recoverySummaryTone =
+    requestAvailable === undefined
+      ? 'border-slate-700 bg-slate-950/70 text-slate-200'
+      : requestAvailable
+        ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-100'
+        : canRepairRestart
+          ? 'border-fuchsia-500/25 bg-fuchsia-500/10 text-fuchsia-100'
+          : 'border-amber-500/25 bg-amber-500/10 text-amber-100';
+  const recoveryRepairability =
+    requestAvailable === undefined
+      ? 'Unknown'
+      : requestAvailable
+        ? 'No repair needed'
+        : canRepairRestart
+          ? 'Repairable by admin'
+          : 'Repair blocked';
+  const recoverySummaryHint =
+    requestAvailable === undefined
+      ? 'The run record has not loaded yet, so the stored request was not checked.'
+      : requestAvailable
+        ? 'Restart uses the saved request directly.'
+        : canRepairRestart
+          ? 'Admin repair is available before restart.'
+          : 'Restart may fail until the request is repaired by an admin.';
 
   const handleBacktestControl = async (action: ControlAction) => {
     if (!runId) return;
@@ -2013,7 +2033,7 @@ export const BacktestDetailsV2: React.FC = () => {
                     Recovery status
                   </p>
                   <p className="mt-2 text-sm font-semibold text-white">{recoverySummaryLabel}</p>
-                  {canRepairRestart && !requestAvailable ? (
+                  {canRepairRestart ? (
                     <button
                       type="button"
                       onClick={() => handleBacktestControl('repairRestart')}

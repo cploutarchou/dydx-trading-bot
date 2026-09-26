@@ -1,3 +1,5 @@
+import { meaningfulTimestamp } from '../../utils/timestamps';
+
 export interface StrategyRef {
   id: number;
   name: string;
@@ -209,7 +211,8 @@ export const buildIntelligence = (
       group.activeRuns += 1;
     }
 
-    const candidateDate = run.updated_at || run.created_at;
+    const candidateDate =
+      meaningfulTimestamp(run.updated_at) ?? meaningfulTimestamp(run.created_at);
     if (candidateDate && (!group.lastRunAt || candidateDate > group.lastRunAt)) {
       group.lastRunAt = candidateDate;
     }

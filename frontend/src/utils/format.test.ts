@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatCount,
+  formatDrawdownPct,
   formatPct,
   formatSignedUsd,
   formatSignedUsdCompact,
@@ -55,5 +56,13 @@ describe('shared formatters', () => {
     expect(formatSignedUsdCompact(1500)).toBe('▲ +$1.5K');
     expect(formatSignedUsdCompact(-2500000)).toBe('▼ -$2.5M');
     expect(formatSignedUsdCompact(0)).toBe('$0');
+  });
+
+  it('formatDrawdownPct reads percent as percent and flags equity below zero', () => {
+    expect(formatDrawdownPct(0.5)).toBe('0.5%');
+    expect(formatDrawdownPct(9)).toBe('9.0%');
+    expect(formatDrawdownPct(270.7)).toBe('270.7% (equity below zero)');
+    expect(formatDrawdownPct(null)).toBe('N/A');
+    expect(formatDrawdownPct(Number.NaN)).toBe('N/A');
   });
 });

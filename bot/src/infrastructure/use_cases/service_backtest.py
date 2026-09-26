@@ -451,6 +451,12 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         if existing_request:
             return existing_request
 
+        start_date = str(run_data.get("start_date") or "").strip()
+        end_date = str(run_data.get("end_date") or "").strip()
+        if not start_date or not end_date:
+            # Without the original window any rebuilt request would be a guess.
+            return {}
+
         selected_pairs = cls._normalize_string_list(run_data.get("selected_pairs"))
         current_pair = str(run_data.get("current_pair") or "").strip().upper()
         if not selected_pairs and "/" in current_pair:
@@ -474,8 +480,8 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         reconstructed: Dict[str, Any] = {
             "name": run_data.get("name") or "restarted-backtest",
             "description": run_data.get("description") or "",
-            "start_date": str(run_data.get("start_date") or ""),
-            "end_date": str(run_data.get("end_date") or ""),
+            "start_date": start_date,
+            "end_date": end_date,
             "initial_balance": cls._safe_float(
                 run_data.get("initial_balance"), 10000.0
             ),
@@ -872,7 +878,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             status == "paused"
             or (pause_requested and control_status in {"pause_requested", "paused"})
         )
-        payload["restartable"] = True
+        payload["restartable"] = is_terminal
         if resume_requested:
             payload["control_status"] = "resume_requested"
         return payload

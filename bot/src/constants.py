@@ -126,6 +126,34 @@ DEFILLAMA_SIGNALS_ENABLED = _env_flag("DEFILLAMA_SIGNALS_ENABLED", False)
 NEWS_SIGNALS_ENABLED = _env_flag("NEWS_SIGNALS_ENABLED", False)
 AUTO_EXECUTION_CHANGES_ENABLED = _env_flag("AUTO_EXECUTION_CHANGES_ENABLED", False)
 
+# Cost + funding entry gate (src/trading/entry_cost_gate.py). Startup defaults
+# only: the decision path reads them through
+# arbitrage_runtime_config.get_runtime_settings(), which clamps them and lets
+# the backend override them at runtime. Off by default.
+import src.trading.entry_cost_gate as _entry_cost_gate
+
+COST_GATE_ENABLED = _env_flag("COST_GATE_ENABLED", False)
+# Required edge / round-trip cost ratio.
+COST_GATE_EDGE_MULTIPLE: float = float(
+    _os.getenv("COST_GATE_EDGE_MULTIPLE", str(_entry_cost_gate.DEFAULT_EDGE_MULTIPLE))
+)
+# Taker fee per fill, shared with the backtest's default transaction_fee.
+COST_GATE_TAKER_FEE: float = float(
+    _os.getenv("COST_GATE_TAKER_FEE", str(_entry_cost_gate.DEFAULT_TAKER_FEE))
+)
+# Assumed slippage per fill, in basis points of the leg notional.
+COST_GATE_SLIPPAGE_BPS_DEFAULT = 5.0
+COST_GATE_SLIPPAGE_BPS: float = float(
+    _os.getenv("COST_GATE_SLIPPAGE_BPS", str(COST_GATE_SLIPPAGE_BPS_DEFAULT))
+)
+# Hourly funding rate above which a leg counts as paying (tau). An entry whose
+# long leg's rate is above tau AND whose short leg's rate is below -tau pays
+# funding on both legs and is rejected.
+FUNDING_SAME_SIDE_THRESHOLD_DEFAULT = 0.00001
+FUNDING_SAME_SIDE_THRESHOLD: float = float(
+    _os.getenv("FUNDING_SAME_SIDE_THRESHOLD", str(FUNDING_SAME_SIDE_THRESHOLD_DEFAULT))
+)
+
 # Per-call sleep between dYdX API requests (milliseconds → seconds).
 # Set DYDX_API_THROTTLE_MS=0 to disable; default 200 ms.
 DYDX_API_THROTTLE_SECONDS: float = (

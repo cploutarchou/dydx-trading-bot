@@ -80,6 +80,19 @@ def calculate_zscore(spread: Any) -> pd.Series:
     return zscore
 
 
+def calculate_spread_std(spread: Any) -> float:
+    """Standard deviation of the spread over the z-score window, at the last bar.
+
+    Same window and estimator as ``calculate_zscore`` (rolling ``WINDOW`` bars
+    including the current one, sample std with ddof=1), so it is the sigma the
+    entry z-score was scaled by. NaN when the series is shorter than the window.
+    """
+    spread_series = pd.Series(spread)
+    if spread_series.empty:
+        return float("nan")
+    return float(spread_series.rolling(center=False, window=WINDOW).std().iloc[-1])
+
+
 def calculate_cointegration(
     series_1: Any, series_2: Any
 ) -> Tuple[int, float, float, float, float]:

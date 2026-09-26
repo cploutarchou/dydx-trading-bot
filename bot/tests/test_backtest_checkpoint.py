@@ -657,3 +657,111 @@ def test_pause_entry_invokes_checkpoint_writer(monkeypatch):
 
     asyncio.run(_run())
     assert writer_calls == [1]
+
+
+def _run_completed_backtest(monkeypatch, trading_overrides):
+    service_module = _load_service_module()
+
+    async def _fake_connect():
+        return _FakeClient()
+
+    monkeypatch.setattr(service_module, "connect_dydx", _fake_connect)
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND", "asyncio")
+    monkeypatch.setenv("BACKTEST_WORKER_BACKEND_AUTO_REPROBE", "false")
+    service = service_module.BacktestService(session=None)
+    request = _request_dict()
+    request["trading_parameters"].update(trading_overrides)
+
+    async def _run():
+        created = await service.create_and_run_backtest(request)
+        assert await _wait_for_terminal_status(service, created.run_id) == ("completed")
+        return service.get_backtest_details(created.run_id), service._load_run_data(
+            created.run_id
+        )
+
+    return asyncio.run(_run())
+
+
+def test_completed_run_records_ledger_costs_and_cost_gate_diagnostics(monkeypatch):
+    details, run_data = _run_completed_backtest(
+        monkeypatch,
+        {
+            "transaction_fee": 0.0005,
+            "slippage": 0.001,
+            "cost_gate_enabled": True,
+            "cost_gate_edge_multiple": 2.5,
+        },
+    )
+
+    trades = run_data["trades"]
+    assert details.fees_total == pytest.approx(
+        sum(trade["fee_cost"] for trade in trades), abs=1e-8
+    )
+    assert details.slippage_total == pytest.approx(
+        sum(trade["slippage_cost"] for trade in trades), abs=1e-8
+    )
+    # No funding data in backtests: never reported as a 0.0 cost.
+    assert details.funding_total is None
+    assert details.funding_modelled is False
+    diagnostics = details.cost_gate_diagnostics
+    assert diagnostics["enabled"] is True
+    assert diagnostics["funding_modelled"] is False
+    assert diagnostics["complete"] is True
+    assert diagnostics["evaluated"] == diagnostics["accepted"] + sum(
+        diagnostics["rejected_by_reason"].values()
+    )
+    assert diagnostics["evaluated"] > 0
+
+
+def test_completed_run_without_the_gate_has_no_gate_diagnostics(monkeypatch):
+    details, run_data = _run_completed_backtest(monkeypatch, {})
+
+    assert details.cost_gate_diagnostics is None
+    assert details.funding_total is None
+    assert details.funding_modelled is False
+    if run_data["trades"]:
+        assert details.fees_total > 0
+    else:
+        assert details.fees_total == 0.0
+
+
+def test_ledger_cost_totals_refuse_a_partial_sum():
+    service_module = _load_service_module()
+    totals = service_module.BacktestService._ledger_cost_totals
+
+    assert totals([]) == (0.0, 0.0)
+    assert totals(
+        [
+            {"fee_cost": 0.01, "slippage_cost": 0.02},
+            {"fee_cost": 0.01, "slippage_cost": 0.0},
+        ]
+    ) == (0.02, 0.02)
+    # A trade recorded before the split existed makes both totals unknown.
+    assert totals([{"fee_cost": 0.01, "slippage_cost": 0.02}, {"pnl_usd": 1.0}]) == (
+        None,
+        None,
+    )
+    assert totals([{"fee_cost": True, "slippage_cost": 0.0}]) == (None, None)
+
+
+def test_cost_gate_run_diagnostics_marks_resumed_counts_partial():
+    service_module = _load_service_module()
+    build = service_module.BacktestService._cost_gate_run_diagnostics
+    counts = {
+        "evaluated": 3,
+        "accepted": 1,
+        "edge_multiple": 2.5,
+        "rejected_by_reason": {"edge_lt_cost": 2},
+    }
+
+    assert build({}, counts, partial=False) is None
+    diagnostics = build({"cost_gate_enabled": "true"}, counts, partial=True)
+    assert diagnostics == {
+        "enabled": True,
+        "edge_multiple": 2.5,
+        "funding_modelled": False,
+        "evaluated": 3,
+        "accepted": 1,
+        "rejected_by_reason": {"edge_lt_cost": 2},
+        "complete": False,
+    }

@@ -44,10 +44,12 @@ from src.trading.account_manager import (
     is_open_positions,
     place_market_order,
 )
-from src.trading.analysis.cointegration import calculate_zscore
+from src.trading.analysis.cointegration import calculate_spread_std, calculate_zscore
 from src.trading.arbitrage_observability import increment_metric, record_rejection
 from src.trading.arbitrage_runtime_config import (
+    get_runtime_settings,
     is_arbitrage_improvements_enabled,
+    is_cost_gate_enabled,
     is_pair_priority_engine_enabled,
     pair_priority_max_pairs,
 )
@@ -58,7 +60,16 @@ from src.trading.bot_agents_state import (
     load_tracked_positions,
     save_processed_positions,
 )
-from src.trading.market_data import get_candles_recent, get_markets
+from src.trading.entry_cost_gate import (
+    CostInputError,
+    EntryCostDecision,
+    FundingInputs,
+    evaluate_entry_cost,
+    invalid_decision,
+    ladder_exit_z,
+    slippage_bps_to_fraction,
+)
+from src.trading.market_data import DYDX_RESOLUTION, get_candles_recent, get_markets
 from src.trading.pair_priority import PairPriorityScore, prioritize_pairs
 from src.trading.portfolio_risk import check_portfolio_entry_guard
 from src.trading.realized_pnl import (
@@ -679,6 +690,57 @@ async def _resolve_leg_open_state(
     return is_base_open, is_quote_open
 
 
+def _live_entry_cost_decision(
+    *,
+    settings: Dict[str, Any],
+    z_score: float,
+    spread: Any,
+    price_1: Any,
+    price_2: Any,
+    hedge_ratio: float,
+    half_life: float,
+    market_1: Any,
+    market_2: Any,
+) -> EntryCostDecision:
+    """Live wrapper of the shared cost + funding entry gate. No I/O.
+
+    Sigma is the spread's std over the z-score window; prices are the last
+    candle closes the entry is sized from; funding is each market's hourly
+    ``nextFundingRate`` from this cycle's ``get_markets`` payload (no extra
+    exchange call). A missing or unparseable rate rejects the entry
+    (``cost_inputs_invalid``), as does a z-score exit that is switched off.
+    """
+    try:
+        slippage_per_fill = slippage_bps_to_fraction(
+            settings.get("COST_GATE_SLIPPAGE_BPS")
+        )
+    except CostInputError as exc:
+        return invalid_decision(str(exc))
+    rate_1 = market_1.get("nextFundingRate") if isinstance(market_1, dict) else None
+    rate_2 = market_2.get("nextFundingRate") if isinstance(market_2, dict) else None
+    return evaluate_entry_cost(
+        z_entry=z_score,
+        z_exit=ladder_exit_z(
+            z_score, close_at_zscore_cross=bool(CLOSE_AT_ZSCORE_CROSS)
+        ),
+        spread_std=calculate_spread_std(spread),
+        price_1=price_1,
+        price_2=price_2,
+        hedge_ratio=hedge_ratio,
+        taker_fee=settings.get("COST_GATE_TAKER_FEE"),
+        slippage_per_fill=slippage_per_fill,
+        multiple=settings.get("COST_GATE_EDGE_MULTIPLE"),
+        funding=FundingInputs(
+            rate_market_1=rate_1,
+            rate_market_2=rate_2,
+            half_life_bars=half_life,
+            resolution=DYDX_RESOLUTION,
+            max_hold_hours=POSITION_TIMEOUT_HOURS,
+            same_side_threshold=settings.get("FUNDING_SAME_SIDE_THRESHOLD"),
+        ),
+    )
+
+
 def _build_trade_opened_notification(
     bot_open_dict: Dict[str, Any],
     *,
@@ -1001,6 +1063,10 @@ async def open_positions(client: Any) -> None:
 
     priority_scores: list[PairPriorityScore] = []
     pair_priority_enabled = is_pair_priority_engine_enabled()
+    # One settings snapshot per cycle so every pair in it is judged by the
+    # same cost-gate flag and parameters.
+    cycle_settings = get_runtime_settings()
+    cost_gate_enabled = is_cost_gate_enabled(cycle_settings)
     if pair_priority_enabled:
         max_pairs = pair_priority_max_pairs()
         pairs, priority_scores = prioritize_pairs(
@@ -1165,6 +1231,60 @@ async def open_positions(client: Any) -> None:
 
                 # Place trade
                 if not is_base_open and not is_quote_open:
+                    # Cost + funding gate (default off). Runs after the
+                    # open-leg check so pairs already held never count as
+                    # rejections, and before the position cap and the
+                    # portfolio guard, which it does not change.
+                    if cost_gate_enabled:
+                        cost_decision = _live_entry_cost_decision(
+                            settings=cycle_settings,
+                            z_score=z_score,
+                            spread=spread,
+                            price_1=series_1_numeric.iloc[-1],
+                            price_2=series_2_numeric.iloc[-1],
+                            hedge_ratio=hedge_ratio,
+                            half_life=half_life,
+                            market_1=market_map.get(base_market),
+                            market_2=market_map.get(quote_market),
+                        )
+                        cost_fields = cost_decision.log_fields()
+                        if not cost_decision.accepted:
+                            record_rejection(str(cost_decision.reason))
+                            logger.warning(
+                                "scan_cycle={} opportunity_rejected pair={}/{} "
+                                "reason={} z_score={:.6f} edge_frac={} fee_frac={} "
+                                "slippage_frac={} funding_frac={} hold_hours={} "
+                                "multiple={} detail={}",
+                                scan_cycle_id,
+                                base_market,
+                                quote_market,
+                                cost_decision.reason,
+                                float(z_score),
+                                cost_fields["edge_frac"],
+                                cost_fields["fee_frac"],
+                                cost_fields["slippage_frac"],
+                                cost_fields["funding_frac"],
+                                cost_fields["hold_hours"],
+                                cost_fields["multiple"],
+                                cost_decision.detail or "-",
+                            )
+                            continue
+                        logger.info(
+                            "scan_cycle={} cost_gate_passed pair={}/{} z_score={:.6f} "
+                            "edge_frac={} fee_frac={} slippage_frac={} funding_frac={} "
+                            "hold_hours={} multiple={}",
+                            scan_cycle_id,
+                            base_market,
+                            quote_market,
+                            float(z_score),
+                            cost_fields["edge_frac"],
+                            cost_fields["fee_frac"],
+                            cost_fields["slippage_frac"],
+                            cost_fields["funding_frac"],
+                            cost_fields["hold_hours"],
+                            cost_fields["multiple"],
+                        )
+
                     tracked_positions = await load_tracked_positions()
                     if MAX_POSITIONS > 0 and len(tracked_positions) >= MAX_POSITIONS:
                         record_rejection("max_positions")

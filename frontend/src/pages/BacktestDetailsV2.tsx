@@ -1251,10 +1251,6 @@ export const BacktestDetailsV2: React.FC = () => {
     filteredChartStart && filteredChartEnd
       ? filteredChartEnd.value - filteredChartStart.value
       : totalPnl;
-  const periodReturnPct =
-    filteredChartStart && Math.abs(filteredChartStart.value) > 0
-      ? (periodPnl / Math.abs(filteredChartStart.value)) * 100
-      : 0;
   const peakEquity =
     filteredChartPoints.length > 0
       ? Math.max(...filteredChartPoints.map((point) => point.value))
@@ -1388,6 +1384,18 @@ export const BacktestDetailsV2: React.FC = () => {
     requestParams?.initial_amount
   );
   const initialCapital = knownCapital !== null && knownCapital > 0 ? knownCapital : null;
+  // Chart values are cumulative P&L, so the window opens at balance + that P&L.
+  // Dividing by the P&L alone (near $0 early on) gave returns like -200%.
+  const windowStartEquity =
+    initialCapital !== null ? initialCapital + (filteredChartStart?.value ?? 0) : null;
+  const periodReturnPct =
+    windowStartEquity !== null && windowStartEquity > 0
+      ? (periodPnl / windowStartEquity) * 100
+      : null;
+  const periodReturnText =
+    periodReturnPct === null
+      ? '—'
+      : `${periodReturnPct >= 0 ? '+' : ''}${periodReturnPct.toFixed(2)}%`;
   const avgPnlPerTrade =
     trades.length > 0 ? trades.reduce((sum, trade) => sum + trade.pnl_usd, 0) / trades.length : 0;
   const avgTradeDurationHours =
@@ -1524,7 +1532,7 @@ export const BacktestDetailsV2: React.FC = () => {
     {
       label: 'Total PnL',
       value: formatCurrency(totalPnl),
-      detail: `${periodPnl >= 0 ? '+' : ''}${periodReturnPct.toFixed(2)}% selected range`,
+      detail: `${periodReturnText} selected range`,
       icon: TrendingUp,
       color: totalPnl >= 0 ? 'text-green-400' : 'text-red-400',
     },
@@ -3183,10 +3191,9 @@ export const BacktestDetailsV2: React.FC = () => {
                     Window Return
                   </p>
                   <p
-                    className={`mt-2 text-xl font-semibold ${periodReturnPct >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}
+                    className={`mt-2 text-xl font-semibold ${(periodReturnPct ?? 0) >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}
                   >
-                    {periodReturnPct >= 0 ? '+' : ''}
-                    {periodReturnPct.toFixed(2)}%
+                    {periodReturnText}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/65 p-4">

@@ -192,7 +192,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       try {
         // The route returns the tradable universe: active markets sorted by
         // 24 h volume. No cap, so nothing traded is left off the list.
-        const response = await api.getPerpetualMarkets();
+        const response = await api.getPerpetualMarkets(0, { forBacktest: true });
         const markets = Array.isArray(response.data?.markets) ? response.data.markets : [];
         const responseData = (response.data || {}) as PerpetualMarketsResponse;
         const source = String(responseData.source || 'unknown');

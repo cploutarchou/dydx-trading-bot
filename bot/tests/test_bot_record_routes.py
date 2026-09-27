@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +12,9 @@ import httpx
 import pytest
 from fastapi import HTTPException
 from fastapi.routing import APIRoute
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 import src.api.server as server
 import src.api.v1.bot_records as records
@@ -21,8 +24,23 @@ _BOT_RECORD_OPERATIONS = {
     ("GET", "/api/v1/bots/{instance_id}/history"),
     ("GET", "/api/v1/bots/{instance_id}/jobs"),
     ("GET", "/api/v1/bots/{instance_id}/trades"),
+    ("GET", "/api/v1/bots/{instance_id}/cointegrated-pairs"),
     ("GET", "/api/v1/bots/{instance_id}/stats"),
 }
+
+_COINTEGRATED_PAIRS_DDL = """
+CREATE TABLE cointegrated_pairs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  instance_id VARCHAR(64) NOT NULL UNIQUE,
+  pairs_json TEXT NOT NULL DEFAULT '[]',
+  pairs_count INTEGER NOT NULL DEFAULT 0,
+  high_confidence_count INTEGER NOT NULL DEFAULT 0,
+  analyzed_at DATETIME NOT NULL
+)
+"""
+
+PLANTED_ADDRESS = "dydx1plantedaddressthatmustnotleak"
+PLANTED_MNEMONIC = "planted mnemonic words that must never leave the bot"
 
 
 async def _request(method: str, path: str, *, raise_app_exceptions=False, **kwargs):
@@ -279,10 +297,11 @@ async def test_bot_record_routes_require_auth(monkeypatch):
         await _request("GET", "/api/v1/bots/bot-records-1/history"),
         await _request("GET", "/api/v1/bots/bot-records-1/jobs"),
         await _request("GET", "/api/v1/bots/bot-records-1/trades"),
+        await _request("GET", "/api/v1/bots/bot-records-1/cointegrated-pairs"),
         await _request("GET", "/api/v1/bots/bot-records-1/stats"),
     ]
 
-    assert [response.status_code for response in responses] == [401] * 4
+    assert [response.status_code for response in responses] == [401] * 5
 
 
 @pytest.mark.asyncio
@@ -346,7 +365,9 @@ async def test_bot_record_routes_serialize_database_results(authed_app, monkeypa
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("suffix", ["history", "jobs", "trades", "stats"])
+@pytest.mark.parametrize(
+    "suffix", ["history", "jobs", "trades", "cointegrated-pairs", "stats"]
+)
 async def test_bot_record_routes_return_404_and_close_session(
     suffix,
     authed_app,
@@ -405,3 +426,321 @@ async def test_capabilities_and_openapi_preserve_bot_record_contract(authed_app)
     checked = json.loads(Path("openapi.json").read_text())
     for path in {path for _, path in _BOT_RECORD_OPERATIONS}:
         assert generated["paths"][path] == checked["paths"][path]
+
+
+# --- trades: newest first, paged on request ---------------------------------
+
+
+def _paged_uow(now):
+    """Three trades opened an hour apart, handed back in oldest-first DB order."""
+
+    def _trade(trade_id, opened_at, status="CLOSED"):
+        return SimpleNamespace(
+            trade_id=trade_id,
+            pair1="BTC-USD",
+            pair2="ETH-USD",
+            status=status,
+            entry_price1=Decimal("1"),
+            entry_price2=Decimal("2"),
+            exit_price1=None,
+            exit_price2=None,
+            entry_size1=Decimal("1"),
+            entry_size2=Decimal("1"),
+            exit_size1=None,
+            exit_size2=None,
+            profit_loss=None,
+            profit_loss_percentage=None,
+            created_at=opened_at,
+            closed_at=None,
+        )
+
+    uow = _sample_uow()
+    uow.trades = _FakeTradesRepository(
+        [
+            _trade("t-oldest", now - timedelta(hours=2)),
+            _trade("t-middle", now - timedelta(hours=1), status="OPEN"),
+            _trade("t-newest", now),
+        ]
+    )
+    return uow
+
+
+@pytest.mark.asyncio
+async def test_bot_trades_are_newest_first_and_page_only_when_asked(
+    authed_app, monkeypatch
+):
+    _ = authed_app
+    now = datetime(2026, 9, 26, 12, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(records.db, "get_session", lambda: _FakeSession())
+    monkeypatch.setattr(records, "UnitOfWork", lambda _session: _paged_uow(now))
+
+    async def _trades(**params):
+        response = await _request(
+            "GET", "/api/v1/bots/bot-records-1/trades", params=params
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        return [trade["trade_id"] for trade in data["trades"]], data
+
+    ids, data = await _trades()
+    assert ids == ["t-newest", "t-middle", "t-oldest"]
+    assert (data["total_trades"], data["count"]) == (3, 3)
+    assert (data["limit"], data["offset"]) == (None, 0)
+
+    ids, data = await _trades(limit=2)
+    assert ids == ["t-newest", "t-middle"]
+    assert (data["total_trades"], data["count"]) == (3, 2)
+    assert (data["limit"], data["offset"]) == (2, 0)
+
+    ids, data = await _trades(limit=2, offset=2)
+    assert ids == ["t-oldest"]
+    assert (data["total_trades"], data["count"], data["offset"]) == (3, 1, 2)
+
+    ids, data = await _trades(limit=2, offset=10)
+    assert ids == [] and data["total_trades"] == 3
+
+    # A non-positive limit or a negative offset is the unbounded default.
+    ids, data = await _trades(limit=0, offset=-3)
+    assert ids == ["t-newest", "t-middle", "t-oldest"]
+    assert (data["limit"], data["offset"]) == (None, 0)
+
+    # Paging applies after the status filter, and the total is the filtered one.
+    ids, data = await _trades(status="closed", limit=1)
+    assert ids == ["t-newest"]
+    assert (data["total_trades"], data["count"]) == (2, 1)
+
+
+@pytest.mark.asyncio
+async def test_bot_trades_status_filter_matches_stored_enum_values(
+    authed_app, monkeypatch
+):
+    """The stored status is an enum with lower-case values; the filter must
+    match it whatever spelling the caller sends, and emit the plain value."""
+    from internal.domain.models import TradeStatusEnum
+
+    _ = authed_app
+    now = datetime(2026, 9, 26, 12, 0, tzinfo=timezone.utc)
+    uow = _paged_uow(now)
+    uow.trades.trades[0].status = TradeStatusEnum.CLOSED  # t-oldest
+    uow.trades.trades[1].status = TradeStatusEnum.OPEN  # t-middle
+    uow.trades.trades[2].status = TradeStatusEnum.CLOSED  # t-newest
+    monkeypatch.setattr(records.db, "get_session", lambda: _FakeSession())
+    monkeypatch.setattr(records, "UnitOfWork", lambda _session: uow)
+
+    for spelling in ("CLOSED", "closed", "Closed"):
+        response = await _request(
+            "GET", "/api/v1/bots/bot-records-1/trades", params={"status": spelling}
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert [trade["trade_id"] for trade in data["trades"]] == [
+            "t-newest",
+            "t-oldest",
+        ]
+        assert data["total_trades"] == 2
+        assert {trade["status"] for trade in data["trades"]} == {"closed"}
+
+    response = await _request(
+        "GET", "/api/v1/bots/bot-records-1/trades", params={"status": "open"}
+    )
+    assert [t["trade_id"] for t in response.json()["data"]["trades"]] == ["t-middle"]
+
+
+def test_status_matches_compares_enum_values_and_strings():
+    from internal.domain.models import TradeStatusEnum
+
+    assert records._status_matches(TradeStatusEnum.CLOSED, "CLOSED")
+    assert records._status_matches("CLOSED", "closed")
+    assert records._status_matches(" closed ", "CLOSED")
+    assert not records._status_matches(TradeStatusEnum.OPEN, "closed")
+    assert not records._status_matches(None, "closed")
+
+
+def test_newest_first_keeps_undated_rows_last_in_db_order():
+    now = datetime(2026, 9, 26, 12, 0)
+    rows = [
+        SimpleNamespace(trade_id="u1", created_at=None),
+        SimpleNamespace(trade_id="d1", created_at=now - timedelta(hours=1)),
+        SimpleNamespace(trade_id="u2", created_at=None),
+        SimpleNamespace(trade_id="d2", created_at=now),
+    ]
+
+    assert [r.trade_id for r in records._newest_first(rows)] == ["d2", "d1", "u1", "u2"]
+
+
+# --- cointegrated pairs: the stored scan, statistics only ---------------------
+
+
+@pytest.fixture
+def pair_scan_store(monkeypatch):
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    with engine.begin() as connection:
+        connection.execute(text(_COINTEGRATED_PAIRS_DDL))
+    monkeypatch.setattr(records.db, "get_session", sessionmaker(bind=engine))
+    uow = _sample_uow()
+    # Account data on the bot row must never reach this route's response.
+    uow.bots.bot.address = PLANTED_ADDRESS
+    uow.bots.bot.mnemonic = PLANTED_MNEMONIC
+    monkeypatch.setattr(records, "UnitOfWork", lambda _session: uow)
+    return engine
+
+
+def _store_scan(engine, instance_id, pairs, analyzed_at="2026-09-26 11:30:00"):
+    """Insert a row the way PairStorage._db_save lays it out."""
+    payload = {
+        "timestamp": "2026-09-26T11:30:00.500000+00:00",
+        "total_pairs": len(pairs),
+        "high_confidence_pairs": 0,
+        "pairs": pairs,
+    }
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO cointegrated_pairs "
+                "(instance_id, pairs_json, pairs_count, high_confidence_count, "
+                "analyzed_at) VALUES (:iid, :pj, :pc, :hc, :aa)"
+            ),
+            {
+                "iid": instance_id,
+                "pj": json.dumps(payload),
+                "pc": len(pairs),
+                "hc": 0,
+                "aa": analyzed_at,
+            },
+        )
+
+
+@pytest.mark.asyncio
+async def test_cointegrated_pairs_route_reads_the_stored_scan(
+    authed_app, pair_scan_store
+):
+    _ = authed_app
+    _store_scan(
+        pair_scan_store,
+        "bot-records-1",
+        [
+            {
+                # What CointegrationResult.to_dict() writes, extra fields included.
+                "base_market": "BTC-USD",
+                "quote_market": "ETH-USD",
+                "hedge_ratio": 1.2,
+                "half_life": 6.0,
+                "zero_crossings": 8,
+                "p_value": 0.01,
+                "z_score_mean": 0.0,
+                "z_score_std": 1.0,
+                "analysis_timestamp": "2026-09-26T11:29:00+00:00",
+                "confidence_score": 0.82,
+                "creation_timestamp": "2026-09-26T11:30:00+00:00",
+                "intercept": 0.5,
+            },
+            {
+                # Unparseable statistics become null; the pair is still listed.
+                "base_market": "SOL-USD",
+                "quote_market": "AVAX-USD",
+                "hedge_ratio": "n/a",
+                "half_life": None,
+                "zero_crossings": "3",
+                "p_value": "NaN",
+                "confidence_score": 0.2,
+            },
+            {"base_market": "", "quote_market": "ETH-USD", "hedge_ratio": 1.0},
+            "not a pair",
+        ],
+    )
+    _store_scan(
+        pair_scan_store,
+        "bot-records-2",
+        [{"base_market": "XRP-USD", "quote_market": "DOGE-USD", "hedge_ratio": 1.0}],
+    )
+
+    response = await _request("GET", "/api/v1/bots/bot-records-1/cointegrated-pairs")
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {
+        "instance_id": "bot-records-1",
+        "analyzed_at": "2026-09-26T11:30:00+00:00",
+        "count": 2,
+        "pairs": [
+            {
+                "base_market": "BTC-USD",
+                "quote_market": "ETH-USD",
+                "hedge_ratio": 1.2,
+                "half_life": 6.0,
+                "zero_crossings": 8,
+                "p_value": 0.01,
+                "z_score_mean": 0.0,
+                "z_score_std": 1.0,
+                "confidence_score": 0.82,
+                "analysis_timestamp": "2026-09-26T11:29:00+00:00",
+            },
+            {
+                "base_market": "SOL-USD",
+                "quote_market": "AVAX-USD",
+                "hedge_ratio": None,
+                "half_life": None,
+                "zero_crossings": 3,
+                "p_value": None,
+                "z_score_mean": None,
+                "z_score_std": None,
+                "confidence_score": 0.2,
+                "analysis_timestamp": None,
+            },
+        ],
+    }
+    body = response.text
+    assert PLANTED_ADDRESS not in body and "mnemonic" not in body
+    assert "XRP-USD" not in body  # another instance's scan
+
+
+@pytest.mark.asyncio
+async def test_cointegrated_pairs_failure_uses_the_global_500_envelope(
+    authed_app, monkeypatch
+):
+    """The route has no catch-all; the app's handler answers with the envelope."""
+    _ = authed_app
+
+    def _raise_database_error():
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(records.db, "get_session", _raise_database_error)
+
+    response = await _request("GET", "/api/v1/bots/bot-records-1/cointegrated-pairs")
+
+    assert response.status_code == 500
+    assert response.json()["success"] is False
+    assert response.json()["message"] == "Internal server error"
+    # The global handler's envelope carries no trace_id (the trace context is
+    # not visible at that outer layer), unlike the route-level catch-alls above.
+    assert "database unavailable" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_cointegrated_pairs_route_reports_no_scan_as_empty(
+    authed_app, pair_scan_store
+):
+    _ = authed_app
+
+    response = await _request("GET", "/api/v1/bots/bot-records-1/cointegrated-pairs")
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {
+        "instance_id": "bot-records-1",
+        "analyzed_at": None,
+        "count": 0,
+        "pairs": [],
+    }
+
+
+def test_iso_utc_normalises_naive_aware_and_textual_stamps():
+    naive = datetime(2026, 9, 26, 11, 30)
+    aware = datetime(2026, 9, 26, 13, 30, tzinfo=timezone(timedelta(hours=2)))
+
+    assert records._iso_utc(naive) == "2026-09-26T11:30:00+00:00"
+    assert records._iso_utc(aware) == "2026-09-26T11:30:00+00:00"
+    assert records._iso_utc("2026-09-26 11:30:00") == "2026-09-26T11:30:00+00:00"
+    assert records._iso_utc("last tuesday") == "last tuesday"
+    assert records._iso_utc("  ") is None
+    assert records._iso_utc(None) is None

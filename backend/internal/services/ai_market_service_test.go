@@ -58,8 +58,8 @@ func TestAIMarketServiceDeepSeekMarketSelectionUsesJSONMode(t *testing.T) {
 		if !ok || thinking["type"] != "disabled" {
 			t.Fatalf("expected disabled thinking for market selection, got %#v", payload["thinking"])
 		}
-		if payload["max_tokens"] != float64(900) {
-			t.Fatalf("expected max_tokens 900, got %#v", payload["max_tokens"])
+		if payload["max_tokens"] != float64(aiMarketSelectionMaxTokens) {
+			t.Fatalf("expected max_tokens %d, got %#v", aiMarketSelectionMaxTokens, payload["max_tokens"])
 		}
 
 		return aiJSONResponse(http.StatusOK, `{
@@ -109,9 +109,10 @@ func TestAIMarketServiceRetriesRetryableProviderStatus(t *testing.T) {
 	}
 }
 
-func TestAIMarketServiceDeepSeekStrategyUsesReasoningModel(t *testing.T) {
+// The plain-text task path keeps DeepSeek's thinking mode for parameter
+// suggestions; the model is DEEPSEEK_MODEL like every other DeepSeek call.
+func TestAIMarketServiceDeepSeekStrategyTextTaskUsesThinking(t *testing.T) {
 	t.Setenv("DEEPSEEK_MODEL", "")
-	t.Setenv("DEEPSEEK_REASONING_MODEL", "")
 	t.Setenv("DEEPSEEK_REASONING_EFFORT", "")
 
 	service := newAIServiceWithTransport(func(req *http.Request) (*http.Response, error) {
@@ -119,8 +120,8 @@ func TestAIMarketServiceDeepSeekStrategyUsesReasoningModel(t *testing.T) {
 		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode request body: %v", err)
 		}
-		if payload["model"] != "deepseek-v4-pro" {
-			t.Fatalf("expected strategy suggestions to use deepseek-v4-pro, got %#v", payload["model"])
+		if payload["model"] != "deepseek-v4-flash" {
+			t.Fatalf("expected strategy suggestions to use DEEPSEEK_MODEL, got %#v", payload["model"])
 		}
 		thinking, ok := payload["thinking"].(map[string]any)
 		if !ok || thinking["type"] != "enabled" {
@@ -159,7 +160,6 @@ func TestAIMarketServiceDeepSeekStrategyUsesReasoningModel(t *testing.T) {
 
 func TestAIMarketServiceDeepSeekStrategyRetriesWithoutThinkingOnEmptyContent(t *testing.T) {
 	t.Setenv("DEEPSEEK_MODEL", "")
-	t.Setenv("DEEPSEEK_REASONING_MODEL", "")
 
 	attempts := 0
 	service := newAIServiceWithTransport(func(req *http.Request) (*http.Response, error) {
@@ -208,5 +208,27 @@ func TestAIMarketServiceDeepSeekStrategyRetriesWithoutThinkingOnEmptyContent(t *
 	}
 	if !strings.Contains(content, "max_drawdown_pct") {
 		t.Fatalf("expected fallback content, got %q", content)
+	}
+}
+
+// TestRuntimeDigestHidesProviderDetailFromNonAdmins: a provider failure
+// yields the fixed message of its class; the provider's text is for admins.
+func TestRuntimeDigestHidesProviderDetailFromNonAdmins(t *testing.T) {
+	grokChatEnv(t)
+	service := newAIServiceWithTransport(func(req *http.Request) (*http.Response, error) {
+		return aiJSONResponse(http.StatusNotFound, `{"code":"not-found","error":"The model grok-9 does not exist or your team 1b2c3d4e-team-uuid does not have access to it"}`), nil
+	})
+	req := AIRuntimeDigestRequest{Provider: "grok", RunningBots: 1, TotalBots: 2, OpenPositions: 3, Network: "testnet"}
+
+	result, err := service.RuntimeDigest(context.Background(), AIAnalysisActor{UserID: 7}, req)
+	if err != nil {
+		t.Fatalf("RuntimeDigest returned error: %v", err)
+	}
+	if result.UsedAI || result.Provider != "grok" || result.Content != "AI analysis unavailable: Grok rejected the request or the model is not available. Ask an admin to check the AI provider settings." {
+		t.Fatalf("expected the fixed non-admin message, got %+v", result)
+	}
+	admin, err := service.RuntimeDigest(context.Background(), AIAnalysisActor{UserID: 2, IsAdmin: true}, req)
+	if err != nil || admin.UsedAI || !strings.Contains(admin.Content, "Provider detail:") || !strings.Contains(admin.Content, "grok-9") {
+		t.Fatalf("expected the provider detail for admins, got %+v %v", admin, err)
 	}
 }

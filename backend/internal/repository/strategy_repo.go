@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -14,7 +15,7 @@ import (
 // StrategyRepository handles strategy database operations.
 // Schema is fully managed by PostgreSQL migrations — no runtime ALTER TABLE patching.
 type StrategyRepository struct {
-	db       *sql.DB
+	db       SQLRunner
 	dbDriver string
 }
 
@@ -28,6 +29,11 @@ func NewStrategyRepository(db *sql.DB) *StrategyRepository {
 		driver = "postgres"
 	}
 	return &StrategyRepository{db: db, dbDriver: driver}
+}
+
+// WithTx returns a copy of the repository that executes within tx.
+func (r *StrategyRepository) WithTx(tx *sql.Tx) *StrategyRepository {
+	return &StrategyRepository{db: tx, dbDriver: r.dbDriver}
 }
 
 func (r *StrategyRepository) bindQuery(query string) string {
@@ -93,6 +99,17 @@ func (r *StrategyRepository) CreateStrategy(strategy *models.BacktestStrategy) e
 
 // GetStrategyByID retrieves a strategy by ID
 func (r *StrategyRepository) GetStrategyByID(id int) (*models.BacktestStrategy, error) {
+	return r.getStrategyByID(id, false)
+}
+
+// GetStrategyByIDForUpdate reads a strategy and, inside a transaction on
+// PostgreSQL, locks its row until the transaction ends (SELECT ... FOR UPDATE).
+// SQLite has no row locks, so there it is a plain read.
+func (r *StrategyRepository) GetStrategyByIDForUpdate(id int) (*models.BacktestStrategy, error) {
+	return r.getStrategyByID(id, isPostgresDriver(r.dbDriver))
+}
+
+func (r *StrategyRepository) getStrategyByID(id int, forUpdate bool) (*models.BacktestStrategy, error) {
 
 	query := `
 		SELECT id, user_id, name, description, category, is_public, is_default, runtime_strategy, pair_selection_mode,
@@ -109,6 +126,9 @@ func (r *StrategyRepository) GetStrategyByID(id int) (*models.BacktestStrategy, 
 		WHERE id = ?
 		LIMIT 1
 	`
+	if forUpdate {
+		query += ` FOR UPDATE`
+	}
 
 	strategy := &models.BacktestStrategy{}
 	err := r.db.QueryRow(r.bindQuery(query), id).Scan(
@@ -267,6 +287,72 @@ func (r *StrategyRepository) UpdateStrategy(strategy *models.BacktestStrategy) e
 		return fmt.Errorf("strategy not found")
 	}
 
+	return nil
+}
+
+// strategyUpdatableColumns are the only columns UpdateStrategyFields may set:
+// the settings the strategy assistant is allowed to change. Identity, owner,
+// runtime target, order placement and bookkeeping columns are never here.
+var strategyUpdatableColumns = map[string]bool{
+	"zscore_threshold":         true,
+	"stats_window":             true,
+	"max_half_life":            true,
+	"usd_per_trade":            true,
+	"usd_min_collateral":       true,
+	"max_positions":            true,
+	"max_drawdown_pct":         true,
+	"stop_loss_pct":            true,
+	"take_profit_pct":          true,
+	"trailing_stop_pct":        true,
+	"rebalance_interval_hours": true,
+	"position_timeout_hours":   true,
+	"transaction_fee":          true,
+	"slippage":                 true,
+	"max_history_days":         true,
+	"risk_free_rate":           true,
+	"candle_resolution":        true,
+	"close_at_zscore_cross":    true,
+}
+
+// UpdateStrategyFields sets only the given columns of a strategy, plus
+// updated_at, so a concurrent change to any other column is never overwritten.
+// A column outside strategyUpdatableColumns is refused before any SQL runs.
+func (r *StrategyRepository) UpdateStrategyFields(id int, fields map[string]any) error {
+	if len(fields) == 0 {
+		return fmt.Errorf("no strategy fields to update")
+	}
+	columns := make([]string, 0, len(fields))
+	for column := range fields {
+		if !strategyUpdatableColumns[column] {
+			return fmt.Errorf("strategy column %q cannot be updated this way", column)
+		}
+		columns = append(columns, column)
+	}
+	sort.Strings(columns)
+
+	assignments := make([]string, 0, len(columns)+1)
+	args := make([]any, 0, len(columns)+2)
+	for _, column := range columns {
+		assignments = append(assignments, column+" = ?")
+		args = append(args, fields[column])
+	}
+	assignments = append(assignments, "updated_at = ?")
+	args = append(args, time.Now(), id)
+
+	result, err := r.db.Exec(
+		r.bindQuery(`UPDATE backtest_strategies SET `+strings.Join(assignments, ", ")+` WHERE id = ? AND deleted_at IS NULL`),
+		args...,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update strategy fields: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("strategy not found")
+	}
 	return nil
 }
 

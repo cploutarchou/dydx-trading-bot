@@ -21,6 +21,7 @@ import {
   resolveBackendWebSocketUrl,
   shouldAttemptCookieSessionBootstrap,
 } from './api/origin';
+import { ApiRequestError } from './api/requestError';
 import { isAuthRejection } from './api/sessionErrors';
 import { attachTraceHeader, traceHeaderName } from './api/trace';
 import { getCurrentPortalType } from './app/portal';
@@ -124,6 +125,17 @@ const getErrorMessage = (error: unknown): string => {
     return error.message;
   }
   return String(error);
+};
+
+// Like getErrorMessage, but keeps the HTTP status and the backend `code` so a
+// caller can branch on the code instead of the message text.
+const toApiRequestError = (error: unknown): ApiRequestError => {
+  if (error instanceof AxiosError) {
+    const data = error.response?.data as Record<string, unknown> | undefined;
+    const code = typeof data?.code === 'string' && data.code !== '' ? data.code : null;
+    return new ApiRequestError(getErrorMessage(error), error.response?.status ?? null, code);
+  }
+  return new ApiRequestError(getErrorMessage(error), null, null);
 };
 
 const AUTH_COOKIE_NAMES = ['dydx_session', 'access_token', 'refresh_token'] as const;
@@ -1292,7 +1304,7 @@ export interface CodexKeyPayload extends Record<string, unknown> {
   label?: string;
 }
 
-export type AIMarketProvider = 'openai' | 'deepseek' | 'claude';
+export type AIMarketProvider = 'grok' | 'openai' | 'deepseek' | 'claude';
 
 export interface AIProviderStatus extends Record<string, unknown> {
   provider: AIMarketProvider;
@@ -1306,6 +1318,8 @@ export interface AIProviderStatus extends Record<string, unknown> {
   user_key_masked?: string;
   active_key_source: 'user' | 'shared' | 'none';
   model: string;
+  /** Model used for strategy_params, backtest_explain and strategy_chat; "" when none. */
+  analysis_model: string;
 }
 
 export interface AIMarketStatusResponse extends Record<string, unknown> {
@@ -1336,17 +1350,51 @@ export interface AIMarketSelectionRequest extends Record<string, unknown> {
     future_gainers?: boolean;
     notes?: string;
   };
+  /** When given and owned, the strategy's pair statistics are offered to the model. */
+  strategy_id?: number;
+}
+
+export interface AIMarketSelectionBasis {
+  universe_count: number;
+  ranked_count: number;
+  network: 'mainnet' | 'testnet';
+  source: string;
+  criteria_used: string[];
+  criteria_unavailable: string[];
+}
+
+export interface AIMarketSelectionPair {
+  market_1: string;
+  market_2: string;
+  reason: string;
+  source: 'model' | 'strategy_history' | 'cointegration';
+}
+
+export interface AIMarketStat {
+  ticker: string;
+  volume_24h_usd: number | null;
+  open_interest_usd: number | null;
+  trades_24h: number | null;
+  funding_rate: number | null;
+  oracle_price: number | null;
+  price_change_24h_pct: number | null;
+  score: number;
 }
 
 export interface AIMarketSelectionResponse extends Record<string, unknown> {
   provider: AIMarketProvider;
   mode: string;
+  /** 'ai' when the model's answer was used, 'deterministic_ranking' for the data-driven fallback. */
   source: string;
   selected_markets: string[];
   rationale: string;
   confidence: number;
   used_ai: boolean;
   fallback_reason?: string;
+  basis: AIMarketSelectionBasis;
+  pairs: AIMarketSelectionPair[];
+  market_stats: AIMarketStat[];
+  dropped_count: number;
 }
 
 // ---- AI text-generation types ----
@@ -1357,77 +1405,63 @@ export interface AITextResponse extends Record<string, unknown> {
   used_ai: boolean;
 }
 
+/** What the server-side evidence behind an AI answer was built from. */
+export interface AIEvidenceSummary {
+  completed_runs: number;
+  trades_analysed: number;
+  pairs_analysed: number;
+  live_closed_trades: number;
+  live_open_positions: number;
+  live_available: boolean;
+  /** From the bot's stored pair scan, 0 when none. */
+  cointegrated_pairs: number;
+  data_notes: string[];
+}
+
 export interface AIBacktestExplainRequest extends Record<string, unknown> {
-  provider: AIMarketProvider;
-  win_rate: number;
-  total_pnl_usd: number;
-  sharpe_ratio: number;
-  max_drawdown_pct: number;
-  total_trades: number;
-  profit_factor: number;
-  markets: string[];
-  start_date: string;
-  end_date: string;
+  provider?: AIMarketProvider;
+  run_id: string;
 }
 
-export interface AIBacktestSummary extends Record<string, unknown> {
-  win_rate: number;
-  total_pnl_usd: number;
-  sharpe_ratio: number;
-  max_drawdown_pct: number;
-  total_trades: number;
+export interface AIBacktestExplainResponse extends AITextResponse {
+  model: string;
+  evidence_summary: AIEvidenceSummary;
 }
-
-const toFiniteNumber = (value: unknown): number | null => {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === 'string') {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-  return null;
-};
-
-export const toAIBacktestSummary = (value: Record<string, unknown>): AIBacktestSummary | null => {
-  const winRate = toFiniteNumber(value.win_rate);
-  const totalPnlUsd =
-    toFiniteNumber(value.total_pnl_usd) ??
-    toFiniteNumber(value.total_pnl) ??
-    toFiniteNumber(value.pnl_usd);
-  const sharpeRatio = toFiniteNumber(value.sharpe_ratio);
-  const maxDrawdownPct =
-    toFiniteNumber(value.max_drawdown_pct) ?? toFiniteNumber(value.max_drawdown);
-  const totalTrades = toFiniteNumber(value.total_trades) ?? toFiniteNumber(value.trades_count);
-
-  if (
-    winRate === null &&
-    totalPnlUsd === null &&
-    sharpeRatio === null &&
-    maxDrawdownPct === null &&
-    totalTrades === null
-  ) {
-    return null;
-  }
-
-  return {
-    win_rate: winRate ?? 0,
-    total_pnl_usd: totalPnlUsd ?? 0,
-    sharpe_ratio: sharpeRatio ?? 0,
-    max_drawdown_pct: maxDrawdownPct ?? 0,
-    total_trades: totalTrades ?? 0,
-  };
-};
 
 export interface AISuggestParamsRequest extends Record<string, unknown> {
-  provider: AIMarketProvider;
-  strategy_name: string;
-  current_params: Record<string, unknown>;
-  last_error: string;
-  recent_backtests: AIBacktestSummary[];
+  provider?: AIMarketProvider;
+  strategy_id: number;
+  /** 3..8, default 5. */
   max_suggestions?: number;
+  /** Default true. */
+  include_live?: boolean;
+}
+
+export interface AIParamSuggestion {
+  /** Canonical allowlist key (candle_resolution, never resolution). */
+  parameter: string;
+  label: string;
+  unit: string;
+  current: number | string | boolean | null;
+  suggested: number | string | boolean;
+  rationale: string;
+  evidence: string;
+  risk: 'normal' | 'money' | 'risk_control';
+  backtest_only: boolean;
+}
+
+export interface AISuggestParamsResponse extends AITextResponse {
+  model: string;
+  /**
+   * Rendered lines "N. <key>: Current '<v>' -> Suggested '<v>'. Rationale: ..."
+   * or "AI analysis unavailable: <fixed reason>".
+   */
+  content: string;
+  summary: string;
+  suggestions: AIParamSuggestion[];
+  dropped: { parameter: string; reason: string }[];
+  data_gaps: string[];
+  evidence_summary: AIEvidenceSummary;
 }
 
 export interface AIRuntimeDigestRequest extends Record<string, unknown> {
@@ -1439,6 +1473,112 @@ export interface AIRuntimeDigestRequest extends Record<string, unknown> {
   active_pairs: number;
   error_count: number;
   network: string;
+}
+
+// ---- Strategy chat types ----
+
+export type StrategyChatValue = number | string | boolean;
+
+export interface StrategyChatSession {
+  id: number;
+  strategy_id: number;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StrategyChatChange {
+  /** Canonical allowlist key (candle_resolution, never resolution). */
+  field: string;
+  label: string;
+  /** "", "%", "USD", "hours", "days" or "bars". */
+  unit: string;
+  /** Read by the server from the strategy when the proposal was made. */
+  current: StrategyChatValue | null;
+  proposed: StrategyChatValue;
+  reason: string;
+  risk: 'normal' | 'money' | 'risk_control';
+  backtest_only: boolean;
+}
+
+export interface StrategyChatDroppedChange {
+  field: string;
+  value: unknown;
+  reason: string;
+}
+
+export interface StrategyChatProposal {
+  kind: 'update' | 'new_strategy';
+  title: string;
+  summary: string;
+  suggested_name: string;
+  changes: StrategyChatChange[];
+  dropped: StrategyChatDroppedChange[];
+}
+
+export type StrategyChatProposalStatus = 'pending' | 'applied' | 'created' | 'dismissed';
+
+export interface StrategyChatProposalResult {
+  /** Always present (possibly empty) for applied and created; absent for dismissed. */
+  applied_fields?: string[];
+  /** Selected changes skipped because the strategy already had that value. */
+  unchanged_fields?: string[];
+  version_id?: number;
+  new_strategy_id?: number;
+  new_strategy_name?: string;
+  acknowledged_running?: boolean;
+  at: string;
+}
+
+export interface StrategyChatMessage {
+  id: number;
+  session_id: number;
+  role: 'user' | 'assistant';
+  content: string;
+  proposal: StrategyChatProposal | null;
+  proposal_status: StrategyChatProposalStatus | null;
+  proposal_result: StrategyChatProposalResult | null;
+  provider: string;
+  model: string;
+  created_at: string;
+  /** Assistant messages only; null on user messages and on old rows. */
+  evidence_summary?: AIEvidenceSummary | null;
+}
+
+export interface StrategyChatState extends Record<string, unknown> {
+  session: StrategyChatSession | null;
+  messages: StrategyChatMessage[];
+  runtime_active: boolean;
+}
+
+export interface StrategyChatSessionResponse extends Record<string, unknown> {
+  session: StrategyChatSession;
+  messages: StrategyChatMessage[];
+}
+
+export interface StrategyChatSendRequest extends Record<string, unknown> {
+  session_id?: number;
+  content: string;
+  provider?: AIMarketProvider;
+}
+
+export interface StrategyChatApplyRequest extends Record<string, unknown> {
+  fields?: string[];
+  acknowledge_running?: boolean;
+}
+
+export interface StrategyChatCreateStrategyRequest extends Record<string, unknown> {
+  name?: string;
+  fields?: string[];
+}
+
+export interface StrategyChatProposalActionResponse extends Record<string, unknown> {
+  strategy: StrategyResponse;
+  message: StrategyChatMessage;
+}
+
+export interface StrategyChatDismissResponse extends Record<string, unknown> {
+  message: StrategyChatMessage;
 }
 
 export interface CoinDeskArticle extends Record<string, unknown> {
@@ -4800,33 +4940,51 @@ class ApiClient {
     return response.data;
   }
 
+  // The AI endpoints answer errors as `{success:false, error}` (400/403/404/
+  // 409/429/502/504); surface that text instead of the raw axios message.
   async selectAIMarkets(
     data: AIMarketSelectionRequest
   ): Promise<ApiResponse<AIMarketSelectionResponse>> {
     this.ensureTokenLoaded();
-    const response = await this.client.post<ApiResponse<AIMarketSelectionResponse>>(
-      '/api/v1/ai/market-filters/select',
-      data
-    );
-    return response.data;
+    try {
+      const response = await this.client.post<ApiResponse<AIMarketSelectionResponse>>(
+        '/api/v1/ai/market-filters/select',
+        data
+      );
+      return response.data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
   }
 
-  async explainBacktest(data: AIBacktestExplainRequest): Promise<ApiResponse<AITextResponse>> {
+  async explainBacktest(
+    data: AIBacktestExplainRequest
+  ): Promise<ApiResponse<AIBacktestExplainResponse>> {
     this.ensureTokenLoaded();
-    const response = await this.client.post<ApiResponse<AITextResponse>>(
-      '/api/v1/ai/backtests/explain',
-      data
-    );
-    return response.data;
+    try {
+      const response = await this.client.post<ApiResponse<AIBacktestExplainResponse>>(
+        '/api/v1/ai/backtests/explain',
+        data
+      );
+      return response.data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
   }
 
-  async suggestStrategyParams(data: AISuggestParamsRequest): Promise<ApiResponse<AITextResponse>> {
+  async suggestStrategyParams(
+    data: AISuggestParamsRequest
+  ): Promise<ApiResponse<AISuggestParamsResponse>> {
     this.ensureTokenLoaded();
-    const response = await this.client.post<ApiResponse<AITextResponse>>(
-      '/api/v1/ai/strategies/suggest-params',
-      data
-    );
-    return response.data;
+    try {
+      const response = await this.client.post<ApiResponse<AISuggestParamsResponse>>(
+        '/api/v1/ai/strategies/suggest-params',
+        data
+      );
+      return response.data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error));
+    }
   }
 
   async getRuntimeDigest(data: AIRuntimeDigestRequest): Promise<ApiResponse<AITextResponse>> {
@@ -4836,6 +4994,107 @@ class ApiClient {
       data
     );
     return response.data;
+  }
+
+  // Strategy chat endpoints. Failures throw ApiRequestError so the UI can
+  // branch on the backend code (STRATEGY_RUNNING_ACK_REQUIRED, CHAT_BUSY, ...).
+  async getStrategyChat(strategyId: number): Promise<ApiResponse<StrategyChatState>> {
+    try {
+      const response = await this.client.get<ApiResponse<StrategyChatState>>(
+        `/api/v1/strategies/${strategyId}/chat`
+      );
+      return response.data;
+    } catch (error: unknown) {
+      throw toApiRequestError(error);
+    }
+  }
+
+  async startStrategyChatSession(
+    strategyId: number
+  ): Promise<ApiResponse<StrategyChatSessionResponse>> {
+    try {
+      const response = await this.client.post<ApiResponse<StrategyChatSessionResponse>>(
+        `/api/v1/strategies/${strategyId}/chat/sessions`,
+        {}
+      );
+      return response.data;
+    } catch (error: unknown) {
+      throw toApiRequestError(error);
+    }
+  }
+
+  async sendStrategyChatMessage(
+    strategyId: number,
+    data: StrategyChatSendRequest
+  ): Promise<ApiResponse<StrategyChatSessionResponse>> {
+    try {
+      const response = await this.client.post<ApiResponse<StrategyChatSessionResponse>>(
+        `/api/v1/strategies/${strategyId}/chat/messages`,
+        data
+      );
+      return response.data;
+    } catch (error: unknown) {
+      throw toApiRequestError(error);
+    }
+  }
+
+  async applyStrategyChatProposal(
+    strategyId: number,
+    messageId: number,
+    data: StrategyChatApplyRequest
+  ): Promise<ApiResponse<StrategyChatProposalActionResponse>> {
+    try {
+      const response = await this.client.post<ApiResponse<StrategyChatProposalActionResponse>>(
+        `/api/v1/strategies/${strategyId}/chat/messages/${messageId}/apply`,
+        data
+      );
+      const payload = response.data.data;
+      return {
+        ...response.data,
+        data: payload
+          ? { ...payload, strategy: normalizeStrategyResponse(payload.strategy) }
+          : payload,
+      };
+    } catch (error: unknown) {
+      throw toApiRequestError(error);
+    }
+  }
+
+  async createStrategyFromChatProposal(
+    strategyId: number,
+    messageId: number,
+    data: StrategyChatCreateStrategyRequest
+  ): Promise<ApiResponse<StrategyChatProposalActionResponse>> {
+    try {
+      const response = await this.client.post<ApiResponse<StrategyChatProposalActionResponse>>(
+        `/api/v1/strategies/${strategyId}/chat/messages/${messageId}/create-strategy`,
+        data
+      );
+      const payload = response.data.data;
+      return {
+        ...response.data,
+        data: payload
+          ? { ...payload, strategy: normalizeStrategyResponse(payload.strategy) }
+          : payload,
+      };
+    } catch (error: unknown) {
+      throw toApiRequestError(error);
+    }
+  }
+
+  async dismissStrategyChatProposal(
+    strategyId: number,
+    messageId: number
+  ): Promise<ApiResponse<StrategyChatDismissResponse>> {
+    try {
+      const response = await this.client.post<ApiResponse<StrategyChatDismissResponse>>(
+        `/api/v1/strategies/${strategyId}/chat/messages/${messageId}/dismiss`,
+        {}
+      );
+      return response.data;
+    } catch (error: unknown) {
+      throw toApiRequestError(error);
+    }
   }
 
   async getCoinDeskNews(limit = 8): Promise<ApiResponse<CoinDeskNewsResponse>> {

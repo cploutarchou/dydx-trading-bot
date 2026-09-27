@@ -23,6 +23,7 @@ RAW_MARKETS = {
         "oraclePrice": "84143.7",
         "nextFundingRate": "-0.00000027",
         "trades24H": 1346,
+        "priceChange24H": "273.98913",
     },
     "ETH-USD": {
         "status": "ACTIVE",
@@ -39,6 +40,7 @@ RAW_MARKETS = {
         "oraclePrice": "150",
         "nextFundingRate": None,
         "trades24H": 90,
+        "priceChange24H": "n/a",
     },
     "AAVE-USD": {
         "status": "FINAL_SETTLEMENT",
@@ -64,6 +66,7 @@ def _record(ticker, status="ACTIVE", volume=None):
         next_funding_rate=None,
         oracle_price=None,
         trades_24h=None,
+        price_change_24h=None,
     )
 
 
@@ -86,12 +89,17 @@ def test_normalize_parses_metrics_and_derives_usd_open_interest():
     assert btc.open_interest_usd == pytest.approx(191.6390 * 84143.7)
     assert btc.next_funding_rate == pytest.approx(-0.00000027)
     assert btc.trades_24h == 1346
+    # priceChange24H is passed through as the indexer gives it (a quote-currency
+    # change, not a percentage).
+    assert btc.price_change_24h == pytest.approx(273.98913)
     assert records["ETH-USD"].trades_24h == 400
     # Unparseable and missing metrics become None, never a guess.
     sol = records["SOL-USD"]
     assert sol.open_interest is None and sol.open_interest_usd is None
     assert sol.next_funding_rate is None
+    assert sol.price_change_24h is None
     assert records["NEW-USD"].volume_24h is None
+    assert records["NEW-USD"].price_change_24h is None
     assert records["ODD-USD"].status == "UNKNOWN"
 
 
@@ -148,6 +156,8 @@ def test_payload_reports_totals_and_echoes_the_selection():
     assert payload["markets"] == ["BTC-USD", "SOL-USD", "ETH-USD"]
     assert [d["ticker"] for d in payload["market_details"]] == payload["markets"]
     assert payload["market_details"][0]["volume_24h"] == pytest.approx(2377823.0794)
+    assert payload["market_details"][0]["price_change_24h"] == pytest.approx(273.98913)
+    assert payload["market_details"][1]["price_change_24h"] is None
     assert payload["count"] == 3
     assert payload["source"] == "dydx"
     assert payload["include_settled"] is False
@@ -196,6 +206,9 @@ def test_route_serves_active_markets_by_volume_and_then_the_cache(markets_route)
     assert body["data"]["markets"] == ["BTC-USD", "SOL-USD", "ETH-USD", "NEW-USD"]
     assert body["data"]["source"] == "dydx"
     assert body["data"]["active_total"] == 4
+    assert body["data"]["market_details"][0]["price_change_24h"] == pytest.approx(
+        273.98913
+    )
     assert "x-cache-hit" not in headers
 
     status, headers, body = _call(limit=2, include_settled=True)

@@ -1460,3 +1460,7 @@ def test_backtest_detail_and_trade_payloads_carry_after_cost_fields():
     with_costs = _BacktestTrade(**trade, fee_cost=0.01, slippage_cost=0.02)
     assert with_costs.model_dump()["fee_cost"] == 0.01
     assert with_costs.model_dump()["slippage_cost"] == 0.02
+    # The ledger's exit reason reaches the wire; ledgers without one say null.
+    assert _BacktestTrade(**trade).model_dump()["exit_reason"] is None
+    with_reason = _BacktestTrade(**trade, exit_reason="stop_loss")
+    assert with_reason.model_dump()["exit_reason"] == "stop_loss"

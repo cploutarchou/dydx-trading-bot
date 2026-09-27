@@ -78,6 +78,7 @@ export const queryKeys = {
     ['strategies', strategyId, 'start-readiness', network ?? 'testnet'] as const,
   strategyEntryHalt: (strategyId: number) => ['strategies', strategyId, 'entry-halt'] as const,
   strategyBacktests: (strategyId: number) => ['strategies', strategyId, 'backtests'] as const,
+  strategyChat: (strategyId: number) => ['strategies', strategyId, 'chat'] as const,
 } as const;
 
 // Create QueryClient with optimized defaults

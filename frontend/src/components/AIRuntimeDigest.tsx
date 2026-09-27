@@ -38,16 +38,12 @@ export function AIRuntimeDigest({
     isLoading: providerStatusLoading,
   } = useAIProviderAvailability();
 
-  // Repair an unavailable provider selection when the availability list
-  // changes — adjusted during render instead of a cascading effect render.
-  const [prevAvailableProviders, setPrevAvailableProviders] = useState(availableProviders);
-  if (availableProviders !== prevAvailableProviders) {
-    setPrevAvailableProviders(availableProviders);
-    const firstProvider = availableProviders[0];
-    if (availableProviders.length > 0 && !availableProviders.includes(provider) && firstProvider) {
-      setProvider(firstProvider);
-    }
-  }
+  // The selection is only a preference: when it is not available (also on
+  // the first render with a cached status), the first available provider is
+  // used. Derived during render, so no effect and no stale request.
+  const effectiveProvider: AIMarketProvider = availableProviders.includes(provider)
+    ? provider
+    : (availableProviders[0] ?? provider);
 
   const run = async () => {
     setLoading(true);
@@ -55,7 +51,7 @@ export function AIRuntimeDigest({
     setContent(null);
 
     const req: AIRuntimeDigestRequest = {
-      provider,
+      provider: effectiveProvider,
       running_bots: runningBots,
       total_bots: totalBots,
       open_positions: openPositions,
@@ -110,14 +106,14 @@ export function AIRuntimeDigest({
           <span className="text-sm font-semibold text-cyan-200">AI Runtime Digest</span>
           {content && usedAI && (
             <span className="rounded-full bg-cyan-900/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-cyan-300">
-              {getAIProviderDisplayName(statusMap[provider])}
+              {getAIProviderDisplayName(statusMap[effectiveProvider])}
             </span>
           )}
         </div>
 
         <div className="flex items-center gap-2">
           <select
-            value={provider}
+            value={effectiveProvider}
             onChange={(e) => setProvider(e.target.value as AIMarketProvider)}
             disabled={loading || providerStatusLoading || availableProviders.length === 0}
             aria-label="AI provider for runtime digest"
@@ -179,7 +175,7 @@ export function AIRuntimeDigest({
           <p className="text-sm leading-relaxed text-slate-200">{content}</p>
           {!usedAI && (
             <p className="mt-2 text-xs text-slate-500">
-              No AI key configured — add a provider key in Settings → AI Providers.
+              No AI key configured — an admin can add a provider key in Settings → AI Filters.
             </p>
           )}
         </div>

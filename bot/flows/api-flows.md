@@ -77,7 +77,8 @@ Login enforces 2FA state: a user with 2FA enabled must send `totp_code` (a TOTP 
 | POST `/api/v1/bots/{instance_id}/restart` | `restart_bot_instance` | Active              | stop then start                      |
 | GET `/api/v1/bots/{instance_id}/history`  | `get_bot_history`      | Active              | `event_logs` query                   |
 | GET `/api/v1/bots/{instance_id}/jobs`     | `get_bot_jobs`         | Active              | `jobs` query                         |
-| GET `/api/v1/bots/{instance_id}/trades`   | `get_bot_trades`       | Active              | `trades` query                       |
+| GET `/api/v1/bots/{instance_id}/trades`   | `get_bot_trades`       | Active              | `trades` query, newest first, `limit`/`offset` |
+| GET `/api/v1/bots/{instance_id}/cointegrated-pairs` | `get_bot_cointegrated_pairs` | Active  | `cointegrated_pairs` row of the last pair scan |
 | GET `/api/v1/bots/{instance_id}/stats`    | `get_bot_stats`        | Active              | manager/DB aggregation               |
 | POST `/api/v1/bots/quick-deploy`          | `quick_deploy_bot`     | Active              | create then optional start           |
 

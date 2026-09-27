@@ -13,6 +13,7 @@ const ExternalAPIProviderCodexIO = "codex_io"
 const ExternalAPIProviderOpenAI = "openai"
 const ExternalAPIProviderDeepSeek = "deepseek"
 const ExternalAPIProviderClaude = "claude"
+const ExternalAPIProviderGrok = "grok"
 const ExternalAPIProviderPlunk = "plunk"
 const ExternalAPIProviderTelegramBot = "telegram_bot"
 const SharedCredentialUserID = 0

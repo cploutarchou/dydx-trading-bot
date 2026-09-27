@@ -40,7 +40,6 @@ vi.mock('../api/hooks', () => ({
     fetchStatus: 'idle',
     byId: new Map(),
   }),
-  useStrategyBacktests: () => ({ data: undefined }),
   useStrategyStartReadiness: (strategyId: number | null, network: string, enabled: boolean) => {
     mocks.readinessArgs.push([strategyId, network, enabled]);
     return {
@@ -65,12 +64,12 @@ vi.mock('../api', () => ({
   default: { connectStrategyRuntimeSocket: () => null },
   DYDX_CANDLE_RESOLUTION_OPTIONS: [{ value: '1HOUR', label: '1 hour' }],
   normalizeDydxCandleResolution: (value: string) => value,
-  toAIBacktestSummary: () => null,
 }));
 
 vi.mock('./AIRuntimeDigest', () => ({ AIRuntimeDigest: () => null }));
 vi.mock('./AIStrategyAdvisor', () => ({ AIStrategyAdvisor: () => null }));
 vi.mock('./CodexAssetIntelStrip', () => ({ CodexAssetIntelStrip: () => null }));
+vi.mock('../features/strategyChat/StrategyChatDrawer', () => ({ StrategyChatDrawer: () => null }));
 
 const baseReadiness = {
   strategy_id: 7,

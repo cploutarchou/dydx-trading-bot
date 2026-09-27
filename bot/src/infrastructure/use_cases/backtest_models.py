@@ -93,6 +93,10 @@ class _BacktestTrade(BaseModel):
     # from pnl_usd). None for trades recorded before the split existed.
     fee_cost: Optional[float] = None
     slippage_cost: Optional[float] = None
+    # Which rung of the exit ladder closed the trade, as the simulation
+    # recorded it (stop_loss, take_profit, trailing_stop, timeout,
+    # zscore_reversion). None for ledgers written before it was recorded.
+    exit_reason: Optional[str] = None
 
 
 class _BacktestRunDetails(BaseModel):

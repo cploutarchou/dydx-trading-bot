@@ -39,9 +39,23 @@ func RegisterStrategyRoutes(router *gin.Engine, database *db.Database) {
 	botInstanceService := services.NewBotInstanceService(botInstanceRepo, botAPIClient)
 	runtimeService := services.NewStrategyRuntimeService(strategyService, keyService, telegramService, botInstanceService, botInstanceRepo)
 	strategyHandler := handlers.NewStrategyHandler(strategyService, runtimeService, userRepo)
-	strategyHandler.SetAuditLogger(func(c *gin.Context, action string, strategyID int, details interface{}) {
+	strategyAuditLogger := func(c *gin.Context, action string, strategyID int, details interface{}) {
 		writeAuditLog(database.DB, c, action, "strategy", stringPointer(strconv.Itoa(strategyID)), details, "success")
-	})
+	}
+	strategyHandler.SetAuditLogger(strategyAuditLogger)
+
+	// Strategy chat: the assistant reads a secret-free summary of the strategy
+	// and can propose allowlisted changes that the user applies explicitly.
+	chatService := services.NewStrategyChatService(
+		repository.NewStrategyChatRepository(database.DB),
+		strategyService,
+		backtestRepo,
+		userRepo,
+		services.NewAIMarketService(credentialService),
+	)
+	chatService.SetEvidenceBuilder(services.NewStrategyEvidenceBuilder(backtestRepo, services.NewBotEvidenceClient(botAPIClient)))
+	chatHandler := handlers.NewStrategyChatHandler(chatService)
+	chatHandler.SetAuditLogger(strategyAuditLogger)
 
 	v1 := router.Group("/api/v1")
 	{
@@ -68,6 +82,12 @@ func RegisterStrategyRoutes(router *gin.Engine, database *db.Database) {
 			strategies.POST("/:id/entry-halt/clear", strategyHandler.ClearStrategyEntryHalt)
 			strategies.POST("/:id/start", strategyHandler.StartStrategyRuntime)
 			strategies.POST("/:id/stop", strategyHandler.StopStrategyRuntime)
+			strategies.GET("/:id/chat", chatHandler.GetChat)
+			strategies.POST("/:id/chat/sessions", chatHandler.StartSession)
+			strategies.POST("/:id/chat/messages", chatHandler.SendMessage)
+			strategies.POST("/:id/chat/messages/:message_id/apply", chatHandler.ApplyProposal)
+			strategies.POST("/:id/chat/messages/:message_id/create-strategy", chatHandler.CreateStrategy)
+			strategies.POST("/:id/chat/messages/:message_id/dismiss", chatHandler.DismissProposal)
 		}
 
 		backtests := v1.Group("/backtests")

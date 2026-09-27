@@ -1,6 +1,11 @@
 import { BrainCircuit, ChevronDown, ChevronUp, Loader, RefreshCw, Sparkles } from 'lucide-react';
 import { useState } from 'react';
-import api, { type AIBacktestExplainRequest, type AIMarketProvider } from '../api';
+import api, {
+  type AIBacktestExplainRequest,
+  type AIBacktestExplainResponse,
+  type AIMarketProvider,
+} from '../api';
+import { EvidenceSummaryChips } from '../features/ai/evidenceSummary';
 import {
   getAIProviderDisplayName,
   getAIProviderLabel,
@@ -8,35 +13,16 @@ import {
 } from '../features/ai/providerAvailability';
 
 interface Props {
-  winRate: number;
-  totalPnlUsd: number;
-  sharpeRatio: number;
-  maxDrawdownPct: number;
-  totalTrades: number;
-  profitFactor: number;
-  markets: string[];
-  startDate: string;
-  endDate: string;
+  /** The backtest run to explain; the server builds the evidence from its stored results. */
+  runId: string;
   /** Default provider preference shown in selector */
   defaultProvider?: AIMarketProvider;
 }
 
-export function AIBacktestExplainer({
-  winRate,
-  totalPnlUsd,
-  sharpeRatio,
-  maxDrawdownPct,
-  totalTrades,
-  profitFactor,
-  markets,
-  startDate,
-  endDate,
-  defaultProvider = 'deepseek',
-}: Props) {
+export function AIBacktestExplainer({ runId, defaultProvider = 'deepseek' }: Props) {
   const [provider, setProvider] = useState<AIMarketProvider>(defaultProvider);
   const [loading, setLoading] = useState(false);
-  const [content, setContent] = useState<string | null>(null);
-  const [usedAI, setUsedAI] = useState(false);
+  const [result, setResult] = useState<AIBacktestExplainResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const {
@@ -57,39 +43,37 @@ export function AIBacktestExplainer({
     }
   }
 
+  const hasRun = runId.trim().length > 0;
+
   const runExplain = async () => {
+    if (!hasRun) return;
     setLoading(true);
     setError(null);
-    setContent(null);
+    setResult(null);
     setCollapsed(false);
 
     const req: AIBacktestExplainRequest = {
       provider,
-      win_rate: winRate,
-      total_pnl_usd: totalPnlUsd,
-      sharpe_ratio: sharpeRatio,
-      max_drawdown_pct: maxDrawdownPct,
-      total_trades: totalTrades,
-      profit_factor: profitFactor ?? 0,
-      markets,
-      start_date: startDate ?? '',
-      end_date: endDate ?? '',
+      run_id: runId,
     };
 
     try {
       const resp = await api.explainBacktest(req);
       const data = resp.data;
-      if (!data) {
+      if (!data || typeof data.content !== 'string') {
         throw new Error('AI explanation response did not include content');
       }
-      setContent(data.content);
-      setUsedAI(data.used_ai);
+      setResult(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'AI explanation failed');
     } finally {
       setLoading(false);
     }
   };
+
+  const content = result?.content ?? null;
+  const usedAI = result?.used_ai === true;
+  const providerNotConfigured = statusMap[provider]?.availability_status === 'not_configured';
 
   // Split into narrative + improvements if the AI used the "Improvements:" separator
   const narrativePart = content?.split(/\nImprovements:/i)[0]?.trim() ?? '';
@@ -104,9 +88,11 @@ export function AIBacktestExplainer({
         <div className="flex items-center gap-2">
           <BrainCircuit className="h-4 w-4 text-violet-400" />
           <span className="text-sm font-semibold text-violet-200">AI Backtest Explainer</span>
-          {content && usedAI && (
+          {result && usedAI && (
             <span className="rounded-full bg-violet-900/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-300">
-              {getAIProviderDisplayName(statusMap[provider])}
+              {result.model
+                ? `${getAIProviderLabel(result.provider) || result.provider} (${result.model})`
+                : getAIProviderDisplayName(statusMap[result.provider] ?? statusMap[provider])}
             </span>
           )}
         </div>
@@ -130,21 +116,21 @@ export function AIBacktestExplainer({
           {/* Explain / refresh button */}
           <button
             onClick={runExplain}
-            disabled={loading || availableProviders.length === 0}
+            disabled={loading || availableProviders.length === 0 || !hasRun}
             className="flex items-center gap-1.5 rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-violet-600 disabled:opacity-50"
           >
             {loading ? (
               <Loader className="h-3.5 w-3.5 animate-spin" />
-            ) : content ? (
+            ) : result ? (
               <RefreshCw className="h-3.5 w-3.5" />
             ) : (
               <Sparkles className="h-3.5 w-3.5" />
             )}
-            {content ? 'Regenerate' : 'Explain with AI'}
+            {result ? 'Regenerate' : 'Explain with AI'}
           </button>
 
           {/* Collapse toggle */}
-          {content && (
+          {result && (
             <button
               onClick={() => setCollapsed((v) => !v)}
               aria-label={
@@ -159,10 +145,10 @@ export function AIBacktestExplainer({
       </div>
 
       {/* Body */}
-      {!content && !loading && !error && (
+      {!result && !loading && !error && (
         <p className="mt-3 text-xs text-slate-500">
           Click <span className="text-violet-300">Explain with AI</span> to get a plain-language
-          analysis of these backtest results plus 3 actionable improvements.
+          reading of this run&apos;s stored trades and metrics plus 3 actionable improvements.
         </p>
       )}
 
@@ -181,7 +167,7 @@ export function AIBacktestExplainer({
       {loading && (
         <div className="mt-4 flex items-center gap-3 text-sm text-slate-400">
           <Loader className="h-4 w-4 animate-spin text-violet-400" />
-          Analysing results with {getAIProviderLabel(provider)}…
+          Analysing this run with {getAIProviderLabel(provider)}… This can take a couple of minutes.
         </div>
       )}
 
@@ -191,11 +177,15 @@ export function AIBacktestExplainer({
         </div>
       )}
 
-      {content && !collapsed && (
+      {result && !collapsed && (
         <div className="mt-4 space-y-4">
+          <EvidenceSummaryChips summary={result.evidence_summary ?? null} showNotes />
+
           {/* Narrative */}
           {narrativePart && (
-            <p className="text-sm leading-relaxed text-slate-300">{narrativePart}</p>
+            <p className="whitespace-pre-line text-sm leading-relaxed text-slate-300">
+              {narrativePart}
+            </p>
           )}
 
           {/* Improvements */}
@@ -208,10 +198,10 @@ export function AIBacktestExplainer({
             </div>
           )}
 
-          {!usedAI && (
+          {!usedAI && providerNotConfigured && (
             <p className="text-xs text-slate-500">
-              No AI key configured — add a provider key in Settings → AI Providers to enable live
-              analysis.
+              No key is configured for {getAIProviderLabel(provider)} — add one in Settings → AI
+              Filters to enable live analysis.
             </p>
           )}
         </div>

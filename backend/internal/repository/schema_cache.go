@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 	"sync"
@@ -10,14 +11,24 @@ import (
 // compatibility probes do not run multiple schema queries per row read.
 // The schema is fixed after startup migrations, so entries intentionally
 // never invalidate. The database pointer is part of the key so isolated test
-// databases do not observe each other's schemas.
+// databases do not observe each other's schemas; schemaColumnsPins keeps every
+// keyed database reachable, because a collected database's address can be
+// handed to a new one that would then read the old column set.
 var (
 	schemaColumnsMu    sync.RWMutex
 	schemaColumnsCache = map[string]map[string]struct{}{}
+	schemaColumnsPins  = map[string]SQLRunner{}
 )
 
 func cachedTableColumns(db SQLRunner, table string) (map[string]struct{}, error) {
-	key := fmt.Sprintf("%p|%s", db, table)
+	return cachedTableColumnsFor(db, db, table)
+}
+
+// cachedTableColumnsFor probes the schema through runner, which may be a
+// transaction, and caches the result under owner, the long-lived database the
+// runner belongs to, so a transaction never gets a cache entry of its own.
+func cachedTableColumnsFor(runner SQLRunner, owner SQLRunner, table string) (map[string]struct{}, error) {
+	key := fmt.Sprintf("%p|%s", owner, table)
 
 	schemaColumnsMu.RLock()
 	if cols, ok := schemaColumnsCache[key]; ok {
@@ -26,7 +37,7 @@ func cachedTableColumns(db SQLRunner, table string) (map[string]struct{}, error)
 	}
 	schemaColumnsMu.RUnlock()
 
-	rows, err := db.Query(fmt.Sprintf("SELECT * FROM %s LIMIT 0", table))
+	rows, err := runner.Query(fmt.Sprintf("SELECT * FROM %s LIMIT 0", table))
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect table %s: %w", table, err)
 	}
@@ -47,8 +58,19 @@ func cachedTableColumns(db SQLRunner, table string) (map[string]struct{}, error)
 
 	schemaColumnsMu.Lock()
 	schemaColumnsCache[key] = cols
+	// Only a database is pinned: a transaction is short-lived and must not be
+	// kept alive by the cache.
+	if db, ok := owner.(*sql.DB); ok {
+		schemaColumnsPins[key] = db
+	}
 	schemaColumnsMu.Unlock()
 	return cols, nil
+}
+
+// isPostgresDriver reports whether a repository's driver name is PostgreSQL,
+// the only supported database with row locks (SELECT ... FOR UPDATE).
+func isPostgresDriver(driver string) bool {
+	return strings.Contains(strings.ToLower(driver), "postgres")
 }
 
 // bindPlaceholders rewrites ?-style positional placeholders to PostgreSQL $n

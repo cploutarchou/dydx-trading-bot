@@ -334,6 +334,14 @@ func (c *BotAPIClient) ClearBotEntryHalt(instanceID string, payload map[string]i
 	return c.makeRequest("POST", endpoint, payload)
 }
 
+// GetBotCointegratedPairs reads the bot's stored pair scan of an instance
+// (the last runtime cointegration analysis). Older bots without the endpoint
+// answer 404, which callers treat as "no scan available".
+func (c *BotAPIClient) GetBotCointegratedPairs(instanceID string) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/cointegrated-pairs", url.PathEscape(instanceID))
+	return c.makeRequest("GET", endpoint, nil)
+}
+
 // GetInterruptedBacktests retrieves interrupted/orphaned backtest visibility data.
 func (c *BotAPIClient) GetInterruptedBacktests(limit int, admin bool) (map[string]interface{}, error) {
 	query := url.Values{}

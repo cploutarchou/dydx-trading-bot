@@ -195,6 +195,18 @@ def test_get_backtest_trades_filters_slices_and_skips_malformed():
     assert _FakeHost(data=None).get_backtest_trades("missing") == []
 
 
+def test_get_backtest_trades_carries_the_ledger_exit_reason():
+    """The exit reason the simulation recorded per trade is served, not dropped."""
+    host = _FakeHost(
+        data={"trades": [_trade("t1", exit_reason="stop_loss"), _trade("t2")]}
+    )
+
+    trades = host.get_backtest_trades("run-1")
+
+    assert [t.exit_reason for t in trades] == ["stop_loss", None]
+    assert trades[0].model_dump()["exit_reason"] == "stop_loss"
+
+
 def test_get_backtest_trades_legacy_runs_report_no_trades():
     """Legacy runs without stored trades must return an empty list.
 

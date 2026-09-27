@@ -1,6 +1,7 @@
 package services
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"time"
@@ -12,11 +13,18 @@ import (
 // StrategyService manages backtest strategy operations
 type StrategyService struct {
 	repo *repository.StrategyRepository
+	// inTx is set on a copy bound to a transaction by WithTx.
+	inTx bool
 }
 
 // NewStrategyService creates a new strategy service
 func NewStrategyService(repo *repository.StrategyRepository) *StrategyService {
 	return &StrategyService{repo: repo}
+}
+
+// WithTx returns a copy of the service whose repository executes within tx.
+func (s *StrategyService) WithTx(tx *sql.Tx) *StrategyService {
+	return &StrategyService{repo: s.repo.WithTx(tx), inTx: true}
 }
 
 // ============ BacktestStrategy Operations ============
@@ -97,6 +105,35 @@ func (s *StrategyService) GetStrategy(id int) (*models.BacktestStrategy, error) 
 	return strategy, nil
 }
 
+// GetStrategyForUpdate reads a strategy and, on a transaction-bound service on
+// PostgreSQL, locks its row until the transaction ends.
+func (s *StrategyService) GetStrategyForUpdate(id int) (*models.BacktestStrategy, error) {
+	if id <= 0 {
+		return nil, fmt.Errorf("invalid strategy id")
+	}
+
+	strategy, err := s.repo.GetStrategyByIDForUpdate(id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get strategy: %w", err)
+	}
+
+	return strategy, nil
+}
+
+// CountStrategies counts a user's strategies that are not deleted.
+func (s *StrategyService) CountStrategies(userID int) (int, error) {
+	if userID <= 0 {
+		return 0, fmt.Errorf("invalid user id")
+	}
+
+	count, err := s.repo.CountStrategiesByUser(userID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count strategies: %w", err)
+	}
+
+	return count, nil
+}
+
 // ListStrategies retrieves all strategies for a user
 func (s *StrategyService) ListStrategies(userID int) ([]models.BacktestStrategy, error) {
 	if userID <= 0 {
@@ -125,6 +162,21 @@ func (s *StrategyService) UpdateStrategy(strategy *models.BacktestStrategy) erro
 	}
 
 	log.Printf("✅ Updated strategy: %s (ID: %d)", strategy.Name, strategy.ID)
+	return nil
+}
+
+// UpdateStrategyFields writes only the given columns of a strategy, never the
+// whole row, so nothing another writer changed in the meantime is reverted.
+func (s *StrategyService) UpdateStrategyFields(id int, fields map[string]any) error {
+	if id <= 0 {
+		return fmt.Errorf("invalid strategy id")
+	}
+
+	if err := s.repo.UpdateStrategyFields(id, fields); err != nil {
+		return fmt.Errorf("failed to update strategy fields: %w", err)
+	}
+
+	log.Printf("✅ Updated strategy fields: ID %d (%d fields)", id, len(fields))
 	return nil
 }
 
@@ -216,6 +268,54 @@ func (s *StrategyService) CreateVersionHistory(strategyID int, createdByUserID i
 
 	log.Printf("✅ Created version history for strategy %d (v%d)", strategyID, versionNumber)
 	return history, nil
+}
+
+// SaveVersionSnapshot stores the strategy as it is now under the next
+// version number, in the shape RevertVersion restores (ToJSON of the strategy).
+func (s *StrategyService) SaveVersionSnapshot(strategy *models.BacktestStrategy, createdByUserID int, changeLog string) (*models.StrategyVersionHistory, error) {
+	if strategy == nil || strategy.ID <= 0 {
+		return nil, fmt.Errorf("invalid strategy id")
+	}
+	snapshot, err := strategy.ToJSON()
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode strategy snapshot: %w", err)
+	}
+	if runes := []rune(changeLog); len(runes) > 500 {
+		changeLog = string(runes[:500])
+	}
+
+	// version_number is UNIQUE per strategy; a concurrent snapshot can take the
+	// number first, so read the latest again and retry a few times. Inside a
+	// transaction there is one attempt: the caller holds the strategy row lock,
+	// and PostgreSQL aborts the transaction on the first UNIQUE failure anyway.
+	attempts := 3
+	if s.inTx {
+		attempts = 1
+	}
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		history, err := s.repo.GetVersionHistoryByStrategy(strategy.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read version history: %w", err)
+		}
+		next := 1
+		for _, version := range history {
+			if version.Version >= next {
+				next = version.Version + 1
+			}
+		}
+		record := &models.StrategyVersionHistory{
+			StrategyID:      strategy.ID,
+			CreatedByUserID: createdByUserID,
+			Version:         next,
+			StrategyData:    sql.NullString{String: string(snapshot), Valid: true},
+			ChangeLog:       changeLog,
+		}
+		if lastErr = s.repo.CreateVersionHistory(record); lastErr == nil {
+			return record, nil
+		}
+	}
+	return nil, fmt.Errorf("failed to create version snapshot: %w", lastErr)
 }
 
 // GetVersionHistory retrieves version history for a strategy

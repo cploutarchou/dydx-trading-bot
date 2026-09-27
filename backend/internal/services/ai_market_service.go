@@ -11,9 +11,10 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"os"
-	"sort"
 	"strings"
 	"time"
+
+	"github.com/dydx-trading-bot/backend-go/internal/repository"
 )
 
 const (
@@ -21,12 +22,17 @@ const (
 	defaultAIMarketLimit       = 35
 	maxAIMarketLimit           = 150
 	defaultAIMarketMaxRetries  = 3
+	// aiMarketSelectionMaxTokens is the visible-output budget of a market
+	// selection reply on the Chat Completions and Messages APIs: up to 150
+	// tickers, a dozen pairs with reasons and a rationale.
+	aiMarketSelectionMaxTokens = 2000
 )
 
 var SupportedAIProviders = []string{
 	ExternalAPIProviderOpenAI,
 	ExternalAPIProviderDeepSeek,
 	ExternalAPIProviderClaude,
+	ExternalAPIProviderGrok,
 }
 
 type AICredentialPayload struct {
@@ -47,6 +53,10 @@ type AIProviderStatus struct {
 	UserKeyMasked      string `json:"user_key_masked"`
 	ActiveKeySource    string `json:"active_key_source"`
 	Model              string `json:"model"`
+	// AnalysisModel is the model used for parameter suggestions, backtest
+	// explanations and the strategy chat; empty when the provider runs them
+	// on its default model.
+	AnalysisModel string `json:"analysis_model"`
 }
 
 type AIMarketStatus struct {
@@ -60,6 +70,10 @@ type AIMarketSelectionRequest struct {
 	Limit    int              `json:"limit"`
 	Strategy string           `json:"strategy"`
 	Criteria AIMarketCriteria `json:"criteria"`
+
+	// StrategyID, when given and owned by the caller, offers the strategy's
+	// pair statistics to the model and returns them in the response pairs.
+	StrategyID int `json:"strategy_id"`
 }
 
 type AIMarketCriteria struct {
@@ -84,6 +98,13 @@ type AIMarketSelectionResponse struct {
 	Confidence      float64  `json:"confidence"`
 	UsedAI          bool     `json:"used_ai"`
 	FallbackReason  string   `json:"fallback_reason,omitempty"`
+
+	// Basis, Pairs, MarketStats and DroppedCount say what the selection was
+	// built from and how much of the model's answer was discarded.
+	Basis        AIMarketSelectionBasis `json:"basis"`
+	Pairs        []AIMarketPair         `json:"pairs"`
+	MarketStats  []AIMarketStatRow      `json:"market_stats"`
+	DroppedCount int                    `json:"dropped_count"`
 }
 
 type aiResolvedKey struct {
@@ -118,6 +139,7 @@ const (
 	aiRequestKindBacktestExplain aiRequestKind = "backtest_explain"
 	aiRequestKindStrategyParams  aiRequestKind = "strategy_params"
 	aiRequestKindRuntimeDigest   aiRequestKind = "runtime_digest"
+	aiRequestKindStrategyChat    aiRequestKind = "strategy_chat"
 )
 
 type aiUsage struct {
@@ -129,12 +151,56 @@ type aiUsage struct {
 	CompletionDetails     struct {
 		ReasoningTokens int `json:"reasoning_tokens"`
 	} `json:"completion_tokens_details"`
+	// Responses API (xAI) and Anthropic Messages API names for the same counts.
+	InputTokens        int `json:"input_tokens"`
+	OutputTokens       int `json:"output_tokens"`
+	InputTokensDetails struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"input_tokens_details"`
+	OutputTokensDetails struct {
+		ReasoningTokens int `json:"reasoning_tokens"`
+	} `json:"output_tokens_details"`
+}
+
+// aiUsageCounts is one provider's usage in the Chat Completions vocabulary.
+type aiUsageCounts struct {
+	prompt, completion, total, cacheHit, cacheMiss, reasoning int
+}
+
+// counts maps whichever usage names the provider returned onto one set.
+func (u aiUsage) counts() aiUsageCounts {
+	counts := aiUsageCounts{
+		prompt:     u.PromptTokens,
+		completion: u.CompletionTokens,
+		total:      u.TotalTokens,
+		cacheHit:   u.PromptCacheHitTokens,
+		cacheMiss:  u.PromptCacheMissTokens,
+		reasoning:  u.CompletionDetails.ReasoningTokens,
+	}
+	if counts.prompt == 0 {
+		counts.prompt = u.InputTokens
+	}
+	if counts.completion == 0 {
+		counts.completion = u.OutputTokens
+	}
+	if counts.cacheHit == 0 {
+		counts.cacheHit = u.InputTokensDetails.CachedTokens
+	}
+	if counts.reasoning == 0 {
+		counts.reasoning = u.OutputTokensDetails.ReasoningTokens
+	}
+	if counts.total == 0 {
+		counts.total = counts.prompt + counts.completion
+	}
+	return counts
 }
 
 type aiProviderCallError struct {
 	StatusCode int
 	Message    string
 	Retryable  bool
+	// Timeout marks a request the HTTP client gave up on.
+	Timeout bool
 }
 
 func (e *aiProviderCallError) Error() string {
@@ -147,12 +213,25 @@ func (e *aiProviderCallError) Error() string {
 type AIMarketService struct {
 	credentials *ExternalAPICredentialService
 	httpClient  *http.Client
+	// chatHTTPClient serves ChatCompletion, whose reasoning replies can take
+	// longer than the market-filter calls. Nil falls back to httpClient.
+	chatHTTPClient *http.Client
+	// Strategy evidence for the analysis endpoints; wired by
+	// SetStrategyEvidence, nil in deployments and tests without it.
+	evidence   *StrategyEvidenceBuilder
+	strategies *StrategyService
+	backtests  *repository.BacktestRepository
+
+	// marketEvidence offers a strategy's pair statistics to market selection;
+	// nil means selections carry no strategy pairs.
+	marketEvidence StrategyEvidenceSource
 }
 
 func NewAIMarketService(credentials *ExternalAPICredentialService) *AIMarketService {
 	return &AIMarketService{
-		credentials: credentials,
-		httpClient:  &http.Client{Timeout: defaultAIMarketHTTPTimeout},
+		credentials:    credentials,
+		httpClient:     &http.Client{Timeout: defaultAIMarketHTTPTimeout},
+		chatHTTPClient: &http.Client{Timeout: AIChatHTTPTimeout()},
 	}
 }
 
@@ -177,6 +256,7 @@ func (s *AIMarketService) Status(userID int) (AIMarketStatus, error) {
 			SharedKeyAvailable: resolved.sharedAvailable,
 			UserKeyAvailable:   resolved.userAvailable,
 			Model:              s.providerConfig(provider).model,
+			AnalysisModel:      s.analysisModelForProvider(provider),
 		}
 		switch {
 		case !enabled:
@@ -248,10 +328,17 @@ func (s *AIMarketService) DeleteSharedKey(provider string) error {
 	return s.credentials.DeleteShared(normalized)
 }
 
-func (s *AIMarketService) SelectMarkets(ctx context.Context, userID int, req AIMarketSelectionRequest) (*AIMarketSelectionResponse, error) {
-	provider, resolved, err := s.resolveUsableKey(userID, req.Provider)
+// SelectMarkets ranks the tradable universe the route loaded: a deterministic
+// score orders the markets, the model sees the numbers as a table, and its
+// answer is validated against the same universe. A provider failure falls
+// back to the score order, never to an alphabetical list.
+func (s *AIMarketService) SelectMarkets(ctx context.Context, actor AIAnalysisActor, req AIMarketSelectionRequest, universe *MarketUniverse) (*AIMarketSelectionResponse, error) {
+	provider, resolved, err := s.resolveUsableKey(actor.UserID, req.Provider)
 	if err != nil {
 		return nil, err
+	}
+	if universe == nil {
+		return nil, fmt.Errorf("dYdX market universe is required for AI selection")
 	}
 
 	mode := normalizeAIMarketMode(req.Mode)
@@ -263,31 +350,51 @@ func (s *AIMarketService) SelectMarkets(ctx context.Context, userID int, req AIM
 		limit = maxAIMarketLimit
 	}
 
-	markets := normalizeMarkets(req.Markets)
-	if len(markets) < 2 {
-		return nil, fmt.Errorf("at least two dYdX markets are required for AI selection")
+	stats := restrictMarketUniverse(universe, req.Markets)
+	if len(stats) < 2 {
+		return nil, fmt.Errorf("at least two tradable dYdX markets with market data are required for AI selection")
 	}
 
 	criteria := normalizeAIMarketCriteria(req.Criteria, mode)
-	selection, err := s.callProvider(ctx, resolved.key, provider, mode, markets, limit, req.Strategy, criteria)
+	ranked := scoreMarkets(stats, criteria)
+	rows := aiMarketPromptRowCount(len(ranked), limit)
+	evidence, evidenceErr := s.marketPairEvidence(ctx, actor, req.StrategyID, ranked)
+	if evidenceErr != nil {
+		log.Printf("ai_market_selection strategy pair evidence unavailable strategy_id=%d: %v", req.StrategyID, evidenceErr)
+	}
+	selection := marketSelection{
+		provider:   provider,
+		mode:       mode,
+		limit:      limit,
+		ranked:     ranked,
+		hasDetails: universe.HasDetails,
+		basis:      marketSelectionBasis(universe, ranked, rows, evidence),
+		evidence:   evidence,
+	}
+
+	prompt := buildAIMarketPromptWithTable(aiMarketPromptInput{
+		Mode:       mode,
+		Limit:      limit,
+		Strategy:   req.Strategy,
+		Criteria:   criteria,
+		Ranked:     ranked,
+		Rows:       rows,
+		Network:    universe.Network,
+		Source:     universe.Source,
+		HasDetails: universe.HasDetails,
+		Evidence:   evidence,
+	})
+	reply, err := s.callMarketSelectionProvider(ctx, resolved.key, provider, prompt, limit)
 	if err != nil {
-		return fallbackAIMarketSelection(provider, mode, markets, limit, err.Error()), nil
+		return fallbackAIMarketSelection(selection, aiMarketFallbackReason(provider, err, actor.IsAdmin)), nil
 	}
 
-	selected := filterSelectedMarkets(selection.SelectedMarkets, markets, limit)
+	selected, modelPairs, dropped := validateMarketSelection(reply, ranked, limit)
 	if len(selected) < 2 {
-		return fallbackAIMarketSelection(provider, mode, markets, limit, "AI response did not include enough valid dYdX markets."), nil
+		return fallbackAIMarketSelection(selection, "AI response did not include enough valid dYdX markets."), nil
 	}
-
-	return &AIMarketSelectionResponse{
-		Provider:        provider,
-		Mode:            mode,
-		Source:          "ai",
-		SelectedMarkets: selected,
-		Rationale:       strings.TrimSpace(selection.Rationale),
-		Confidence:      selection.Confidence,
-		UsedAI:          true,
-	}, nil
+	pairs := mergeMarketPairs(evidencePairsWithin(selected, evidence), modelPairs)
+	return selection.response(aiMarketSourceAI, selected, pairs, truncateAIText(reply.Rationale, 1200), reply.Confidence, true, "", dropped), nil
 }
 
 func (s *AIMarketService) resolveUsableKey(userID int, provider string) (string, aiResolvedKey, error) {
@@ -365,12 +472,18 @@ func (s *AIMarketService) resolveKey(userID int, provider string) (aiResolvedKey
 func (s *AIMarketService) providerEnabled(provider string) bool {
 	var key string
 	switch provider {
+	case ExternalAPIProviderOpenAI:
+		key = "AI_PROVIDER_OPENAI_ENABLED"
 	case ExternalAPIProviderDeepSeek:
 		key = "AI_PROVIDER_DEEPSEEK_ENABLED"
 	case ExternalAPIProviderClaude:
 		key = "AI_PROVIDER_CLAUDE_ENABLED"
+	case ExternalAPIProviderGrok:
+		key = "AI_PROVIDER_GROK_ENABLED"
 	default:
-		key = "AI_PROVIDER_OPENAI_ENABLED"
+		// An unknown provider is never enabled, so it cannot borrow another
+		// provider's key or endpoint.
+		return false
 	}
 
 	raw := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
@@ -388,15 +501,37 @@ func (s *AIMarketService) providerEnabled(provider string) bool {
 	}
 }
 
+// callProvider ranks a names-only universe: the tickers in the given order
+// with no statistics. SelectMarkets builds its prompt from the bot's market
+// data instead; this entry point remains for callers that only have names.
 func (s *AIMarketService) callProvider(ctx context.Context, apiKey string, provider string, mode string, markets []string, limit int, strategy string, criteria AIMarketCriteria) (*AIMarketSelectionResponse, error) {
-	config := s.providerConfig(provider)
-	prompt := buildAIMarketPrompt(mode, markets, limit, strategy, criteria)
+	mode = normalizeAIMarketMode(mode)
+	criteria = normalizeAIMarketCriteria(criteria, mode)
+	ranked := scoreMarkets(marketStatsFromTickers(markets), criteria)
+	prompt := buildAIMarketPromptWithTable(aiMarketPromptInput{
+		Mode:     mode,
+		Limit:    limit,
+		Strategy: strategy,
+		Criteria: criteria,
+		Ranked:   ranked,
+		Rows:     aiMarketPromptRowCount(len(ranked), limit),
+	})
+	return s.callMarketSelectionProvider(ctx, apiKey, provider, prompt, limit)
+}
 
+// callMarketSelectionProvider sends the prompt to the provider and parses the
+// reply; validation against the universe happens in SelectMarkets.
+func (s *AIMarketService) callMarketSelectionProvider(ctx context.Context, apiKey string, provider string, prompt string, limit int) (*AIMarketSelectionResponse, error) {
+	config := s.providerConfig(provider)
 	switch provider {
 	case ExternalAPIProviderClaude:
 		return s.callClaude(ctx, apiKey, config, prompt)
-	default:
+	case ExternalAPIProviderGrok:
+		return s.callXAIMarketSelection(ctx, apiKey, config, prompt, limit)
+	case ExternalAPIProviderOpenAI, ExternalAPIProviderDeepSeek:
 		return s.callOpenAICompatible(ctx, apiKey, config, prompt)
+	default:
+		return nil, fmt.Errorf("unsupported AI provider: %s", provider)
 	}
 }
 
@@ -408,7 +543,7 @@ func (s *AIMarketService) callOpenAICompatible(ctx context.Context, apiKey strin
 			{"role": "user", "content": prompt},
 		},
 		"temperature": 0.2,
-		"max_tokens":  900,
+		"max_tokens":  aiMarketSelectionMaxTokens,
 		"response_format": map[string]string{
 			"type": "json_object",
 		},
@@ -420,6 +555,7 @@ func (s *AIMarketService) callOpenAICompatible(ctx context.Context, apiKey strin
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 		Usage aiUsage `json:"usage"`
 	}
@@ -430,15 +566,21 @@ func (s *AIMarketService) callOpenAICompatible(ctx context.Context, apiKey strin
 	if len(response.Choices) == 0 {
 		return nil, fmt.Errorf("%s returned no market ranking choices", providerDisplayName(config.provider))
 	}
+	if response.Choices[0].FinishReason == "length" {
+		// A reply cut at the token limit is partial JSON: never parsed, the
+		// caller falls back to the deterministic ranking.
+		return nil, &aiReplyCutOffError{Provider: config.provider}
+	}
 	return parseAIMarketSelection(response.Choices[0].Message.Content)
 }
 
+// Messages API requests carry no temperature: the provider's newer models
+// reject a non-default value, and the default is fine for these tasks.
 func (s *AIMarketService) callClaude(ctx context.Context, apiKey string, config aiProviderConfig, prompt string) (*AIMarketSelectionResponse, error) {
 	body := map[string]any{
-		"model":       config.model,
-		"max_tokens":  900,
-		"temperature": 0.2,
-		"system":      "You rank dYdX perpetual markets for a crypto pairs-trading strategy. Return only valid JSON.",
+		"model":      config.model,
+		"max_tokens": aiMarketSelectionMaxTokens,
+		"system":     "You rank dYdX perpetual markets for a crypto pairs-trading strategy. Return only valid JSON.",
 		"messages": []map[string]string{
 			{"role": "user", "content": prompt},
 		},
@@ -449,7 +591,8 @@ func (s *AIMarketService) callClaude(ctx context.Context, apiKey string, config 
 			Text string `json:"text"`
 			Type string `json:"type"`
 		} `json:"content"`
-		Usage aiUsage `json:"usage"`
+		StopReason string  `json:"stop_reason"`
+		Usage      aiUsage `json:"usage"`
 	}
 
 	headers := map[string]string{
@@ -459,6 +602,9 @@ func (s *AIMarketService) callClaude(ctx context.Context, apiKey string, config 
 	if err := s.executeJSON(ctx, config, aiRequestKindMarketSelection, "", body, &response, headers); err != nil {
 		return nil, err
 	}
+	if response.StopReason == "max_tokens" {
+		return nil, &aiReplyCutOffError{Provider: config.provider}
+	}
 	for _, part := range response.Content {
 		if strings.TrimSpace(part.Text) != "" {
 			return parseAIMarketSelection(part.Text)
@@ -467,16 +613,44 @@ func (s *AIMarketService) callClaude(ctx context.Context, apiKey string, config 
 	return nil, fmt.Errorf("claude returned no market ranking content")
 }
 
+// aiCallPolicy is how many times, over which client, a provider call is tried.
+type aiCallPolicy struct {
+	client      *http.Client
+	maxAttempts int
+	// retryServerErrors also retries 502 and 504, and retryTimeouts decides
+	// whether a client timeout counts as a retryable network failure.
+	retryServerErrors bool
+	retryTimeouts     bool
+	// describeErrors appends the provider's own error message to a rejected
+	// request, read from either {"code","error"} or {"error":{"message"}}.
+	describeErrors bool
+}
+
 func (s *AIMarketService) executeJSON(ctx context.Context, config aiProviderConfig, kind aiRequestKind, bearer string, payload any, target any, headers map[string]string) error {
+	return s.executeJSONWithPolicy(ctx, aiCallPolicy{
+		client:         s.httpClient,
+		maxAttempts:    defaultAIMarketMaxRetries,
+		retryTimeouts:  true,
+		describeErrors: config.provider == ExternalAPIProviderGrok,
+	}, config, kind, bearer, payload, target, headers)
+}
+
+func (s *AIMarketService) executeJSONWithPolicy(ctx context.Context, policy aiCallPolicy, config aiProviderConfig, kind aiRequestKind, bearer string, payload any, target any, headers map[string]string) error {
 	bodyBytes, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to encode AI request: %w", err)
 	}
+	if policy.client == nil {
+		policy.client = s.httpClient
+	}
+	if policy.maxAttempts <= 0 {
+		policy.maxAttempts = 1
+	}
 
 	var lastErr error
-	for attempt := 1; attempt <= defaultAIMarketMaxRetries; attempt++ {
+	for attempt := 1; attempt <= policy.maxAttempts; attempt++ {
 		started := time.Now()
-		responseBody, statusCode, err := s.executeJSONAttempt(ctx, config.baseURL, bearer, bodyBytes, headers)
+		responseBody, statusCode, err := s.executeJSONAttempt(ctx, policy.client, config.baseURL, bearer, bodyBytes, headers)
 		latency := time.Since(started)
 		if err == nil {
 			if err := json.Unmarshal(responseBody, target); err != nil {
@@ -486,9 +660,12 @@ func (s *AIMarketService) executeJSON(ctx context.Context, config aiProviderConf
 			return nil
 		}
 
+		if policy.describeErrors {
+			describeAIProviderError(err, responseBody)
+		}
 		logAIProviderUsage(config, kind, attempt, statusCode, latency, responseBody, err)
 		lastErr = err
-		if !shouldRetryAIProviderError(err) || attempt == defaultAIMarketMaxRetries {
+		if !policy.shouldRetry(err) || attempt == policy.maxAttempts {
 			break
 		}
 		if sleepErr := sleepAIBackoff(ctx, attempt); sleepErr != nil {
@@ -498,7 +675,18 @@ func (s *AIMarketService) executeJSON(ctx context.Context, config aiProviderConf
 	return lastErr
 }
 
-func (s *AIMarketService) executeJSONAttempt(ctx context.Context, url string, bearer string, bodyBytes []byte, headers map[string]string) ([]byte, int, error) {
+func (p aiCallPolicy) shouldRetry(err error) bool {
+	if !p.retryTimeouts && isAIClientTimeout(err) {
+		return false
+	}
+	if shouldRetryAIProviderError(err) {
+		return true
+	}
+	var callErr *aiProviderCallError
+	return p.retryServerErrors && errors.As(err, &callErr) && callErr.StatusCode >= 500
+}
+
+func (s *AIMarketService) executeJSONAttempt(ctx context.Context, client *http.Client, url string, bearer string, bodyBytes []byte, headers map[string]string) ([]byte, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to create AI request: %w", err)
@@ -511,11 +699,12 @@ func (s *AIMarketService) executeJSONAttempt(ctx context.Context, url string, be
 		req.Header.Set(key, value)
 	}
 
-	resp, err := s.httpClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, 0, &aiProviderCallError{
 			Message:   fmt.Sprintf("failed to reach AI provider: %v", err),
 			Retryable: true,
+			Timeout:   isNetTimeout(err),
 		}
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -568,6 +757,12 @@ func (s *AIMarketService) executeJSONAttempt(ctx context.Context, url string, be
 
 func (s *AIMarketService) providerConfig(provider string) aiProviderConfig {
 	switch provider {
+	case ExternalAPIProviderOpenAI:
+		return aiProviderConfig{
+			provider: ExternalAPIProviderOpenAI,
+			model:    envWithDefault("OPENAI_MODEL", "gpt-4o-mini"),
+			baseURL:  envWithDefault("OPENAI_BASE_URL", "https://api.openai.com/v1/chat/completions"),
+		}
 	case ExternalAPIProviderDeepSeek:
 		return aiProviderConfig{
 			provider: provider,
@@ -577,15 +772,19 @@ func (s *AIMarketService) providerConfig(provider string) aiProviderConfig {
 	case ExternalAPIProviderClaude:
 		return aiProviderConfig{
 			provider: provider,
-			model:    envWithDefault("ANTHROPIC_MODEL", "claude-3-5-haiku-latest"),
+			model:    envWithDefault("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
 			baseURL:  envWithDefault("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1/messages"),
 		}
-	default:
+	case ExternalAPIProviderGrok:
 		return aiProviderConfig{
-			provider: ExternalAPIProviderOpenAI,
-			model:    envWithDefault("OPENAI_MODEL", "gpt-4o-mini"),
-			baseURL:  envWithDefault("OPENAI_BASE_URL", "https://api.openai.com/v1/chat/completions"),
+			provider: provider,
+			model:    envWithDefault("XAI_MODEL", "grok-4.3"),
+			baseURL:  envWithDefault("XAI_BASE_URL", "https://api.x.ai/v1/responses"),
 		}
+	default:
+		// No endpoint and no model: a call for an unknown provider fails
+		// instead of reaching another provider's API.
+		return aiProviderConfig{provider: provider}
 	}
 }
 
@@ -596,10 +795,18 @@ func parseAIMarketSelection(content string) (*AIMarketSelectionResponse, error) 
 	trimmed = strings.TrimSuffix(trimmed, "```")
 	trimmed = strings.TrimSpace(trimmed)
 
+	// The pairs are optional in JSON-mode replies; the strict Grok schema
+	// always carries them. Nothing here is trusted: SelectMarkets validates
+	// every ticker and pair against the universe.
 	var parsed struct {
 		SelectedMarkets []string `json:"selected_markets"`
-		Rationale       string   `json:"rationale"`
-		Confidence      float64  `json:"confidence"`
+		Pairs           []struct {
+			Market1 string `json:"market_1"`
+			Market2 string `json:"market_2"`
+			Reason  string `json:"reason"`
+		} `json:"pairs"`
+		Rationale  string  `json:"rationale"`
+		Confidence float64 `json:"confidence"`
 	}
 	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
 		return nil, fmt.Errorf("AI provider returned non-JSON market ranking")
@@ -613,84 +820,44 @@ func parseAIMarketSelection(content string) (*AIMarketSelectionResponse, error) 
 	if parsed.Confidence > 1 {
 		parsed.Confidence = 1
 	}
+	pairs := make([]AIMarketPair, 0, len(parsed.Pairs))
+	for _, pair := range parsed.Pairs {
+		pairs = append(pairs, AIMarketPair{Market1: pair.Market1, Market2: pair.Market2, Reason: pair.Reason, Source: aiMarketPairSourceModel})
+	}
 	return &AIMarketSelectionResponse{
 		SelectedMarkets: parsed.SelectedMarkets,
+		Pairs:           pairs,
 		Rationale:       parsed.Rationale,
 		Confidence:      parsed.Confidence,
 	}, nil
 }
 
-func fallbackAIMarketSelection(provider string, mode string, markets []string, limit int, reason string) *AIMarketSelectionResponse {
-	selected := normalizeMarkets(markets)
-	if len(selected) > limit {
-		selected = selected[:limit]
+// fallbackAIMarketSelection answers from the deterministic score order when
+// the model could not: the top markets by score, the strategy's own pairs
+// among them, and a rationale that says what ordered them.
+func fallbackAIMarketSelection(sel marketSelection, reason string) *AIMarketSelectionResponse {
+	limit := sel.limit
+	if limit > len(sel.ranked) {
+		limit = len(sel.ranked)
 	}
-	return &AIMarketSelectionResponse{
-		Provider:        provider,
-		Mode:            mode,
-		Source:          "deterministic_fallback",
-		SelectedMarkets: selected,
-		Rationale:       "Selected the first active dYdX markets because AI ranking was unavailable.",
-		Confidence:      0,
-		UsedAI:          false,
-		FallbackReason:  reason,
+	selected := make([]string, 0, limit)
+	for _, market := range sel.ranked[:limit] {
+		selected = append(selected, market.Ticker)
 	}
-}
-
-func buildAIMarketPrompt(mode string, markets []string, limit int, strategy string, criteria AIMarketCriteria) string {
-	strategy = strings.TrimSpace(strategy)
-	if strategy == "" {
-		strategy = "cointegration pairs trading with controlled liquidity, volatility, and backtest coverage"
+	rationale := "AI ranking was unavailable; markets are ranked by the deterministic score from dYdX market data: 24 h volume, open interest and trade count, thin markets penalised."
+	switch {
+	case !sel.hasDetails:
+		rationale = "AI ranking was unavailable and the bot sent no market statistics; markets are listed in the bot's 24 h volume order."
+	case marketsHavePriceChange(marketStatsOf(sel.ranked)):
+		rationale = "AI ranking was unavailable; markets are ranked by the deterministic score from dYdX market data: 24 h volume, open interest, trade count and 24 h price change, thin markets penalised."
 	}
-	return fmt.Sprintf(`Rank this dYdX perpetual market universe for %s.
-
-Mode: %s
-Objective: %s
-Select exactly %d markets when possible, never more than %d.
-Only choose symbols from the provided list.
-Apply these strategy-aware ranking weights on a 0-1 scale:
-- volume_weight: %.2f
-- liquidity_weight: %.2f
-- tradeability_weight: %.2f
-- momentum_weight: %.2f
-- volatility_weight: %.2f
-- cointegration_weight: %.2f
-- risk_weight: %.2f
-- future_gainers: %t
-
-Interpretation:
-- volume/liquidity/tradeability: favor markets with deeper participation, tighter execution assumptions, and lower slippage risk.
-- momentum/future_gainers: include assets with plausible upside catalysts, but do not sacrifice minimum liquidity.
-- volatility: useful for spread movement, but penalize unstable micro-cap style markets when risk_weight is high.
-- cointegration: favor assets likely to have stable statistical relationships for pairs trading.
-- risk: penalize thin, meme-only, illiquid, or structurally fragile markets.
-Additional strategy notes: %s
-
-Markets:
-%s
-
-Return only JSON in this shape:
-{"selected_markets":["BTC-USD","ETH-USD"],"rationale":"short reason","confidence":0.74}`,
-		strategy,
-		mode,
-		criteria.Objective,
-		limit,
-		limit,
-		criteria.VolumeWeight,
-		criteria.LiquidityWeight,
-		criteria.TradeabilityWeight,
-		criteria.MomentumWeight,
-		criteria.VolatilityWeight,
-		criteria.CointegrationWeight,
-		criteria.RiskWeight,
-		criteria.FutureGainers,
-		criteria.Notes,
-		strings.Join(markets, ", "),
-	)
+	return sel.response(aiMarketSourceDeterministic, selected, evidencePairsWithin(selected, sel.evidence), rationale, 0, false, reason, 0)
 }
 
 func normalizeAIMarketCriteria(criteria AIMarketCriteria, mode string) AIMarketCriteria {
-	objective := strings.TrimSpace(strings.ToLower(criteria.Objective))
+	// The objective is free text from the browser that reaches the prompt:
+	// sanitized and bounded like every other caller string.
+	objective := strings.ToLower(sanitizeStrategyChatText(criteria.Objective, 64))
 	if objective == "" {
 		objective = mode
 	}
@@ -758,6 +925,8 @@ func normalizeAIProvider(provider string) (string, error) {
 		return ExternalAPIProviderDeepSeek, nil
 	case ExternalAPIProviderClaude, "anthropic":
 		return ExternalAPIProviderClaude, nil
+	case ExternalAPIProviderGrok, "xai", "x.ai":
+		return ExternalAPIProviderGrok, nil
 	default:
 		return "", fmt.Errorf("unsupported AI provider: %s", provider)
 	}
@@ -777,62 +946,33 @@ func normalizeAIMarketMode(mode string) string {
 	}
 }
 
-func normalizeMarkets(markets []string) []string {
-	seen := map[string]bool{}
-	normalized := make([]string, 0, len(markets))
-	for _, market := range markets {
-		item := strings.ToUpper(strings.TrimSpace(market))
-		if item == "" || seen[item] {
-			continue
-		}
-		seen[item] = true
-		normalized = append(normalized, item)
-	}
-	sort.Strings(normalized)
-	return normalized
-}
-
-func filterSelectedMarkets(selected []string, available []string, limit int) []string {
-	availableSet := map[string]bool{}
-	for _, market := range normalizeMarkets(available) {
-		availableSet[market] = true
-	}
-
-	result := make([]string, 0, limit)
-	seen := map[string]bool{}
-	for _, market := range selected {
-		item := strings.ToUpper(strings.TrimSpace(market))
-		if item == "" || seen[item] || !availableSet[item] {
-			continue
-		}
-		seen[item] = true
-		result = append(result, item)
-		if len(result) >= limit {
-			break
-		}
-	}
-	return result
-}
-
 func sharedAIKeyEnv(provider string) string {
 	switch provider {
+	case ExternalAPIProviderOpenAI:
+		return "OPENAI_API_KEY"
 	case ExternalAPIProviderDeepSeek:
 		return "DEEPSEEK_API_KEY"
 	case ExternalAPIProviderClaude:
 		return "ANTHROPIC_API_KEY"
+	case ExternalAPIProviderGrok:
+		return "XAI_API_KEY"
 	default:
-		return "OPENAI_API_KEY"
+		return ""
 	}
 }
 
 func providerDisplayName(provider string) string {
 	switch provider {
+	case ExternalAPIProviderOpenAI:
+		return "OpenAI"
 	case ExternalAPIProviderDeepSeek:
 		return "DeepSeek"
 	case ExternalAPIProviderClaude:
 		return "Claude"
+	case ExternalAPIProviderGrok:
+		return "Grok"
 	default:
-		return "OpenAI"
+		return ""
 	}
 }
 
@@ -853,39 +993,6 @@ type AITextResponse struct {
 	UsedAI   bool   `json:"used_ai"`
 }
 
-// AIBacktestExplainRequest carries completed backtest metrics.
-type AIBacktestExplainRequest struct {
-	Provider     string   `json:"provider"`
-	WinRate      float64  `json:"win_rate"`
-	TotalPnlUSD  float64  `json:"total_pnl_usd"`
-	SharpeRatio  float64  `json:"sharpe_ratio"`
-	MaxDrawdown  float64  `json:"max_drawdown_pct"`
-	TotalTrades  int      `json:"total_trades"`
-	ProfitFactor float64  `json:"profit_factor"`
-	Markets      []string `json:"markets"`
-	StartDate    string   `json:"start_date"`
-	EndDate      string   `json:"end_date"`
-}
-
-// AIBacktestSummary is a compact result used in parameter suggestion requests.
-type AIBacktestSummary struct {
-	WinRate     float64 `json:"win_rate"`
-	TotalPnlUSD float64 `json:"total_pnl_usd"`
-	SharpeRatio float64 `json:"sharpe_ratio"`
-	MaxDrawdown float64 `json:"max_drawdown_pct"`
-	TotalTrades int     `json:"total_trades"`
-}
-
-// AISuggestParamsRequest carries strategy config and recent backtest results.
-type AISuggestParamsRequest struct {
-	Provider        string              `json:"provider"`
-	StrategyName    string              `json:"strategy_name"`
-	CurrentParams   map[string]any      `json:"current_params"`
-	LastError       string              `json:"last_error"`
-	RecentBacktests []AIBacktestSummary `json:"recent_backtests"`
-	MaxSuggestions  int                 `json:"max_suggestions"`
-}
-
 // AIRuntimeDigestRequest carries a live runtime snapshot.
 type AIRuntimeDigestRequest struct {
 	Provider      string  `json:"provider"`
@@ -898,203 +1005,15 @@ type AIRuntimeDigestRequest struct {
 	Network       string  `json:"network"`
 }
 
-// ExplainBacktest generates a plain-language narrative for a completed backtest.
-func (s *AIMarketService) ExplainBacktest(ctx context.Context, userID int, req AIBacktestExplainRequest) (*AITextResponse, error) {
+// RuntimeDigest generates a 2-sentence live operational health verdict. A
+// provider failure yields the fixed message of its class; the provider's own
+// text is shown to admins only.
+func (s *AIMarketService) RuntimeDigest(ctx context.Context, actor AIAnalysisActor, req AIRuntimeDigestRequest) (*AITextResponse, error) {
 	provider, err := normalizeAIProvider(req.Provider)
 	if err != nil {
 		provider = ExternalAPIProviderDeepSeek
 	}
-	provider, resolved, err := s.resolveUsableKey(userID, provider)
-	if err != nil {
-		return nil, err
-	}
-
-	markets := strings.Join(req.Markets, ", ")
-	if markets == "" {
-		markets = "not specified"
-	}
-	systemPrompt := "You are a quantitative trading analyst. Explain backtest results in plain language. No markdown headings. No bullet lists. Write in flowing prose."
-	userPrompt := fmt.Sprintf(
-		`Backtest period: %s to %s
-Markets traded: %s
-Win rate: %.1f%%
-Total PnL: $%.2f
-Sharpe ratio: %.2f
-Max drawdown: %.1f%%
-Total trades: %d
-Profit factor: %.2f
-
-Write 3–5 sentences explaining what these results mean for a trader. Then on a new line write exactly "Improvements:" followed by 3 numbered, specific, actionable parameter or strategy improvements.`,
-		req.StartDate, req.EndDate, markets,
-		req.WinRate*100, req.TotalPnlUSD, req.SharpeRatio,
-		req.MaxDrawdown*100, req.TotalTrades, req.ProfitFactor,
-	)
-	content, err := s.callAIForTextTask(ctx, resolved.key, provider, aiRequestKindBacktestExplain, systemPrompt, userPrompt)
-	if err != nil {
-		return &AITextResponse{Provider: provider, Content: "AI analysis unavailable: " + err.Error(), UsedAI: false}, nil
-	}
-	return &AITextResponse{Provider: provider, Content: content, UsedAI: true}, nil
-}
-
-// SuggestStrategyParams suggests parameter adjustments based on config and backtest history.
-func (s *AIMarketService) SuggestStrategyParams(ctx context.Context, userID int, req AISuggestParamsRequest) (*AITextResponse, error) {
-	provider, err := normalizeAIProvider(req.Provider)
-	if err != nil {
-		provider = ExternalAPIProviderDeepSeek
-	}
-	provider, resolved, err := s.resolveUsableKey(userID, provider)
-	if err != nil {
-		return nil, err
-	}
-
-	paramsJSON, _ := json.Marshal(req.CurrentParams)
-
-	strategyCategory := strings.TrimSpace(fmt.Sprint(req.CurrentParams["category"]))
-	strategyMode := strings.TrimSpace(fmt.Sprint(req.CurrentParams["runtime_strategy"]))
-	runtimeNetwork := strings.TrimSpace(fmt.Sprint(req.CurrentParams["runtime_network"]))
-	pairSelectionMode := strings.TrimSpace(fmt.Sprint(req.CurrentParams["pair_selection_mode"]))
-	if strategyCategory == "" {
-		strategyCategory = "pairs_trading"
-	}
-	if strategyMode == "" {
-		strategyMode = "cointegration"
-	}
-	if runtimeNetwork == "" {
-		runtimeNetwork = "testnet"
-	}
-	if pairSelectionMode == "" {
-		pairSelectionMode = "liquidity"
-	}
-
-	allowedParams := []string{
-		"zscore_threshold",
-		"stats_window",
-		"max_half_life",
-		"usd_per_trade",
-		"usd_min_collateral",
-		"max_positions",
-		"max_drawdown_pct",
-		"stop_loss_pct",
-		"take_profit_pct",
-		"trailing_stop_pct",
-		"rebalance_interval_hours",
-		"position_timeout_hours",
-		"transaction_fee",
-		"slippage",
-		"max_history_days",
-		"risk_free_rate",
-		"resolution",
-		"candle_resolution",
-	}
-
-	targetSuggestions := req.MaxSuggestions
-	if targetSuggestions <= 0 {
-		targetSuggestions = 5
-	}
-	if targetSuggestions < 3 {
-		targetSuggestions = 3
-	}
-	if targetSuggestions > 8 {
-		targetSuggestions = 8
-	}
-
-	avgWinRate := 0.0
-	avgSharpe := 0.0
-	avgDrawdown := 0.0
-	totalPnl := 0.0
-	if len(req.RecentBacktests) > 0 {
-		for _, bt := range req.RecentBacktests {
-			avgWinRate += bt.WinRate
-			avgSharpe += bt.SharpeRatio
-			avgDrawdown += bt.MaxDrawdown
-			totalPnl += bt.TotalPnlUSD
-		}
-		count := float64(len(req.RecentBacktests))
-		avgWinRate /= count
-		avgSharpe /= count
-		avgDrawdown /= count
-	}
-
-	backtestsSummary := "No recent backtests available."
-	if len(req.RecentBacktests) > 0 {
-		lines := make([]string, 0, len(req.RecentBacktests))
-		for i, bt := range req.RecentBacktests {
-			lines = append(lines, fmt.Sprintf(
-				"  Run %d: win_rate=%.1f%%, pnl=$%.2f, sharpe=%.2f, drawdown=%.1f%%",
-				i+1, bt.WinRate*100, bt.TotalPnlUSD, bt.SharpeRatio, bt.MaxDrawdown*100,
-			))
-		}
-		backtestsSummary = strings.Join(lines, "\n")
-	}
-
-	errorSection := ""
-	if lastError := strings.TrimSpace(req.LastError); lastError != "" {
-		errorSection = "\nLast runtime error: " + lastError
-	}
-
-	systemPrompt := "You are a dYdX perpetuals strategy parameter advisor for stat-arb/cointegration workflows. Optimize for risk-adjusted returns and capital preservation. Respect dYdX execution realities: fee+slippage drag, volatility spikes, and liquidation/margin risk. Only recommend parameter keys from the allowlist. Prioritize the highest-impact recommendations first."
-	userPrompt := fmt.Sprintf(
-		`Strategy "%s" parameter review for dYdX.
-
-Strategy context:
-- category: %s
-- runtime_strategy: %s
-- runtime_network: %s
-- pair_selection_mode: %s
-- allowed parameter keys: %s
-
-Current parameters:
-%s%s
-
-Recent backtest results:
-%s
-
-Recent aggregate signals:
-- average win rate: %.1f%%
-- average sharpe: %.2f
-- average drawdown: %.1f%%
-- total pnl across samples: $%.2f
-
-Return exactly %d lines and nothing else.
-Use this exact format for each line:
-N. <parameter_key>: Current '<value>' -> Suggested '<value>'. Rationale: <one concise sentence grounded in the backtests and dYdX risk/execution context>.
-
-Rules:
-- parameter_key must be one of the allowed keys.
-- Avoid duplicate parameter_key entries.
-- Prefer adjustments that reduce drawdown/overtrading when Sharpe or win rate is weak.
-- Use concrete values (numbers, percentages, or dYdX candle resolution like 15MIN/1HOUR/4HOURS).
-- Do not include markdown, bullet lists, code fences, or extra commentary.
-- Ensure suggestions cover both risk controls and performance quality when possible.`,
-		req.StrategyName,
-		strategyCategory,
-		strategyMode,
-		runtimeNetwork,
-		pairSelectionMode,
-		strings.Join(allowedParams, ", "),
-		string(paramsJSON),
-		errorSection,
-		backtestsSummary,
-		avgWinRate*100,
-		avgSharpe,
-		avgDrawdown*100,
-		totalPnl,
-		targetSuggestions,
-	)
-	content, err := s.callAIForTextTask(ctx, resolved.key, provider, aiRequestKindStrategyParams, systemPrompt, userPrompt)
-	if err != nil {
-		return &AITextResponse{Provider: provider, Content: "AI analysis unavailable: " + err.Error(), UsedAI: false}, nil
-	}
-	return &AITextResponse{Provider: provider, Content: content, UsedAI: true}, nil
-}
-
-// RuntimeDigest generates a 2-sentence live operational health verdict.
-func (s *AIMarketService) RuntimeDigest(ctx context.Context, userID int, req AIRuntimeDigestRequest) (*AITextResponse, error) {
-	provider, err := normalizeAIProvider(req.Provider)
-	if err != nil {
-		provider = ExternalAPIProviderDeepSeek
-	}
-	provider, resolved, err := s.resolveUsableKey(userID, provider)
+	provider, resolved, err := s.resolveUsableKey(actor.UserID, provider)
 	if err != nil {
 		return nil, err
 	}
@@ -1120,21 +1039,22 @@ Give a 2-sentence operational health verdict and recommended action.`,
 	)
 	content, err := s.callAIForTextTask(ctx, resolved.key, provider, aiRequestKindRuntimeDigest, systemPrompt, userPrompt)
 	if err != nil {
-		return &AITextResponse{Provider: provider, Content: "AI analysis unavailable: " + err.Error(), UsedAI: false}, nil
+		return &AITextResponse{Provider: provider, Content: analysisUnavailableMessage(ctx, actor, provider, err), UsedAI: false}, nil
 	}
 	return &AITextResponse{Provider: provider, Content: content, UsedAI: true}, nil
 }
 
 func (s *AIMarketService) callAIForTextTask(ctx context.Context, apiKey string, provider string, kind aiRequestKind, systemPrompt string, userPrompt string) (string, error) {
-	config := s.providerConfig(provider)
-	if provider == ExternalAPIProviderDeepSeek && kind == aiRequestKindStrategyParams {
-		config.model = envWithDefault("DEEPSEEK_REASONING_MODEL", "deepseek-v4-pro")
-	}
+	config := s.providerConfigForKind(provider, kind)
 	switch provider {
 	case ExternalAPIProviderClaude:
 		return s.callClaudeForText(ctx, apiKey, config, kind, systemPrompt, userPrompt)
-	default:
+	case ExternalAPIProviderGrok:
+		return s.callXAIForText(ctx, apiKey, config, kind, systemPrompt, userPrompt)
+	case ExternalAPIProviderOpenAI, ExternalAPIProviderDeepSeek:
 		return s.callOpenAICompatibleForText(ctx, apiKey, config, kind, systemPrompt, userPrompt)
+	default:
+		return "", fmt.Errorf("unsupported AI provider: %s", provider)
 	}
 }
 
@@ -1174,7 +1094,7 @@ func (s *AIMarketService) executeOpenAICompatibleText(ctx context.Context, apiKe
 		} `json:"choices"`
 		Usage aiUsage `json:"usage"`
 	}
-	if err := s.executeJSON(ctx, config, kind, apiKey, body, &response, nil); err != nil {
+	if err := s.aiExecutorForKind(kind)(ctx, config, kind, apiKey, body, &response, nil); err != nil {
 		return "", err
 	}
 	if len(response.Choices) == 0 {
@@ -1192,10 +1112,9 @@ func (s *AIMarketService) executeOpenAICompatibleText(ctx context.Context, apiKe
 
 func (s *AIMarketService) callClaudeForText(ctx context.Context, apiKey string, config aiProviderConfig, kind aiRequestKind, systemPrompt string, userPrompt string) (string, error) {
 	body := map[string]any{
-		"model":       config.model,
-		"max_tokens":  maxTokensForAIRequest(kind),
-		"temperature": 0.3,
-		"system":      systemPrompt,
+		"model":      config.model,
+		"max_tokens": maxTokensForAIRequest(kind),
+		"system":     systemPrompt,
 		"messages": []map[string]string{
 			{"role": "user", "content": userPrompt},
 		},
@@ -1210,7 +1129,7 @@ func (s *AIMarketService) callClaudeForText(ctx context.Context, apiKey string, 
 		"x-api-key":         apiKey,
 		"anthropic-version": "2023-06-01",
 	}
-	if err := s.executeJSON(ctx, config, kind, "", body, &response, headers); err != nil {
+	if err := s.aiExecutorForKind(kind)(ctx, config, kind, "", body, &response, headers); err != nil {
 		return "", err
 	}
 	for _, part := range response.Content {
@@ -1226,6 +1145,13 @@ func applyDeepSeekOptions(body map[string]any, config aiProviderConfig, kind aiR
 		return
 	}
 
+	// JSON mode (response_format json_object) is only relied on without
+	// thinking, whatever the kind: market selection, the strategy chat and
+	// the parameter suggestions all read one JSON object back.
+	if _, jsonMode := body["response_format"]; jsonMode {
+		body["thinking"] = map[string]string{"type": "disabled"}
+		return
+	}
 	switch kind {
 	case aiRequestKindStrategyParams:
 		body["thinking"] = map[string]string{"type": "enabled"}
@@ -1241,7 +1167,7 @@ func maxTokensForAIRequest(kind aiRequestKind) int {
 	case aiRequestKindStrategyParams:
 		return 4096
 	case aiRequestKindMarketSelection:
-		return 900
+		return aiMarketSelectionMaxTokens
 	case aiRequestKindRuntimeDigest:
 		return 320
 	default:
@@ -1298,6 +1224,7 @@ func logAIProviderUsage(config aiProviderConfig, kind aiRequestKind, attempt int
 	if len(responseBody) > 0 {
 		_ = json.Unmarshal(responseBody, &envelope)
 	}
+	usage := envelope.Usage.counts()
 
 	errorClass := ""
 	if err != nil {
@@ -1311,12 +1238,12 @@ func logAIProviderUsage(config aiProviderConfig, kind aiRequestKind, attempt int
 		attempt,
 		statusCode,
 		latency.Milliseconds(),
-		envelope.Usage.PromptTokens,
-		envelope.Usage.CompletionTokens,
-		envelope.Usage.TotalTokens,
-		envelope.Usage.PromptCacheHitTokens,
-		envelope.Usage.PromptCacheMissTokens,
-		envelope.Usage.CompletionDetails.ReasoningTokens,
+		usage.prompt,
+		usage.completion,
+		usage.total,
+		usage.cacheHit,
+		usage.cacheMiss,
+		usage.reasoning,
 		errorClass,
 	)
 }
@@ -1336,6 +1263,9 @@ func classifyAIProviderError(err error) string {
 		default:
 			if callErr.StatusCode > 0 {
 				return "provider_status"
+			}
+			if callErr.Timeout {
+				return "timeout"
 			}
 			return "network"
 		}

@@ -12,6 +12,11 @@ import { useToastStore } from './ErrorBoundary';
 
 const providers: Array<{ id: AIMarketProvider; label: string; description: string }> = [
   {
+    id: 'grok',
+    label: 'Grok',
+    description: 'xAI Grok models via the Responses API.',
+  },
+  {
     id: 'openai',
     label: 'OpenAI',
     description: 'General-purpose market reasoning and strategy-aware ranking.',
@@ -140,7 +145,7 @@ export function AIMarketSettings() {
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {providers.map((item) => {
           const status = statusQuery.data?.providers.find((entry) => entry.provider === item.id);
           const active = provider === item.id;
@@ -175,7 +180,10 @@ export function AIMarketSettings() {
                 })()}
               </div>
               <p className="mt-2 text-xs leading-5 text-slate-400">{item.description}</p>
-              <p className="mt-3 text-[11px] text-slate-500">Model: {status?.model ?? 'default'}</p>
+              <p className="mt-3 text-[11px] text-slate-500">
+                Model: {status?.model ?? 'default'}
+                {status?.analysis_model ? ` · Analysis: ${status.analysis_model}` : ''}
+              </p>
               {status?.unavailable_reason && (
                 <p className="mt-2 text-[11px] text-amber-300">{status.unavailable_reason}</p>
               )}
@@ -324,7 +332,8 @@ export function AIMarketSettings() {
               <li>Unavailable providers are blocked at API level (disabled or not configured).</li>
               {!isAdmin && <li>Shared provider key management is admin only.</li>}
               <li>
-                Shared env keys supported: OPENAI_API_KEY, DEEPSEEK_API_KEY, ANTHROPIC_API_KEY.
+                Shared env keys supported: XAI_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY,
+                ANTHROPIC_API_KEY.
               </li>
             </ul>
 
@@ -350,11 +359,16 @@ export function AIMarketSettings() {
 
 function providerLabel(provider: AIMarketProvider): string {
   switch (provider) {
+    case 'grok':
+      return 'Grok';
+    case 'openai':
+      return 'OpenAI';
     case 'deepseek':
       return 'DeepSeek';
     case 'claude':
       return 'Claude';
     default:
-      return 'OpenAI';
+      // An unknown id shows as itself, never as another provider's name.
+      return String(provider);
   }
 }

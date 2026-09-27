@@ -459,7 +459,7 @@ export default function Settings() {
             {
               section: 'ai_market_filters',
               title: 'AI Filters',
-              description: 'OpenAI, DeepSeek, Claude',
+              description: 'Grok, OpenAI, DeepSeek, Claude',
             },
             { section: 'codex_io', title: 'Codex.io', description: 'Market data key' },
           ]

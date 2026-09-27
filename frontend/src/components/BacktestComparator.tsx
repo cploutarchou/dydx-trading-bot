@@ -170,6 +170,8 @@ export const BacktestComparator: React.FC = () => {
   const [aiUsed, setAiUsed] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  // The baseline run the current insight or error was requested for.
+  const [aiInsightRunId, setAiInsightRunId] = useState<string | null>(null);
   const [pulsingWinners, setPulsingWinners] = useState<Record<string, boolean>>({});
   const [showShortcutToast, setShowShortcutToast] = useState(false);
   const [showUxHints, setShowUxHints] = useState(() => {
@@ -192,6 +194,8 @@ export const BacktestComparator: React.FC = () => {
   const legendHelpChipRef = useRef<HTMLButtonElement | null>(null);
   const shortcutDiscoverySeenRef = useRef(false);
   const hintDotPopTimeoutRef = useRef<number | null>(null);
+  // Numbers the AI insight requests so a superseded response is dropped.
+  const aiRequestSeqRef = useRef(0);
 
   // Fetch available backtests
   useEffect(() => {
@@ -607,9 +611,14 @@ export const BacktestComparator: React.FC = () => {
   }, []);
 
   const clearSelection = () => {
+    // Discards the selection and any AI request still in flight for it.
+    aiRequestSeqRef.current += 1;
     setSelectedBacktests([]);
     setAiInsight(null);
+    setAiUsed(false);
     setAiError(null);
+    setAiInsightRunId(null);
+    setAiLoading(false);
   };
 
   const toggleUxHints = () => {
@@ -637,7 +646,15 @@ export const BacktestComparator: React.FC = () => {
   };
 
   const requestAIInsight = useCallback(async () => {
-    if (!comparisonAggregate || selectedBacktests.length < 2) return;
+    // The explanation is built server-side from one run's stored results: the
+    // baseline (first selected) run, the same one the metric deltas compare to.
+    const baselineRun = selectedBacktests[0];
+    if (!comparisonAggregate || selectedBacktests.length < 2 || !baselineRun) return;
+    // A newer request (or a cleared selection) supersedes this one, whose
+    // response is then dropped instead of overwriting the newer state.
+    aiRequestSeqRef.current += 1;
+    const requestId = aiRequestSeqRef.current;
+    setAiInsightRunId(baselineRun.run_id);
     if (!aiProvider) {
       setAiInsight(null);
       setAiUsed(false);
@@ -650,19 +667,12 @@ export const BacktestComparator: React.FC = () => {
 
     const payload: AIBacktestExplainRequest = {
       provider: aiProvider,
-      win_rate: comparisonAggregate.avgWinRate,
-      total_pnl_usd: comparisonAggregate.avgPnl,
-      sharpe_ratio: comparisonAggregate.avgSharpe,
-      max_drawdown_pct: comparisonAggregate.avgDrawdown,
-      total_trades: comparisonAggregate.totalTrades,
-      profit_factor: Math.max(0.1, 1 + comparisonAggregate.avgReturnPct / 100),
-      markets: selectedBacktests.map((item) => `run:${item.run_id.slice(0, 8)}`),
-      start_date: comparisonAggregate.dateStart,
-      end_date: comparisonAggregate.dateEnd,
+      run_id: baselineRun.run_id,
     };
 
     try {
       const response = await api.explainBacktest(payload);
+      if (requestId !== aiRequestSeqRef.current) return;
       const responseData =
         response?.data ??
         (response as unknown as { data?: { content?: string; used_ai?: boolean } })?.data;
@@ -671,27 +681,28 @@ export const BacktestComparator: React.FC = () => {
         content || `${aiProviderDisplayName} returned no narrative. Try refreshing insights.`
       );
       setAiUsed(Boolean(responseData?.used_ai));
+      setAiError(null);
     } catch (err) {
+      if (requestId !== aiRequestSeqRef.current) return;
       setAiError(getErrorMessage(err, 'Failed to generate AI insight'));
     } finally {
-      setAiLoading(false);
+      if (requestId === aiRequestSeqRef.current) {
+        setAiLoading(false);
+      }
     }
   }, [aiProvider, aiProviderDisplayName, comparisonAggregate, selectedBacktests]);
 
-  // Stale insights from a previous selection are hidden at render time and
-  // replaced on the next request — no synchronous clearing effect needed.
+  // An insight belongs to the baseline run it was requested for. With another
+  // baseline (or fewer than two runs) it is hidden at render time until the
+  // next explicit request — no clearing effect and no automatic request.
   const hasEnoughSelectionForAi = selectedBacktests.length >= 2;
-  const effectiveAiInsight = hasEnoughSelectionForAi ? aiInsight : null;
-  const effectiveAiError = hasEnoughSelectionForAi ? aiError : null;
-  const effectiveAiUsed = hasEnoughSelectionForAi ? aiUsed : false;
-
-  useEffect(() => {
-    if (providerStatusLoading || selectedBacktests.length < 2) {
-      return;
-    }
-    // Microtask keeps the loader's synchronous state reset out of the effect.
-    void Promise.resolve().then(() => requestAIInsight());
-  }, [providerStatusLoading, requestAIInsight, selectedBacktests.length]);
+  const insightMatchesSelection =
+    hasEnoughSelectionForAi &&
+    aiInsightRunId !== null &&
+    aiInsightRunId === selectedBacktests[0]?.run_id;
+  const effectiveAiInsight = insightMatchesSelection ? aiInsight : null;
+  const effectiveAiError = insightMatchesSelection ? aiError : null;
+  const effectiveAiUsed = insightMatchesSelection ? aiUsed : false;
 
   return (
     <PageContainer size="wide" className="space-y-6 page-reveal">
@@ -704,7 +715,7 @@ export const BacktestComparator: React.FC = () => {
             </p>
             <h1 className="text-2xl font-bold text-white sm:text-3xl">Compare Backtests</h1>
             <p className="max-w-2xl text-sm text-slate-300">
-              Scan, select, and compare up to 5 runs with instant metric deltas and automatic AI
+              Scan, select, and compare up to 5 runs with instant metric deltas and on-demand AI
               commentary to help you decide faster.
             </p>
           </div>
@@ -972,7 +983,8 @@ export const BacktestComparator: React.FC = () => {
                 AI Market Narrative
               </p>
               <p className="text-sm text-slate-300">
-                Auto-generated comparative insight based on selected runs.
+                Insight generated on request from the stored results of the baseline run (the first
+                selected run, which the deltas compare to).
               </p>
             </div>
             <button
@@ -1017,16 +1029,18 @@ export const BacktestComparator: React.FC = () => {
           <div className="mt-4 rounded-xl border border-violet-500/30 bg-slate-950/50 p-4 text-sm leading-relaxed text-slate-200">
             {aiLoading && (
               <p className="text-slate-400">
-                {aiProviderDisplayName} is analyzing the selected set...
+                {aiProviderDisplayName} is analyzing the baseline run... This can take a couple of
+                minutes.
               </p>
             )}
-            {!aiLoading && aiError && <p className="text-red-300">{aiError}</p>}
+            {!aiLoading && effectiveAiError && <p className="text-red-300">{effectiveAiError}</p>}
             {!aiLoading && !effectiveAiError && effectiveAiInsight && (
               <p className="whitespace-pre-line">{effectiveAiInsight}</p>
             )}
             {!aiLoading && !effectiveAiError && !effectiveAiInsight && (
               <p className="text-slate-400">
-                Select at least 2 runs to unlock AI comparative guidance.
+                Use Refresh AI Insight to generate a narrative from the stored results of the
+                baseline run.
               </p>
             )}
             {!aiLoading && !effectiveAiError && effectiveAiInsight && !effectiveAiUsed && (

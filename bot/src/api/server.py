@@ -1553,7 +1553,9 @@ async def list_perpetual_markets(
     Markets are ``ACTIVE`` only unless ``include_settled=true``, sorted by 24 h
     volume (highest first, unknown volume last) and capped by ``limit`` only
     after sorting. ``markets`` lists the tickers; ``market_details`` carries the
-    indexer metrics per ticker (volume, open interest, funding, oracle price).
+    indexer metrics per ticker (volume, open interest, funding, oracle price,
+    and ``price_change_24h``: the indexer's 24 h oracle-price change in quote
+    currency, not a percentage).
 
     ``purpose=backtest`` lists the markets backtests replay (the backtest
     market-data network, mainnet by default) instead of the runtime network's.

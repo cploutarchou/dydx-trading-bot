@@ -2269,7 +2269,33 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 				return
 			}
 
-			runs, err := backtestRepo.GetRunsByUserIDContext(c.Request.Context(), userID, offset, limit)
+			// Optional filters: one strategy (strategy_id) and a comma list of
+			// statuses (status), both scoped to the caller's own runs.
+			strategyID := 0
+			if raw := strings.TrimSpace(c.Query("strategy_id")); raw != "" {
+				parsed, parseErr := strconv.Atoi(raw)
+				if parseErr != nil || parsed <= 0 {
+					c.JSON(http.StatusBadRequest, gin.H{
+						"success":   false,
+						"message":   "strategy_id must be a positive integer",
+						"error":     "strategy_id must be a positive integer",
+						"timestamp": time.Now().UTC().Format(time.RFC3339),
+						"trace_id":  middleware.GetTraceID(c),
+					})
+					return
+				}
+				strategyID = parsed
+			}
+			statuses := parseBacktestListStatuses(c.Query("status"))
+
+			var runs []models.BacktestRun
+			var total int
+			var err error
+			if strategyID > 0 || len(statuses) > 0 {
+				runs, err = backtestRepo.GetRunsByUserAndStrategyContext(c.Request.Context(), userID, strategyID, offset, limit, statuses)
+			} else {
+				runs, err = backtestRepo.GetRunsByUserIDContext(c.Request.Context(), userID, offset, limit)
+			}
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"success":   false,
@@ -2280,7 +2306,11 @@ func RegisterBotAPIDelegateRoutesWithSyncAndCache(router *gin.Engine, apiClient 
 				})
 				return
 			}
-			total, err := backtestRepo.CountRunsByUserIDContext(c.Request.Context(), userID)
+			if strategyID > 0 || len(statuses) > 0 {
+				total, err = backtestRepo.CountRunsByUserAndStrategyContext(c.Request.Context(), userID, strategyID, statuses)
+			} else {
+				total, err = backtestRepo.CountRunsByUserIDContext(c.Request.Context(), userID)
+			}
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"success":   false,
@@ -3573,6 +3603,42 @@ func parseBoundedIntQuery(c *gin.Context, name string, def, min, max int) int {
 		return max
 	}
 	return parsed
+}
+
+// parseBacktestListStatuses reads the comma-separated status filter of the
+// run list and maps the synonyms the sync layer folds (done, succeeded, error,
+// ...) onto the stored statuses. Unknown words are kept lower-cased and match
+// nothing harmful.
+func parseBacktestListStatuses(raw string) []string {
+	seen := map[string]bool{}
+	statuses := make([]string, 0, 4)
+	for _, part := range strings.Split(raw, ",") {
+		status := strings.ToLower(strings.TrimSpace(part))
+		switch status {
+		case "":
+			continue
+		case "created", "queued", "scheduled", "retry":
+			status = "pending"
+		case "in_progress", "processing", "active", "retrying":
+			status = "running"
+		case "succeeded", "success", "done", "finished":
+			status = "completed"
+		case "error":
+			status = "failed"
+		case "timed_out":
+			status = "timeout"
+		case "stalled":
+			status = "stale"
+		case "canceled":
+			status = "cancelled"
+		}
+		if seen[status] {
+			continue
+		}
+		seen[status] = true
+		statuses = append(statuses, status)
+	}
+	return statuses
 }
 
 func parseBacktestListOffset(c *gin.Context) int {

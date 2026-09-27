@@ -10,9 +10,12 @@ import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from loguru import logger
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from sqlalchemy.orm import Session
 
 
 def _resolve_pair_storage_path() -> str:
@@ -359,12 +362,73 @@ class PairStorage:
             logger.error(f"Error clearing pairs storage: {e}")
 
 
+@dataclass(frozen=True)
+class StoredPairScan:
+    """The last pair scan a worker stored for one instance, as the table holds it.
+
+    ``analyzed_at`` is the row's column value (a datetime on PostgreSQL; a plain
+    string where the driver carries no type), ``timestamp`` the payload's own
+    ISO stamp, and ``pairs`` the raw ``CointegrationResult`` dicts, unvalidated.
+    """
+
+    instance_id: str
+    analyzed_at: Any
+    timestamp: Optional[str]
+    pairs: List[Dict[str, Any]]
+
+
+def load_stored_pair_scan(
+    session: "Session", instance_id: str
+) -> Optional[StoredPairScan]:
+    """Read the ``cointegrated_pairs`` row of any instance by id.
+
+    :meth:`PairStorage.load_pairs` serves the running process's own
+    ``BOT_INSTANCE_ID`` with a file fallback; this reads exactly one row for the
+    id given and never touches the file system, so the API can show another
+    worker's last scan. ``None`` when no scan is stored. The caller owns the
+    session.
+    """
+    from sqlalchemy import text
+
+    row = session.execute(
+        text(
+            "SELECT pairs_json, analyzed_at FROM cointegrated_pairs "
+            "WHERE instance_id = :iid"
+        ),
+        {"iid": instance_id},
+    ).fetchone()
+    if row is None:
+        return None
+    data: Any = row[0]
+    if isinstance(data, (str, bytes)):
+        try:
+            data = json.loads(data)
+        except ValueError:
+            data = None
+    payload: Dict[str, Any] = data if isinstance(data, dict) else {}
+    raw_pairs = payload.get("pairs")
+    pairs = (
+        [pair for pair in raw_pairs if isinstance(pair, dict)]
+        if isinstance(raw_pairs, list)
+        else []
+    )
+    timestamp = payload.get("timestamp")
+    return StoredPairScan(
+        instance_id=instance_id,
+        analyzed_at=row[1],
+        timestamp=str(timestamp) if timestamp is not None else None,
+        pairs=pairs,
+    )
+
+
 # Global instance for use throughout the application
 pair_storage = PairStorage()
 
 __all__ = [
     "CointegrationResult",
+    "StoredPairScan",
     "calculate_confidence_score",
+    "load_stored_pair_scan",
     "PairStorage",
     "pair_storage",
 ]

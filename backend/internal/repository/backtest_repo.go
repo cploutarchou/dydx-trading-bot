@@ -678,6 +678,189 @@ func (r *BacktestRepository) CountRunsByUserIDContext(ctx context.Context, userI
 	return count, nil
 }
 
+// backtestRunListColumns is the column list of the run list queries: the
+// heavy JSON blobs (config, strategy_snapshot) are excluded, they are only
+// needed on the detail view.
+const backtestRunListColumns = `id, user_id, strategy_id, strategy_version_id, run_id, COALESCE(status, ''), start_date, end_date,
+		       num_pairs, total_markets, COALESCE(resolution, ''), COALESCE(total_trades, 0), COALESCE(profitable_trades, 0), COALESCE(losing_trades, 0),
+		       win_rate, COALESCE(total_pnl, 0), COALESCE(total_pnl_usd, 0), sharpe_ratio, sortino_ratio, calmar_ratio,
+		       max_drawdown, profit_factor, COALESCE(starting_balance, 0), ending_balance, max_balance, min_balance,
+		       COALESCE(error_message, ''), started_at, completed_at, duration_seconds,
+		       created_at`
+
+func scanBacktestRunListRow(rows *sql.Rows) (models.BacktestRun, error) {
+	run := models.BacktestRun{}
+	err := rows.Scan(
+		&run.ID, &run.UserID, &run.StrategyID, &run.StrategyVersionID,
+		&run.RunID, &run.Status, &run.StartDate, &run.EndDate,
+		&run.NumPairs, &run.TotalMarkets, &run.Resolution,
+		&run.TotalTrades, &run.ProfitableTrades, &run.LosingTrades,
+		&run.WinRate, &run.TotalPnL, &run.TotalPnLUSD,
+		&run.SharpeRatio, &run.SortinoRatio, &run.CalmarRatio,
+		&run.MaxDrawdown, &run.ProfitFactor,
+		&run.StartingBalance, &run.EndingBalance, &run.MaxBalance, &run.MinBalance,
+		&run.ErrorMessage, &run.StartedAt, &run.CompletedAt, &run.DurationSeconds,
+		&run.CreatedAt,
+	)
+	return run, err
+}
+
+// backtestStatusFilter renders an optional status filter as a parameterized
+// IN clause; an empty list means no filter.
+func backtestStatusFilter(statuses []string) (string, []interface{}) {
+	cleaned := make([]interface{}, 0, len(statuses))
+	for _, status := range statuses {
+		if trimmed := strings.ToLower(strings.TrimSpace(status)); trimmed != "" {
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+	if len(cleaned) == 0 {
+		return "", nil
+	}
+	placeholders := strings.Repeat("?, ", len(cleaned))
+	return " AND LOWER(COALESCE(status, '')) IN (" + strings.TrimSuffix(placeholders, ", ") + ")", cleaned
+}
+
+// backtestRunListFilter renders the WHERE clause of a filtered run list: the
+// user, optionally one strategy (strategyID > 0) and optionally a status list.
+func backtestRunListFilter(userID int, strategyID int, statuses []string) (string, []interface{}) {
+	where := ` WHERE user_id = ?`
+	args := []interface{}{userID}
+	if strategyID > 0 {
+		where += ` AND strategy_id = ?`
+		args = append(args, strategyID)
+	}
+	filter, filterArgs := backtestStatusFilter(statuses)
+	return where + filter, append(args, filterArgs...)
+}
+
+// GetRunsByUserAndStrategyContext lists a user's runs, newest first, limited
+// to one strategy when strategyID is positive and to the given statuses
+// (case-insensitive) when any are given.
+func (r *BacktestRepository) GetRunsByUserAndStrategyContext(ctx context.Context, userID int, strategyID int, skip int, limit int, statuses []string) ([]models.BacktestRun, error) {
+	where, args := backtestRunListFilter(userID, strategyID, statuses)
+	query := `SELECT ` + backtestRunListColumns + `
+		FROM backtest_runs` + where + `
+		ORDER BY created_at DESC
+		LIMIT ? OFFSET ?`
+	args = append(args, limit, skip)
+
+	rows, err := r.db.QueryContext(ctx, r.bindQuery(query), args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query strategy backtest runs: %w", err)
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close strategy backtest run rows: %v", closeErr)
+		}
+	}()
+
+	var runs []models.BacktestRun
+	for rows.Next() {
+		run, err := scanBacktestRunListRow(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan strategy backtest run: %w", err)
+		}
+		runs = append(runs, run)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating strategy backtest runs: %w", err)
+	}
+	return runs, nil
+}
+
+// CountRunsByUserAndStrategyContext counts the runs
+// GetRunsByUserAndStrategyContext lists for the same filters.
+func (r *BacktestRepository) CountRunsByUserAndStrategyContext(ctx context.Context, userID int, strategyID int, statuses []string) (int, error) {
+	where, args := backtestRunListFilter(userID, strategyID, statuses)
+	query := `SELECT COUNT(*) FROM backtest_runs` + where
+
+	var count int
+	if err := r.db.QueryRowContext(ctx, r.bindQuery(query), args...).Scan(&count); err != nil {
+		return 0, fmt.Errorf("failed to count strategy backtest runs: %w", err)
+	}
+	return count, nil
+}
+
+// GetRunByRunIDContext loads the full mirror row of a run by its public run
+// id (metrics and the config snapshot), or nil when there is none.
+func (r *BacktestRepository) GetRunByRunIDContext(ctx context.Context, runID string) (*models.BacktestRun, error) {
+	query := `SELECT ` + backtestRunListColumns + `, config
+		FROM backtest_runs
+		WHERE run_id = ?
+		LIMIT 1`
+	rows, err := r.db.QueryContext(ctx, r.bindQuery(query), runID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query backtest run: %w", err)
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close backtest run rows: %v", closeErr)
+		}
+	}()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("failed to read backtest run: %w", err)
+		}
+		return nil, nil
+	}
+	run := models.BacktestRun{}
+	if err := rows.Scan(
+		&run.ID, &run.UserID, &run.StrategyID, &run.StrategyVersionID,
+		&run.RunID, &run.Status, &run.StartDate, &run.EndDate,
+		&run.NumPairs, &run.TotalMarkets, &run.Resolution,
+		&run.TotalTrades, &run.ProfitableTrades, &run.LosingTrades,
+		&run.WinRate, &run.TotalPnL, &run.TotalPnLUSD,
+		&run.SharpeRatio, &run.SortinoRatio, &run.CalmarRatio,
+		&run.MaxDrawdown, &run.ProfitFactor,
+		&run.StartingBalance, &run.EndingBalance, &run.MaxBalance, &run.MinBalance,
+		&run.ErrorMessage, &run.StartedAt, &run.CompletedAt, &run.DurationSeconds,
+		&run.CreatedAt, &run.Config,
+	); err != nil {
+		return nil, fmt.Errorf("failed to scan backtest run: %w", err)
+	}
+	return &run, nil
+}
+
+// GetRunConfigsContext returns the stored config snapshot of each given run
+// id (runs without a snapshot are absent from the result).
+func (r *BacktestRepository) GetRunConfigsContext(ctx context.Context, runIDs []string) (map[string]string, error) {
+	configs := make(map[string]string, len(runIDs))
+	if len(runIDs) == 0 {
+		return configs, nil
+	}
+	args := make([]interface{}, 0, len(runIDs))
+	for _, runID := range runIDs {
+		args = append(args, runID)
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?, ", len(args)), ", ")
+	query := `SELECT run_id, config FROM backtest_runs WHERE run_id IN (` + placeholders + `)`
+
+	rows, err := r.db.QueryContext(ctx, r.bindQuery(query), args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query backtest run configs: %w", err)
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("failed to close backtest run config rows: %v", closeErr)
+		}
+	}()
+	for rows.Next() {
+		var runID string
+		var config sql.NullString
+		if err := rows.Scan(&runID, &config); err != nil {
+			return nil, fmt.Errorf("failed to scan backtest run config: %w", err)
+		}
+		if config.Valid && strings.TrimSpace(config.String) != "" {
+			configs[runID] = config.String
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating backtest run configs: %w", err)
+	}
+	return configs, nil
+}
+
 func (r *BacktestRepository) GetExperimentGroupsByUserID(userID int, runScanLimit int, groupLimit int) ([]models.BacktestExperimentGroup, error) {
 	if runScanLimit <= 0 {
 		runScanLimit = 500

@@ -11,7 +11,16 @@
  */
 
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, AlertTriangle, BarChart3, Copy, Settings, Trash2, X } from 'lucide-react';
+import {
+  AlertCircle,
+  AlertTriangle,
+  BarChart3,
+  Copy,
+  MessageSquare,
+  Settings,
+  Trash2,
+  X,
+} from 'lucide-react';
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
@@ -22,10 +31,8 @@ import {
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import apiClient, {
-  type AIBacktestSummary,
   DYDX_CANDLE_RESOLUTION_OPTIONS,
   normalizeDydxCandleResolution,
-  toAIBacktestSummary,
   type UnenforcedRiskControl,
 } from '../api';
 import {
@@ -33,7 +40,6 @@ import {
   useStartStrategyRuntimeMutation,
   useStopStrategyRuntimeMutation,
   useStrategies,
-  useStrategyBacktests,
   useStrategyRuntimes,
   useStrategyStartReadiness,
 } from '../api/hooks';
@@ -48,6 +54,7 @@ import {
 } from '../features/strategies/runtimeStatus';
 import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/intelligence';
 import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
+import { StrategyChatDrawer } from '../features/strategyChat/StrategyChatDrawer';
 import { Strategy, useStrategyStore } from '../store/strategies';
 import { useNow } from '../hooks/useNow';
 import { formatPct, formatSignedUsd, formatUsdBalance } from '../utils/format';
@@ -239,6 +246,7 @@ export default function StrategyManager() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [startDialogStrategy, setStartDialogStrategy] = useState<Strategy | null>(null);
   const [stopConfirmStrategy, setStopConfirmStrategy] = useState<Strategy | null>(null);
+  const [chatStrategy, setChatStrategy] = useState<{ id: number; name: string } | null>(null);
   const [startDialogNetwork, setStartDialogNetwork] = useState<'testnet' | 'mainnet'>('testnet');
   const [startDialogSubmitting, setStartDialogSubmitting] = useState(false);
   const [riskControlsError, setRiskControlsError] = useState<string | null>(null);
@@ -249,9 +257,6 @@ export default function StrategyManager() {
     new Map()
   );
   const [heartbeatTrend, setHeartbeatTrend] = useState<Map<number, number[]>>(new Map());
-  const [strategyBacktests, setStrategyBacktests] = useState<Map<number, AIBacktestSummary[]>>(
-    new Map()
-  );
   const lastFocusedElementRef = useRef<HTMLElement | null>(null);
   const startDialogNetworkRef = useRef<HTMLSelectElement | null>(null);
   const configNameInputRef = useRef<HTMLInputElement | null>(null);
@@ -260,35 +265,6 @@ export default function StrategyManager() {
   const startRuntimeMutation = useStartStrategyRuntimeMutation();
   const stopRuntimeMutation = useStopStrategyRuntimeMutation();
   const disableRiskControlsMutation = useDisableUnenforcedRiskControlsMutation();
-  const strategyBacktestsQuery = useStrategyBacktests(
-    focusedCardId ?? 0,
-    5,
-    focusedCardId !== null
-  );
-
-  // Query data -> per-strategy summaries, adjusted during render when the
-  // focused card or query data identity changes (sanctioned pattern).
-  const [prevFocusedCardId, setPrevFocusedCardId] = useState(focusedCardId);
-  const [prevBacktestsData, setPrevBacktestsData] = useState(strategyBacktestsQuery.data);
-  if (focusedCardId !== prevFocusedCardId || strategyBacktestsQuery.data !== prevBacktestsData) {
-    setPrevFocusedCardId(focusedCardId);
-    setPrevBacktestsData(strategyBacktestsQuery.data);
-    if (focusedCardId !== null && strategyBacktestsQuery.data) {
-      const items = Array.isArray(strategyBacktestsQuery.data.data?.backtests)
-        ? strategyBacktestsQuery.data.data.backtests
-        : [];
-
-      const summaries: AIBacktestSummary[] = items
-        .map((backtest) => toAIBacktestSummary(backtest))
-        .filter((summary): summary is AIBacktestSummary => summary !== null);
-
-      setStrategyBacktests((prev) => {
-        const next = new Map(prev);
-        next.set(focusedCardId, summaries);
-        return next;
-      });
-    }
-  }
 
   const recordSuccessfulAction = (
     strategyId: number,
@@ -1026,6 +1002,7 @@ export default function StrategyManager() {
       'risk_free_rate',
       'resolution',
       'candle_resolution',
+      'close_at_zscore_cross',
     ]);
     const appliedKeys = (Object.keys(params) as Array<keyof Strategy>).filter((key) =>
       editableKeys.has(key)
@@ -2030,6 +2007,17 @@ export default function StrategyManager() {
                       Backtest
                     </button>
 
+                    {/* Chat Button: the drawer renders at the page root, outside this card */}
+                    <button
+                      type="button"
+                      onClick={() => setChatStrategy({ id: strategy.id, name: strategy.name })}
+                      aria-label={`Chat about ${strategy.name}`}
+                      className="inline-flex items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-900/70 px-4 py-2 text-sm font-semibold text-white transition-colors hover:border-cyan-500/35 hover:bg-slate-900"
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      Chat
+                    </button>
+
                     {/* Copy Button */}
                     <button
                       type="button"
@@ -2087,8 +2075,6 @@ export default function StrategyManager() {
                 <div className="mt-6 border-t border-slate-700/60 pt-5">
                   <AIStrategyAdvisor
                     strategy={strategy}
-                    lastError={status.lastError}
-                    recentBacktests={strategyBacktests.get(strategy.id) ?? []}
                     onApplyParams={(params) => handleApplySuggestedParams(strategy, params)}
                   />
                 </div>
@@ -2434,6 +2420,16 @@ export default function StrategyManager() {
           </div>,
           document.body
         )}
+
+      {/* Strategy chat drawer: kept out of the cards so their single-key shortcuts never see typing */}
+      {chatStrategy && (
+        <StrategyChatDrawer
+          key={chatStrategy.id}
+          strategyId={chatStrategy.id}
+          strategyName={chatStrategy.name}
+          onClose={() => setChatStrategy(null)}
+        />
+      )}
 
       {/* Strategy Config Modal */}
       {showConfigModal &&

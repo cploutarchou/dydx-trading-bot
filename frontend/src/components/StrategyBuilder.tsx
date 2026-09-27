@@ -6,9 +6,9 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import api, {
   DYDX_CANDLE_RESOLUTION_OPTIONS,
   normalizeDydxCandleResolution,
-  toAIBacktestSummary,
-  type AIBacktestSummary,
   type AIMarketProvider,
+  type AIMarketSelectionBasis,
+  type AIMarketSelectionPair,
 } from '../api';
 import { getAIProviderLabel, useAIProviderAvailability } from '../features/ai/providerAvailability';
 import type { Strategy } from '../store/strategies';
@@ -121,6 +121,75 @@ const asNumber = (value: unknown): number => {
   return Number.isFinite(numeric) ? numeric : 0;
 };
 
+const asStringList = (value: unknown): string[] =>
+  Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim() !== '')
+    : [];
+
+// The market selection's `basis` and `pairs`, read defensively: an older
+// backend answers without them.
+const toAIMarketSelectionBasis = (value: unknown): AIMarketSelectionBasis | null => {
+  if (typeof value !== 'object' || value === null) return null;
+  const record = toRecord(value);
+  const network =
+    record.network === 'mainnet' || record.network === 'testnet' ? record.network : null;
+  if (!network) return null;
+  return {
+    universe_count: asNumber(record.universe_count),
+    ranked_count: asNumber(record.ranked_count),
+    network,
+    source: asString(record.source) ?? '',
+    criteria_used: asStringList(record.criteria_used),
+    criteria_unavailable: asStringList(record.criteria_unavailable),
+  };
+};
+
+const AI_PAIR_SOURCES: ReadonlySet<AIMarketSelectionPair['source']> = new Set([
+  'model',
+  'strategy_history',
+  'cointegration',
+]);
+
+const AI_PAIR_SOURCE_LABELS: Record<AIMarketSelectionPair['source'], string> = {
+  model: 'model',
+  strategy_history: 'this strategy’s backtests',
+  cointegration: 'cointegration scan',
+};
+
+const toAIMarketSelectionPairs = (value: unknown): AIMarketSelectionPair[] => {
+  if (!Array.isArray(value)) return [];
+  const pairs: AIMarketSelectionPair[] = [];
+  value.forEach((item) => {
+    const record = toRecord(item);
+    const market1 = asString(record.market_1);
+    const market2 = asString(record.market_2);
+    if (!market1 || !market2) return;
+    const source = AI_PAIR_SOURCES.has(record.source as AIMarketSelectionPair['source'])
+      ? (record.source as AIMarketSelectionPair['source'])
+      : 'model';
+    pairs.push({
+      market_1: market1,
+      market_2: market2,
+      reason: asString(record.reason) ?? '',
+      source,
+    });
+  });
+  return pairs;
+};
+
+const describeAIMarketSelectionBasis = (basis: AIMarketSelectionBasis): string => {
+  const parts = [
+    `Ranked ${basis.ranked_count} of ${basis.universe_count} ${basis.network} markets`,
+  ];
+  if (basis.source) {
+    parts.push(`data: ${basis.source}`);
+  }
+  if (basis.criteria_unavailable.length > 0) {
+    parts.push(`not available: ${basis.criteria_unavailable.join(', ')}`);
+  }
+  return parts.join(' · ');
+};
+
 const loadPreferredAutoMarketLimit = (): number => {
   if (typeof window === 'undefined') {
     return DEFAULT_AUTO_SELECTED_MARKETS;
@@ -158,7 +227,11 @@ export default function StrategyBuilder() {
   const [aiMarketObjective, setAIMarketObjective] = useState<AIMarketObjective>('balanced');
   const [autoMarketLimit, setAutoMarketLimit] = useState(loadPreferredAutoMarketLimit);
   const [showPairPreview, setShowPairPreview] = useState(false);
-  const [recentBacktests, setRecentBacktests] = useState<AIBacktestSummary[]>([]);
+  // What the last AI market selection was based on, shown under its rationale.
+  const [aiMarketSelection, setAIMarketSelection] = useState<{
+    basis: AIMarketSelectionBasis | null;
+    pairs: AIMarketSelectionPair[];
+  } | null>(null);
   const [marketSearchQuery, setMarketSearchQuery] = useState('');
   const [marketSelectionView, setMarketSelectionView] = useState<MarketSelectionView>('all');
   const [historicalMarketStats, setHistoricalMarketStats] =
@@ -317,48 +390,6 @@ export default function StrategyBuilder() {
       loadStrategy(parseInt(strategyId, 10));
     }
   }, [isEditMode, loadStrategy, strategyId]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadRecentBacktests = async () => {
-      if (!isEditMode || !strategyId) {
-        if (!cancelled) {
-          setRecentBacktests([]);
-        }
-        return;
-      }
-
-      const parsedId = Number.parseInt(strategyId, 10);
-      if (!Number.isFinite(parsedId) || parsedId <= 0) {
-        if (!cancelled) {
-          setRecentBacktests([]);
-        }
-        return;
-      }
-
-      try {
-        const response = await api.listBacktestsByStrategy(parsedId, 5);
-        const items = Array.isArray(response.data?.backtests) ? response.data.backtests : [];
-        const summaries: AIBacktestSummary[] = items
-          .map((b) => toAIBacktestSummary(b))
-          .filter((summary): summary is AIBacktestSummary => summary !== null);
-
-        if (!cancelled) {
-          setRecentBacktests(summaries);
-        }
-      } catch {
-        if (!cancelled) {
-          setRecentBacktests([]);
-        }
-      }
-    };
-
-    void loadRecentBacktests();
-    return () => {
-      cancelled = true;
-    };
-  }, [isEditMode, strategyId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -622,7 +653,13 @@ export default function StrategyBuilder() {
       throw new Error(message);
     }
 
-    setSuccessMessage(`✅ Applied ${appliedCount} AI suggestion${appliedCount === 1 ? '' : 's'}`);
+    // Keys with no field on this form (risk_free_rate, for one) are skipped:
+    // the advisor marks them from the returned list, the toast counts them.
+    const skippedCount = Object.keys(params).length - appliedCount;
+    const skippedNote = skippedCount > 0 ? ` (${skippedCount} not editable on this page)` : '';
+    setSuccessMessage(
+      `✅ Applied ${appliedCount} AI suggestion${appliedCount === 1 ? '' : 's'}${skippedNote}`
+    );
     setTimeout(() => setSuccessMessage(null), 3000);
     return dedupedAppliedKeys;
   };
@@ -827,6 +864,7 @@ export default function StrategyBuilder() {
     };
 
     setMarketFilterError(null);
+    setAIMarketSelection(null);
 
     if (preset === 'top20') {
       // availableMarkets arrives sorted by 24 h volume, so the head of the
@@ -853,6 +891,10 @@ export default function StrategyBuilder() {
           : preset === 'profitable'
             ? 'most_profitable'
             : 'ai_recommended';
+      // An existing strategy's pair statistics are offered to the model.
+      const parsedStrategyId = isEditMode && strategyId ? Number.parseInt(strategyId, 10) : NaN;
+      const editingStrategyId =
+        Number.isFinite(parsedStrategyId) && parsedStrategyId > 0 ? parsedStrategyId : null;
       const aiResponse =
         availableAIProviders.length > 0
           ? await api.selectAIMarkets({
@@ -862,6 +904,7 @@ export default function StrategyBuilder() {
               limit: selectionLimit,
               strategy: `${formValues.category || 'pairs_trading'} strategy using ${normalizeDydxCandleResolution(formValues.resolution || '1HOUR')} candles`,
               criteria: buildAIMarketCriteria(preset),
+              ...(editingStrategyId !== null ? { strategy_id: editingStrategyId } : {}),
             })
           : null;
       const aiMarkets = normalizeTopMarkets(aiResponse?.data?.selected_markets || []);
@@ -872,6 +915,10 @@ export default function StrategyBuilder() {
             ? aiResponse.data.rationale || null
             : aiResponse?.data?.fallback_reason || null
         );
+        setAIMarketSelection({
+          basis: toAIMarketSelectionBasis(aiResponse?.data?.basis),
+          pairs: toAIMarketSelectionPairs(aiResponse?.data?.pairs),
+        });
         return;
       }
 
@@ -1197,11 +1244,7 @@ export default function StrategyBuilder() {
           />
         </div>
 
-        <AIStrategyAdvisor
-          strategy={strategyForAdvisor}
-          recentBacktests={recentBacktests}
-          onApplyParams={handleApplyAdvisorParams}
-        />
+        <AIStrategyAdvisor strategy={strategyForAdvisor} onApplyParams={handleApplyAdvisorParams} />
 
         {/* Initial Investment Amount */}
         <div>
@@ -1437,6 +1480,7 @@ export default function StrategyBuilder() {
                       onClick={() => {
                         field.onChange([]);
                         setMarketFilterError(null);
+                        setAIMarketSelection(null);
                       }}
                       disabled={value.length === 0}
                       className={marketToolbarButtonClass}
@@ -1469,6 +1513,34 @@ export default function StrategyBuilder() {
           </div>
 
           {marketFilterError && <p className="mb-3 text-xs text-amber-300">{marketFilterError}</p>}
+          {aiMarketSelection?.basis && (
+            <p className="mb-3 text-[11px] text-slate-500">
+              {describeAIMarketSelectionBasis(aiMarketSelection.basis)}
+            </p>
+          )}
+          {aiMarketSelection && aiMarketSelection.pairs.length > 0 && (
+            <div className="mb-3 rounded-lg border border-slate-800/80 bg-slate-950/40 px-3 py-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                Pairs the model pointed at
+              </p>
+              <ul className="mt-1 space-y-1 text-xs text-slate-300">
+                {aiMarketSelection.pairs.map((pair, index) => (
+                  <li key={`${pair.market_1}-${pair.market_2}-${index}`}>
+                    <span className="font-mono text-cyan-200">
+                      {pair.market_1} / {pair.market_2}
+                    </span>
+                    {pair.reason ? ` — ${pair.reason}` : ''}
+                    <span className="ml-1 text-[10px] text-slate-500">
+                      ({AI_PAIR_SOURCE_LABELS[pair.source] ?? pair.source})
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1 text-[10px] text-slate-500">
+                For reference only: the runtime still picks its own pairs from the selected markets.
+              </p>
+            </div>
+          )}
           {!aiProviderStatusLoading && availableAIProviders.length === 0 && (
             <p className="mb-3 text-xs text-amber-300">
               AI provider filtering is unavailable (no active provider credentials). Configure one
@@ -1484,12 +1556,16 @@ export default function StrategyBuilder() {
               const toggleMarket = (market: string) => {
                 if (value.includes(market)) {
                   field.onChange(value.filter((item) => item !== market));
+                  setAIMarketSelection(null);
                   return;
                 }
                 if (value.length >= MAX_SELECTED_MARKETS) {
                   return;
                 }
                 field.onChange([...value, market]);
+                // A hand-edited list is no longer the model's pick, so its
+                // basis and pairs come down with either change.
+                setAIMarketSelection(null);
               };
 
               const normalizedQuery = marketSearchQuery.trim().toLowerCase();
@@ -2170,6 +2246,7 @@ export default function StrategyBuilder() {
                       control={control}
                       render={({ field: { value, onChange } }) => (
                         <input
+                          id="find_cointegrated_pairs"
                           type="checkbox"
                           checked={Boolean(value)}
                           onChange={(e) => onChange(e.target.checked)}
@@ -2177,7 +2254,7 @@ export default function StrategyBuilder() {
                         />
                       )}
                     />
-                    <label htmlFor="manage_exits" className="text-sm text-slate-300">
+                    <label htmlFor="find_cointegrated_pairs" className="text-sm text-slate-300">
                       Find Cointegrated Pairs
                     </label>
                   </div>
@@ -2188,6 +2265,7 @@ export default function StrategyBuilder() {
                       control={control}
                       render={({ field: { value, onChange } }) => (
                         <input
+                          id="manage_exits"
                           type="checkbox"
                           checked={Boolean(value)}
                           onChange={(e) => onChange(e.target.checked)}
@@ -2195,7 +2273,7 @@ export default function StrategyBuilder() {
                         />
                       )}
                     />
-                    <label htmlFor="place_trades" className="text-sm text-slate-300">
+                    <label htmlFor="manage_exits" className="text-sm text-slate-300">
                       Manage Exits
                     </label>
                   </div>
@@ -2206,6 +2284,7 @@ export default function StrategyBuilder() {
                       control={control}
                       render={({ field: { value, onChange } }) => (
                         <input
+                          id="place_trades"
                           type="checkbox"
                           checked={Boolean(value)}
                           onChange={(e) => onChange(e.target.checked)}
@@ -2213,7 +2292,7 @@ export default function StrategyBuilder() {
                         />
                       )}
                     />
-                    <label htmlFor="close_at_zscore_cross" className="text-sm text-slate-300">
+                    <label htmlFor="place_trades" className="text-sm text-slate-300">
                       Place Trades
                     </label>
                   </div>
@@ -2224,6 +2303,7 @@ export default function StrategyBuilder() {
                       control={control}
                       render={({ field: { value, onChange } }) => (
                         <input
+                          id="close_at_zscore_cross"
                           type="checkbox"
                           checked={Boolean(value)}
                           onChange={(e) => onChange(e.target.checked)}
@@ -2231,7 +2311,7 @@ export default function StrategyBuilder() {
                         />
                       )}
                     />
-                    <label htmlFor="abort_all_positions" className="text-sm text-slate-300">
+                    <label htmlFor="close_at_zscore_cross" className="text-sm text-slate-300">
                       Close at Z-Score Cross
                     </label>
                   </div>

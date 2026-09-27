@@ -3071,17 +3071,7 @@ export const BacktestDetailsV2: React.FC = () => {
 
           {/* AI Backtest Explainer — full width below the two snapshot cards */}
           <div className="xl:col-span-2">
-            <AIBacktestExplainer
-              winRate={liveBacktest.win_rate}
-              totalPnlUsd={liveBacktest.total_pnl_usd ?? liveBacktest.total_pnl ?? 0}
-              sharpeRatio={liveBacktest.sharpe_ratio}
-              maxDrawdownPct={liveBacktest.max_drawdown_pct}
-              totalTrades={liveBacktest.total_trades ?? 0}
-              profitFactor={liveBacktest.profit_factor ?? 0}
-              markets={markets}
-              startDate={backtest.start_date ?? ''}
-              endDate={backtest.end_date ?? ''}
-            />
+            <AIBacktestExplainer runId={safeDetailRunId} />
           </div>
         </div>
       )}

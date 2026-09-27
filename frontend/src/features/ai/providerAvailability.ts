@@ -3,12 +3,14 @@ import { useMemo } from 'react';
 import api, { type AIMarketProvider, type AIProviderStatus } from '../../api';
 
 export const AI_PROVIDER_LABELS: Record<AIMarketProvider, string> = {
+  grok: 'Grok',
   openai: 'OpenAI',
   deepseek: 'DeepSeek',
   claude: 'Claude',
 };
 
-export const AI_PROVIDER_ORDER: AIMarketProvider[] = ['deepseek', 'openai', 'claude'];
+// Grok first: selectors that repair to the first available provider default to it.
+export const AI_PROVIDER_ORDER: AIMarketProvider[] = ['grok', 'deepseek', 'openai', 'claude'];
 
 export const getAIProviderLabel = (provider: AIMarketProvider): string =>
   AI_PROVIDER_LABELS[provider];

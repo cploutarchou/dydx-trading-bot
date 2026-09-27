@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Layers3, Search, Sparkles, Zap } from 'lucide-react';
+import { AlertTriangle, Layers3, MessageSquare, Search, Sparkles, Zap } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../api';
+import { StrategyChatDrawer } from '../features/strategyChat/StrategyChatDrawer';
 import { PageContainer } from './PageContainer';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -117,6 +118,7 @@ export default function StrategyLibrary() {
   const [backtestStartDate, setBacktestStartDate] = useState('');
   const [backtestEndDate, setBacktestEndDate] = useState('');
   const [runError, setRunError] = useState<string | null>(null);
+  const [chatStrategy, setChatStrategy] = useState<{ id: number; name: string } | null>(null);
   const secondaryActionButtonClass =
     'strategy-secondary-action flex-1 rounded-xl border border-slate-700/70 bg-slate-900/70 px-3 py-2 text-sm font-medium text-white transition hover:border-cyan-500/35 hover:bg-slate-900';
   const statsTileClass = 'workspace-card px-4 py-4';
@@ -611,6 +613,15 @@ export default function StrategyLibrary() {
                     Edit
                   </button>
                   <button
+                    type="button"
+                    onClick={() => setChatStrategy({ id: strategy.id, name: strategy.name })}
+                    aria-label={`Chat about ${strategy.name}`}
+                    className={`${secondaryActionButtonClass} inline-flex items-center justify-center gap-1.5`}
+                  >
+                    <MessageSquare className="h-4 w-4" />
+                    Chat
+                  </button>
+                  <button
                     onClick={() => void handleDuplicate(strategy)}
                     disabled={duplicateMutation.isPending}
                     className={`${secondaryActionButtonClass} disabled:opacity-60`}
@@ -681,6 +692,15 @@ export default function StrategyLibrary() {
             Next →
           </button>
         </div>
+      )}
+
+      {chatStrategy && (
+        <StrategyChatDrawer
+          key={chatStrategy.id}
+          strategyId={chatStrategy.id}
+          strategyName={chatStrategy.name}
+          onClose={() => setChatStrategy(null)}
+        />
       )}
 
       {runModalOpen &&

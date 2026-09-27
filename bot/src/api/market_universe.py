@@ -32,6 +32,11 @@ class MarketRecord:
     next_funding_rate: Optional[float]
     oracle_price: Optional[float]
     trades_24h: Optional[int]
+    # The indexer's ``priceChange24H`` as given: the 24 h change of the oracle
+    # price in quote currency (observed on mainnet: BTC-USD oraclePrice 84350,
+    # priceChange24H 273.98913), not a percentage. Consumers wanting a percent
+    # divide by ``oracle_price - price_change_24h``.
+    price_change_24h: Optional[float]
 
     @property
     def is_active(self) -> bool:
@@ -88,6 +93,7 @@ def normalize_market_records(raw_map: Any) -> List[MarketRecord]:
                 next_funding_rate=_to_float(details.get("nextFundingRate")),
                 oracle_price=oracle_price,
                 trades_24h=_to_int(details.get("trades24H")),
+                price_change_24h=_to_float(details.get("priceChange24H")),
             )
         )
     return records

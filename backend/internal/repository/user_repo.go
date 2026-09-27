@@ -14,13 +14,17 @@ import (
 
 // UserRepository handles all user-related database operations with pure SQL
 type UserRepository struct {
-	db       SQLRunner
+	db SQLRunner
+	// base is the database the repository was built on. A transaction-bound
+	// copy keeps it so schema probes stay keyed by the database, not by the
+	// transaction.
+	base     *sql.DB
 	dbDriver string
 }
 
 // WithTx returns a copy of the repository that executes within tx.
 func (r *UserRepository) WithTx(tx *sql.Tx) *UserRepository {
-	return &UserRepository{db: tx, dbDriver: r.dbDriver}
+	return &UserRepository{db: tx, base: r.base, dbDriver: r.dbDriver}
 }
 
 // NewUserRepository creates a new user repository
@@ -32,7 +36,25 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 	if driver == "" {
 		driver = "postgres"
 	}
-	return &UserRepository{db: db, dbDriver: driver}
+	return &UserRepository{db: db, base: db, dbDriver: driver}
+}
+
+// LockUserForWrite takes a row lock on the user for the rest of the
+// transaction, so concurrent writers that count the user's rows (such as the
+// strategy quota) are serialized. Only PostgreSQL has FOR UPDATE; elsewhere
+// this is a no-op.
+func (r *UserRepository) LockUserForWrite(userID int) error {
+	if !isPostgresDriver(r.dbDriver) {
+		return nil
+	}
+	var id int
+	if err := r.db.QueryRow(r.bindQuery(`SELECT id FROM users WHERE id = ? FOR UPDATE`), userID).Scan(&id); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("user not found")
+		}
+		return fmt.Errorf("failed to lock user: %w", err)
+	}
+	return nil
 }
 
 func (r *UserRepository) bindQuery(query string) string {
@@ -80,7 +102,11 @@ func (r *UserRepository) hasLastLoginColumn() bool {
 }
 
 func (r *UserRepository) hasUserColumn(columnName string) bool {
-	columns, err := cachedTableColumns(r.db, "users")
+	var owner SQLRunner = r.db
+	if r.base != nil {
+		owner = r.base
+	}
+	columns, err := cachedTableColumnsFor(r.db, owner, "users")
 	if err != nil {
 		return false
 	}

@@ -166,3 +166,91 @@ def test_partial_fill_is_not_treated_as_confirmed(monkeypatch):
 
     assert state["flat_confirmed"] is False
     assert state["pair_status"] == "PARTIALLY_CLOSED"
+
+
+def test_orphan_close_prefers_tracked_size_and_side_over_aggregate():
+    """Shared subaccount: recovery must close OUR size/direction, not the
+    account aggregate (which includes other instances' positions)."""
+    from src.trading.position_manager import (
+        _close_side_from_exchange_position,
+        _close_size_from_exchange_position,
+    )
+
+    exchange_position = {
+        # Another instance dominates the aggregate: net LONG 5.0 even though
+        # OUR tracked leg was SHORT 0.4.
+        "side": "LONG",
+        "sumOpen": "5.0",
+        "entryPrice": "100.0",
+    }
+
+    size = _close_size_from_exchange_position(exchange_position, "0.4")
+    side = _close_side_from_exchange_position(exchange_position, "SELL")
+
+    assert size == "0.4"
+    # Our SHORT leg closes BUY — the aggregate LONG direction must not flip it.
+    assert side == "BUY"
+
+    # Legacy rows without tracked metadata still fall back to the aggregate.
+    assert _close_size_from_exchange_position(exchange_position, None) == "5.0"
+    assert _close_side_from_exchange_position(exchange_position, "not-a-side") == "SELL"
+
+
+def test_exit_confirmation_shared_subaccount_aggregate_attribution():
+    """Flat-for-us on a shared market = aggregate dropped by our tracked size."""
+    from src.trading.position_manager import _classify_exit_confirmation_state
+
+    position = {
+        "market_1": "BTC-USD",
+        "market_2": "ETH-USD",
+        "order_m1_size": "2.0",
+        "order_m2_size": "1.0",
+    }
+    # Pre-close aggregates: BTC 10 (ours 2 + another instance's 8), ETH 0.
+    pre_close_sizes = {"BTC-USD": 10.0, "ETH-USD": 0.0}
+
+    # After our closes: BTC aggregate fell by exactly our 2.0 (their 8.0
+    # remains), ETH gone entirely.
+    confirmed = _classify_exit_confirmation_state(
+        position,
+        {
+            "BTC-USD": {"market": "BTC-USD", "side": "LONG", "sumOpen": "8.0"},
+        },
+        pre_close_sizes=pre_close_sizes,
+    )
+    assert confirmed["flat_confirmed"] is True
+    assert confirmed["pair_status"] == "CLOSE_CONFIRMED"
+    assert confirmed.get("shared_subaccount_confirmed") is True
+
+    # Our BTC close did NOT fill (aggregate still 10.0) — must stay unconfirmed.
+    unfilled = _classify_exit_confirmation_state(
+        position,
+        {
+            "BTC-USD": {"market": "BTC-USD", "side": "LONG", "sumOpen": "10.0"},
+        },
+        pre_close_sizes=pre_close_sizes,
+    )
+    assert unfilled["flat_confirmed"] is False
+
+    # Partial fill of our closes (BTC 10.0 -> 9.0, ETH 1.0 -> 0.4): progress
+    # but not confirmed, and classified as partially closed.
+    partial = _classify_exit_confirmation_state(
+        position,
+        {
+            "BTC-USD": {"market": "BTC-USD", "side": "LONG", "sumOpen": "9.0"},
+            "ETH-USD": {"market": "ETH-USD", "side": "SHORT", "sumOpen": "0.4"},
+        },
+        pre_close_sizes=pre_close_sizes,
+    )
+    assert partial["flat_confirmed"] is False
+    assert partial["pair_status"] == "PARTIALLY_CLOSED"
+
+    # Without a pre-close snapshot (legacy callers), a still-open shared
+    # market cannot confirm — only full absence does.
+    legacy = _classify_exit_confirmation_state(
+        position,
+        {
+            "BTC-USD": {"market": "BTC-USD", "side": "LONG", "sumOpen": "8.0"},
+        },
+    )
+    assert legacy["flat_confirmed"] is False

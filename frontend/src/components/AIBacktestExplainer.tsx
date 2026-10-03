@@ -1,5 +1,5 @@
 import { BrainCircuit, ChevronDown, ChevronUp, Loader, RefreshCw, Sparkles } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import api, { type AIBacktestExplainRequest, type AIMarketProvider } from '../api';
 import {
   getAIProviderDisplayName,
@@ -46,11 +46,16 @@ export function AIBacktestExplainer({
     isLoading: providerStatusLoading,
   } = useAIProviderAvailability();
 
-  useEffect(() => {
-    if (availableProviders.length > 0 && !availableProviders.includes(provider)) {
-      setProvider(availableProviders[0]);
+  // Repair an unavailable provider selection when the availability list
+  // changes — adjusted during render instead of a cascading effect render.
+  const [prevAvailableProviders, setPrevAvailableProviders] = useState(availableProviders);
+  if (availableProviders !== prevAvailableProviders) {
+    setPrevAvailableProviders(availableProviders);
+    const firstProvider = availableProviders[0];
+    if (availableProviders.length > 0 && !availableProviders.includes(provider) && firstProvider) {
+      setProvider(firstProvider);
     }
-  }, [availableProviders, provider]);
+  }
 
   const runExplain = async () => {
     setLoading(true);
@@ -142,7 +147,9 @@ export function AIBacktestExplainer({
           {content && (
             <button
               onClick={() => setCollapsed((v) => !v)}
-              aria-label={collapsed ? 'Expand AI backtest explanation' : 'Collapse AI backtest explanation'}
+              aria-label={
+                collapsed ? 'Expand AI backtest explanation' : 'Collapse AI backtest explanation'
+              }
               className="rounded p-1 text-slate-400 hover:text-slate-200"
             >
               {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}

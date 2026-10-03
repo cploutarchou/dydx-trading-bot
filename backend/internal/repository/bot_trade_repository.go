@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
@@ -28,21 +27,7 @@ func NewBotTradeRepository(db *sql.DB) *BotTradeRepository {
 }
 
 func (r *BotTradeRepository) bindQuery(query string) string {
-	if r == nil || !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
-		return query
-	}
-	var b strings.Builder
-	b.Grow(len(query) + 16)
-	idx := 1
-	for i := 0; i < len(query); i++ {
-		if query[i] == '?' {
-			b.WriteString(fmt.Sprintf("$%d", idx))
-			idx++
-			continue
-		}
-		b.WriteByte(query[i])
-	}
-	return b.String()
+	return bindPlaceholders(r.dbDriver, query)
 }
 
 // CreateBotTrade creates a new bot trade record

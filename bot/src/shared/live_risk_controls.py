@@ -37,13 +37,27 @@ def _float_value(payload: Mapping[str, Any], field: str) -> float:
         raise ValueError(f"{field} must be numeric; received {raw!r}") from exc
 
 
+def describe_unsupported_live_risk_controls(
+    payload: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Return one ``{field, value, message}`` entry per unsupported control set > 0.
+
+    Callers use this to tell an operator exactly which controls block a live
+    start. It describes the rejection; it never relaxes it.
+    """
+    unsupported: list[dict[str, Any]] = []
+    for field, message in _UNSUPPORTED_LIVE_RISK_FIELDS.items():
+        value = _float_value(payload, field)
+        if value > 0:
+            unsupported.append({"field": field, "value": value, "message": message})
+    return unsupported
+
+
 def validate_live_risk_controls(payload: Mapping[str, Any]) -> list[str]:
     """Return validation errors for unsupported live-runtime risk controls."""
-    errors: list[str] = []
-    for field, message in _UNSUPPORTED_LIVE_RISK_FIELDS.items():
-        if _float_value(payload, field) > 0:
-            errors.append(message)
-    return errors
+    return [
+        entry["message"] for entry in describe_unsupported_live_risk_controls(payload)
+    ]
 
 
 def assert_supported_live_risk_controls(payload: Mapping[str, Any]) -> None:

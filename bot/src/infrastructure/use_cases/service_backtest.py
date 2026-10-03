@@ -79,6 +79,9 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
     _MAX_TIMEOUT_SECONDS = 7 * 24 * 60 * 60
     _PROGRESS_CALLBACK_TIMEOUT_SECONDS = 5.0
     _SIMULATION_YIELD_EVERY_STEPS = 200
+    # dYdX v4 base taker fee tier (0.05% per fill) — used when a request does
+    # not specify transaction_fee. Zero-fee defaults overstated results.
+    _DEFAULT_TRANSACTION_FEE = 0.0005
     _HEAVY_PROGRESS_PERSIST_EVERY_PAIRS = 10
     _HEAVY_PROGRESS_PERSIST_EVERY_SECONDS = 15.0
     _HEARTBEAT_KEEPALIVE_SECONDS = 30.0
@@ -226,7 +229,13 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         return candidates
 
     def _build_interrupted_run_payload(self, run: Dict[str, Any]) -> Dict[str, Any]:
-        interrupted = dict(run)
+        # ``run`` normally comes from list_runs(), a summary projection with no
+        # request, trades, position snapshots or daily P&L. save_run() replaces
+        # all of those, so marking the summary as failed would erase the run's
+        # input and partial results. Mark the full stored run instead.
+        run_id = str(run.get("run_id") or "").strip()
+        stored = self._load_run_data(run_id) if run_id else None
+        interrupted = dict(stored or run)
         interrupted.update(
             {
                 "status": "failed",
@@ -450,7 +459,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             "zscore_threshold": 1.5,
             "stats_window": 21,
             "close_at_zscore_cross": True,
-            "transaction_fee": 0.0,
+            "transaction_fee": BacktestService._DEFAULT_TRANSACTION_FEE,
             "slippage": 0.0,
         }
 
@@ -809,8 +818,22 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         return run_data
 
     def _load_fresh_runtime_control(self, run_id: str) -> Dict[str, Any]:
+        # Read control flags through a SHORT-LIVED session when the bound
+        # repository carries the worker's long-lived session: a SELECT on it
+        # opens a transaction that pins a pooled connection until the next
+        # (throttled) write commit — and continuously while paused, because
+        # the pause poll loop only reads. Open → read → close returns the
+        # connection to the pool immediately.
+        persisted: Optional[Dict[str, Any]] = None
         try:
-            persisted = self.repository.get_run_overview(run_id)
+            if self.repository.session is not None:
+                session = db.get_session()
+                try:
+                    persisted = BacktestRepository(session).get_run_overview(run_id)
+                finally:
+                    session.close()
+            else:
+                persisted = self.repository.get_run_overview(run_id)
         except Exception:
             persisted = None
         if persisted:
@@ -1992,8 +2015,26 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         close_on_cross = self._coerce_bool(
             params.get("close_at_zscore_cross"), default=True
         )
-        transaction_fee = float(params.get("transaction_fee", 0.0) or 0.0)
+        # Fee default anchored to the dYdX v4 base taker tier (0.05% per
+        # fill). A zero-fee default systematically overstated backtest P&L;
+        # callers can still pass an explicit 0.0 or their volume-tier rate.
+        # Note: an explicitly-passed 0.0 stays 0.0 (`or` only rescues None).
+        raw_transaction_fee = params.get("transaction_fee")
+        transaction_fee = float(
+            raw_transaction_fee
+            if raw_transaction_fee is not None
+            else self._DEFAULT_TRANSACTION_FEE
+        )
         slippage = float(params.get("slippage", 0.0) or 0.0)
+        # Exit controls mirror the live ladder in
+        # position_manager._resolve_exit_reason; defaults follow src/constants.py
+        # (stopLossPct=2.0, takeProfitPct=5.0, positionTimeoutHours=72) so a
+        # backtest books exits the live bot would actually take.
+        stop_loss_pct = float(params.get("stop_loss_pct", 2.0) or 0.0)
+        take_profit_pct = float(params.get("take_profit_pct", 5.0) or 0.0)
+        position_timeout_hours = float(
+            params.get("position_timeout_hours", 72.0) or 0.0
+        )
 
         if len(prices_a) <= stats_window + 1:
             return [], [], {}
@@ -2001,9 +2042,52 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
         var_b = float(np.var(prices_b))
         if var_b <= 1e-12:
             return [], [], {}
-        hedge_ratio = float(np.cov(prices_a, prices_b)[0, 1] / var_b)
 
-        spread = prices_a - (hedge_ratio * prices_b)
+        # Calibration/trade split (look-ahead removal) with walk-forward
+        # refits: the hedge ratio and intercept start fit ONLY on the
+        # calibration window, trading starts after it, and the fit is re-
+        # estimated on the expanding window every ``refit_interval_bars``
+        # (still strictly historical data at each refit). A single full-
+        # sample fit lets bar t's z-score use a regression estimated on data
+        # through the END of the sample — classic look-ahead that overstates
+        # backtest performance.
+        calibration_end = max(2 * stats_window, len(prices_a) // 2)
+        if len(prices_a) <= calibration_end + stats_window:
+            return [], [], {}
+        # Default refit cadence: half the calibration length, so at least
+        # one mid-run refit actually occurs (calibration_end itself would
+        # schedule the first refit exactly at the sample end).
+        default_refit_interval = max(stats_window, calibration_end // 2)
+        raw_refit_interval = params.get("refit_interval_bars")
+        refit_interval = max(
+            stats_window,
+            int(
+                raw_refit_interval
+                if raw_refit_interval is not None
+                else default_refit_interval
+            ),
+        )
+        next_refit = calibration_end + refit_interval
+
+        # Execution delay: when > 0, a signal computed on bar t fills at the
+        # close of bar t+delay — a latency model expressible with close-only
+        # data (true next-bar-open fills need open prices threaded through
+        # the history pipeline).
+        execution_delay = max(0, int(params.get("execution_delay_bars", 0) or 0))
+
+        def _refit(through: int) -> tuple[float, float, np.ndarray]:
+            # Fit the same mean-reverting residual the live pipeline trades:
+            # OLS of prices_a on prices_b with a constant, spread = residual.
+            coeffs = np.polyfit(prices_b[:through], prices_a[:through], 1)
+            fitted_hedge = float(coeffs[0])
+            fitted_intercept = float(coeffs[1])
+            return (
+                fitted_hedge,
+                fitted_intercept,
+                prices_a - (fitted_hedge * prices_b) - fitted_intercept,
+            )
+
+        hedge_ratio, intercept, spread = _refit(calibration_end)
         trades: List[Dict[str, Any]] = []
         snapshots: List[Dict[str, Any]] = []
         daily_pnl: Dict[str, float] = {}
@@ -2015,7 +2099,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             self._SIMULATION_YIELD_EVERY_STEPS,
         )
 
-        for idx in range(stats_window, len(spread)):
+        for idx in range(calibration_end, len(spread)):
             if idx % yield_every_steps == 0:
                 await asyncio.sleep(0)
                 if heartbeat_callback is not None:
@@ -2032,49 +2116,99 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                             exc,
                         )
 
-            window = spread[idx - stats_window : idx]
+            # Same rolling window semantics as the live calculate_zscore:
+            # window INCLUDES the current bar and std is sample std (ddof=1,
+            # matching pandas rolling.std), so backtest z-scores equal the
+            # z-scores the live decision path would compute on the same data.
+            window = spread[idx - stats_window + 1 : idx + 1]
             mean = float(np.mean(window))
-            std = float(np.std(window))
+            std = float(np.std(window, ddof=1))
             if std <= 1e-12:
                 continue
             z = (float(spread[idx]) - mean) / std
             ts = timestamps[idx]
 
+            # Walk-forward refit (expanding window, strictly historical).
+            if idx >= next_refit and idx + 1 < len(spread):
+                hedge_ratio, intercept, spread = _refit(idx)
+                next_refit += refit_interval
+
+            fill_idx = idx + execution_delay
             if open_pos is None:
+                if fill_idx >= len(spread):
+                    # Signal cannot fill within the sample under the delay
+                    # model; skip the entry.
+                    continue
                 if z >= entry_z:
                     open_pos = {
                         "side": "short_spread",
-                        "entry_idx": idx,
+                        "entry_idx": fill_idx,
                         "entry_z": z,
-                        "entry_p1": float(prices_a[idx]),
-                        "entry_p2": float(prices_b[idx]),
-                        "entry_ts": ts,
+                        "entry_p1": float(prices_a[fill_idx]),
+                        "entry_p2": float(prices_b[fill_idx]),
+                        "entry_ts": timestamps[fill_idx],
                     }
                 elif z <= -entry_z:
                     open_pos = {
                         "side": "long_spread",
-                        "entry_idx": idx,
+                        "entry_idx": fill_idx,
                         "entry_z": z,
-                        "entry_p1": float(prices_a[idx]),
-                        "entry_p2": float(prices_b[idx]),
-                        "entry_ts": ts,
+                        "entry_p1": float(prices_a[fill_idx]),
+                        "entry_p2": float(prices_b[fill_idx]),
+                        "entry_ts": timestamps[fill_idx],
                     }
                 continue
 
-            should_close = abs(z) <= 0.25
-            if close_on_cross and open_pos is not None:
-                if open_pos["side"] == "short_spread" and z <= 0:
-                    should_close = True
-                if open_pos["side"] == "long_spread" and z >= 0:
-                    should_close = True
+            # Mirror the live exit ladder (position_manager._resolve_exit_reason):
+            # stop-loss, then take-profit, then timeout, then z-score
+            # reversion — which requires BOTH a sign cross AND
+            # |z_now| >= |z_entry|, not merely |z| decaying under 0.25.
+            exit_reason: Optional[str] = None
+            if open_pos is not None:
+                ep1_chk = float(open_pos["entry_p1"])
+                ep2_chk = float(open_pos["entry_p2"])
+                move = (float(prices_a[idx]) - ep1_chk) - hedge_ratio * (
+                    float(prices_b[idx]) - ep2_chk
+                )
+                if open_pos["side"] == "short_spread":
+                    move *= -1.0
+                notional_chk = max(1e-9, abs(ep1_chk) + abs(hedge_ratio * ep2_chk))
+                unrealized_pnl_pct = (move / notional_chk) * 100.0
 
+                entry_dt_chk = datetime.fromisoformat(
+                    open_pos["entry_ts"].replace("Z", "+00:00")
+                )
+                exit_dt_chk = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                age_hours = max(
+                    0.0, (exit_dt_chk - entry_dt_chk).total_seconds() / 3600.0
+                )
+
+                if stop_loss_pct > 0 and unrealized_pnl_pct <= -stop_loss_pct:
+                    exit_reason = "stop_loss"
+                elif take_profit_pct > 0 and unrealized_pnl_pct >= take_profit_pct:
+                    exit_reason = "take_profit"
+                elif position_timeout_hours > 0 and age_hours >= position_timeout_hours:
+                    exit_reason = "timeout"
+                elif close_on_cross:
+                    z_cross = (z < 0 < open_pos["entry_z"]) or (
+                        z > 0 > open_pos["entry_z"]
+                    )
+                    z_level = abs(z) >= abs(open_pos["entry_z"])
+                    if z_cross and z_level:
+                        exit_reason = "zscore_reversion"
+
+            should_close = exit_reason is not None
             if not should_close or open_pos is None:
                 continue
 
             ep1 = open_pos["entry_p1"]
             ep2 = open_pos["entry_p2"]
-            xp1 = float(prices_a[idx])
-            xp2 = float(prices_b[idx])
+            if fill_idx >= len(spread):
+                # Exit cannot fill within the sample under the delay model;
+                # keep the position open and retry on a later signal bar.
+                continue
+            xp1 = float(prices_a[fill_idx])
+            xp2 = float(prices_b[fill_idx])
 
             spread_move = (xp1 - ep1) - hedge_ratio * (xp2 - ep2)
             if open_pos["side"] == "short_spread":
@@ -2091,7 +2225,9 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
             entry_dt = datetime.fromisoformat(
                 open_pos["entry_ts"].replace("Z", "+00:00")
             )
-            exit_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            exit_dt = datetime.fromisoformat(
+                timestamps[fill_idx].replace("Z", "+00:00")
+            )
             duration_hours = max(0.0, (exit_dt - entry_dt).total_seconds() / 3600.0)
 
             trades.append(
@@ -2100,7 +2236,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                     "market_1": market_a,
                     "market_2": market_b,
                     "entry_timestamp": open_pos["entry_ts"],
-                    "exit_timestamp": ts,
+                    "exit_timestamp": timestamps[fill_idx],
                     "entry_zscore": round(float(open_pos["entry_z"]), 4),
                     "exit_zscore": round(float(exit_z), 4),
                     "entry_price_m1": round(ep1, 4),
@@ -2111,13 +2247,14 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                     "pnl_usd": round(float(pnl), 4),
                     "pnl_pct": round(float(pnl_pct), 4),
                     "duration_hours": round(duration_hours, 3),
+                    "exit_reason": exit_reason,
                     "win": bool(pnl > 0),
                 }
             )
 
             snapshots.append(
                 {
-                    "timestamp": ts,
+                    "timestamp": timestamps[fill_idx],
                     "positions": [
                         {
                             "position_id": f"pos-{trade_id}",
@@ -2136,7 +2273,7 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                 }
             )
 
-            day_key = ts[:10]
+            day_key = timestamps[fill_idx][:10]
             daily_pnl[day_key] = round(daily_pnl.get(day_key, 0.0) + float(pnl), 4)
             open_pos = None
 
@@ -2341,11 +2478,19 @@ class BacktestService(BacktestQueryMixin, BacktestControlMixin):
                         market_history_cache[market] = {}
 
             if not resumed and not explicit_pair_selection:
+                # Rank pairs on the CALIBRATION half of the history only, so
+                # pair selection and trading are out-of-sample relative to
+                # each other (ranking on the full sample then trading the
+                # same sample is in-sample selection bias).
+                selection_history = {
+                    market: _pair_selection._truncate_history_for_selection(history)
+                    for market, history in market_history_cache.items()
+                }
                 pair_markets = self._prioritize_pairs(
                     pair_markets=pair_markets,
                     mode=pair_selection_mode,
                     market_map=market_map,
-                    history_by_market=market_history_cache,
+                    history_by_market=selection_history,
                 )
 
                 if max_pairs is not None:

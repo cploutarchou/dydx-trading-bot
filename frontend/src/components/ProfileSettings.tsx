@@ -5,7 +5,7 @@
 
 import { useMutation } from '@tanstack/react-query';
 import { Camera, Check, Upload, X } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import apiClient from '../api';
 import { useAuthStore } from '../store/auth';
 
@@ -44,11 +44,15 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
     mutationFn: (profileData: ProfileUpdateData) => apiClient.updateProfile(profileData),
   });
 
-  useEffect(() => {
+  // Profile -> editable drafts, adjusted during render when the user
+  // identity changes (sanctioned pattern).
+  const [prevUser, setPrevUser] = useState(user);
+  if (user !== prevUser) {
+    setPrevUser(user);
     setFullName(user?.full_name || '');
     setEmail(user?.email || '');
     setAvatar(user?.avatar || null);
-  }, [user?.avatar, user?.email, user?.full_name]);
+  }
 
   const handleAvatarClick = () => {
     fileInputRef.current?.click();
@@ -154,8 +158,17 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
           {/* Avatar Display */}
           <div className="relative">
             <div
+              role="button"
+              tabIndex={0}
+              aria-label="Upload profile picture"
               onClick={handleAvatarClick}
-              className="flex h-32 w-32 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-linear-to-br from-cyan-500 to-blue-600 transition-opacity hover:opacity-85"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  handleAvatarClick();
+                }
+              }}
+              className="flex h-32 w-32 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-linear-to-br from-cyan-500 to-blue-600 transition-opacity hover:opacity-85 focus:outline-none focus:ring-2 focus:ring-cyan-400"
             >
               {avatar ? (
                 <img src={avatar} alt="Avatar" className="w-full h-full object-cover" />
@@ -173,6 +186,7 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = () => {
             <button
               type="button"
               onClick={handleAvatarClick}
+              aria-label="Upload profile picture"
               className="absolute bottom-0 right-0 rounded-full bg-cyan-500 p-2 text-slate-900 shadow-lg transition-colors hover:bg-cyan-400"
             >
               <Upload className="w-4 h-4" />

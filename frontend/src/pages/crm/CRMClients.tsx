@@ -4,12 +4,8 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api, { type CRMUserRow } from '../../api';
 import { PageContainer } from '../../components/PageContainer';
-import TerminalDataGrid, { type TerminalColumn } from '../../components/TerminalDataGrid';
-import {
-  PlatformPageHeader,
-  StatusBadge,
-  toneForStatus,
-} from '../../components/ui/PlatformUI';
+import { TerminalDataGrid, type TerminalColumn } from '../../components/TerminalDataGrid';
+import { PlatformPageHeader, StatusBadge, toneForStatus } from '../../components/ui/PlatformUI';
 import { ibPortalPath } from '../ib/paths';
 import { crmPath } from './paths';
 
@@ -35,17 +31,18 @@ export const CRMClients = () => {
     refetchInterval: 30_000,
   });
 
-  const allUsers = usersQuery.data?.users ?? [];
+  const usersData = usersQuery.data?.users;
+  const allUsers = usersData ?? [];
 
   const filtered = useMemo(() => {
-    return allUsers.filter((u) => {
+    return (usersData ?? []).filter((u) => {
       if (roleFilter !== 'all' && u.role !== roleFilter) return false;
       if (ibOnly && u.role !== 'ib' && u.role !== 'sub_ib') return false;
       if (statusFilter === 'active' && !u.is_active) return false;
       if (statusFilter === 'inactive' && u.is_active) return false;
       return true;
     });
-  }, [allUsers, roleFilter, statusFilter, ibOnly]);
+  }, [usersData, roleFilter, statusFilter, ibOnly]);
 
   const clear = () => {
     setRoleFilter('all');
@@ -110,7 +107,9 @@ export const CRMClients = () => {
         label: 'Sponsor',
         sortable: true,
         sortValue: (user) => Number(user.sponsor_user_id || 0),
-        render: (user) => <span className="text-xs text-slate-400">{user.sponsor_user_id || '—'}</span>,
+        render: (user) => (
+          <span className="text-xs text-slate-400">{user.sponsor_user_id || '—'}</span>
+        ),
       },
       {
         key: 'partners',
@@ -118,7 +117,9 @@ export const CRMClients = () => {
         align: 'right',
         sortable: true,
         sortValue: (user) => user.direct_partner_count,
-        render: (user) => <span className="text-xs text-slate-300">{user.direct_partner_count}</span>,
+        render: (user) => (
+          <span className="text-xs text-slate-300">{user.direct_partner_count}</span>
+        ),
       },
       {
         key: 'joined',
@@ -126,7 +127,9 @@ export const CRMClients = () => {
         align: 'right',
         sortable: true,
         sortValue: (user) => Date.parse(user.created_at ?? '') || 0,
-        render: (user) => <span className="text-xs text-slate-500">{formatDate(user.created_at)}</span>,
+        render: (user) => (
+          <span className="text-xs text-slate-500">{formatDate(user.created_at)}</span>
+        ),
       },
       {
         key: 'actions',
@@ -181,7 +184,9 @@ export const CRMClients = () => {
         title="All users and clients"
         description="Search by ID, username, name, email, sponsor ID, or role. Filter by role and status, then jump directly between CRM and IB views."
         icon={UserCheck}
-        meta={usersQuery.isFetching ? <Loader2 className="h-4 w-4 animate-spin text-slate-400" /> : null}
+        meta={
+          usersQuery.isFetching ? <Loader2 className="h-4 w-4 animate-spin text-slate-400" /> : null
+        }
       />
 
       <div className="flex flex-wrap items-center gap-3">
@@ -253,15 +258,25 @@ export const CRMClients = () => {
           metrics={[
             { label: 'Visible', value: filtered.length, tone: 'accent' },
             { label: 'Total', value: allUsers.length },
-            { label: 'IB / Sub-IB', value: allUsers.filter((u) => u.role === 'ib' || u.role === 'sub_ib').length, tone: 'positive' },
-            { label: 'Inactive', value: allUsers.filter((u) => !u.is_active).length, tone: 'negative' },
+            {
+              label: 'IB / Sub-IB',
+              value: allUsers.filter((u) => u.role === 'ib' || u.role === 'sub_ib').length,
+              tone: 'positive',
+            },
+            {
+              label: 'Inactive',
+              value: allUsers.filter((u) => !u.is_active).length,
+              tone: 'negative',
+            },
           ]}
           emptyState={
             <div>
               <ShieldOff className="mx-auto h-8 w-8 text-slate-600" />
               <p className="mt-3 text-sm font-medium text-slate-300">No users found</p>
               <p className="mt-1 text-xs text-slate-500">
-                {isFiltered ? 'Adjust the filters or clear them to widen the directory.' : 'No users are available yet.'}
+                {isFiltered
+                  ? 'Adjust the filters or clear them to widen the directory.'
+                  : 'No users are available yet.'}
               </p>
               {isFiltered && (
                 <button

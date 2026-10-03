@@ -13,6 +13,9 @@ import (
 type CandleCacheService struct {
 	cache candleCacheStore
 	repo  candleBacktestRepo
+	// prefetchSingleflight collapses concurrent prefetches for the same run:
+	// one resync fan-out previously triggered ~11 duplicate full-history loads.
+	prefetchSingleflight *SingleFlight[struct{}]
 }
 
 type candleCacheStore interface {
@@ -34,7 +37,8 @@ const candleCachePageSize = 1000
 // NewCandleCacheService creates a new candle cache service
 func NewCandleCacheService(cache *CacheService) *CandleCacheService {
 	return &CandleCacheService{
-		cache: cache,
+		cache:                cache,
+		prefetchSingleflight: NewSingleFlight[struct{}](),
 	}
 }
 
@@ -42,8 +46,9 @@ func NewCandleCacheService(cache *CacheService) *CandleCacheService {
 // PrefetchCandlesForRun and WarmCache.
 func NewCandleCacheServiceWithRepo(cache *CacheService, repo *repository.BacktestRepository) *CandleCacheService {
 	return &CandleCacheService{
-		cache: cache,
-		repo:  repo,
+		cache:                cache,
+		repo:                 repo,
+		prefetchSingleflight: NewSingleFlight[struct{}](),
 	}
 }
 
@@ -206,6 +211,16 @@ func (ccs *CandleCacheService) GetAggregatedChart(runID, market, resolution stri
 // backtest_candles table and stores them in Redis (24h TTL by default).
 // Call this after a backtest completes so the first chart render is cache-warm.
 func (ccs *CandleCacheService) PrefetchCandlesForRun(runID int, ttlSeconds int) error {
+	if ccs.prefetchSingleflight == nil {
+		ccs.prefetchSingleflight = NewSingleFlight[struct{}]()
+	}
+	_, err := ccs.prefetchSingleflight.Do(fmt.Sprintf("run:%d", runID), func() (struct{}, error) {
+		return struct{}{}, ccs.prefetchCandlesForRunLocked(runID, ttlSeconds)
+	})
+	return err
+}
+
+func (ccs *CandleCacheService) prefetchCandlesForRunLocked(runID int, ttlSeconds int) error {
 	if ccs.repo == nil {
 		log.Printf("CandleCacheService: repo not set, skipping PrefetchCandlesForRun for run %d", runID)
 		return nil

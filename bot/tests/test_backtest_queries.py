@@ -195,7 +195,12 @@ def test_get_backtest_trades_filters_slices_and_skips_malformed():
     assert _FakeHost(data=None).get_backtest_trades("missing") == []
 
 
-def test_get_backtest_trades_legacy_fallback_is_deterministic():
+def test_get_backtest_trades_legacy_runs_report_no_trades():
+    """Legacy runs without stored trades must return an empty list.
+
+    The previous fallback synthesized a deterministic-random trade history
+    seeded by run id — invented execution data presented as history.
+    """
     data = {
         "total_trades": 6,
         "win_rate": 0.5,
@@ -203,19 +208,8 @@ def test_get_backtest_trades_legacy_fallback_is_deterministic():
         "start_date": "2026-01-01",
         "end_date": "2026-01-31",
     }
-    first = _FakeHost(data=data).get_backtest_trades("run-x")
-    second = _FakeHost(data=data).get_backtest_trades("run-x")
-
-    assert len(first) == 6
-    assert [t.model_dump() for t in first] == [t.model_dump() for t in second]
-    assert sum(1 for t in first if t.win) == 3
-
-    winning = _FakeHost(data=data).get_backtest_trades("run-x", winning_only=True)
-    assert len(winning) == 3 and all(t.win for t in winning)
-
-    # A different run id seeds a different series
-    other = _FakeHost(data=data).get_backtest_trades("run-y")
-    assert [t.pnl_usd for t in other] != [t.pnl_usd for t in first]
+    assert _FakeHost(data=data).get_backtest_trades("run-x") == []
+    assert _FakeHost(data=data).get_backtest_trades("run-x", winning_only=True) == []
 
 
 def test_get_backtest_trades_legacy_fallback_with_bad_dates():
@@ -227,8 +221,7 @@ def test_get_backtest_trades_legacy_fallback_with_bad_dates():
     }
     trades = _FakeHost(data=data).get_backtest_trades("run-bad")
 
-    assert len(trades) == 2
-    assert all(t.win for t in trades)
+    assert trades == []
 
 
 # ---------------------------------------------------------------- stats/health
@@ -305,7 +298,11 @@ def test_get_backtest_analytics_and_advanced_metrics():
     advanced = host.get_advanced_performance_metrics("run-1")
     assert advanced["benchmark"] == "BTC-USD"
     assert advanced["sharpe_ratio"] == 2.0
-    assert advanced["alpha"] == 0.03
+    # Benchmark-relative metrics are not computed anywhere yet; they must be
+    # null rather than the fabricated constants they used to return.
+    assert advanced["alpha"] is None
+    assert advanced["beta"] is None
+    assert advanced["information_ratio"] is None
 
     custom = host.get_advanced_performance_metrics("run-1", benchmark="ETH-USD")
     assert custom["benchmark"] == "ETH-USD"

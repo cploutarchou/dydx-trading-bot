@@ -5,6 +5,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import api from '../api';
+import { clearUserScopedQueries } from '../api/queryClient';
 import { perfMark, perfMeasure } from '../utils/perf';
 
 const withTimeout = async <T>(
@@ -39,7 +40,15 @@ const getVerifiedTwoFAMessage = (response: {
   return response.message || 'Failed to verify 2FA token';
 };
 
-const buildLoggedOutState = () => ({
+// Every transition to the logged-out state (explicit logout, expired or
+// rejected session) drops the user-scoped React Query cache, so the next user
+// on this browser never sees the previous user's balances, bots or trades.
+const buildLoggedOutState = () => {
+  clearUserScopedQueries();
+  return loggedOutState();
+};
+
+const loggedOutState = () => ({
   user: null,
   loading: false,
   sessionLoading: false,
@@ -76,10 +85,16 @@ interface AuthStore {
   sessionInitialized: boolean;
   error: string | null;
   twoFARequired: boolean;
+  /** True after a password-only login for an MFA-enrolled account. */
+  mfaChallengeRequired: boolean;
   twoFASecret?: string;
   twoFAQRCode?: string;
   backupCodes?: string[];
   login: (username: string, password: string, turnstileToken?: string) => Promise<void>;
+  completeMfaChallenge: (token: string) => Promise<void>;
+  cancelMfaChallenge: () => void;
+  /** Arms the login page's TOTP step for an existing pending-MFA session. */
+  armMfaChallenge: () => void;
   register: (
     username: string,
     email: string,
@@ -105,12 +120,13 @@ export const useAuthStore = create<AuthStore>()(
       sessionInitialized: false,
       error: null,
       twoFARequired: false,
+      mfaChallengeRequired: false,
       twoFASecret: undefined,
       twoFAQRCode: undefined,
       backupCodes: undefined,
 
       login: async (username: string, password: string, turnstileToken?: string) => {
-        set({ loading: true, error: null });
+        set({ loading: true, error: null, mfaChallengeRequired: false });
         try {
           const loginResult = await api.login({
             username,
@@ -121,6 +137,14 @@ export const useAuthStore = create<AuthStore>()(
             api.setToken(loginResult.access_token, true);
           }
 
+          if (loginResult?.mfa_required) {
+            // Password accepted; the TOTP step must complete before a session
+            // exists. Keep credentials out of store state — the pending
+            // HttpOnly session cookie authorizes the challenge call.
+            set({ mfaChallengeRequired: true });
+            return;
+          }
+
           await get().getCurrentUser();
         } catch (error: unknown) {
           console.error('❌ auth.ts: Login failed');
@@ -129,6 +153,36 @@ export const useAuthStore = create<AuthStore>()(
         } finally {
           set({ loading: false });
         }
+      },
+
+      completeMfaChallenge: async (token: string) => {
+        set({ loading: true, error: null });
+        try {
+          await api.completeMfaChallenge(token);
+          api.clearPendingMFAChallenge();
+          set({ mfaChallengeRequired: false });
+          await get().getCurrentUser();
+        } catch {
+          // Keep the challenge UI up so the user can retry with a fresh code;
+          // the page shows a specific invalid-code message.
+          set({ error: 'That code was invalid or expired. Try the latest one.' });
+          return Promise.reject(new Error('invalid_mfa_code'));
+        } finally {
+          set({ loading: false });
+        }
+      },
+
+      cancelMfaChallenge: () => {
+        api.clearPendingMFAChallenge();
+        set({ mfaChallengeRequired: false, error: null });
+      },
+
+      armMfaChallenge: () => {
+        // A pending (password-only) session exists but awaits its TOTP
+        // challenge: show the login challenge step directly — the pending
+        // HttpOnly cookie still authorizes the challenge call, so the user
+        // skips the password prompt.
+        set({ ...buildLoggedOutState(), mfaChallengeRequired: true });
       },
 
       register: async (
@@ -202,6 +256,13 @@ export const useAuthStore = create<AuthStore>()(
               'restoreSession'
             );
             if (!restored) {
+              if (api.consumePendingMFAChallenge()) {
+                // Pending MFA session: arm the login page's TOTP step instead
+                // of probing /users/me — the probe would 401 and log out,
+                // destroying the pending challenge session.
+                set({ ...buildLoggedOutState(), mfaChallengeRequired: true });
+                return;
+              }
               if (allowCookieRefresh) {
                 console.warn(
                   '⚠️ auth.ts: restoreSession did not recover a token, probing current user via cookie session'

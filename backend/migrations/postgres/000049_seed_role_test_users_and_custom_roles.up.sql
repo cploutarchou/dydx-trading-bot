@@ -35,6 +35,13 @@ SET display_name = EXCLUDED.display_name,
     is_system = TRUE,
     updated_at = CURRENT_TIMESTAMP;
 
+-- SECURITY: these are development/demo convenience accounts whose password
+-- hashes live in the repo. (1) Never overwrite an existing row's password on
+-- conflict — a re-run must not clobber an operator's rotated credentials back
+-- to the repo-known values. (2) Fresh installs seed them with
+-- password_change_required = TRUE so the known passwords must be rotated
+-- before the accounts are meaningfully usable. Remove these seeds entirely
+-- if this environment faces the internet.
 INSERT INTO users (
   username,
   email,
@@ -57,7 +64,7 @@ VALUES
     '',
     TRUE,
     FALSE,
-    FALSE,
+    TRUE,
     '$2a$10$abcdefghijklmnopqrstuuqVwskozrMIYHaV2U8izbKS09gvJ9bm2',
     CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP
@@ -70,7 +77,7 @@ VALUES
     '',
     TRUE,
     FALSE,
-    FALSE,
+    TRUE,
     '$2a$10$bcdefghijklmnopqrstuvuDoUStSCH3iCWvmyku2QPZjCX8HZRZFK',
     CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP
@@ -83,17 +90,9 @@ VALUES
     '',
     TRUE,
     FALSE,
-    FALSE,
+    TRUE,
     '$2a$10$cdefghijklmnopqrstuvwu0CJBEqyaK25EFI1QGVONX1dqF01Vzam',
     CURRENT_TIMESTAMP,
     CURRENT_TIMESTAMP
   )
-ON CONFLICT (username) DO UPDATE
-SET email = EXCLUDED.email,
-    role = EXCLUDED.role,
-    full_name = EXCLUDED.full_name,
-    is_active = EXCLUDED.is_active,
-    is_admin = EXCLUDED.is_admin,
-    password_change_required = EXCLUDED.password_change_required,
-    hashed_password = EXCLUDED.hashed_password,
-    updated_at = CURRENT_TIMESTAMP;
+ON CONFLICT (username) DO NOTHING;

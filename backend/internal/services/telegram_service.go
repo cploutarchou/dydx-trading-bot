@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/dydx-trading-bot/backend-go/internal/models"
 	"github.com/dydx-trading-bot/backend-go/internal/repository"
@@ -55,6 +56,12 @@ type ResolvedTelegramConfig struct {
 	Source TelegramConfigSource
 	UserID int
 }
+
+// telegramHTTPClient bounds Telegram API calls; http.Post's default client
+// has no timeout and can pin handler goroutines indefinitely.
+var telegramHTTPClient = &http.Client{Timeout: 10 * time.Second}
+
+func (s *TelegramService) httpClient() *http.Client { return telegramHTTPClient }
 
 type TelegramService struct {
 	credentials *ExternalAPICredentialService
@@ -448,7 +455,7 @@ func (s *TelegramService) PreflightValidateTelegramDelivery(token, chatID string
 
 	// Step 1: Validate token by calling getMe
 	getMeURL := fmt.Sprintf("https://api.telegram.org/bot%s/getMe", token)
-	resp, err := http.Post(getMeURL, "application/json", nil)
+	resp, err := s.httpClient().Post(getMeURL, "application/json", nil)
 	if err != nil {
 		return &PreflightValidationResult{
 			Valid:            false,
@@ -481,7 +488,7 @@ func (s *TelegramService) PreflightValidateTelegramDelivery(token, chatID string
 	getChatURL := fmt.Sprintf("https://api.telegram.org/bot%s/getChat", token)
 	getChatPayload := map[string]string{"chat_id": chatID}
 	payloadBytes, _ := json.Marshal(getChatPayload)
-	chatResp, err := http.Post(getChatURL, "application/json", bytes.NewReader(payloadBytes))
+	chatResp, err := s.httpClient().Post(getChatURL, "application/json", bytes.NewReader(payloadBytes))
 	if err != nil {
 		return &PreflightValidationResult{
 			Valid:            false,

@@ -8,8 +8,9 @@
  * - Click to view detailed trade info
  */
 
-import React, { useEffect, useState } from 'react';
-import apiClient from '../api';
+import React, { useState } from 'react';
+import { useBacktestTrades } from '../api/hooks';
+import { formatPct, formatSignedUsd, formatUsdFixed } from '../utils/format';
 
 interface Trade {
   id: number;
@@ -36,39 +37,20 @@ interface TradeHistoryProps {
   onTradeSelect?: (trade: Trade) => void;
 }
 
-const getErrorMessage = (error: unknown, fallback: string): string =>
-  error instanceof Error ? error.message : fallback;
-
 export const TradeHistory: React.FC<TradeHistoryProps> = ({ runId, onTradeSelect }) => {
-  const [trades, setTrades] = useState<Trade[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [limit] = useState(50);
   const [offset, setOffset] = useState(0);
-  const [total, setTotal] = useState(0);
-
-  useEffect(() => {
-    fetchTrades();
-  }, [runId, offset]);
-
-  const fetchTrades = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await apiClient.getBacktestTrades(runId, limit, offset);
-      if (response.success && response.data) {
-        const data = response.data;
-        setTrades((Array.isArray(data.trades) ? data.trades : []) as unknown as Trade[]);
-        setTotal(data.total || 0);
-      } else {
-        setError(response.message || 'Failed to load trades');
-      }
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, 'Error loading trades'));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const tradesQuery = useBacktestTrades(runId, limit, offset);
+  // useBacktestTrades unwraps the envelope to { count, data: trades[] }
+  const trades = (tradesQuery.data?.data ?? []) as unknown as Trade[];
+  const total = tradesQuery.data?.count || 0;
+  const loading = tradesQuery.isLoading && trades.length === 0;
+  const error =
+    tradesQuery.error instanceof Error
+      ? tradesQuery.error.message
+      : tradesQuery.isError
+        ? 'Failed to load trades'
+        : null;
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -149,21 +131,21 @@ export const TradeHistory: React.FC<TradeHistoryProps> = ({ runId, onTradeSelect
                     </div>
                   </td>
                   <td className="px-4 py-3 text-gray-300 text-xs">
-                    <div>${trade.entry_price_1.toFixed(2)}</div>
-                    <div className="text-gray-500">${trade.entry_price_2.toFixed(2)}</div>
+                    <div>{formatUsdFixed(trade.entry_price_1)}</div>
+                    <div className="text-gray-500">{formatUsdFixed(trade.entry_price_2)}</div>
                   </td>
                   <td className="px-4 py-3 text-gray-300 text-xs">
-                    <div>${trade.exit_price_1.toFixed(2)}</div>
-                    <div className="text-gray-500">${trade.exit_price_2.toFixed(2)}</div>
+                    <div>{formatUsdFixed(trade.exit_price_1)}</div>
+                    <div className="text-gray-500">{formatUsdFixed(trade.exit_price_2)}</div>
                   </td>
                   <td className="px-4 py-3 text-right font-semibold">
                     <div className={trade.pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
-                      ${trade.pnl.toFixed(2)}
+                      {formatSignedUsd(trade.pnl)}
                     </div>
                     <div
                       className={`text-xs ${trade.pnl_pct >= 0 ? 'text-green-500' : 'text-red-500'}`}
                     >
-                      ({trade.pnl_pct.toFixed(2)}%)
+                      ({formatPct(trade.pnl_pct, 2)})
                     </div>
                   </td>
                   <td className="px-4 py-3 text-right text-gray-400 text-xs">

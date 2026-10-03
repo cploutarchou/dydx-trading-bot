@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/config"
@@ -26,6 +27,7 @@ type TaskCommandStore interface {
 	CreateTaskCommand(ctx context.Context, commandType, ownerType, ownerID, idempotencyKey string, requestedByUserID *int, payloadJSON []byte) (*models.TaskCommand, error)
 	UpdateTaskCommandStatus(ctx context.Context, id, status string) error
 	CreateTaskRun(ctx context.Context, commandID, taskType string, maxRetries int) (*models.TaskRun, error)
+	ListTaskCommandsPendingSince(ctx context.Context, cutoff time.Time, limit int) ([]*models.TaskCommand, error)
 }
 
 // NATSPublisherClient is the subset of the NATS publisher used for command
@@ -43,6 +45,22 @@ type NATSCommandService struct {
 	settings  config.NATSSettings
 	clock     func() time.Time
 	metrics   *AsyncMetrics
+
+	// publishSlots bounds concurrent async publish goroutines: an unreachable
+	// NATS must not accumulate one 10s goroutine per request.
+	publishSlots chan struct{}
+	slotOnce     sync.Once
+}
+
+// publishLimiter lazily initializes the bounded-publish channel so instances
+// constructed without it (tests, alternate constructors) still publish.
+func (s *NATSCommandService) publishLimiter() chan struct{} {
+	s.slotOnce.Do(func() {
+		if s.publishSlots == nil {
+			s.publishSlots = make(chan struct{}, 16)
+		}
+	})
+	return s.publishSlots
 }
 
 // NewNATSCommandService creates a new NATS command service.
@@ -71,6 +89,9 @@ func NewNATSCommandService(
 		settings:  settings,
 		clock:     time.Now,
 		metrics:   GetAsyncMetrics(),
+		// 16 concurrent publishes; a full channel drops the publish and leaves the
+		// command "pending" (the documented truthful-status failure semantic).
+		publishSlots: make(chan struct{}, 16),
 	}
 }
 
@@ -158,7 +179,18 @@ func (s *NATSCommandService) PublishBacktestCommand(
 	// Publish to NATS JetStream (best-effort, non-blocking for HTTP flow). Uses a
 	// detached context so the publish attempt is not cancelled when the HTTP
 	// response returns; the command status transition happens inside.
-	go s.publishToNATSAsync(taskCmd, config, idempotencyKey, correlationID)
+	// Bound concurrent publish attempts; when saturated, skip the publish and
+	// leave the command "pending" for the reconciler/fallback path.
+	slots := s.publishLimiter()
+	select {
+	case slots <- struct{}{}:
+		go func() {
+			defer func() { <-slots }()
+			s.publishToNATSAsync(taskCmd, config, idempotencyKey, correlationID)
+		}()
+	default:
+		log.Printf("NATS Command Service: publish concurrency limit reached; command %s left pending", taskCmd.ID)
+	}
 
 	return taskCmd, nil
 }
@@ -187,29 +219,7 @@ func (s *NATSCommandService) publishToNATSAsync(
 		return
 	}
 
-	// Create a minimal payload for NATS message (reference-heavy per contract)
-	natsPayload := map[string]interface{}{
-		"command_id":      taskCmd.ID,
-		"run_id":          taskCmd.OwnerID,
-		"command_type":    taskCmd.CommandType,
-		"owner_type":      taskCmd.OwnerType,
-		"owner_id":        taskCmd.OwnerID,
-		"idempotency_key": taskCmd.IdempotencyKey,
-		"created_at":      taskCmd.CreatedAt.Format(time.RFC3339),
-		"status":          taskCmd.Status,
-	}
-
-	// Add minimal config references (not full config to keep payload small)
-	if config != nil {
-		if name, ok := config["name"].(string); ok && name != "" {
-			natsPayload["name"] = name
-		}
-		if strategyID, ok := config["strategy_id"].(float64); ok && strategyID > 0 {
-			natsPayload["strategy_id"] = int(strategyID)
-		}
-	}
-
-	payloadJSON, err := json.Marshal(natsPayload)
+	payloadJSON, err := buildCommandPayload(taskCmd, config)
 	if err != nil {
 		log.Printf("NATS Command Service: failed to marshal NATS payload: %v", err)
 		return
@@ -348,4 +358,111 @@ func (s *NATSCommandService) HealthCheck() error {
 		return fmt.Errorf("task repository is nil")
 	}
 	return nil
+}
+
+// buildCommandPayload builds the reference-heavy message body the backtest
+// consumer reads (command_id, run_id, owner, idempotency key). The first
+// publish and the reconciler must send the same shape: the consumer resolves
+// the run from these fields, not from the stored config.
+func buildCommandPayload(taskCmd *models.TaskCommand, config map[string]interface{}) ([]byte, error) {
+	natsPayload := map[string]interface{}{
+		"command_id":      taskCmd.ID,
+		"run_id":          taskCmd.OwnerID,
+		"command_type":    taskCmd.CommandType,
+		"owner_type":      taskCmd.OwnerType,
+		"owner_id":        taskCmd.OwnerID,
+		"idempotency_key": taskCmd.IdempotencyKey,
+		"created_at":      taskCmd.CreatedAt.Format(time.RFC3339),
+		"status":          taskCmd.Status,
+	}
+
+	// Add minimal config references (not full config to keep payload small)
+	if config != nil {
+		if name, ok := config["name"].(string); ok && name != "" {
+			natsPayload["name"] = name
+		}
+		if strategyID, ok := config["strategy_id"].(float64); ok && strategyID > 0 {
+			natsPayload["strategy_id"] = int(strategyID)
+		}
+	}
+
+	return json.Marshal(natsPayload)
+}
+
+// ReconcilePendingCommands re-publishes task commands stuck in "pending"
+// (publish lost to a NATS outage or a process restart mid-publish). The
+// JetStream Msg-Id equals the idempotency key, so re-publishing an already
+// delivered command is deduplicated server-side.
+func (s *NATSCommandService) ReconcilePendingCommands(ctx context.Context, olderThan time.Duration, limit int) (int, error) {
+	if s == nil || s.taskRepo == nil {
+		return 0, nil
+	}
+	if !s.settings.Enabled || !s.settings.CommandBusEnabled || s.publisher == nil {
+		return 0, nil
+	}
+	if olderThan <= 0 {
+		olderThan = 2 * time.Minute
+	}
+
+	cutoff := s.clock().UTC().Add(-olderThan)
+	commands, err := s.taskRepo.ListTaskCommandsPendingSince(ctx, cutoff, limit)
+	if err != nil {
+		return 0, fmt.Errorf("list pending commands: %w", err)
+	}
+
+	requeued := 0
+	for _, taskCmd := range commands {
+		if ctx.Err() != nil {
+			break
+		}
+
+		// The stored payload is the serialized run config; rebuild the same
+		// message body the first publish sends. A config that no longer parses
+		// only loses the optional name/strategy references.
+		var config map[string]interface{}
+		if len(taskCmd.PayloadJSON) > 0 {
+			if err := json.Unmarshal(taskCmd.PayloadJSON, &config); err != nil {
+				log.Printf("NATS reconciler: stored config for command %s is not a JSON object: %v", taskCmd.ID, err)
+				config = nil
+			}
+		}
+		payloadJSON, err := buildCommandPayload(taskCmd, config)
+		if err != nil {
+			log.Printf("NATS reconciler: failed to build payload for command %s: %v", taskCmd.ID, err)
+			continue
+		}
+
+		envelope := nats.Envelope{
+			MessageID:      taskCmd.ID,
+			IdempotencyKey: taskCmd.IdempotencyKey,
+			// The original request trace id is not persisted; the command id
+			// keeps the re-publish traceable to its task_commands row.
+			CorrelationID:   taskCmd.ID,
+			OwnerType:       taskCmd.OwnerType,
+			OwnerID:         taskCmd.OwnerID,
+			OccurredAt:      s.clock().UTC(),
+			ProducerService: "backend-api-reconciler",
+			SchemaVersion:   nats.DefaultSchemaVersion,
+			Subject:         nats.Subject("backtest", "command", "start"),
+			Payload:         json.RawMessage(payloadJSON),
+		}
+		if err := envelope.Validate(); err != nil {
+			log.Printf("NATS reconciler: skipping invalid command %s: %v", taskCmd.ID, err)
+			continue
+		}
+
+		if _, pubErr := s.publisher.Publish(ctx, envelope); pubErr != nil {
+			log.Printf("NATS reconciler: re-publish failed for command %s: %v", taskCmd.ID, pubErr)
+			continue
+		}
+		if err := s.taskRepo.UpdateTaskCommandStatus(ctx, taskCmd.ID, repository.TaskCommandStatusPublished); err != nil {
+			log.Printf("NATS reconciler: failed to mark command %s published: %v", taskCmd.ID, err)
+			continue
+		}
+		requeued++
+	}
+	if requeued > 0 {
+		log.Printf("NATS reconciler: re-published %d pending command(s)", requeued)
+	}
+	return requeued, nil
 }

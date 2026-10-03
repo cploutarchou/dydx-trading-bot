@@ -126,3 +126,132 @@ def test_get_run_overview_omits_large_payloads_but_keeps_request():
     assert "trades" not in row
     assert "position_snapshots" not in row
     assert "daily_pnl" not in row
+
+
+def _stored_request(session, run_id):
+    # Read the column directly: get_run() falls back to the request snapshot,
+    # which would hide a wiped row.
+    session.expire_all()
+    record = session.query(BacktestRun).filter(BacktestRun.run_id == run_id).one()
+    return dict(record.request_json or {})
+
+
+def test_save_run_from_summary_projection_keeps_stored_request():
+    session = _session()
+    repo = BacktestRepository(session)
+    run_id = "run-summary-resave-1"
+    request = {"start_date": "2026-04-01", "selected_pairs": ["BTC-USD/ETH-USD"]}
+    repo.save_run(
+        {"run_id": run_id, "name": "resave", "status": "pending", "request": request}
+    )
+
+    # list_runs() returns a summary with no "request" key at all, and
+    # _normalize_run_data() then defaults it to {}.
+    summary = next(row for row in repo.list_runs() if row["run_id"] == run_id)
+    assert "request" not in summary
+
+    repo.save_run({**summary, "status": "failed"})
+
+    assert _stored_request(session, run_id) == request
+    assert repo.get_run(run_id)["status"] == "failed"
+
+
+def test_save_run_still_replaces_request_when_one_is_given():
+    session = _session()
+    repo = BacktestRepository(session)
+    run_id = "run-request-update-1"
+    repo.save_run({"run_id": run_id, "status": "pending", "request": {"a": 1}})
+
+    repo.save_run({"run_id": run_id, "status": "running", "request": {"a": 2}})
+
+    assert _stored_request(session, run_id) == {"a": 2}
+
+
+def test_reconciling_an_interrupted_run_keeps_its_request():
+    from src.infrastructure.use_cases.service_backtest import BacktestService
+
+    # Regression: on every API start, interruption recovery marked orphaned
+    # pending/running runs as failed by re-saving their list_runs() summary,
+    # which blanked the request and made the run impossible to restart.
+    session = _session()
+    repo = BacktestRepository(session)
+    run_id = "run-interrupted-1"
+    request = {"start_date": "2026-04-01", "selected_pairs": ["BTC-USD/ETH-USD"]}
+    repo.save_run(
+        {"run_id": run_id, "name": "queued", "status": "pending", "request": request}
+    )
+
+    service = BacktestService(repo)
+    outcome = service.reconcile_interrupted_runs(dry_run=False)
+
+    assert [row["run_id"] for row in outcome["reconciled"]] == [run_id]
+    assert repo.get_run(run_id)["status"] == "failed"
+    assert _stored_request(session, run_id) == request
+
+
+def test_save_run_with_only_a_control_block_keeps_stored_request():
+    session = _session()
+    repo = BacktestRepository(session)
+    run_id = "run-control-only-resave-1"
+    request = {
+        "start_date": "2026-04-01",
+        "selected_pairs": ["BTC-USD/ETH-USD"],
+        "_runtime_control": {"status": "running", "action": "start"},
+    }
+    repo.save_run({"run_id": run_id, "status": "running", "request": request})
+
+    summary = next(row for row in repo.list_runs() if row["run_id"] == run_id)
+    newer_control = {"status": "stale", "action": "start"}
+    repo.save_run(
+        {**summary, "status": "stale", "request": {"_runtime_control": newer_control}}
+    )
+
+    stored = _stored_request(session, run_id)
+    assert stored["selected_pairs"] == ["BTC-USD/ETH-USD"]
+    assert stored["start_date"] == "2026-04-01"
+    assert stored["_runtime_control"] == newer_control
+
+
+def test_marking_a_run_stale_from_the_health_probe_keeps_its_request():
+    from datetime import datetime, timedelta, timezone
+
+    from src.infrastructure.use_cases.service_backtest import BacktestService
+
+    # Regression: /health and /ready resolve every run from the list_runs()
+    # projection. When a worker died mid-run, the stale verdict was saved with
+    # a request holding only the control block, which erased the run's pairs
+    # and dates; every restart then failed with SELECTED_PAIRS_MISSING.
+    session = _session()
+    repo = BacktestRepository(session)
+    run_id = "run-worker-lost-1"
+    request = {
+        "start_date": "2026-02-01",
+        "end_date": "2026-09-20",
+        "selected_pairs": ["AVAX-USD/EOS-USD"],
+        "_runtime_control": {
+            "status": "running",
+            "action": "start",
+            "worker_backend": "celery",
+            "worker_task_id": run_id,
+        },
+    }
+    repo.save_run(
+        {
+            "run_id": run_id,
+            "name": "worker lost",
+            "status": "running",
+            "request": request,
+        }
+    )
+    # save_run() stamps updated_at itself, so age the heartbeat on the row.
+    record = session.query(BacktestRun).filter(BacktestRun.run_id == run_id).one()
+    record.updated_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    session.commit()
+
+    BacktestService(repo).get_runtime_health()
+
+    assert repo.get_run(run_id)["status"] == "stale"
+    stored = _stored_request(session, run_id)
+    assert stored["selected_pairs"] == ["AVAX-USD/EOS-USD"]
+    assert stored["start_date"] == "2026-02-01"
+    assert stored["end_date"] == "2026-09-20"

@@ -132,6 +132,7 @@ from src.infrastructure.use_cases.async_job_manager import (  # noqa: E402
 from src.infrastructure.use_cases.service_backtest import BacktestService  # noqa: E402
 from src.shared.live_risk_controls import (  # noqa: E402
     assert_supported_live_risk_controls,
+    describe_unsupported_live_risk_controls,
 )
 
 # Celery inspection helpers (list_celery_tasks, get_celery_task, revoke_celery_task,
@@ -145,6 +146,7 @@ from src.trading.arbitrage_runtime_config import (  # noqa: E402
     get_runtime_settings,
 )
 from src.trading.dydx_client import connect_dydx, connect_dydx_runtime  # noqa: E402
+from src.trading.indexer_freshness import check_indexer_freshness  # noqa: E402
 
 # Filter noisy third-party warnings after imports
 _original_stderr = sys.stderr
@@ -1005,13 +1007,19 @@ async def runtime_preflight(
 ) -> JSONResponse:
     """Evaluate whether a live runtime is ready to start on the selected environment."""
     del current_user
+    trading_params = request.trading_params.model_dump()
     try:
-        assert_supported_live_risk_controls(request.trading_params.model_dump())
+        assert_supported_live_risk_controls(trading_params)
     except ValueError as exc:
         return api_response(
             success=False,
             message=f"Validation error: {exc}",
-            data={"error": "UNSUPPORTED_RISK_CONTROL"},
+            data={
+                "error": "UNSUPPORTED_RISK_CONTROL",
+                "unsupported_fields": describe_unsupported_live_risk_controls(
+                    trading_params
+                ),
+            },
             status_code=422,
         )
 
@@ -1039,6 +1047,15 @@ async def runtime_preflight(
         if not wallet_ready:
             blockers.append(
                 "Unable to derive a dYdX wallet from the provided credentials."
+            )
+
+        # A runtime started against a stale indexer prices entries on old data
+        # and cannot confirm its own orders, so say so before it is started.
+        staleness = await check_indexer_freshness(client)
+        if staleness is not None:
+            blockers.append(
+                f"{staleness.describe()}. A bot started now could not confirm its "
+                f"orders; try again once the {environment} indexer has caught up."
             )
 
         try:

@@ -1,6 +1,6 @@
 import { Command, LogOut, Search, X } from 'lucide-react';
 import React from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { getUserWorkspaceRole } from '../auth/roles';
 import { useI18n } from '../i18n/useI18n';
 import {
@@ -44,10 +44,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
     return labels[section];
   };
 
-  const openWorkspace = (path: string) => {
-    navigate(path);
-  };
-
   const handleLogout = () => {
     logout();
     onClose?.();
@@ -56,7 +52,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
 
   return (
     <>
-      {isOpen && <div className="fixed inset-0 z-40 bg-black/55 lg:hidden" onClick={onClose} />}
+      {/* Backdrop dismiss is a pointer-only convenience; the drawer itself
+          exposes a close button and Escape for keyboard operators. */}
+      {isOpen && (
+        <div
+          role="presentation"
+          className="fixed inset-0 z-40 bg-black/55 lg:hidden"
+          onClick={onClose}
+        />
+      )}
 
       <aside
         className={`premium-sidebar app-sidebar fixed z-50 flex h-screen w-76 shrink-0 flex-col border-r border-slate-800/80 transition-transform duration-300 lg:sticky lg:top-0 lg:self-start ${
@@ -79,17 +83,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
             <BrandMark compact />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <h1 className="truncate text-lg font-semibold text-white">ExecutionLab</h1>
-                <span
-                  className="rounded-full bg-cyan-400/80 p-1"
-                  title={t('Ready', 'Έτοιμο')}
-                />
+                <p className="truncate text-lg font-semibold text-white">ExecutionLab</p>
+                <span className="rounded-full bg-cyan-400/80 p-1" title={t('Ready', 'Έτοιμο')} />
               </div>
               <p className="truncate text-xs text-slate-500">
-                {t(
-                  getPortalLabel(portal),
-                  getPortalLabel(portal)
-                )}
+                {t(getPortalLabel(portal), getPortalLabel(portal))}
               </p>
             </div>
           </div>
@@ -133,13 +131,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
               {visibleQuickActions.slice(0, 3).map((item) => {
                 const Icon = item.icon;
                 return (
-                  <button
+                  <Link
                     key={`quick-${item.path}`}
-                    type="button"
-                    onClick={() => {
-                      openWorkspace(item.path);
-                      onClose?.();
-                    }}
+                    to={item.path}
+                    onClick={onClose}
                     className="flex min-h-22 flex-col items-start justify-between rounded-lg border border-slate-800 bg-stone-950/78 p-3 text-left text-slate-300 transition hover:border-cyan-500/30 hover:bg-stone-900 hover:text-white"
                     title={tr(item.description)}
                   >
@@ -149,7 +144,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
                     <p className="mt-2 text-xs font-semibold leading-4 text-slate-100">
                       {tr(item.label)}
                     </p>
-                  </button>
+                  </Link>
                 );
               })}
             </div>
@@ -171,13 +166,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
                       const Icon = item.icon;
 
                       return (
-                        <button
+                        <Link
                           key={item.path}
-                          type="button"
-                          onClick={() => {
-                            openWorkspace(item.path);
-                            onClose?.();
-                          }}
+                          to={item.path}
+                          onClick={onClose}
+                          title={tr(item.description)}
                           className={`group flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-all ${
                             active
                               ? 'border border-teal-400/30 bg-teal-500/16 text-white shadow-lg shadow-teal-500/10'
@@ -194,7 +187,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium">{tr(item.label)}</p>
                             <p
-                              className={`truncate text-xs ${active ? 'text-teal-100/80' : 'text-slate-500'}`}
+                              className={`hidden truncate text-xs xl:block ${active ? 'text-teal-100/80' : 'text-slate-500'}`}
                             >
                               {tr(item.description)}
                             </p>
@@ -207,7 +200,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
                           {active && (
                             <div className="ml-auto h-1.5 w-1.5 rounded-full bg-white/70" />
                           )}
-                        </button>
+                        </Link>
                       );
                     })}
                   </div>
@@ -226,10 +219,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenCommand
               <p className="text-[10px] uppercase text-slate-500">
                 {t('Signed in as', 'Συνδεδεμένος ως')}
               </p>
-              <p className="truncate text-sm font-semibold text-white">
+              <p
+                className="truncate text-sm font-semibold text-white"
+                title={user?.full_name || user?.username || undefined}
+              >
                 {user?.full_name || user?.username}
               </p>
-              <p className="truncate text-xs text-slate-500">{user?.email}</p>
+              <p className="truncate text-xs text-slate-500" title={user?.email || undefined}>
+                {user?.email}
+              </p>
             </div>
             {user?.role && (
               <span className="rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-2 py-1 text-[10px] font-semibold uppercase text-cyan-300">

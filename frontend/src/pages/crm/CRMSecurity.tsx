@@ -27,11 +27,12 @@ export const CRMSecurity = () => {
     refetchInterval: 20_000,
   });
 
-  const allEvents = eventsQuery.data?.events ?? [];
+  const eventsData = eventsQuery.data?.events;
+  const allEvents = eventsData ?? [];
 
   const filtered = useMemo(() => {
     const term = search.toLowerCase().trim();
-    return allEvents.filter((e) => {
+    return (eventsData ?? []).filter((e) => {
       if (outcomeFilter !== 'all' && e.outcome !== outcomeFilter) return false;
       if (
         term &&
@@ -46,16 +47,17 @@ export const CRMSecurity = () => {
         return false;
       return true;
     });
-  }, [allEvents, outcomeFilter, search]);
+  }, [eventsData, outcomeFilter, search]);
 
   const counts = useMemo(() => {
-    const r: Record<string, number> = { all: allEvents.length };
-    for (const e of allEvents) {
+    const source = eventsData ?? [];
+    const r: Record<string, number> = { all: source.length };
+    for (const e of source) {
       const o = String(e.outcome);
       r[o] = (r[o] ?? 0) + 1;
     }
     return r;
-  }, [allEvents]);
+  }, [eventsData]);
 
   return (
     <PageContainer size="wide" className="space-y-6">

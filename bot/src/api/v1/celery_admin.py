@@ -15,6 +15,7 @@ import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -33,6 +34,12 @@ from src.infrastructure.workers.celery_monitor import (
 from src.middleware.auth_middleware import get_admin_user
 
 router = APIRouter(prefix="/api/v1/celery", tags=["Celery (admin)"])
+
+# The celery_monitor helpers are synchronous: each waits on a Celery inspect
+# broadcast (CELERY_INSPECT_TIMEOUT, ~2 s) and some open a database session.
+# Called directly from these async handlers they would block the event loop,
+# freezing every other request, including the /health and /ready probes. They
+# open and close their own session per call, so a worker thread is safe.
 
 
 class CeleryTaskRevokeRequest(BaseModel):
@@ -64,7 +71,8 @@ async def celery_tasks(
     """Admin-only Celery task list with safe metadata redaction."""
     _ = current_user
     started_at = time.perf_counter()
-    payload = list_celery_tasks(
+    payload = await run_in_threadpool(
+        list_celery_tasks,
         {
             "status": status,
             "task_name": task_name,
@@ -104,7 +112,7 @@ async def celery_task_detail(
     """Admin-only Celery task detail including failure traceback when available."""
     _ = current_user
     started_at = time.perf_counter()
-    task = get_celery_task(task_id)
+    task = await run_in_threadpool(get_celery_task, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Celery task not found")
     log_endpoint_timing(
@@ -134,7 +142,7 @@ async def celery_task_revoke(
     terminate = payload.terminate if payload is not None else False
     return api_response(
         True,
-        revoke_celery_task(task_id, terminate=terminate),
+        await run_in_threadpool(revoke_celery_task, task_id, terminate=terminate),
         "Celery task revoke requested",
     )
 
@@ -158,7 +166,7 @@ async def celery_workers(current_user: User = Depends(get_admin_user)) -> JSONRe
     """Admin-only Celery worker inspection."""
     _ = current_user
     started_at = time.perf_counter()
-    payload = list_celery_workers()
+    payload = await run_in_threadpool(list_celery_workers)
     worker_count = len(payload) if isinstance(payload, dict) else None
     log_endpoint_timing(
         "/api/v1/celery/workers",
@@ -179,7 +187,7 @@ async def celery_queues(current_user: User = Depends(get_admin_user)) -> JSONRes
     """Admin-only Celery queue overview."""
     _ = current_user
     started_at = time.perf_counter()
-    payload = list_celery_queues()
+    payload = await run_in_threadpool(list_celery_queues)
     queue_count = len(payload) if isinstance(payload, dict) else None
     log_endpoint_timing(
         "/api/v1/celery/queues",
@@ -202,7 +210,7 @@ async def celery_monitor_health(
     """Admin-only Celery broker/backend/worker health."""
     _ = current_user
     started_at = time.perf_counter()
-    payload = celery_health()
+    payload = await run_in_threadpool(celery_health)
     log_endpoint_timing(
         "/api/v1/celery/health",
         started_at,

@@ -1,7 +1,7 @@
 // WebSocket Service for Real-Time Updates
 // Handles connections, reconnection, message queuing, and subscriptions
 
-import { enhancedApiClient } from './enhancedClient';
+import api from '../api';
 import { resolveBackendWebSocketUrl } from './origin';
 
 // WebSocket connection states
@@ -81,11 +81,13 @@ export class WebSocketManager {
       maxReconnectAttempts: config.maxReconnectAttempts || 10,
       heartbeatInterval: config.heartbeatInterval || 30000,
       queueMaxSize: config.queueMaxSize || 100,
-      debug: config.debug ?? true,
+      // Logging (which includes full message payloads) is opt-in so trading
+      // data stays out of production consoles by default.
+      debug: config.debug ?? import.meta.env.DEV,
     };
 
     // Auto-connect when authenticated
-    if (enhancedApiClient.isAuthenticated()) {
+    if (api.hasToken()) {
       this.connect();
     }
   }
@@ -492,11 +494,13 @@ export class WebSocketManager {
 // Create singleton instance
 export const wsManager = new WebSocketManager();
 
-// Auto-connect when authentication state changes
-let wasAuthenticated = enhancedApiClient.isAuthenticated();
+// Auto-connect when authentication state changes. api.ts dispatches
+// `auth:changed` from its token set/clear choke points (and
+// `auth:session-expired` on forced logout), so no polling interval is needed.
+let wasAuthenticated = api.hasToken();
 
-setInterval(() => {
-  const isAuthenticated = enhancedApiClient.isAuthenticated();
+const syncAuthState = (authenticated?: boolean): void => {
+  const isAuthenticated = authenticated ?? api.hasToken();
 
   if (isAuthenticated && !wasAuthenticated) {
     // User just logged in
@@ -507,6 +511,14 @@ setInterval(() => {
   }
 
   wasAuthenticated = isAuthenticated;
-}, 1000);
+};
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('auth:changed', (event) => {
+    const detail = (event as CustomEvent<{ authenticated?: boolean }>).detail;
+    syncAuthState(detail?.authenticated);
+  });
+  window.addEventListener('auth:session-expired', () => syncAuthState(false));
+}
 
 export default wsManager;

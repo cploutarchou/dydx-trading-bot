@@ -220,7 +220,14 @@ export const ClientAreaPage = () => {
               );
             })}
           </div>
-        </PlatformPanel>
+        
+            <p className="mt-4 border-t border-slate-800 pt-3 text-xs leading-5 text-slate-500">
+              Terminology used across the workspace: a <span className="text-slate-300">strategy</span> is
+              the trading logic you configure; a <span className="text-slate-300">backtest</span> (validation
+              run) proves it on history; a <span className="text-slate-300">bot</span> is a live or paper{' '}
+              <span className="text-slate-300">runtime</span> executing a validated strategy.
+            </p>
+</PlatformPanel>
 
         <PlatformPanel
           title="Smart guidance status"

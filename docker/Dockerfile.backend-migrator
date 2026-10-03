@@ -1,0 +1,33 @@
+# Schema migrator for the Go backend. Dockerfile.backend builds only
+# ./cmd/server, so the `migrate` binary it ships alongside is not in that
+# image. Deployments use a separate backend-migrator image (compose service
+# `backend-migrate`, a per-release Job in the cluster). Migrations run as an
+# explicit step, never at application startup (DB_AUTO_MIGRATE stays false).
+#
+#   ./migrate up | down [steps] | version | status
+
+# ── Build stage ──────────────────────────────────────────────────────────────
+FROM golang:1.27-alpine AS builder
+
+WORKDIR /build
+
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download
+
+COPY backend/ .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/migrate ./cmd/migrate
+
+# ── Runtime stage ─────────────────────────────────────────────────────────────
+FROM alpine:3.24
+
+RUN apk add --no-cache ca-certificates tzdata
+
+WORKDIR /app
+
+COPY --from=builder /app/migrate .
+
+# Migration files are read from the filesystem at runtime.
+COPY backend/migrations/ ./migrations/
+
+ENTRYPOINT ["./migrate"]
+CMD ["status"]

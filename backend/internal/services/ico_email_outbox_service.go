@@ -13,16 +13,16 @@ import (
 )
 
 type ICOEmailOutboxService struct {
-	repo    *repository.ICOWhitelistRepository
-	mailgun *MailgunService
-	now     func() time.Time
+	repo *repository.ICOWhitelistRepository
+	mail *EmailService
+	now  func() time.Time
 }
 
-func NewICOEmailOutboxService(repo *repository.ICOWhitelistRepository, mailgun *MailgunService) *ICOEmailOutboxService {
+func NewICOEmailOutboxService(repo *repository.ICOWhitelistRepository, mail *EmailService) *ICOEmailOutboxService {
 	return &ICOEmailOutboxService{
-		repo:    repo,
-		mailgun: mailgun,
-		now:     func() time.Time { return time.Now().UTC() },
+		repo: repo,
+		mail: mail,
+		now:  func() time.Time { return time.Now().UTC() },
 	}
 }
 
@@ -49,13 +49,17 @@ func (s *ICOEmailOutboxService) processOne(ctx context.Context, entry models.ICO
 	}
 
 	textBody, htmlBody := renderICOEmail(entry, payload)
-	result, err := s.mailgun.SendEmail(ctx, entry.RecipientEmail, entry.Subject, textBody, htmlBody, "ico", entry.EmailType)
+	result, err := s.mail.SendEmail(ctx, entry.RecipientEmail, entry.Subject, textBody, htmlBody, "ico", entry.EmailType)
 	if err != nil {
-		_ = s.repo.MarkOutboxFailed(ctx, entry.ID, true, "mailgun send failed", s.now())
+		_ = s.repo.MarkOutboxFailed(ctx, entry.ID, true, "email send failed", s.now())
 		return err
 	}
+	// Delivery semantics are at-least-once: a crash between the provider call
+	// and MarkOutboxSent causes one duplicate resend on the next tick. The
+	// repository's status guard ensures the bookkeeping itself is
+	// single-writer across replicas.
 	if result == nil || !result.Delivered {
-		_ = s.repo.MarkOutboxFailed(ctx, entry.ID, true, "mailgun not configured or delivery rejected", s.now())
+		_ = s.repo.MarkOutboxFailed(ctx, entry.ID, true, "email not configured or delivery rejected", s.now())
 		return nil
 	}
 

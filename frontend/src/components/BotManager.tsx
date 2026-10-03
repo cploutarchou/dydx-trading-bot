@@ -1,29 +1,37 @@
 import {
-	Activity,
-	ChevronDown,
-	ChevronUp,
-	Pause,
-	Play,
-	Plus,
-	RefreshCw,
-	ShieldCheck,
-	Trash2,
-	Zap,
+  Activity,
+  ChevronDown,
+  ChevronUp,
+  Pause,
+  Play,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  Trash2,
+  Zap,
 } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { classifyApiError } from '../api';
 import {
-	useBotInstances,
-	useBotRuntimeStatsStream,
-	useBotStats,
-	useCreateBotInstance,
-	useDeleteBotInstance,
-	useRestartBotInstance,
-	useStartBotInstance,
-	useStopBotInstance,
+  useBotInstances,
+  useBotRuntimeStatsStream,
+  useBotStats,
+  useCreateBotInstance,
+  useDeleteBotInstance,
+  useRestartBotInstance,
+  useStartBotInstance,
+  useStopBotInstance,
 } from '../api/hooks';
+import { formatSignedUsd } from '../utils/format';
+import { summarizeErrorForLog } from '../utils/apiErrors';
+import {
+  buildRuntimeCreatePayload,
+  initialRuntimeCreateForm,
+  isTestnetChain,
+} from '../utils/runtimeForm';
 import { ArbitrageImprovementPanel } from './ArbitrageImprovementPanel';
+import { Field } from './ui/Field';
 import { useToastStore } from './ErrorBoundary';
 import { PageContainer } from './PageContainer';
 import { ActionDialog, EmptyState, InlineNotice } from './ui/PlatformUI';
@@ -125,8 +133,14 @@ const mapBotStats = (raw: Record<string, unknown>): BotStats => {
       )
     );
   }, 0);
-  const dailyOpened = toNumber(raw.daily_trades_opened, toNumber(realtimeStats.daily_trades_opened));
-  const dailyClosed = toNumber(raw.daily_trades_closed, toNumber(realtimeStats.daily_trades_closed));
+  const dailyOpened = toNumber(
+    raw.daily_trades_opened,
+    toNumber(realtimeStats.daily_trades_opened)
+  );
+  const dailyClosed = toNumber(
+    raw.daily_trades_closed,
+    toNumber(realtimeStats.daily_trades_closed)
+  );
   const totalTrades = toNumber(
     tradeStatistics.total_trades,
     toNumber(
@@ -198,7 +212,7 @@ const mapBotStats = (raw: Record<string, unknown>): BotStats => {
           ? raw.updated_at
           : typeof realtimeStats.updated_at === 'string'
             ? realtimeStats.updated_at
-          : new Date().toISOString(),
+            : new Date().toISOString(),
     degraded: raw.degraded === true,
     warning: typeof raw.warning === 'string' ? raw.warning : undefined,
   };
@@ -239,11 +253,6 @@ const toOperatorErrorMessage = (error: unknown, fallback: string): string => {
   }
   return error instanceof Error ? error.message : fallback;
 };
-
-const formatUsd = (value: number): string =>
-  `${value >= 0 ? '+' : '-'}$${Math.abs(value).toLocaleString('en-US', {
-    maximumFractionDigits: 2,
-  })}`;
 
 const formatDateTime = (value?: string): string => {
   if (!value) return 'N/A';
@@ -314,7 +323,17 @@ const BotCard: React.FC<BotCardProps> = ({
   return (
     <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-950/45">
       <div
-        className="grid cursor-pointer gap-3 p-4 transition hover:bg-slate-900/35 xl:grid-cols-[minmax(0,1fr)_minmax(420px,auto)] xl:items-center"
+        role="button"
+        tabIndex={0}
+        aria-expanded={isExpanded}
+        aria-label={`${bot.instance_name || bot.instance_id} — ${isExpanded ? 'collapse' : 'expand'} runtime details`}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onToggleExpand(bot.instance_id);
+          }
+        }}
+        className="grid cursor-pointer gap-3 p-4 transition hover:bg-slate-900/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 xl:grid-cols-[minmax(0,1fr)_minmax(420px,auto)] xl:items-center"
         onClick={() => onToggleExpand(bot.instance_id)}
       >
         <div className="flex min-w-0 items-start gap-3">
@@ -370,17 +389,14 @@ const BotCard: React.FC<BotCardProps> = ({
           </div>
         </div>
 
-        <div
-          className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
+          <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-2 sm:grid-cols-4">
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
               <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">P&amp;L</p>
               <p
                 className={`mt-1 text-sm font-semibold ${stats.total_pnl >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}
               >
-                {formatUsd(stats.total_pnl)}
+                {formatSignedUsd(stats.total_pnl)}
               </p>
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
@@ -393,9 +409,7 @@ const BotCard: React.FC<BotCardProps> = ({
             </div>
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
               <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Trades</p>
-              <p className="mt-1 text-sm font-semibold text-white">
-                {stats.total_trades}
-              </p>
+              <p className="mt-1 text-sm font-semibold text-white">{stats.total_trades}</p>
             </div>
           </div>
 
@@ -404,7 +418,10 @@ const BotCard: React.FC<BotCardProps> = ({
               <>
                 <button
                   type="button"
-                  onClick={() => onStop(bot.instance_id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onStop(bot.instance_id);
+                  }}
                   disabled={actionLoading === `stop:${bot.instance_id}`}
                   className="rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-amber-500 disabled:opacity-60"
                   title="Stop bot"
@@ -416,7 +433,10 @@ const BotCard: React.FC<BotCardProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => onRestart(bot.instance_id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRestart(bot.instance_id);
+                  }}
                   disabled={actionLoading === `restart:${bot.instance_id}`}
                   className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-500 disabled:opacity-60"
                   title="Restart bot"
@@ -430,7 +450,10 @@ const BotCard: React.FC<BotCardProps> = ({
             ) : (
               <button
                 type="button"
-                onClick={() => onStart(bot.instance_id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onStart(bot.instance_id);
+                }}
                 disabled={actionLoading === `start:${bot.instance_id}`}
                 className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-60"
                 title="Start bot"
@@ -443,7 +466,10 @@ const BotCard: React.FC<BotCardProps> = ({
             )}
             <button
               type="button"
-              onClick={() => onDelete(bot.instance_id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(bot.instance_id);
+              }}
               disabled={actionLoading === `delete:${bot.instance_id}`}
               className="rounded-lg bg-rose-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-rose-500 disabled:opacity-60"
               title="Delete bot"
@@ -471,7 +497,7 @@ const BotCard: React.FC<BotCardProps> = ({
               <p
                 className={`text-lg font-semibold ${stats.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
               >
-                {formatUsd(stats.total_pnl)}
+                {formatSignedUsd(stats.total_pnl)}
               </p>
             </div>
             <div className="metric-tile p-3">
@@ -543,16 +569,7 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
   const errorToast = useToastStore((state) => state.error);
   const infoToast = useToastStore((state) => state.info);
 
-  const [createForm, setCreateForm] = useState({
-    instance_id: '',
-    chain_id: 'dydx-mainnet-1',
-    address: '',
-    mnemonic: '',
-    is_testnet: false,
-    zscore_threshold: 1.5,
-    max_half_life: 24,
-    usd_per_trade: 10,
-  });
+  const [createForm, setCreateForm] = useState(initialRuntimeCreateForm);
 
   const botsQuery = useBotInstances({ limit: 100 });
   const bots = mapBots(botsQuery.data?.data);
@@ -563,24 +580,23 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
   const restartBotMutation = useRestartBotInstance();
   const deleteBotMutation = useDeleteBotInstance();
 
-  useEffect(() => {
-    if (botsQuery.error) {
-      setError(toOperatorErrorMessage(botsQuery.error, 'Failed to load bot instances'));
-      return;
-    }
+  // Load failures surface at the render boundary; action errors stay in
+  // local state until the next attempt.
+  const loadError = botsQuery.error
+    ? toOperatorErrorMessage(botsQuery.error, 'Failed to load bot instances')
+    : null;
+  const displayError = error ?? loadError;
 
-    setError(null);
-  }, [botsQuery.error]);
-
+  const refetchBots = botsQuery.refetch;
   useEffect(() => {
     const interval = setInterval(() => {
-      void botsQuery.refetch();
+      void refetchBots();
     }, 30000);
 
     return () => {
       clearInterval(interval);
     };
-  }, [botsQuery.refetch]);
+  }, [refetchBots]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -593,16 +609,7 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
   };
 
   const resetCreateForm = () => {
-    setCreateForm({
-      instance_id: '',
-      chain_id: 'dydx-mainnet-1',
-      address: '',
-      mnemonic: '',
-      is_testnet: false,
-      zscore_threshold: 1.5,
-      max_half_life: 24,
-      usd_per_trade: 10,
-    });
+    setCreateForm(initialRuntimeCreateForm());
   };
 
   const pendingBot = useMemo(
@@ -657,35 +664,15 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
 
   const handleCreateBot = async () => {
     try {
-      if (!createForm.instance_id || !createForm.address || !createForm.mnemonic) {
-        const message =
-          'Complete the runtime ID, wallet address, and secret phrase before creating a new bot.';
-        setError(message);
-        errorToast('Runtime details missing', message);
+      const result = buildRuntimeCreatePayload(createForm);
+      if (!result.ok) {
+        setError(result.message);
+        errorToast(result.title, result.message);
         return;
       }
 
       setError(null);
-      await createBotMutation.mutateAsync({
-        instance_id: createForm.instance_id,
-        name: createForm.instance_id,
-        credentials: {
-          address: createForm.address,
-          mnemonic: createForm.mnemonic,
-          network: createForm.is_testnet ? 'testnet' : 'mainnet',
-          chain_id: createForm.chain_id,
-          secret_phrase: createForm.mnemonic,
-        },
-        trading_params: {
-          is_testnet: createForm.is_testnet,
-          zscore_threshold: createForm.zscore_threshold,
-          max_half_life: createForm.max_half_life,
-          usd_per_trade: createForm.usd_per_trade,
-          max_positions: 5,
-          slippage_tolerance: 0.001,
-          risk_multiplier: 1,
-        },
-      });
+      await createBotMutation.mutateAsync(result.payload);
 
       setShowCreateForm(false);
       resetCreateForm();
@@ -695,7 +682,8 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
         `${createForm.instance_id} is ready for review and can be started from the desk.`
       );
     } catch (err) {
-      console.error('Failed to create bot:', err);
+      // Never log the raw error: its request config carries the seed phrase.
+      console.error('Failed to create bot:', summarizeErrorForLog(err));
       const message = toOperatorErrorMessage(err, 'Failed to create bot instance');
       setError(message);
       errorToast('Unable to create runtime', message);
@@ -816,7 +804,7 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
                 <Zap className="h-3.5 w-3.5" />
                 Bots desk
               </div>
-              <h1 className="mt-5 text-3xl font-bold text-white sm:text-4xl">Bots</h1>
+              <h2 className="mt-5 text-3xl font-bold text-white sm:text-4xl">Bots</h2>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
                 Manage live instances like an operator surface, not a settings form: health and
                 degraded-state signals first, actions close to each runtime, and clearer create-flow
@@ -877,7 +865,7 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
       )}
 
       {!embedded && (
-        <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <section className="grid grid-cols-1 gap-4 min-[400px]:grid-cols-2 xl:grid-cols-4">
           <div className="operator-stat-card p-5">
             <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Running</p>
             <p className="mt-2 text-2xl font-semibold text-emerald-300">{runningBots}</p>
@@ -911,8 +899,12 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
 
       {!embedded && <ArbitrageImprovementPanel />}
 
-      {error && (
-        <InlineNotice tone="danger" title="Runtime action needs attention" description={error} />
+      {displayError && (
+        <InlineNotice
+          tone="danger"
+          title="Runtime action needs attention"
+          description={displayError}
+        />
       )}
 
       <section
@@ -1038,8 +1030,11 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
           />
 
           <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Instance ID *</label>
+            <Field
+              label="Instance ID"
+              required
+              labelClassName="block text-sm font-medium text-slate-300 mb-1"
+            >
               <input
                 type="text"
                 placeholder="e.g., btc-eth-bot-01"
@@ -1047,22 +1042,24 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
                 onChange={(e) => setCreateForm({ ...createForm, instance_id: e.target.value })}
                 className="premium-input"
               />
-            </div>
+            </Field>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Chain ID</label>
+            <Field label="Chain ID" labelClassName="block text-sm font-medium text-slate-300 mb-1">
               <select
                 value={createForm.chain_id}
                 onChange={(e) => setCreateForm({ ...createForm, chain_id: e.target.value })}
                 className="premium-input"
               >
-                <option value="dydx-mainnet-1">dYdX Mainnet</option>
                 <option value="dydx-testnet-4">dYdX Testnet</option>
+                <option value="dydx-mainnet-1">dYdX Mainnet (real funds)</option>
               </select>
-            </div>
+            </Field>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Address *</label>
+            <Field
+              label="Address"
+              required
+              labelClassName="block text-sm font-medium text-slate-300 mb-1"
+            >
               <input
                 type="text"
                 placeholder="dydx1..."
@@ -1070,23 +1067,29 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
                 onChange={(e) => setCreateForm({ ...createForm, address: e.target.value })}
                 className="premium-input"
               />
-            </div>
+            </Field>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Mnemonic *</label>
+            <Field
+              label="Mnemonic"
+              required
+              labelClassName="block text-sm font-medium text-slate-300 mb-1"
+              hint="Operational secret — masked while typing."
+            >
               <input
                 type="password"
+                autoComplete="off"
+                spellCheck={false}
                 placeholder="Your seed phrase..."
                 value={createForm.mnemonic}
                 onChange={(e) => setCreateForm({ ...createForm, mnemonic: e.target.value })}
                 className="premium-input"
               />
-            </div>
+            </Field>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">
-                Z-Score Threshold
-              </label>
+            <Field
+              label="Z-Score Threshold"
+              labelClassName="block text-sm font-medium text-slate-300 mb-1"
+            >
               <input
                 type="number"
                 step="0.1"
@@ -1096,12 +1099,12 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
                 }
                 className="premium-input"
               />
-            </div>
+            </Field>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">
-                Max Half-Life (hours)
-              </label>
+            <Field
+              label="Max Half-Life (hours)"
+              labelClassName="block text-sm font-medium text-slate-300 mb-1"
+            >
               <input
                 type="number"
                 value={createForm.max_half_life}
@@ -1110,10 +1113,12 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
                 }
                 className="premium-input"
               />
-            </div>
+            </Field>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">USD Per Trade</label>
+            <Field
+              label="USD Per Trade"
+              labelClassName="block text-sm font-medium text-slate-300 mb-1"
+            >
               <input
                 type="number"
                 step="0.01"
@@ -1123,19 +1128,13 @@ const BotManager: React.FC<BotManagerProps> = ({ embedded = false, onStatusMetri
                 }
                 className="premium-input"
               />
-            </div>
+            </Field>
 
-            <div>
-              <label className="mt-6 flex items-center gap-2 text-sm font-medium text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={createForm.is_testnet}
-                  onChange={(e) => setCreateForm({ ...createForm, is_testnet: e.target.checked })}
-                  className="rounded"
-                />
-                Use Testnet
-              </label>
-            </div>
+            <p className="mt-6 text-sm font-medium text-slate-300" role="status">
+              {isTestnetChain(createForm.chain_id)
+                ? 'Network: testnet (no real funds).'
+                : 'Network: MAINNET. This runtime will trade real funds.'}
+            </p>
           </div>
 
           <div className="flex gap-3">

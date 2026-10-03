@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/config"
@@ -91,11 +94,29 @@ func main() {
 	}
 
 	middleware.InitAuthMiddleware(config.ConfigInstance)
+	// DB-backed password_change_required lookup for the server-side rotation
+	// gate (users flagged for rotation — seeded/recovered accounts — are
+	// blocked from normal endpoints until they change their password).
+	middleware.SetPasswordChangeLookup(func(userID int) (bool, error) {
+		var required bool
+		if err := conn.QueryRow(
+			`SELECT COALESCE(password_change_required, FALSE) FROM users WHERE id = $1`,
+			userID,
+		).Scan(&required); err != nil {
+			return false, err
+		}
+		return required, nil
+	})
 	if config.ConfigInstance.Auth.JWTSecretKey != "" {
 		log.Printf("Auth middleware initialized (JWT secret length=%d)", len(config.ConfigInstance.Auth.JWTSecretKey))
 	} else {
 		log.Printf("Auth middleware initialized with empty JWT secret")
 	}
+
+	// Root lifecycle context: cancelled on SIGTERM/SIGINT so background workers
+	// stop and the HTTP server drains in-flight requests before exit.
+	rootCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	botAPIURL := app.ResolveBotAPIURL()
 	router, err := app.BuildRouter(config.ConfigInstance, app.Dependencies{
@@ -103,12 +124,13 @@ func main() {
 		BotAPIClient: services.NewBotAPIClient(botAPIURL, os.Getenv("BOT_API_TOKEN")),
 		BotAPIURL:    botAPIURL,
 		StartTime:    startTime,
+		RootContext:  rootCtx,
 	})
 	if err != nil {
 		log.Fatalf("Failed to build router: %v", err)
 	}
 
-	if err := app.RunServer(router, os.Getenv("API_PORT")); err != nil {
+	if err := app.RunServer(rootCtx, router, os.Getenv("API_PORT")); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }

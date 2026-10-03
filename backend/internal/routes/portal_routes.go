@@ -4,6 +4,7 @@ package routes
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -79,7 +80,8 @@ func portalOverviewHandler(database *sql.DB) gin.HandlerFunc {
 
 		users, err := userRepo.List(1000, 0)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load users: %v", err)})
+			log.Printf("Failed to load users: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to load users"})
 			return
 		}
 
@@ -155,7 +157,8 @@ func listPartnerApplicationsHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load partner applications: %v", err)})
+			log.Printf("Failed to load partner applications: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to load partner applications"})
 			return
 		}
 
@@ -205,7 +208,8 @@ func createPartnerApplicationHandler(database *sql.DB) gin.HandlerFunc {
 			ReviewNotes:     "",
 		}
 		if err := appRepo.Create(application); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to create partner application: %v", err)})
+			log.Printf("Failed to create partner application: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to create partner application"})
 			return
 		}
 
@@ -226,7 +230,8 @@ func crmSummaryHandler(database *sql.DB) gin.HandlerFunc {
 		commissionRepo := repository.NewPartnerCommissionMetricRepository(database)
 		users, err := userRepo.List(1000, 0)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load CRM summary: %v", err)})
+			log.Printf("Failed to load CRM summary: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to load CRM summary"})
 			return
 		}
 		pending, _ := appRepo.CountPending()
@@ -301,7 +306,8 @@ func reviewPartnerApplicationHandler(database *sql.DB) gin.HandlerFunc {
 		relationshipRepo := repository.NewPartnerRelationshipRepository(database)
 		application, err := appRepo.GetByID(applicationID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load application: %v", err)})
+			log.Printf("Failed to load application: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to load application"})
 			return
 		}
 		if application == nil {
@@ -326,8 +332,26 @@ func reviewPartnerApplicationHandler(database *sql.DB) gin.HandlerFunc {
 			}
 			user.Role = application.RequestedRole
 			user.IsAdmin = application.RequestedRole == "admin"
-			if err := userRepo.Update(user); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to promote applicant: %v", err)})
+
+			// Role promotion, hierarchy upsert, and the review status update must
+			// commit atomically: a partial approval would promote a user while the
+			// application still reads "pending".
+			tx, txErr := database.BeginTx(c.Request.Context(), nil)
+			if txErr != nil {
+				log.Printf("Failed to open review transaction: %v", txErr)
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to open review transaction"})
+				return
+			}
+			committed := false
+			defer func() {
+				if !committed {
+					_ = tx.Rollback()
+				}
+			}()
+
+			if err := userRepo.WithTx(tx).Update(user); err != nil {
+				log.Printf("Failed to promote applicant: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to promote applicant"})
 				return
 			}
 
@@ -339,16 +363,31 @@ func reviewPartnerApplicationHandler(database *sql.DB) gin.HandlerFunc {
 					SourceApplicationID: &application.ID,
 					IsActive:            true,
 				}
-				if err := relationshipRepo.Upsert(relationship); err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to persist partner hierarchy: %v", err)})
+				if err := relationshipRepo.WithTx(tx).Upsert(relationship); err != nil {
+					log.Printf("Failed to persist partner hierarchy: %v", err)
+					c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to persist partner hierarchy"})
 					return
 				}
 			}
-		}
 
-		if err := appRepo.UpdateReview(application); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to review application: %v", err)})
-			return
+			if err := appRepo.WithTx(tx).UpdateReview(application); err != nil {
+				log.Printf("Failed to review application: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to review application"})
+				return
+			}
+
+			if err := tx.Commit(); err != nil {
+				log.Printf("Failed to commit review: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to commit review"})
+				return
+			}
+			committed = true
+		} else {
+			if err := appRepo.UpdateReview(application); err != nil {
+				log.Printf("Failed to review application: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to review application"})
+				return
+			}
 		}
 
 		writeAuditLog(database, c, "crm.application.review", "partner_application", stringPointer(strconv.Itoa(application.ID)), gin.H{
@@ -389,7 +428,8 @@ func portalHierarchyHandler(database *sql.DB) gin.HandlerFunc {
 			relationships, err = relationshipRepo.ListBySponsor(userID, limit, offset)
 		}
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load hierarchy: %v", err)})
+			log.Printf("Failed to load hierarchy: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to load hierarchy"})
 			return
 		}
 
@@ -427,7 +467,8 @@ func portalCommissionMetricsHandler(database *sql.DB) gin.HandlerFunc {
 
 		ownMetric, err := commissionRepo.GetLatestByUser(requestedUserID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load commission metrics: %v", err)})
+			log.Printf("Failed to load commission metrics: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to load commission metrics"})
 			return
 		}
 
@@ -477,7 +518,8 @@ func crmUsersTableHandler(database *sql.DB) gin.HandlerFunc {
 		relationshipRepo := repository.NewPartnerRelationshipRepository(database)
 		users, err := userRepo.List(2000, 0)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load users: %v", err)})
+			log.Printf("Failed to load users: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to load users"})
 			return
 		}
 
@@ -529,7 +571,8 @@ func crmHierarchyTableHandler(database *sql.DB) gin.HandlerFunc {
 		relationshipRepo := repository.NewPartnerRelationshipRepository(database)
 		relationships, err := relationshipRepo.List(5000, 0)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load hierarchy table: %v", err)})
+			log.Printf("Failed to load hierarchy table: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to load hierarchy table"})
 			return
 		}
 
@@ -559,7 +602,7 @@ func crmSecurityEventsHandler(database *sql.DB) gin.HandlerFunc {
 			`SELECT id, user_id, username, event_type, outcome, reason, ip_address, user_agent, created_at
 			 FROM security_login_events
 			 ORDER BY created_at DESC
-			 LIMIT ? OFFSET ?`,
+			 LIMIT $1 OFFSET $2`,
 			limit,
 			offset,
 		)
@@ -574,7 +617,8 @@ func crmSecurityEventsHandler(database *sql.DB) gin.HandlerFunc {
 				})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load security events: %v", err)})
+			log.Printf("Failed to load security events: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to load security events"})
 			return
 		}
 		defer func() { _ = rows.Close() }()
@@ -594,7 +638,8 @@ func crmSecurityEventsHandler(database *sql.DB) gin.HandlerFunc {
 			)
 
 			if scanErr := rows.Scan(&id, &userID, &username, &eventType, &outcome, &reason, &ipAddress, &userAgent, &createdAt); scanErr != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to parse security event: %v", scanErr)})
+				log.Printf("Failed to parse security event: %v", scanErr)
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to parse security event"})
 				return
 			}
 
@@ -619,7 +664,8 @@ func crmSecurityEventsHandler(database *sql.DB) gin.HandlerFunc {
 			events = append(events, event)
 		}
 		if err := rows.Err(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to iterate security events: %v", err)})
+			log.Printf("Failed to iterate security events: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to iterate security events"})
 			return
 		}
 
@@ -648,17 +694,25 @@ func upsertCommissionMetricsHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		periodStart := time.Now().UTC().AddDate(0, 0, -30)
-		periodEnd := time.Now().UTC()
+		// Periods are bucketed to UTC day boundaries: the upsert conflicts on
+		// exact (user, period_start, period_end), so unbucketed timestamps
+		// would insert a new row per ingest for the same logical window and
+		// inflate downstream commission aggregation.
+		periodStart := time.Now().UTC().AddDate(0, 0, -30).Truncate(24 * time.Hour)
+		periodEnd := time.Now().UTC().Truncate(24 * time.Hour)
 		if strings.TrimSpace(req.PeriodStart) != "" {
 			if parsed, parseErr := time.Parse(time.RFC3339, req.PeriodStart); parseErr == nil {
-				periodStart = parsed.UTC()
+				periodStart = parsed.UTC().Truncate(24 * time.Hour)
 			}
 		}
 		if strings.TrimSpace(req.PeriodEnd) != "" {
 			if parsed, parseErr := time.Parse(time.RFC3339, req.PeriodEnd); parseErr == nil {
-				periodEnd = parsed.UTC()
+				periodEnd = parsed.UTC().Truncate(24 * time.Hour)
 			}
+		}
+		if !periodStart.Before(periodEnd) {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "period_start must be before period_end"})
+			return
 		}
 
 		metric := &models.PartnerCommissionMetric{
@@ -675,7 +729,8 @@ func upsertCommissionMetricsHandler(database *sql.DB) gin.HandlerFunc {
 
 		commissionRepo := repository.NewPartnerCommissionMetricRepository(database)
 		if err := commissionRepo.Upsert(metric); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to save commission metric: %v", err)})
+			log.Printf("Failed to save commission metric: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to save commission metric"})
 			return
 		}
 
@@ -720,7 +775,8 @@ func portalHierarchyTreeHandler(database *sql.DB) gin.HandlerFunc {
 			allEdges, err = relationshipRepo.List(10000, 0)
 		}
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load hierarchy: %v", err)})
+			log.Printf("Failed to load hierarchy: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to load hierarchy"})
 			return
 		}
 

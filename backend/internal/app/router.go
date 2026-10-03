@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -21,6 +22,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// maxRequestBodyBytes caps how much any single request may read into memory.
+const maxRequestBodyBytes = 10 << 20
+
 type Dependencies struct {
 	Database        *db.Database
 	BotAPIClient    *services.BotAPIClient
@@ -28,6 +32,17 @@ type Dependencies struct {
 	BacktestPushHub *services.BacktestPushHub
 	BotAPIURL       string
 	StartTime       time.Time
+	// RootContext bounds background workers (event consumer, outbox ticker,
+	// push hub). Nil defaults to context.Background() (workers run forever).
+	RootContext context.Context
+}
+
+// rootContext returns the effective worker context for this build.
+func (d *Dependencies) rootContext() context.Context {
+	if d.RootContext != nil {
+		return d.RootContext
+	}
+	return context.Background()
 }
 
 func ResolveBotAPIURL() string {
@@ -73,20 +88,41 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 	}
 
 	router := gin.Default()
-	if err := router.SetTrustedProxies([]string{"127.0.0.1", "::1"}); err != nil {
+	trustedProxies, proxyErr := trustedProxiesFromEnv(os.Getenv("TRUSTED_PROXIES"))
+	if proxyErr != nil {
+		// Fail closed: an unparseable list must not widen trust.
+		log.Printf("Warning: %v; trusting loopback only", proxyErr)
+	}
+	if err := router.SetTrustedProxies(trustedProxies); err != nil {
 		log.Printf("Warning: failed to set trusted proxies: %v", err)
 	}
 
 	router.Use(middleware.RequestTraceMiddleware())
 	router.Use(middleware.ErrorHandlingMiddleware())
+	// Cap request bodies globally: unauthenticated JSON endpoints must not be
+	// usable as memory-exhaustion vectors. Legitimate backtest/strategy
+	// payloads fit well below the cap.
+	router.Use(func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBodyBytes)
+		c.Next()
+	})
 	router.Use(middleware.CORSMiddleware())
 	router.Use(middleware.HeaderLoggingMiddleware())
 	router.Use(middleware.RequestLoggingMiddleware())
 	router.Use(middleware.RateLimitMiddleware(100, 200))
 
-	// API request events middleware - captures telemetry for ClickHouse (best effort)
+	// API request events middleware - captures telemetry for ClickHouse (best
+	// effort) through a bounded batching writer instead of one goroutine+INSERT
+	// per request; the writer drains when the process lifecycle ends.
 	if cfg.ClickHouse.Enabled {
-		router.Use(middleware.APIRequestEventsMiddleware(cfg))
+		clickHouseReader := services.NewClickHouseReader(cfg.ClickHouse)
+		batchWriter := middleware.NewAPIRequestEventBatchWriter(
+			services.NewAPIRequestWriter(clickHouseReader), 64, 5*time.Second)
+		router.Use(middleware.APIRequestEventsMiddlewareWithBatchWriter(batchWriter))
+		go func() {
+			<-deps.rootContext().Done()
+			batchWriter.Close()
+		}()
 	}
 	router.Use(gzip.Gzip(
 		gzip.DefaultCompression,
@@ -114,6 +150,15 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 		)
 	}
 
+	// Disconnect push subscribers when the process lifecycle ends.
+	if deps.BacktestPushHub != nil {
+		hub := deps.BacktestPushHub
+		go func() {
+			<-deps.rootContext().Done()
+			hub.Stop()
+		}()
+	}
+
 	registerHealthRoutes(router, cfg, deps.Database, deps.BotAPIURL, deps.StartTime)
 	// Phase 4: NATS JetStream publisher and task repository for dual-write wiring
 	taskRepo := repository.NewTaskRepository(deps.Database.DB)
@@ -129,21 +174,42 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 			cfg.NATS.URL, services.NewBacktestEventProjector(deps.BacktestPushHub),
 		); eventConsumer != nil {
 			go func() {
-				if err := eventConsumer.Run(context.Background()); err != nil {
+				if err := eventConsumer.Run(deps.rootContext()); err != nil && deps.rootContext().Err() == nil {
 					log.Printf("backtest event consumer stopped: %v", err)
 				}
 			}()
 		}
 	}
 
-	registerFeatureRoutes(router, deps.Database, deps.BotAPIClient, deps.CacheService, deps.BacktestPushHub, taskRepo, natsPublisher, natsCommandService)
+	registerFeatureRoutes(deps.rootContext(), router, deps.Database, deps.BotAPIClient, deps.CacheService, deps.BacktestPushHub, taskRepo, natsPublisher, natsCommandService)
+
+	// Periodically re-publish task commands stuck in "pending" (lost publishes
+	// from NATS outages or restarts). JetStream's Msg-Id dedupe makes this safe.
+	if natsCommandService != nil {
+		go func() {
+			ticker := time.NewTicker(time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-deps.rootContext().Done():
+					return
+				case <-ticker.C:
+					ctx, cancel := context.WithTimeout(deps.rootContext(), 30*time.Second)
+					if _, err := natsCommandService.ReconcilePendingCommands(ctx, 2*time.Minute, 50); err != nil {
+						log.Printf("NATS pending-command reconciler error: %v", err)
+					}
+					cancel()
+				}
+			}
+		}()
+	}
 	registerDebugRoutes(router, deps.Database)
 
 	// Backend-owned ClickHouse read models. Each reader is nil when ClickHouse is
 	// disabled (the checked-in default), in which case analytics routes fail
 	// closed with enabled=false instead of erroring.
 	clickHouseReader := services.NewClickHouseReader(cfg.ClickHouse)
-	registerAnalyticsRoutes(router,
+	registerAnalyticsRoutes(router, deps.Database.DB,
 		services.NewLivePositionReader(clickHouseReader),
 		services.NewLiveTradeSummaryReader(clickHouseReader),
 		services.NewLivePairBreakdownReader(clickHouseReader),
@@ -154,7 +220,7 @@ func BuildRouter(cfg *config.Config, deps Dependencies) (*gin.Engine, error) {
 	return router, nil
 }
 
-func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient *services.BotAPIClient, cacheService *services.CacheService, backtestPushHub *services.BacktestPushHub, taskRepo *repository.TaskRepository, natsPublisher *nats.Publisher, natsCommandService *services.NATSCommandService) {
+func registerFeatureRoutes(workerCtx context.Context, router *gin.Engine, database *db.Database, apiClient *services.BotAPIClient, cacheService *services.CacheService, backtestPushHub *services.BacktestPushHub, taskRepo *repository.TaskRepository, natsPublisher *nats.Publisher, natsCommandService *services.NATSCommandService) {
 	routes.RegisterAuthRoutes(router, database.DB)
 	routes.RegisterAdminUserRoutes(router, database.DB)
 	routes.RegisterBackofficeRoutes(router, database.DB)
@@ -164,7 +230,7 @@ func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient 
 	routes.RegisterSettingsRoutes(router, database)
 	routes.RegisterICOPublicRoutes(router, database.DB)
 	routes.RegisterICOAdminRoutes(router, database.DB)
-	startICOEmailOutboxWorker(database.DB)
+	startICOEmailOutboxWorker(workerCtx, database.DB)
 
 	router.Use(middleware.ComingSoonMiddleware(database.DB))
 
@@ -177,7 +243,7 @@ func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient 
 	routes.RegisterAIMarketRoutes(router, database, apiClient)
 	routes.RegisterKeyRoutes(router, database)
 	routes.RegisterArbitrageSettingsRoutes(router, database, apiClient)
-	routes.RegisterMailgunRoutes(router, database)
+	routes.RegisterEmailRoutes(router, database)
 	routes.RegisterTelegramRoutes(router, database)
 	routes.RegisterCodexRoutes(router, database)
 	routes.RegisterNewsRoutes(router, database)
@@ -186,7 +252,7 @@ func registerFeatureRoutes(router *gin.Engine, database *db.Database, apiClient 
 	routes.RegisterAuditLogRoutes(router, database)
 }
 
-func startICOEmailOutboxWorker(sqlDB *sql.DB) {
+func startICOEmailOutboxWorker(workerCtx context.Context, sqlDB *sql.DB) {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("ICO_EMAIL_OUTBOX_WORKER_ENABLED")), "false") {
 		log.Printf("ICO email outbox worker disabled by configuration")
 		return
@@ -195,20 +261,29 @@ func startICOEmailOutboxWorker(sqlDB *sql.DB) {
 	settingsRepo := repository.NewSettingsRepository(sqlDB)
 	userRepo := repository.NewUserRepository(sqlDB)
 	credentialService := services.NewExternalAPICredentialService(credentialRepo)
-	mailgunService := services.NewMailgunService(credentialService, settingsRepo, userRepo)
+	emailService := services.NewEmailService(credentialService, settingsRepo, userRepo)
 	whitelistRepo := repository.NewICOWhitelistRepository(sqlDB)
-	outboxService := services.NewICOEmailOutboxService(whitelistRepo, mailgunService)
+	outboxService := services.NewICOEmailOutboxService(whitelistRepo, emailService)
 
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
-		for {
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			if _, err := outboxService.ProcessPending(ctx, 25); err != nil {
+		// Run one sweep immediately so outbox emails are not delayed by a full
+		// tick after startup.
+		for first := true; ; first = false {
+			if !first {
+				select {
+				case <-workerCtx.Done():
+					log.Printf("ICO email outbox worker stopped")
+					return
+				case <-ticker.C:
+				}
+			}
+			ctx, cancel := context.WithTimeout(workerCtx, 20*time.Second)
+			if _, err := outboxService.ProcessPending(ctx, 25); err != nil && ctx.Err() == nil {
 				log.Printf("ICO email outbox worker error: %v", err)
 			}
 			cancel()
-			<-ticker.C
 		}
 	}()
 	log.Printf("ICO email outbox worker started")
@@ -217,6 +292,15 @@ func startICOEmailOutboxWorker(sqlDB *sql.DB) {
 func registerDebugRoutes(router *gin.Engine, database *db.Database) {
 	debug := router.Group("/api/v1/debug")
 	debug.Use(middleware.RequireAuth())
+	// Debug echo endpoints can surface request internals; restrict to admins.
+	debug.Use(func(c *gin.Context) {
+		if !c.GetBool("is_admin") {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "admin only"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	})
 
 	debug.GET("/headers", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -276,7 +360,7 @@ func registerDebugRoutes(router *gin.Engine, database *db.Database) {
 		reviewingByPrefix := map[string]int64{}
 		for _, prefix := range seedPrefixes {
 			var userCount int64
-			_ = database.DB.QueryRow(`SELECT COUNT(*) FROM users WHERE username LIKE ?`, prefix).Scan(&userCount)
+			_ = database.DB.QueryRow(`SELECT COUNT(*) FROM users WHERE username LIKE $1`, prefix).Scan(&userCount)
 			usersByPrefix[prefix] = userCount
 
 			var appCount int64
@@ -284,8 +368,8 @@ func registerDebugRoutes(router *gin.Engine, database *db.Database) {
 				SELECT COUNT(*)
 				FROM partner_applications pa
 				LEFT JOIN users u ON u.id = pa.applicant_user_id
-				WHERE u.username LIKE ? OR pa.business_name LIKE REPLACE(?, '%', '') || '%'
-			`, prefix).Scan(&appCount)
+				WHERE u.username LIKE $1 OR pa.business_name LIKE REPLACE($2, '%', '') || '%'
+			`, prefix, prefix).Scan(&appCount)
 			applicationsByPrefix[prefix] = appCount
 
 			var reviewingCount int64
@@ -294,8 +378,8 @@ func registerDebugRoutes(router *gin.Engine, database *db.Database) {
 				FROM partner_applications pa
 				LEFT JOIN users u ON u.id = pa.applicant_user_id
 				WHERE pa.status = 'reviewing'
-				  AND (u.username LIKE ? OR pa.business_name LIKE REPLACE(?, '%', '') || '%')
-			`, prefix).Scan(&reviewingCount)
+				  AND (u.username LIKE $1 OR pa.business_name LIKE REPLACE($2, '%', '') || '%')
+			`, prefix, prefix).Scan(&reviewingCount)
 			reviewingByPrefix[prefix] = reviewingCount
 		}
 
@@ -314,7 +398,7 @@ func registerDebugRoutes(router *gin.Engine, database *db.Database) {
 	})
 }
 
-func RunServer(router *gin.Engine, port string) error {
+func RunServer(ctx context.Context, router *gin.Engine, port string) error {
 	if strings.TrimSpace(port) == "" {
 		port = "8888"
 	}
@@ -323,6 +407,36 @@ func RunServer(router *gin.Engine, port string) error {
 		log.Printf("Registered route: %s %s", route.Method, route.Path)
 	}
 
-	log.Printf("Backend server starting on port %s", port)
-	return router.Run(fmt.Sprintf(":%s", port))
+	// WriteTimeout is intentionally unset: SSE streams and WebSocket relays are
+	// long-lived by design. The other timeouts close slowloris vectors.
+	server := &http.Server{
+		Addr:              fmt.Sprintf(":%s", port),
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	serverErr := make(chan error, 1)
+	go func() {
+		log.Printf("Backend server starting on port %s", port)
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
+		}
+	}()
+
+	select {
+	case err := <-serverErr:
+		return err
+	case <-ctx.Done():
+		// Drain in-flight requests before returning; new connections are refused.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Graceful shutdown exceeded drain window: %v", err)
+			return fmt.Errorf("shutdown: %w", err)
+		}
+		log.Printf("Backend server drained and stopped")
+		return nil
+	}
 }

@@ -38,6 +38,7 @@ export const DYDXKeyManager: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [formSubmitting, setFormSubmitting] = useState(false);
+  const [showMnemonic, setShowMnemonic] = useState(false);
   const [confirmDeleteNetwork, setConfirmDeleteNetwork] = useState<string | null>(null);
 
   // Form state
@@ -89,9 +90,10 @@ export const DYDXKeyManager: React.FC = () => {
     }
   }, []);
 
-  // Load keys once on mount (no polling — keys are user-controlled)
+  // Load keys once on mount (no polling — keys are user-controlled).
+  // Microtask keeps the loader's synchronous state reset out of the effect.
   useEffect(() => {
-    void loadKeys();
+    void Promise.resolve().then(() => loadKeys());
   }, [loadKeys]);
 
   // Clear messages after 5 seconds
@@ -272,7 +274,7 @@ export const DYDXKeyManager: React.FC = () => {
 
           {/* Network Selection */}
           <div className="mb-6">
-            <label className="mb-3 block font-medium text-white">Select Network</label>
+            <p className="mb-3 block font-medium text-white">Select Network</p>
             <div className="grid grid-cols-2 gap-4">
               {(['testnet', 'mainnet'] as const).map((net) => (
                 <label
@@ -315,11 +317,12 @@ export const DYDXKeyManager: React.FC = () => {
 
           {/* Chain Address */}
           <div className="mb-6">
-            <label className="mb-2 block font-medium text-white">
+            <label className="mb-2 block font-medium text-white" htmlFor="chain-address">
               Chain Address
               <span className="text-red-400 ml-1">*</span>
             </label>
             <input
+              id="chain-address"
               type="text"
               placeholder="dydx1xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
               value={formData.chain_address}
@@ -347,27 +350,43 @@ export const DYDXKeyManager: React.FC = () => {
 
           {/* Secret Phrase */}
           <div className="mb-6">
-            <label className="mb-2 block font-medium text-white">
+            <label className="mb-2 block font-medium text-white" htmlFor="secret-phrase">
               Secret Phrase / Mnemonic
               <span className="text-red-400 ml-1">*</span>
             </label>
-            <textarea
-              placeholder="Enter your mnemonic seed phrase (12 or 24 words, space-separated)"
-              value={formData.secret_phrase}
-              onChange={(e) => {
-                setFormData({ ...formData, secret_phrase: e.target.value });
-                if (formErrors.secret_phrase) {
-                  const newErrors = { ...formErrors };
-                  delete newErrors.secret_phrase;
-                  setFormErrors(newErrors);
-                }
-              }}
-              className={`premium-input h-32 resize-none font-mono text-sm ${
-                formErrors.secret_phrase
-                  ? 'border-red-600 focus:border-red-500 focus:ring-red-500'
-                  : ''
-              }`}
-            />
+            {/* Masked while typing, matching the bot creation form: seed
+                phrases are operational secrets and should not render on screen. */}
+            <div className="relative">
+              <input
+                id="secret-phrase"
+                type={showMnemonic ? 'text' : 'password'}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="Enter your mnemonic seed phrase (12 or 24 words, space-separated)"
+                value={formData.secret_phrase}
+                onChange={(e) => {
+                  setFormData({ ...formData, secret_phrase: e.target.value });
+                  if (formErrors.secret_phrase) {
+                    const newErrors = { ...formErrors };
+                    delete newErrors.secret_phrase;
+                    setFormErrors(newErrors);
+                  }
+                }}
+                className={`premium-input pr-20 font-mono text-sm ${
+                  formErrors.secret_phrase
+                    ? 'border-red-600 focus:border-red-500 focus:ring-red-500'
+                    : ''
+                }`}
+              />
+              <button
+                type="button"
+                onClick={() => setShowMnemonic((visible) => !visible)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs text-slate-400 hover:text-white"
+                aria-label={showMnemonic ? 'Hide mnemonic' : 'Show mnemonic'}
+              >
+                {showMnemonic ? 'Hide' : 'Show'}
+              </button>
+            </div>
             {formErrors.secret_phrase && (
               <p className="mt-1 text-xs text-red-400">{formErrors.secret_phrase}</p>
             )}

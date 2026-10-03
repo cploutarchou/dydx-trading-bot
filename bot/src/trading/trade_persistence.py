@@ -9,18 +9,11 @@ from loguru import logger
 from src.infrastructure.database import db
 from src.infrastructure.persistence.repository import UnitOfWork
 from src.infrastructure.persistence.repository_realtime import UnitOfWorkRealtime
+from src.shared.db_env import any_db_connection_configured
 
 
 def _db_persistence_enabled() -> bool:
-    if any(
-        bool(os.getenv(name, "").strip())
-        for name in (
-            "BOT_DATABASE_URL",
-            "DATABASE_URL",
-            "BOT_DB_HOST",
-            "DB_HOST",
-        )
-    ):
+    if any_db_connection_configured():
         return True
     return getattr(db.get_session, "__self__", None) is not db
 
@@ -171,8 +164,15 @@ def persist_live_trade_closed(
     exit_price2: Any,
     exit_size1: Any,
     exit_size2: Any,
+    realized_pnl: Any = None,
+    realized_pnl_pct: Any = None,
 ) -> Optional[str]:
-    """Mark an existing live trade/position closed when both reduce-only exits submit."""
+    """Mark an existing live trade/position closed when both reduce-only exits submit.
+
+    ``realized_pnl`` / ``realized_pnl_pct`` are the net figures computed by
+    :mod:`src.trading.realized_pnl`. ``None`` means "could not be computed" and
+    leaves the stored values untouched instead of recording a false zero.
+    """
     instance_id = _runtime_instance_id()
     if not instance_id or not _db_persistence_enabled():
         return None
@@ -189,6 +189,10 @@ def persist_live_trade_closed(
             exit_price2=_float_or_zero(exit_price2),
             exit_size1=_float_or_zero(exit_size1),
             exit_size2=_float_or_zero(exit_size2),
+            realized_pnl=None if realized_pnl is None else float(realized_pnl),
+            realized_pnl_pct=(
+                None if realized_pnl_pct is None else float(realized_pnl_pct)
+            ),
         )
         realtime.positions.close_position(trade_id)
         return trade_id

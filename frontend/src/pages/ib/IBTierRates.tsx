@@ -4,6 +4,7 @@ import { useState } from 'react';
 import api, { type IBTierCommissionRate, type UpsertIBTierCommissionRatePayload } from '../../api';
 import { useToastStore } from '../../components/ErrorBoundary';
 import { PageContainer } from '../../components/PageContainer';
+import { formatPct } from '../../utils/format';
 
 interface EditingState {
   tierLevel: number;
@@ -198,17 +199,11 @@ export const IBTierRates = () => {
           <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
             Total commission stack
           </p>
-          <p className="mt-2 text-2xl font-semibold text-white">
-            {totalCommission.toFixed(2)}
-            <span className="ml-1 text-sm font-normal text-slate-400">%</span>
-          </p>
+          <p className="mt-2 text-2xl font-semibold text-white">{formatPct(totalCommission, 2)}</p>
         </div>
         <div className="rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4">
           <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Total rebate stack</p>
-          <p className="mt-2 text-2xl font-semibold text-white">
-            {totalRebate.toFixed(2)}
-            <span className="ml-1 text-sm font-normal text-slate-400">%</span>
-          </p>
+          <p className="mt-2 text-2xl font-semibold text-white">{formatPct(totalRebate, 2)}</p>
         </div>
       </div>
 
@@ -244,12 +239,21 @@ export const IBTierRates = () => {
               return (
                 <div
                   key={rate.tier_level}
+                  role={!isEditing && !addingNew ? 'button' : undefined}
+                  tabIndex={!isEditing && !addingNew ? 0 : undefined}
+                  aria-label={`Edit tier ${rate.tier_level} rates`}
                   className={`rounded-xl border p-4 transition ${
                     isEditing
                       ? 'border-cyan-500/40 bg-slate-950/80'
                       : 'border-slate-700/60 bg-slate-950/60 hover:border-slate-600/80 cursor-pointer'
                   }`}
                   onClick={() => !isEditing && !addingNew && startEdit(rate)}
+                  onKeyDown={(e) => {
+                    if (!isEditing && !addingNew && (e.key === 'Enter' || e.key === ' ')) {
+                      e.preventDefault();
+                      startEdit(rate);
+                    }
+                  }}
                 >
                   {isEditing && editState ? (
                     <div className="space-y-3">
@@ -263,10 +267,14 @@ export const IBTierRates = () => {
                       </div>
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div>
-                          <label className="text-xs uppercase tracking-[0.14em] text-slate-500">
+                          <label
+                            className="text-xs uppercase tracking-[0.14em] text-slate-500"
+                            htmlFor="commission-rate"
+                          >
                             Commission rate (%)
                           </label>
                           <input
+                            id="commission-rate"
                             type="number"
                             min={0}
                             max={100}
@@ -281,10 +289,14 @@ export const IBTierRates = () => {
                           />
                         </div>
                         <div>
-                          <label className="text-xs uppercase tracking-[0.14em] text-slate-500">
+                          <label
+                            className="text-xs uppercase tracking-[0.14em] text-slate-500"
+                            htmlFor="rebate-rate"
+                          >
                             Rebate rate (%)
                           </label>
                           <input
+                            id="rebate-rate"
                             type="number"
                             min={0}
                             max={100}
@@ -358,11 +370,11 @@ export const IBTierRates = () => {
                       <div className="flex items-center gap-4 text-sm tabular-nums">
                         <span className="flex items-center gap-1 text-emerald-300">
                           <Percent className="h-3.5 w-3.5" />
-                          {rate.commission_rate_pct.toFixed(2)}%
+                          {formatPct(rate.commission_rate_pct, 2)}
                           <span className="text-xs text-slate-500">commission</span>
                         </span>
                         <span className="flex items-center gap-1 text-violet-300">
-                          {rate.rebate_rate_pct.toFixed(2)}%
+                          {formatPct(rate.rebate_rate_pct, 2)}
                           <span className="text-xs text-slate-500">rebate</span>
                         </span>
                       </div>
@@ -401,10 +413,14 @@ export const IBTierRates = () => {
                 <p className="mb-3 text-sm font-semibold text-white">New tier</p>
                 <div className="space-y-3">
                   <div>
-                    <label className="text-xs uppercase tracking-[0.14em] text-slate-500">
+                    <label
+                      className="text-xs uppercase tracking-[0.14em] text-slate-500"
+                      htmlFor="tier-level-1-50"
+                    >
                       Tier level (1–50)
                     </label>
                     <input
+                      id="tier-level-1-50"
                       type="number"
                       min={1}
                       max={50}
@@ -416,10 +432,14 @@ export const IBTierRates = () => {
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div>
-                      <label className="text-xs uppercase tracking-[0.14em] text-slate-500">
+                      <label
+                        className="text-xs uppercase tracking-[0.14em] text-slate-500"
+                        htmlFor="commission-rate"
+                      >
                         Commission rate (%)
                       </label>
                       <input
+                        id="commission-rate"
                         type="number"
                         min={0}
                         max={100}
@@ -432,10 +452,14 @@ export const IBTierRates = () => {
                       />
                     </div>
                     <div>
-                      <label className="text-xs uppercase tracking-[0.14em] text-slate-500">
+                      <label
+                        className="text-xs uppercase tracking-[0.14em] text-slate-500"
+                        htmlFor="rebate-rate"
+                      >
                         Rebate rate (%)
                       </label>
                       <input
+                        id="rebate-rate"
                         type="number"
                         min={0}
                         max={100}
@@ -522,8 +546,8 @@ export const IBTierRates = () => {
                       Tier {rate.tier_level}
                     </p>
                     <p className="mt-0.5 text-sm">
-                      {rate.commission_rate_pct.toFixed(2)}% commission ·{' '}
-                      {rate.rebate_rate_pct.toFixed(2)}% rebate
+                      {formatPct(rate.commission_rate_pct, 2)} commission ·{' '}
+                      {formatPct(rate.rebate_rate_pct, 2)} rebate
                     </p>
                     {rate.description && (
                       <p className="mt-0.5 text-xs opacity-70">{rate.description}</p>

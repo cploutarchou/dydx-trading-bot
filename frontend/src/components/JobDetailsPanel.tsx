@@ -103,16 +103,28 @@ export const JobDetailsPanel: React.FC<JobDetailsPanelProps> = ({ job, onClose }
   const isRunning = job.status === 'running';
 
   return (
+    // Backdrop dismiss is a pointer-only convenience (presentation role is the
+    // jsx-a11y-sanctioned pattern); the dialog below owns the real semantics
+    // and closes on Escape.
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Job details"
+      role="presentation"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl">
+      {/* Escape-to-dismiss on the dialog is the WAI-ARIA APG pattern;
+            the rule reads any listener on a non-interactive role as a smell. */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
+      <div
+        className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Job details"
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onClose();
+        }}
+      >
         {/* Header */}
         <div className="flex items-start justify-between gap-4 p-5 border-b border-slate-700 sticky top-0 bg-slate-800 z-10">
           <div className="min-w-0">

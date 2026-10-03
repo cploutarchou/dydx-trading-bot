@@ -1,4 +1,6 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+/* Self-hosted fonts: the CSP (docker/nginx.conf) only allows style-src/
+   font-src 'self', so remote Google Fonts CSS is blocked in production. */
+@import './assets/fonts/fonts.css';
 @import 'tailwindcss';
 
 :root {
@@ -7428,4 +7430,22 @@ textarea:disabled {
   .ico-document-article section {
     break-inside: avoid;
   }
+}
+
+/* Horizontal scroll affordance for wide data tables (audit FE-025):
+   thin scrollbar plus a right-edge fade that hints at clipped columns. */
+.scroll-shadow-x {
+  position: relative;
+  scrollbar-width: thin;
+}
+.scroll-shadow-x::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  background: linear-gradient(to left, var(--app-bg, #0c0a09), transparent);
+  pointer-events: none;
+  z-index: 1;
 }

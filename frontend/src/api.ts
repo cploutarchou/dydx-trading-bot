@@ -2,7 +2,14 @@
  * API client for dYdX Backtest system
  */
 
-import axios, { AxiosError, AxiosInstance, AxiosRequestHeaders } from 'axios';
+import axios, {
+  AxiosError,
+  AxiosInstance,
+  AxiosRequestHeaders,
+  create,
+  isAxiosError,
+  isCancel,
+} from 'axios';
 import {
   guardBacktestStatusContract,
   guardListBacktestsContract,
@@ -91,6 +98,8 @@ const isPublicUnauthenticatedRoute = (url: string): boolean =>
   url.includes('/auth/refresh') ||
   url.includes('/auth/token') ||
   url.includes('/auth/registration-status') ||
+  url.includes('/auth/forgot-password') ||
+  url.includes('/auth/reset-password') ||
   url.includes('/public/app-config') ||
   url.includes('/public/ico/') ||
   url.includes('/health') ||
@@ -224,6 +233,9 @@ interface Token extends Record<string, unknown> {
   token_type: string;
   expires_in: number;
   session_expires_at?: string;
+  /** Present when the backend requires a TOTP challenge before login completes. */
+  mfa_required?: boolean;
+  code?: string;
 }
 
 interface LoginRequest {
@@ -702,27 +714,33 @@ export interface IBHierarchyTreeResponse extends Record<string, unknown> {
   max_depth: number;
 }
 
-export interface MailgunStatusResponse extends Record<string, unknown> {
+export interface EmailStatusResponse extends Record<string, unknown> {
   provider: string;
   configured: boolean;
   shared_key_present: boolean;
   shared_key_masked?: string;
   shared_key_label?: string;
-  domain?: string;
+  api_url?: string;
   from_email?: string;
   from_name?: string;
-  region?: 'us' | 'eu' | string;
-  base_url?: string;
+  reply_to?: string;
   pending_password_change_count: number;
 }
 
-export interface MailgunConfigPayload extends Record<string, unknown> {
+export interface EmailConfigPayload extends Record<string, unknown> {
+  /** Blank keeps the secret key already on file. */
   api_key: string;
   label?: string;
-  domain: string;
+  api_url: string;
   from_email: string;
   from_name?: string;
-  region?: 'us' | 'eu' | string;
+  reply_to?: string;
+}
+
+export interface EmailSendResultResponse extends Record<string, unknown> {
+  delivered: boolean;
+  message: string;
+  message_id?: string;
 }
 
 export interface TelegramStatusResponse extends Record<string, unknown> {
@@ -1658,6 +1676,21 @@ interface StrategyRuntimeResponse extends Record<string, unknown> {
   last_synced_at?: string;
 }
 
+/**
+ * A risk limit configured on the strategy that the live runtime cannot enforce.
+ * The runtime refuses to start while any of these is set above zero.
+ */
+export interface UnenforcedRiskControl extends Record<string, unknown> {
+  field: string;
+  value: number;
+  message: string;
+}
+
+export interface DisabledRiskControl extends Record<string, unknown> {
+  field: string;
+  previous_value: number;
+}
+
 interface StrategyStartReadinessResponse extends Record<string, unknown> {
   strategy_id: number;
   strategy_name?: string;
@@ -1679,6 +1712,11 @@ interface StrategyStartReadinessResponse extends Record<string, unknown> {
   ready: boolean;
   blockers: string[];
   warnings: string[];
+  unenforced_risk_controls?: UnenforcedRiskControl[];
+}
+
+interface DisableUnenforcedRiskControlsResponse extends StrategyResponse {
+  disabled_risk_controls?: DisabledRiskControl[];
 }
 
 const normalizeStrategyPayload = (data: StrategyRequest): StrategyRequest => {
@@ -1768,9 +1806,10 @@ class ApiClient {
   private pendingRequests: PendingRequest[] = [];
   private refreshBlockedUntil: number = 0;
   private readonly refreshFailureCooldownMs: number = 10000;
+  private pendingMFAChallenge: boolean = false;
 
   constructor() {
-    this.client = axios.create({
+    this.client = create({
       baseURL: API_BASE_URL,
       withCredentials: true,
       headers: {
@@ -1781,8 +1820,9 @@ class ApiClient {
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
-      // Load persisted token for session recovery after page refresh
-      this.loadTokenFromStorage();
+      // Scrub the pre-FE-002 persisted JWT so no stale bearer remains on
+      // returning browsers; sessions recover via the HttpOnly cookie.
+      localStorage.removeItem('_dydx_access_token');
     }
 
     // Request interceptor: browser auth is carried by the HttpOnly session cookie.
@@ -1816,9 +1856,7 @@ class ApiClient {
       (response) => response,
       async (error: AxiosError) => {
         const isCanceledRequest =
-          axios.isCancel(error) ||
-          error.code === 'ERR_CANCELED' ||
-          error.message === 'Request aborted';
+          isCancel(error) || error.code === 'ERR_CANCELED' || error.message === 'Request aborted';
 
         if (isCanceledRequest) {
           return Promise.reject(error);
@@ -1844,13 +1882,29 @@ class ApiClient {
           !url.includes('/public/app-config') &&
           !url.includes('/public/ico/')
         ) {
+          // A valid-but-pending MFA session answers 401 with this code: the
+          // session exists but still awaits its TOTP challenge, so a silent
+          // refresh cannot fix the request. Route the app to the challenge.
+          const errorBody = error.response?.data as
+            { code?: string; error_code?: string } | undefined;
+          const errorCode = errorBody?.code ?? errorBody?.error_code;
+          if (errorCode === 'mfa_challenge_required') {
+            console.warn('🔐 api.ts: session awaits its MFA challenge');
+            this.markPendingMFAChallenge();
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(
+                new CustomEvent('auth:mfa-required', { detail: { code: errorCode } })
+              );
+            }
+            return Promise.reject(error);
+          }
+
           if (!this.shouldAttemptCookieRefresh()) {
             return Promise.reject(error);
           }
 
           const originalRequest = error.config as
-            | (typeof error.config & { _retry?: boolean })
-            | undefined;
+            (typeof error.config & { _retry?: boolean }) | undefined;
           if (originalRequest?._retry) {
             return Promise.reject(error);
           }
@@ -1884,6 +1938,19 @@ class ApiClient {
             }
 
             const refreshPayload = await this.refreshAccessToken();
+            if (refreshPayload.mfa_required) {
+              // Refresh surfaced a pending MFA session: the original request
+              // cannot succeed until the TOTP challenge completes.
+              this.notifyRefreshFailure(new Error('mfa_challenge_required'));
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(
+                  new CustomEvent('auth:mfa-required', {
+                    detail: { code: 'mfa_challenge_required' },
+                  })
+                );
+              }
+              return Promise.reject(error);
+            }
             const newAccessToken = refreshPayload.access_token;
 
             this.notifyRefreshSuccess(newAccessToken || '');
@@ -1906,7 +1973,7 @@ class ApiClient {
             const errorMsg =
               refreshError instanceof Error ? refreshError.message : String(refreshError);
             const refreshStatus =
-              axios.isAxiosError(refreshError) && refreshError.response
+              isAxiosError(refreshError) && refreshError.response
                 ? refreshError.response.status
                 : null;
             const shouldExpireSession = refreshStatus === 401 || refreshStatus === 403;
@@ -1964,12 +2031,14 @@ class ApiClient {
     this.sessionEstablished = true;
     this.markSessionEstablished();
     // Persist token to localStorage for recovery after page refresh
-    if (typeof localStorage !== 'undefined') {
-      try {
-        localStorage.setItem('_dydx_access_token', token);
-      } catch (e) {
-        console.warn('❌ api.ts: Failed to persist token to localStorage', e);
-      }
+    // Audit FE-002: the access JWT is intentionally NOT persisted anymore.
+    // The HttpOnly session cookie is the durable credential (refresh flow
+    // re-issues tokens on load); an XSS-readable copy in localStorage was a
+    // session-theft surface on a trading app.
+    // Event-driven auth observers (e.g. the WS manager) sync on this instead
+    // of polling.
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('auth:changed', { detail: { authenticated: true } }));
     }
   }
 
@@ -1982,6 +2051,34 @@ class ApiClient {
         console.warn('❌ api.ts: Failed to persist session hint', e);
       }
     }
+  }
+
+  // Flags a session that exists but awaits its TOTP challenge: no bearer
+  // token, no session hint — routing treats it as logged out while the login
+  // page arms its challenge step.
+  private markPendingMFAChallenge(): void {
+    this.pendingMFAChallenge = true;
+    this.accessToken = null;
+    this.sessionEstablished = false;
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.removeItem(SESSION_HINT_KEY);
+      } catch (e) {
+        console.warn('❌ api.ts: Failed to clear session hint for MFA challenge', e);
+      }
+    }
+  }
+
+  // Reports and clears the pending-challenge flag; consumed once at session
+  // boot to arm the login page's TOTP step without a password re-entry.
+  consumePendingMFAChallenge(): boolean {
+    const pending = this.pendingMFAChallenge;
+    this.pendingMFAChallenge = false;
+    return pending;
+  }
+
+  clearPendingMFAChallenge(): void {
+    this.pendingMFAChallenge = false;
   }
 
   hasSessionHint(): boolean {
@@ -2011,20 +2108,6 @@ class ApiClient {
 
   getAccessToken(): string | null {
     return this.accessToken;
-  }
-
-  private loadTokenFromStorage(): void {
-    if (typeof localStorage !== 'undefined') {
-      try {
-        const storedToken = localStorage.getItem('_dydx_access_token');
-        if (storedToken) {
-          this.accessToken = storedToken;
-          this.markSessionEstablished();
-        }
-      } catch (e) {
-        console.warn('❌ api.ts: Failed to load token from localStorage', e);
-      }
-    }
   }
 
   async refreshAccessToken(): Promise<Token> {
@@ -2079,6 +2162,12 @@ class ApiClient {
       }
 
       this.refreshBlockedUntil = 0;
+      if (refreshPayload.mfa_required) {
+        // The refreshed session still awaits its TOTP challenge; it is not an
+        // authenticated session and must not mint a session hint.
+        this.markPendingMFAChallenge();
+        return refreshPayload;
+      }
       this.markSessionEstablished();
       if (refreshPayload.access_token) {
         this.setToken(refreshPayload.access_token);
@@ -2111,9 +2200,8 @@ class ApiClient {
 
   async restoreSession(options: { allowCookieRefresh?: boolean } = {}): Promise<boolean> {
     try {
-      // Attempt to load token from localStorage first (recovery after page refresh)
-      this.loadTokenFromStorage();
-      // If we already have a valid in-memory access token, skip the refresh round-trip.
+      // Session recovery is cookie-driven: restoreSession refreshes via the
+      // HttpOnly session cookie and re-issues an in-memory access token.
       if (this.accessToken && this.sessionEstablished) {
         return true;
       }
@@ -2122,9 +2210,11 @@ class ApiClient {
         return false;
       }
 
-      // Token not in storage, attempt to refresh via HttpOnly session cookie
-      await this.refreshAccessToken();
-      return true;
+      // Token not in storage, attempt to refresh via HttpOnly session cookie.
+      // A pending MFA session refreshes "successfully" but is not an
+      // authenticated session; the challenge is armed for the login page.
+      const payload = await this.refreshAccessToken();
+      return !payload.mfa_required;
     } catch {
       // Clear any stale token from localStorage if refresh fails
       if (typeof localStorage !== 'undefined') {
@@ -2148,6 +2238,23 @@ class ApiClient {
     return;
   }
 
+  // FE-009: self-serve password reset (public endpoints).
+  async requestPasswordReset(email: string): Promise<void> {
+    await this.client.post(
+      '/api/v1/auth/forgot-password',
+      { email },
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  async resetPassword(token: string, newPassword: string): Promise<void> {
+    await this.client.post(
+      '/api/v1/auth/reset-password',
+      { token, new_password: newPassword },
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
   logout(): void {
     this.accessToken = null;
     this.sessionEstablished = false;
@@ -2160,6 +2267,9 @@ class ApiClient {
       } catch (e) {
         console.warn('❌ api.ts: Failed to clear token from localStorage during logout', e);
       }
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('auth:changed', { detail: { authenticated: false } }));
     }
 
     void axios.post(`${API_BASE_URL}/api/v1/auth/logout`, {}, { withCredentials: true });
@@ -2273,6 +2383,13 @@ class ApiClient {
       // Extract token payload from nested data when present
       const payload = (response.data?.data || response.data) as Token;
 
+      if (payload?.mfa_required) {
+        // Password accepted, but a TOTP challenge must complete before any
+        // session exists. Do NOT mark a session as established.
+        console.debug('Login requires an MFA challenge');
+        return payload;
+      }
+
       if (payload) {
         this.markSessionEstablished();
       }
@@ -2296,6 +2413,31 @@ class ApiClient {
     } catch (error: unknown) {
       const status = error instanceof AxiosError ? error.response?.status : undefined;
       console.error('❌ api.ts: login failed', status ? { status } : undefined);
+      throw error;
+    }
+  }
+
+  /**
+   * Completes the login-time TOTP challenge for accounts with MFA enrolled.
+   * The pending (password-only) session cookie set by login() authorizes this
+   * call; on success the backend promotes the session and sets the refresh
+   * cookie, returning the normal login payload.
+   */
+  async completeMfaChallenge(token: string): Promise<Token> {
+    try {
+      const response = await this.client.post<ApiResponse<Token>>('/api/v1/auth/2fa/challenge', {
+        token,
+      });
+      const payload = (response.data?.data || response.data) as Token;
+      if (payload) {
+        this.markSessionEstablished();
+      }
+      if (payload?.access_token) {
+        this.setToken(payload.access_token);
+      }
+      return payload;
+    } catch (error: unknown) {
+      console.error('❌ api.ts: MFA challenge failed');
       throw error;
     }
   }
@@ -3696,6 +3838,35 @@ class ApiClient {
     }
   }
 
+  /**
+   * Sets the named risk limits to 0 on the strategy because the live runtime
+   * cannot enforce them. The backend only accepts `max_drawdown_pct` and
+   * `trailing_stop_pct`, requires the acknowledgement flag, and audit-logs the
+   * previous values. Callers must collect the operator's acknowledgement first.
+   */
+  async disableUnenforcedRiskControls(
+    strategyId: number,
+    fields: string[],
+    network?: 'testnet' | 'mainnet'
+  ): Promise<ApiResponse<DisableUnenforcedRiskControlsResponse>> {
+    try {
+      const response = await this.client.post<ApiResponse<DisableUnenforcedRiskControlsResponse>>(
+        `/api/v1/strategies/${strategyId}/unenforced-risk-controls/disable`,
+        {
+          fields,
+          acknowledged: true,
+          ...(network ? { network } : {}),
+        }
+      );
+      return {
+        ...response.data,
+        data: normalizeStrategyResponse(response.data.data),
+      };
+    } catch (error: unknown) {
+      throw new Error(getErrorMessage(error));
+    }
+  }
+
   async startStrategyRuntime(
     strategyId: number,
     network: 'testnet' | 'mainnet',
@@ -4219,12 +4390,13 @@ class ApiClient {
     }
   }
 
-  // WebSocket connection for real-time updates
+  // WebSocket connection for real-time updates.
+  // Cookie-first (audit FE-003): the backend accepts the HttpOnly session
+  // cookie on WS upgrades and origin-checks the handshake, so same-origin
+  // sockets need no token. The query-param token stays only as a fallback
+  // for cookie-less flows to keep credentials out of proxy/access logs.
   connectSocket(path: string, token?: string): WebSocket {
-    if (!token && !this.accessToken) {
-      this.loadTokenFromStorage();
-    }
-    const useToken = token || this.accessToken || '';
+    const useToken = token || (this.hasSessionHint() ? '' : this.accessToken || '');
     return new WebSocket(resolveBackendWebSocketUrl(path, useToken, API_BASE_URL));
   }
 
@@ -4548,10 +4720,10 @@ class ApiClient {
     return response.data;
   }
 
-  async getMailgunStatus(): Promise<ApiResponse<MailgunStatusResponse>> {
+  async getEmailStatus(): Promise<ApiResponse<EmailStatusResponse>> {
     this.ensureTokenLoaded();
     const response =
-      await this.client.get<ApiResponse<MailgunStatusResponse>>('/api/v1/mailgun/status');
+      await this.client.get<ApiResponse<EmailStatusResponse>>('/api/v1/email/status');
     return response.data;
   }
 
@@ -4645,19 +4817,29 @@ class ApiClient {
     return response.data;
   }
 
-  async saveMailgunConfig(data: MailgunConfigPayload): Promise<ApiResponse<MailgunStatusResponse>> {
+  async saveEmailConfig(data: EmailConfigPayload): Promise<ApiResponse<EmailStatusResponse>> {
     this.ensureTokenLoaded();
-    const response = await this.client.put<ApiResponse<MailgunStatusResponse>>(
-      '/api/v1/mailgun/config',
+    const response = await this.client.put<ApiResponse<EmailStatusResponse>>(
+      '/api/v1/email/config',
       data
     );
     return response.data;
   }
 
-  async deleteMailgunConfig(): Promise<ApiResponse<Record<string, unknown>>> {
+  async deleteEmailConfig(): Promise<ApiResponse<Record<string, unknown>>> {
     this.ensureTokenLoaded();
     const response =
-      await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/mailgun/config');
+      await this.client.delete<ApiResponse<Record<string, unknown>>>('/api/v1/email/config');
+    return response.data;
+  }
+
+  /** Blank recipient sends the test message to the signed-in admin's own address. */
+  async sendEmailTest(to: string): Promise<ApiResponse<EmailSendResultResponse>> {
+    this.ensureTokenLoaded();
+    const response = await this.client.post<ApiResponse<EmailSendResultResponse>>(
+      '/api/v1/email/test',
+      to ? { to } : {}
+    );
     return response.data;
   }
 
@@ -4698,10 +4880,7 @@ class ApiClient {
 
   // ClickHouse Analytics Endpoints
 
-  async getClickHousePositionHistory(
-    instanceId: string,
-    hours: number = 24
-  ): Promise<ApiResponse> {
+  async getClickHousePositionHistory(instanceId: string, hours: number = 24): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     try {
       const response = await this.client.get<ApiResponse>(
@@ -4713,9 +4892,7 @@ class ApiClient {
     }
   }
 
-  async getClickHouseTradeSummary(
-    instanceId: string
-  ): Promise<ApiResponse> {
+  async getClickHouseTradeSummary(instanceId: string): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     try {
       const response = await this.client.get<ApiResponse>(
@@ -4727,9 +4904,7 @@ class ApiClient {
     }
   }
 
-  async getClickHousePairBreakdown(
-    instanceId: string
-  ): Promise<ApiResponse> {
+  async getClickHousePairBreakdown(instanceId: string): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     try {
       const response = await this.client.get<ApiResponse>(
@@ -4773,13 +4948,44 @@ class ApiClient {
   async getClickHouseAPIRequestSummary(): Promise<ApiResponse> {
     this.ensureTokenLoaded();
     try {
-      const response = await this.client.get<ApiResponse>(
-        '/api/v1/analytics/api-requests/summary'
-      );
+      const response = await this.client.get<ApiResponse>('/api/v1/analytics/api-requests/summary');
       return response.data;
     } catch (error: unknown) {
       throw new Error(getErrorMessage(error));
     }
+  }
+
+  /**
+   * Generic JSON request for the consolidated client (FE-015): envelope
+   * handling stays with the caller; cookie auth, trace headers, and
+   * 401→refresh→retry all ride this.client's interceptor chain. Bodies are
+   * parsed tolerantly (empty -> {}, non-JSON -> descriptive error) to match
+   * the fetch-era behavior of the methods migrated onto it.
+   */
+  async requestJson<T = unknown>(
+    method: 'get' | 'post' | 'put' | 'delete',
+    url: string,
+    options: { body?: unknown; params?: Record<string, string | number | boolean | undefined> } = {}
+  ): Promise<T> {
+    const parseTolerantly = (raw: unknown): unknown => {
+      if (typeof raw !== 'string' || raw.length === 0) return {};
+      try {
+        return JSON.parse(raw);
+      } catch {
+        const preview = raw.replace(/\s+/g, ' ').slice(0, 120);
+        throw new Error(`Expected JSON from API at ${url}: ${preview}`);
+      }
+    };
+
+    const response = await this.client.request<unknown>({
+      method,
+      url,
+      data: options.body,
+      params: options.params,
+      responseType: 'text',
+      transformResponse: [parseTolerantly],
+    });
+    return response.data as T;
   }
 }
 

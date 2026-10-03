@@ -470,8 +470,17 @@ curl http://localhost:8889/health
 
 ### Database Migrations
 
-- The full local stack sets `DB_AUTO_MIGRATE=true` for the Go backend. Standalone backend startup defaults migration
-  execution off; run `cd backend && make migrate-up` first or explicitly set `DB_AUTO_MIGRATE=true` for local use.
+- Every port the Compose files publish is bound to `127.0.0.1`. The stacks are development environments with
+  placeholder credentials (`change-me-*`, `local-dev-token`) and must not be reachable from the network. To reach a
+  service from another machine, use an SSH tunnel instead of rebinding the port. There is no Compose production path:
+  production runs on the cluster from the GitOps repository.
+- The Go backend never migrates at startup in the full local stack (`DB_AUTO_MIGRATE=false`). The one-shot
+  `backend-migrate` service applies pending migrations and `backend-api` starts only after it completed successfully,
+  the same order the cluster uses. Standalone backend startup also defaults migration execution off; run
+  `cd backend && make migrate-up` first.
+- A migration that leaves the schema dirty stops the start with the original error. Automatic `Force(version)`
+  recovery is off; `DB_MIGRATION_FORCE_RECOVERY=true` enables it for a local database only and is refused when any
+  environment variable names production.
 - The bot applies Alembic before ORM compatibility creation, verifies runtime-critical tables (including durable
   tracked-position and cointegration state), and currently reports `0004_runtime_state_tables` at the PostgreSQL head.
 - Celery uses Valkey DB 1 for its broker and DB 2 for results in both API and worker processes; DB 0 remains the
@@ -535,6 +544,7 @@ make migration-verify       # Show migration status
 
 ## 📖 Architecture Reference
 
-See [deploy/k8s-next/README.md](deploy/k8s-next/README.md) for details on the production k3s architecture that these local setups replicate.
+The cluster deployment (k3s, Flux) is defined in a separate GitOps repository; this repository holds only the local
+Compose stacks and the image builds.
 
 Happy coding! 🚀

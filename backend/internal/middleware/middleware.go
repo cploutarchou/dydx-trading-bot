@@ -65,7 +65,10 @@ func IsAllowedBrowserOrigin(origin string) bool {
 
 func isAllowedCORSOrigin(origin string, allowed map[string]struct{}) bool {
 	if len(allowed) == 0 {
-		return !isProductionEnvironment()
+		// Default-deny: with no allowlist configured, only local development
+		// origins pass (production is validated to configure an allowlist at
+		// startup via ValidateSecurityBaseline).
+		return !isProductionEnvironment() && isLoopbackOrigin(origin)
 	}
 	normalized := normalizeOrigin(origin)
 	if _, ok := allowed[normalized]; ok {
@@ -99,6 +102,20 @@ func matchesAllowedOriginPattern(origin string, pattern string) bool {
 			strings.HasSuffix(originHost, ".executionlab.io")
 	}
 	return false
+}
+
+// isLoopbackOrigin reports whether the origin points at a local development
+// host (localhost / 127.0.0.1 / [::1] on any port).
+func isLoopbackOrigin(origin string) bool {
+	normalized := strings.TrimSpace(strings.ToLower(origin))
+	for _, prefix := range []string{"http://localhost:", "http://127.0.0.1:", "http://[::1]:", "https://localhost:", "https://127.0.0.1:", "https://[::1]:"} {
+		if strings.HasPrefix(normalized, prefix) {
+			return true
+		}
+	}
+	// Origin headers never include a trailing slash or path; also allow the
+	// bare host form for robustness.
+	return normalized == "http://localhost" || normalized == "http://127.0.0.1"
 }
 
 func isProductionEnvironment() bool {

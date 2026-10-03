@@ -245,13 +245,17 @@ production.secrets.env
 deploy/nomad/*.vars.hcl
 !deploy/nomad/*.vars.hcl.example
 
-# Generated local k8s secret manifests should never be committed
-deploy/k8s-next/*.local-secret.yaml
-deploy/k8s-next/*.generated-secret.yaml
-deploy/k8s-next/*.local-secrets.yaml
-
 # Generated backtest artifacts are test/runtime outputs, not source files
 bot/bot_states/backtest_artifacts/
+bot_states/backtest_artifacts/
+
+# Local scratch output (agent/tool transcripts, ad-hoc logs)
+tmp/
+
+# Local agent/plugin tooling marker dirs (not project source)
+.video_agent/
+frontend/.v2c/
+frontend/.video_agent/
 
 # Local ad-hoc deployment/incident reports (can contain infra details)
 report.md

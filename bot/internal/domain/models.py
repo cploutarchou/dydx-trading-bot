@@ -5,6 +5,7 @@ Core database models for the trading bot system
 from __future__ import annotations
 
 import enum
+import json
 from datetime import datetime
 from typing import Any, Optional
 
@@ -23,9 +24,34 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
 
 from src.shared.time_utils import utc_now
 from . import Base
+
+
+class JSONDocument(TypeDecorator[Any]):
+    """JSON column that also reads a TEXT column holding a JSON document.
+
+    On PostgreSQL the JSON type leaves decoding to the driver, which only
+    decodes json/jsonb columns. With a shared database ``bot_instances`` is
+    created by the backend's migrations, where ``config`` is TEXT, so the value
+    arrives as a raw string and every ``dict(bot.config)`` fails. Decoding here
+    gives all readers a document regardless of who created the table.
+    """
+
+    impl = JSON
+    cache_ok = True
+
+    def process_result_value(self, value: Any, dialect: Any) -> Any:
+        if isinstance(value, (bytes, bytearray)):
+            value = value.decode("utf-8")
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except ValueError:
+                return value
+        return value
 
 
 class BotStatusEnum(enum.Enum):
@@ -66,7 +92,7 @@ class Bot(Base):
     )
     network: Mapped[str] = mapped_column(String(20), nullable=False)  # testnet, mainnet
     strategy: Mapped[str] = mapped_column(String(50), nullable=False)
-    config: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    config: Mapped[dict[str, Any]] = mapped_column(JSONDocument, nullable=False)
     status: Mapped[BotStatusEnum] = mapped_column(
         Enum(BotStatusEnum),
         default=BotStatusEnum.CREATED,

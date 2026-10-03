@@ -13,6 +13,18 @@ const hasResponseStatus = (error: unknown, status: number): boolean => {
   return (response as { status?: unknown }).status === status;
 };
 
+// True when the error carries any HTTP status. Status-bearing failures (4xx/5xx)
+// are deterministic for the current poll cycle: operator surfaces re-poll on
+// 10-30s intervals, so retrying them immediately only duplicates load (and
+// amplifies outages into retry storms). Transport failures (no status: network
+// drop, timeout, abort) still benefit from backoff retries.
+const hasAnyResponseStatus = (error: unknown): boolean => {
+  if (typeof error !== 'object' || error === null) return false;
+  const response = (error as { response?: unknown }).response;
+  if (typeof response !== 'object' || response === null) return false;
+  return typeof (response as { status?: unknown }).status === 'number';
+};
+
 // Query keys for consistent caching
 export const queryKeys = {
   // Auth
@@ -41,6 +53,9 @@ export const queryKeys = {
   backtestTrades: (runId: string, params?: QueryParams) =>
     ['backtests', runId, 'trades', params] as const,
   backtestMetrics: (runId: string) => ['backtests', runId, 'metrics'] as const,
+  backtestSummary: (runId: string) => ['backtests', runId, 'summary'] as const,
+  redisStatus: ['system', 'redis', 'status'] as const,
+  comingSoonSetting: ['settings', 'coming-soon'] as const,
   backtestAnalytics: (runId: string) => ['backtests', runId, 'analytics'] as const,
   backtestSyncHealth: (runId?: string) => ['backtests', 'sync-health', runId ?? 'all'] as const,
   backtestInterrupted: (admin: boolean = false, limit?: number) =>
@@ -70,10 +85,14 @@ export const queryClient = new QueryClient({
       staleTime: 5 * 60 * 1000,
       // Keep cached data for 10 minutes
       gcTime: 10 * 60 * 1000,
-      // Retry failed requests 3 times with exponential backoff
+      // Retry failed requests up to 3 times with exponential backoff, but only
+      // for transport-level failures. See hasAnyResponseStatus for rationale.
       retry: (failureCount, error) => {
         if (hasResponseStatus(error, 401) || hasResponseStatus(error, 403)) {
           return false; // Don't retry auth errors
+        }
+        if (hasAnyResponseStatus(error)) {
+          return false; // Deterministic HTTP failure; next poll will retry naturally
         }
         return failureCount < 3;
       },
@@ -86,12 +105,25 @@ export const queryClient = new QueryClient({
       refetchOnReconnect: true,
     },
     mutations: {
-      // Retry mutations once
-      retry: 1,
-      retryDelay: 1000,
+      // Never retry mutations automatically: create/start/stop/backtest POSTs
+      // are not idempotent, and a retry after a timeout whose request did
+      // reach the server would run the action twice. A mutation that is safe
+      // to repeat can opt in with its own `retry` option.
+      retry: 0,
     },
   },
 });
+
+/**
+ * Drop every cached query that can hold one user's data. Queries under the
+ * `public` key prefix are kept: the app shell renders from
+ * `['public', 'app-config']`, and removing it while it is in flight (session
+ * bootstrap ends in the logged-out state too) leaves the shell blank because
+ * a removed query never notifies its observer.
+ */
+export const clearUserScopedQueries = (): void => {
+  queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'public' });
+};
 
 // Query Client Provider Component is in QueryProvider.tsx
 

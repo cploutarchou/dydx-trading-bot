@@ -146,22 +146,20 @@ class TestAccountManagerNetworkFailures:
         assert exc_info.value.response.status_code == 429
 
     @pytest.mark.asyncio
-    async def test_get_account_fallback_on_404(self, mock_client):
-        """Test get_account falls back to DYDX_ADDRESS on 404 for primary address."""
-        # Primary address returns 404, secondary succeeds
+    async def test_get_account_404_propagates(self, mock_client):
+        """get_account must fail closed: no silent cross-account fallback reads."""
         error_response_404 = httpx.Response(404, json={"error": "Not found"})
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
-            side_effect=[
-                httpx.HTTPStatusError(
-                    "Not found", request=MagicMock(), response=error_response_404
-                ),
-                {"subaccount": {"address": "0xFallback"}},
-            ]
+            side_effect=httpx.HTTPStatusError(
+                "Not found", request=MagicMock(), response=error_response_404
+            )
         )
 
-        # Should succeed with fallback
-        result = await account_manager.get_account(mock_client)
-        assert result["address"] == "0xFallback"
+        # A 404 on the resolved address is an error for get_account: falling
+        # back to a globally configured address could return ANOTHER
+        # account's equity/positions into risk decisions.
+        with pytest.raises(httpx.HTTPStatusError):
+            await account_manager.get_account(mock_client)
 
     @pytest.mark.asyncio
     async def test_get_open_positions_connection_error(self, mock_client):
@@ -421,22 +419,78 @@ class TestBotAgentNetworkFailures:
             quote_size=1.0,
             quote_price=200.0,
             accept_failsafe_base_price=95.0,
+            accept_failsafe_quote_price=2.5,
             z_score=2.0,
             half_life=3600.0,
             hedge_ratio=1.0,
         )
 
-        # Mock the place_market_order to fail with connection error
+        # Mock the place_market_order to fail with connection error. The
+        # placement outcome is unknown (the tx may have landed), so cleanup
+        # is attempted; the cleanup placement fails too, which must escalate
+        # rather than return quietly.
         with patch.object(
             bot_agent,
             "place_market_order",
             AsyncMock(side_effect=ConnectionError("Failed to connect")),
         ):
+            with pytest.raises(
+                RuntimeError, match="Unexpected emergency closure error"
+            ):
+                await agent.open_trades()
+
+    @pytest.mark.asyncio
+    async def test_bot_agent_open_trades_connection_error_cleans_up(
+        self, mock_client_with_wallet
+    ):
+        """Unknown first-leg outcome is emergency-closed when the network recovers."""
+        from src.trading import bot_agent
+
+        agent = bot_agent.BotAgent(
+            client=mock_client_with_wallet,
+            market_1="BTC-USD",
+            market_2="ETH-USD",
+            base_side="BUY",
+            base_size=1.0,
+            base_price=100.0,
+            quote_side="SELL",
+            quote_size=1.0,
+            quote_price=200.0,
+            accept_failsafe_base_price=95.0,
+            accept_failsafe_quote_price=2.5,
+            z_score=2.0,
+            half_life=3600.0,
+            hedge_ratio=1.0,
+        )
+
+        calls = []
+
+        async def fake_place_market_order(
+            client, market, side, size, price, reduce_only
+        ):
+            calls.append({"market": market, "side": side, "reduce_only": reduce_only})
+            if len(calls) == 1:
+                raise ConnectionError("Failed to connect")
+            return ({"ok": True}, "m1-close-order")
+
+        async def fake_check_order_status(client, order_id):
+            return "FILLED"
+
+        async def _fast_sleep(_seconds):
+            return None
+
+        with (
+            patch.object(bot_agent, "place_market_order", fake_place_market_order),
+            patch.object(bot_agent, "check_order_status", fake_check_order_status),
+            patch.object(bot_agent.asyncio, "sleep", _fast_sleep),
+        ):
             result = await agent.open_trades()
 
-            # The exception is caught and stored in order_dict
-            assert result["pair_status"] == "ERROR"
-            assert "Failed to connect" in result["comments"]
+        assert result["pair_status"] == "ERROR"
+        assert "Failed to connect" in result["comments"]
+        # The unknown-outcome first leg was reduce-only closed.
+        assert calls[-1]["market"] == "BTC-USD"
+        assert calls[-1]["reduce_only"] is True
 
     @pytest.mark.asyncio
     async def test_bot_agent_check_order_status_by_id_connection_error(
@@ -456,6 +510,7 @@ class TestBotAgentNetworkFailures:
             quote_size=1.0,
             quote_price=200.0,
             accept_failsafe_base_price=95.0,
+            accept_failsafe_quote_price=2.5,
             z_score=2.0,
             half_life=3600.0,
             hedge_ratio=1.0,
@@ -551,42 +606,31 @@ class TestMixedErrorScenarios:
     """Test complex error scenarios combining multiple failure modes."""
 
     @pytest.mark.asyncio
-    async def test_get_account_primary_timeout_secondary_connection_error(
-        self, mock_client
-    ):
-        """Test get_account with timeout on primary and connection error on secondary."""
+    async def test_get_account_timeout_propagates_directly(self, mock_client):
+        """get_account has no secondary address: the primary error surfaces as-is."""
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
-            side_effect=[
-                asyncio.TimeoutError("Primary timeout"),
-                ConnectionError("Secondary connection failed"),
-            ]
+            side_effect=asyncio.TimeoutError("Primary timeout"),
         )
 
-        with pytest.raises(ConnectionError, match="Secondary connection failed"):
+        with pytest.raises(asyncio.TimeoutError, match="Primary timeout"):
             await account_manager.get_account(mock_client)
 
     @pytest.mark.asyncio
-    async def test_is_open_positions_404_then_500(self, mock_client):
-        """Test is_open_positions with 404 on primary and 500 on secondary."""
+    async def test_is_open_positions_404_returns_false(self, mock_client):
+        """A 404 subaccount means no position; non-404 failures propagate."""
         error_404 = httpx.Response(404, json={"error": "Not found"})
-        error_500 = httpx.Response(500, json={"error": "Internal Server Error"})
 
         mock_client.indexer_account.account.get_subaccount = AsyncMock(
-            side_effect=[
-                httpx.HTTPStatusError(
-                    "Not found", request=MagicMock(), response=error_404
-                ),
-                httpx.HTTPStatusError(
-                    "Internal Server Error", request=MagicMock(), response=error_500
-                ),
-            ]
+            side_effect=httpx.HTTPStatusError(
+                "Not found", request=MagicMock(), response=error_404
+            )
         )
 
-        # Should propagate the 500 error since it's not a 404
-        with pytest.raises(httpx.HTTPStatusError) as exc_info:
-            await account_manager.is_open_positions(mock_client, "BTC-USD")
-
-        assert exc_info.value.response.status_code == 500
+        # 404 on the resolved address is handled without any cross-address
+        # retry; the fetch was attempted exactly once.
+        result = await account_manager.is_open_positions(mock_client, "BTC-USD")
+        assert result is False
+        assert mock_client.indexer_account.account.get_subaccount.await_count == 1
 
     @pytest.mark.asyncio
     async def test_sequential_api_calls_with_intermittent_failures(self, mock_client):
@@ -767,3 +811,103 @@ class TestConcurrentNetworkFailures:
         # But due to the fallback, we'll get 20 calls total, but only 10 results
         assert len(rate_limited) == 10
         assert len(results) == 10
+
+
+class TestGetOrderFillsPagination:
+    """get_order_fills must page through subaccount fills so older fills of
+    the target order are not truncated by the 100-per-page indexer limit."""
+
+    @pytest.mark.asyncio
+    async def test_get_order_fills_pages_until_order_found(self, mock_client):
+        target_id = "order-old"
+        # Page 1: 100 newer fills for OTHER orders; page 2: the target's
+        # fills plus older unrelated fills (short page ends pagination).
+        page1 = [
+            {
+                "id": f"f1-{i}",
+                "orderId": f"other-{i}",
+                "price": "100",
+                "size": "1",
+                "createdAt": f"2026-01-01T00:00:{i % 60:02d}Z",
+            }
+            for i in range(100)
+        ]
+        page2 = [
+            {
+                "id": "f2-0",
+                "orderId": target_id,
+                "price": "101",
+                "size": "2",
+                "createdAt": "2025-12-31T23:59:00Z",
+            },
+            {
+                "id": "f2-1",
+                "orderId": target_id,
+                "price": "102",
+                "size": "3",
+                "createdAt": "2025-12-31T23:59:01Z",
+            },
+        ]
+
+        pages = [page1, page2]
+        calls = []
+
+        async def fake_fills(_address, _subaccount, ticker=None, limit=None, **kwargs):
+            calls.append(
+                {
+                    "ticker": ticker,
+                    "limit": limit,
+                    "cursor": kwargs.get("created_before_or_at"),
+                }
+            )
+            page = pages.pop(0)
+            # Cursor must point at the previous page's newest fill timestamp.
+            return {"fills": list(page)}
+
+        class _Account:
+            get_subaccount_fills = staticmethod(fake_fills)
+
+        class _IndexerAccount:
+            account = _Account()
+
+        class _Wallet:
+            address = "0xTest"
+
+        mock_client.indexer_account = _IndexerAccount()
+        mock_client.wallet = _Wallet()
+
+        from src.trading.account_manager import get_order_fills
+
+        fills = await get_order_fills(mock_client, target_id, market="BTC-USD")
+
+        assert [f["id"] for f in fills] == ["f2-0", "f2-1"]
+        assert len(calls) == 2
+        assert calls[0]["cursor"] is None
+        assert calls[1]["cursor"] == "2026-01-01T00:00:00Z"
+
+    @pytest.mark.asyncio
+    async def test_get_order_fills_stops_on_short_page(self, mock_client):
+        # A partial page ends pagination without extra requests.
+        async def fake_fills(_address, _subaccount, ticker=None, limit=None, **kwargs):
+            return {
+                "fills": [
+                    {"id": "s-1", "orderId": "x", "createdAt": "2026-01-01T00:00:00Z"}
+                ]
+            }
+
+        class _Account:
+            get_subaccount_fills = staticmethod(fake_fills)
+
+        class _IndexerAccount:
+            account = _Account()
+
+        class _Wallet:
+            address = "0xTest"
+
+        mock_client.indexer_account = _IndexerAccount()
+        mock_client.wallet = _Wallet()
+
+        from src.trading.account_manager import get_order_fills
+
+        fills = await get_order_fills(mock_client, "missing-order")
+        assert fills == []

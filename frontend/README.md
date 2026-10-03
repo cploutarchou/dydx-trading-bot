@@ -49,15 +49,21 @@ npm run build:backoffice
 npm run build:ib
 npm run lint
 npm run preview
-npm run test:contracts
+npm test
+npm run test:e2e
 ```
+
+Testing notes: `npm test` runs the full Vitest suite (unit + contract; component
+tests use jsdom via the `*.dom.test.tsx` naming convention). `npm run
+test:e2e` runs the backend-free Playwright smoke suite from `e2e/` and starts
+the dev server itself (first run needs `npx playwright install chromium`).
 
 ## Portal Architecture
 
 The portal shell is selected with `VITE_APP_PORTAL_TYPE=client|backoffice|ib`.
 
 - Client Portal (`apps/client-portal`): dashboard, client area, strategies, backtests, bot operations, profile, security, Telegram, and wallet/API key management. It does not register CRM, IB admin, Admin Hub, global settings, access-control, Celery Ops, or operator integration routes.
-- CRM / Backoffice (`apps/backoffice`): Admin Hub, CRM clients, registration pipeline, hierarchy, commissions, security events, IB oversight, Celery Ops, and operator settings for access control, registration policy, Mailgun, Telegram, Market News, API, Redis, and trading configuration.
+- CRM / Backoffice (`apps/backoffice`): Admin Hub, CRM clients, registration pipeline, hierarchy, commissions, security events, IB oversight, Celery Ops, and operator settings for access control, registration policy, Email, Telegram, Market News, API, Redis, and trading configuration.
 - IB Portal (`apps/ib-portal`): IB dashboard, client tree, applications/invitations, commission metrics, reports, referral tokens where role-authorized, profile, and security.
 
 Shared boundaries are exposed under:
@@ -213,9 +219,11 @@ The current UI direction is production DeFi:
   - live/realtime: cyan
   - warning/recovering: amber
   - negative/failure: rose/red
-- theme selection supports Light, Dark, and System modes through
+- theme selection supports Dark and System modes through
   `src/store/uiPreferences.ts`, `src/components/ThemeProvider.tsx`, and the
-  header `ThemeToggle`. The selected preference is stored in `localStorage`
+  header `ThemeToggle`. Light mode is implemented in CSS but temporarily
+  disabled (`FORCE_DARK_THEME` in `uiPreferences.ts`); the toggle hides it
+  until it ships. The selected preference is stored in `localStorage`
   under `ui.theme`; no backend storage is used because the current backend
   settings endpoints are platform/admin/trading settings rather than per-user
   visual preferences.

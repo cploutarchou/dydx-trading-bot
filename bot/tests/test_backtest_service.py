@@ -80,12 +80,22 @@ class _FakeMarkets:
             "ETH-USD": 1800.0,
             "SOL-USD": 120.0,
         }.get(market, 1000.0)
+        # Per-market phase offsets: without them every market shares the same
+        # wave and the pair spread is constant, leaving z-scores driven only
+        # by "%.6f" rounding noise (which the live-faithful exit ladder
+        # correctly never trades). Phase-shifted waves give pairs a genuinely
+        # mean-reverting spread.
+        market_phase = {
+            "BTC-USD": 0.0,
+            "ETH-USD": 0.9,
+            "SOL-USD": 1.7,
+        }.get(market, 0.5)
 
         candles = []
         idx = 0
         cursor = start
         while cursor <= end:
-            wave = math.sin(idx / 8.0) * 15.0
+            wave = math.sin(idx / 8.0 + market_phase) * 15.0
             trend = idx * 0.2
             close = market_bias + wave + trend
             candles.append(

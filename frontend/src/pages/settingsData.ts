@@ -77,9 +77,9 @@ export const buildSettingsFormValues = (
 ): Record<string, Record<string, SettingValue>> => {
   const formValues: Record<string, Record<string, SettingValue>> = {};
   savedSettings.sections.forEach((section) => {
-    formValues[section.section] = {};
+    const sectionValues: Record<string, unknown> = (formValues[section.section] = {});
     section.settings.forEach((setting) => {
-      formValues[section.section][setting.key] = parseSavedSettingValue(setting);
+      sectionValues[setting.key] = parseSavedSettingValue(setting);
     });
   });
   return formValues;

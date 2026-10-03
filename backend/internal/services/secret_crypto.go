@@ -103,8 +103,25 @@ func decryptString(secret string, encryptedText string) (string, error) {
 	return string(plaintext), nil
 }
 
-func hashSecretValue(plaintext string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(plaintext)))
+// generateSecretSalt returns a fresh 16-byte hex salt for salted secret
+// hashes. Unsalted hashes are brute-forceable from a database dump because
+// the input space (mnemonics, API keys) is guessable; a per-row salt makes
+// precomputed/rainbow attacks and cross-row correlation impossible.
+func generateSecretSalt() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+// hashSecretValueSalted computes sha256(salt:trimmed-secret). Rows with a
+// non-empty salt use this; legacy rows (empty salt) keep the unsalted form
+// until their secret is rewritten.
+func hashSecretValueSalted(plaintext, salt string) string {
+	sum := sha256.Sum256(
+		[]byte(strings.TrimSpace(salt) + ":" + strings.TrimSpace(plaintext)),
+	)
 	return hex.EncodeToString(sum[:])
 }
 
@@ -114,8 +131,10 @@ func maskSecretValue(plaintext string) string {
 		return ""
 	}
 	runes := []rune(trimmed)
-	if len(runes) <= 8 {
+	if len(runes) <= 4 {
 		return strings.Repeat("*", len(runes))
 	}
-	return string(runes[:4]) + strings.Repeat("*", len(runes)-8) + string(runes[len(runes)-4:])
+	// Only the tail is revealed: mnemonics and API keys must not disclose
+	// their (often structured, guessable) prefixes.
+	return strings.Repeat("*", len(runes)-4) + string(runes[len(runes)-4:])
 }

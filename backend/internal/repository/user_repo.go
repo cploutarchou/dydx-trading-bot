@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -13,8 +14,13 @@ import (
 
 // UserRepository handles all user-related database operations with pure SQL
 type UserRepository struct {
-	db       *sql.DB
+	db       SQLRunner
 	dbDriver string
+}
+
+// WithTx returns a copy of the repository that executes within tx.
+func (r *UserRepository) WithTx(tx *sql.Tx) *UserRepository {
+	return &UserRepository{db: tx, dbDriver: r.dbDriver}
 }
 
 // NewUserRepository creates a new user repository
@@ -30,21 +36,7 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 }
 
 func (r *UserRepository) bindQuery(query string) string {
-	if r == nil || !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
-		return query
-	}
-	var b strings.Builder
-	b.Grow(len(query) + 16)
-	idx := 1
-	for i := 0; i < len(query); i++ {
-		if query[i] == '?' {
-			b.WriteString(fmt.Sprintf("$%d", idx))
-			idx++
-			continue
-		}
-		b.WriteByte(query[i])
-	}
-	return b.String()
+	return bindPlaceholders(r.dbDriver, query)
 }
 
 func (r *UserRepository) hasPasswordChangeRequiredColumn() bool {
@@ -79,36 +71,21 @@ func (r *UserRepository) hasAvatarColumn() bool {
 	return r.hasUserColumn("avatar")
 }
 
+func (r *UserRepository) hasFullNameColumn() bool {
+	return r.hasUserColumn("full_name")
+}
+
 func (r *UserRepository) hasLastLoginColumn() bool {
 	return r.hasUserColumn("last_login")
 }
 
 func (r *UserRepository) hasUserColumn(columnName string) bool {
-	rows, err := r.db.Query(`SELECT * FROM users LIMIT 0`)
+	columns, err := cachedTableColumns(r.db, "users")
 	if err != nil {
 		return false
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			log.Printf("failed to close user schema rows: %v", closeErr)
-		}
-	}()
-
-	columns, err := rows.Columns()
-	if err != nil {
-		return false
-	}
-	if err := rows.Err(); err != nil {
-		return false
-	}
-
-	for _, column := range columns {
-		if strings.EqualFold(column, columnName) {
-			return true
-		}
-	}
-
-	return false
+	_, ok := columns[strings.ToLower(strings.TrimSpace(columnName))]
+	return ok
 }
 
 func (r *UserRepository) selectUserColumns() string {
@@ -138,9 +115,14 @@ func (r *UserRepository) selectUserColumns() string {
 		roleExpr = "COALESCE(role, CASE WHEN is_admin THEN 'admin' ELSE 'client' END)"
 	}
 
+	fullNameExpr := "''"
+	if r.hasFullNameColumn() {
+		fullNameExpr = "COALESCE(full_name, '')"
+	}
+
 	avatarExpr := "''"
 	if r.hasAvatarColumn() {
-		avatarExpr = "avatar"
+		avatarExpr = "COALESCE(avatar, '')"
 	}
 
 	lastLoginExpr := "NULL"
@@ -149,11 +131,12 @@ func (r *UserRepository) selectUserColumns() string {
 	}
 
 	return fmt.Sprintf(
-		`id, username, email, %s, %s, %s, %s, full_name, %s, hashed_password, is_active, is_admin, %s, %s, %s, created_at, updated_at`,
+		`id, username, email, %s, %s, %s, %s, %s, %s, hashed_password, is_active, is_admin, %s, %s, %s, created_at, updated_at`,
 		roleExpr,
 		maxActiveBacktestsExpr,
 		maxStrategiesExpr,
 		maxBotInstancesExpr,
+		fullNameExpr,
 		avatarExpr,
 		mfaEnabledExpr,
 		passwordChangeExpr,
@@ -248,7 +231,18 @@ func (r *UserRepository) Create(user *models.User) error {
 }
 
 // GetByID retrieves a user by ID
+// defaultQueryTimeout bounds context-less repository calls so the configured
+// QueryTimeout applies even before all callers propagate request contexts.
+const defaultQueryTimeout = 30 * time.Second
+
 func (r *UserRepository) GetByID(id int) (*models.User, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultQueryTimeout)
+	defer cancel()
+	return r.GetByIDContext(ctx, id)
+}
+
+// GetByIDContext retrieves a user by id, honouring the caller's cancellation.
+func (r *UserRepository) GetByIDContext(ctx context.Context, id int) (*models.User, error) {
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM users
@@ -256,7 +250,7 @@ func (r *UserRepository) GetByID(id int) (*models.User, error) {
 	`, r.selectUserColumns())
 
 	user := &models.User{}
-	err := r.db.QueryRow(r.bindQuery(query), id).Scan(
+	err := r.db.QueryRowContext(ctx, r.bindQuery(query), id).Scan(
 		&user.ID,
 		&user.Username,
 		&user.Email,
@@ -288,6 +282,13 @@ func (r *UserRepository) GetByID(id int) (*models.User, error) {
 
 // GetByUsername retrieves a user by username
 func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultQueryTimeout)
+	defer cancel()
+	return r.GetByUsernameContext(ctx, username)
+}
+
+// GetByUsernameContext retrieves a user by username, honouring cancellation.
+func (r *UserRepository) GetByUsernameContext(ctx context.Context, username string) (*models.User, error) {
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM users
@@ -295,7 +296,7 @@ func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
 	`, r.selectUserColumns())
 
 	user := &models.User{}
-	err := r.db.QueryRow(r.bindQuery(query), username).Scan(
+	err := r.db.QueryRowContext(ctx, r.bindQuery(query), username).Scan(
 		&user.ID,
 		&user.Username,
 		&user.Email,
@@ -327,6 +328,13 @@ func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
 
 // GetByEmail retrieves a user by email
 func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultQueryTimeout)
+	defer cancel()
+	return r.GetByEmailContext(ctx, email)
+}
+
+// GetByEmailContext retrieves a user by email, honouring cancellation.
+func (r *UserRepository) GetByEmailContext(ctx context.Context, email string) (*models.User, error) {
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM users
@@ -334,7 +342,7 @@ func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
 	`, r.selectUserColumns())
 
 	user := &models.User{}
-	err := r.db.QueryRow(r.bindQuery(query), email).Scan(
+	err := r.db.QueryRowContext(ctx, r.bindQuery(query), email).Scan(
 		&user.ID,
 		&user.Username,
 		&user.Email,

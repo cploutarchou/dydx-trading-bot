@@ -49,25 +49,25 @@ func (c *BotAPIClient) GetCurrentUser() (map[string]interface{}, error) {
 
 // GetBotHistory retrieves bot event history
 func (c *BotAPIClient) GetBotHistory(instanceID string, days int) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/history?days=%d", instanceID, days)
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/history?days=%d", url.PathEscape(instanceID), days)
 	return c.makeRequest("GET", endpoint, nil)
 }
 
 // GetBotJobs retrieves bot job history
 func (c *BotAPIClient) GetBotJobs(instanceID string, days int) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/jobs?days=%d", instanceID, days)
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/jobs?days=%d", url.PathEscape(instanceID), days)
 	return c.makeRequest("GET", endpoint, nil)
 }
 
 // GetBotStats retrieves bot statistics
 func (c *BotAPIClient) GetBotStats(instanceID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/stats", instanceID)
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/stats", url.PathEscape(instanceID))
 	return c.makeRequest("GET", endpoint, nil)
 }
 
 // StopBotInstanceWithForce stops a bot instance with optional force flag
 func (c *BotAPIClient) StopBotInstanceWithForce(instanceID string, force bool) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/stop?force=%v", instanceID, force)
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/stop?force=%v", url.PathEscape(instanceID), force)
 	return c.makeRequest("POST", endpoint, nil)
 }
 
@@ -75,7 +75,7 @@ func (c *BotAPIClient) StopBotInstanceWithForce(instanceID string, force bool) (
 
 // GetBotTrades retrieves bot trades with optional status filter
 func (c *BotAPIClient) GetBotTrades(instanceID string, status *string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/trades", instanceID)
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/trades", url.PathEscape(instanceID))
 	if status != nil {
 		endpoint += fmt.Sprintf("?status=%s", *status)
 	}
@@ -84,19 +84,19 @@ func (c *BotAPIClient) GetBotTrades(instanceID string, status *string) (map[stri
 
 // GetCurrentPositions retrieves currently open positions
 func (c *BotAPIClient) GetCurrentPositions(botInstanceID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/positions/current", botInstanceID)
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/positions/current", url.PathEscape(botInstanceID))
 	return c.makeRequest("GET", endpoint, nil)
 }
 
 // GetPosition retrieves a specific position
 func (c *BotAPIClient) GetPosition(botInstanceID string, positionID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/positions/%s", botInstanceID, positionID)
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/positions/%s", url.PathEscape(botInstanceID), url.PathEscape(positionID))
 	return c.makeRequest("GET", endpoint, nil)
 }
 
 // GetPositionHistory retrieves historical P&L snapshots for a position
 func (c *BotAPIClient) GetPositionHistory(botInstanceID string, positionID string, hours int) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/position-history/%s?hours=%d", botInstanceID, positionID, hours)
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/position-history/%s?hours=%d", url.PathEscape(botInstanceID), url.PathEscape(positionID), hours)
 	return c.makeRequest("GET", endpoint, nil)
 }
 
@@ -104,19 +104,19 @@ func (c *BotAPIClient) GetPositionHistory(botInstanceID string, positionID strin
 
 // GetMarketData retrieves latest market data for all symbols
 func (c *BotAPIClient) GetMarketData(botInstanceID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/market-data", botInstanceID)
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/market-data", url.PathEscape(botInstanceID))
 	return c.makeRequest("GET", endpoint, nil)
 }
 
 // GetRealtimeStats retrieves real-time bot statistics
 func (c *BotAPIClient) GetRealtimeStats(botInstanceID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/realtime-stats", botInstanceID)
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/realtime-stats", url.PathEscape(botInstanceID))
 	return c.makeRequest("GET", endpoint, nil)
 }
 
 // GetAlerts retrieves recent alerts for a bot
 func (c *BotAPIClient) GetAlerts(botInstanceID string, limit int) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/alerts?limit=%d", botInstanceID, limit)
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/alerts?limit=%d", url.PathEscape(botInstanceID), limit)
 	return c.makeRequest("GET", endpoint, nil)
 }
 
@@ -141,37 +141,37 @@ func (c *BotAPIClient) ListBacktestsWithFilters(limit, offset int, status *strin
 
 // GetBacktestDetails retrieves detailed backtest results
 func (c *BotAPIClient) GetBacktestDetails(runID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s", runID)
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s", url.PathEscape(runID))
 	return c.makeRequest("GET", endpoint, nil)
 }
 
 // GetBacktestTradesWithFilters GetBacktestTrades retrieves trades for a specific backtest run
 func (c *BotAPIClient) GetBacktestTradesWithFilters(runID string, limit, offset int, winningOnly bool) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s/trades?limit=%d&offset=%d&winning_only=%v", runID, limit, offset, winningOnly)
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/trades?limit=%d&offset=%d&winning_only=%v", url.PathEscape(runID), limit, offset, winningOnly)
 	return c.makeRequest("GET", endpoint, nil)
 }
 
 // GetBacktestDetailedTrades retrieves enriched trade details for a run.
 func (c *BotAPIClient) GetBacktestDetailedTrades(runID string, limit, offset int) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s/trades/detailed?limit=%d&offset=%d", runID, limit, offset)
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/trades/detailed?limit=%d&offset=%d", url.PathEscape(runID), limit, offset)
 	return c.makeRequest("GET", endpoint, nil)
 }
 
 // GetBacktestLogs retrieves textual/log events for a run.
 func (c *BotAPIClient) GetBacktestLogs(runID string, limit int) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s/logs?limit=%d", runID, limit)
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/logs?limit=%d", url.PathEscape(runID), limit)
 	return c.makeRequest("GET", endpoint, nil)
 }
 
 // GetBacktestAnalytics retrieves comprehensive analytics for a backtest
 func (c *BotAPIClient) GetBacktestAnalytics(runID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s/analytics", runID)
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/analytics", url.PathEscape(runID))
 	return c.makeRequest("GET", endpoint, nil)
 }
 
 // GetBacktestAnalyticsSummary retrieves a compact analytics summary for a backtest.
 func (c *BotAPIClient) GetBacktestAnalyticsSummary(runID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s/analytics/summary", runID)
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/analytics/summary", url.PathEscape(runID))
 	return c.makeRequest("GET", endpoint, nil)
 }
 
@@ -185,7 +185,7 @@ func (c *BotAPIClient) GetPositionSnapshots(runID string, limit, offset int, mar
 		query.Set("market_pair", *marketPair)
 	}
 
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s/position-snapshots?%s", runID, query.Encode())
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/position-snapshots?%s", url.PathEscape(runID), query.Encode())
 	return c.makeRequest("GET", endpoint, nil)
 }
 
@@ -202,31 +202,38 @@ func (c *BotAPIClient) GetBacktestSummaryStats(days int) (map[string]interface{}
 
 // ValidateAgainstdYdXData validates backtest results against real dYdX market data
 func (c *BotAPIClient) ValidateAgainstdYdXData(runID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s/dydx-validation", runID)
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/dydx-validation", url.PathEscape(runID))
 	return c.makeRequest("GET", endpoint, nil)
 }
 
 // GetAdvancedPerformanceMetrics retrieves advanced performance metrics
 func (c *BotAPIClient) GetAdvancedPerformanceMetrics(runID string, benchmark string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s/performance-metrics?benchmark=%s", runID, benchmark)
+	query := url.Values{"benchmark": {benchmark}}
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/performance-metrics?%s", url.PathEscape(runID), query.Encode())
 	return c.makeRequest("GET", endpoint, nil)
 }
 
 // GetLiveProgress retrieves real-time backtest progress
 func (c *BotAPIClient) GetLiveProgress(runID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s/live-progress", runID)
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/live-progress", url.PathEscape(runID))
 	return c.makeRequest("GET", endpoint, nil)
 }
 
 // UpdateBacktestMetadata merges or replaces structured metadata for a backtest run.
 func (c *BotAPIClient) UpdateBacktestMetadata(runID string, payload map[string]interface{}) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s/metadata", runID)
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/metadata", url.PathEscape(runID))
 	return c.makeRequest("POST", endpoint, payload)
 }
 
 // QuickDeployBot quickly deploys and optionally starts a new bot instance
 func (c *BotAPIClient) QuickDeployBot(instanceName string, autoStart bool, config map[string]interface{}) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/quick-deploy?instance_name=%s&auto_start=%v", instanceName, autoStart)
+	// Query values need query escaping: PathEscape leaves "&", "=" and "+"
+	// intact, which lets a caller-supplied name add or override parameters.
+	query := url.Values{
+		"instance_name": {instanceName},
+		"auto_start":    {strconv.FormatBool(autoStart)},
+	}
+	endpoint := "/api/v1/bots/quick-deploy?" + query.Encode()
 	return c.makeRequest("POST", endpoint, config)
 }
 

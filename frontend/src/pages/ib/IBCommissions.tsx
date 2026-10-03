@@ -2,11 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Loader2, WalletCards } from 'lucide-react';
 import api from '../../api';
 import { PageContainer } from '../../components/PageContainer';
-
-const formatCurrency = (value?: number) => {
-  const numeric = Number(value || 0);
-  return `$${numeric.toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
-};
+import { formatUsdFixed , formatPct } from '../../utils/format';
 
 const formatDate = (value?: string) => {
   if (!value) return '—';
@@ -63,22 +59,22 @@ export const IBCommissions = () => {
                   {[
                     {
                       label: 'Net commission',
-                      value: formatCurrency(ownerCommission.net_commission_usd),
+                      value: formatUsdFixed(ownerCommission.net_commission_usd),
                       color: 'text-emerald-300',
                     },
                     {
                       label: 'Gross commission',
-                      value: formatCurrency(ownerCommission.gross_commission_usd),
+                      value: formatUsdFixed(ownerCommission.gross_commission_usd),
                       color: 'text-cyan-300',
                     },
                     {
                       label: 'Rebate paid',
-                      value: formatCurrency(ownerCommission.rebate_usd),
+                      value: formatUsdFixed(ownerCommission.rebate_usd),
                       color: 'text-violet-300',
                     },
                     {
                       label: 'Notional volume',
-                      value: formatCurrency(ownerCommission.notional_volume_usd),
+                      value: formatUsdFixed(ownerCommission.notional_volume_usd),
                       color: 'text-amber-300',
                     },
                   ].map((item) => (
@@ -130,16 +126,16 @@ export const IBCommissions = () => {
                 {[
                   {
                     label: 'Net commission',
-                    value: formatCurrency(downlineCommission.net_commission_usd),
+                    value: formatUsdFixed(downlineCommission.net_commission_usd),
                   },
                   {
                     label: 'Gross commission',
-                    value: formatCurrency(downlineCommission.gross_commission_usd),
+                    value: formatUsdFixed(downlineCommission.gross_commission_usd),
                   },
-                  { label: 'Rebate paid', value: formatCurrency(downlineCommission.rebate_usd) },
+                  { label: 'Rebate paid', value: formatUsdFixed(downlineCommission.rebate_usd) },
                   {
                     label: 'Notional volume',
-                    value: formatCurrency(downlineCommission.notional_volume_usd),
+                    value: formatUsdFixed(downlineCommission.notional_volume_usd),
                   },
                 ].map((item) => (
                   <div
@@ -204,10 +200,10 @@ export const IBCommissions = () => {
                             Tier {rate.tier_level}
                           </td>
                           <td className="px-3 py-2 tabular-nums text-emerald-300">
-                            {rate.commission_rate_pct.toFixed(2)}%
+                            {formatPct(rate.commission_rate_pct, 2)}
                           </td>
                           <td className="px-3 py-2 tabular-nums text-violet-300">
-                            {rate.rebate_rate_pct.toFixed(2)}%
+                            {formatPct(rate.rebate_rate_pct, 2)}
                           </td>
                           <td className="px-3 py-2 text-slate-400">{rate.description || '—'}</td>
                         </tr>

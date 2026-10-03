@@ -4,6 +4,7 @@ package routes
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -63,17 +64,20 @@ func accessControlHandler(database *sql.DB) gin.HandlerFunc {
 		repo := repository.NewRBACRepository(database)
 		roleCatalog, err := listRoleCatalog(database)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load roles: %v", err)})
+			log.Printf("Failed to load roles: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to load roles"})
 			return
 		}
 		permissions, err := repo.ListPermissions()
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load permissions: %v", err)})
+			log.Printf("Failed to load permissions: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to load permissions"})
 			return
 		}
 		rolePermissions, err := repo.ListRolePermissions()
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load role permissions: %v", err)})
+			log.Printf("Failed to load role permissions: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to load role permissions"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
@@ -178,7 +182,8 @@ func getRegistrationPolicyHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		policy, err := resolveRegistrationPolicy(database)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load registration policy: %v", err)})
+			log.Printf("Failed to load registration policy: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to load registration policy"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
@@ -221,15 +226,18 @@ func updateRegistrationPolicyHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		if err := upsertPlatformSetting(database, "registration_mode", mode, "string", "Registration mode"); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to update registration mode: %v", err)})
+			log.Printf("Failed to update registration mode: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to update registration mode"})
 			return
 		}
 		if err := upsertPlatformSetting(database, "allow_public_registration", fmt.Sprintf("%t", mode == string(registrationModeOpen)), "boolean", "Enable public registration"); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to update public registration flag: %v", err)})
+			log.Printf("Failed to update public registration flag: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to update public registration flag"})
 			return
 		}
 		if err := upsertPlatformSetting(database, "registration_invitation_code", strings.TrimSpace(req.InvitationCode), "string", "Registration invitation code"); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to update invitation code: %v", err)})
+			log.Printf("Failed to update invitation code: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to update invitation code"})
 			return
 		}
 
@@ -246,7 +254,8 @@ func backofficeSettingsHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		settings, err := repository.NewSettingsRepository(database).GetAllBotSettings()
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load settings: %v", err)})
+			log.Printf("Failed to load settings: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to load settings"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
@@ -332,10 +341,11 @@ func backofficeAuditLogsHandler(database *sql.DB) gin.HandlerFunc {
 			SELECT id, user_id, action, resource_type, resource_id, details, status, ip_address, created_at
 			FROM audit_logs
 			ORDER BY created_at DESC
-			LIMIT ? OFFSET ?
+			LIMIT $1 OFFSET $2
 		`, limit, offset)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to load audit logs: %v", err)})
+			log.Printf("Failed to load audit logs: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to load audit logs"})
 			return
 		}
 		defer func() { _ = rows.Close() }()
@@ -348,7 +358,8 @@ func backofficeAuditLogsHandler(database *sql.DB) gin.HandlerFunc {
 			var resourceID, details, status, ipAddress sql.NullString
 			var createdAt sql.NullTime
 			if err := rows.Scan(&id, &userID, &action, &resourceType, &resourceID, &details, &status, &ipAddress, &createdAt); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to parse audit log: %v", err)})
+				log.Printf("Failed to parse audit log: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to parse audit log"})
 				return
 			}
 			item := gin.H{"id": id, "action": action, "resource_type": resourceType}
@@ -373,7 +384,8 @@ func backofficeAuditLogsHandler(database *sql.DB) gin.HandlerFunc {
 			logs = append(logs, item)
 		}
 		if err := rows.Err(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to iterate audit logs: %v", err)})
+			log.Printf("Failed to iterate audit logs: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to iterate audit logs"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{

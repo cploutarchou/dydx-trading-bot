@@ -1,23 +1,23 @@
 import {
-    Activity,
-    AlertTriangle,
-    Ban,
-    CheckCircle2,
-    Clock3,
-    Filter,
-    RefreshCw,
-    RotateCcw,
-    Server,
-    Timer,
-    Zap,
+  Activity,
+  AlertTriangle,
+  Ban,
+  CheckCircle2,
+  Clock3,
+  Filter,
+  RefreshCw,
+  RotateCcw,
+  Server,
+  Timer,
+  Zap,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import api, {
-    type CeleryHealthResponse,
-    type CeleryQueuesResponse,
-    type CeleryTask,
-    type CeleryTasksResponse,
-    type CeleryWorkersResponse,
+  type CeleryHealthResponse,
+  type CeleryQueuesResponse,
+  type CeleryTask,
+  type CeleryTasksResponse,
+  type CeleryWorkersResponse,
 } from '../api';
 import { useAuthStore } from '../store/auth';
 
@@ -221,7 +221,8 @@ export const AdminCeleryPage: React.FC = () => {
   }, [environmentFilter, isStrictAdmin, queueFilter, statusFilter, taskNameFilter]);
 
   useEffect(() => {
-    void load();
+    // Microtask keeps the loader's synchronous state reset out of the effect.
+    void Promise.resolve().then(() => load());
     if (!autoRefresh) {
       return;
     }
@@ -270,21 +271,22 @@ export const AdminCeleryPage: React.FC = () => {
     return (succeededTasks.length / denominator) * 100;
   }, [failedTasks.length, succeededTasks.length]);
 
+  const queueList = queues?.queues;
   const queueInsights = useMemo(() => {
-    const rows = Array.isArray(queues?.queues)
-      ? queues.queues.map((queue) => ({
+    const rows = Array.isArray(queueList)
+      ? queueList.map((queue) => ({
           name: queue.name,
           length: toFiniteNumber(queue.length) ?? 0,
         }))
       : [];
     const totalBacklog = rows.reduce((sum, row) => sum + Math.max(0, row.length), 0);
-    const hottest = [...rows].sort((left, right) => right.length - left.length)[0] || null;
+    const sortedRows = [...rows].sort((left, right) => right.length - left.length);
     return {
-      rows: rows.sort((left, right) => right.length - left.length),
+      rows: sortedRows,
       totalBacklog,
-      hottest,
+      hottest: sortedRows[0] ?? null,
     };
-  }, [queues?.queues]);
+  }, [queueList]);
 
   const anomalousQueueNames = useMemo(() => {
     return new Set(
@@ -294,12 +296,13 @@ export const AdminCeleryPage: React.FC = () => {
     );
   }, [queueAnomalyThreshold, queueInsights.rows]);
 
+  const workerList = workers?.workers;
   const workerSummaries = useMemo(() => {
-    const list = Array.isArray(workers?.workers)
-      ? workers.workers.map((worker) => toWorkerSummary(worker))
+    const list = Array.isArray(workerList)
+      ? workerList.map((worker) => toWorkerSummary(worker))
       : [];
-    return list.sort((left, right) => right.activeTasks - left.activeTasks);
-  }, [workers?.workers]);
+    return [...list].sort((left, right) => right.activeTasks - left.activeTasks);
+  }, [workerList]);
 
   const failureHotspots = useMemo(() => {
     const counter = new Map<string, number>();
@@ -308,7 +311,7 @@ export const AdminCeleryPage: React.FC = () => {
         String(task.error_code || '').trim() ||
         String(task.error_message || '')
           .split('\n')[0]
-          .trim() ||
+          ?.trim() ||
         'unknown';
       const key = raw.length > 80 ? `${raw.slice(0, 77)}...` : raw;
       counter.set(key, (counter.get(key) || 0) + 1);
@@ -347,7 +350,7 @@ export const AdminCeleryPage: React.FC = () => {
   if (!isStrictAdmin) {
     return (
       <div className="min-h-[60vh] px-6 py-8 text-slate-200">
-        <h1 className="text-2xl font-semibold">Forbidden</h1>
+        <h2 className="text-2xl font-semibold">Forbidden</h2>
         <p className="mt-2 text-sm text-slate-400">Admin access is required.</p>
       </div>
     );
@@ -358,7 +361,7 @@ export const AdminCeleryPage: React.FC = () => {
       <div className="mx-auto max-w-7xl space-y-5">
         <div className="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-normal">Celery Operations</h1>
+            <h2 className="text-2xl font-semibold tracking-normal">Celery Operations</h2>
             <p className="mt-1 text-sm text-slate-400">
               Admin task inspection, worker health, queue pressure, and faster failure triage.
             </p>

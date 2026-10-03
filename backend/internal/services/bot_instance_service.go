@@ -71,17 +71,35 @@ func (s *BotInstanceService) CreateBotInstanceWithConfig(instance *models.BotIns
 		return fmt.Errorf("bot API client not configured")
 	}
 
-	if _, err := s.apiClient.CreateBotInstance(payload); err != nil {
-		return fmt.Errorf("failed to create bot instance in bot API: %w", err)
-	}
-
+	// The backend owns the bot_instances schema and is the only side that knows
+	// the owning user. With a shared database the bot API persists into the same
+	// table, so the row has to exist before the bot is asked to create the
+	// instance: the bot then updates that row. In the old order the bot inserted
+	// a row without user_id (rejected where the column is NOT NULL) and the
+	// backend's own insert then collided on instance_id.
 	if err := s.repo.CreateBotInstance(instance); err != nil {
-		// Best-effort rollback in bot API to avoid orphan runtime instances.
-		_, _ = s.apiClient.DeleteBotInstance(instance.InstanceID)
 		return err
 	}
 
+	if _, err := s.apiClient.CreateBotInstance(payload); err != nil {
+		if deleteErr := s.deleteLocalInstanceIfPresent(instance.InstanceID); deleteErr != nil {
+			log.Printf("⚠️ failed to remove runtime instance row %s after bot API create failed: %v", instance.InstanceID, deleteErr)
+		}
+		return fmt.Errorf("failed to create bot instance in bot API: %w", err)
+	}
+
 	return nil
+}
+
+// deleteLocalInstanceIfPresent removes the backend's row and treats an already
+// missing row as done: with a shared database the bot API deletes the same row
+// when it deletes the instance.
+func (s *BotInstanceService) deleteLocalInstanceIfPresent(instanceID string) error {
+	err := s.repo.DeleteBotInstance(instanceID)
+	if err != nil && strings.Contains(strings.ToLower(err.Error()), "not found") {
+		return nil
+	}
+	return err
 }
 
 // GetBotInstanceByID retrieves a bot instance by ID
@@ -115,6 +133,7 @@ func (s *BotInstanceService) DeleteBotInstance(instanceID string) error {
 		if _, err := s.apiClient.DeleteBotInstance(instanceID); err != nil {
 			return fmt.Errorf("failed to delete bot instance in bot API: %w", err)
 		}
+		return s.deleteLocalInstanceIfPresent(instanceID)
 	}
 
 	return s.repo.DeleteBotInstance(instanceID)
@@ -140,7 +159,7 @@ func (s *BotInstanceService) RecreateBotInstanceWithConfig(instance *models.BotI
 		}
 	}
 
-	if err := s.repo.DeleteBotInstance(instance.InstanceID); err != nil {
+	if err := s.deleteLocalInstanceIfPresent(instance.InstanceID); err != nil {
 		return fmt.Errorf("failed to delete bot instance metadata: %w", err)
 	}
 

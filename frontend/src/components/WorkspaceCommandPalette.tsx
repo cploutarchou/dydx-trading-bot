@@ -4,10 +4,10 @@ import { useNavigate } from 'react-router-dom';
 import { getCurrentPortalType } from '../app/portal';
 import { getUserWorkspaceRole } from '../auth/roles';
 import {
-    filterNavItemsForRole,
-    getWorkspaceNavItems,
-    getWorkspaceQuickActions,
-    type WorkspaceNavItem,
+  filterNavItemsForRole,
+  getWorkspaceNavItems,
+  getWorkspaceQuickActions,
+  type WorkspaceNavItem,
 } from '../navigation/workspaceNav';
 import { useAuthStore } from '../store/auth';
 
@@ -64,9 +64,17 @@ export const WorkspaceCommandPalette: React.FC<WorkspaceCommandPaletteProps> = (
     [portal, role]
   );
 
-  useEffect(() => {
+  // Clear the query on close — adjusted during render (sanctioned pattern).
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+  if (isOpen !== prevIsOpen) {
+    setPrevIsOpen(isOpen);
     if (!isOpen) {
       setQuery('');
+    }
+  }
+
+  useEffect(() => {
+    if (!isOpen) {
       return;
     }
     const frameId = window.requestAnimationFrame(() => {

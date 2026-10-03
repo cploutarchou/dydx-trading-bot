@@ -1,9 +1,9 @@
 import { ArrowRight, CheckCircle2, ShieldCheck, TrendingUp, Waypoints } from 'lucide-react';
 import React from 'react';
 import { Link } from 'react-router-dom';
-import MotionReveal from '../components/MotionReveal';
-import PublicSiteShell from '../components/PublicSiteShell';
-import SEOHead from '../components/SEOHead';
+import { MotionReveal } from '../components/MotionReveal';
+import { PublicSiteShell } from '../components/PublicSiteShell';
+import { SEOHead } from '../components/SEOHead';
 
 const workflowSteps = [
   {
@@ -89,11 +89,7 @@ export const LandingPage: React.FC = () => (
               </p>
             </MotionReveal>
 
-            <MotionReveal
-              className="landing-focus-panel"
-              delayMs={90}
-              distancePx={18}
-            >
+            <MotionReveal className="landing-focus-panel" delayMs={90} distancePx={18}>
               <div className="landing-focus-panel-header">
                 <span>Start here</span>
                 <strong>Request access after reviewing the model.</strong>
@@ -128,7 +124,10 @@ export const LandingPage: React.FC = () => (
           </div>
         </section>
 
-        <section className="public-modern-container landing-focus-section" aria-labelledby="workflow-heading">
+        <section
+          className="public-modern-container landing-focus-section"
+          aria-labelledby="workflow-heading"
+        >
           <MotionReveal className="landing-focus-section-header" distancePx={14}>
             <div className="surface-label">
               <CheckCircle2 className="h-3.5 w-3.5" />

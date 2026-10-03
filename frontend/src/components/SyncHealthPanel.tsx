@@ -1,13 +1,13 @@
 import { Activity, AlertTriangle, Loader } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import api from '../api';
-import { enhancedApiClient } from '../api/enhancedClient';
+import { botApi } from '../api/botApi';
 
 interface SyncHealthRun {
   run_id: string;
   status: string;
-  trades: number;                    // Primary: delegated artifact-backed trade availability
-  backend_mirrored_trades?: number;  // Debug: legacy backend DB mirror count (if available)
+  trades: number; // Primary: delegated artifact-backed trade availability
+  backend_mirrored_trades?: number; // Debug: legacy backend DB mirror count (if available)
   positions: number;
   candles: number;
   sync_lag_seconds?: number;
@@ -110,7 +110,7 @@ export const SyncHealthPanel: React.FC = () => {
       try {
         const [response, systemStatus] = await Promise.all([
           api.getBacktestSyncHealth(),
-          enhancedApiClient.getSystemStatus(),
+          botApi.getSystemStatus(),
         ]);
         if (cancelled) return;
 
@@ -244,11 +244,13 @@ export const SyncHealthPanel: React.FC = () => {
                     </span>
                   </span>
                 </div>
-                {run.backend_mirrored_trades !== undefined && run.backend_mirrored_trades !== null && (
-                  <div className="mt-1 text-xs text-slate-500">
-                    <span className="text-slate-600">DB Mirror:</span> {run.backend_mirrored_trades}
-                  </div>
-                )}
+                {run.backend_mirrored_trades !== undefined &&
+                  run.backend_mirrored_trades !== null && (
+                    <div className="mt-1 text-xs text-slate-500">
+                      <span className="text-slate-600">DB Mirror:</span>{' '}
+                      {run.backend_mirrored_trades}
+                    </div>
+                  )}
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
                   <span>Lag: {formatAge(run.sync_lag_seconds)}</span>
                   <span>Age: {formatAge(run.run_age_seconds)}</span>

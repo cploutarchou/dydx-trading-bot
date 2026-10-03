@@ -11,6 +11,7 @@ import api, {
 import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/intelligence';
 import { useStrategyStore } from '../store/strategies';
 import { useToastStore } from './ErrorBoundary';
+import { Field } from './ui/Field';
 import { InlineNotice } from './ui/PlatformUI';
 
 interface TradingParameters {
@@ -94,6 +95,15 @@ const extractRunId = (result: unknown): string | null => {
   return typeof nested.run_id === 'string' ? nested.run_id : null;
 };
 
+// Default research window: the trailing `days` days ending today, so new runs
+// always reflect recent market structure instead of a frozen historical range.
+const trailingWindowIsoDates = (days: number): { start: string; end: string } => {
+  const end = new Date();
+  const start = new Date(end.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
+  const toIsoDate = (d: Date) => d.toISOString().slice(0, 10);
+  return { start: toIsoDate(start), end: toIsoDate(end) };
+};
+
 export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   onBacktestComplete,
 }) => {
@@ -106,24 +116,27 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
   const warningToast = useToastStore((state) => state.warning);
   const [useStrategy, setUseStrategy] = useState(false);
   const [selectedStrategyId, setSelectedStrategyId] = useState<number | null>(null);
-  const [formData, setFormData] = useState<BacktestRunRequest>({
-    start_date: '2024-01-01',
-    end_date: '2024-03-31',
-    name: 'ui-backtest',
-    initial_balance: 1000,
-    max_pairs: 0,
-    pair_selection_mode: 'liquidity',
-    trading_parameters: {
-      resolution: '1HOUR',
-      zscore_threshold: 1.5,
-      stats_window: 21,
-      usd_per_trade: 10,
-      transaction_fee: 0.0005,
-      slippage: 0.001,
-      risk_free_rate: 0.02,
-      max_history_days: 90,
+  const [formData, setFormData] = useState<BacktestRunRequest>(() => {
+    const { start, end } = trailingWindowIsoDates(90);
+    return {
+      start_date: start,
+      end_date: end,
+      name: 'ui-backtest',
+      initial_balance: 1000,
+      max_pairs: 0,
       pair_selection_mode: 'liquidity',
-    },
+      trading_parameters: {
+        resolution: '1HOUR',
+        zscore_threshold: 1.5,
+        stats_window: 21,
+        usd_per_trade: 10,
+        transaction_fee: 0.0005,
+        slippage: 0.001,
+        risk_free_rate: 0.02,
+        max_history_days: 90,
+        pair_selection_mode: 'liquidity',
+      },
+    };
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -337,8 +350,12 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
     ) {
       return;
     }
-    setUseStrategy(true);
-    applyStrategyDefaults(requestedStrategyId, true);
+    // Imperative form defaults applied out-of-band so no setState runs
+    // synchronously inside the effect body.
+    void Promise.resolve().then(() => {
+      setUseStrategy(true);
+      applyStrategyDefaults(requestedStrategyId, true);
+    });
   }, [applyStrategyDefaults, requestedStrategyId, selectedStrategyId, strategies.length]);
 
   const toggleMarket = (market: string) => {
@@ -579,7 +596,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
       label: 'Source: unknown',
       className: 'border-slate-600/70 bg-slate-700/40 text-slate-200',
     };
-  }, [marketsSource, marketsStale, normalizedMarketsSource]);
+  }, [marketsStale, normalizedMarketsSource]);
 
   const marketSourceWarning = useMemo(() => {
     if (marketsStale || normalizedMarketsSource === 'cache_stale') {
@@ -744,8 +761,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className={labelClass}>Start Date</label>
+          <Field label="Start Date" required labelClassName={labelClass}>
             <input
               type="date"
               name="start_date"
@@ -754,10 +770,9 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               className={inputClass}
               required
             />
-          </div>
+          </Field>
 
-          <div>
-            <label className={labelClass}>End Date</label>
+          <Field label="End Date" required labelClassName={labelClass}>
             <input
               type="date"
               name="end_date"
@@ -766,10 +781,13 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               className={inputClass}
               required
             />
-          </div>
+          </Field>
 
-          <div>
-            <label className={labelClass}>Number of Markets (0 = All)</label>
+          <Field
+            label="Number of Markets (0 = All)"
+            hint="Set to 0 to scan opportunities across all available markets."
+            labelClassName={labelClass}
+          >
             <input
               type="number"
               name="max_pairs"
@@ -779,21 +797,14 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               max="50"
               className={inputClass}
             />
-            <p className="mt-1 text-xs text-gray-400">
-              Set to 0 to scan opportunities across all available markets.
-            </p>
-          </div>
-          <div>
-            <label className={labelClass}>Pair Selection Mode</label>
+          </Field>
+          <Field label="Pair Selection Mode" labelClassName={labelClass}>
             <select
               name="pair_selection_mode"
               value={formData.trading_parameters.pair_selection_mode || 'liquidity'}
               onChange={(e) => {
                 const value = e.target.value as
-                  | 'liquidity'
-                  | 'volatility'
-                  | 'cointegration'
-                  | 'input';
+                  'liquidity' | 'volatility' | 'cointegration' | 'input';
                 setFormData((prev) => ({
                   ...prev,
                   pair_selection_mode: value,
@@ -810,12 +821,10 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               <option value="volatility">Volatility (highest movement first)</option>
               <option value="input">Input order (no ranking)</option>
             </select>
-          </div>
+          </Field>
           <div className="md:col-span-2">
             <div className="mb-2 flex items-center justify-between gap-3">
-              <label className="block text-xs font-semibold uppercase text-slate-400">
-                dYdX Markets
-              </label>
+              <p className="block text-xs font-semibold uppercase text-slate-400">dYdX Markets</p>
               <span
                 className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${marketSourceBadge.className}`}
                 title="Market data source health"
@@ -894,8 +903,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               </div>
             )}
           </div>
-          <div>
-            <label className={labelClass}>Z-Score Threshold</label>
+          <Field label="Z-Score Threshold" labelClassName={labelClass}>
             <input
               type="number"
               name="zscore_threshold"
@@ -906,9 +914,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               max="3"
               className={inputClass}
             />
-          </div>
-          <div>
-            <label className={labelClass}>Stats Window (days)</label>
+          </Field>
+          <Field label="Stats Window (days)" labelClassName={labelClass}>
             <input
               type="number"
               name="stats_window"
@@ -918,9 +925,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               max="60"
               className={inputClass}
             />
-          </div>
-          <div>
-            <label className={labelClass}>USD Per Trade</label>
+          </Field>
+          <Field label="USD Per Trade" labelClassName={labelClass}>
             <input
               type="number"
               name="usd_per_trade"
@@ -931,9 +937,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               max="1000"
               className={inputClass}
             />
-          </div>
-          <div>
-            <label className={labelClass}>Starting Balance</label>
+          </Field>
+          <Field label="Starting Balance" labelClassName={labelClass}>
             <input
               type="number"
               name="initial_balance"
@@ -943,9 +948,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               min="100"
               className={inputClass}
             />
-          </div>
-          <div>
-            <label className={labelClass}>Candle Resolution</label>
+          </Field>
+          <Field label="Candle Resolution" labelClassName={labelClass}>
             <select
               name="resolution"
               value={normalizeDydxCandleResolution(
@@ -968,9 +972,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
                 </option>
               ))}
             </select>
-          </div>
-          <div>
-            <label className={labelClass}>Transaction Fee</label>
+          </Field>
+          <Field label="Transaction Fee" labelClassName={labelClass}>
             <input
               type="number"
               name="transaction_fee"
@@ -980,9 +983,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               min="0"
               className={inputClass}
             />
-          </div>
-          <div>
-            <label className={labelClass}>Slippage</label>
+          </Field>
+          <Field label="Slippage" labelClassName={labelClass}>
             <input
               type="number"
               name="slippage"
@@ -992,9 +994,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               min="0"
               className={inputClass}
             />
-          </div>
-          <div>
-            <label className={labelClass}>Risk-Free Rate</label>
+          </Field>
+          <Field label="Risk-Free Rate" labelClassName={labelClass}>
             <input
               type="number"
               name="risk_free_rate"
@@ -1004,9 +1005,8 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               min="0"
               className={inputClass}
             />
-          </div>
-          <div>
-            <label className={labelClass}>Max History Days</label>
+          </Field>
+          <Field label="Max History Days" labelClassName={labelClass}>
             <input
               type="number"
               name="max_history_days"
@@ -1016,7 +1016,7 @@ export const BacktestRunner: React.FC<{ onBacktestComplete?: () => void }> = ({
               max="3650"
               className={inputClass}
             />
-          </div>
+          </Field>
         </div>
 
         <InlineNotice

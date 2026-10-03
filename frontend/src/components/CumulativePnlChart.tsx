@@ -1,10 +1,10 @@
 import {
-    AreaSeries,
-    type IChartApi,
-    type ISeriesApi,
-    type LineData,
-    type MouseEventParams,
-    type Time,
+  AreaSeries,
+  type IChartApi,
+  type ISeriesApi,
+  type LineData,
+  type MouseEventParams,
+  type Time,
 } from 'lightweight-charts';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useUIPreferencesStore } from '../store/uiPreferences';
@@ -61,8 +61,9 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
   const strokeColor = lastValue >= 0 ? positiveColor : negativeColor;
 
   useEffect(() => {
+    // Ref-only sync; the visible point falls back to the latest datum at
+    // consumption (activePoint), so no state reset is needed on data change.
     latestDataRef.current = normalizedData;
-    setHoverPoint(normalizedData[normalizedData.length - 1] ?? null);
   }, [normalizedData]);
 
   useEffect(() => {
@@ -121,6 +122,9 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
       chartRef.current = null;
       chart.remove();
     };
+    // Initial series color is a snapshot; the applyOptions effect below keeps
+    // it in sync, so a sign flip must not rebuild the whole chart.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [height, resolvedTheme]);
 
   useEffect(() => {
@@ -173,6 +177,8 @@ export const CumulativePnlChart: React.FC<CumulativePnlChartProps> = ({
   }
 
   const activePoint = hoverPoint ?? normalizedData[normalizedData.length - 1];
+
+  if (!activePoint) return null;
 
   return (
     <div className="relative w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80">

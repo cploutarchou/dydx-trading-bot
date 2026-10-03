@@ -17,7 +17,7 @@ This skill owns:
 - **Structured config**: encrypted profiles in `config/profiles/*.config.enc.json`
 - **Generated config**: `run.json` generation and validation
 - **Environment setup**: `.env` files, environment variable precedence
-- **Docker/Compose**: `platform.yml`, Dockerfile configurations
+- **Docker/Compose**: `docker-compose.stack.yml` / `docker-compose.infra.yml`, Dockerfile configurations
 - **Deployment config**: environment-specific overrides, rollout playbooks
 - **Secrets management**: encrypted key handling, credential rotation, security boundaries
 - **Infrastructure tooling**: Makefile targets, setup scripts, bootstrapping
@@ -84,7 +84,7 @@ Use this skill when you need to:
 3. Verify profile file matches target environment
 4. Check decryption key exists and matches profile encryption
 5. Review load order: file env values → dotenv → profile → defaults
-6. Run `make validate-config` or equivalent to check for errors
+6. Run `make dev` (regenerates and validates `run.json`) or boot the service and watch for structured-config load errors
 
 ### Deploy to New Environment
 

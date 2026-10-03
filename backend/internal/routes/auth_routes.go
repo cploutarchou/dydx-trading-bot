@@ -4,7 +4,9 @@ package routes
 import (
 	"crypto/subtle"
 	"database/sql"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -23,18 +25,41 @@ import (
 )
 
 // RegisterAuthRoutes registers all authentication routes
+// Per-IP budget for unauthenticated credential endpoints (login, register,
+// password reset, MFA challenge): a sustained 1 request/second with a burst of
+// 20. Interactive use never reaches it; password spraying does.
+const (
+	authCredentialRequestsPerSecond = 1.0
+	authCredentialBurst             = 20
+)
+
 func RegisterAuthRoutes(router *gin.Engine, database *sql.DB) {
 	authRoutes := router.Group("/api/v1/auth")
+	// Credential endpoints get their own, much tighter per-IP budget than the
+	// global limiter: they are unauthenticated and each call costs a password
+	// hash or an email. One limiter is shared by the group so an attacker
+	// cannot multiply the budget by rotating endpoints. The client IP comes
+	// from Gin's trusted-proxy logic (TRUSTED_PROXIES).
+	credentialLimiter := middleware.RateLimitMiddleware(authCredentialRequestsPerSecond, authCredentialBurst)
 	{
-		authRoutes.POST("/register", registerHandler(database))
+		authRoutes.POST("/register", credentialLimiter, registerHandler(database))
 		authRoutes.GET("/registration-status", registrationStatusHandler(database))
 		authRoutes.GET("/session", middleware.RequireAuth(), authSessionHandler(database))
-		authRoutes.POST("/login", loginHandler(database))
+		authRoutes.POST("/login", credentialLimiter, loginHandler(database))
 		authRoutes.POST("/refresh", refreshHandler(database))
 		authRoutes.POST("/logout", logoutHandler())
 		authRoutes.POST("/2fa/setup", middleware.RequireAuth(), setup2FAHandler(database))
 		authRoutes.POST("/2fa/verify", middleware.RequireAuth(), verify2FAHandler(database))
+		// Completes the login-time TOTP challenge for users with MFA enrolled.
+		// The only route that accepts sessions still pending their challenge.
+		authRoutes.POST("/2fa/challenge", credentialLimiter, middleware.RequireAuthAllowPendingMFA(), mfaChallengeHandler(database))
+		// Re-verifies TOTP for an already-authenticated session, refreshing the
+		// session's MFAVerifiedAt window that RequireRecentMFA-protected routes
+		// (e.g. GET /keys/:network/secret) demand.
+		authRoutes.POST("/2fa/step-up", middleware.RequireAuth(), mfaStepUpHandler(database))
 		authRoutes.PUT("/change-password", middleware.RequireAuth(), changePasswordHandler(database))
+		authRoutes.POST("/forgot-password", credentialLimiter, forgotPasswordHandler(database))
+		authRoutes.POST("/reset-password", credentialLimiter, resetPasswordHandler(database))
 	}
 
 	// User routes (require authentication)
@@ -68,7 +93,7 @@ func authSessionHandler(database *sql.DB) gin.HandlerFunc {
 type RegisterRequest struct {
 	Username       string `json:"username" binding:"required"`
 	Email          string `json:"email" binding:"required,email"`
-	Password       string `json:"password" binding:"required,min=6"`
+	Password       string `json:"password" binding:"required,min=8"`
 	InvitationCode string `json:"invitation_code"`
 }
 
@@ -112,6 +137,14 @@ type RegistrationStatusResponse struct {
 }
 
 const maxSessionTTL = 24 * time.Hour
+
+// mfaChallengeTTL bounds the lifetime of a password-only login session that is
+// still awaiting its TOTP challenge.
+const mfaChallengeTTL = 5 * time.Minute
+
+// mfaStepUpWindow is how long a step-up verification stays valid for
+// RequireRecentMFA-protected routes.
+const mfaStepUpWindow = 15 * time.Minute
 
 // sessionTTL returns the configured session lifetime capped at maxSessionTTL (1 day).
 // It reads SESSION_TTL_HOURS first, then falls back to REFRESH_TOKEN_EXPIRE_DAYS converted
@@ -261,6 +294,16 @@ func requestSessionToken(c *gin.Context) string {
 	return ""
 }
 
+// generateRefreshTokenForUser mints a refresh JWT bound to the user's current
+// session generation, so a password-change bump invalidates it.
+func generateRefreshTokenForUser(c *gin.Context, user *models.User, role string) (string, error) {
+	gen := int64(0)
+	if store := middleware.AuthSessionStore(); store != nil {
+		gen = store.CurrentUserGeneration(c.Request.Context(), user.ID)
+	}
+	return services.GenerateRefreshTokenWithGeneration(user.ID, user.Username, user.IsAdmin, role, gen)
+}
+
 func createSessionForUser(c *gin.Context, user *models.User, role string) (string, auth.SessionData, error) {
 	store := middleware.AuthSessionStore()
 	if store == nil {
@@ -356,21 +399,37 @@ func setup2FAHandler(database *sql.DB) gin.HandlerFunc {
 	}
 }
 
+// validMFACodeShape accepts a 6-digit TOTP or an 11-character backup code
+// (XXXXX-XXXXX). Handler-level binding previously enforced len=6, which made
+// the implemented backup-code recovery path unreachable over HTTP.
+func validMFACodeShape(token string) bool {
+	token = strings.TrimSpace(token)
+	if len(token) == 6 {
+		for _, r := range token {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+		return true
+	}
+	return len(token) == 11 && token[5] == '-'
+}
+
 func verify2FAHandler(database *sql.DB) gin.HandlerFunc {
 	type verify2FARequest struct {
-		Token string `json:"token" binding:"required,len=6"`
+		Token string `json:"token" binding:"required"`
 	}
 
 	return func(c *gin.Context) {
 		userID := c.GetInt("user_id")
 		var req verify2FARequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid request payload", "error": err.Error()})
+		if err := c.ShouldBindJSON(&req); err != nil || !validMFACodeShape(req.Token) {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Token must be a 6-digit code or a backup code (XXXXX-XXXXX)"})
 			return
 		}
 
 		mfaService := services.NewMFAService(repository.NewUserMFARepository(database))
-		if err := mfaService.Verify(userID, req.Token); err != nil {
+		if err := mfaService.VerifyBounded(userID, req.Token); err != nil {
 			writeAuditLog(database, c, "auth.mfa.verify", "user", stringPointer(strconv.Itoa(userID)), gin.H{"result": "failed"}, "failure")
 			c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": err.Error()})
 			return
@@ -392,6 +451,201 @@ func verify2FAHandler(database *sql.DB) gin.HandlerFunc {
 	}
 }
 
+// mfaChallengeHandler completes the login-time TOTP challenge. It is the only
+// endpoint that accepts a pending (password-only) session: a valid code
+// promotes the session to full authentication and issues the refresh cookie
+// that the login handler deliberately withheld.
+func mfaChallengeHandler(database *sql.DB) gin.HandlerFunc {
+	type mfaChallengeRequest struct {
+		Token string `json:"token" binding:"required"`
+	}
+
+	return func(c *gin.Context) {
+		var req mfaChallengeRequest
+		if err := c.ShouldBindJSON(&req); err != nil || !validMFACodeShape(req.Token) {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Token must be a 6-digit code or a backup code (XXXXX-XXXXX)"})
+			return
+		}
+
+		store := middleware.AuthSessionStore()
+		if store == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Session store unavailable"})
+			return
+		}
+
+		sessionToken := requestSessionToken(c)
+		if sessionToken == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Authentication required", "error": "missing authentication credentials"})
+			return
+		}
+
+		sessionData, err := store.Get(c.Request.Context(), sessionToken)
+		if err != nil || sessionData == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Session expired, sign in again", "error": "invalid session"})
+			return
+		}
+		if !sessionData.MFAPending() {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "No MFA challenge in progress for this session", "code": "mfa_challenge_not_pending"})
+			return
+		}
+
+		userID := sessionData.UserID
+		requestIP := c.ClientIP()
+		userAgent := c.GetHeader("User-Agent")
+
+		mfaService := services.NewMFAService(repository.NewUserMFARepository(database))
+		if err := mfaService.VerifyBounded(userID, req.Token); err != nil {
+			writeAuditLog(database, c, "auth.mfa.challenge", "user", stringPointer(strconv.Itoa(userID)), gin.H{"result": "failed"}, "failure")
+
+			// Bound guessing: burn the pending session after too many bad codes.
+			sessionData.ChallengeAttempts++
+			if sessionData.ChallengeAttempts >= auth.MaxMFAPreAuthAttempts {
+				_ = store.Delete(c.Request.Context(), sessionToken)
+				clearAuthCookies(c)
+				logSecurityLoginEvent(database, &userID, sessionData.Username, "login", "failure", "mfa_challenge_attempts_exceeded", requestIP, userAgent)
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"success": false,
+					"message": "Too many invalid codes. Please sign in again.",
+					"error":   "Too many invalid codes. Please sign in again.",
+					"code":    "mfa_challenge_expired",
+				})
+				return
+			}
+			if updateErr := store.Update(c.Request.Context(), sessionToken, *sessionData); updateErr != nil {
+				log.Printf("mfaChallengeHandler: failed to record challenge attempt: %v", updateErr)
+			}
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": "Invalid authenticator code",
+				"error":   "Invalid authenticator code",
+				"code":    "invalid_mfa_code",
+			})
+			return
+		}
+
+		// Reload the user so role/admin flags are current at promotion time.
+		userRepo := repository.NewUserRepository(database)
+		user, userErr := userRepo.GetByID(userID)
+		if userErr != nil || user == nil || !user.IsActive {
+			_ = store.Delete(c.Request.Context(), sessionToken)
+			clearAuthCookies(c)
+			c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "User not found or inactive"})
+			return
+		}
+
+		now := time.Now().UTC()
+		sessionData.MFAVerifiedAt = &now
+		sessionData.Role = models.NormalizeUserRole(user.Role, user.IsAdmin)
+		sessionData.IsAdmin = user.IsAdmin
+		// The short challenge TTL applied only to the pending phase; a promoted
+		// session gets the full configured lifetime.
+		sessionData.ExpiresAt = now.Add(sessionTTL())
+		if updateErr := store.Update(c.Request.Context(), sessionToken, *sessionData); updateErr != nil {
+			log.Printf("mfaChallengeHandler: failed to promote session: %v", updateErr)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to finalize login"})
+			return
+		}
+
+		_ = userRepo.UpdateLastLogin(user.ID)
+		logSecurityLoginEvent(database, &user.ID, user.Username, "login", "success", "authenticated_mfa", requestIP, userAgent)
+		writeAuditLog(database, c, "auth.mfa.challenge", "user", stringPointer(strconv.Itoa(userID)), gin.H{"result": "verified"}, "success")
+
+		// Issue the refresh cookie that login withheld until the second factor
+		// completed (mirrors the post-password login path).
+		jwtRefreshToken, rtErr := generateRefreshTokenForUser(c, user, sessionData.Role)
+		if rtErr != nil {
+			log.Printf("mfaChallengeHandler: failed to generate refresh token cookie: %v", rtErr)
+		}
+
+		setSessionCookie(c, sessionToken, int(sessionTTL().Seconds()))
+		if rtErr == nil && jwtRefreshToken != "" {
+			setRefreshTokenCookie(c, jwtRefreshToken)
+		}
+
+		response := TokenResponse{
+			TokenType:        "session",
+			ExpiresIn:        int(sessionTTL().Seconds()),
+			SessionExpiresAt: sessionData.ExpiresAt.Format(time.RFC3339),
+		}
+		if shouldReturnLegacyAuthTokens() {
+			accessToken, tokenErr := services.GenerateAccessTokenWithRole(user.ID, user.Username, user.IsAdmin, sessionData.Role)
+			if tokenErr != nil {
+				log.Printf("mfaChallengeHandler: failed to generate access token: %v", tokenErr)
+				c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to generate token"})
+				return
+			}
+			response.AccessToken = accessToken
+			response.RefreshToken = jwtRefreshToken
+			response.TokenType = "bearer"
+			response.ExpiresIn = 1800
+		}
+
+		c.JSON(http.StatusOK, response)
+	}
+}
+
+// mfaStepUpHandler re-verifies TOTP for a fully authenticated session and
+// stamps MFAVerifiedAt, opening the RequireRecentMFA window (15 minutes on
+// sensitive routes). Unlike the login challenge it never demotes the session:
+// other tabs keep working while the reveal flow re-authenticates.
+func mfaStepUpHandler(database *sql.DB) gin.HandlerFunc {
+	type stepUpRequest struct {
+		Token string `json:"token" binding:"required"`
+	}
+
+	return func(c *gin.Context) {
+		var req stepUpRequest
+		if err := c.ShouldBindJSON(&req); err != nil || !validMFACodeShape(req.Token) {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Token must be a 6-digit code or a backup code (XXXXX-XXXXX)"})
+			return
+		}
+
+		userID := c.GetInt("user_id")
+
+		store := middleware.AuthSessionStore()
+		if store == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Session store unavailable"})
+			return
+		}
+		sessionToken := requestSessionToken(c)
+		if sessionToken == "" {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "Session authentication required for step-up", "code": "mfa_step_up_required"})
+			return
+		}
+		sessionData, err := store.Get(c.Request.Context(), sessionToken)
+		if err != nil || sessionData == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Session expired, sign in again"})
+			return
+		}
+
+		mfaService := services.NewMFAService(repository.NewUserMFARepository(database))
+		if err := mfaService.VerifyBounded(userID, req.Token); err != nil {
+			writeAuditLog(database, c, "auth.mfa.step_up", "user", stringPointer(strconv.Itoa(userID)), gin.H{"result": "failed"}, "failure")
+			c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Invalid authenticator code", "code": "invalid_mfa_code"})
+			return
+		}
+
+		now := time.Now().UTC()
+		sessionData.MFAVerifiedAt = &now
+		// Keep MFARequired set (it denotes TOTP enrollment on the session) so
+		// future step-ups remain meaningful; Update derives TTL from ExpiresAt,
+		// so the session lifetime is unchanged by a step-up.
+		if updateErr := store.Update(c.Request.Context(), sessionToken, *sessionData); updateErr != nil {
+			log.Printf("mfaStepUpHandler: failed to stamp session: %v", updateErr)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to record verification"})
+			return
+		}
+
+		writeAuditLog(database, c, "auth.mfa.step_up", "user", stringPointer(strconv.Itoa(userID)), gin.H{"result": "verified"}, "success")
+		c.JSON(http.StatusOK, gin.H{
+			"success":       true,
+			"message":       "Multi-factor verification confirmed",
+			"verified_at":   now.Format(time.RFC3339),
+			"valid_for_sec": int(mfaStepUpWindow.Seconds()),
+		})
+	}
+}
+
 func stringPointer(value string) *string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -401,6 +655,55 @@ func stringPointer(value string) *string {
 }
 
 // registerHandler handles user registration
+
+// validateAvatarDataURI enforces the avatar contract server-side: the client
+// may claim any MIME type, so the backend independently verifies a data URL
+// of an allowed image type within the size ceiling before persisting it.
+func validateAvatarDataURI(avatar string) error {
+	const maxAvatarBytes = 5 << 20 // matches the frontend's 5MB upload guidance
+	if avatar == "" {
+		return nil // clearing the avatar is always allowed
+	}
+	rest, ok := strings.CutPrefix(avatar, "data:")
+	if !ok {
+		return fmt.Errorf("avatar must be a data URL")
+	}
+	meta, payload, found := strings.Cut(rest, ",")
+	if !found {
+		return fmt.Errorf("avatar data URL is malformed")
+	}
+	// meta looks like "image/png;base64". Only the base64 form is used by
+	// the frontend; reject any other encoding before type/size checks.
+	params := strings.Split(meta, ";")
+	isBase64 := false
+	for _, param := range params[1:] {
+		if param == "base64" {
+			isBase64 = true
+		}
+	}
+	if !isBase64 {
+		return fmt.Errorf("avatar must use base64 encoding")
+	}
+	mediaType := params[0]
+	allowedTypes := map[string]bool{
+		"image/png":  true,
+		"image/jpeg": true,
+		"image/gif":  true,
+		"image/webp": true,
+	}
+	if !allowedTypes[mediaType] {
+		return fmt.Errorf("avatar must be a PNG, JPEG, GIF, or WebP image")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return fmt.Errorf("avatar payload is not valid base64")
+	}
+	if len(decoded) > maxAvatarBytes {
+		return fmt.Errorf("avatar exceeds the 5MB limit")
+	}
+	return nil
+}
+
 func registerHandler(database *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		policy, err := resolveRegistrationPolicy(database)
@@ -483,42 +786,68 @@ func registerHandler(database *sql.DB) gin.HandlerFunc {
 			PasswordChangeRequired: false,
 		}
 
-		err = userRepo.Create(user)
-		if err != nil {
-			log.Printf("Failed to create user: %v", err)
-			c.JSON(http.StatusBadRequest, gin.H{
-				"success": false,
-				"error":   "User already exists",
-			})
-			return
-		}
-
+		// User creation and one-time invitation redemption must commit
+		// atomically: the historical compensation-delete could itself fail and
+		// leave an orphan user with a consumed-or-not invite.
 		if requiresOneTimeTokenRedemption {
+			tx, txErr := database.BeginTx(c.Request.Context(), nil)
+			if txErr != nil {
+				log.Printf("Failed to open registration transaction: %v", txErr)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"error":   "Failed to register user",
+				})
+				return
+			}
+			committed := false
+			defer func() {
+				if !committed {
+					_ = tx.Rollback()
+				}
+			}()
+
+			if err := userRepo.WithTx(tx).Create(user); err != nil {
+				log.Printf("Failed to create user: %v", err)
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success": false,
+					"error":   "User already exists",
+				})
+				return
+			}
+
 			invitationRepo := repository.NewInvitationTokenRepository(database)
-			redeemed, redeemErr := invitationRepo.Redeem(providedCode, user.ID)
+			redeemed, redeemErr := invitationRepo.WithTx(tx).Redeem(providedCode, user.ID)
 			if redeemErr != nil {
-				log.Printf("Failed to redeem invitation token after user creation: %v", redeemErr)
-				_ = userRepo.Delete(user.ID)
+				log.Printf("Failed to redeem invitation token: %v", redeemErr)
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"success": false,
 					"error":   "Failed to validate invitation token",
 				})
 				return
 			}
-
 			if !redeemed {
-				if deleteErr := userRepo.Delete(user.ID); deleteErr != nil {
-					log.Printf("Failed to rollback user after invalid invitation token redemption: %v", deleteErr)
-					c.JSON(http.StatusInternalServerError, gin.H{
-						"success": false,
-						"error":   "Invitation token validation failed and rollback was incomplete",
-					})
-					return
-				}
-
 				c.JSON(http.StatusForbidden, gin.H{
 					"success": false,
 					"error":   "Invitation code is invalid or already used",
+				})
+				return
+			}
+			if commitErr := tx.Commit(); commitErr != nil {
+				log.Printf("Failed to commit registration transaction: %v", commitErr)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"error":   "Failed to register user",
+				})
+				return
+			}
+			committed = true
+		} else {
+			err = userRepo.Create(user)
+			if err != nil {
+				log.Printf("Failed to create user: %v", err)
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success": false,
+					"error":   "User already exists",
 				})
 				return
 			}
@@ -678,7 +1007,7 @@ func isSchemaEvolutionError(err error) bool {
 
 func readUserLockState(database *sql.DB, userID int) (failedAttempts int, lockedUntil *time.Time, err error) {
 	err = database.QueryRow(
-		`SELECT COALESCE(failed_login_attempts, 0), locked_until FROM users WHERE id = ?`,
+		`SELECT COALESCE(failed_login_attempts, 0), locked_until FROM users WHERE id = $1`,
 		userID,
 	).Scan(&failedAttempts, &lockedUntil)
 	if isSchemaEvolutionError(err) {
@@ -695,13 +1024,13 @@ func incrementFailedLogin(database *sql.DB, userID int) {
 		`UPDATE users
 		 SET failed_login_attempts = COALESCE(failed_login_attempts, 0) + 1,
 		     locked_until = CASE
-		         WHEN COALESCE(failed_login_attempts, 0) + 1 >= ? THEN ?
+		         WHEN COALESCE(failed_login_attempts, 0) + 1 >= $1 THEN $2
 		         ELSE locked_until
 		     END
-		 WHERE id = ?`,
-		userID,
+		 WHERE id = $3`,
 		maxFailedLoginAttempts,
 		time.Now().UTC().Add(loginLockoutDuration),
+		userID,
 	)
 	if err != nil && !isSchemaEvolutionError(err) {
 		log.Printf("failed to increment failed login attempts for user_id=%d: %v", userID, err)
@@ -709,7 +1038,7 @@ func incrementFailedLogin(database *sql.DB, userID int) {
 }
 
 func resetFailedLogin(database *sql.DB, userID int) {
-	_, err := database.Exec(`UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?`, userID)
+	_, err := database.Exec(`UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = $1`, userID)
 	if err != nil && !isSchemaEvolutionError(err) {
 		log.Printf("failed to reset failed login attempts for user_id=%d: %v", userID, err)
 	}
@@ -723,7 +1052,7 @@ func logSecurityLoginEvent(database *sql.DB, userID *int, username, eventType, o
 
 	_, err := database.Exec(
 		`INSERT INTO security_login_events (user_id, username, event_type, outcome, reason, ip_address, user_agent, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		userID,
 		trimmedUsername,
 		eventType,
@@ -765,11 +1094,11 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 
 		// Get user from database
 		userRepo := repository.NewUserRepository(database)
-		user, err := userRepo.GetByUsername(req.Username)
+		user, err := userRepo.GetByUsernameContext(c.Request.Context(), req.Username)
 		requestIP := c.ClientIP()
 		userAgent := c.GetHeader("User-Agent")
 		if err != nil {
-			log.Printf("User not found: %s, error: %v", req.Username, err)
+			log.Printf("login failed: unknown username (error: %v)", err)
 			logSecurityLoginEvent(database, nil, req.Username, "login", "failure", "invalid_credentials", requestIP, userAgent)
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success": false,
@@ -779,7 +1108,7 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		if user == nil {
-			log.Printf("User not found: %s", req.Username)
+			log.Printf("login failed: unknown username")
 			logSecurityLoginEvent(database, nil, req.Username, "login", "failure", "invalid_credentials", requestIP, userAgent)
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"success": false,
@@ -817,7 +1146,7 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 
 		err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password))
 		if err != nil {
-			log.Printf("Password mismatch for user: %s", req.Username)
+			log.Printf("login failed: password mismatch")
 			incrementFailedLogin(database, user.ID)
 			logSecurityLoginEvent(database, &user.ID, user.Username, "login", "failure", "invalid_credentials", requestIP, userAgent)
 			if failedAttempts+1 >= maxFailedLoginAttempts {
@@ -835,6 +1164,55 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		role := models.NormalizeUserRole(user.Role, user.IsAdmin)
+
+		// Users with TOTP enrolled must complete the second factor before any
+		// session, refresh token, or bearer token is issued. The pending
+		// session created here is only accepted by POST /auth/2fa/challenge.
+		if user.MFAEnabled {
+			resetFailedLogin(database, user.ID)
+			logSecurityLoginEvent(database, &user.ID, user.Username, "login", "pending", "mfa_challenge_required", requestIP, userAgent)
+
+			store := middleware.AuthSessionStore()
+			if store == nil {
+				log.Printf("loginHandler: cannot issue MFA challenge without a session store for user=%d", user.ID)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"error":   "Authentication temporarily unavailable",
+				})
+				return
+			}
+			sessionToken, sessionData, err := store.Create(c.Request.Context(), auth.SessionData{
+				UserID:      user.ID,
+				Username:    user.Username,
+				Email:       user.Email,
+				Role:        role,
+				IsAdmin:     user.IsAdmin,
+				MFARequired: true,
+			}, mfaChallengeTTL)
+			if err != nil {
+				log.Printf("loginHandler: failed to create pending MFA session: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"error":   "Failed to create auth session",
+				})
+				return
+			}
+
+			clearAuthCookies(c)
+			setSessionCookie(c, sessionToken, int(mfaChallengeTTL.Seconds()))
+
+			c.JSON(http.StatusOK, gin.H{
+				"success":            true,
+				"message":            "Multi-factor authentication required",
+				"mfa_required":       true,
+				"code":               "mfa_challenge_required",
+				"token_type":         "mfa_challenge",
+				"expires_in":         int(mfaChallengeTTL.Seconds()),
+				"session_expires_at": sessionData.ExpiresAt.Format(time.RFC3339),
+			})
+			return
+		}
+
 		sessionToken, sessionData, err := createSessionForUser(c, user, role)
 		if err != nil {
 			log.Printf("Failed to create auth session: %v", err)
@@ -853,7 +1231,7 @@ func loginHandler(database *sql.DB) gin.HandlerFunc {
 		// Always issue a refresh_token HttpOnly cookie so the JWT refresh path
 		// remains available even if the session store is cleared (e.g., restart
 		// without Redis). The cookie is never exposed to JS.
-		jwtRefreshToken, rtErr := services.GenerateRefreshTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
+		jwtRefreshToken, rtErr := generateRefreshTokenForUser(c, user, role)
 		if rtErr != nil {
 			log.Printf("loginHandler: failed to generate refresh token cookie: %v", rtErr)
 		}
@@ -990,6 +1368,17 @@ func changePasswordHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		// A password change revokes every session issued for the account (an
+		// attacker holding an active session is logged out with the victim);
+		// the client must sign in again. Legacy refresh JWTs are not covered —
+		// they need the server-side registry tracked in the improvement plan.
+		if store := middleware.AuthSessionStore(); store != nil {
+			if err := store.BumpUserGeneration(c.Request.Context(), user.ID); err != nil {
+				log.Printf("changePasswordHandler: failed to revoke sessions for user=%d: %v", user.ID, err)
+			}
+		}
+		clearAuthCookies(c)
+
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"message": "Password updated successfully",
@@ -1018,6 +1407,23 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 			if sessionToken != "" {
 				store := middleware.AuthSessionStore()
 				if store != nil {
+					// A password-only (MFA-pending) session is only accepted by
+					// POST /auth/2fa/challenge. Refresh must not report it as an
+					// established session (clients use refresh as their
+					// "am I logged in?" oracle) and must not extend its TTL:
+					// answer with the same challenge-required contract as login.
+					if sessionData, getErr := store.Get(c.Request.Context(), sessionToken); getErr == nil && sessionData != nil && sessionData.MFAPending() {
+						c.JSON(http.StatusOK, gin.H{
+							"success":            true,
+							"message":            "Multi-factor authentication required",
+							"mfa_required":       true,
+							"code":               "mfa_challenge_required",
+							"token_type":         "mfa_challenge",
+							"expires_in":         int(time.Until(sessionData.ExpiresAt).Seconds()),
+							"session_expires_at": sessionData.ExpiresAt.Format(time.RFC3339),
+						})
+						return
+					}
 					sessionData, err := store.Refresh(c.Request.Context(), sessionToken, sessionTTL())
 					if err == nil && sessionData != nil {
 						setSessionCookie(c, sessionToken, int(sessionTTL().Seconds()))
@@ -1089,6 +1495,22 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		// Generation registry: a refresh token minted before the user's latest
+		// generation bump (password change) is revoked.
+		if store := middleware.AuthSessionStore(); store != nil && claims.SessionGen >= 0 {
+			currentGen := store.CurrentUserGeneration(c.Request.Context(), claims.UserID)
+			if currentGen > 0 && claims.SessionGen < currentGen {
+				log.Printf("refreshHandler: rejected revoked refresh token for user=%d (gen %d < %d)",
+					claims.UserID, claims.SessionGen, currentGen)
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"success": false,
+					"error":   "refresh token revoked",
+					"code":    "token_revoked",
+				})
+				return
+			}
+		}
+
 		userID := claims.UserID
 
 		userRepo := repository.NewUserRepository(database)
@@ -1112,7 +1534,7 @@ func refreshHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		// Rotate the refresh_token cookie so session can survive future store clears.
-		newJWTRefreshToken, rtErr := services.GenerateRefreshTokenWithRole(user.ID, user.Username, user.IsAdmin, role)
+		newJWTRefreshToken, rtErr := generateRefreshTokenForUser(c, user, role)
 		if rtErr != nil {
 			log.Printf("refreshHandler: failed to rotate refresh token cookie: %v", rtErr)
 		}
@@ -1163,6 +1585,21 @@ func logoutHandler() gin.HandlerFunc {
 			if store := middleware.AuthSessionStore(); store != nil {
 				if err := store.Delete(c.Request.Context(), sessionToken); err != nil {
 					log.Printf("Failed to delete auth session: %v", err)
+				}
+			}
+		}
+
+		// Logout is the user's explicit revocation action: bump the session
+		// generation so stateless refresh JWTs (7-day cookies) cannot keep
+		// minting new sessions after logout, mirroring password-change
+		// semantics. Requires the caller to be authenticated; an anonymous
+		// logout keeps its current cookie-clearing behavior.
+		if userIDValue, exists := c.Get("user_id"); exists {
+			if userID, ok := userIDValue.(int); ok && userID > 0 {
+				if store := middleware.AuthSessionStore(); store != nil {
+					if err := store.BumpUserGeneration(c.Request.Context(), userID); err != nil {
+						log.Printf("logoutHandler: failed to revoke sessions for user=%d: %v", userID, err)
+					}
 				}
 			}
 		}
@@ -1264,7 +1701,16 @@ func updateProfileHandler(database *sql.DB) gin.HandlerFunc {
 		}
 
 		if req.Avatar != nil {
-			user.Avatar = strings.TrimSpace(*req.Avatar)
+			avatar := strings.TrimSpace(*req.Avatar)
+			if err := validateAvatarDataURI(avatar); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success": false,
+					"message": "Invalid avatar",
+					"error":   err.Error(),
+				})
+				return
+			}
+			user.Avatar = avatar
 		}
 
 		if err := userRepo.Update(user); err != nil {

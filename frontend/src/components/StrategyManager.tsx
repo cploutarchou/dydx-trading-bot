@@ -13,35 +13,46 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, AlertTriangle, BarChart3, Copy, Settings, Trash2, X } from 'lucide-react';
 import {
-    type KeyboardEvent as ReactKeyboardEvent,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import apiClient, {
-    type AIBacktestSummary,
-    DYDX_CANDLE_RESOLUTION_OPTIONS,
-    normalizeDydxCandleResolution,
-    toAIBacktestSummary,
+  type AIBacktestSummary,
+  DYDX_CANDLE_RESOLUTION_OPTIONS,
+  normalizeDydxCandleResolution,
+  toAIBacktestSummary,
+  type UnenforcedRiskControl,
 } from '../api';
 import {
-    useStartStrategyRuntimeMutation,
-    useStopStrategyRuntimeMutation,
-    useStrategies,
-    useStrategyBacktests,
-    useStrategyRuntimes,
-    useStrategyStartReadiness,
+  useDisableUnenforcedRiskControlsMutation,
+  useStartStrategyRuntimeMutation,
+  useStopStrategyRuntimeMutation,
+  useStrategies,
+  useStrategyBacktests,
+  useStrategyRuntimes,
+  useStrategyStartReadiness,
 } from '../api/hooks';
 import { extractBacktestRuns, isActiveBacktestRun } from '../features/backtests/intelligence';
 import { buildStrategyIntelRequest } from '../features/codex/marketIntel';
 import { Strategy, useStrategyStore } from '../store/strategies';
+import { useNow } from '../hooks/useNow';
+import { formatPct, formatSignedUsd, formatUsdBalance } from '../utils/format';
+import {
+  excludeRiskControlBlockers,
+  normalizeUnenforcedRiskControls,
+  riskControlLabel,
+} from '../utils/unenforcedRiskControls';
 import { AIRuntimeDigest } from './AIRuntimeDigest';
 import { AIStrategyAdvisor } from './AIStrategyAdvisor';
 import { CodexAssetIntelStrip } from './CodexAssetIntelStrip';
 import { PageContainer } from './PageContainer';
+import { ActionDialog } from './ui/PlatformUI';
+import { UnenforcedRiskControlsNotice } from './UnenforcedRiskControlsNotice';
 
 interface StrategyStatus {
   strategyId: number;
@@ -92,6 +103,7 @@ interface StrategyStartReadiness {
   ready: boolean;
   blockers: string[];
   warnings: string[];
+  unenforced_risk_controls?: UnenforcedRiskControl[];
 }
 
 interface StrategyActivityEntry {
@@ -299,6 +311,7 @@ export default function StrategyManager() {
     [strategies]
   );
   const [strategyStatuses, setStrategyStatuses] = useState<Map<number, StrategyStatus>>(new Map());
+  const nowTs = useNow();
   const [runtimePending, setRuntimePending] = useState<
     Record<number, 'start' | 'stop' | undefined>
   >({});
@@ -310,8 +323,10 @@ export default function StrategyManager() {
   const [runningCount, setRunningCount] = useState(0);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [startDialogStrategy, setStartDialogStrategy] = useState<Strategy | null>(null);
+  const [stopConfirmStrategy, setStopConfirmStrategy] = useState<Strategy | null>(null);
   const [startDialogNetwork, setStartDialogNetwork] = useState<'testnet' | 'mainnet'>('testnet');
   const [startDialogSubmitting, setStartDialogSubmitting] = useState(false);
+  const [riskControlsError, setRiskControlsError] = useState<string | null>(null);
   const [viewPreset, setViewPreset] = useState<'operator' | 'analyst'>('analyst');
   const [focusedCardId, setFocusedCardId] = useState<number | null>(null);
   // startDialogReadiness, startDialogLoading, startDialogError are now derived from useStrategyStartReadiness
@@ -329,31 +344,36 @@ export default function StrategyManager() {
   const compactCards = viewPreset === 'operator';
   const startRuntimeMutation = useStartStrategyRuntimeMutation();
   const stopRuntimeMutation = useStopStrategyRuntimeMutation();
+  const disableRiskControlsMutation = useDisableUnenforcedRiskControlsMutation();
   const strategyBacktestsQuery = useStrategyBacktests(
     focusedCardId ?? 0,
     5,
     focusedCardId !== null
   );
 
-  useEffect(() => {
-    if (focusedCardId === null || !strategyBacktestsQuery.data) {
-      return;
+  // Query data -> per-strategy summaries, adjusted during render when the
+  // focused card or query data identity changes (sanctioned pattern).
+  const [prevFocusedCardId, setPrevFocusedCardId] = useState(focusedCardId);
+  const [prevBacktestsData, setPrevBacktestsData] = useState(strategyBacktestsQuery.data);
+  if (focusedCardId !== prevFocusedCardId || strategyBacktestsQuery.data !== prevBacktestsData) {
+    setPrevFocusedCardId(focusedCardId);
+    setPrevBacktestsData(strategyBacktestsQuery.data);
+    if (focusedCardId !== null && strategyBacktestsQuery.data) {
+      const items = Array.isArray(strategyBacktestsQuery.data.data?.backtests)
+        ? strategyBacktestsQuery.data.data.backtests
+        : [];
+
+      const summaries: AIBacktestSummary[] = items
+        .map((backtest) => toAIBacktestSummary(backtest))
+        .filter((summary): summary is AIBacktestSummary => summary !== null);
+
+      setStrategyBacktests((prev) => {
+        const next = new Map(prev);
+        next.set(focusedCardId, summaries);
+        return next;
+      });
     }
-
-    const items = Array.isArray(strategyBacktestsQuery.data.data?.backtests)
-      ? strategyBacktestsQuery.data.data.backtests
-      : [];
-
-    const summaries: AIBacktestSummary[] = items
-      .map((backtest) => toAIBacktestSummary(backtest))
-      .filter((summary): summary is AIBacktestSummary => summary !== null);
-
-    setStrategyBacktests((prev) => {
-      const next = new Map(prev);
-      next.set(focusedCardId, summaries);
-      return next;
-    });
-  }, [focusedCardId, strategyBacktestsQuery.data]);
+  }
 
   const recordSuccessfulAction = (
     strategyId: number,
@@ -508,21 +528,23 @@ export default function StrategyManager() {
   // ── Runtime status: use React Query instead of manual useEffect polling ─────
   const strategyIds = useMemo(() => safeStrategies.map((s) => s.id), [safeStrategies]);
   const runtimeQueries = useStrategyRuntimes(strategyIds);
+  const runtimeQuerySignature = runtimeQueries
+    .map((q) => `${q.dataUpdatedAt}:${q.errorUpdatedAt}:${q.fetchStatus}`)
+    .join(',');
+  const strategyIdSignature = strategyIds.join(',');
 
   // Derive strategyStatuses / runningCount / heartbeatTrend from React Query results
   useEffect(() => {
     if (strategyIds.length === 0) {
-      applyStrategyStatuses([]);
+      // Applied out-of-band so no setState runs synchronously in the effect.
+      void Promise.resolve().then(() => applyStrategyStatuses([]));
       return;
     }
 
     const nextStatuses = runtimeQueries.map((query, index) => {
-      const strategyId = strategyIds[index];
+      const strategyId = strategyIds[index]!;
       if (query.isSuccess && query.data) {
-        return toStrategyStatus(
-          strategyId,
-          query.data.data as Record<string, unknown> | undefined
-        );
+        return toStrategyStatus(strategyId, query.data.data as Record<string, unknown> | undefined);
       }
       if (!query.isError) {
         return (
@@ -541,11 +563,13 @@ export default function StrategyManager() {
       };
     });
 
-    applyStrategyStatuses(nextStatuses);
-  }, [
-    runtimeQueries.map((q) => `${q.dataUpdatedAt}:${q.errorUpdatedAt}:${q.fetchStatus}`).join(','),
-    strategyIds.join(','),
-  ]);
+    void Promise.resolve().then(() => applyStrategyStatuses(nextStatuses));
+    // Signature deps are deliberate: applyStrategyStatuses always installs a
+    // new Map, so depending on the raw strategyStatuses/runtimeQueries would
+    // re-run this effect in a loop. The signatures change only when the
+    // query payloads or the tracked id set actually change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runtimeQuerySignature, strategyIdSignature]);
   // ─────────────────────────────────────────────────────────────────────────────
 
   // ── Start-dialog readiness: React Query (only fetches when dialog is open) ──
@@ -560,6 +584,15 @@ export default function StrategyManager() {
   const startDialogError = readinessQuery.error
     ? getErrorMessage(readinessQuery.error, 'Failed to load runtime readiness')
     : null;
+  // Risk limits the live runtime cannot enforce get their own notice, so their
+  // sentences are left out of the generic blocker list instead of showing twice.
+  const startDialogRiskControls = normalizeUnenforcedRiskControls(
+    startDialogReadiness?.unenforced_risk_controls
+  );
+  const startDialogBlockers = excludeRiskControlBlockers(
+    startDialogReadiness?.blockers,
+    startDialogRiskControls
+  );
   // ─────────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -728,6 +761,7 @@ export default function StrategyManager() {
       typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
     setStartDialogStrategy(strategy);
     setStartDialogNetwork(strategy.runtime_network ?? 'testnet');
+    setRiskControlsError(null);
   };
 
   const closeConfigDialog = () => {
@@ -915,15 +949,53 @@ export default function StrategyManager() {
     }
   };
 
+  const handleDisableRiskControls = async (fields: string[]) => {
+    if (!startDialogStrategy || fields.length === 0) {
+      return;
+    }
+
+    const strategy = startDialogStrategy;
+    setRiskControlsError(null);
+    try {
+      // The mutation invalidates start-readiness and the strategy list, so the
+      // open dialog re-checks readiness in place; the operator then launches
+      // with the normal button.
+      await disableRiskControlsMutation.mutateAsync({
+        strategyId: strategy.id,
+        fields,
+        network: startDialogNetwork,
+      });
+      showTransientMessage(
+        {
+          type: 'success',
+          text: `✅ Turned off ${fields.map(riskControlLabel).join(', ')} for "${strategy.name}"`,
+        },
+        4000
+      );
+    } catch (error: unknown) {
+      setRiskControlsError(getErrorMessage(error, 'Failed to turn off these risk limits'));
+    }
+  };
+
   const handleRuntimeToggle = async (strategy: Strategy) => {
     const currentStatus = strategyStatuses.get(strategy.id);
-    const shouldStop =
-      currentStatus !== undefined && isRuntimeActiveStatus(currentStatus.status);
+    const shouldStop = currentStatus !== undefined && isRuntimeActiveStatus(currentStatus.status);
 
     if (!shouldStop) {
       openStartDialog(strategy);
       return;
     }
+
+    // Stopping a live runtime is never a single action: ask first, naming the
+    // runtime, so a stray click cannot take a strategy out of the market.
+    setStopConfirmStrategy(strategy);
+  };
+
+  const confirmRuntimeStop = async () => {
+    const strategy = stopConfirmStrategy;
+    if (!strategy) return;
+    setStopConfirmStrategy(null);
+    const currentStatus = strategyStatuses.get(strategy.id);
 
     setRuntimePending((prev) => ({
       ...prev,
@@ -989,8 +1061,18 @@ export default function StrategyManager() {
       errors.usd_per_trade = 'USD per trade must be >= $1';
     }
 
-    if (editingConfig.max_drawdown_pct && editingConfig.max_drawdown_pct > 100) {
-      errors.max_drawdown_pct = 'Max drawdown cannot exceed 100%';
+    // 0 is a valid value for both limits below: it means the limit is off, which
+    // is what a live bot needs because the runtime cannot enforce them yet.
+    if (editingConfig.max_drawdown_pct !== undefined) {
+      if (editingConfig.max_drawdown_pct > 100) {
+        errors.max_drawdown_pct = 'Max drawdown cannot exceed 100%';
+      } else if (editingConfig.max_drawdown_pct < 0) {
+        errors.max_drawdown_pct = 'Max drawdown cannot be negative';
+      }
+    }
+
+    if (editingConfig.trailing_stop_pct !== undefined && editingConfig.trailing_stop_pct < 0) {
+      errors.trailing_stop_pct = 'Trailing stop cannot be negative';
     }
 
     if (editingConfig.transaction_fee !== undefined && editingConfig.transaction_fee < 0) {
@@ -1179,8 +1261,8 @@ export default function StrategyManager() {
         strategy_id: strategy.id,
         name: `${strategy.name} Backtest`,
         description: strategy.description || '',
-        start_date: startDate.toISOString().split('T')[0],
-        end_date: endDate.toISOString().split('T')[0],
+        start_date: startDate.toISOString().split('T')[0] ?? '',
+        end_date: endDate.toISOString().split('T')[0] ?? '',
         initial_balance: initialBalance,
         max_pairs: selectedMarkets.length,
         pair_selection_mode: pairSelectionMode,
@@ -1287,12 +1369,6 @@ export default function StrategyManager() {
     }
 
     const key = event.key.toLowerCase();
-
-    if (key === 's') {
-      event.preventDefault();
-      void handleRuntimeToggle(strategy);
-      return;
-    }
 
     if (key === 'c') {
       event.preventDefault();
@@ -1447,10 +1523,10 @@ export default function StrategyManager() {
         if (Number.isNaN(parsedMs)) {
           return true;
         }
-        return Date.now() - parsedMs > HEARTBEAT_DELAYED_THRESHOLD_MS;
+        return nowTs - parsedMs > HEARTBEAT_DELAYED_THRESHOLD_MS;
       }).length,
     };
-  }, [strategyStatuses]);
+  }, [nowTs, strategyStatuses]);
 
   const heartbeatTone = useMemo(
     () => resolveHeartbeatTone(runtimeHealthSummary.latestRuntimeUpdate, webSocketConnected),
@@ -1477,9 +1553,9 @@ export default function StrategyManager() {
         <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
             <div className="premium-kicker">Strategy Runtime</div>
-            <h1 className="mt-4 text-3xl font-bold text-white sm:text-4xl">
+            <h2 className="mt-4 text-3xl font-bold text-white sm:text-4xl">
               Operate live strategies with cleaner signal and less operator friction.
-            </h1>
+            </h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
               Start, stop, benchmark, and tune strategies from one premium control surface with
               backend-synced runtime state and market context beside each setup.
@@ -1591,7 +1667,7 @@ export default function StrategyManager() {
             }`}
           >
             {runtimeHealthSummary.totalPnl !== undefined
-              ? `$${runtimeHealthSummary.totalPnl.toFixed(2)}`
+              ? formatSignedUsd(runtimeHealthSummary.totalPnl)
               : '—'}
           </p>
           <p className="mt-1 text-xs text-slate-500">
@@ -1710,8 +1786,16 @@ export default function StrategyManager() {
                 : 'No successful action recorded';
 
             return (
+              // Keyboard-driven card (arrow/enter shortcuts) is deliberate;
+              // the rule reads any listener on a non-interactive role as a smell.
+              // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
               <div
                 key={strategy.id}
+                // Card is intentionally focusable so keyboard operators can
+                // select a strategy before triggering its actions.
+                role="group"
+                aria-label={strategy.name}
+                // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
                 tabIndex={0}
                 onFocus={() => {
                   setFocusedCardId(strategy.id);
@@ -1778,10 +1862,10 @@ export default function StrategyManager() {
                     </span>
                   )}
                   {strategyHeartbeat.tone === 'delayed' && isRuntimeActiveStatus(status.status) && (
-                      <span className="rounded-full border border-amber-500/35 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-200">
-                        Delayed heartbeat
-                      </span>
-                    )}
+                    <span className="rounded-full border border-amber-500/35 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-200">
+                      Delayed heartbeat
+                    </span>
+                  )}
                   <span className="rounded-full border border-slate-700/70 bg-slate-950/55 px-2.5 py-1 text-[11px] font-medium text-slate-300">
                     {lastActionLabel}
                   </span>
@@ -1984,7 +2068,7 @@ export default function StrategyManager() {
                             : 'text-slate-400'
                         }`}
                       >
-                        {status.pnl !== undefined ? `$${status.pnl.toFixed(2)}` : '—'}
+                        {status.pnl !== undefined ? formatSignedUsd(status.pnl) : '—'}
                       </p>
                     </div>
                     <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 p-3.5">
@@ -2147,8 +2231,7 @@ export default function StrategyManager() {
                 </div>
 
                 <p className="mt-3 text-[11px] text-slate-500">
-                  Shortcuts while card is focused: <span className="text-slate-300">S</span>{' '}
-                  start/stop, <span className="text-slate-300">C</span> configure,{' '}
+                  Shortcuts while card is focused: <span className="text-slate-300">C</span> configure,{' '}
                   <span className="text-slate-300">B</span> backtest,{' '}
                   <span className="text-slate-300">D</span> duplicate,{' '}
                   <span className="text-slate-300">Delete</span> remove.
@@ -2169,10 +2252,23 @@ export default function StrategyManager() {
         )}
       </div>
 
+      <ActionDialog
+        open={stopConfirmStrategy !== null}
+        title={`Stop ${stopConfirmStrategy?.name ?? 'runtime'}?`}
+        description="This stops the live runtime for this strategy. It places no further trades until it is started again. Check open positions on the desk afterwards."
+        confirmLabel="Stop runtime"
+        confirmTone="danger"
+        onClose={() => setStopConfirmStrategy(null)}
+        onConfirm={() => void confirmRuntimeStop()}
+      />
+
       {startDialogStrategy &&
         typeof document !== 'undefined' &&
         createPortal(
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+            {/* Escape-to-dismiss on the dialog is the WAI-ARIA APG pattern;
+                the rule reads any listener on a non-interactive role as a smell. */}
+            {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
             <div
               className="w-full max-w-3xl rounded-3xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/40"
               role="dialog"
@@ -2207,15 +2303,20 @@ export default function StrategyManager() {
               <div className="space-y-6 px-6 py-6">
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-200">
+                    <label
+                      className="mb-2 block text-sm font-medium text-slate-200"
+                      htmlFor="environment"
+                    >
                       Environment
                     </label>
                     <select
+                      id="environment"
                       ref={startDialogNetworkRef}
                       value={startDialogNetwork}
-                      onChange={(event) =>
-                        setStartDialogNetwork(event.target.value as 'testnet' | 'mainnet')
-                      }
+                      onChange={(event) => {
+                        setStartDialogNetwork(event.target.value as 'testnet' | 'mainnet');
+                        setRiskControlsError(null);
+                      }}
                       className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white focus:border-cyan-400 focus:outline-none"
                     >
                       <option value="testnet">dYdX Testnet</option>
@@ -2286,7 +2387,7 @@ export default function StrategyManager() {
                           Free Collateral
                         </p>
                         <p className="mt-2 text-lg font-semibold text-white">
-                          ${startDialogReadiness.available_collateral.toFixed(2)}
+                          {formatUsdBalance(startDialogReadiness.available_collateral)}
                         </p>
                       </div>
                       <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
@@ -2294,7 +2395,7 @@ export default function StrategyManager() {
                           Trade Size
                         </p>
                         <p className="mt-2 text-lg font-semibold text-white">
-                          ${startDialogReadiness.usd_per_trade.toFixed(2)}
+                          {formatUsdBalance(startDialogReadiness.usd_per_trade)}
                         </p>
                       </div>
                       <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
@@ -2385,15 +2486,15 @@ export default function StrategyManager() {
                             </span>
                           </div>
                           <div className="flex items-center justify-between">
-                            <span>Capital allocation target</span>
+                            <span>Backtest capital (not a live limit)</span>
                             <span className="font-medium text-white">
-                              ${startDialogReadiness.capital_allocation_usd.toFixed(2)}
+                              {formatUsdBalance(startDialogReadiness.capital_allocation_usd)}
                             </span>
                           </div>
                           <div className="flex items-center justify-between">
                             <span>Min collateral guard</span>
                             <span className="font-medium text-white">
-                              ${startDialogReadiness.usd_min_collateral.toFixed(2)}
+                              {formatUsdBalance(startDialogReadiness.usd_min_collateral)}
                             </span>
                           </div>
                           {startDialogReadiness.trade_size_to_collateral_ratio !== null &&
@@ -2401,10 +2502,10 @@ export default function StrategyManager() {
                               <div className="flex items-center justify-between">
                                 <span>Trade size / free collateral</span>
                                 <span className="font-medium text-white">
-                                  {(
-                                    startDialogReadiness.trade_size_to_collateral_ratio * 100
-                                  ).toFixed(2)}
-                                  %
+                                  {formatPct(
+                                    startDialogReadiness.trade_size_to_collateral_ratio * 100,
+                                    2
+                                  )}
                                 </span>
                               </div>
                             )}
@@ -2412,17 +2513,29 @@ export default function StrategyManager() {
                       </div>
                     </div>
 
-                    {Array.isArray(startDialogReadiness.blockers) &&
-                      startDialogReadiness.blockers.length > 0 && (
-                        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
-                          <p className="text-sm font-semibold text-amber-200">Launch blockers</p>
-                          <ul className="mt-3 space-y-2 text-sm text-amber-100">
-                            {startDialogReadiness.blockers.map((blocker) => (
-                              <li key={blocker}>• {blocker}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
+                    <UnenforcedRiskControlsNotice
+                      controls={startDialogRiskControls}
+                      network={startDialogNetwork}
+                      busy={
+                        disableRiskControlsMutation.isPending ||
+                        readinessQuery.isFetching ||
+                        startDialogSubmitting
+                      }
+                      error={riskControlsError}
+                      confirmLabel="Turn off for this strategy"
+                      onConfirm={(fields) => void handleDisableRiskControls(fields)}
+                    />
+
+                    {startDialogBlockers.length > 0 && (
+                      <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+                        <p className="text-sm font-semibold text-amber-200">Launch blockers</p>
+                        <ul className="mt-3 space-y-2 text-sm text-amber-100">
+                          {startDialogBlockers.map((blocker) => (
+                            <li key={blocker}>• {blocker}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
 
                     {Array.isArray(startDialogReadiness.warnings) &&
                       startDialogReadiness.warnings.length > 0 && (
@@ -2478,6 +2591,9 @@ export default function StrategyManager() {
         typeof document !== 'undefined' &&
         createPortal(
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            {/* Escape-to-dismiss on the dialog is the WAI-ARIA APG pattern;
+                the rule reads any listener on a non-interactive role as a smell. */}
+            {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
             <div
               className="bg-slate-800 rounded-lg border border-slate-700 max-w-2xl w-full max-h-[90vh] overflow-y-auto"
               role="dialog"
@@ -2513,8 +2629,11 @@ export default function StrategyManager() {
                   </div>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
-                      <label className="mb-2 block text-white font-medium">Name</label>
+                      <label className="mb-2 block text-white font-medium" htmlFor="name">
+                        Name
+                      </label>
                       <input
+                        id="name"
                         ref={configNameInputRef}
                         type="text"
                         value={editingConfig.name || ''}
@@ -2523,8 +2642,11 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Category</label>
+                      <label className="mb-2 block text-white font-medium" htmlFor="category">
+                        Category
+                      </label>
                       <input
+                        id="category"
                         type="text"
                         value={editingConfig.category || ''}
                         onChange={(e) => updateEditingConfig({ category: e.target.value })}
@@ -2532,8 +2654,11 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div className="md:col-span-2">
-                      <label className="mb-2 block text-white font-medium">Description</label>
+                      <label className="mb-2 block text-white font-medium" htmlFor="description">
+                        Description
+                      </label>
                       <textarea
+                        id="description"
                         value={editingConfig.description || ''}
                         onChange={(e) => updateEditingConfig({ description: e.target.value })}
                         rows={3}
@@ -2550,8 +2675,14 @@ export default function StrategyManager() {
                   </div>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
-                      <label className="mb-2 block text-white font-medium">Runtime strategy</label>
+                      <label
+                        className="mb-2 block text-white font-medium"
+                        htmlFor="runtime-strategy"
+                      >
+                        Runtime strategy
+                      </label>
                       <select
+                        id="runtime-strategy"
                         value={editingConfig.runtime_strategy || 'cointegration'}
                         onChange={(e) => updateEditingConfig({ runtime_strategy: e.target.value })}
                         className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
@@ -2564,8 +2695,14 @@ export default function StrategyManager() {
                       </select>
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Runtime network</label>
+                      <label
+                        className="mb-2 block text-white font-medium"
+                        htmlFor="runtime-network"
+                      >
+                        Runtime network
+                      </label>
                       <select
+                        id="runtime-network"
                         value={editingConfig.runtime_network ?? 'testnet'}
                         onChange={(e) =>
                           updateEditingConfig({
@@ -2579,10 +2716,14 @@ export default function StrategyManager() {
                       </select>
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">
+                      <label
+                        className="mb-2 block text-white font-medium"
+                        htmlFor="runtime-subaccount"
+                      >
                         Runtime subaccount
                       </label>
                       <input
+                        id="runtime-subaccount"
                         type="number"
                         min="0"
                         step="1"
@@ -2600,8 +2741,11 @@ export default function StrategyManager() {
                       </p>
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Resolution</label>
+                      <label className="mb-2 block text-white font-medium" htmlFor="resolution">
+                        Resolution
+                      </label>
                       <select
+                        id="resolution"
                         value={normalizeDydxCandleResolution(
                           editingConfig.candle_resolution || editingConfig.resolution || '1HOUR'
                         )}
@@ -2642,8 +2786,11 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Stats window</label>
+                      <label className="mb-2 block text-white font-medium" htmlFor="stats-window">
+                        Stats window
+                      </label>
                       <input
+                        id="stats-window"
                         type="number"
                         min="5"
                         max="365"
@@ -2655,8 +2802,11 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Max half-life</label>
+                      <label className="mb-2 block text-white font-medium" htmlFor="max-half-life">
+                        Max half-life
+                      </label>
                       <input
+                        id="max-half-life"
                         type="number"
                         min="1"
                         value={editingConfig.max_half_life ?? 24}
@@ -2687,10 +2837,14 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">
+                      <label
+                        className="mb-2 block text-white font-medium"
+                        htmlFor="usd-min-collateral"
+                      >
                         USD min collateral
                       </label>
                       <input
+                        id="usd-min-collateral"
                         type="number"
                         step="1"
                         min="0"
@@ -2718,7 +2872,7 @@ export default function StrategyManager() {
                             checked={Boolean(editingConfig[field as keyof Strategy])}
                             onChange={(e) =>
                               updateEditingConfig({
-                                [field]: e.target.checked,
+                                [String(field)]: e.target.checked,
                               } as Partial<Strategy>)
                             }
                             className="h-4 w-4 rounded border-slate-500 bg-slate-800"
@@ -2737,8 +2891,11 @@ export default function StrategyManager() {
                   </div>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
-                      <label className="mb-2 block text-white font-medium">Max positions</label>
+                      <label className="mb-2 block text-white font-medium" htmlFor="max-positions">
+                        Max positions
+                      </label>
                       <input
+                        id="max-positions"
                         type="number"
                         min="1"
                         max="100"
@@ -2750,7 +2907,7 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">
+                      <label className="mb-2 block text-white font-medium" htmlFor="max-drawdown">
                         Max drawdown %
                         {configErrors.max_drawdown_pct && (
                           <span className="ml-2 text-sm text-red-400">
@@ -2759,20 +2916,28 @@ export default function StrategyManager() {
                         )}
                       </label>
                       <input
+                        id="max-drawdown"
                         type="number"
                         step="0.1"
                         min="0"
                         max="100"
-                        value={editingConfig.max_drawdown_pct ?? 15}
+                        aria-describedby="max-drawdown-hint"
+                        value={editingConfig.max_drawdown_pct ?? 0}
                         onChange={(e) =>
                           updateEditingConfig({ max_drawdown_pct: parseFloat(e.target.value) })
                         }
                         className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
                       />
+                      <p id="max-drawdown-hint" className="mt-2 text-xs text-amber-200">
+                        Not available on live bots yet. Leave at 0 to be able to start a live bot.
+                      </p>
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Stop loss %</label>
+                      <label className="mb-2 block text-white font-medium" htmlFor="stop-loss">
+                        Stop loss %
+                      </label>
                       <input
+                        id="stop-loss"
                         type="number"
                         step="0.1"
                         min="0"
@@ -2784,8 +2949,11 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Take profit %</label>
+                      <label className="mb-2 block text-white font-medium" htmlFor="take-profit">
+                        Take profit %
+                      </label>
                       <input
+                        id="take-profit"
                         type="number"
                         step="0.1"
                         min="0"
@@ -2797,23 +2965,39 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Trailing stop %</label>
+                      <label className="mb-2 block text-white font-medium" htmlFor="trailing-stop">
+                        Trailing stop %
+                        {configErrors.trailing_stop_pct && (
+                          <span className="ml-2 text-sm text-red-400">
+                            • {configErrors.trailing_stop_pct}
+                          </span>
+                        )}
+                      </label>
                       <input
+                        id="trailing-stop"
                         type="number"
                         step="0.1"
                         min="0"
-                        value={editingConfig.trailing_stop_pct ?? 1}
+                        aria-describedby="trailing-stop-hint"
+                        value={editingConfig.trailing_stop_pct ?? 0}
                         onChange={(e) =>
                           updateEditingConfig({ trailing_stop_pct: parseFloat(e.target.value) })
                         }
                         className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:ring-blue-500"
                       />
+                      <p id="trailing-stop-hint" className="mt-2 text-xs text-amber-200">
+                        Not available on live bots yet. Leave at 0 to be able to start a live bot.
+                      </p>
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">
+                      <label
+                        className="mb-2 block text-white font-medium"
+                        htmlFor="rebalance-interval-hours"
+                      >
                         Rebalance interval (hours)
                       </label>
                       <input
+                        id="rebalance-interval-hours"
                         type="number"
                         min="1"
                         value={editingConfig.rebalance_interval_hours ?? 24}
@@ -2826,10 +3010,14 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">
+                      <label
+                        className="mb-2 block text-white font-medium"
+                        htmlFor="position-timeout-hours"
+                      >
                         Position timeout (hours)
                       </label>
                       <input
+                        id="position-timeout-hours"
                         type="number"
                         min="1"
                         value={editingConfig.position_timeout_hours ?? 72}
@@ -2916,8 +3104,14 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Max history days</label>
+                      <label
+                        className="mb-2 block text-white font-medium"
+                        htmlFor="max-history-days"
+                      >
+                        Max history days
+                      </label>
                       <input
+                        id="max-history-days"
                         type="number"
                         min="1"
                         max="3650"
@@ -2929,8 +3123,11 @@ export default function StrategyManager() {
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-white font-medium">Risk-free rate</label>
+                      <label className="mb-2 block text-white font-medium" htmlFor="risk-free-rate">
+                        Risk-free rate
+                      </label>
                       <input
+                        id="risk-free-rate"
                         type="number"
                         step="0.001"
                         min="0"

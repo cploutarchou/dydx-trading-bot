@@ -12,49 +12,113 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// hubSendBuffer bounds how many payloads may queue for one WebSocket
+// subscriber before it is considered slow and disconnected.
+const hubSendBuffer = 16
+
+// hubSubscriber pairs a WebSocket connection with its dedicated writer
+// goroutine. gorilla/websocket permits exactly one concurrent writer, so all
+// pushes for a connection are funneled through the buffered send channel.
+type hubSubscriber struct {
+	conn *websocket.Conn
+	send chan []byte
+}
+
 // BacktestPushHub subscribes to Redis backtest status channels and pushes
-// messages to connected WebSocket clients.
+// messages to connected WebSocket clients. The JetStream projector pushes
+// through the same hub via Broadcast; both paths serialize per connection
+// through the subscriber writer goroutine.
 type BacktestPushHub struct {
 	mu        sync.RWMutex
-	conns     map[string]map[*websocket.Conn]struct{} // run_id → set of WS connections
+	conns     map[string]map[*websocket.Conn]*hubSubscriber // run_id → conn → subscriber
 	redisOpts redis.Options
+
+	stop     chan struct{}
+	stopOnce sync.Once
 }
 
 // NewBacktestPushHub creates a new hub and starts the Redis subscriber goroutine.
 func NewBacktestPushHub(redisHost string, redisPort int, redisPassword string, redisDB int) *BacktestPushHub {
 	h := &BacktestPushHub{
-		conns: make(map[string]map[*websocket.Conn]struct{}),
+		conns: make(map[string]map[*websocket.Conn]*hubSubscriber),
 		redisOpts: redis.Options{
 			Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
 			Password: redisPassword,
 			DB:       redisDB,
 			Protocol: 2,
 		},
+		stop: make(chan struct{}),
 	}
 	go h.runSubscriber()
 	return h
 }
 
+// Stop terminates the Redis subscriber and disconnects all subscribers. It is
+// idempotent and intended for process shutdown.
+func (h *BacktestPushHub) Stop() {
+	if h == nil {
+		return
+	}
+	h.stopOnce.Do(func() {
+		close(h.stop)
+	})
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for runID, set := range h.conns {
+		for conn, sub := range set {
+			close(sub.send)
+			_ = conn.Close()
+			delete(set, conn)
+		}
+		delete(h.conns, runID)
+	}
+}
+
 // Subscribe registers a WebSocket connection to receive pushes for run_id.
 // The caller must call Unsubscribe when the connection closes.
 func (h *BacktestPushHub) Subscribe(runID string, conn *websocket.Conn) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if _, ok := h.conns[runID]; !ok {
-		h.conns[runID] = make(map[*websocket.Conn]struct{})
+	if h == nil || conn == nil || runID == "" {
+		return
 	}
-	h.conns[runID][conn] = struct{}{}
+	h.mu.Lock()
+	if _, ok := h.conns[runID]; !ok {
+		h.conns[runID] = make(map[*websocket.Conn]*hubSubscriber)
+	}
+	sub := &hubSubscriber{conn: conn, send: make(chan []byte, hubSendBuffer)}
+	h.conns[runID][conn] = sub
+	h.mu.Unlock()
+
+	go h.writeLoop(runID, sub)
 }
 
 // Unsubscribe removes a connection from a run_id channel.
 func (h *BacktestPushHub) Unsubscribe(runID string, conn *websocket.Conn) {
+	if h == nil {
+		return
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if set, ok := h.conns[runID]; ok {
-		delete(set, conn)
-		if len(set) == 0 {
-			delete(h.conns, runID)
-		}
+	h.removeLocked(runID, conn)
+}
+
+// removeLocked disconnects a subscriber; h.mu must be held.
+func (h *BacktestPushHub) removeLocked(runID string, conn *websocket.Conn) {
+	set, ok := h.conns[runID]
+	if !ok {
+		return
+	}
+	sub, ok := set[conn]
+	if !ok {
+		return
+	}
+	delete(set, conn)
+	// Closing the send channel terminates the writer goroutine; only the
+	// remover closes it, so there is exactly one close per channel.
+	close(sub.send)
+	_ = conn.Close()
+	if len(set) == 0 {
+		delete(h.conns, runID)
 	}
 }
 
@@ -69,46 +133,46 @@ func (h *BacktestPushHub) Broadcast(runID string, payload []byte) {
 	h.push(runID, payload)
 }
 
-// push sends a raw JSON payload to all connections subscribed for run_id.
+// push offers the payload to every subscriber for run_id without blocking:
+// a full send buffer marks the subscriber as too slow and disconnects it.
+// This keeps the Redis subscriber and the JetStream Fetch loop responsive
+// regardless of client behavior.
 func (h *BacktestPushHub) push(runID string, payload []byte) {
 	h.mu.RLock()
-	set := h.conns[runID]
-	conns := make([]*websocket.Conn, 0, len(set))
-	for conn := range set {
-		conns = append(conns, conn)
+	subs := make([]*hubSubscriber, 0, len(h.conns[runID]))
+	for _, sub := range h.conns[runID] {
+		subs = append(subs, sub)
 	}
 	h.mu.RUnlock()
 
-	if len(conns) == 0 {
-		return
-	}
-
-	deadConns := make([]*websocket.Conn, 0)
-	for _, conn := range conns {
-		_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
-			slog.Debug("backtest_push_hub write failed", "run_id", runID, "error", err)
-			deadConns = append(deadConns, conn)
+	for _, sub := range subs {
+		select {
+		case sub.send <- payload:
+		default:
+			slog.Warn("backtest_push_hub subscriber too slow; disconnecting", "run_id", runID)
+			h.mu.Lock()
+			h.removeLocked(runID, sub.conn)
+			h.mu.Unlock()
 		}
-		_ = conn.SetWriteDeadline(time.Time{})
-	}
-
-	if len(deadConns) > 0 {
-		h.mu.Lock()
-		if set, ok := h.conns[runID]; ok {
-			for _, deadConn := range deadConns {
-				delete(set, deadConn)
-				_ = deadConn.Close()
-			}
-			if len(set) == 0 {
-				delete(h.conns, runID)
-			}
-		}
-		h.mu.Unlock()
 	}
 }
 
-// runSubscriber blocks forever, consuming Redis pub/sub messages on backtest:*:status.
+// writeLoop is the single writer for one subscriber connection.
+func (h *BacktestPushHub) writeLoop(runID string, sub *hubSubscriber) {
+	for payload := range sub.send {
+		_ = sub.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if err := sub.conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+			slog.Debug("backtest_push_hub write failed", "run_id", runID, "error", err)
+			h.mu.Lock()
+			h.removeLocked(runID, sub.conn)
+			h.mu.Unlock()
+			return
+		}
+	}
+}
+
+// runSubscriber blocks until stopped, consuming Redis pub/sub messages on
+// backtest:*:status.
 func (h *BacktestPushHub) runSubscriber() {
 	const (
 		initialBackoff = time.Second
@@ -118,18 +182,17 @@ func (h *BacktestPushHub) runSubscriber() {
 	backoff := initialBackoff
 
 	for {
+		if h.isStopped() {
+			return
+		}
 		rc := redis.NewClient(&h.redisOpts)
 		ctx := context.Background()
 
 		if err := rc.Ping(ctx).Err(); err != nil {
 			slog.Warn("backtest_push_hub redis ping failed", "error", err, "retry_in", backoff.String())
 			_ = rc.Close()
-			time.Sleep(backoff)
-			if backoff < maxBackoff {
-				backoff *= 2
-				if backoff > maxBackoff {
-					backoff = maxBackoff
-				}
+			if !h.sleepBackoff(backoff, &backoff, maxBackoff, initialBackoff) {
+				return
 			}
 			continue
 		}
@@ -139,12 +202,8 @@ func (h *BacktestPushHub) runSubscriber() {
 			slog.Warn("backtest_push_hub subscribe failed", "error", err, "retry_in", backoff.String())
 			_ = pubsub.Close()
 			_ = rc.Close()
-			time.Sleep(backoff)
-			if backoff < maxBackoff {
-				backoff *= 2
-				if backoff > maxBackoff {
-					backoff = maxBackoff
-				}
+			if !h.sleepBackoff(backoff, &backoff, maxBackoff, initialBackoff) {
+				return
 			}
 			continue
 		}
@@ -166,15 +225,44 @@ func (h *BacktestPushHub) runSubscriber() {
 			h.push(runID, []byte(msg.Payload))
 		}
 
+		if h.isStopped() {
+			_ = pubsub.Close()
+			_ = rc.Close()
+			return
+		}
 		slog.Warn("backtest_push_hub redis subscriber channel closed; reconnecting", "retry_in", backoff.String())
 		_ = pubsub.Close()
 		_ = rc.Close()
-		time.Sleep(backoff)
-		if backoff < maxBackoff {
-			backoff *= 2
-			if backoff > maxBackoff {
-				backoff = maxBackoff
-			}
+		if !h.sleepBackoff(backoff, &backoff, maxBackoff, initialBackoff) {
+			return
 		}
 	}
+}
+
+func (h *BacktestPushHub) isStopped() bool {
+	select {
+	case <-h.stop:
+		return true
+	default:
+		return false
+	}
+}
+
+// sleepBackoff waits for the current backoff, doubling it (capped) for the
+// next attempt. It returns false when the hub was stopped while sleeping.
+func (h *BacktestPushHub) sleepBackoff(current time.Duration, backoff *time.Duration, max, reset time.Duration) bool {
+	timer := time.NewTimer(current)
+	defer timer.Stop()
+	select {
+	case <-h.stop:
+		return false
+	case <-timer.C:
+	}
+	*backoff *= 2
+	if *backoff > max {
+		*backoff = max
+	}
+	// Caller resets backoff to `reset` after a successful connection.
+	_ = reset
+	return true
 }

@@ -29,21 +29,7 @@ func NewBotInstanceRepository(db *sql.DB) *BotInstanceRepository {
 }
 
 func (r *BotInstanceRepository) bindQuery(query string) string {
-	if r == nil || !strings.Contains(strings.ToLower(r.dbDriver), "postgres") {
-		return query
-	}
-	var b strings.Builder
-	b.Grow(len(query) + 16)
-	idx := 1
-	for i := 0; i < len(query); i++ {
-		if query[i] == '?' {
-			b.WriteString(fmt.Sprintf("$%d", idx))
-			idx++
-			continue
-		}
-		b.WriteByte(query[i])
-	}
-	return b.String()
+	return bindPlaceholders(r.dbDriver, query)
 }
 
 func isUndefinedColumnError(err error) bool {
@@ -76,10 +62,10 @@ const selectBotInstancesCompatColumns = `
 		instance_id,
 		instance_id AS instance_name,
 		0 AS user_id,
-		CAST(status AS CHAR) AS status,
+		CAST(status AS TEXT) AS status,
 		network,
 		strategy,
-		CAST(config AS CHAR) AS config,
+		CAST(config AS TEXT) AS config,
 		NULL AS trading_params,
 		0 AS total_trades,
 		NULL AS total_pnl,

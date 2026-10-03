@@ -47,6 +47,11 @@ _EVENT_STREAM_NAME = "BACKTEST_EVENTS"
 _EVENT_STREAM_SUBJECTS = ["backtest.event.>"]
 _EVENT_STREAM_MAX_AGE_SECONDS = 7 * 24 * 60 * 60  # 7 days
 
+# Hard deadline for one emit (connect + stream ensure + publish). Emission is
+# best-effort, so an unreachable or slow NATS must cost a bounded delay rather
+# than block the backtest that is emitting.
+_PUBLISH_TIMEOUT_SECONDS = 10.0
+
 
 async def _ensure_event_stream(js: Any) -> None:
     """Idempotently ensure the BACKTEST_EVENTS stream exists (limits retention)."""
@@ -77,8 +82,10 @@ async def _ensure_event_stream(js: Any) -> None:
 
 
 def _is_enabled() -> bool:
-    return os.getenv("NATS_ENABLED", "true").lower() == "true" or (
-        os.getenv("BOT_COMMAND_BUS_ENABLED", "true").lower() == "true"
+    # Both flags default to off, matching event_bus_nats: a deployment that sets
+    # only NATS_ENABLED=false has no NATS server and must leave this dormant.
+    return os.getenv("NATS_ENABLED", "false").lower() == "true" or (
+        os.getenv("BOT_COMMAND_BUS_ENABLED", "false").lower() == "true"
     )
 
 
@@ -180,14 +187,25 @@ async def publish_backtest_event(
         logger.debug("backtest_event_emit_skip nats_unavailable error=%r", exc)
         return None
 
-    nc = None
-    try:
+    async def _publish() -> None:
+        # A short-lived, per-event connection: a bounded number of attempts, not
+        # the client's "retry forever" mode, which never returns from connect()
+        # while the server is unreachable.
         nc = await nats.connect(
-            servers=_servers(), connect_timeout=5, max_reconnect_attempts=-1
+            servers=_servers(), connect_timeout=5, max_reconnect_attempts=1
         )
-        js = nc.jetstream()
-        await _ensure_event_stream(js)
-        await js.publish(subject, data, headers={"Msg-Id": msg_id})
+        try:
+            js = nc.jetstream()
+            await _ensure_event_stream(js)
+            await js.publish(subject, data, headers={"Msg-Id": msg_id})
+        finally:
+            try:
+                await nc.drain()
+            except Exception:
+                pass
+
+    try:
+        await asyncio.wait_for(_publish(), timeout=_PUBLISH_TIMEOUT_SECONDS)
         logger.info(
             "backtest_event_emitted run_id=%s event=%s subject=%s msg_id=%s",
             run_id,
@@ -196,17 +214,19 @@ async def publish_backtest_event(
             msg_id,
         )
         return msg_id
+    except asyncio.TimeoutError:
+        logger.warning(
+            "backtest_event_emit_timeout run_id=%s event=%s timeout_seconds=%s",
+            run_id,
+            event,
+            _PUBLISH_TIMEOUT_SECONDS,
+        )
+        return None
     except Exception as exc:
         logger.debug(
             "backtest_event_emit_failed run_id=%s event=%s error=%r", run_id, event, exc
         )
         return None
-    finally:
-        if nc is not None:
-            try:
-                await nc.drain()
-            except Exception:
-                pass
 
 
 def emit_backtest_event_sync(

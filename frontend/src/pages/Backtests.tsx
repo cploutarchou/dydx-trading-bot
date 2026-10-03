@@ -1,40 +1,40 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-	Activity,
-	ArrowRight,
-	Award,
-	BarChart3,
-	ChevronRight,
-	Layers3,
-	ListChecks,
-	PlusCircle,
-	ShieldCheck,
-	Sparkles,
-	Target,
-	TrendingUp,
+  Activity,
+  ArrowRight,
+  Award,
+  BarChart3,
+  ChevronRight,
+  Layers3,
+  ListChecks,
+  PlusCircle,
+  ShieldCheck,
+  Sparkles,
+  Target,
+  TrendingUp,
 } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useNow } from '../hooks/useNow';
 import api, { type BacktestExperimentGroup } from '../api';
-import { enhancedApiClient } from '../api/enhancedClient';
-import { resolveBackendWebSocketUrl } from '../api/origin';
+import { botApi } from '../api/botApi';
 import { BacktestList } from '../components/BacktestList';
 import { BacktestRunner } from '../components/BacktestRunner';
 import { CodexAssetIntelStrip } from '../components/CodexAssetIntelStrip';
 import { PageContainer } from '../components/PageContainer';
 import { TerminalDataGrid, type TerminalColumn } from '../components/TerminalDataGrid';
 import {
-	buildIntelligence,
-	extractBacktestRuns,
-	formatCurrency,
-	formatDateTime,
-	formatPercent,
-	isActiveBacktestRun,
-	normalizePercent,
-	safeNumber,
-	type BacktestRun,
-	type StrategyAggregate,
-	type StrategyRef,
+  buildIntelligence,
+  extractBacktestRuns,
+  formatCurrency,
+  formatDateTime,
+  formatPercent,
+  isActiveBacktestRun,
+  normalizePercent,
+  safeNumber,
+  type BacktestRun,
+  type StrategyAggregate,
+  type StrategyRef,
 } from '../features/backtests/intelligence';
 import { buildBacktestIntelRequest } from '../features/codex/marketIntel';
 import { usePersistentPreference } from '../hooks/usePersistentPreference';
@@ -452,11 +452,9 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     staleTime: 15_000,
   });
 
-  useEffect(() => {
-    if (view !== 'experiments') {
-      return;
-    }
-
+  // URL params -> experiment filters, adjusted during render when they
+  // diverge (sanctioned pattern; searchParams is router state, safe to read).
+  if (view === 'experiments') {
     const searchFromParams = String(searchParams.get('q') || '').trim();
     const statusFromParams = normalizeExperimentStatusParam(searchParams.get('status'));
     const variantFromParams = normalizeExperimentVariantParam(searchParams.get('variant'));
@@ -470,7 +468,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     if (variantFromParams !== experimentVariantFilter) {
       setExperimentVariantFilter(variantFromParams);
     }
-  }, [view, searchParams, experimentSearch, experimentStatusFilter, experimentVariantFilter]);
+  }
 
   useEffect(() => {
     if (view !== 'experiments') {
@@ -618,7 +616,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
   const systemStatusQuery = useQuery({
     queryKey: ['system-status', 'backtest-capacity'],
     queryFn: async () => {
-      const status = await enhancedApiClient.getSystemStatus();
+      const status = await botApi.getSystemStatus();
       return toObject(status);
     },
     staleTime: 10_000,
@@ -690,29 +688,32 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     [backtestsQuery.data]
   );
 
+  const activeRunStatusIds = useMemo(
+    () => activeRunsQuickAccess.map((run) => run.run_id).filter(Boolean),
+    [activeRunsQuickAccess]
+  );
+
   // Subscribe to Redis-backed WebSocket push for each active run so that
   // progress updates arrive via push instead of only via polling.
   const wsRefs = useRef<Map<string, WebSocket>>(new Map());
   useEffect(() => {
-    const activeIds = new Set(activeRunsQuickAccess.map((r) => r.run_id).filter(Boolean));
+    // Capture the socket map at setup: the cleanup must close the sockets it
+    // created, not whatever the ref holds at teardown time.
+    const sockets = wsRefs.current;
+    const activeIds = new Set(activeRunStatusIds);
 
     // Close sockets for runs no longer active
-    for (const [id, ws] of wsRefs.current.entries()) {
+    for (const [id, ws] of sockets.entries()) {
       if (!activeIds.has(id)) {
         ws.close();
-        wsRefs.current.delete(id);
+        sockets.delete(id);
       }
     }
 
     // Open sockets for newly active runs
     for (const runId of activeIds) {
       if (wsRefs.current.has(runId)) continue;
-      const token = localStorage.getItem('token') || undefined;
-      const wsUrl = resolveBackendWebSocketUrl(
-        `/api/v1/backtests/${encodeURIComponent(runId)}/push`,
-        token
-      );
-      const ws = new WebSocket(wsUrl);
+      const ws = api.connectSocket(`/api/v1/backtests/${encodeURIComponent(runId)}/push`);
       ws.addEventListener('message', () => {
         void queryClient.invalidateQueries({ queryKey: ['backtests', 'active-statuses'] });
         void queryClient.invalidateQueries({ queryKey: ['backtests'] });
@@ -725,23 +726,19 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
 
     return () => {
       // Component unmount: close all sockets
-      for (const ws of wsRefs.current.values()) {
+      for (const ws of sockets.values()) {
         ws.close();
       }
-      wsRefs.current.clear();
+      sockets.clear();
     };
-  }, [activeRunsQuickAccess.map((r) => r.run_id).join(',')]);
+  }, [activeRunStatusIds, queryClient]);
 
-  const activeRunStatusIds = useMemo(
-    () => activeRunsQuickAccess.map((run) => run.run_id).filter(Boolean),
-    [activeRunsQuickAccess]
-  );
   const activeRunLiveStatusesQuery = useQuery({
     queryKey: ['backtests', 'active-statuses', activeRunStatusIds],
     queryFn: async () => {
       const entries = await Promise.all(
         activeRunStatusIds.map(async (runId) => {
-          const response = await enhancedApiClient.getBacktestStatus(runId);
+          const response = await botApi.getBacktestStatus(runId);
           const payload = response as unknown as Record<string, unknown>;
           const progressCandidate = getEnvelopeField(payload, 'progress_pct');
           const fallbackProgressCandidate = getEnvelopeField(payload, 'progress_percent');
@@ -834,6 +831,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     backtestsQuery.data,
   ]);
 
+  const nowTs = useNow();
   const statisticsHealth = useMemo(() => {
     const runs = backtestsQuery.data ?? [];
     const normalizeStatus = (value: unknown) =>
@@ -857,7 +855,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     activeRunsQuickAccess.forEach((run) => {
       const live = activeRunLiveById.get(run.run_id);
       if (typeof live?.updatedAtMs === 'number') {
-        const ageSeconds = Math.max(0, Math.round((Date.now() - live.updatedAtMs) / 1000));
+        const ageSeconds = Math.max(0, Math.round((nowTs - live.updatedAtMs) / 1000));
         if (ageSeconds >= 90) {
           staleActiveRuns += 1;
         }
@@ -877,7 +875,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
       staleActiveRuns,
       statusMismatches,
     };
-  }, [activeRunLiveById, activeRunsQuickAccess, backtestsQuery.data]);
+  }, [activeRunLiveById, activeRunsQuickAccess, backtestsQuery.data, nowTs]);
 
   const statisticsHealthTone =
     statisticsHealth.integrityPct >= 95 &&
@@ -1029,9 +1027,9 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
                 <PlusCircle className="h-3.5 w-3.5" />
                 New Backtest
               </div>
-              <h1 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
+              <h2 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
                 Create a focused validation run before a strategy reaches Bots.
-              </h1>
+              </h2>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
                 Keep setup and launch separate from analytics. Pick a strategy/configuration, define
                 the historical window, and start the run from one purpose-built page.
@@ -1107,7 +1105,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
       return (
         <PageContainer size="wide" className={pageSpacingClass}>
           <div className="rounded-2xl border border-red-700/60 bg-red-950/30 p-6">
-            <h1 className="text-xl font-semibold text-white">Backtest Experiments Unavailable</h1>
+            <h2 className="text-xl font-semibold text-white">Backtest Experiments Unavailable</h2>
             <p className="mt-2 text-sm text-red-200">{message}</p>
             <div className="mt-4 flex flex-wrap gap-3">
               <button
@@ -1143,10 +1141,10 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
             <Layers3 className="h-3.5 w-3.5" />
             Backtest Experiments
           </div>
-          <h1 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
+          <h2 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
             Experiment groups by{' '}
             <code className="rounded bg-slate-900/80 px-1 py-0.5 text-cyan-300">experiment_id</code>
-          </h1>
+          </h2>
           <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
             Grouped directly from persisted DB metadata so operators can inspect A/B cohorts
             quickly.
@@ -1367,7 +1365,7 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
     return (
       <PageContainer size="wide" className={pageSpacingClass}>
         <div className="rounded-2xl border border-red-700/60 bg-red-950/30 p-6">
-          <h1 className="text-xl font-semibold text-white">Backtest Intelligence Unavailable</h1>
+          <h2 className="text-xl font-semibold text-white">Backtest Intelligence Unavailable</h2>
           <p className="mt-2 text-sm text-red-200">{message}</p>
           <div className="mt-4 flex flex-wrap gap-3">
             <button
@@ -1409,11 +1407,11 @@ export const BacktestsPage: React.FC<BacktestsPageProps> = ({ view = 'dashboard'
               )}
               {view === 'runs' ? 'Backtest Runs' : 'Backtest Dashboard'}
             </div>
-            <h1 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
+            <h2 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
               {view === 'runs'
                 ? 'Review every historical run without crowding the analytics dashboard.'
                 : 'See validation quality, then decide which strategy deserves trust.'}
-            </h1>
+            </h2>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
               {view === 'runs'
                 ? 'This archive is for run-by-run inspection, progress, and report entry points. Use the dashboard for high-level decision stats.'

@@ -1,7 +1,10 @@
 import { AxiosError } from 'axios';
 import { AlertCircle, Check, RefreshCw, Trash2, X } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import React, { useState } from 'react';
 import api from '../api';
+import { queryKeys } from '../api/queryClient';
+import { formatPct } from '../utils/format';
 
 interface RedisSettings {
   id: number;
@@ -56,39 +59,39 @@ interface RedisStatusPayload {
 }
 
 const RedisSettings: React.FC = () => {
-  const [settings, setSettings] = useState<RedisSettings | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus | null>(null);
-  const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const redisQuery = useQuery({
+    queryKey: queryKeys.redisStatus,
+    queryFn: async () => {
+      const response = await api.getRedisStatus();
+      if (!response.success || !response.data) {
+        throw new Error('Failed to load settings');
+      }
+      return response.data as unknown as RedisStatusPayload;
+    },
+    staleTime: 30_000,
+  });
+
+  const settings = redisQuery.data?.settings || null;
+  const cacheStats = redisQuery.data?.cache_stats || null;
+  // Connection status can be refreshed by operator actions (test/save) before
+  // the query cache updates, so the latest local probe wins.
+  const [testedConnection, setTestedConnection] = useState<ConnectionStatus | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const connectionStatus = testedConnection ?? redisQuery.data?.connection ?? null;
+  const loading = redisQuery.isLoading;
+  const loadError =
+    redisQuery.error instanceof Error
+      ? redisQuery.error.message
+      : redisQuery.isError
+        ? 'Failed to load settings'
+        : null;
+  const error = actionError ?? loadError;
   const [testingConnection, setTestingConnection] = useState(false);
   const [flushingCache, setFlushingCache] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editedSettings, setEditedSettings] = useState<Partial<RedisSettings>>({});
   const [confirmFlush, setConfirmFlush] = useState(false);
-
-  useEffect(() => {
-    fetchRedisStatus();
-  }, []);
-
-  const fetchRedisStatus = async () => {
-    try {
-      setLoading(true);
-      const response = await api.getRedisStatus();
-
-      if (response.success && response.data) {
-        const data = response.data as unknown as RedisStatusPayload;
-        setSettings(data.settings || null);
-        setConnectionStatus(data.connection || null);
-        setCacheStats(data.cache_stats || null);
-      }
-    } catch (err) {
-      const axiosError = err as AxiosError<{ message?: string }>;
-      setError(axiosError.message || 'Failed to load settings');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleTestConnection = async () => {
     try {
@@ -96,13 +99,13 @@ const RedisSettings: React.FC = () => {
       const response = await api.testRedisConnection();
 
       if (response.success && response.data) {
-        setConnectionStatus(response.data as unknown as ConnectionStatus);
+        setTestedConnection(response.data as unknown as ConnectionStatus);
       } else {
-        setError(response.message || 'Connection test failed');
+        setActionError(response.message || 'Connection test failed');
       }
     } catch (err) {
       const axiosError = err as AxiosError<{ message?: string }>;
-      setError(axiosError.message || 'Connection test failed');
+      setActionError(axiosError.message || 'Connection test failed');
     } finally {
       setTestingConnection(false);
     }
@@ -113,13 +116,15 @@ const RedisSettings: React.FC = () => {
       const response = await api.toggleRedis(!settings?.enabled);
 
       if (response.success && response.data) {
-        setSettings(response.data as unknown as RedisSettings);
+        queryClient.setQueryData(queryKeys.redisStatus, (prev: RedisStatusPayload | undefined) =>
+          prev ? { ...prev, settings: response.data as unknown as RedisSettings } : prev
+        );
       } else {
-        setError(response.message || 'Failed to toggle Redis');
+        setActionError(response.message || 'Failed to toggle Redis');
       }
     } catch (err) {
       const axiosError = err as AxiosError<{ message?: string }>;
-      setError(axiosError.message || 'Failed to toggle Redis');
+      setActionError(axiosError.message || 'Failed to toggle Redis');
     }
   };
 
@@ -130,14 +135,14 @@ const RedisSettings: React.FC = () => {
       const response = await api.flushRedis();
 
       if (response.success) {
-        setCacheStats({ enabled: true, total_keys: 0 });
-        setError(null);
+        void redisQuery.refetch();
+        setActionError(null);
       } else {
-        setError(response.message || 'Failed to flush cache');
+        setActionError(response.message || 'Failed to flush cache');
       }
     } catch (err) {
       const axiosError = err as AxiosError<{ message?: string }>;
-      setError(axiosError.message || 'Failed to flush cache');
+      setActionError(axiosError.message || 'Failed to flush cache');
     } finally {
       setFlushingCache(false);
     }
@@ -153,22 +158,24 @@ const RedisSettings: React.FC = () => {
       const updateResponse = await api.updateSettings(updates);
 
       if (!updateResponse.success) {
-        setError(updateResponse.message || 'Failed to save settings');
+        setActionError(updateResponse.message || 'Failed to save settings');
         return;
       }
 
       const response = await api.getRedisSettings();
 
       if (response.success && response.data) {
-        setSettings(response.data as unknown as RedisSettings);
+        queryClient.setQueryData(queryKeys.redisStatus, (prev: RedisStatusPayload | undefined) =>
+          prev ? { ...prev, settings: response.data as unknown as RedisSettings } : prev
+        );
         setIsEditing(false);
-        setError(null);
+        setActionError(null);
       } else {
-        setError(response.message || 'Failed to save settings');
+        setActionError(response.message || 'Failed to save settings');
       }
     } catch (err) {
       const axiosError = err as AxiosError<{ message?: string }>;
-      setError(axiosError.message || 'Failed to save settings');
+      setActionError(axiosError.message || 'Failed to save settings');
     }
   };
 
@@ -303,8 +310,11 @@ const RedisSettings: React.FC = () => {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-slate-300 text-sm font-medium mb-2">Host</label>
+                <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="host">
+                  Host
+                </label>
                 <input
+                  id="host"
                   type="text"
                   value={editedSettings.host || ''}
                   onChange={(e) =>
@@ -317,8 +327,11 @@ const RedisSettings: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-slate-300 text-sm font-medium mb-2">Port</label>
+                <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="port">
+                  Port
+                </label>
                 <input
+                  id="port"
                   type="number"
                   value={editedSettings.port || ''}
                   onChange={(e) =>
@@ -331,8 +344,11 @@ const RedisSettings: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-slate-300 text-sm font-medium mb-2">Database</label>
+                <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="database">
+                  Database
+                </label>
                 <input
+                  id="database"
                   type="number"
                   value={editedSettings.database || ''}
                   onChange={(e) =>
@@ -345,10 +361,14 @@ const RedisSettings: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-slate-300 text-sm font-medium mb-2">
+                <label
+                  className="block text-slate-300 text-sm font-medium mb-2"
+                  htmlFor="timeout-seconds"
+                >
                   Timeout (seconds)
                 </label>
                 <input
+                  id="timeout-seconds"
                   type="number"
                   value={editedSettings.timeout || ''}
                   onChange={(e) =>
@@ -361,8 +381,11 @@ const RedisSettings: React.FC = () => {
                 />
               </div>
               <div className="col-span-2">
-                <label className="block text-slate-300 text-sm font-medium mb-2">Password</label>
+                <label className="block text-slate-300 text-sm font-medium mb-2" htmlFor="password">
+                  Password
+                </label>
                 <input
+                  id="password"
                   type="password"
                   value={editedSettings.password || ''}
                   onChange={(e) =>
@@ -379,10 +402,14 @@ const RedisSettings: React.FC = () => {
 
             {/* Cache TTL */}
             <div>
-              <label className="block text-slate-300 text-sm font-medium mb-2">
+              <label
+                className="block text-slate-300 text-sm font-medium mb-2"
+                htmlFor="cache-ttl-seconds"
+              >
                 Cache TTL (seconds)
               </label>
               <input
+                id="cache-ttl-seconds"
                 type="number"
                 value={editedSettings.cache_ttl_seconds || ''}
                 onChange={(e) =>
@@ -516,7 +543,7 @@ const RedisSettings: React.FC = () => {
             <div className="p-4 bg-slate-700/50 rounded-lg">
               <p className="text-slate-400 text-sm">Cache Hit Rate</p>
               <p className="text-2xl font-bold text-blue-400">
-                {((cacheStats.hit_rate || 0) * 100).toFixed(2)}%
+                {formatPct((cacheStats.hit_rate || 0) * 100, 2)}
               </p>
             </div>
             <div className="p-4 bg-slate-700/50 rounded-lg">

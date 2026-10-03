@@ -38,7 +38,60 @@ from src.shared.credentials_cipher import (
     open_config_secrets,
     seal_config_secrets,
 )
+from src.shared.db_env import any_db_connection_configured
 from src.shared.live_risk_controls import assert_supported_live_risk_controls
+
+# Per-instance trading parameters → the BOT_* env vocabulary consumed by
+# config.config.BotSettings.from_env() inside the worker process. Without
+# this injection the worker's src/constants.py falls back to the GLOBAL
+# structured-config values, so operators' per-instance usdPerTrade /
+# maxPositions / stopLossPct / subaccountNumber / ... settings were silently
+# ignored by the live trading core (audit F7). IS_TESTNET is deliberately
+# not injected: network selection follows the per-instance credentials path
+# in main_instance, and overriding it here could desync indexer endpoints
+# from the profile that supplied them.
+_TRADING_PARAMS_ENV_MAP: Dict[str, str] = {
+    "subaccount_number": "BOT_SUBACCOUNT_NUMBER",
+    "capital_allocation_usd": "BOT_CAPITAL_ALLOCATION_USD",
+    "find_cointegrated_pairs": "BOT_FIND_COINTEGRATED_PAIRS",
+    "manage_exits": "BOT_MANAGE_EXITS",
+    "place_trades": "BOT_PLACE_TRADES",
+    "abort_all_positions": "BOT_ABORT_ALL_POSITIONS",
+    "resolution_timeframe": "BOT_RESOLUTION_TIMEFRAME",
+    "strategy": "BOT_STRATEGY",
+    "stats_window": "BOT_STATS_WINDOW",
+    "max_half_life": "BOT_MAX_HALF_LIFE",
+    "zscore_threshold": "BOT_ZSCORE_THRESHOLD",
+    "usd_per_trade": "BOT_USD_PER_TRADE",
+    "usd_min_collateral": "BOT_USD_MIN_COLLATERAL",
+    "close_at_zscore_cross": "BOT_CLOSE_AT_ZSCORE_CROSS",
+    "max_positions": "BOT_MAX_POSITIONS",
+    "max_drawdown_pct": "BOT_MAX_DRAWDOWN_PCT",
+    "stop_loss_pct": "BOT_STOP_LOSS_PCT",
+    "take_profit_pct": "BOT_TAKE_PROFIT_PCT",
+    "trailing_stop_pct": "BOT_TRAILING_STOP_PCT",
+    "rebalance_interval_hours": "BOT_REBALANCE_INTERVAL_HOURS",
+    "position_timeout_hours": "BOT_POSITION_TIMEOUT_HOURS",
+    "selected_markets": "BOT_SELECTED_MARKETS",
+}
+
+
+def trading_params_env(trading_params: Any) -> Dict[str, str]:
+    """Serialize per-instance TradingParameters into BOT_* worker env vars."""
+    env: Dict[str, str] = {}
+    for field, env_key in _TRADING_PARAMS_ENV_MAP.items():
+        value = getattr(trading_params, field, None)
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            env[env_key] = "true" if value else "false"
+        elif isinstance(value, float):
+            env[env_key] = repr(value)
+        elif isinstance(value, (list, tuple)):
+            env[env_key] = ",".join(str(item) for item in value)
+        else:
+            env[env_key] = str(value)
+    return env
 
 
 class BotInstanceManager:
@@ -185,15 +238,7 @@ class BotInstanceManager:
 
     @staticmethod
     def _db_persistence_enabled() -> bool:
-        if any(
-            bool(os.getenv(name, "").strip())
-            for name in (
-                "BOT_DATABASE_URL",
-                "DATABASE_URL",
-                "BOT_DB_HOST",
-                "DB_HOST",
-            )
-        ):
+        if any_db_connection_configured():
             return True
         return getattr(db.get_session, "__self__", None) is not db
 
@@ -1212,6 +1257,11 @@ class BotInstanceManager:
                     "BOT_PAIRS_FILE": str(files["cointegrated_pairs"]),
                 }
             )
+            # The trading core (src/constants.py) reads BotSettings.from_env()
+            # at import time in the worker process; inject the per-instance
+            # trading parameters so they take precedence over the global
+            # structured-config values.
+            bot_env.update(trading_params_env(instance.config.trading_params))
             existing_pythonpath = bot_env.get("PYTHONPATH", "").strip()
             pythonpath_entries = [str(bot_root)]
             if existing_pythonpath:

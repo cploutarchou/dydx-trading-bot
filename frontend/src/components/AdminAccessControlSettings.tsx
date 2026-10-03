@@ -1,26 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AxiosError } from 'axios';
 import {
-	ChevronDown,
-	EyeOff,
-	Loader2,
-	LockKeyhole,
-	RotateCcw,
-	Rocket,
-	ShieldCheck,
-	Trash2,
-	UserCog,
-	UserPlus,
-	Users,
+  ChevronDown,
+  EyeOff,
+  Loader2,
+  LockKeyhole,
+  RotateCcw,
+  Rocket,
+  ShieldCheck,
+  Trash2,
+  UserCog,
+  UserPlus,
+  Users,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import api, {
-	AccessControlPermission,
-	AdminUser,
-	CreateAdminUserPayload,
-	CreateCustomRolePayload,
-	ResetAdminUserMFAResponse,
-	UpdateAdminUserPayload,
+  AccessControlPermission,
+  AdminUser,
+  CreateAdminUserPayload,
+  CreateCustomRolePayload,
+  ResetAdminUserMFAResponse,
+  UpdateAdminUserPayload,
 } from '../api';
 import { ibPortalHref } from '../pages/ib/paths';
 import { useAuthStore } from '../store/auth';
@@ -230,10 +230,10 @@ export function AdminAccessControlSettings() {
     staleTime: 30_000,
   });
 
-  const mailgunStatusQuery = useQuery({
-    queryKey: ['mailgun', 'status', 'access-control'],
+  const emailStatusQuery = useQuery({
+    queryKey: ['email', 'status', 'access-control'],
     queryFn: async () => {
-      const response = await api.getMailgunStatus();
+      const response = await api.getEmailStatus();
       return response.data;
     },
     staleTime: 30_000,
@@ -248,34 +248,40 @@ export function AdminAccessControlSettings() {
     staleTime: 30_000,
   });
 
-  useEffect(() => {
-    if (!usersQuery.data?.users) {
-      return;
+  // Server rows -> editable drafts, adjusted during render when the query
+  // data identity changes (the sanctioned pattern; avoids a cascading render).
+  const [prevUsersData, setPrevUsersData] = useState(usersQuery.data);
+  if (usersQuery.data !== prevUsersData) {
+    setPrevUsersData(usersQuery.data);
+    const users = usersQuery.data?.users;
+    if (users) {
+      setDrafts(
+        users.reduce<Record<string, UserDraft>>((acc, user) => {
+          acc[String(user.id)] = createDraftFromUser(user);
+          return acc;
+        }, {})
+      );
     }
+  }
 
-    const nextDrafts = usersQuery.data.users.reduce<Record<string, UserDraft>>((acc, user) => {
-      acc[String(user.id)] = createDraftFromUser(user);
-      return acc;
-    }, {});
-    setDrafts(nextDrafts);
-  }, [usersQuery.data]);
-
-  useEffect(() => {
-    if (!registrationStatusQuery.data) {
-      return;
+  const [prevRegistrationData, setPrevRegistrationData] = useState(registrationStatusQuery.data);
+  if (registrationStatusQuery.data !== prevRegistrationData) {
+    setPrevRegistrationData(registrationStatusQuery.data);
+    const data = registrationStatusQuery.data;
+    if (data) {
+      if (data.mode === 'open' || data.mode === 'disabled' || data.mode === 'invitation_only') {
+        setRegistrationModeDraft(data.mode);
+      } else if (data.enabled) {
+        setRegistrationModeDraft('open');
+      } else {
+        setRegistrationModeDraft('disabled');
+      }
     }
+  }
 
-    const mode = registrationStatusQuery.data.mode;
-    if (mode === 'open' || mode === 'disabled' || mode === 'invitation_only') {
-      setRegistrationModeDraft(mode);
-    } else if (registrationStatusQuery.data.enabled) {
-      setRegistrationModeDraft('open');
-    } else {
-      setRegistrationModeDraft('disabled');
-    }
-  }, [registrationStatusQuery.data]);
-
-  useEffect(() => {
+  const [prevPlatformSettings, setPrevPlatformSettings] = useState(platformSettingsQuery.data);
+  if (platformSettingsQuery.data !== prevPlatformSettings) {
+    setPrevPlatformSettings(platformSettingsQuery.data);
     setPrivilegedMfaRequiredDraft(
       readBooleanPlatformSetting(platformSettingsQuery.data, 'require_privileged_mfa', false)
     );
@@ -299,7 +305,7 @@ export function AdminAccessControlSettings() {
         'ib-portal.localhost'
       )
     );
-  }, [platformSettingsQuery.data]);
+  }
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -345,13 +351,15 @@ export function AdminAccessControlSettings() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!mobileSubmenuOpen) {
-      return;
+  // Collapse the mobile submenu when the selection changes — adjusted during
+  // render instead of a cascading effect render.
+  const [prevActiveSubmenu, setPrevActiveSubmenu] = useState(activeSubmenu);
+  if (activeSubmenu !== prevActiveSubmenu) {
+    setPrevActiveSubmenu(activeSubmenu);
+    if (mobileSubmenuOpen) {
+      setMobileSubmenuOpen(false);
     }
-
-    setMobileSubmenuOpen(false);
-  }, [activeSubmenu, mobileSubmenuOpen]);
+  }
 
   const updateRegistrationPolicyMutation = useMutation({
     mutationFn: async ({
@@ -412,7 +420,7 @@ export function AdminAccessControlSettings() {
         'The new platform account is ready and assigned to the selected role.'
       );
       void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-      void queryClient.invalidateQueries({ queryKey: ['mailgun'] });
+      void queryClient.invalidateQueries({ queryKey: ['email'] });
       const notice = response.data?.onboarding_notice;
       if (typeof notice === 'string' && notice.trim().length > 0) {
         if (
@@ -574,7 +582,8 @@ export function AdminAccessControlSettings() {
     },
   });
 
-  const users = usersQuery.data?.users || [];
+  const usersData = usersQuery.data?.users;
+  const users = usersData ?? [];
   const roles = accessControlQuery.data?.roles ||
     usersQuery.data?.roles || ['admin', 'user', 'accounting', 'marketing', 'agent', 'client'];
   const roleCatalog =
@@ -585,32 +594,36 @@ export function AdminAccessControlSettings() {
       description: '',
       is_system: true,
     }));
-  const permissions = accessControlQuery.data?.permissions || [];
-  const rolePermissions = accessControlQuery.data?.role_permissions || [];
+  const permissionsData = accessControlQuery.data?.permissions;
+  const rolePermissionsData = accessControlQuery.data?.role_permissions;
   const permissionsByModule = useMemo(() => {
-    return permissions.reduce<Record<string, AccessControlPermission[]>>((acc, permission) => {
-      const moduleKey = permission.permission_key.split('.')[0] || 'general';
-      acc[moduleKey] = [...(acc[moduleKey] || []), permission];
-      return acc;
-    }, {});
-  }, [permissions]);
+    return (permissionsData ?? []).reduce<Record<string, AccessControlPermission[]>>(
+      (acc, permission) => {
+        const moduleKey = permission.permission_key.split('.')[0] || 'general';
+        acc[moduleKey] = [...(acc[moduleKey] || []), permission];
+        return acc;
+      },
+      {}
+    );
+  }, [permissionsData]);
   const rolePermissionSet = useMemo(() => {
-    return rolePermissions.reduce<Record<string, Set<string>>>((acc, row) => {
-      acc[row.role] = acc[row.role] || new Set<string>();
-      acc[row.role].add(row.permission_key);
+    return (rolePermissionsData ?? []).reduce<Record<string, Set<string>>>((acc, row) => {
+      const permissionSet = (acc[row.role] ??= new Set<string>());
+      permissionSet.add(row.permission_key);
       return acc;
     }, {});
-  }, [rolePermissions]);
+  }, [rolePermissionsData]);
   const activeAdmins = users.filter((user) => user.role === 'admin' && user.is_active).length;
   const filteredUsers = useMemo(() => {
+    const source = usersData ?? [];
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return users;
-    return users.filter((user) =>
+    if (!query) return source;
+    return source.filter((user) =>
       [user.username, user.email, user.full_name || '', user.role].some((value) =>
         value.toLowerCase().includes(query)
       )
     );
-  }, [searchQuery, users]);
+  }, [searchQuery, usersData]);
   const pendingPasswordChanges = users.filter(
     (user) => user.password_change_required && user.is_active
   ).length;
@@ -727,8 +740,8 @@ export function AdminAccessControlSettings() {
   };
 
   const activeSubmenuItem =
-    ACCESS_CONTROL_SUBMENU_ITEMS.find((item) => item.key === activeSubmenu) ||
-    ACCESS_CONTROL_SUBMENU_ITEMS[0];
+    ACCESS_CONTROL_SUBMENU_ITEMS.find((item) => item.key === activeSubmenu) ??
+    ACCESS_CONTROL_SUBMENU_ITEMS[0]!;
 
   return (
     <div className="space-y-6">
@@ -889,9 +902,9 @@ export function AdminAccessControlSettings() {
           </div>
         </div>
 
-        {!mailgunStatusQuery.data?.configured && pendingPasswordChanges > 0 && (
+        {!emailStatusQuery.data?.configured && pendingPasswordChanges > 0 && (
           <div className="mt-6 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-4 text-sm text-amber-100">
-            Mailgun is still not configured, and {pendingPasswordChanges} user account
+            Email delivery is still not configured, and {pendingPasswordChanges} user account
             {pendingPasswordChanges === 1 ? '' : 's'} still require a first-login password change.
             The platform will enforce password rotation, but onboarding emails are currently
             skipped.
@@ -1023,10 +1036,14 @@ export function AdminAccessControlSettings() {
 
             {registrationModeDraft === 'invitation_only' && (
               <div className="mt-4 grid gap-2">
-                <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                <label
+                  className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500"
+                  htmlFor="invitation-code"
+                >
                   Invitation code
                 </label>
                 <input
+                  id="invitation-code"
                   value={invitationCodeDraft}
                   onChange={(event) => setInvitationCodeDraft(event.target.value)}
                   placeholder="Set invitation code"
@@ -1096,10 +1113,14 @@ export function AdminAccessControlSettings() {
                     Enabled
                   </label>
                 </div>
-                <label className="mt-3 block text-xs uppercase tracking-[0.14em] text-slate-500">
+                <label
+                  className="mt-3 block text-xs uppercase tracking-[0.14em] text-slate-500"
+                  htmlFor="crm-subdomain-host"
+                >
                   Host
                 </label>
                 <input
+                  id="crm-subdomain-host"
                   value={crmSubdomainHostDraft}
                   onChange={(event) => setCrmSubdomainHostDraft(event.target.value)}
                   placeholder="crm.localhost"
@@ -1122,10 +1143,14 @@ export function AdminAccessControlSettings() {
                     Enabled
                   </label>
                 </div>
-                <label className="mt-3 block text-xs uppercase tracking-[0.14em] text-slate-500">
+                <label
+                  className="mt-3 block text-xs uppercase tracking-[0.14em] text-slate-500"
+                  htmlFor="ib-subdomain-host"
+                >
                   Host
                 </label>
                 <input
+                  id="ib-subdomain-host"
                   value={ibSubdomainHostDraft}
                   onChange={(event) => setIbSubdomainHostDraft(event.target.value)}
                   placeholder="ib-portal.localhost"
@@ -1478,10 +1503,14 @@ export function AdminAccessControlSettings() {
 
                     <div className="mt-4 grid gap-4 md:grid-cols-2">
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        <label
+                          className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500"
+                          htmlFor="email"
+                        >
                           Email
                         </label>
                         <input
+                          id="email"
                           value={draft.email}
                           onChange={(event) =>
                             handleDraftChange(user.id, 'email', event.target.value)
@@ -1490,10 +1519,14 @@ export function AdminAccessControlSettings() {
                         />
                       </div>
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        <label
+                          className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500"
+                          htmlFor="full-name"
+                        >
                           Full name
                         </label>
                         <input
+                          id="full-name"
                           value={draft.full_name}
                           onChange={(event) =>
                             handleDraftChange(user.id, 'full_name', event.target.value)
@@ -1502,10 +1535,14 @@ export function AdminAccessControlSettings() {
                         />
                       </div>
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        <label
+                          className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500"
+                          htmlFor="role"
+                        >
                           Role
                         </label>
                         <select
+                          id="role"
                           value={draft.role}
                           onChange={(event) =>
                             handleDraftChange(user.id, 'role', event.target.value)
@@ -1521,9 +1558,9 @@ export function AdminAccessControlSettings() {
                         </select>
                       </div>
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        <p className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                           Account status
-                        </label>
+                        </p>
                         <label className="flex items-center gap-3 rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-slate-300">
                           <input
                             type="checkbox"
@@ -1540,10 +1577,14 @@ export function AdminAccessControlSettings() {
                         </label>
                       </div>
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        <label
+                          className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500"
+                          htmlFor="max-active-backtests"
+                        >
                           Max active backtests
                         </label>
                         <input
+                          id="max-active-backtests"
                           type="number"
                           min={1}
                           max={1000}
@@ -1559,10 +1600,14 @@ export function AdminAccessControlSettings() {
                         />
                       </div>
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        <label
+                          className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500"
+                          htmlFor="max-strategies"
+                        >
                           Max strategies
                         </label>
                         <input
+                          id="max-strategies"
                           type="number"
                           min={1}
                           max={1000}
@@ -1578,10 +1623,14 @@ export function AdminAccessControlSettings() {
                         />
                       </div>
                       <div>
-                        <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        <label
+                          className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500"
+                          htmlFor="max-bot-instances"
+                        >
                           Max bot instances
                         </label>
                         <input
+                          id="max-bot-instances"
                           type="number"
                           min={1}
                           max={1000}

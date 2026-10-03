@@ -3,7 +3,6 @@ package middleware
 import (
 	"errors"
 	"log"
-	"os"
 	"strings"
 	"time"
 
@@ -15,39 +14,29 @@ import (
 var jwtManager *auth.Manager
 var sessionStore *auth.SessionStore
 
-const defaultJWTSecret = "your-super-secret-key-change-in-production"
-
-func resolveJWTSecret(cfg *config.Config) string {
-	if secret := strings.TrimSpace(os.Getenv("JWT_SECRET_KEY")); secret != "" {
-		return secret
-	}
-	if secret := strings.TrimSpace(os.Getenv("SECRET_KEY")); secret != "" {
-		return secret
-	}
-	if cfg != nil {
-		if secret := strings.TrimSpace(cfg.Auth.JWTSecretKey); secret != "" {
-			return secret
-		}
-	}
-	return defaultJWTSecret
-}
-
 func InitAuthMiddleware(cfg *config.Config) {
 	if cfg != nil {
 		config.ConfigInstance = cfg
 	}
+	effective := cfg
+	if effective == nil {
+		effective = config.ConfigInstance
+	}
+	if effective == nil {
+		effective = &config.Config{}
+	}
 
-	expiryHours := (cfg.Auth.AccessTokenExpireMinutes + 59) / 60
+	expiryHours := (effective.Auth.AccessTokenExpireMinutes + 59) / 60
 	if expiryHours <= 0 {
 		expiryHours = 1
 	}
 
 	jwtManager = auth.NewManager(auth.JWTConfig{
-		Secret:            resolveJWTSecret(cfg),
+		Secret:            auth.ResolveSharedJWTSecret(),
 		ExpiryHours:       expiryHours,
-		RefreshExpiryDays: cfg.Auth.RefreshTokenExpireDays,
+		RefreshExpiryDays: effective.Auth.RefreshTokenExpireDays,
 	})
-	sessionStore = auth.NewSessionStore(cfg)
+	sessionStore = auth.NewSessionStore(effective)
 }
 
 func AuthSessionStore() *auth.SessionStore {
@@ -85,7 +74,26 @@ func extractBearerTokenFromAuthorizationHeader(c *gin.Context) string {
 	return strings.TrimSpace(parts[1])
 }
 
+// rejectPendingMFASession reports whether the session is a password-only
+// pre-auth session still awaiting its TOTP challenge, and if so (and not
+// allowed) responds with the mfa_challenge_required contract the frontend
+// already understands.
+func rejectPendingMFASession(c *gin.Context, sessionData *auth.SessionData, allowPendingMFA bool, abortOnFailure bool) bool {
+	if sessionData == nil || !sessionData.MFAPending() || allowPendingMFA {
+		return false
+	}
+	if abortOnFailure {
+		c.JSON(401, gin.H{"error": "multi-factor challenge required", "code": "mfa_challenge_required"})
+		c.Abort()
+	}
+	return true
+}
+
 func authenticateRequest(c *gin.Context, abortOnFailure bool) bool {
+	return authenticateRequestAllowPendingMFA(c, abortOnFailure, false)
+}
+
+func authenticateRequestAllowPendingMFA(c *gin.Context, abortOnFailure bool, allowPendingMFA bool) bool {
 	if jwtManager == nil {
 		log.Printf("RequireAuth: jwt manager is not initialized")
 		if abortOnFailure {
@@ -120,6 +128,9 @@ func authenticateRequest(c *gin.Context, abortOnFailure bool) bool {
 		ctx := c.Request.Context()
 		sessionData, err := sessionStore.Get(ctx, strings.TrimSpace(sessionCookie))
 		if err == nil && sessionData != nil {
+			if rejectPendingMFASession(c, sessionData, allowPendingMFA, abortOnFailure) {
+				return false
+			}
 			if abortOnFailure {
 				log.Printf("RequireAuth: trace_id=%s authenticated via session cookie", traceID)
 			}
@@ -148,6 +159,9 @@ func authenticateRequest(c *gin.Context, abortOnFailure bool) bool {
 		ctx := c.Request.Context()
 		sessionData, err := sessionStore.Get(ctx, tokenString)
 		if err == nil && sessionData != nil {
+			if rejectPendingMFASession(c, sessionData, allowPendingMFA, abortOnFailure) {
+				return false
+			}
 			if abortOnFailure {
 				log.Printf("RequireAuth: trace_id=%s authenticated via bearer session token", traceID)
 			}
@@ -196,6 +210,22 @@ func TrySetAuthContext(c *gin.Context) bool {
 func RequireAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !authenticateRequest(c, true) {
+			return
+		}
+		if !enforcePasswordChangeCleared(c) {
+			return
+		}
+		c.Next()
+	}
+}
+
+// RequireAuthAllowPendingMFA authenticates like RequireAuth but additionally
+// accepts sessions still awaiting their TOTP challenge. Reserved for the
+// /auth/2fa/challenge endpoint, which is the only place a pending session may
+// be used.
+func RequireAuthAllowPendingMFA() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !authenticateRequestAllowPendingMFA(c, true, true) {
 			return
 		}
 		c.Next()

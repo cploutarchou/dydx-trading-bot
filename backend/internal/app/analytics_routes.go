@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,12 +19,14 @@ const (
 )
 
 // registerAnalyticsRoutes exposes the backend-owned ClickHouse read models.
-// All routes are admin-gated and fail closed: when ClickHouse is disabled the
-// response reports enabled=false with empty data so dashboards can degrade
-// gracefully instead of erroring, and a query failure surfaces an error without
-// returning stale or partial rows.
+// All routes require the analytics.read permission (granted to admins by
+// default; assignable to other roles via RBAC) and fail closed: when
+// ClickHouse is disabled the response reports enabled=false with empty data so
+// dashboards can degrade gracefully instead of erroring, and a query failure
+// surfaces an error without returning stale or partial rows.
 func registerAnalyticsRoutes(
 	router *gin.Engine,
+	database *sql.DB,
 	positionReader *services.LivePositionReader,
 	tradeSummaryReader *services.LiveTradeSummaryReader,
 	pairBreakdownReader *services.LivePairBreakdownReader,
@@ -32,6 +35,7 @@ func registerAnalyticsRoutes(
 ) {
 	group := router.Group("/api/v1/analytics")
 	group.Use(middleware.RequireAuth())
+	group.Use(middleware.RequirePermission(database, "analytics.read"))
 
 	group.GET("/position-history", func(c *gin.Context) {
 		serveLivePositionHistory(c, positionReader)
@@ -154,6 +158,10 @@ func serveLivePositionHistory(c *gin.Context, positionReader *services.LivePosit
 	})
 }
 
+// maxHistoryHours bounds the ClickHouse scan window (30 days), matching the
+// cap used by the live position reader.
+const maxHistoryHours = 720
+
 func parseHistoryHours(raw string) int {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -162,6 +170,9 @@ func parseHistoryHours(raw string) int {
 	parsed, err := strconv.Atoi(raw)
 	if err != nil || parsed <= 0 {
 		return defaultHistoryHours
+	}
+	if parsed > maxHistoryHours {
+		return maxHistoryHours
 	}
 	return parsed
 }

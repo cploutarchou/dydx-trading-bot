@@ -117,7 +117,17 @@ func (h *AuditLogHandler) ListAuditLogsByUser(c *gin.Context) {
 		return
 	}
 
-	auditLogs, err := h.service.ListAuditLogsByUser(userID)
+	// Bound the page size: audit_logs is append-only and grows with every
+	// authenticated action, so an unbounded listing would degrade without limit.
+	limit := 200
+	if parsed, err := strconv.Atoi(c.DefaultQuery("limit", "200")); err == nil && parsed > 0 {
+		limit = parsed
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+
+	auditLogs, err := h.service.ListAuditLogsByUser(userID, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, APIResponse{
 			Success:   false,

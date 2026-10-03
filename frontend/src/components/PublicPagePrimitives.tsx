@@ -13,7 +13,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import type { IcoResourceItem } from '../content/publicSite';
 import type { CountdownState } from '../utils/publicPages';
-import BrandMark from './BrandMark';
+import { BrandMark } from './BrandMark';
 import { CryptoBackground, type CryptoBackgroundVariant } from './CryptoBackground';
 
 interface PublicPageShellProps {

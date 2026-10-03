@@ -69,7 +69,7 @@ describe('settings data loader', () => {
 
     const loaded = await loadSettingsData(api);
 
-    expect(loaded.formValues.platform.coming_soon_enabled).toBe(true);
+    expect(loaded.formValues.platform?.coming_soon_enabled).toBe(true);
   });
 
   it('deduplicates concurrent initialization requests', async () => {

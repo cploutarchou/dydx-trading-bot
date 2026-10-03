@@ -7,14 +7,20 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from loguru import logger
 
+from src.exceptions import OrderRejectedError, UnhedgedExposureError
 from src.shared.notifications import TelegramMessenger
 from src.trading.account_manager import (
+    REDUCE_ONLY_NOTHING_TO_REDUCE_CODE,
+    SHORT_TERM_ORDER_VALID_BLOCKS,
     cancel_order,
+    cancel_order_verified,
+    chain_height,
     check_order_status,
     get_order,
     get_order_fills,
     is_open_positions,
     place_market_order,
+    verify_flat_on_chain,
 )
 
 
@@ -38,9 +44,11 @@ class BotAgent:
         quote_size: str,
         quote_price: str,
         accept_failsafe_base_price: str,
+        accept_failsafe_quote_price: str,
         z_score: float,
         half_life: float,
         hedge_ratio: float,
+        intercept: float = 0.0,
     ) -> None:
         """Initialize bot agent with trade parameters."""
         # Initialize class variables
@@ -54,9 +62,13 @@ class BotAgent:
         self.quote_size = quote_size
         self.quote_price = quote_price
         self.accept_failsafe_base_price = accept_failsafe_base_price
+        # Leg 2 trades a different market: its emergency close needs its own
+        # fail-safe price (market 2 scale and tick size), never market 1's.
+        self.accept_failsafe_quote_price = accept_failsafe_quote_price
         self.z_score = z_score
         self.half_life = half_life
         self.hedge_ratio = hedge_ratio
+        self.intercept = intercept
 
         # Initialize Telegram messenger
         self.messenger = TelegramMessenger()
@@ -67,6 +79,7 @@ class BotAgent:
             "market_1": market_1,
             "market_2": market_2,
             "hedge_ratio": hedge_ratio,
+            "intercept": intercept,
             "z_score": z_score,
             "half_life": half_life,
             "order_id_m1": "",
@@ -102,29 +115,82 @@ class BotAgent:
     @staticmethod
     def _normalize_order_status(status: Any) -> str:
         normalized = str(status or "").strip().upper()
-        if normalized == "CANCELED":
+        if normalized in {"CANCELED", "BEST_EFFORT_CANCELED", "IB_CANCELED"}:
+            # BEST_EFFORT_CANCELED is how dYdX short-term market orders end
+            # after their good-til-block expiry — including after PARTIAL
+            # fills, so callers must verify fills on this state.
             return "CANCELLED"
         return normalized
 
-    async def _emergency_close_first_leg(self) -> str:
-        close_size = self.order_dict.get("order_m1_size") or self.base_size
-        close_side = self._opposite_side(self.base_side)
+    async def _emergency_close_leg(
+        self,
+        *,
+        market: str,
+        side: str,
+        size: str,
+        price: str,
+    ) -> str:
+        """Reduce-only close one leg, retrying until filled or verified flat.
+
+        Reduce-only orders cannot increase exposure: if the leg never filled
+        the close is rejected (or no-ops) and the position check ends the
+        retry loop, so this is safe to call on unknown-outcome orders.
+        """
+        close_side = self._opposite_side(side)
         retries = 3
         last_status = "unknown"
         order_id: str = ""
-        for attempt in range(1, retries + 1):
-            close_order, order_id = await place_market_order(
-                self.client,
-                market=self.market_1,
-                side=close_side,
-                size=close_size,
-                price=self.accept_failsafe_base_price,
-                reduce_only=True,
+        close_order_placed = False
+        nothing_to_reduce_rejections = 0
+        # The entry order was built before this point, so it cannot still be
+        # valid once the chain has passed this height.
+        entry_expired_after_height: Optional[int] = None
+        try:
+            entry_expired_after_height = (
+                await chain_height(self.client) + SHORT_TERM_ORDER_VALID_BLOCKS
             )
-            _ = close_order
+        except Exception as height_error:
+            logger.warning(
+                "Could not read the chain height before closing {}: {}",
+                market,
+                height_error,
+            )
+        for attempt in range(1, retries + 1):
+            # A failed placement or status read must not end the loop: the
+            # position may still be open, and this is the only code that will
+            # try to close it. Record the failure and fall through to the
+            # position check, which decides whether another attempt is needed.
+            order_status_close_order: Any = "unknown"
+            try:
+                close_order, order_id = await place_market_order(
+                    self.client,
+                    market=market,
+                    side=close_side,
+                    size=size,
+                    price=price,
+                    reduce_only=True,
+                )
+                _ = close_order
+                close_order_placed = True
 
-            await asyncio.sleep(2)
-            order_status_close_order = await check_order_status(self.client, order_id)
+                await asyncio.sleep(2)
+                order_status_close_order = await check_order_status(
+                    self.client, order_id
+                )
+            except Exception as attempt_error:
+                order_status_close_order = f"error: {attempt_error}"
+                if (
+                    isinstance(attempt_error, OrderRejectedError)
+                    and attempt_error.code == REDUCE_ONLY_NOTHING_TO_REDUCE_CODE
+                ):
+                    nothing_to_reduce_rejections += 1
+                logger.error(
+                    "Emergency close attempt {}/{} for {} failed: {}",
+                    attempt,
+                    retries,
+                    market,
+                    attempt_error,
+                )
             last_status = str(order_status_close_order)
 
             # Primary success state from indexer order lifecycle.
@@ -133,19 +199,23 @@ class BotAgent:
 
             # Secondary success state: position is already closed despite non-filled status.
             try:
-                still_open = await is_open_positions(self.client, self.market_1)
+                still_open = await is_open_positions(self.client, market)
             except Exception as e:
                 still_open = True
                 logger.warning(
                     "Could not verify emergency closure position state for {}: {}",
-                    self.market_1,
+                    market,
                     e,
                 )
 
-            if not still_open:
+            # "Flat" only counts once a close order actually went out. When
+            # every placement failed, a flat reading right after an
+            # unknown-outcome entry can simply be indexer lag, so keep trying
+            # and escalate instead of returning quietly.
+            if not still_open and close_order_placed:
                 logger.warning(
                     "Emergency close order for {} returned status {} but position is no longer open; treating as closed",
-                    self.market_1,
+                    market,
                     order_status_close_order,
                 )
                 return order_id
@@ -155,32 +225,113 @@ class BotAgent:
                     "Emergency close retry {}/{} for {} after status {}",
                     attempt,
                     retries,
-                    self.market_1,
+                    market,
                     order_status_close_order,
                 )
                 await asyncio.sleep(1)
 
+        # Every close was refused by the validator because there is nothing to
+        # reduce. That alone is not trusted: the entry order has to have expired
+        # and the node's own subaccount state has to show no position. The
+        # indexer is deliberately not consulted; it may be far behind. Anything
+        # short of that positive proof falls through to the escalation below.
+        if (
+            nothing_to_reduce_rejections == retries
+            and entry_expired_after_height is not None
+            and await verify_flat_on_chain(
+                self.client, market, not_before_height=entry_expired_after_height
+            )
+        ):
+            logger.warning(
+                "No position to close for {}: the node refused every reduce-only "
+                "close (code {}) and its subaccount state shows none after height {}",
+                market,
+                REDUCE_ONLY_NOTHING_TO_REDUCE_CODE,
+                entry_expired_after_height,
+            )
+            self.messenger.send_recovery_message(
+                "Entry did not fill; nothing to close",
+                f"The entry order for {market} left no position: the node refused "
+                f"every reduce-only close (code {REDUCE_ONLY_NOTHING_TO_REDUCE_CODE}) "
+                "and the chain shows none. No exposure; entries continue.",
+                category="execution_emergency_cleanup",
+            )
+            return order_id
+
         logger.critical("ABORT PROGRAM - Failed to close hedged position")
         logger.critical(
             "Unexpected error closing {} -> status {}",
-            self.market_1,
+            market,
             last_status,
         )
 
         self.messenger.send_error_message(
             "CRITICAL: Position Closure Failed",
-            f"Failed to close hedged position for {self.market_1}. Status: {last_status}. Emergency intervention required!",
+            f"Failed to close hedged position for {market}. Status: {last_status}. Emergency intervention required!",
             is_critical=True,
             category="execution_emergency_cleanup",
         )
 
-        raise RuntimeError(
-            f"Failed emergency closure for {self.market_1}; "
+        raise UnhedgedExposureError(
+            f"Failed emergency closure for {market}; "
             f"telemetry={self._telemetry_fragment(cleanup_status='failed', close_order_status=last_status, position_open_after_cleanup=True)}"
         )
 
-    async def check_order_status_by_id(self, order_id: str) -> str:
-        """Check order status by order ID with retry logic."""
+    async def _emergency_close_first_leg(self) -> str:
+        return await self._emergency_close_leg(
+            market=self.market_1,
+            side=self.base_side,
+            size=self.order_dict.get("order_m1_size") or self.base_size,
+            price=self.accept_failsafe_base_price,
+        )
+
+    async def _filled_size(self, order_id: str, market: str) -> Optional[float]:
+        """Sum filled size for an order from indexer fills.
+
+        Returns None when the fills query itself fails (unknown), which
+        callers must treat conservatively as "possibly filled".
+        """
+        try:
+            fills = await get_order_fills(self.client, order_id, market=market)
+        except Exception as exc:
+            logger.warning(
+                "Could not fetch fills for order {} on {}: {}",
+                order_id,
+                market,
+                exc,
+            )
+            return None
+        total = 0.0
+        for fill in fills:
+            if not isinstance(fill, dict):
+                continue
+            size = self._first_present(fill, ("size", "fillSize", "filledSize"))
+            if size in (None, ""):
+                continue
+            try:
+                total += abs(float(size))
+            except (TypeError, ValueError):
+                continue
+        return total
+
+    async def _verify_no_partial_fill(self, order_id: str, market: str) -> bool:
+        """False when the order has (or may have) a live partial-fill residual."""
+        filled = await self._filled_size(order_id, market)
+        if filled is None:
+            return False
+        return filled <= 0
+
+    async def check_order_status_by_id(
+        self, order_id: str, market: Optional[str] = None
+    ) -> str:
+        """Check order status by order ID with retry logic.
+
+        ``market`` identifies the leg the order belongs to (used for
+        partial-fill verification); it defaults to the first leg for
+        backward compatibility with existing callers.
+        """
+        leg_market = market or self.market_1
+
         # Allow time to process
         await asyncio.sleep(2)
 
@@ -192,6 +343,9 @@ class BotAgent:
         # Guard: If order cancelled move onto next Pair
         if order_status in {"CANCELLED", "FAILED"}:
             logger.warning("{} vs {} - Order cancelled", self.market_1, self.market_2)
+            if not await self._verify_no_partial_fill(order_id, leg_market):
+                self.order_dict["pair_status"] = "PARTIAL"
+                return "partial"
             self.order_dict["pair_status"] = "FAILED"
             return "failed"
 
@@ -207,18 +361,38 @@ class BotAgent:
                 logger.warning(
                     "{} vs {} - Order cancelled", self.market_1, self.market_2
                 )
+                if not await self._verify_no_partial_fill(order_id, leg_market):
+                    self.order_dict["pair_status"] = "PARTIAL"
+                    return "partial"
                 self.order_dict["pair_status"] = "FAILED"
                 return "failed"
 
-            # Guard: If not filled, cancel order
+            # Guard: If not filled, cancel order and verify it cannot fill
             if order_status != "FILLED":
-                await cancel_order(self.client, order_id)
+                final_cancel_status = await cancel_order_verified(self.client, order_id)
+                if final_cancel_status not in {
+                    "FILLED",
+                    "CANCELED",
+                    "CANCELLED",
+                    "BEST_EFFORT_CANCELED",
+                    "IB_CANCELED",
+                    "REJECTED",
+                    "EXPIRED",
+                }:
+                    logger.critical(
+                        "Order {} may still be live after cancel (status={})",
+                        order_id,
+                        final_cancel_status or "unknown",
+                    )
                 self.order_dict["pair_status"] = "ERROR"
                 logger.error(
                     "{} vs {} - Order error. Cancellation request sent, verify open orders",
                     self.market_1,
                     self.market_2,
                 )
+                if not await self._verify_no_partial_fill(order_id, leg_market):
+                    self.order_dict["pair_status"] = "PARTIAL"
+                    return "partial"
                 return "error"
 
         # Return live
@@ -274,7 +448,6 @@ class BotAgent:
             order = order["order"]
         if not isinstance(order, dict):
             return
-
         ticker = self._first_present(order, ("ticker", "market", "symbol"))
         side = self._first_present(order, ("side",))
         size = self._first_present(order, ("size", "totalFilled", "filledSize"))
@@ -311,6 +484,26 @@ class BotAgent:
             self.order_dict[f"{leg_prefix}_price_source"] = "fills"
             self.order_dict[f"{leg_prefix}_fill_count"] = len(fills)
 
+    async def _cleanup_after_unfilled_or_unknown_leg1(self, reason: str) -> None:
+        """Fail-closed cleanup when leg 1's outcome is not a clean full fill.
+
+        Covers: partial fills (BEST_EFFORT_CANCELED etc.), unknown outcomes
+        (status-check exceptions, abandoned placements). The reduce-only
+        close is harmless when nothing filled and flattens whatever did.
+        """
+        self.order_dict["pair_status"] = "ERROR"
+        self.order_dict["comments"] = f"{self.market_1}: {reason}"
+        try:
+            await self._emergency_close_first_leg()
+        except Exception as close_error:
+            self.order_dict["comments"] = (
+                f"{self.market_1}: {reason}; close failed: {close_error}"
+            )
+            raise UnhedgedExposureError(
+                f"Unexpected emergency closure error for {self.market_1}; "
+                f"telemetry={self._telemetry_fragment(cleanup_status='failed', cleanup_error=str(close_error), position_open_after_cleanup='unknown')}"
+            ) from close_error
+
     async def open_trades(self) -> Dict[str, Any]:
         """
         Open both sides of the paired trade.
@@ -343,21 +536,39 @@ class BotAgent:
             self.order_dict["order_time_m1"] = datetime.now(timezone.utc).isoformat()
             logger.info("First order for {} sent", self.market_1)
         except Exception as e:
+            # The placement outcome is UNKNOWN — the tx may have landed. A
+            # reduce-only close flattens it if it did and no-ops if it did
+            # not, so clean up rather than assuming nothing filled.
             logger.exception("Error placing first order for {}", self.market_1)
-            self.order_dict["pair_status"] = "ERROR"
-            self.order_dict["comments"] = f"Market 1 {self.market_1}: , {e}"
+            await self._cleanup_after_unfilled_or_unknown_leg1(f"placement error: {e}")
             return self.order_dict
 
         # Ensure order is live before processing
         logger.info(
             "Checking first order status for {}", self.order_dict["order_id_m1"]
         )
-        order_status_m1 = await self.check_order_status_by_id(
-            self.order_dict["order_id_m1"]
-        )
+        try:
+            order_status_m1 = await self.check_order_status_by_id(
+                self.order_dict["order_id_m1"], market=self.market_1
+            )
+        except Exception as e:
+            # Leg 1 may already be FILLED — an exception here must never
+            # bypass cleanup (that would leave an untracked naked position).
+            logger.exception(
+                "Status check failed for first order {} on {}",
+                self.order_dict["order_id_m1"],
+                self.market_1,
+            )
+            await self._cleanup_after_unfilled_or_unknown_leg1(
+                f"status check error: {e}"
+            )
+            return self.order_dict
         logger.info("First order status: {}", order_status_m1)
 
-        # Guard: Abort if order failed
+        # Guard: Abort if order failed; a partial fill must be closed out.
+        if order_status_m1 == "partial":
+            await self._cleanup_after_unfilled_or_unknown_leg1("partial fill")
+            return self.order_dict
         if order_status_m1 != "live":
             self.order_dict["pair_status"] = "ERROR"
             self.order_dict["comments"] = f"{self.market_1} failed to fill"
@@ -403,7 +614,7 @@ class BotAgent:
                     f"Market 2 {self.market_2}: {e}; "
                     f"Close Market 1 {self.market_1}: {close_error}"
                 )
-                raise RuntimeError(
+                raise UnhedgedExposureError(
                     f"Unexpected emergency closure error for {self.market_1}; "
                     f"telemetry={self._telemetry_fragment(cleanup_status='failed', cleanup_error=str(close_error), position_open_after_cleanup='unknown')}"
                 ) from close_error
@@ -413,11 +624,73 @@ class BotAgent:
         logger.info(
             "Checking second order status for {}", self.order_dict["order_id_m2"]
         )
-        order_status_m2 = await self.check_order_status_by_id(
-            self.order_dict["order_id_m2"]
-        )
+        try:
+            order_status_m2 = await self.check_order_status_by_id(
+                self.order_dict["order_id_m2"], market=self.market_2
+            )
+        except Exception as e:
+            # Leg 1 is FILLED and leg 2's state is unknown: close both legs
+            # reduce-only so no residual exposure survives either outcome.
+            logger.exception(
+                "Status check failed for second order {} on {}",
+                self.order_dict["order_id_m2"],
+                self.market_2,
+            )
+            errors: list[str] = []
+            try:
+                await self._emergency_close_leg(
+                    market=self.market_2,
+                    side=self.quote_side,
+                    size=self.quote_size,
+                    price=self.accept_failsafe_quote_price,
+                )
+            except Exception as leg2_error:
+                errors.append(f"leg2 {self.market_2}: {leg2_error}")
+            try:
+                await self._emergency_close_first_leg()
+            except Exception as leg1_error:
+                errors.append(f"leg1 {self.market_1}: {leg1_error}")
+            if errors:
+                self.order_dict["pair_status"] = "ERROR"
+                self.order_dict["comments"] = (
+                    f"status check error: {e}; close failures: {'; '.join(errors)}"
+                )
+                raise UnhedgedExposureError(
+                    f"Emergency closure errors after second-order status failure; "
+                    f"telemetry={self._telemetry_fragment(cleanup_status='failed', cleanup_errors=errors, position_open_after_cleanup='unknown')}"
+                ) from e
+            self.order_dict["pair_status"] = "ERROR"
+            self.order_dict["comments"] = (
+                f"Market 2 {self.market_2}: status check error: {e}"
+            )
+            return self.order_dict
 
-        # Guard: Abort if order failed
+        # Guard: Abort if order failed; close any partial residual plus leg 1.
+        if order_status_m2 == "partial":
+            self.order_dict["pair_status"] = "ERROR"
+            self.order_dict["comments"] = f"{self.market_2} partially filled"
+            errors = []
+            try:
+                await self._emergency_close_leg(
+                    market=self.market_2,
+                    side=self.quote_side,
+                    size=self.quote_size,
+                    price=self.accept_failsafe_quote_price,
+                )
+            except Exception as leg2_error:
+                errors.append(f"leg2 {self.market_2}: {leg2_error}")
+            try:
+                await self._emergency_close_first_leg()
+            except Exception as leg1_error:
+                errors.append(f"leg1 {self.market_1}: {leg1_error}")
+            if errors:
+                self.order_dict["comments"] += f"; close failures: {'; '.join(errors)}"
+                raise UnhedgedExposureError(
+                    f"Emergency closure errors after partial second-leg fill; "
+                    f"telemetry={self._telemetry_fragment(cleanup_status='failed', cleanup_errors=errors, position_open_after_cleanup='unknown')}"
+                )
+            return self.order_dict
+
         if order_status_m2 != "live":
             self.order_dict["pair_status"] = "ERROR"
             self.order_dict["comments"] = f"{self.market_1} failed to fill"
@@ -442,7 +715,7 @@ class BotAgent:
                     category="execution_emergency_cleanup",
                 )
 
-                raise RuntimeError(
+                raise UnhedgedExposureError(
                     f"Unexpected emergency closure error for {self.market_1}; "
                     f"telemetry={self._telemetry_fragment(cleanup_status='failed', close_order_status=status_snapshot, position_open_after_cleanup=True)}"
                 ) from e

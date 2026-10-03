@@ -23,6 +23,9 @@ type TokenClaims struct {
 	IsAdmin  bool   `json:"is_admin"`
 	Role     string `json:"role"`
 	Type     string `json:"type"`
+	// SessionGen carries the issuer's session-generation counter so stateless
+	// refresh tokens can be rejected after a generation bump (password change).
+	SessionGen int64 `json:"sess_gen,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -96,6 +99,13 @@ func (m *Manager) CreateRefreshToken(userID int, username, email string, isAdmin
 }
 
 func (m *Manager) CreateRefreshTokenWithRole(userID int, username, email string, isAdmin bool, role string) (string, time.Time, error) {
+	return m.CreateRefreshTokenWithGeneration(userID, username, email, isAdmin, role, 0)
+}
+
+// CreateRefreshTokenWithGeneration mints a refresh token bound to the user's
+// current session generation; refreshes presenting a stale generation are
+// rejected, giving stateless refresh tokens revocation semantics.
+func (m *Manager) CreateRefreshTokenWithGeneration(userID int, username, email string, isAdmin bool, role string, sessionGen int64) (string, time.Time, error) {
 	var expiresAt time.Time
 	if m.config.RefreshExpiryDays > 0 {
 		expiresAt = time.Now().Add(time.Hour * 24 * time.Duration(m.config.RefreshExpiryDays))
@@ -104,12 +114,13 @@ func (m *Manager) CreateRefreshTokenWithRole(userID int, username, email string,
 	}
 
 	claims := TokenClaims{
-		UserID:   userID,
-		Username: username,
-		Email:    email,
-		IsAdmin:  isAdmin,
-		Role:     role,
-		Type:     "refresh",
+		UserID:     userID,
+		Username:   username,
+		Email:      email,
+		IsAdmin:    isAdmin,
+		Role:       role,
+		Type:       "refresh",
+		SessionGen: sessionGen,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

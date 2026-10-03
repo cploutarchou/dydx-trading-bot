@@ -1,7 +1,11 @@
 """Concurrency-safe helpers for per-instance tracked-position state.
 
-DB is the primary store; the JSON file is kept as a fallback for environments
-without a reachable database.
+Every write goes to the database (durable across hosts) and to the JSON file
+(always available). Each write is a full snapshot, so the file is never behind
+the database. Reads prefer the database, except after a failed database write:
+then the database row is older than the file, and reading it would silently
+drop the newest positions from exit management. A persisted "stale" marker
+switches reads to the file until a database write succeeds again.
 """
 
 import asyncio
@@ -117,8 +121,59 @@ def _db_save_positions(positions: List[Dict[str, Any]]) -> bool:
         finally:
             session.close()
     except Exception as exc:
-        logger.debug("DB save tracked positions failed ({}); falling back to file", exc)
+        logger.error("DB save tracked positions failed: {}", exc)
         return False
+
+
+# ---------------------------------------------------------------------------
+# Database staleness marker
+# ---------------------------------------------------------------------------
+
+
+def _db_stale_marker_path() -> Path:
+    return BOT_AGENTS_PATH.with_name(f".{BOT_AGENTS_PATH.name}.db_stale")
+
+
+def _db_is_stale() -> bool:
+    return _db_stale_marker_path().exists()
+
+
+def _record_db_write_result(result: Any, operation: str) -> None:
+    """Track whether the database copy can still be trusted for reads.
+
+    Only an explicit ``False`` is a failed write. The file is written on every
+    call regardless, so it stays the complete copy.
+    """
+    marker = _db_stale_marker_path()
+    if result is False:
+        if not marker.exists():
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text(datetime.now(timezone.utc).isoformat(), encoding="utf-8")
+            logger.critical(
+                "Tracked-position database write failed ({}); reads use the file "
+                "at {} until a database write succeeds. Positions are NOT durable "
+                "across hosts until then.",
+                operation,
+                BOT_AGENTS_PATH,
+            )
+        else:
+            logger.error("Tracked-position database write failed again ({})", operation)
+    elif result is True and marker.exists():
+        marker.unlink()
+        logger.warning(
+            "Tracked-position database write succeeded again; database reads resumed"
+        )
+
+
+def _load_current_positions_unlocked() -> List[Dict[str, Any]]:
+    """Current positions from the freshest trustworthy store."""
+    if not _db_is_stale():
+        db_result = _db_load_positions()
+        if db_result is not None:
+            return db_result
+    with _BOT_AGENTS_THREAD_LOCK:
+        with _bot_agents_file_lock():
+            return _read_bot_agents_unlocked()
 
 
 def _sa_text(sql: str) -> Any:
@@ -182,32 +237,19 @@ def _bot_agents_file_lock() -> Iterator[None]:
 
 async def load_tracked_positions() -> List[Dict[str, Any]]:
     async with _BOT_AGENTS_ASYNC_LOCK:
-        db_result = _db_load_positions()
-        if db_result is not None:
-            return db_result
-        # DB unavailable — fall through to file
-        with _BOT_AGENTS_THREAD_LOCK:
-            with _bot_agents_file_lock():
-                return _read_bot_agents_unlocked()
+        return _load_current_positions_unlocked()
 
 
 async def append_tracked_position(position: Dict[str, Any]) -> None:
     async with _BOT_AGENTS_ASYNC_LOCK:
-        # Load current state (DB preferred)
-        db_result = _db_load_positions()
-        if db_result is not None:
-            positions = db_result
-        else:
-            with _BOT_AGENTS_THREAD_LOCK:
-                with _bot_agents_file_lock():
-                    positions = _read_bot_agents_unlocked()
+        positions = _load_current_positions_unlocked()
 
         position_ids = {position_identity(item) for item in positions}
         if position_identity(position) not in position_ids:
             positions.append(position)
 
         # Write to both DB and file
-        _db_save_positions(positions)
+        _record_db_write_result(_db_save_positions(positions), "append")
         with _BOT_AGENTS_THREAD_LOCK:
             with _bot_agents_file_lock():
                 _write_bot_agents_unlocked(positions)
@@ -221,13 +263,7 @@ async def save_processed_positions(
     processed_ids = {position_identity(item) for item in original_positions}
     async with _BOT_AGENTS_ASYNC_LOCK:
         # Load current state to capture any concurrent additions
-        db_current = _db_load_positions()
-        if db_current is not None:
-            current_positions = db_current
-        else:
-            with _BOT_AGENTS_THREAD_LOCK:
-                with _bot_agents_file_lock():
-                    current_positions = _read_bot_agents_unlocked()
+        current_positions = _load_current_positions_unlocked()
 
         concurrent_additions = [
             item
@@ -238,9 +274,9 @@ async def save_processed_positions(
 
         # Write to both DB and file
         if merged:
-            _db_save_positions(merged)
+            _record_db_write_result(_db_save_positions(merged), "save")
         else:
-            _db_delete_positions()
+            _record_db_write_result(_db_delete_positions(), "delete")
         with _BOT_AGENTS_THREAD_LOCK:
             with _bot_agents_file_lock():
                 _write_bot_agents_unlocked(merged)
@@ -275,7 +311,7 @@ async def clear_tracked_positions() -> None:
     """Atomically clear tracked positions for the current instance."""
     async with _BOT_AGENTS_ASYNC_LOCK:
         # Delete DB row (no row = no positions) and clear file
-        _db_delete_positions()
+        _record_db_write_result(_db_delete_positions(), "clear")
         with _BOT_AGENTS_THREAD_LOCK:
             with _bot_agents_file_lock():
                 _write_bot_agents_unlocked([])

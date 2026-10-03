@@ -1,6 +1,6 @@
 import { CircleDot } from 'lucide-react';
 import React, { startTransition, useMemo, useState } from 'react';
-import TerminalDataGrid, { type TerminalColumn, type TerminalMetric } from './TerminalDataGrid';
+import { TerminalDataGrid, type TerminalColumn, type TerminalMetric } from './TerminalDataGrid';
 
 interface Position {
   position_id: number;
@@ -73,7 +73,9 @@ export const BacktestPositionsPanel: React.FC<BacktestPositionsPanelProps> = ({
     });
   }, [pnlFilter, positions, statusFilter]);
 
-  const openCount = positions.filter((position) => normalizeStatus(position.status) === 'open').length;
+  const openCount = positions.filter(
+    (position) => normalizeStatus(position.status) === 'open'
+  ).length;
   const netPnl = positions.reduce((sum, position) => sum + position.total_pnl_usd, 0);
   const avgEntryZScore =
     positions.length > 0
@@ -157,7 +159,9 @@ export const BacktestPositionsPanel: React.FC<BacktestPositionsPanelProps> = ({
       align: 'right',
       sortable: true,
       sortValue: (row) => row.hedge_ratio,
-      render: (row) => <span className="font-mono text-slate-300">{row.hedge_ratio.toFixed(3)}</span>,
+      render: (row) => (
+        <span className="font-mono text-slate-300">{row.hedge_ratio.toFixed(3)}</span>
+      ),
     },
     {
       key: 'pnl',
@@ -167,7 +171,9 @@ export const BacktestPositionsPanel: React.FC<BacktestPositionsPanelProps> = ({
       sortValue: (row) => row.total_pnl_usd,
       render: (row) => (
         <div className="text-right">
-          <p className={`font-semibold ${row.total_pnl_usd >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+          <p
+            className={`font-semibold ${row.total_pnl_usd >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}
+          >
             {formatCurrency(row.total_pnl_usd)}
           </p>
         </div>
@@ -212,7 +218,9 @@ export const BacktestPositionsPanel: React.FC<BacktestPositionsPanelProps> = ({
       metrics={metrics}
       liveBadge={
         <span className="inline-flex items-center gap-1 rounded-full border border-slate-800 bg-slate-950/70 px-2.5 py-1 text-[11px] text-slate-400">
-          <CircleDot className={`h-3.5 w-3.5 ${isConnected ? 'text-cyan-400' : 'text-amber-400'}`} />
+          <CircleDot
+            className={`h-3.5 w-3.5 ${isConnected ? 'text-cyan-400' : 'text-amber-400'}`}
+          />
           {liveLabel}
         </span>
       }
@@ -266,5 +274,3 @@ export const BacktestPositionsPanel: React.FC<BacktestPositionsPanelProps> = ({
     />
   );
 };
-
-export default BacktestPositionsPanel;

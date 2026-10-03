@@ -172,6 +172,10 @@ one position snapshot, and one daily-PnL ClickHouse row.
 
 ### [!] Blocked — P4.1 Retire or regenerate legacy `deploy/k8s` MariaDB manifests
 
+> Resolved 2026-09-20: the owner confirmed both `deploy/k8s` and `deploy/k8s-next` are retired. The cluster is deployed
+> by Flux from a separate GitOps repository; both directories were removed from this repository. The text below is kept
+> as the record of the original finding.
+
 - **Problem:** `deploy/k8s/dydx-trading-bot-{staging,production}.yaml` declare a PostgreSQL contract in comments but still deploy MariaDB, set `DB_TYPE=mysql`, and point backend and bot at a shared schema. Current runtime validation and `deploy/k8s-next` use PostgreSQL with separated ownership.
 - **Evidence:** Repository-wide datastore scan found active-looking MariaDB services/PVCs/config in both generated manifests, while bot configuration rejects MySQL URLs and the shared `bot_instances` collision is proven locally.
 - **Affected files:** `deploy/k8s/dydx-trading-bot-staging.yaml`, `deploy/k8s/dydx-trading-bot-production.yaml`, their source generator/deployment workflow, external clusters and secrets.

@@ -7,24 +7,36 @@ on:
             - main
         paths:
             - "bot/**"
-            - "deploy/k8s-next/**"
-            - "deploy/k8s/**"
+            - "frontend/**"
+            - "backend/**"
+            - "docs/**"
+            - "README.md"
             - "docker-compose.infra.yml"
             - "docker-compose.stack.yml"
-            - "scripts/check_no_plaintext_k8s_secrets.py"
             - ".github/workflows/bot-quality.yml"
+            # Service images are built by the last job of this workflow, after the
+            # Quality gate, so it must run for every path that affects an image.
+            - "docker/**"
+            - ".github/workflows/container-images.yml"
+            - "scripts/check_toolchain_drift.py"
     pull_request:
         branches:
             - master
             - main
         paths:
             - "bot/**"
-            - "deploy/k8s-next/**"
-            - "deploy/k8s/**"
+            - "frontend/**"
+            - "backend/**"
+            - "docs/**"
+            - "README.md"
             - "docker-compose.infra.yml"
             - "docker-compose.stack.yml"
-            - "scripts/check_no_plaintext_k8s_secrets.py"
             - ".github/workflows/bot-quality.yml"
+            # Service images are built by the last job of this workflow, after the
+            # Quality gate, so it must run for every path that affects an image.
+            - "docker/**"
+            - ".github/workflows/container-images.yml"
+            - "scripts/check_toolchain_drift.py"
     workflow_dispatch:
 
 permissions:
@@ -36,9 +48,100 @@ concurrency:
 
 jobs:
     # ---------------------------------------------------------------------------
+    # Change detection
+    #
+    # Every job below runs only when the area it checks was touched, so a Python
+    # change does not pay for the Go tests and the frontend build (and the other
+    # way round). Detection uses the GitHub API, so it needs no checkout.
+    #
+    # It fails open: on any doubt (API error, truncated comparison, a change to
+    # these workflow files, a manual run) every job runs. A skipped job never
+    # hides a failure, because the Quality gate also depends on this job.
+    # ---------------------------------------------------------------------------
+    changes:
+        name: Detect changed areas
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            pull-requests: read
+        outputs:
+            bot: ${{ steps.detect.outputs.bot }}
+            backend: ${{ steps.detect.outputs.backend }}
+            frontend: ${{ steps.detect.outputs.frontend }}
+            docs: ${{ steps.detect.outputs.docs }}
+            stack: ${{ steps.detect.outputs.stack }}
+            images_pr: ${{ steps.detect.outputs.images_pr }}
+            images_push: ${{ steps.detect.outputs.images_push }}
+        steps:
+            - name: Classify changed files
+              id: detect
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  EVENT_NAME: ${{ github.event_name }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  BEFORE: ${{ github.event.before }}
+                  SHA: ${{ github.sha }}
+              run: |
+                  set -uo pipefail
+                  keys="bot backend frontend docs stack images_pr images_push"
+
+                  run_everything() {
+                    echo "Running every job: $1"
+                    for key in $keys; do echo "${key}=true" >> "$GITHUB_OUTPUT"; done
+                    exit 0
+                  }
+
+                  names='.[] | .filename, (.previous_filename // empty)'
+                  case "${EVENT_NAME}" in
+                    pull_request)
+                      files="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/files" --paginate --jq "${names}")" \
+                        || run_everything "could not list the pull request files"
+                      ;;
+                    push)
+                      if [ -z "${BEFORE}" ] || [ -z "${BEFORE//0/}" ]; then
+                        run_everything "no previous commit to compare against"
+                      fi
+                      response="$(gh api "repos/${REPO}/compare/${BEFORE}...${SHA}")" \
+                        || run_everything "could not compare ${BEFORE}...${SHA}"
+                      # The compare API lists at most 300 files.
+                      if [ "$(jq '.files | length' <<<"${response}")" -ge 300 ]; then
+                        run_everything "comparison truncated at 300 files"
+                      fi
+                      files="$(jq -r ".files${names}" <<<"${response}")"
+                      ;;
+                    *)
+                      run_everything "event ${EVENT_NAME}"
+                      ;;
+                  esac
+                  [ -n "${files}" ] || run_everything "empty file list"
+
+                  if grep -Eq '^\.github/workflows/(bot-quality|container-images)\.yml$' <<<"${files}"; then
+                    run_everything "a CI workflow changed"
+                  fi
+
+                  touched() { if grep -Eq "$1" <<<"${files}"; then echo true; else echo false; fi; }
+                  manifests='(^|/)(requirements[^/]*\.txt|uv\.lock|pyproject\.toml|go\.mod|go\.sum|package\.json|package-lock\.json)$'
+                  {
+                    echo "bot=$(touched '^bot/')"
+                    echo "backend=$(touched '^backend/')"
+                    echo "frontend=$(touched '^frontend/')"
+                    echo "docs=$(touched '^docs/|^README\.md$|^scripts/validate_docs_governance\.py$')"
+                    # Compose files, Dockerfiles and the toolchain pins they must match.
+                    echo "stack=$(touched '^docker/|^docker-compose\.[^/]*\.yml$|^backend/go\.mod$|^scripts/check_toolchain_drift\.py$')"
+                    # On a pull request an image build only proves the Dockerfiles still
+                    # build, so it runs when build inputs change. Source-only changes are
+                    # built after the merge, when the images are published.
+                    echo "images_pr=$(touched "^docker/|^docker-compose\.(infra|stack)\.yml$|${manifests}")"
+                    echo "images_push=$(touched '^(docker|bot|backend|frontend)/|^docker-compose\.(infra|stack)\.yml$')"
+                  } | tee -a "$GITHUB_OUTPUT"
+
+    # ---------------------------------------------------------------------------
     # Python bot unit tests
     # ---------------------------------------------------------------------------
     bot-tests:
+        needs: changes
+        if: needs.changes.outputs.bot == 'true'
         name: Bot unit tests (Python ${{ matrix.python-version }})
         runs-on: ubuntu-latest
         env:
@@ -53,10 +156,10 @@ jobs:
 
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Set up Python ${{ matrix.python-version }}
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@v7
               with:
                   python-version: ${{ matrix.python-version }}
                   cache: pip
@@ -170,7 +273,7 @@ jobs:
 
             - name: Upload coverage report
               if: always()
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v7
               with:
                   name: coverage-report
                   path: |
@@ -183,6 +286,8 @@ jobs:
     # Bot lint — Black formatting + flake8 hard gate
     # ---------------------------------------------------------------------------
     bot-lint:
+        needs: changes
+        if: needs.changes.outputs.bot == 'true'
         name: Bot lint (isort + Black + flake8)
         runs-on: ubuntu-latest
         defaults:
@@ -191,10 +296,10 @@ jobs:
 
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@v7
               with:
                   python-version: "3.12"
 
@@ -231,6 +336,8 @@ jobs:
     # (check_untyped_defs, warn_unused_ignores, warn_redundant_casts) are enabled
     # there — the commented phase-3 options are the next tightening step.
     bot-typecheck:
+        needs: changes
+        if: needs.changes.outputs.bot == 'true'
         name: Bot type check (mypy)
         runs-on: ubuntu-latest
         defaults:
@@ -238,10 +345,10 @@ jobs:
                 working-directory: bot
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@v7
               with:
                   python-version: "3.12"
                   cache: pip
@@ -276,6 +383,8 @@ jobs:
     # Bandit security scan (non-blocking, phase 1 — mirrors bot-typecheck/mypy)
     # ---------------------------------------------------------------------------
     bot-security:
+        needs: changes
+        if: needs.changes.outputs.bot == 'true'
         name: Bot security scan (bandit)
         runs-on: ubuntu-latest
         defaults:
@@ -283,10 +392,10 @@ jobs:
                 working-directory: bot
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@v7
               with:
                   python-version: "3.12"
                   cache: pip
@@ -328,6 +437,8 @@ jobs:
     # (2026-08-15: the unused aiohttp pin was removed, clearing its 3 open
     # advisories at the root.)
     bot-deps-audit:
+        needs: changes
+        if: needs.changes.outputs.bot == 'true'
         name: Bot dependency audit (pip-audit)
         runs-on: ubuntu-latest
         defaults:
@@ -335,10 +446,10 @@ jobs:
                 working-directory: bot
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@v7
               with:
                   python-version: "3.12"
                   cache: pip
@@ -349,16 +460,33 @@ jobs:
               # isolation. Pinned to match bot/requirements.txt.
               run: pip install pip-audit==2.10.1
 
+            # Blocking. Every ignore below is documented and carries a review
+            # date; an ignore without both must not be added.
+            #
+            # GHSA-4f84-67cv-qrv3 (dydx-v4-client): affects ONLY the malicious
+            #   release 1.1.5.post1, which PyPI removed. The pin is 1.1.6, published
+            #   after the incident. pip-audit matches 1.1.6 because the advisory
+            #   lists 1.1.5 as the "fixed" version. Verified 2026-09-20: advisory
+            #   range "= 1.1.5.post1"; installed files match their RECORD hashes;
+            #   no indicator of compromise in the package. Re-check on every bump
+            #   of this dependency.
+            # PYSEC-2026-1325 / CVE-2024-23342 (ecdsa): Minerva timing side channel
+            #   on P-256 signing; upstream considers side channels out of scope, so
+            #   there is no fixed release. The bot signs locally and exposes no
+            #   signing oracle to measure. Review by 2027-03-31, or sooner when a
+            #   fixed release or a replacement signing dependency appears.
             - name: Audit dependencies
-              continue-on-error: true # phase 1: reporting-only, does not gate
               run: |
                   set -o pipefail
-                  pip-audit -r requirements.txt --progress-spinner off 2>&1 | tee deps-audit-output.txt
+                  pip-audit -r requirements.txt --progress-spinner off \
+                    --ignore-vuln GHSA-4f84-67cv-qrv3 \
+                    --ignore-vuln PYSEC-2026-1325 \
+                    2>&1 | tee deps-audit-output.txt
 
             - name: Publish dependency audit summary
               if: always()
               run: |
-                  echo "### 📦 Dependency audit (pip-audit — phase 1, non-blocking)" >> "$GITHUB_STEP_SUMMARY"
+                  echo "### 📦 Dependency audit (pip-audit — blocking, documented ignores only)" >> "$GITHUB_STEP_SUMMARY"
                   echo "" >> "$GITHUB_STEP_SUMMARY"
                   echo "Resolved bot/requirements.txt tree vs the PyPI advisory DB. Reporting-only; promote to a gate after triage policy is decided (see workflow comments)." >> "$GITHUB_STEP_SUMMARY"
                   echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -390,6 +518,8 @@ jobs:
     # If shared-runner flakiness appears, triage via MULTIWORKER_BURST_MESSAGES
     # without un-promoting the job.
     bot-multiworker:
+        needs: changes
+        if: needs.changes.outputs.bot == 'true'
         name: Bot multi-worker broadcast test
         runs-on: ubuntu-latest
         timeout-minutes: 15
@@ -435,10 +565,10 @@ jobs:
 
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@v7
               with:
                   python-version: "3.12"
                   cache: pip
@@ -472,6 +602,16 @@ jobs:
                   set -o pipefail
                   python -m pytest tests/test_multi_worker_broadcast.py -vv -s --tb=short 2>&1 | tee multiworker-output.txt
 
+            # The single-writer lock is a PostgreSQL session-level advisory lock;
+            # only a real server proves one holder per instance id and release
+            # on disconnect. Reuses this job's Postgres service.
+            - name: Run the instance lock test against real PostgreSQL
+              env:
+                  INSTANCE_LOCK_TEST_DSN: postgresql+psycopg2://dydx_bot:change-me-db-password@127.0.0.1:5432/dydx_bot
+              run: |
+                  set -o pipefail
+                  python -m pytest tests/test_instance_lock.py -v --tb=short -rs
+
             - name: Publish multi-worker summary
               if: always()
               run: |
@@ -502,6 +642,8 @@ jobs:
     # still skips (not fails) when outbound network is unavailable, so the gate
     # is offline-safe.
     bot-integration:
+        needs: changes
+        if: needs.changes.outputs.bot == 'true'
         name: Bot external-service integration tests
         runs-on: ubuntu-latest
         timeout-minutes: 15
@@ -527,10 +669,10 @@ jobs:
 
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Set up Python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@v7
               with:
                   python-version: "3.12"
                   cache: pip
@@ -576,37 +718,22 @@ jobs:
                   fi
 
     # ---------------------------------------------------------------------------
-    # K8s plaintext secret scanner
-    # ---------------------------------------------------------------------------
-    k8s-secret-scan:
-        name: K8s plaintext secret scan
-        runs-on: ubuntu-latest
-
-        steps:
-            - name: Checkout repository
-              uses: actions/checkout@v4
-
-            - name: Set up Python
-              uses: actions/setup-python@v5
-              with:
-                  python-version: "3.12"
-
-            - name: Scan k8s manifests for plaintext secrets
-              run: |
-                  set -euo pipefail
-                  python3 scripts/check_no_plaintext_k8s_secrets.py
-                  echo "No plaintext secrets detected in k8s manifests." >> "$GITHUB_STEP_SUMMARY"
-
-    # ---------------------------------------------------------------------------
     # Docker Compose validation (local dev infrastructure)
     # ---------------------------------------------------------------------------
     docker-compose-validate:
+        needs: changes
+        if: needs.changes.outputs.stack == 'true'
         name: Docker Compose validation
         runs-on: ubuntu-latest
 
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
+
+            - name: Tested and shipped toolchains must match
+              run: |
+                  set -euo pipefail
+                  python3 scripts/check_toolchain_drift.py | tee -a "$GITHUB_STEP_SUMMARY"
 
             - name: Validate infra compose file syntax
               run: |
@@ -645,57 +772,208 @@ jobs:
                   echo "All required stack services present" >> "$GITHUB_STEP_SUMMARY"
 
     # ---------------------------------------------------------------------------
-    # Kustomize build validation (base + overlays)
+    # Gate — all checks must pass
     # ---------------------------------------------------------------------------
-    kustomize-validate:
-        name: Kustomize build validation
+    backend-tests:
+        needs: changes
+        if: needs.changes.outputs.backend == 'true'
+        name: Backend tests (Go)
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        services:
+            postgres:
+                # Enables the env-gated Postgres critical-path harness
+                # (POSTGRES_TEST_DSN) that guards placeholder/argument drift —
+                # the bug class sqlite/sqlmock tests cannot catch.
+                image: postgres:15.18-bookworm
+                env:
+                    POSTGRES_USER: dydx_bot
+                    POSTGRES_PASSWORD: change-me-db-password
+                    POSTGRES_DB: dydx_bot
+                ports:
+                    - 127.0.0.1:5432:5432
+                options: >-
+                    --health-cmd "pg_isready -U dydx_bot -d dydx_bot"
+                    --health-interval 5s
+                    --health-timeout 5s
+                    --health-retries 20
+        env:
+            POSTGRES_TEST_DSN: postgres://dydx_bot:change-me-db-password@127.0.0.1:5432/dydx_bot?sslmode=disable
+        defaults:
+            run:
+                working-directory: backend
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v7
+
+            - name: Set up Go
+              uses: actions/setup-go@v7
+              with:
+                  go-version-file: backend/go.mod
+                  cache: true
+                  cache-dependency-path: backend/go.sum
+
+            - name: Build
+              run: go build ./...
+
+            - name: Vet
+              run: go vet ./... && go vet -tags integration ./internal/routes/
+
+            - name: Unit tests
+              run: go test -race -count=1 ./...
+
+    # ---------------------------------------------------------------------------
+    # Frontend quality — lint + typecheck + contract tests + build
+    # ---------------------------------------------------------------------------
+    # frontend/.github/workflows/ci.yml is NOT executed by GitHub Actions (only
+    # repo-root .github/workflows/ is loaded), so this root job is the effective
+    # frontend gate. Commands mirror frontend/package.json scripts exactly.
+    frontend-quality:
+        needs: changes
+        if: needs.changes.outputs.frontend == 'true'
+        name: Frontend quality (lint + typecheck + contracts + build)
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        env:
+            # vite.config.ts loads the structured config at startup; without a
+            # plain run-config file it tries to decrypt config/profiles with
+            # the repo-secret .configkey.bin (absent on CI runners). Same
+            # hermetic mechanism as the bot jobs.
+            APP_RUN_CONFIG_FILE: ${{ github.workspace }}/.ci-run.json
+        defaults:
+            run:
+                working-directory: frontend
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v7
+
+            - name: Set up Node
+              uses: actions/setup-node@v7
+              with:
+                  node-version: "26"
+                  cache: npm
+                  cache-dependency-path: frontend/package-lock.json
+
+            - name: Prepare CI runtime config
+              run: |
+                  cat > "$APP_RUN_CONFIG_FILE" <<'JSON'
+                  {
+                    "shared": {
+                      "APP_ENV": "development",
+                      "ENVIRONMENT": "development"
+                    }
+                  }
+                  JSON
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Lint
+              run: npm run lint
+
+            - name: Type check
+              run: npm run typecheck
+
+            - name: Unit and contract tests
+              run: npm test
+
+            - name: Build
+              run: npm run build
+
+            - name: Install Playwright browsers
+              run: npx playwright install --with-deps chromium
+
+            - name: E2E smoke tests (Playwright)
+              run: npm run test:e2e
+
+    # ---------------------------------------------------------------------------
+    # Documentation governance (canonical docs + link validation)
+    # ---------------------------------------------------------------------------
+    docs-governance:
+        needs: changes
+        if: needs.changes.outputs.docs == 'true'
+        name: Docs governance (canonical tree + links)
         runs-on: ubuntu-latest
 
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
-            - name: Install kustomize
+            - name: Set up Python
+              uses: actions/setup-python@v7
+              with:
+                  python-version: "3.12"
+
+            - name: Validate canonical docs and links
               run: |
                   set -euo pipefail
-                  curl -sSL \
-                    "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz" \
-                    | tar -xz -C /usr/local/bin kustomize
-                  kustomize version
-
-            - name: Validate base
-              run: |
-                  set -euo pipefail
-                  kustomize build --load-restrictor=LoadRestrictionsNone deploy/k8s-next/base > /dev/null
-                  echo "Base build: OK" >> "$GITHUB_STEP_SUMMARY"
-
-            - name: Validate staging overlay
-              run: |
-                  set -euo pipefail
-                  kustomize build --load-restrictor=LoadRestrictionsNone deploy/k8s-next/overlays/staging > /dev/null
-                  echo "Staging overlay build: OK" >> "$GITHUB_STEP_SUMMARY"
-
-            - name: Validate production overlay
-              run: |
-                  set -euo pipefail
-                  kustomize build --load-restrictor=LoadRestrictionsNone deploy/k8s-next/overlays/production > /dev/null
-                  echo "Production overlay build: OK" >> "$GITHUB_STEP_SUMMARY"
+                  python3 scripts/validate_docs_governance.py
+                  echo "Docs governance validated." >> "$GITHUB_STEP_SUMMARY"
 
     # ---------------------------------------------------------------------------
-    # Gate — all checks must pass
+    # golangci-lint — phase 1: NON-BLOCKING
     # ---------------------------------------------------------------------------
+    # The repo's full .golangci.yml (v2) currently reports ~2.1k findings
+    # (largely errcheck style). Reporting-only mirrors bandit/pip-audit phase
+    # precedent; drive findings down (or tune the config) and then promote
+    # this job into the quality-gate needs.
+    backend-lint:
+        needs: changes
+        if: needs.changes.outputs.backend == 'true'
+        name: Backend lint (golangci-lint, phase 1)
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        defaults:
+            run:
+                working-directory: backend
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v7
+
+            - name: Set up Go
+              uses: actions/setup-go@v7
+              with:
+                  go-version-file: backend/go.mod
+                  cache: true
+                  cache-dependency-path: backend/go.sum
+
+            - name: Install golangci-lint
+              run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.0
+
+            - name: Run golangci-lint
+              continue-on-error: true # phase 1: reporting-only, does not gate
+              run: |
+                  set -o pipefail
+                  golangci-lint run ./... 2>&1 | tee golangci-output.txt
+
+            - name: Publish lint summary
+              if: always()
+              run: |
+                  echo "### 🧹 Backend lint (golangci-lint — phase 1, non-blocking)" >> "$GITHUB_STEP_SUMMARY"
+                  if [ -f golangci-output.txt ]; then
+                    echo '```' >> "$GITHUB_STEP_SUMMARY"
+                    tail -20 golangci-output.txt >> "$GITHUB_STEP_SUMMARY"
+                    echo '```' >> "$GITHUB_STEP_SUMMARY"
+                  fi
+
     quality-gate:
         name: Quality gate
         runs-on: ubuntu-latest
         needs:
+            - changes
             - bot-tests
             - bot-lint
+            - docs-governance
             - bot-typecheck
             - bot-multiworker
             - bot-integration
+            - backend-tests
+            - frontend-quality
             - docker-compose-validate
-            - k8s-secret-scan
-            - kustomize-validate
+            - bot-deps-audit
         if: always()
 
         steps:
@@ -713,3 +991,23 @@ jobs:
                     exit 1
                   fi
                   echo "All quality checks passed." >> "$GITHUB_STEP_SUMMARY"
+
+    # ---------------------------------------------------------------------------
+    # Service images
+    #
+    # Runs after the Quality gate, in this workflow, so nothing has to poll for
+    # the gate on a paid runner. On a pull request the images are built but not
+    # pushed; everywhere else they are published.
+    # ---------------------------------------------------------------------------
+    images:
+        name: Service images
+        needs:
+            - changes
+            - quality-gate
+        if: >-
+            (github.event_name == 'pull_request' && needs.changes.outputs.images_pr == 'true') ||
+            (github.event_name != 'pull_request' && needs.changes.outputs.images_push == 'true')
+        permissions:
+            contents: read
+            packages: write
+        uses: ./.github/workflows/container-images.yml

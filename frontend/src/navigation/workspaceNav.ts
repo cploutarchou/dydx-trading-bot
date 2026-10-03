@@ -257,7 +257,7 @@ const backofficeNavItems: WorkspaceNavItem[] = [
     description:
       'Access control, registration policy, integrations, API, Redis, and trading config.',
     section: 'Administration',
-    keywords: ['settings', 'access', 'mailgun', 'telegram', 'redis', 'api'],
+    keywords: ['settings', 'access', 'email', 'plunk', 'telegram', 'redis', 'api'],
     exact: false,
     icon: Settings,
     shortcut: 'G ,',

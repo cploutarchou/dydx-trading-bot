@@ -1,5 +1,5 @@
 ---
-agent: agent
+agent: 'Senior React DeFi Product'
 name: codex-frontend-ux-polish
 description: "Audit and improve full frontend UX/UI quality for this monorepo with concrete, production-safe implementation steps or patches (usability, accessibility, responsiveness, and operator clarity)."
 argument-hint: "Paste target pages/components, user pain points, and desired UX outcomes (speed, clarity, conversion, fewer errors, etc.)."

@@ -2,33 +2,11 @@ package services
 
 import (
 	"fmt"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/dydx-trading-bot/backend-go/config"
 	"github.com/dydx-trading-bot/backend-go/internal/auth"
 )
-
-const defaultJWTSecret = "your-super-secret-key-change-in-production"
-
-func resolveJWTSecret() string {
-	if secret := strings.TrimSpace(os.Getenv("JWT_SECRET_KEY")); secret != "" {
-		return secret
-	}
-	if secret := strings.TrimSpace(os.Getenv("SECRET_KEY")); secret != "" {
-		return secret
-	}
-
-	if config.ConfigInstance != nil {
-		secret := strings.TrimSpace(config.ConfigInstance.Auth.JWTSecretKey)
-		if secret != "" {
-			return secret
-		}
-	}
-
-	return defaultJWTSecret
-}
 
 func jwtManager() *auth.Manager {
 	refreshDays := 7
@@ -37,7 +15,7 @@ func jwtManager() *auth.Manager {
 	}
 
 	return auth.NewManager(auth.JWTConfig{
-		Secret:            resolveJWTSecret(),
+		Secret:            auth.ResolveSharedJWTSecret(),
 		ExpiryHours:       1,
 		RefreshExpiryDays: refreshDays,
 	})
@@ -73,7 +51,13 @@ func GenerateRefreshToken(userID int, username string) (string, error) {
 }
 
 func GenerateRefreshTokenWithRole(userID int, username string, isAdmin bool, role string) (string, error) {
-	tokenString, _, err := jwtManager().CreateRefreshTokenWithRole(userID, username, "", isAdmin, role)
+	return GenerateRefreshTokenWithGeneration(userID, username, isAdmin, role, 0)
+}
+
+// GenerateRefreshTokenWithGeneration binds the refresh token to the user's
+// session generation so it stops working after a password change.
+func GenerateRefreshTokenWithGeneration(userID int, username string, isAdmin bool, role string, sessionGen int64) (string, error) {
+	tokenString, _, err := jwtManager().CreateRefreshTokenWithGeneration(userID, username, "", isAdmin, role, sessionGen)
 	if err != nil {
 		return "", fmt.Errorf("failed to create refresh token: %w", err)
 	}

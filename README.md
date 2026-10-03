@@ -50,7 +50,8 @@ The current project is organized around service ownership plus shared deployment
 - `config/`: Encrypted structured runtime profiles plus examples. Root `run.json` is generated from this flow and is not hand-maintained.
 - `docker/`: Dockerfiles and Nginx config for service images.
 - `platform/`: Platform registry metadata and service deployment descriptors.
-- `deploy/`: Rendered deployment output and deployment history.
+- Deployment manifests are not kept here: the cluster is deployed by Flux from a separate GitOps repository, which is
+  the single source of truth for Kubernetes resources, secrets, TLS and backups.
 - `scripts/`: Repository-level operational, config, validation, and backtest helper scripts.
 - `docs/`: Wiki-style platform documentation and rollout/audit notes.
 
@@ -115,11 +116,9 @@ When finished:
 - [Platform Overview](docs/PLATFORM.md)
 - [Development Workflow](docs/DEVELOPMENT.md)
 - [Operations Guide](docs/OPERATIONS.md)
-- [Current Arbitrage Analysis](docs/current-project-arbitrage-analysis.md)
-- [Arbitrage Improvement Plan](docs/project-specific-arbitrage-improvement-plan.md)
-- [Arbitrage Final Report](docs/codex-final-report.md)
-- [Arbitrage Phase 2 Rollout Playbook](docs/arbitrage-phase2-rollout-playbook.md)
-- [Arbitrage Day-1 Rollout Command Sheet](docs/arbitrage-day1-rollout-command-sheet.md)
+- Pairs/arbitrage stack reference: [`.github/skills/dydx-pairs-arbitrage/SKILL.md`](.github/skills/dydx-pairs-arbitrage/SKILL.md)
+  (an older arbitrage doc series was removed; see the note in
+  [docs/README.md](docs/README.md))
 - [Documentation Governance](docs/DOCUMENTATION_GOVERNANCE.md)
 - [Frontend Service Doc](frontend/README.md)
 - [Backend Service Doc](backend/README.md)
@@ -160,8 +159,8 @@ This path submits a real Nomad job (`nomad job run ...`) so allocations and stat
 - Compose syntax validation: `docker compose -f docker-compose.infra.yml config` and `docker compose -f docker-compose.stack.yml config`
 
 Backtest runtime tuning note: active long-running backtests refresh their heartbeat periodically to avoid false stale
-classification. `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS` controls that cadence, and staging already pins it in
-`deploy/k8s/dydx-trading-bot-staging.yaml`.
+classification. `BACKTEST_HEARTBEAT_KEEPALIVE_SECONDS` controls that cadence; deployed environments set it in the
+GitOps repository.
 
 If a legacy backtest cannot be restarted because its original request blob is missing, use
 `bot/scripts/repair_backtest_requests.py` to backfill the restart payload from persisted run fields first.

@@ -52,6 +52,9 @@ Most of this document is a record of completed work. Everything still pending, i
 | 5 | ~~**Coverage floor** (`--cov-fail-under`) and **dependency scanning** (`pip-audit`)~~ **RESOLVED 2026-08-15; floor RATCHETED eight times (2026-08-17 ×2, 2026-08-18, 2026-08-19 ×4, 2026-08-20)** — floor 64 (measured 65.08%) at delivery; two focused hotspot passes (+75 then +58 cases, catching four latent bugs) lifted measured coverage to 71.98% and the floor to 70; a third pass (+126 cases: BacktestService unit-seam suite + Telegram notifications transport suite, fixing an uncaught `ValueError` on garbage `TELEGRAM_SEND_RETRIES`) lifted measured coverage to 74.42% and the floor to 73; a fourth pass (+61 cases: BotInstanceManager lifecycle/recovery suite — stop/delete/auto-recover/external-psutil/DB-recovery seams — fixing a re-entrant lifecycle-lock deadlock that made deleting an active runtime always fail with "lifecycle operation in progress") lifted measured coverage to 76.37% and the floor to 75; a fifth pass (+40 cases: backtest route-family suite driving all 31 handlers through pinned compat namespaces and stub services, hardening `_build_backtest_analytics_summary` against non-dict analytics) lifted measured coverage to 78.09% and the floor to 77; a sixth pass (+34 cases: API server startup/lifespan suite — lifespan startup/shutdown ordering with faked Celery/DB/broadcast/manager seams, runtime preflight guardrails, trace middleware, rate limiters incl. redis fallback, markets cache, OpenAPI envelope injection, diagnostics helpers; no product change needed) lifted measured coverage to 79.60% and the floor to 78; a seventh pass (+40 cases: persistence pair — scripted fake-session suites for every repository incl. analytics mirroring, UnitOfWork transaction semantics, pool-monitor alert/health matrix, and manager lifecycle/schema/alembic seams; no product change needed) lifted measured coverage to 82.10% and the floor to 81; an eighth pass (+33 cases: websocket sender-family suite — scripted WebSocket double with per-send error queues, connection lifecycle incl. mixed-outcome broadcast drops, all realtime loaders with unknown-bot and loader-error branches, backtest status/log senders incl. not-found and per-send failure paths, WebSocketEvents + module broadcast helpers, and the send-failure metrics matrix; no product change needed) lifted measured coverage to **83.25%** and the floor to **82** | Two cheap CI gates; coverage reports today with nothing enforcing them | done |
 | 6 | ~~**Portfolio-level risk controls**~~ **RESOLVED 2026-08-17** — Phase A entry guard, operator visibility, account-wide drawdown, multi-account aggregation, the advanced concentration set (per-market notional cap, gross-notional leverage cap, correlation buckets, UTC-day loss limit — all individually off), and **Phase B**: a live burn-in harness (`scripts/portfolio_risk_burn_in.py`, `make portfolio-burn-in`, skill `portfolio-risk-burn-in`) produced 20/20 clean cycles against a real funded testnet subaccount (0 read errors, 0 data-unavailable, 0 decision changes; empty account fails closed for the designed reason) and `BOT_PORTFOLIO_RISK_ENABLED` was flipped **default ON** (`=false` restores the old behavior; the suite stays hermetic via a conftest constant patch like the bus flip) | Per-instance limits can each pass while the account is over-exposed | done |
 | 7 | ~~**Backtest checkpointing**~~ **RESOLVED 2026-08-16** — durable per-pair checkpoints (`backtests/<run_id>/checkpoint.json` in the artifact store) written at the heavy-progress cadence and on pause; Celery redelivery / transient retry / auto-recovery requeue / NATS redelivery all resume from the completed-pair prefix after payload-hash validation (fail-open); terminal completed/cancelled delete the checkpoint | Was compute-cost only: resumed runs skip re-fetch + re-simulation of completed pairs | done |
+| 8 | ~~**Configuration Complexity (database alias family)**~~ **RESOLVED 2026-08-25** — the `BOT_DATABASE_URL`/`DATABASE_URL`/`BOT_DB_*`/`DB_*`/`POSTGRES_*` chains, previously re-implemented inline in six consumers (three of which had silently dropped the `POSTGRES_*` family), now resolve exactly once through `src/shared/db_env.py` (documented precedence `BOT_DB_* > DB_* > POSTGRES_*`; shared-only flavor; single `any_db_connection_configured()` predicate; sanitized `field_sources` provenance in `DatabaseConfig.to_diagnostics()`); pinned by `tests/test_db_env.py` (35 cases) | Aliases are kept (backward compatible) but can no longer drift between consumers; the misdetected-as-DB-less `POSTGRES_*`-only deployments now count | done |
+| 9 | ~~**Database connection pool holding pattern**~~ **RESOLVED 2026-08-25** — root cause verified: worker-held Session + control-flag SELECTs pin pool connections until the next throttled write (and continuously while paused); `_load_fresh_runtime_control` now reads via short-lived sessions (open → read → close), so long backtests only occupy a connection during brief write transactions. `ConnectionPoolMonitor` stays as the detection layer | Long backtests (esp. paused ones) no longer starve the pool | done |
+| 10 | ~~**WebSocket message throttling**~~ **CLOSED 2026-08-25 as stale (verified)** — the cited per-tick emitter (`realtime_data_service`) was deleted 2026-08-11; no periodic emitters exist today (heartbeat-only cadence, request-driven sends, receive-driven WS loops); detection via bus counters + bounded by the publish circuit/dispatch timeout; coalescing is a documented design requirement for any future per-tick re-introduction | No unbounded broadcast path exists to throttle | done |
 
 > **Resolved 2026-08-11:** the former row 1 ("Resolve dead code paths") is done — 2FA router
 > mounted, `realtime_data_service.py` + candle-aggregation stub + `repository_realtime` shim
@@ -85,10 +88,24 @@ Items removed from this plan during the same review — and why — are listed i
     - **Previous impact**: Abrupt process termination, skipped cleanup, difficult debugging
     - **Files**: `src/infrastructure/database.py`, `src/main_instance.py`, `src/exceptions.py`
 
-- **Configuration Complexity**: Multiple environment variable aliases and configuration sources create confusion
+- ~~**Configuration Complexity**~~ **RESOLVED 2026-08-25 (database alias family)** — the
+  `BOT_DATABASE_URL` / `DATABASE_URL` / `BOT_DB_*` / `DB_*` / `POSTGRES_*` chains are now defined
+  exactly once in `src/shared/db_env.py` (documented precedence `BOT_DB_* > DB_* > POSTGRES_*`,
+  first non-empty wins; a shared-only `DB_* > POSTGRES_*` flavor keeps dedicated-bot values out of
+  shared-mode lookups; `any_db_connection_configured()` is the single persistence predicate) and all
+  six former inline implementations were rewired to it — exploration confirmed they had already
+  drifted (the three persistence-enabled predicates dropped the `POSTGRES_*` family entirely, so
+  `POSTGRES_HOST`-only deployments were misdetected as DB-less; that widening is the deliberate fix).
+  `DatabaseConfig.to_diagnostics()` now exposes sanitized per-field `field_sources` provenance.
+  Pinned by `tests/test_db_env.py` (35 cases). Remaining config-complexity surface (Redis/Valkey
+  `REDIS_*`/`VALKEY_*` pairs in `config/config.py`, the structured-profile loader in
+  `env_loader.py`) is single-site by design and documented in README — no further consolidation
+  warranted without a concrete drift incident.
     - **Examples**: `BOT_DATABASE_URL`, `DATABASE_URL`, `BOT_DB_*`, `DB_*`, `POSTGRES_*`
     - **Impact**: Runtime configuration errors, deployment complexity
-    - **Files**: `config/config.py` (691 lines), `src/constants.py`, `src/shared/env_loader.py`
+    - **Files**: `src/shared/db_env.py` (new), `config/config.py`, `src/infrastructure/database.py`,
+      `src/shared/config_validation.py`, `src/trading/trade_persistence.py`,
+      `src/bot_instance_manager.py`, `src/infrastructure/use_cases/async_job_manager.py`
 
 - **Broad Exception Handling** (CONTAINED, not eliminated): **309** `except Exception` / bare `except:` sites at the
   enforced ratchet baseline, down from 324. A build gate (`tests/test_exception_handling_ratchet.py`) fails on any
@@ -225,13 +242,32 @@ Items removed from this plan during the same review — and why — are listed i
 
 #### **Moderate Issues**
 
-- **Database Connection Pool Management**: potential connection exhaustion when long-running backtests hold
-  sessions. Monitoring/alerting is in place (`ConnectionPoolMonitor`); the underlying holding pattern is not fixed
-    - **Files**: `src/infrastructure/database.py`, `src/infrastructure/persistence/*.py`
+- ~~**Database Connection Pool Management**~~ **RESOLVED 2026-08-25 (connection-occupancy fix)** — the exhaustion
+  mechanism was verified and eliminated at its root: both worker backends (Celery `backtest_tasks.py`, NATS consumer)
+  hold one Session across a multi-hour `execute_existing_backtest`, and the pause/cancel control reads
+  (`_load_fresh_runtime_control` → `get_run_overview`) ran on that held session — a SELECT opens a transaction that
+  **pins a pooled connection until the next (throttled) write commit, and continuously while paused**, because the
+  pause poll loop only reads. Control reads now go through a short-lived session (open → read → close, the pattern
+  `_touch_run_heartbeat` established), so the held Session pins a connection only for the brief span of each
+  write-then-commit and never across idle/paused periods; monitoring (`ConnectionPoolMonitor`) remains in place as
+  the detection layer. Regression-pinned by
+  `tests/test_backtest_service_unit.py::test_load_fresh_runtime_control_bound_session_uses_short_lived_read` (bound
+  session untouched, short session closed) and the failure-fallback sibling test
+    - **Files**: `src/infrastructure/use_cases/service_backtest.py` (`_load_fresh_runtime_control`),
+      `src/infrastructure/workers/backtest_tasks.py` + `nats_backtest_consumer.py` (holding pattern, documented)
 
-- **WebSocket Message Throttling**: no rate limiting/coalescing on broadcasts. Matters more once the cross-worker
-  broadcast bus is enabled (`realtime_data_service` emits one broadcast per symbol per tick → N Redis publishes)
-    - **Files**: `src/api/websocket_server.py` — tracked with the broadcast-bus Phase 2 item
+- ~~**WebSocket Message Throttling**~~ **CLOSED 2026-08-25 as stale (verified)** — the premise no longer holds: the
+  per-tick emitter it cited (`realtime_data_service`, one broadcast per symbol per tick) was **deleted 2026-08-11**
+  as dead code and nothing replaced its emission cadence. Verified current state: the position/market/stats/alert
+  broadcast helpers (`websocket_server.py`) have zero production callers (they are the documented re-integration
+  seam); the only continuous emitter is the manager's strategy-status heartbeat — one broadcast per active instance
+  per `BOT_MANAGER_MONITOR_INTERVAL_SECONDS` (default 10 s) plus discrete lifecycle events; backtest WS updates are
+  request-driven single-connection sends; both WS handler loops are receive-driven. Detection already exists for any
+  regression (bus `published`/`dispatch_timeouts` counters on `GET /api/v1/monitoring/ws-broadcast`) and any future
+  hot emitter is bounded by the publish failure circuit + `WS_BROADCAST_DISPATCH_TIMEOUT_SECONDS`.
+  **Re-introduction requirement:** if periodic per-tick realtime WS updates are ever re-implemented, coalescing
+  (keep-latest per channel) must be part of that design — noted in AGENTS.md
+    - **Files**: `src/api/websocket_server.py` (verified), `src/bot_instance_manager.py` (heartbeat cadence)
 
 #### **Low Priority**
 
@@ -1692,7 +1728,9 @@ The original Week-1 items are retained as an implementation record; completed wo
   a real worker boot on a fresh DB no longer logs `job_persistence_failed`. Legacy create_all-built
   databases are no-ops for every statement in the migration.
 - Blocking synchronous SQLAlchemy inside async handlers (no `AsyncSession` anywhere in `src/`)
-- Configuration complexity across multiple sources
+- ~~Configuration complexity across multiple sources~~ — RESOLVED for the database alias family
+  (2026-08-25): single canonical resolver `src/shared/db_env.py` + docs + `field_sources`
+  diagnostics; see the Code Quality item above. Redis/Valkey pairs remain single-site by design
 - ~~Dead code paths~~ — RESOLVED (2026-08-11): 2FA router mounted at `/api/v1/auth/2fa`; candle
   aggregation stub, `realtime_data_service.py`, and the `internal/repository/repository_realtime.py`
   shim all deleted (canonical import path now used everywhere). See the action-plan item.

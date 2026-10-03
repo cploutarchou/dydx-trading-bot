@@ -20,6 +20,8 @@ import random
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set
 
+from loguru import logger
+
 from src.infrastructure.use_cases.async_job_manager import async_job_manager
 from src.infrastructure.use_cases.backtest_models import (
     _BacktestRunDetails,
@@ -211,71 +213,16 @@ class BacktestQueryMixin:
                 converted = [t for t in converted if t.win]
             return converted[offset : offset + limit]
 
-        # Backward-compatible fallback for legacy in-memory runs
-        total_trades = max(1, int(data.get("total_trades", 0)))
-        win_rate = float(data.get("win_rate", 0.5))
-        total_pnl = float(data.get("total_pnl", 0))
-        start_date_str = data.get("start_date", "")
-        end_date_str = data.get("end_date", "")
-        try:
-            sd = (
-                date.fromisoformat(start_date_str)
-                if start_date_str
-                else date.today() - timedelta(days=30)
-            )
-            ed = date.fromisoformat(end_date_str) if end_date_str else date.today()
-            date_range = max(1, (ed - sd).days)
-        except (ValueError, TypeError):
-            sd = date.today() - timedelta(days=30)
-            date_range = 30
-        markets = [
-            ("BTC-USD", "ETH-USD"),
-            ("SOL-USD", "AVAX-USD"),
-            ("LINK-USD", "DOT-USD"),
-        ]
-        rng = random.Random(run_id + "trades")
-        winning_count = max(0, int(total_trades * win_rate))
-        per_win = (
-            (total_pnl / max(1, winning_count)) * 1.3 if winning_count > 0 else 5.0
+        # Legacy runs without stored trades report NO trades. The previous
+        # fallback synthesized a deterministic-random trade history (seeded
+        # by run id) that matched the recorded win rate — invented data
+        # presented as execution history to any consumer of this route.
+        logger.warning(
+            "Run %s has no stored trades; returning empty list (legacy "
+            "fabrication fallback removed)",
+            run_id,
         )
-        per_loss = -(abs(per_win) * 0.6)
-        trades: List[_BacktestTrade] = []
-        for i in range(total_trades):
-            is_win = i < winning_count
-            pair = markets[i % len(markets)]
-            entry_day = sd + timedelta(days=rng.randint(0, date_range - 1))
-            dur = rng.uniform(4.0, 48.0)
-            pnl = (
-                (per_win * rng.uniform(0.7, 1.3))
-                if is_win
-                else (per_loss * rng.uniform(0.7, 1.3))
-            )
-            ep1 = rng.uniform(1000.0, 50000.0)
-            ep2 = rng.uniform(100.0, 5000.0)
-            trades.append(
-                _BacktestTrade(
-                    trade_id=f"t-{run_id}-{i:03d}",
-                    market_1=pair[0],
-                    market_2=pair[1],
-                    entry_timestamp=entry_day.isoformat() + "T00:00:00Z",
-                    exit_timestamp=(entry_day + timedelta(hours=dur)).isoformat()
-                    + "T06:00:00Z",
-                    entry_zscore=round(rng.uniform(1.5, 2.5), 3),
-                    exit_zscore=round(rng.uniform(-0.5, 0.5), 3),
-                    entry_price_m1=round(ep1, 2),
-                    exit_price_m1=round(ep1 * rng.uniform(0.95, 1.05), 2),
-                    entry_price_m2=round(ep2, 2),
-                    exit_price_m2=round(ep2 * rng.uniform(0.95, 1.05), 2),
-                    hedge_ratio=round(rng.uniform(0.8, 1.2), 4),
-                    pnl_usd=round(pnl, 2),
-                    pnl_pct=round(pnl / 1000.0, 4),
-                    duration_hours=round(dur, 1),
-                    win=is_win,
-                )
-            )
-        if winning_only:
-            trades = [t for t in trades if t.win]
-        return trades[offset : offset + limit]
+        return []
 
     def get_summary_stats(self, days: int = 30) -> Dict[str, Any]:
         runs = self.repository.list_runs(limit=None, offset=0, days_filter=days)
@@ -335,12 +282,17 @@ class BacktestQueryMixin:
         data = self._load_run_data(run_id)
         if not data:
             return None
+        # Benchmark-relative metrics (alpha/beta/information ratio) require
+        # regressing the run's daily P&L against the benchmark's return
+        # series. The previous constants (0.03/0.78/0.21) were placeholders
+        # presented as computed values; report nulls until the real
+        # computation exists rather than fabricate numbers.
         return {
             "run_id": run_id,
             "benchmark": benchmark,
-            "alpha": 0.03,
-            "beta": 0.78,
-            "information_ratio": 0.21,
+            "alpha": None,
+            "beta": None,
+            "information_ratio": None,
             "sharpe_ratio": data.get("sharpe_ratio"),
         }
 

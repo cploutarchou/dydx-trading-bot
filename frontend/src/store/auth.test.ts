@@ -15,10 +15,18 @@ const apiMock = {
   getCurrentUser: vi.fn(),
   restoreSession: vi.fn(),
   shouldAttemptCookieRefresh: vi.fn(() => true),
+  consumePendingMFAChallenge: vi.fn(() => false),
+  clearPendingMFAChallenge: vi.fn(),
 };
 
 vi.mock('../api', () => ({
   default: apiMock,
+}));
+
+const clearUserScopedQueriesMock = vi.fn();
+
+vi.mock('../api/queryClient', () => ({
+  clearUserScopedQueries: clearUserScopedQueriesMock,
 }));
 
 vi.mock('../utils/perf', () => ({
@@ -54,6 +62,7 @@ beforeEach(() => {
   apiMock.hasToken.mockReturnValue(true);
   apiMock.hasSessionHint.mockReturnValue(true);
   apiMock.shouldAttemptCookieRefresh.mockReturnValue(true);
+  apiMock.consumePendingMFAChallenge.mockReturnValue(false);
   useAuthStore.setState({
     user: null,
     loading: false,
@@ -61,6 +70,7 @@ beforeEach(() => {
     sessionInitialized: false,
     error: null,
     twoFARequired: false,
+    mfaChallengeRequired: false,
     twoFASecret: undefined,
     twoFAQRCode: undefined,
     backupCodes: undefined,
@@ -95,5 +105,35 @@ describe('auth store session bootstrap', () => {
     expect(useAuthStore.getState().isAuthenticated()).toBe(true);
     expect(useAuthStore.getState().sessionInitialized).toBe(true);
     expect(useAuthStore.getState().sessionLoading).toBe(false);
+  });
+
+  it('arms the TOTP challenge step instead of probing when a pending MFA session exists', async () => {
+    apiMock.hasToken.mockReturnValue(false);
+    apiMock.hasSessionHint.mockReturnValue(true);
+    apiMock.restoreSession.mockResolvedValue(false);
+    apiMock.consumePendingMFAChallenge.mockReturnValue(true);
+
+    await useAuthStore.getState().initializeSession();
+
+    // The /users/me probe would 401 and log out, destroying the pending
+    // challenge session — it must not run.
+    expect(apiMock.getCurrentUser).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().mfaChallengeRequired).toBe(true);
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(useAuthStore.getState().isAuthenticated()).toBe(false);
+    expect(useAuthStore.getState().sessionInitialized).toBe(true);
+    expect(useAuthStore.getState().sessionLoading).toBe(false);
+  });
+});
+
+describe('auth store logout', () => {
+  it('clears user-scoped queries so the next user never sees cached data', () => {
+    clearUserScopedQueriesMock.mockClear();
+
+    useAuthStore.getState().logout();
+
+    expect(apiMock.logout).toHaveBeenCalled();
+    expect(clearUserScopedQueriesMock).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().user).toBeNull();
   });
 });

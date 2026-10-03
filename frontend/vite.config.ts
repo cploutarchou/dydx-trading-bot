@@ -4,6 +4,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { defineConfig } from 'vite';
 
+/// <reference types="vitest" />
+
 type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
 type JsonObject = { [key: string]: JsonValue };
 
@@ -175,6 +177,15 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     define: viteDefine,
+    // Vitest configuration. Pure unit/contract tests keep the fast `node`
+    // environment; component tests opt into jsdom by naming the file
+    // `*.dom.test.tsx` — existing suites are unaffected.
+    test: {
+      environment: 'node',
+      environmentMatchGlob: [['**/*.dom.test.tsx', 'jsdom']],
+      include: ['src/**/*.test.{ts,tsx}'],
+      setupFiles: ['src/test-setup.ts'],
+    },
     server: {
       host: '0.0.0.0',
       port: 5173,

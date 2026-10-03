@@ -274,6 +274,15 @@ def test_database_config_connection_string_and_engine_kwargs(monkeypatch):
         "DB_POOL_SIZE",
         "DB_MAX_OVERFLOW",
         "DB_ECHO",
+        # The structured config may export the cutover mode; without clearing
+        # it a locally-exported BOT_DB_CUTOVER_MODE=dedicated flips resolution
+        # into the dedicated-bot-DB branch and raises for missing BOT_DB_*
+        # values (environment leakage, not logic under test).
+        "BOT_DB_CUTOVER_MODE",
+        "BOT_DB_PORT",
+        "BOT_DB_NAME",
+        "BOT_DB_USER",
+        "BOT_DB_PASSWORD",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -304,7 +313,17 @@ def test_database_config_connection_string_and_engine_kwargs(monkeypatch):
 
 
 def test_database_config_to_diagnostics_shape(monkeypatch):
-    for name in ("DATABASE_URL", "BOT_DATABASE_URL", "DB_HOST", "BOT_DB_HOST"):
+    for name in (
+        "DATABASE_URL",
+        "BOT_DATABASE_URL",
+        "DB_HOST",
+        "BOT_DB_HOST",
+        "BOT_DB_CUTOVER_MODE",
+        "BOT_DB_PORT",
+        "BOT_DB_NAME",
+        "BOT_DB_USER",
+        "BOT_DB_PASSWORD",
+    ):
         monkeypatch.delenv(name, raising=False)
     config = DatabaseConfig()
     diagnostics = config.to_diagnostics()

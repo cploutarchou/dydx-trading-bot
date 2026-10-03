@@ -102,6 +102,32 @@ class TradingError(BotError):
     """Trading-domain logic failures (strategy, positions, market data)."""
 
 
+class UnhedgedExposureError(TradingError, RuntimeError):
+    """An emergency close failed: a leg may be open with no hedge.
+
+    Raised by the pair agent when it could not flatten a partially built pair.
+    It is also a ``RuntimeError`` so existing handlers keep working; the entry
+    scanner reacts to this type specifically by halting new entries.
+    """
+
+
+class OrderRejectedError(TradingError):
+    """The node rejected the order transaction at broadcast time.
+
+    Raised before any indexer polling: a rejected transaction never becomes an
+    order, so looking for it can only time out or bind to somebody else's.
+    """
+
+    def __init__(self, market: str, code: int, detail: str = "") -> None:
+        self.market = market
+        self.code = code
+        self.detail = detail
+        suffix = f": {detail}" if detail else ""
+        super().__init__(
+            f"order for {market} rejected by the node (code {code}){suffix}"
+        )
+
+
 class BacktestError(BotError):
     """Backtest orchestration/execution failures."""
 

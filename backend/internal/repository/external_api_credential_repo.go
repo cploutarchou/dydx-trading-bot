@@ -18,7 +18,7 @@ func NewExternalAPICredentialRepository(db *sql.DB) *ExternalAPICredentialReposi
 
 func (r *ExternalAPICredentialRepository) GetByUserAndProvider(userID int, provider string) (*models.ExternalAPICredential, error) {
 	query := `
-		SELECT id, user_id, provider, label, encrypted_api_key, COALESCE(api_key_hash, ''), COALESCE(api_key_masked, ''), is_active, created_at, updated_at
+		SELECT id, user_id, provider, label, encrypted_api_key, COALESCE(api_key_hash, ''), COALESCE(api_key_salt, ''), COALESCE(api_key_masked, ''), is_active, created_at, updated_at
 		FROM external_api_credentials
 		WHERE user_id = $1 AND provider = $2
 		LIMIT 1
@@ -32,6 +32,7 @@ func (r *ExternalAPICredentialRepository) GetByUserAndProvider(userID int, provi
 		&credential.Label,
 		&credential.EncryptedAPIKey,
 		&credential.APIKeyHash,
+		&credential.APIKeySalt,
 		&credential.APIKeyMasked,
 		&credential.IsActive,
 		&credential.CreatedAt,
@@ -54,12 +55,13 @@ func (r *ExternalAPICredentialRepository) Upsert(credential *models.ExternalAPIC
 	}
 
 	query := `
-		INSERT INTO external_api_credentials (user_id, provider, label, encrypted_api_key, api_key_hash, api_key_masked, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO external_api_credentials (user_id, provider, label, encrypted_api_key, api_key_hash, api_key_salt, api_key_masked, is_active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (user_id, provider) DO UPDATE SET
 			label = EXCLUDED.label,
 			encrypted_api_key = EXCLUDED.encrypted_api_key,
 			api_key_hash = EXCLUDED.api_key_hash,
+			api_key_salt = EXCLUDED.api_key_salt,
 			api_key_masked = EXCLUDED.api_key_masked,
 			is_active = EXCLUDED.is_active,
 			updated_at = EXCLUDED.updated_at
@@ -73,6 +75,7 @@ func (r *ExternalAPICredentialRepository) Upsert(credential *models.ExternalAPIC
 		credential.Label,
 		credential.EncryptedAPIKey,
 		credential.APIKeyHash,
+		credential.APIKeySalt,
 		credential.APIKeyMasked,
 		credential.IsActive,
 		now,
@@ -99,13 +102,14 @@ func (r *ExternalAPICredentialRepository) upsertSQLite(credential *models.Extern
 
 	if existing == nil {
 		if _, err := r.db.Exec(
-			`INSERT INTO external_api_credentials (user_id, provider, label, encrypted_api_key, api_key_hash, api_key_masked, is_active, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			`INSERT INTO external_api_credentials (user_id, provider, label, encrypted_api_key, api_key_hash, api_key_salt, api_key_masked, is_active, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 			credential.UserID,
 			credential.Provider,
 			credential.Label,
 			credential.EncryptedAPIKey,
 			credential.APIKeyHash,
+			credential.APIKeySalt,
 			credential.APIKeyMasked,
 			credential.IsActive,
 			now,
@@ -115,11 +119,12 @@ func (r *ExternalAPICredentialRepository) upsertSQLite(credential *models.Extern
 		}
 	} else if _, err := r.db.Exec(
 		`UPDATE external_api_credentials
-		SET label = $1, encrypted_api_key = $2, api_key_hash = $3, api_key_masked = $4, is_active = $5, updated_at = $6
-		WHERE user_id = $7 AND provider = $8`,
+		SET label = $1, encrypted_api_key = $2, api_key_hash = $3, api_key_salt = $4, api_key_masked = $5, is_active = $6, updated_at = $7
+		WHERE user_id = $8 AND provider = $9`,
 		credential.Label,
 		credential.EncryptedAPIKey,
 		credential.APIKeyHash,
+		credential.APIKeySalt,
 		credential.APIKeyMasked,
 		credential.IsActive,
 		now,

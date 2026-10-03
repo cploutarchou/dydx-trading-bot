@@ -11,31 +11,32 @@
  */
 
 import {
-	AlertCircle,
-	BarChart2,
-	ChevronRight,
-	KeyRound,
-	Loader,
-	Mail,
-	MessageSquare,
-	Newspaper,
-	RefreshCw,
-	Save,
-	Search,
-	ShieldCheck,
-	SlidersHorizontal,
-	UserCircle,
-	Users,
-	Zap,
+  AlertCircle,
+  BarChart2,
+  ChevronRight,
+  KeyRound,
+  Loader,
+  Mail,
+  MessageSquare,
+  Newspaper,
+  RefreshCw,
+  Save,
+  Search,
+  ShieldCheck,
+  SlidersHorizontal,
+  UserCircle,
+  Users,
+  Zap,
 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import {
-	type ComponentType,
-	useCallback,
-	useDeferredValue,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
+  type ComponentType,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
 } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import apiClient from '../api';
@@ -50,19 +51,20 @@ import { CodexSettings } from '../components/CodexSettings';
 import { CoinDeskNewsSettings } from '../components/CoinDeskNewsSettings';
 import { DYDXKeyManager } from '../components/DYDXKeyManager';
 import { useToastStore } from '../components/ErrorBoundary';
-import { MailgunSettings } from '../components/MailgunSettings';
+import { EmailSettings } from '../components/EmailSettings';
 import { PageContainer } from '../components/PageContainer';
 import { ProfileSettings } from '../components/ProfileSettings';
 import { TelegramSettings } from '../components/TelegramSettings';
 import {
-	InlineNotice,
-	PlatformPageHeader,
-	PlatformStatCard,
-	StatusBadge,
+  InlineNotice,
+  PlatformPageHeader,
+  PlatformStatCard,
+  StatusBadge,
 } from '../components/ui/PlatformUI';
 import { useAuthStore } from '../store/auth';
 import {
   createSettingsDataLoader,
+  type LoadedSettingsData,
   type SettingField,
   type SettingSection,
   type SettingValue,
@@ -123,7 +125,7 @@ const MANUAL_SECTION_IDS = new Set([
   'codex_io',
   'ai_market_filters',
   'market_news',
-  'mailgun',
+  'email',
   'telegram',
   'profile',
   'dydx_keys',
@@ -146,7 +148,7 @@ const SECTION_ICON_MAP: Record<string, ComponentType<{ className?: string }>> = 
   access_control: Users,
   arbitrage_runtime: SlidersHorizontal,
   telegram: MessageSquare,
-  mailgun: Mail,
+  email: Mail,
   market_news: Newspaper,
   security: ShieldCheck,
   coming_soon: ShieldCheck,
@@ -160,7 +162,7 @@ const SIDEBAR_GROUPS: Array<{ label: string; sectionIds: string[] }> = [
   { label: 'API Keys', sectionIds: ['dydx_keys', 'ai_market_filters', 'codex_io'] },
   {
     label: 'Integrations',
-    sectionIds: ['access_control', 'telegram', 'mailgun', 'market_news', 'arbitrage_runtime'],
+    sectionIds: ['access_control', 'telegram', 'email', 'market_news', 'arbitrage_runtime'],
   },
   { label: 'Platform', sectionIds: ['coming_soon'] },
 ];
@@ -319,7 +321,7 @@ const buildFieldErrors = (
         nextErrors[section.section] = {};
       }
 
-      nextErrors[section.section][field.key] = error;
+      nextErrors[section.section]![field.key] = error;
     });
   });
 
@@ -339,27 +341,103 @@ export default function Settings() {
     isBackofficeSettingsSurface && roleMatches(getUserWorkspaceRole(user), BACKOFFICE_ROLES);
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedSection = searchParams.get('section')?.trim().toLowerCase() || '';
-  const [schema, setSchema] = useState<SettingsSchema | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const successToast = useToastStore((state) => state.success);
+  const errorToast = useToastStore((state) => state.error);
+  const infoToast = useToastStore((state) => state.info);
+  // FE-023: schema + form values load through React Query. staleTime Infinity
+  // preserves the load-once semantics of the old manual loader (no focus
+  // refetch that would clobber in-progress draft edits); saves invalidate.
+  const settingsQuery = useQuery({
+    queryKey: ['settings', 'schema', canManageBackofficeSettings],
+    queryFn: async (): Promise<
+      LoadedSettingsData & { loadError: string | null; mfaRequired: boolean }
+    > => {
+      if (!canManageBackofficeSettings) {
+        return {
+          schema: { sections: [] },
+          formValues: {},
+          loadError: null,
+          mfaRequired: false,
+        };
+      }
+      try {
+        const loaded = await createSettingsDataLoader(apiClient)();
+        return { ...loaded, loadError: null, mfaRequired: false };
+      } catch (error: unknown) {
+        if (getApiErrorCode(error) === 'mfa_required') {
+          return {
+            schema: { sections: [] },
+            formValues: {},
+            loadError: 'Complete 2FA enrollment to access operator settings.',
+            mfaRequired: true,
+          };
+        }
+        throw error;
+      }
+    },
+    staleTime: Infinity,
+    retry: 1,
+  });
+
+  const schema: SettingsSchema | null =
+    settingsQuery.data?.schema && settingsQuery.data.schema.sections.length > 0
+      ? settingsQuery.data.schema
+      : settingsQuery.data?.mfaRequired || settingsQuery.isError
+        ? null
+        : (settingsQuery.data?.schema ?? null);
+  const settingsLoadError =
+    settingsQuery.data?.loadError ??
+    (settingsQuery.isError ? getApiErrorMessage(settingsQuery.error, 'Unknown error') : null);
+  const mfaEnrollmentRequired = settingsQuery.data?.mfaRequired ?? false;
+  const loading = settingsQuery.isPending;
+
   const [formValues, setFormValues] = useState<Record<string, Record<string, SettingValue>>>({});
   const [initialFormValues, setInitialFormValues] = useState<
     Record<string, Record<string, SettingValue>>
   >({});
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [settingsLoadError, setSettingsLoadError] = useState<string | null>(null);
-  const [mfaEnrollmentRequired, setMfaEnrollmentRequired] = useState(false);
+  // Seed drafts when fresh server data arrives — adjusted during render on
+  // data-identity change (sanctioned pattern).
+  const loadedFormValues = settingsQuery.data?.formValues;
+  const [prevLoadedFormValues, setPrevLoadedFormValues] = useState(loadedFormValues);
+  if (loadedFormValues !== prevLoadedFormValues) {
+    setPrevLoadedFormValues(loadedFormValues);
+    if (loadedFormValues) {
+      setFormValues(loadedFormValues);
+      setInitialFormValues(loadedFormValues);
+    }
+  }
+
+  const refetchSettings = useCallback(() => {
+    void settingsQuery.refetch();
+  }, [settingsQuery]);
+
+  // Surface load failures as toasts on transition (the old loader did this
+  // inline; queryFn stays side-effect free).
+  const queryError = settingsQuery.error;
+  const [prevQueryError, setPrevQueryError] = useState(queryError);
+  if (queryError !== prevQueryError) {
+    setPrevQueryError(queryError);
+    if (queryError) {
+      errorToast('Failed to load settings', getApiErrorMessage(queryError, 'Unknown error'));
+    }
+  }
+  const queryMfaRequired = settingsQuery.data?.mfaRequired ?? false;
+  const [prevMfaRequired, setPrevMfaRequired] = useState(queryMfaRequired);
+  if (queryMfaRequired !== prevMfaRequired) {
+    setPrevMfaRequired(queryMfaRequired);
+    if (queryMfaRequired) {
+      errorToast('MFA enrollment required', 'Complete 2FA enrollment to access operator settings.');
+    }
+  }
   const [activeSection, setActiveSection] = useState<string>(requestedSection || 'profile');
   const [pendingFocusTarget, setPendingFocusTarget] = useState<PendingFocusTarget | null>(null);
   const [sectionSearchQuery, setSectionSearchQuery] = useState('');
   const [testingConnection, setTestingConnection] = useState(false);
   const fieldRefs = useRef<Record<string, HTMLInputElement | HTMLSelectElement | null>>({});
-  const settingsDataLoaderRef = useRef(createSettingsDataLoader(apiClient));
-  const hasRestoredSectionRef = useRef(false);
   const urlSyncEnabledRef = useRef(true);
-  const lastRequestedSectionRef = useRef(requestedSection);
-  const successToast = useToastStore((state) => state.success);
-  const errorToast = useToastStore((state) => state.error);
-  const infoToast = useToastStore((state) => state.info);
+  const [urlSyncEnabled, setUrlSyncEnabled] = useState(true);
   const deferredSectionSearchQuery = useDeferredValue(sectionSearchQuery);
 
   const visibleSchemaSections = useMemo(
@@ -393,7 +471,7 @@ export default function Settings() {
               title: 'Access Control',
               description: 'Roles & registration',
             },
-            { section: 'mailgun', title: 'Mailgun', description: 'Outbound email' },
+            { section: 'email', title: 'Email', description: 'Outbound email' },
             {
               section: 'coming_soon',
               title: 'Coming Soon',
@@ -442,104 +520,47 @@ export default function Settings() {
 
   const hasValidationErrors = useMemo(() => hasAnyFieldErrors(fieldErrors), [fieldErrors]);
 
-  const fetchSettingsData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setSettingsLoadError(null);
-      setMfaEnrollmentRequired(false);
-
-      if (!canManageBackofficeSettings) {
-        setSchema({ sections: [] });
-        setFormValues({});
-        setInitialFormValues({});
-        return;
-      }
-
-      const { schema: schemaData, formValues: formVals } = await settingsDataLoaderRef.current();
-
-      setFormValues(formVals);
-      setInitialFormValues(formVals);
-      setSchema(schemaData);
-    } catch (error: unknown) {
-      const apiErrorCode = getApiErrorCode(error);
-      if (apiErrorCode === 'mfa_required') {
-        setSchema(null);
-        setSettingsLoadError('Complete 2FA enrollment to access operator settings.');
-        setMfaEnrollmentRequired(true);
-        errorToast(
-          'MFA enrollment required',
-          'Complete 2FA enrollment to access operator settings.'
-        );
-        return;
-      }
-
-      const message = getApiErrorMessage(error, 'Unknown error');
-      setSchema(null);
-      setSettingsLoadError(message);
-      errorToast('Failed to load settings', message);
-    } finally {
-      setLoading(false);
-    }
-  }, [canManageBackofficeSettings, errorToast]);
-
-  useEffect(() => {
-    void fetchSettingsData();
-  }, [fetchSettingsData]);
-
-  useEffect(() => {
-    if (hasRestoredSectionRef.current || sidebarSections.length === 0) {
-      return;
-    }
-
-    hasRestoredSectionRef.current = true;
-
+  // Restore the last-opened section once sections are known — adjusted
+  // during render (sanctioned pattern) instead of a cascading effect render.
+  const [hasRestoredSection, setHasRestoredSection] = useState(false);
+  if (!hasRestoredSection && sidebarSections.length > 0) {
+    setHasRestoredSection(true);
     if (
       requestedSection &&
       sidebarSections.some((section) => section.section === requestedSection)
     ) {
       setActiveSection(requestedSection);
-      return;
-    }
-
-    try {
-      const savedSection = localStorage.getItem(SETTINGS_LAST_SECTION_KEY);
-      if (savedSection && sidebarSections.some((section) => section.section === savedSection)) {
-        setActiveSection(savedSection);
+    } else {
+      try {
+        const savedSection = localStorage.getItem(SETTINGS_LAST_SECTION_KEY);
+        if (savedSection && sidebarSections.some((section) => section.section === savedSection)) {
+          setActiveSection(savedSection);
+        }
+      } catch (error) {
+        console.warn('⚠️ Settings.tsx: Failed to restore last opened section', error);
       }
-    } catch (error) {
-      console.warn('⚠️ Settings.tsx: Failed to restore last opened section', error);
     }
-  }, [requestedSection, sidebarSections]);
+  }
 
-  useEffect(() => {
-    if (sidebarSections.length === 0) {
-      return;
-    }
+  if (
+    sidebarSections.length > 0 &&
+    !sidebarSections.some((section) => section.section === activeSection)
+  ) {
+    const firstSection = sidebarSections[0];
+    if (firstSection) setActiveSection(firstSection.section);
+  }
 
-    if (!sidebarSections.some((section) => section.section === activeSection)) {
-      setActiveSection(sidebarSections[0].section);
-    }
-  }, [activeSection, sidebarSections]);
-
-  useEffect(() => {
-    if (!urlSyncEnabledRef.current) {
-      return;
-    }
-
-    if (requestedSection === lastRequestedSectionRef.current) {
-      return;
-    }
-
-    lastRequestedSectionRef.current = requestedSection;
-
-    if (!requestedSection || requestedSection === activeSection) {
-      return;
-    }
-
-    if (sidebarSections.some((section) => section.section === requestedSection)) {
+  const [prevRequestedSection, setPrevRequestedSection] = useState(requestedSection);
+  if (urlSyncEnabled && requestedSection !== prevRequestedSection) {
+    setPrevRequestedSection(requestedSection);
+    if (
+      requestedSection &&
+      requestedSection !== activeSection &&
+      sidebarSections.some((section) => section.section === requestedSection)
+    ) {
       setActiveSection(requestedSection);
     }
-  }, [activeSection, requestedSection, sidebarSections]);
+  }
 
   useEffect(() => {
     if (!sidebarSections.some((section) => section.section === activeSection)) {
@@ -556,19 +577,22 @@ export default function Settings() {
       return;
     }
 
-    try {
-      setSearchParams(
-        (currentParams) => {
-          const nextParams = new URLSearchParams(currentParams);
-          nextParams.set('section', activeSection);
-          return nextParams;
-        },
-        { replace: true }
-      );
-    } catch (error) {
-      urlSyncEnabledRef.current = false;
-      console.warn('⚠️ Settings.tsx: URL sync disabled (history update blocked)', error);
-    }
+    Promise.resolve()
+      .then(() =>
+        setSearchParams(
+          (currentParams) => {
+            const nextParams = new URLSearchParams(currentParams);
+            nextParams.set('section', activeSection);
+            return nextParams;
+          },
+          { replace: true }
+        )
+      )
+      .catch((error: unknown) => {
+        urlSyncEnabledRef.current = false;
+        setUrlSyncEnabled(false);
+        console.warn('⚠️ Settings.tsx: URL sync disabled (history update blocked)', error);
+      });
   }, [activeSection, requestedSection, setSearchParams, sidebarSections]);
 
   useEffect(() => {
@@ -608,10 +632,11 @@ export default function Settings() {
     if (hasAnyFieldErrors(nextErrors)) {
       const firstInvalidSection = schema.sections.find(
         (section) =>
-          nextErrors[section.section] && Object.keys(nextErrors[section.section]).length > 0
+          nextErrors[section.section] && Object.keys(nextErrors[section.section]!).length > 0
       );
       if (firstInvalidSection) {
-        const firstInvalidFieldKey = Object.keys(nextErrors[firstInvalidSection.section] || {})[0];
+        const firstInvalidFieldKey =
+          Object.keys(nextErrors[firstInvalidSection.section] || {})[0] ?? '';
         if (firstInvalidFieldKey) {
           setPendingFocusTarget({
             section: firstInvalidSection.section,
@@ -646,9 +671,7 @@ export default function Settings() {
         successToast('Settings saved', 'Your configuration has been updated successfully.');
         setInitialFormValues(formValues);
         // Refresh settings to confirm changes
-        window.setTimeout(() => {
-          void fetchSettingsData();
-        }, 1000);
+        window.setTimeout(() => refetchSettings(), 1000);
       } else {
         errorToast('Failed to save settings', response.message || 'Please try again.');
       }
@@ -745,7 +768,7 @@ export default function Settings() {
           action={
             <button
               type="button"
-              onClick={fetchSettingsData}
+              onClick={refetchSettings}
               className="rounded-lg border border-rose-500/30 bg-rose-500/15 px-4 py-2 text-sm font-medium text-rose-100 transition hover:border-rose-400/40 hover:bg-rose-500/20"
             >
               Retry
@@ -757,7 +780,9 @@ export default function Settings() {
   }
 
   const currentSection = visibleSchemaSections.find((s) => s.section === activeSection);
-  const CurrentSectionIcon = getSectionIcon(activeSection);
+  // Module-scope map lookup keeps the component identity static for the
+  // compiler (a helper call returning a component reads as render-created).
+  const CurrentSectionIcon = SECTION_ICON_MAP[activeSection] ?? SlidersHorizontal;
   const groupedNav = buildGroupedNav(filteredSidebarSections);
   const totalFieldErrors = Object.values(fieldErrors).reduce(
     (n, e) => n + Object.keys(e).length,
@@ -838,6 +863,7 @@ export default function Settings() {
                 <input
                   type="search"
                   placeholder="Search…"
+                  aria-label="Search settings sections"
                   value={sectionSearchQuery}
                   onChange={(e) => setSectionSearchQuery(e.target.value)}
                   className="premium-input py-2 pl-9 pr-3 text-sm"
@@ -934,7 +960,7 @@ export default function Settings() {
           {activeSection === 'coming_soon' && canManageBackofficeSettings && (
             <AdminComingSoonSettings />
           )}
-          {activeSection === 'mailgun' && canManageBackofficeSettings && <MailgunSettings />}
+          {activeSection === 'email' && canManageBackofficeSettings && <EmailSettings />}
           {activeSection === 'telegram' && <TelegramSettings />}
           {activeSection === 'market_news' && canManageBackofficeSettings && (
             <CoinDeskNewsSettings />

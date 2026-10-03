@@ -29,7 +29,7 @@ func (s *AuditLogService) CreateAuditLog(userID *int, action, resourceType strin
 	}
 
 	status := "success"
-	now := time.Now()
+	now := time.Now().UTC()
 
 	auditLog := &models.AuditLog{
 		UserID:       userID,
@@ -64,13 +64,20 @@ func (s *AuditLogService) GetAuditLog(id int) (*models.AuditLog, error) {
 	return auditLog, nil
 }
 
-// ListAuditLogsByUser retrieves all audit logs for a user
-func (s *AuditLogService) ListAuditLogsByUser(userID int) ([]models.AuditLog, error) {
+// ListAuditLogsByUser retrieves audit logs for a user, most recent first.
+// limit is clamped to [1, 1000]; limit <= 0 selects the default of 200.
+func (s *AuditLogService) ListAuditLogsByUser(userID int, limit int) ([]models.AuditLog, error) {
 	if userID <= 0 {
 		return nil, fmt.Errorf("invalid user id")
 	}
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
 
-	auditLogs, err := s.repo.GetAuditLogsByUser(userID)
+	auditLogs, err := s.repo.GetAuditLogsByUser(userID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list audit logs: %w", err)
 	}

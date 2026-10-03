@@ -290,6 +290,26 @@ def _mark_worker_failure(
         session.close()
 
 
+def _resolve_log_level() -> str:
+    """Return the configured log level as a Loguru level name.
+
+    Loguru level names are upper-case and case-sensitive, while deployments
+    commonly set ``LOG_LEVEL=info``. Normalizing here keeps a lower-case value
+    from being rejected by ``logger.add``.
+    """
+    return os.getenv("LOG_LEVEL", "INFO").strip().upper() or "INFO"
+
+
+def _add_run_log_sink(log_file: str, run_id: str, level: str) -> int:
+    """Register a Loguru sink capturing only records for ``run_id``."""
+    return loguru_logger.add(
+        log_file,
+        filter=lambda record: record["extra"].get("run_id") == run_id,
+        level=level,
+        enqueue=True,
+    )
+
+
 def _selected_pairs(data: Dict[str, Any]) -> list[str]:
     request: Dict[str, Any] = _normalize_request_payload(data.get("request"))
     raw = (
@@ -320,13 +340,18 @@ def run_backtest_task(
     log_file = os.path.join("bot_states", f"backtest_{run_id}.log")
     os.makedirs("bot_states", exist_ok=True)
 
-    # Add a sink that only captures logs for this specific run_id
-    handler_id = loguru_logger.add(
-        log_file,
-        filter=lambda record: record["extra"].get("run_id") == run_id,
-        level=os.getenv("LOG_LEVEL", "INFO"),
-        enqueue=True,
-    )
+    # Add a sink that only captures logs for this specific run_id. A bad log
+    # level is a configuration problem and must never abort the run itself.
+    log_level = _resolve_log_level()
+    try:
+        handler_id = _add_run_log_sink(log_file, run_id, log_level)
+    except ValueError:
+        logger.warning(
+            "Unsupported LOG_LEVEL %r for backtest run %s; using INFO",
+            log_level,
+            run_id,
+        )
+        handler_id = _add_run_log_sink(log_file, run_id, "INFO")
 
     session = db.get_session()
     try:

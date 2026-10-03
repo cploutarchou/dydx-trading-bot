@@ -78,17 +78,37 @@ func (r *UserMFARepository) Upsert(credential *models.UserMFA) error {
 	return nil
 }
 
-func (r *UserMFARepository) MarkVerified(userID int, verifiedAt time.Time) error {
+// MarkUsed records a successful verification at a specific TOTP window.
+// last_used_at stores the window's canonical timestamp (window*30) so the
+// replay guard can reject any window <= the last used one, while keeping the
+// enabled/verified semantics.
+func (r *UserMFARepository) MarkUsed(userID int, window int64) error {
 	now := time.Now().UTC()
 	_, err := r.db.Exec(
-		`UPDATE user_mfa_credentials SET enabled = TRUE, verified_at = $1, last_used_at = $2, updated_at = $3 WHERE user_id = $4`,
-		verifiedAt,
+		`UPDATE user_mfa_credentials SET enabled = TRUE, verified_at = COALESCE(verified_at, $1), last_used_at = $2, updated_at = $3 WHERE user_id = $4`,
 		now,
+		time.Unix(window*30, 0).UTC(),
 		now,
 		userID,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to mark mfa verified: %w", err)
+		return fmt.Errorf("failed to mark mfa used: %w", err)
+	}
+	return nil
+}
+
+// UpdateBackupCodes replaces the stored (encrypted) backup-code payload —
+// used to consume a redeemed code.
+func (r *UserMFARepository) UpdateBackupCodes(userID int, encryptedBackupCodes string) error {
+	now := time.Now().UTC()
+	_, err := r.db.Exec(
+		`UPDATE user_mfa_credentials SET encrypted_backup_codes = $1, updated_at = $2 WHERE user_id = $3`,
+		encryptedBackupCodes,
+		now,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update mfa backup codes: %w", err)
 	}
 	return nil
 }

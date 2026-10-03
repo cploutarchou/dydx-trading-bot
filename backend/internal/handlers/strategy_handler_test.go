@@ -48,3 +48,23 @@ func TestApplyStrategyPayloadCanClearSelectedMarkets(t *testing.T) {
 		t.Fatalf("explicit empty selected_markets should clear market universe, got %#v", got)
 	}
 }
+
+func TestApplyStrategyPayloadHonoursExplicitZeroForUnenforcedControls(t *testing.T) {
+	strategy := &models.BacktestStrategy{MaxDrawdownPct: 15, TrailingStopPct: 1, StopLossPct: 2}
+	zero := 0.0
+
+	applyStrategyPayload(strategy, strategyPayload{MaxDrawdownPct: &zero})
+
+	if strategy.MaxDrawdownPct != 0 {
+		t.Fatalf("explicit 0 must turn max_drawdown_pct off, got %v", strategy.MaxDrawdownPct)
+	}
+	if strategy.TrailingStopPct != 1 {
+		t.Fatalf("omitted trailing_stop_pct must be preserved, got %v", strategy.TrailingStopPct)
+	}
+
+	negative := -5.0
+	applyStrategyPayload(strategy, strategyPayload{TrailingStopPct: &negative})
+	if strategy.TrailingStopPct != 1 {
+		t.Fatalf("a negative value must be ignored, got %v", strategy.TrailingStopPct)
+	}
+}

@@ -103,3 +103,58 @@ def test_trade_repository_mirrors_opened_and_closed_trades_to_trade_events():
     assert closed_row["realized_pnl"] == 300.5
     assert closed_row["realized_pnl_pct"] == 1.75
     assert closed_row["closed_at"] is not None
+
+
+def _opened_trade_repository():
+    session = _FakeSession()
+    repository = TradeRepository(session, analytics_writer=_RecordingAnalyticsWriter())
+    repository.create_trade(
+        trade_id="live-pnl-1",
+        bot_id=77,
+        pair1="BTC-USD",
+        pair2="ETH-USD",
+        entry_price1=100.0,
+        entry_price2=50.0,
+        entry_size1=2.0,
+        entry_size2=4.0,
+        side1="BUY",
+        side2="SELL",
+    )
+    return session, repository
+
+
+def test_update_trade_exit_feeds_the_columns_the_statistics_read():
+    session, repository = _opened_trade_repository()
+
+    repository.update_trade_exit(
+        "live-pnl-1",
+        exit_price1=110.0,
+        exit_price2=45.0,
+        exit_size1=2.0,
+        exit_size2=4.0,
+        realized_pnl=39.8,
+        realized_pnl_pct=9.95,
+    )
+
+    trade = session.trade
+    assert trade.realized_pnl == 39.8
+    assert trade.profit_loss == 39.8
+    assert trade.realized_pnl_pct == 9.95
+    assert trade.profit_loss_percentage == 9.95
+
+
+def test_update_trade_exit_without_pnl_does_not_record_a_false_zero():
+    session, repository = _opened_trade_repository()
+    session.trade.realized_pnl = None
+    session.trade.profit_loss = None
+
+    repository.update_trade_exit(
+        "live-pnl-1",
+        exit_price1=110.0,
+        exit_price2=45.0,
+        exit_size1=2.0,
+        exit_size2=4.0,
+    )
+
+    assert session.trade.realized_pnl is None
+    assert session.trade.profit_loss is None

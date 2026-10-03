@@ -6,16 +6,9 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  BarChart3,
-  Clock,
-  Database,
-  Loader2,
-  PieChart,
-  RefreshCw,
-  TrendingUp,
-} from 'lucide-react';
+import { BarChart3, Clock, Database, Loader2, PieChart, RefreshCw, TrendingUp } from 'lucide-react';
 import api from '../api';
+import { formatPct, formatSignedUsd } from '../utils/format';
 import { useToastStore } from '../components/ErrorBoundary';
 import {
   APIRequestSummaryRow,
@@ -33,7 +26,9 @@ import {
 } from './clickHouseAnalyticsModel';
 
 const ClickHouseAnalytics: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'positions' | 'trades' | 'pairs' | 'workers' | 'api'>('positions');
+  const [activeTab, setActiveTab] = useState<'positions' | 'trades' | 'pairs' | 'workers' | 'api'>(
+    'positions'
+  );
   const [instanceId, setInstanceId] = useState<string>('');
   const [hours, setHours] = useState<number>(24);
   const [loading, setLoading] = useState<boolean>(false);
@@ -60,7 +55,7 @@ const ClickHouseAnalytics: React.FC = () => {
     setter: (value: T) => void,
     fallback: T,
     errorSetter: (msg: string | null) => void,
-    extract: (env: AnalyticsEnvelope) => T,
+    extract: (env: AnalyticsEnvelope) => T
   ): boolean => {
     const err = extractError(env);
     if (err) {
@@ -84,20 +79,61 @@ const ClickHouseAnalytics: React.FC = () => {
 
     try {
       if (activeTab === 'positions') {
-        const env = (await api.getClickHousePositionHistory(instanceId, hours)) as unknown as AnalyticsEnvelope;
-        applyEnvelope<PositionSnapshot[]>(env, setPositionHistory, [], setPositionError, extractPositionSnapshots);
+        const env = (await api.getClickHousePositionHistory(
+          instanceId,
+          hours
+        )) as unknown as AnalyticsEnvelope;
+        applyEnvelope<PositionSnapshot[]>(
+          env,
+          setPositionHistory,
+          [],
+          setPositionError,
+          extractPositionSnapshots
+        );
       } else if (activeTab === 'trades') {
-        const env = (await api.getClickHouseTradeSummary(instanceId)) as unknown as AnalyticsEnvelope;
-        applyEnvelope<TradeSummary | null>(env, setTradeSummary, null, setTradeError, extractTradeSummary);
+        const env = (await api.getClickHouseTradeSummary(
+          instanceId
+        )) as unknown as AnalyticsEnvelope;
+        applyEnvelope<TradeSummary | null>(
+          env,
+          setTradeSummary,
+          null,
+          setTradeError,
+          extractTradeSummary
+        );
       } else if (activeTab === 'pairs') {
-        const env = (await api.getClickHousePairBreakdown(instanceId)) as unknown as AnalyticsEnvelope;
-        applyEnvelope<PairBreakdown[]>(env, setPairBreakdown, [], setPairError, extractPairBreakdown);
+        const env = (await api.getClickHousePairBreakdown(
+          instanceId
+        )) as unknown as AnalyticsEnvelope;
+        applyEnvelope<PairBreakdown[]>(
+          env,
+          setPairBreakdown,
+          [],
+          setPairError,
+          extractPairBreakdown
+        );
       } else if (activeTab === 'workers') {
-        const env = (await api.getClickHouseWorkerMetrics(undefined, undefined, hours)) as unknown as AnalyticsEnvelope;
-        applyEnvelope<WorkerMetric[]>(env, setWorkerMetrics, [], setWorkerError, extractWorkerMetrics);
+        const env = (await api.getClickHouseWorkerMetrics(
+          undefined,
+          undefined,
+          hours
+        )) as unknown as AnalyticsEnvelope;
+        applyEnvelope<WorkerMetric[]>(
+          env,
+          setWorkerMetrics,
+          [],
+          setWorkerError,
+          extractWorkerMetrics
+        );
       } else if (activeTab === 'api') {
         const env = (await api.getClickHouseAPIRequestSummary()) as unknown as AnalyticsEnvelope;
-        applyEnvelope<APIRequestSummaryRow[]>(env, setApiSummary, [], setApiError, extractAPIRequestSummary);
+        applyEnvelope<APIRequestSummaryRow[]>(
+          env,
+          setApiSummary,
+          [],
+          setApiError,
+          extractAPIRequestSummary
+        );
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -106,7 +142,11 @@ const ClickHouseAnalytics: React.FC = () => {
       else if (activeTab === 'pairs') setPairError(errorMessage);
       else if (activeTab === 'workers') setWorkerError(errorMessage);
       else if (activeTab === 'api') setApiError(errorMessage);
-      addToast({ type: 'error', title: 'Error', message: `Failed to fetch ${activeTab} data: ${errorMessage}` });
+      addToast({
+        type: 'error',
+        title: 'Error',
+        message: `Failed to fetch ${activeTab} data: ${errorMessage}`,
+      });
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -134,7 +174,9 @@ const ClickHouseAnalytics: React.FC = () => {
       return (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400">
           <p>{positionError}</p>
-          <p className="text-sm mt-2">ClickHouse may be disabled or the instance has no position history.</p>
+          <p className="text-sm mt-2">
+            ClickHouse may be disabled or the instance has no position history.
+          </p>
         </div>
       );
     }
@@ -150,10 +192,15 @@ const ClickHouseAnalytics: React.FC = () => {
       <div className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {positionHistory.map((position) => (
-            <div key={`${position.position_id}-${position.snapshot_time}`} className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+            <div
+              key={`${position.position_id}-${position.snapshot_time}`}
+              className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50"
+            >
               <div className="flex justify-between items-start mb-2">
                 <div>
-                  <p className="text-sm font-medium text-slate-300">{position.pair1}/{position.pair2}</p>
+                  <p className="text-sm font-medium text-slate-300">
+                    {position.pair1}/{position.pair2}
+                  </p>
                   <p className="text-xs text-slate-500 truncate">{position.position_id}</p>
                 </div>
                 <StatusBadge status={position.status} />
@@ -177,8 +224,11 @@ const ClickHouseAnalytics: React.FC = () => {
                 </div>
                 <div className="col-span-2">
                   <p className="text-slate-400">Unrealized P&amp;L</p>
-                  <p className={`text-lg ${position.unrealized_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {position.unrealized_pnl.toFixed(2)} ({position.unrealized_pnl_pct.toFixed(2)}%)
+                  <p
+                    className={`text-lg ${position.unrealized_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                  >
+                    {formatSignedUsd(position.unrealized_pnl)} (
+                    {formatPct(position.unrealized_pnl_pct, 2)})
                   </p>
                 </div>
                 <div className="col-span-2">
@@ -205,7 +255,9 @@ const ClickHouseAnalytics: React.FC = () => {
       return (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400">
           <p>{tradeError}</p>
-          <p className="text-sm mt-2">ClickHouse may be disabled or the instance has no trade data.</p>
+          <p className="text-sm mt-2">
+            ClickHouse may be disabled or the instance has no trade data.
+          </p>
         </div>
       );
     }
@@ -222,19 +274,39 @@ const ClickHouseAnalytics: React.FC = () => {
       <div className="space-y-6">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <MetricCard label="Trade Events" value={String(totals.trade_events)} />
-          <MetricCard label="Opened" value={String(totals.trades_opened)} valueClass="text-blue-400" />
+          <MetricCard
+            label="Opened"
+            value={String(totals.trades_opened)}
+            valueClass="text-blue-400"
+          />
           <MetricCard label="Closed" value={String(totals.trades_closed)} />
-          <MetricCard label="Winning" value={String(totals.winning_trades)} valueClass="text-green-400" />
-          <MetricCard label="Losing" value={String(totals.losing_trades)} valueClass="text-red-400" />
-          <MetricCard label="Win Rate" value={`${winRate(totals.winning_trades, totals.losing_trades).toFixed(1)}%`} valueClass="text-green-400" />
+          <MetricCard
+            label="Winning"
+            value={String(totals.winning_trades)}
+            valueClass="text-green-400"
+          />
+          <MetricCard
+            label="Losing"
+            value={String(totals.losing_trades)}
+            valueClass="text-red-400"
+          />
+          <MetricCard
+            label="Win Rate"
+            value={`${winRate(totals.winning_trades, totals.losing_trades).toFixed(1)}%`}
+            valueClass="text-green-400"
+          />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
             <p className="text-slate-400 text-sm mb-2">Total Realized P&amp;L</p>
-            <p className={`text-3xl font-bold ${totals.total_realized_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {totals.total_realized_pnl.toFixed(2)}
+            <p
+              className={`text-3xl font-bold ${totals.total_realized_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
+            >
+              {formatSignedUsd(totals.total_realized_pnl)}
             </p>
-            <p className="text-slate-500 text-sm mt-2">Realized P&amp;L %: {totals.total_realized_pnl_pct.toFixed(2)}%</p>
+            <p className="text-slate-500 text-sm mt-2">
+              Realized P&amp;L %: {formatPct(totals.total_realized_pnl_pct, 2)}
+            </p>
           </div>
           <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
             <p className="text-slate-400 text-sm mb-2">Order Events</p>
@@ -257,7 +329,9 @@ const ClickHouseAnalytics: React.FC = () => {
       return (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400">
           <p>{pairError}</p>
-          <p className="text-sm mt-2">ClickHouse may be disabled or the instance has no pair data.</p>
+          <p className="text-sm mt-2">
+            ClickHouse may be disabled or the instance has no pair data.
+          </p>
         </div>
       );
     }
@@ -273,11 +347,18 @@ const ClickHouseAnalytics: React.FC = () => {
       <div className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {pairBreakdown.map((pair, index) => (
-            <div key={`${pair.pair1}-${pair.pair2}-${index}`} className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+            <div
+              key={`${pair.pair1}-${pair.pair2}-${index}`}
+              className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50"
+            >
               <div className="flex justify-between items-center mb-4">
-                <p className="text-lg font-semibold text-white">{pair.pair1}/{pair.pair2}</p>
-                <p className={`text-sm ${pair.total_realized_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {pair.total_realized_pnl.toFixed(2)}
+                <p className="text-lg font-semibold text-white">
+                  {pair.pair1}/{pair.pair2}
+                </p>
+                <p
+                  className={`text-sm ${pair.total_realized_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                >
+                  {formatSignedUsd(pair.total_realized_pnl)}
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-4 text-sm">
@@ -287,11 +368,13 @@ const ClickHouseAnalytics: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-slate-400">Avg P&amp;L %</p>
-                  <p className="text-white">{pair.avg_realized_pnl_pct.toFixed(2)}%</p>
+                  <p className="text-white">{formatPct(pair.avg_realized_pnl_pct, 2)}</p>
                 </div>
                 <div>
                   <p className="text-slate-400">Win Rate</p>
-                  <p className="text-white">{winRate(pair.winning_trades, pair.losing_trades).toFixed(1)}%</p>
+                  <p className="text-white">
+                    {winRate(pair.winning_trades, pair.losing_trades).toFixed(1)}%
+                  </p>
                 </div>
               </div>
             </div>
@@ -313,7 +396,9 @@ const ClickHouseAnalytics: React.FC = () => {
       return (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400">
           <p>{workerError}</p>
-          <p className="text-sm mt-2">ClickHouse may be disabled or no worker metrics producer is configured.</p>
+          <p className="text-sm mt-2">
+            ClickHouse may be disabled or no worker metrics producer is configured.
+          </p>
         </div>
       );
     }
@@ -329,7 +414,10 @@ const ClickHouseAnalytics: React.FC = () => {
       <div className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {workerMetrics.map((metric, index) => (
-            <div key={`${metric.worker_id}-${metric.metric_name}-${index}`} className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+            <div
+              key={`${metric.worker_id}-${metric.metric_name}-${index}`}
+              className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50"
+            >
               <div className="flex justify-between items-start mb-2">
                 <div>
                   <p className="text-sm font-medium text-slate-300">{metric.worker_type}</p>
@@ -347,7 +435,9 @@ const ClickHouseAnalytics: React.FC = () => {
                   <p className="text-white">{metric.metric_value.toFixed(2)}</p>
                 </div>
               </div>
-              <p className="text-xs text-slate-500 mt-2">{new Date(metric.metric_time).toLocaleString()}</p>
+              <p className="text-xs text-slate-500 mt-2">
+                {new Date(metric.metric_time).toLocaleString()}
+              </p>
             </div>
           ))}
         </div>
@@ -367,7 +457,9 @@ const ClickHouseAnalytics: React.FC = () => {
       return (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400">
           <p>{apiError}</p>
-          <p className="text-sm mt-2">ClickHouse may be disabled or API request analytics is not configured.</p>
+          <p className="text-sm mt-2">
+            ClickHouse may be disabled or API request analytics is not configured.
+          </p>
         </div>
       );
     }
@@ -385,13 +477,17 @@ const ClickHouseAnalytics: React.FC = () => {
         acc.errors += row.error_count;
         return acc;
       },
-      { requests: 0, errors: 0 },
+      { requests: 0, errors: 0 }
     );
     return (
       <div className="space-y-4">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <MetricCard label="Total Requests" value={totals.requests.toLocaleString()} />
-          <MetricCard label="Total Errors" value={totals.errors.toLocaleString()} valueClass="text-red-400" />
+          <MetricCard
+            label="Total Errors"
+            value={totals.errors.toLocaleString()}
+            valueClass="text-red-400"
+          />
           <MetricCard label="Routes" value={String(apiSummary.length)} />
         </div>
         <div className="overflow-x-auto">
@@ -408,12 +504,21 @@ const ClickHouseAnalytics: React.FC = () => {
             </thead>
             <tbody>
               {apiSummary.map((row, index) => (
-                <tr key={`${row.method}-${row.route}-${index}`} className="border-b border-slate-800/50">
+                <tr
+                  key={`${row.method}-${row.route}-${index}`}
+                  className="border-b border-slate-800/50"
+                >
                   <td className="py-2 pr-4 text-slate-300">{row.method}</td>
                   <td className="py-2 pr-4 text-white">{row.route}</td>
-                  <td className="py-2 pr-4 text-right text-white">{row.request_count.toLocaleString()}</td>
-                  <td className="py-2 pr-4 text-right text-white">{row.avg_latency_ms.toFixed(0)}</td>
-                  <td className="py-2 pr-4 text-right text-red-400">{row.error_count.toLocaleString()}</td>
+                  <td className="py-2 pr-4 text-right text-white">
+                    {row.request_count.toLocaleString()}
+                  </td>
+                  <td className="py-2 pr-4 text-right text-white">
+                    {row.avg_latency_ms.toFixed(0)}
+                  </td>
+                  <td className="py-2 pr-4 text-right text-red-400">
+                    {row.error_count.toLocaleString()}
+                  </td>
                   <td className="py-2 pr-4 text-right text-slate-400">{row.rate_limited}</td>
                 </tr>
               ))}
@@ -433,15 +538,22 @@ const ClickHouseAnalytics: React.FC = () => {
       ERROR: 'bg-red-500/20 text-red-400 border border-red-500/30',
     };
     const key = (status || '').toUpperCase();
-    const className = statusClasses[key] || 'bg-slate-500/20 text-slate-400 border border-slate-500/30';
+    const className =
+      statusClasses[key] || 'bg-slate-500/20 text-slate-400 border border-slate-500/30';
     return (
-      <span className={`px-2 py-1 text-xs font-medium rounded-md ${className}`}>
-        {status}
-      </span>
+      <span className={`px-2 py-1 text-xs font-medium rounded-md ${className}`}>{status}</span>
     );
   };
 
-  const MetricCard = ({ label, value, valueClass = 'text-white' }: { label: string; value: string; valueClass?: string }) => (
+  const MetricCard = ({
+    label,
+    value,
+    valueClass = 'text-white',
+  }: {
+    label: string;
+    value: string;
+    valueClass?: string;
+  }) => (
     <div className="bg-slate-800/50 rounded-lg p-4 text-center border border-slate-700/50">
       <p className="text-slate-400 text-sm">{label}</p>
       <p className={`text-2xl font-bold ${valueClass}`}>{value}</p>
@@ -473,7 +585,7 @@ const ClickHouseAnalytics: React.FC = () => {
           <div className="flex items-center space-x-3">
             <Database className="h-8 w-8 text-blue-400" />
             <div>
-              <h1 className="text-2xl font-bold">ClickHouse Analytics</h1>
+              <h2 className="text-2xl font-bold">ClickHouse Analytics</h2>
               <p className="text-sm text-slate-400">Live analytical data from ClickHouse</p>
             </div>
           </div>
@@ -491,8 +603,14 @@ const ClickHouseAnalytics: React.FC = () => {
         <div className="bg-slate-800/50 rounded-lg p-4 mb-6 border border-slate-700/50">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-1">
-              <label className="block text-sm font-medium text-slate-400 mb-2">Instance ID</label>
+              <label
+                className="block text-sm font-medium text-slate-400 mb-2"
+                htmlFor="instance-id"
+              >
+                Instance ID
+              </label>
               <input
+                id="instance-id"
                 type="text"
                 value={instanceId}
                 onChange={(e) => setInstanceId(e.target.value)}
@@ -502,8 +620,14 @@ const ClickHouseAnalytics: React.FC = () => {
               />
             </div>
             <div className="md:col-span-1">
-              <label className="block text-sm font-medium text-slate-400 mb-2">Time Range (hours)</label>
+              <label
+                className="block text-sm font-medium text-slate-400 mb-2"
+                htmlFor="time-range-hours"
+              >
+                Time Range (hours)
+              </label>
               <select
+                id="time-range-hours"
                 value={hours}
                 onChange={(e) => setHours(Number(e.target.value))}
                 disabled={activeTab === 'workers' || activeTab === 'api' || activeTab === 'trades'}
@@ -519,8 +643,11 @@ const ClickHouseAnalytics: React.FC = () => {
               </select>
             </div>
             <div className="md:col-span-1">
-              <label className="block text-sm font-medium text-slate-400 mb-2">Data Type</label>
+              <label className="block text-sm font-medium text-slate-400 mb-2" htmlFor="data-type">
+                Data Type
+              </label>
               <select
+                id="data-type"
                 value={activeTab}
                 onChange={(e) => setActiveTab(e.target.value as typeof activeTab)}
                 className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700/50 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"

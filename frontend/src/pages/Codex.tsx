@@ -191,9 +191,9 @@ export const CodexPage: React.FC = () => {
               <Sparkles className="h-3.5 w-3.5" />
               Market Intel
             </div>
-            <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+            <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
               Find trending movers, safer liquid tokens, and sharper research context before strategy work.
-            </h1>
+            </h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
               This workspace is tuned for the Codex.io free plan: query-only, backend-proxied, cached, and throttled so you get useful token intelligence without leaking API keys into the browser.
             </p>

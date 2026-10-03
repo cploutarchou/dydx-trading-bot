@@ -1,4 +1,4 @@
-.PHONY: help completion-powershell install-completion-powershell windows-check dev prod setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run celery-worker celery-worker-up celery-worker-down celery-worker-logs bot-runtime-up config edit-config dev-config prod-config config-keygen config-key-rotate install-config-key show-config-token encrypt-dev-config decrypt-dev-config encrypt-prod-config decrypt-prod-config install-security-tools env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down infra-up infra-down infra-logs infra-ps dev-infra dev-infra-down stack-env stack-env-check stack-up-dev stack-up-prod stack-up-integration stack-down stack-logs stack-ps docs-governance images-build images-build-latest images-push images-push-latest images-print infra-up-arm64 infra-down-arm64 infra-logs-arm64 infra-ps-arm64 stack-up-dev-arm64 stack-up-prod-arm64 stack-up-integration-arm64 stack-down-arm64 stack-logs-arm64 stack-ps-arm64 images-build-arm64 images-build-latest-arm64 images-push-arm64 images-push-latest-arm64
+.PHONY: help completion-powershell install-completion-powershell windows-check dev prod setup install test lint format clean run start stop status restart logs docker-build docker-run docker-stop docker-logs docker-shell docker-dev docker-clean docker-up docker-down docker-up-logging docker-down-logging test-loki test-loki-dev test-loki-prod backtest backtest-quick backtest-3month backtest-analysis backtest-clean api-run backend-run worker-run celery-worker celery-worker-up celery-worker-down celery-worker-logs bot-runtime-up config edit-config dev-config prod-config config-keygen config-key-rotate install-config-key show-config-token encrypt-dev-config decrypt-dev-config encrypt-prod-config decrypt-prod-config install-security-tools env-setup env db-upgrade db-downgrade db-revision db-current db-history db-merge db-branches db-init create-migration migration-up migration-down migration-verify db-init-schema db-verify-schema db-reset db-migrate-legacy db-up db-status db-down infra-up infra-down infra-logs infra-ps dev-infra dev-infra-down stack-env stack-env-check stack-up-dev stack-up-integration stack-down stack-logs stack-ps docs-governance images-build images-build-latest images-push images-push-latest images-print infra-up-arm64 infra-down-arm64 infra-logs-arm64 infra-ps-arm64 stack-up-dev-arm64 stack-up-integration-arm64 stack-down-arm64 stack-logs-arm64 stack-ps-arm64 images-build-arm64 images-build-latest-arm64 images-push-arm64 images-push-latest-arm64
 
 # Windows GNU Make defaults to cmd.exe, but this Makefile intentionally uses
 # POSIX recipes. Keep PowerShell as the interactive terminal and run recipes in
@@ -120,8 +120,21 @@ test: ## Run pytest suite (tests/ directory only)
 docs-governance: ## Validate canonical docs links and archival policy
 	python3 scripts/validate_docs_governance.py
 
-validate-k8s-secrets: ## Fail when tracked k8s YAML contains plaintext secret values
-	python3 scripts/check_no_plaintext_k8s_secrets.py
+# GitHub Actions bills per job-minute, so find failures here first. These mirror
+# the jobs in .github/workflows/bot-quality.yml (same area detection, same
+# commands, same pinned lint versions); see scripts/ci_local.sh for what stays
+# on GitHub.
+.PHONY: ci ci-all ci-hook
+ci: ## Run the CI checks locally for the areas changed against origin/master
+	./scripts/ci_local.sh
+
+ci-all: ## Run every local CI check regardless of what changed
+	./scripts/ci_local.sh --all
+
+ci-hook: ## Install a git pre-push hook that runs `make ci` (skip once with --no-verify)
+	@printf '%s\n' '#!/bin/sh' '# Installed by `make ci-hook`. Bypass once with: git push --no-verify' 'exec make --no-print-directory ci' > .git/hooks/pre-push
+	@chmod +x .git/hooks/pre-push
+	@echo "[OK] pre-push hook installed: .git/hooks/pre-push"
 
 lint: ## Check code with flake8 and pylint
 	.venv/bin/flake8 bot/src tests scripts --max-line-length=120 --exclude=__pycache__
@@ -636,21 +649,6 @@ stack-up-dev-arm64: ## Start ARM64 full integration stack (frontend + backend + 
 		exit 0; \
 	fi
 
-stack-up-prod-arm64: ## Start ARM64 production-like stack
-	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		if [ ! -f "$(STACK_COMPOSE_FILE_ARM64)" ]; then \
-			echo "[ERROR] Missing $(STACK_COMPOSE_FILE_ARM64)."; \
-			exit 1; \
-		fi; \
-		set -e; \
-		python3 scripts/validate_stack_env.py --environment production --strict-prod; \
-		APP_CONFIG_ENV=production docker compose -f $(STACK_COMPOSE_FILE_ARM64) --profile prod up -d --remove-orphans; \
-		echo "[OK] ARM64 Prod-like stack started (proxy:8080, api internal, frontend internal)"; \
-	else \
-		echo "[WARNING] Docker daemon unavailable; cannot start ARM64 stack"; \
-		exit 0; \
-	fi
-
 stack-up-integration-arm64: stack-up-dev-arm64 ## Alias for ARM64 full integration stack
 
 stack-down-arm64: ## Stop ARM64 split app stack
@@ -659,7 +657,7 @@ stack-down-arm64: ## Stop ARM64 split app stack
 			echo "[ERROR] Missing $(STACK_COMPOSE_FILE_ARM64). Nothing to stop via ARM64 stack commands."; \
 			exit 1; \
 		fi; \
-		APP_CONFIG_ENV=$(MODE) docker compose -f $(STACK_COMPOSE_FILE_ARM64) --profile dev --profile prod down --remove-orphans; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f $(STACK_COMPOSE_FILE_ARM64) --profile dev down --remove-orphans; \
 		echo "[OK] ARM64 Stack stopped"; \
 	else \
 		echo "[WARNING] Docker daemon unavailable; cannot stop ARM64 stack"; \
@@ -731,22 +729,6 @@ stack-up-dev: ## Start full integration stack (frontend + backend + bot + Postgr
 		exit 0; \
 	fi
 
-stack-up-prod: ## Start production-like stack (frontend + backend + bot + PostgreSQL + Valkey + NATS + ClickHouse + MinIO)
-	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
-		if [ ! -f "$(STACK_COMPOSE_FILE)" ]; then \
-			echo "[ERROR] Missing $(STACK_COMPOSE_FILE)."; \
-			echo "   Use service-first workflow instead: make infra-up, then run backend/frontend/bot individually."; \
-			exit 1; \
-		fi; \
-		set -e; \
-		python3 scripts/validate_stack_env.py --environment production --strict-prod; \
-		APP_CONFIG_ENV=production docker compose -f $(STACK_COMPOSE_FILE) --profile prod up -d --remove-orphans; \
-		echo "[OK] Prod-like stack started (proxy:8080, api internal, frontend internal)"; \
-	else \
-		echo "[WARNING] Docker daemon unavailable; cannot start stack"; \
-		exit 0; \
-	fi
-
 stack-up-integration: stack-up-dev ## Alias for full integration stack in dev profile
 
 stack-down: ## Stop split app stack
@@ -755,7 +737,7 @@ stack-down: ## Stop split app stack
 			echo "[ERROR] Missing $(STACK_COMPOSE_FILE). Nothing to stop via stack commands."; \
 			exit 1; \
 		fi; \
-		APP_CONFIG_ENV=$(MODE) docker compose -f $(STACK_COMPOSE_FILE) --profile dev --profile prod down --remove-orphans; \
+		APP_CONFIG_ENV=$(MODE) docker compose -f $(STACK_COMPOSE_FILE) --profile dev down --remove-orphans; \
 		echo "[OK] Stack stopped"; \
 	else \
 		echo "[WARNING] Docker daemon unavailable; cannot stop stack"; \

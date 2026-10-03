@@ -33,6 +33,10 @@ type BotAPIClient struct {
 
 const defaultBotAPIRequestTimeout = 120 * time.Second
 
+// maxBotAPIResponseBodyBytes caps how much a single upstream response may
+// consume in memory; a misbehaving bot API must not be able to OOM the backend.
+const maxBotAPIResponseBodyBytes = 16 << 20
+
 type BotAPIStatsSnapshot struct {
 	TotalRequests        int64 `json:"total_requests"`
 	SuccessfulRequests   int64 `json:"successful_requests"`
@@ -118,9 +122,14 @@ func recordBotAPIRequest(statusCode int, latency time.Duration, err error) {
 }
 
 // BotAPIError preserves upstream HTTP status and message for delegated routes.
+// Code and Data carry the machine-readable part of the bot's error envelope
+// (data.error and data), so callers can react to a specific rejection instead
+// of matching on message text.
 type BotAPIError struct {
 	StatusCode int
 	Message    string
+	Code       string
+	Data       map[string]interface{}
 }
 
 func (e *BotAPIError) Error() string {
@@ -300,12 +309,6 @@ func resolveBotAPIRequestTimeout() time.Duration {
 }
 
 // SetToken sets the authentication token
-func (c *BotAPIClient) SetToken(token string) {
-	token = strings.TrimSpace(token)
-	c.token = token
-	c.fallbackToken = token
-}
-
 // BaseURL returns the configured upstream bot API base URL.
 func (c *BotAPIClient) BaseURL() string {
 	return c.baseURL
@@ -443,71 +446,57 @@ func (c *BotAPIClient) makeRequest(method, endpoint string, body interface{}) (m
 
 	result, statusCode, respBytes, err := c.doRequest(method, requestURL, requestBytes, c.token)
 	if err != nil {
-		if fallbackResult, fallbackStatus, fallbackResp, fallbackErr := c.tryFallbackRequest(method, endpoint, requestBytes, c.token, err); fallbackErr == nil {
+		// Only idempotent requests are retried on fallback upstreams: a POST may
+		// have already been applied before the transport error, and replaying it
+		// would duplicate the operation.
+		fallbackResult, fallbackErr := c.tryFallbackRequest(method, endpoint, requestBytes, c.token, err)
+		if fallbackErr == nil {
 			return fallbackResult, nil
-		} else if fallbackStatus == http.StatusUnauthorized && c.shouldRetryWithFallback(c.token) {
-			fallbackToken := c.effectiveFallbackToken()
-			if retryResult, retryStatus, retryResp, retryErr := c.tryFallbackRequest(method, endpoint, requestBytes, fallbackToken, fallbackErr); retryErr == nil {
-				return retryResult, nil
-			} else if retryStatus >= 400 && retryStatus < 600 {
-				_ = retryResp
-				return nil, parseBotAPIError(retryStatus, retryResp)
-			}
-		} else if fallbackStatus >= 400 && fallbackStatus < 600 {
-			_ = fallbackResp
-			return nil, parseBotAPIError(fallbackStatus, fallbackResp)
 		}
-		return nil, err
-	}
-
-	if statusCode == http.StatusUnauthorized && c.shouldRetryWithFallback(c.token) {
-		fallbackToken := c.effectiveFallbackToken()
-		log.Printf("⚠️  Bot API auth rejected request token; retrying with configured service token: %s %s", method, requestURL)
-		result, statusCode, respBytes, err = c.doRequest(method, requestURL, requestBytes, fallbackToken)
-		if err != nil {
-			return nil, err
-		}
+		return nil, fallbackErr
 	}
 
 	if statusCode >= 400 {
+		// A caller-supplied token rejected upstream (e.g. 401) is never retried
+		// with the service token: that would execute the user's request under a
+		// different, more privileged identity upstream.
 		return nil, parseBotAPIError(statusCode, respBytes)
 	}
 
 	return result, nil
 }
 
-func (c *BotAPIClient) tryFallbackRequest(method, endpoint string, requestBytes []byte, token string, primaryErr error) (map[string]interface{}, int, []byte, error) {
+func (c *BotAPIClient) tryFallbackRequest(method, endpoint string, requestBytes []byte, token string, primaryErr error) (map[string]interface{}, error) {
 	if len(c.fallbackURLs) == 0 {
-		return nil, 0, nil, primaryErr
+		return nil, primaryErr
 	}
 
 	var transportErr *BotAPITransportError
 	if !errors.As(primaryErr, &transportErr) {
-		return nil, 0, nil, primaryErr
+		return nil, primaryErr
+	}
+
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+	default:
+		return nil, primaryErr
 	}
 
 	for _, fallbackBase := range c.fallbackURLs {
 		fallbackURL := fmt.Sprintf("%s%s", strings.TrimRight(strings.TrimSpace(fallbackBase), "/"), endpoint)
 		result, statusCode, respBytes, err := c.doRequest(method, fallbackURL, requestBytes, token)
 		if err == nil {
+			if statusCode >= 400 {
+				// The fallback upstream answered definitively; surface the error
+				// instead of masking it as success.
+				return nil, parseBotAPIError(statusCode, respBytes)
+			}
 			log.Printf("⚠️  Bot API primary upstream unavailable (%s); request succeeded via fallback upstream: %s", c.baseURL, fallbackBase)
-			return result, statusCode, respBytes, nil
+			return result, nil
 		}
 	}
 
-	return nil, 0, nil, primaryErr
-}
-
-func (c *BotAPIClient) shouldRetryWithFallback(currentToken string) bool {
-	currentToken = strings.TrimSpace(currentToken)
-	fallbackToken := c.effectiveFallbackToken()
-	if fallbackToken == "" {
-		return false
-	}
-	if !UseConfiguredBotAPIServiceToken() {
-		return false
-	}
-	return !strings.EqualFold(currentToken, fallbackToken)
+	return nil, primaryErr
 }
 
 func (c *BotAPIClient) doRequest(method, requestURL string, requestBytes []byte, token string) (map[string]interface{}, int, []byte, error) {
@@ -554,10 +543,14 @@ func (c *BotAPIClient) doRequest(method, requestURL string, requestBytes []byte,
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	respBytes, err := io.ReadAll(resp.Body)
+	respBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxBotAPIResponseBodyBytes+1))
 	if err != nil {
 		recordBotAPIRequest(resp.StatusCode, time.Since(startedAt), err)
 		return nil, 0, nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+	if len(respBytes) > maxBotAPIResponseBodyBytes {
+		recordBotAPIRequest(resp.StatusCode, time.Since(startedAt), fmt.Errorf("response body exceeds limit"))
+		return nil, 0, nil, fmt.Errorf("bot API response exceeds maximum body size (%d bytes)", maxBotAPIResponseBodyBytes)
 	}
 	recordBotAPIRequest(resp.StatusCode, time.Since(startedAt), nil)
 
@@ -590,7 +583,14 @@ func parseBotAPIError(statusCode int, respBytes []byte) error {
 		errorMsg = trimmed
 	}
 
-	return &BotAPIError{StatusCode: statusCode, Message: errorMsg}
+	apiErr := &BotAPIError{StatusCode: statusCode, Message: errorMsg}
+	if data, ok := result["data"].(map[string]interface{}); ok {
+		apiErr.Data = data
+		if code, ok := data["error"].(string); ok {
+			apiErr.Code = strings.TrimSpace(code)
+		}
+	}
+	return apiErr
 }
 
 // CreateBotInstance creates a new bot instance via the bot API
@@ -605,37 +605,37 @@ func (c *BotAPIClient) ListBotInstances() (map[string]interface{}, error) {
 
 // GetBotInstance gets a specific bot instance
 func (c *BotAPIClient) GetBotInstance(instanceID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s", instanceID)
+	endpoint := fmt.Sprintf("/api/v1/bots/%s", url.PathEscape(instanceID))
 	return c.makeRequest("GET", endpoint, nil)
 }
 
 // StartBotInstance starts a bot instance
 func (c *BotAPIClient) StartBotInstance(instanceID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/start", instanceID)
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/start", url.PathEscape(instanceID))
 	return c.makeRequest("POST", endpoint, nil)
 }
 
 // StopBotInstance stops a bot instance
 func (c *BotAPIClient) StopBotInstance(instanceID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/stop", instanceID)
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/stop", url.PathEscape(instanceID))
 	return c.makeRequest("POST", endpoint, nil)
 }
 
 // RestartBotInstance restarts a bot instance
 func (c *BotAPIClient) RestartBotInstance(instanceID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/restart", instanceID)
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/restart", url.PathEscape(instanceID))
 	return c.makeRequest("POST", endpoint, nil)
 }
 
 // DeleteBotInstance deletes a bot instance
 func (c *BotAPIClient) DeleteBotInstance(instanceID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s", instanceID)
+	endpoint := fmt.Sprintf("/api/v1/bots/%s", url.PathEscape(instanceID))
 	return c.makeRequest("DELETE", endpoint, nil)
 }
 
 // GetBotInstanceTrades gets trades for a bot instance using the upstream status and pagination filter contract.
 func (c *BotAPIClient) GetBotInstanceTrades(instanceID string, status *string, limit *int, offset *int) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/trades", instanceID)
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/trades", url.PathEscape(instanceID))
 
 	params := url.Values{}
 	if status != nil && strings.TrimSpace(*status) != "" {
@@ -656,7 +656,7 @@ func (c *BotAPIClient) GetBotInstanceTrades(instanceID string, status *string, l
 
 // GetBotInstanceStats gets statistics for a bot instance
 func (c *BotAPIClient) GetBotInstanceStats(instanceID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/bots/%s/stats", instanceID)
+	endpoint := fmt.Sprintf("/api/v1/bots/%s/stats", url.PathEscape(instanceID))
 	return c.makeRequest("GET", endpoint, nil)
 }
 
@@ -729,49 +729,49 @@ func (c *BotAPIClient) ListBacktests(limit int, offset int, status string) (map[
 
 // GetBacktest gets a specific backtest
 func (c *BotAPIClient) GetBacktest(runID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s", runID)
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s", url.PathEscape(runID))
 	return c.makeRequest("GET", endpoint, nil)
 }
 
 // GetBacktestStatus gets the status of a backtest
 func (c *BotAPIClient) GetBacktestStatus(runID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s/status", runID)
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/status", url.PathEscape(runID))
 	return c.makeRequest("GET", endpoint, nil)
 }
 
 // GetBacktestTrades gets trades for a specific backtest
 func (c *BotAPIClient) GetBacktestTrades(runID string, limit int, offset int) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s/trades?limit=%d&offset=%d", runID, limit, offset)
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/trades?limit=%d&offset=%d", url.PathEscape(runID), limit, offset)
 	return c.makeRequest("GET", endpoint, nil)
 }
 
 // CancelBacktest cancels a running backtest
 func (c *BotAPIClient) CancelBacktest(runID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s/cancel", runID)
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/cancel", url.PathEscape(runID))
 	return c.makeRequest("POST", endpoint, nil)
 }
 
 // PauseBacktest requests a cooperative pause for a running backtest
 func (c *BotAPIClient) PauseBacktest(runID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s/pause", runID)
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/pause", url.PathEscape(runID))
 	return c.makeRequest("POST", endpoint, nil)
 }
 
 // ResumeBacktest resumes a paused backtest
 func (c *BotAPIClient) ResumeBacktest(runID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s/resume", runID)
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/resume", url.PathEscape(runID))
 	return c.makeRequest("POST", endpoint, nil)
 }
 
 // RestartBacktest starts a fresh run from the same backtest request
 func (c *BotAPIClient) RestartBacktest(runID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s/restart", runID)
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/restart", url.PathEscape(runID))
 	return c.makeRequest("POST", endpoint, nil)
 }
 
 // RetryBacktest starts a fresh run from the same backtest request
 func (c *BotAPIClient) RetryBacktest(runID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s/retry", runID)
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s/retry", url.PathEscape(runID))
 	return c.makeRequest("POST", endpoint, nil)
 }
 
@@ -779,12 +779,12 @@ func (c *BotAPIClient) RetryBacktest(runID string) (map[string]interface{}, erro
 func (c *BotAPIClient) RepairBacktestRequest(runID string, dryRun bool) (map[string]interface{}, error) {
 	query := url.Values{}
 	query.Set("dry_run", strconv.FormatBool(dryRun))
-	endpoint := fmt.Sprintf("/api/v1/admin/backtests/%s/repair-request?%s", runID, query.Encode())
+	endpoint := fmt.Sprintf("/api/v1/admin/backtests/%s/repair-request?%s", url.PathEscape(runID), query.Encode())
 	return c.makeRequest("POST", endpoint, nil)
 }
 
 // DeleteBacktest deletes a backtest
 func (c *BotAPIClient) DeleteBacktest(runID string) (map[string]interface{}, error) {
-	endpoint := fmt.Sprintf("/api/v1/backtests/%s", runID)
+	endpoint := fmt.Sprintf("/api/v1/backtests/%s", url.PathEscape(runID))
 	return c.makeRequest("DELETE", endpoint, nil)
 }

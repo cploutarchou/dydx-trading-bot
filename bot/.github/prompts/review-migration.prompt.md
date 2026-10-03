@@ -2,7 +2,7 @@
 description: "Review or implement Alembic migrations with strict safety checks, lock-risk analysis, and rollback readiness"
 name: "Review Migration"
 argument-hint: "Migration scope: revision file(s), schema change, or backfill goal"
-agent: "agent"
+agent: "Senior Python DeFi Runtime"
 ---
 
 Review (or implement) a database migration in this repository with production-safe rigor.

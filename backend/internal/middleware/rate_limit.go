@@ -17,22 +17,20 @@ type tokenBucket struct {
 }
 
 type RateLimiter struct {
-	mu                sync.RWMutex
-	buckets           map[string]*tokenBucket
-	rps               float64
-	capacity          int
-	lastCleanupUnix   int64
-	cleanupEveryCalls uint64
-	requestCount      uint64
+	mu              sync.RWMutex
+	buckets         map[string]*tokenBucket
+	rps             float64
+	capacity        int
+	lastCleanupUnix int64
+	requestCount    uint64
 }
 
 func NewRateLimiter(rps float64, capacity int) *RateLimiter {
 	return &RateLimiter{
-		buckets:           make(map[string]*tokenBucket),
-		rps:               rps,
-		capacity:          capacity,
-		lastCleanupUnix:   time.Now().Unix(),
-		cleanupEveryCalls: 512,
+		buckets:         make(map[string]*tokenBucket),
+		rps:             rps,
+		capacity:        capacity,
+		lastCleanupUnix: time.Now().Unix(),
 	}
 }
 
@@ -84,11 +82,12 @@ func (rl *RateLimiter) Cleanup(maxAge time.Duration) {
 	}
 }
 
+// rateLimiterCleanupEveryCalls samples cleanup once every N requests. A const
+// replaces the lazily-written field, whose unsynchronized write raced Allows.
+const rateLimiterCleanupEveryCalls = 512
+
 func (rl *RateLimiter) MaybeCleanup(maxAge, interval time.Duration) {
-	if rl.cleanupEveryCalls == 0 {
-		rl.cleanupEveryCalls = 512
-	}
-	if atomic.AddUint64(&rl.requestCount, 1)%rl.cleanupEveryCalls != 0 {
+	if atomic.AddUint64(&rl.requestCount, 1)%rateLimiterCleanupEveryCalls != 0 {
 		return
 	}
 

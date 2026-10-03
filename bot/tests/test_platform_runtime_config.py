@@ -49,6 +49,9 @@ def test_configuration_manager_builds_nats_clickhouse_and_minio_settings(
     monkeypatch.setenv("BACKTEST_CLICKHOUSE_BATCH_SIZE", "250")
     monkeypatch.setenv("BACKTEST_CLICKHOUSE_FLUSH_INTERVAL_SECONDS", "2.5")
     monkeypatch.setenv("BACKTEST_ARTIFACT_STORAGE_ENABLED", "true")
+    # The suite isolates external artifact backends by default; this test
+    # exercises the builder's wiring, so opt MinIO back on explicitly.
+    monkeypatch.setenv("MINIO_ENABLED", "true")
     monkeypatch.delenv("BACKTEST_MINIO_ENDPOINT", raising=False)
     monkeypatch.delenv("S3_ENDPOINT", raising=False)
     monkeypatch.setenv("MINIO_ENDPOINT", "https://minio.internal:9000")

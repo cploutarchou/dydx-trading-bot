@@ -210,4 +210,3 @@ export const PublicSiteShell: React.FC<PublicSiteShellProps> = ({
   );
 };
 
-export default PublicSiteShell;

@@ -74,6 +74,7 @@ func setupTelegramRouter(t *testing.T) (*gin.Engine, *sql.DB) {
 			label TEXT NOT NULL DEFAULT '',
 			encrypted_api_key TEXT NOT NULL,
 			api_key_hash TEXT NOT NULL DEFAULT '',
+			api_key_salt TEXT NOT NULL DEFAULT '',
 			api_key_masked TEXT NOT NULL DEFAULT '',
 			is_active BOOLEAN NOT NULL DEFAULT 1,
 			created_at DATETIME NOT NULL,
@@ -106,7 +107,7 @@ func seedTelegramUserWithID(t *testing.T, dbConn *sql.DB, username string, email
 		t.Fatalf("hash password: %v", err)
 	}
 	now := time.Now().UTC()
-	_, err := dbConn.Exec(
+	_, err = dbConn.Exec(
 		`INSERT INTO users (username, email, role, full_name, avatar, hashed_password, is_active, is_admin, password_change_required, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		username,

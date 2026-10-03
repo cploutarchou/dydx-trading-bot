@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -616,13 +617,13 @@ func createAdminUserHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		mailgunService := services.NewMailgunService(
+		emailService := services.NewEmailService(
 			services.NewExternalAPICredentialService(repository.NewExternalAPICredentialRepository(database)),
 			repository.NewSettingsRepository(database),
 			userRepo,
 		)
 		onboardingNotice := "User created. Share the temporary password through a secure channel."
-		if result, err := mailgunService.SendPasswordRotationNotice(context.Background(), user); err == nil && result != nil {
+		if result, err := emailService.SendPasswordRotationNotice(context.Background(), user); err == nil && result != nil {
 			onboardingNotice = result.Message
 		}
 
@@ -690,7 +691,9 @@ func updateAdminUserWithRequest(database *sql.DB, c *gin.Context, req updateAdmi
 	}
 
 	actorID := c.GetInt("user_id")
-	nextRole := models.NormalizeUserRole(user.Role, user.IsAdmin)
+	prevRole := models.NormalizeUserRole(user.Role, user.IsAdmin)
+	prevIsActive := user.IsActive
+	nextRole := prevRole
 	if req.Role != nil {
 		normalizedRole, roleErr := normalizeAssignableRole(database, *req.Role)
 		if roleErr != nil {
@@ -753,6 +756,21 @@ func updateAdminUserWithRequest(database *sql.DB, c *gin.Context, req updateAdmi
 		}
 		user.MaxBotInstances = *req.MaxBotInstances
 	}
+	// Sessions snapshot role and admin status at login, so a role change or a
+	// deactivation must revoke them. Revoke before the write: if revocation is
+	// unavailable nothing changes, and the worst case of a failed write is an
+	// unnecessary re-login.
+	if nextRole != prevRole || (prevIsActive && !nextIsActive) {
+		if err := revokeUserSessions(c.Request.Context(), user.ID); err != nil {
+			log.Printf("updateAdminUser: failed to revoke sessions for user=%d: %v", user.ID, err)
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"success": false,
+				"message": "Could not revoke the user's active sessions; no change was made. Try again.",
+			})
+			return
+		}
+	}
+
 	user.Role = nextRole
 	user.IsAdmin = nextRole == "admin"
 	user.IsActive = nextIsActive
@@ -789,6 +807,16 @@ func updateAdminUserWithRequest(database *sql.DB, c *gin.Context, req updateAdmi
 		},
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
 	})
+}
+
+// revokeUserSessions invalidates every session issued to the user. It is a
+// no-op when no session store is configured (token-only deployments).
+func revokeUserSessions(ctx context.Context, userID int) error {
+	store := middleware.AuthSessionStore()
+	if store == nil {
+		return nil
+	}
+	return store.BumpUserGeneration(ctx, userID)
 }
 
 func updateAdminUserRoleHandler(database *sql.DB) gin.HandlerFunc {
@@ -859,8 +887,16 @@ func resetAdminUserPasswordHandler(database *sql.DB) gin.HandlerFunc {
 			return
 		}
 		user.PasswordChangeRequired = true
+		// An admin reset is used when an account may be compromised: sessions
+		// opened with the old password must not survive it.
+		if err := revokeUserSessions(c.Request.Context(), user.ID); err != nil {
+			log.Printf("resetAdminUserPassword: failed to revoke sessions for user=%d: %v", user.ID, err)
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "Could not revoke the user's active sessions; password was not reset. Try again."})
+			return
+		}
 		if err := userRepo.Update(user); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("Failed to reset password: %v", err)})
+			log.Printf("Failed to reset password: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Failed to reset password"})
 			return
 		}
 

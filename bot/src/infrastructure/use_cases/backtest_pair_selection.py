@@ -197,6 +197,17 @@ def _pair_cointegration_score(
             if coint_pvalue > 0.10 or adf_pvalue > 0.10:
                 return -100.0 - float(coint_pvalue) - float(adf_pvalue)
 
+            # Half-life gate for live/backtest parity: the live pipeline
+            # (cointegration.store_cointegration_results) only accepts pairs
+            # with 0 < half_life <= MAX_HALF_LIFE. Pairs the live bot would
+            # never trade must not rank as tradable in backtests.
+            from src.constants import MAX_HALF_LIFE
+
+            if not np.isfinite(half_life) or not (
+                0 < half_life <= float(MAX_HALF_LIFE)
+            ):
+                return -50.0 - (0.0 if not np.isfinite(half_life) else float(half_life))
+
             coint_score = 1.0 - _clamp01(float(coint_pvalue))
             adf_score = 1.0 - _clamp01(float(adf_pvalue))
             half_life_score = (
@@ -264,3 +275,20 @@ def _prioritize_pairs(
     if normalized_mode == "cointegration":
         return _prioritize_pairs_by_cointegration(pair_markets, history_by_market)
     return _prioritize_pairs_by_liquidity(pair_markets, market_map)
+
+
+def _truncate_history_for_selection(
+    history: Dict[str, float],
+) -> Dict[str, float]:
+    """Keep only the first half (by timestamp order) of a market's history.
+
+    Pair ranking must run on the calibration window so selection is
+    out-of-sample relative to the simulated trading window; ranking on the
+    full sample and then trading the same sample is in-sample selection
+    bias that overstates backtest results.
+    """
+    if not history:
+        return {}
+    ordered = sorted(history.items(), key=lambda item: item[0])
+    cut = max(1, len(ordered) // 2)
+    return dict(ordered[:cut])

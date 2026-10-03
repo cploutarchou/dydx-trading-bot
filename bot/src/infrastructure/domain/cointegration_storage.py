@@ -47,6 +47,10 @@ class CointegrationResult:
     creation_timestamp: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+    # OLS intercept of series_1 ~ const + hedge_ratio * series_2. Defaults to
+    # 0.0 so pairs persisted before this field existed deserialize unchanged.
+    # Live z-scores must subtract it to match the fitted spread.
+    intercept: float = 0.0
 
     @property
     def is_high_confidence(self) -> bool:

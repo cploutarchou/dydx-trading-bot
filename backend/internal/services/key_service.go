@@ -69,9 +69,14 @@ func (s *KeyManagementService) CreateKey(userID int, network string, chainAddres
 
 	if existing != nil {
 		// Update existing key
+		salt, saltErr := generateSecretSalt()
+		if saltErr != nil {
+			return nil, fmt.Errorf("failed to generate secret salt: %w", saltErr)
+		}
 		existing.ChainAddress = chainAddress
 		existing.EncryptedSecret = encrypted
-		existing.SecretHash = hashSecretValue(secretPhrase)
+		existing.SecretSalt = salt
+		existing.SecretHash = hashSecretValueSalted(secretPhrase, salt)
 		existing.SecretMasked = maskSecretValue(secretPhrase)
 		if err := s.repo.UpdateKey(existing); err != nil {
 			return nil, fmt.Errorf("failed to update key: %w", err)
@@ -80,16 +85,21 @@ func (s *KeyManagementService) CreateKey(userID int, network string, chainAddres
 	}
 
 	// Create new key
+	salt, saltErr := generateSecretSalt()
+	if saltErr != nil {
+		return nil, fmt.Errorf("failed to generate secret salt: %w", saltErr)
+	}
 	key := &models.DYDXKey{
 		UserID:          userID,
 		Network:         network,
 		ChainAddress:    chainAddress,
 		EncryptedSecret: encrypted,
-		SecretHash:      hashSecretValue(secretPhrase),
+		SecretSalt:      salt,
+		SecretHash:      hashSecretValueSalted(secretPhrase, salt),
 		SecretMasked:    maskSecretValue(secretPhrase),
 		IsActive:        true,
-		CreatedAt:       time.Now(),
-		UpdatedAt:       time.Now(),
+		CreatedAt:       time.Now().UTC(),
+		UpdatedAt:       time.Now().UTC(),
 	}
 
 	if err := s.repo.CreateKey(key); err != nil {

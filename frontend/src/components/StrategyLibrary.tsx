@@ -157,17 +157,18 @@ export default function StrategyLibrary() {
     mutationFn: (payload: StrategyBacktestRunPayload) => api.runBacktest(payload),
   });
 
-  const strategies = strategiesQuery.data?.strategies ?? [];
+  const strategiesData = strategiesQuery.data?.strategies;
+  const strategies = strategiesData ?? [];
   const totalStrategies = strategiesQuery.data?.total ?? 0;
 
   const filteredStrategies = useMemo(
     () =>
-      strategies.filter(
+      (strategiesData ?? []).filter(
         (s) =>
           s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
           s.description.toLowerCase().includes(searchTerm.toLowerCase())
       ),
-    [searchTerm, strategies]
+    [searchTerm, strategiesData]
   );
 
   const totalPages = Math.ceil(totalStrategies / ITEMS_PER_PAGE);
@@ -180,8 +181,12 @@ export default function StrategyLibrary() {
       navState && typeof navState.strategyId === 'number' ? navState.strategyId : undefined;
     if (!toastMessage) return;
 
-    setSuccessToast({ message: toastMessage, strategyId: toastStrategyId });
-    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+    // Consume the one-shot navigation state out-of-band so no setState runs
+    // synchronously inside the effect body.
+    void Promise.resolve().then(() => {
+      setSuccessToast({ message: toastMessage, strategyId: toastStrategyId });
+      navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+    });
   }, [location.pathname, location.search, location.state, navigate]);
 
   useEffect(() => {
@@ -218,8 +223,8 @@ export default function StrategyLibrary() {
     const endDate = new Date();
     const startDate = new Date(endDate);
     startDate.setDate(startDate.getDate() - 30);
-    setBacktestStartDate(startDate.toISOString().split('T')[0]);
-    setBacktestEndDate(endDate.toISOString().split('T')[0]);
+    setBacktestStartDate(startDate.toISOString().split('T')[0] ?? '');
+    setBacktestEndDate(endDate.toISOString().split('T')[0] ?? '');
   };
 
   const buildRunPayload = (): StrategyBacktestRunPayload | null => {
@@ -347,9 +352,9 @@ export default function StrategyLibrary() {
         <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
             <div className="premium-kicker">Strategy Library</div>
-            <h1 className="mt-4 text-3xl font-bold text-white sm:text-4xl">
+            <h2 className="mt-4 text-3xl font-bold text-white sm:text-4xl">
               Build, compare, and launch strategies that look ready for real capital.
-            </h1>
+            </h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
               Your strategy workspace now feels like an operating system, not a form. Search faster,
               inspect risk posture at a glance, and move directly into live runtime or backtesting.
@@ -726,8 +731,14 @@ export default function StrategyLibrary() {
 
               <div className="space-y-3 mb-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Start Date</label>
+                  <label
+                    className="block text-sm font-medium text-gray-300 mb-1"
+                    htmlFor="start-date"
+                  >
+                    Start Date
+                  </label>
                   <input
+                    id="start-date"
                     type="date"
                     value={backtestStartDate}
                     onChange={(e) => setBacktestStartDate(e.target.value)}
@@ -735,8 +746,14 @@ export default function StrategyLibrary() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">End Date</label>
+                  <label
+                    className="block text-sm font-medium text-gray-300 mb-1"
+                    htmlFor="end-date"
+                  >
+                    End Date
+                  </label>
                   <input
+                    id="end-date"
                     type="date"
                     value={backtestEndDate}
                     onChange={(e) => setBacktestEndDate(e.target.value)}

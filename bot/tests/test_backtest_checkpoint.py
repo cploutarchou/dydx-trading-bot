@@ -42,7 +42,21 @@ def _isolate_checkpoint_artifacts(tmp_path, monkeypatch):
     """Keep checkpoint + sidecar writes inside a per-test tmp dir."""
     monkeypatch.setenv("BACKTEST_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
     monkeypatch.setenv("BACKTEST_CHECKPOINT_ENABLED", "true")
-    monkeypatch.delenv("BACKTEST_MINIO_ARTIFACTS_ENABLED", raising=False)
+    # Disable ALL alias gates for external artifact backends. The structured
+    # config injects MINIO_ENABLED / BACKTEST_ARTIFACT_STORAGE_ENABLED /
+    # CLICKHOUSE_ENABLED from run.json; leaving any alias set makes the
+    # repository build real MinIO/ClickHouse clients and attempt network I/O
+    # (with transport retry storms) from inside these tests.
+    for gate in (
+        "BACKTEST_MINIO_ARTIFACTS_ENABLED",
+        "BACKTEST_MINIO_ENABLED",
+        "MINIO_ENABLED",
+        "BACKTEST_ARTIFACT_STORAGE_ENABLED",
+        "BACKTEST_CLICKHOUSE_WRITES_ENABLED",
+        "BACKTEST_CLICKHOUSE_ENABLED",
+        "CLICKHOUSE_ENABLED",
+    ):
+        monkeypatch.setenv(gate, "false")
     checkpoint_module = _load_checkpoint_module()
     checkpoint_module.reset_checkpoint_store()
     yield

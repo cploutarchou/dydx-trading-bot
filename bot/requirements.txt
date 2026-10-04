@@ -47,7 +47,7 @@ celery[redis]>=5.4,<6.0
 # cross-worker WebSocket broadcast bus. Transitive via celery[redis]; pinned
 # explicitly so a major bump cannot silently change the pub/sub / asyncio API.
 redis>=5.0,<7.0
-flower>=2.0,<3.0
+flower>=2.2.0,<3.0
 aiolimiter>=1.1,<2.0
 pybreaker>=1.2,<2.0
 pandas-stubs==3.0.3.260530
